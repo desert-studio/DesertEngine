@@ -4,6 +4,7 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <fstream>
+#include <span>
 
 namespace Desert::Assets
 {
@@ -92,15 +93,15 @@ namespace Desert::Assets
         if ( filepath.has_parent_path() )
             std::filesystem::create_directories( filepath.parent_path(), ec );
 
-        std::ofstream file( filepath, std::ios::binary | std::ios::trunc );
-        if ( !file )
-            return Common::MakeFormattedError<bool>( "'{}' could not be opened for writing", filepath.string() );
-
+        // Through the write primitive, not a local std::ofstream (Д35): the local stream's flush is its
+        // destructor, which runs after this function has already returned BOOLSUCCESS, so a full disk
+        // produced a green save and a truncated `.dclayout`.
         const std::vector<unsigned char>& bytes = encoded.GetValue();
-        file.write( reinterpret_cast<const char*>( bytes.data() ), static_cast<std::streamsize>( bytes.size() ) );
-        if ( !file )
-            return Common::MakeFormattedError<bool>( "'{}' was opened but the {} bytes could not be written",
-                                                     filepath.string(), bytes.size() );
+        if ( const auto written = Common::Utils::FileSystem::WriteBytesToFileAtomic(
+                  filepath, std::as_bytes( std::span( bytes ) ) );
+             !written )
+            return Common::MakeFormattedError<bool>( "'{}' ({} bytes) could not be written: {}", filepath.string(),
+                                                     bytes.size(), written.GetError() );
 
         LOG_INFO( "[Clouds] Layout written: '{}', {}x{}, {} bytes.", filepath.string(), layout.Resolution,
                   layout.Resolution, bytes.size() );

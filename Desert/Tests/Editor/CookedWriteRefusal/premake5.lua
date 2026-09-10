@@ -8,21 +8,20 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
+    -- Both units under test are header-only and reach nothing but Common's write primitive, rfl::json and
+    -- std::filesystem -- which is the point. WriteCookedJson was two identical copies inside two importer
+    -- .cpp files and the Blender script writer was a private static of BlendImporter (which includes
+    -- Assimp); in both shapes the one branch worth asserting about them could not be compiled here at all.
     files {
         test_files,
-        -- Units under test (pure CPU): the .anim channel list -> runtime clip conversion, and since Д35
-        -- its mirror -- runtime clip -> .anim, plus the file write that used to live inside an ImGui
-        -- panel and therefore could not be compiled into any test binary at all.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{wks.location}/Editor/Source", -- <Editor/Import/CookedJsonWrite.hpp>
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- <rflcpp/rfl.hpp>: the .anim format IS these structs
+        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the cooked metadata IS rfl::json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -37,17 +36,25 @@ project(test_name)
         defines { define }
     end
 
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+    filter "system:linux"
+        defines { "DESERT_PLATFORM_LINUX" }
+    filter {}
+
     links { "Common", "Optick" } -- Common's JobSystem registers worker threads with Optick
 
-    -- AnimationClipWrite.cpp reaches Common::Utils::FileSystem, and Common's file dialog is Objective-C,
-    -- so the ObjC runtime + AppKit link too. (That link cost is also the argument recorded in
-    -- Tools/FbxMeshSplitter for why that one tool keeps a local close-and-check instead.)
+    -- Common contains Objective-C (the MacOS file dialog) and this suite reaches
+    -- Common::Utils::FileSystem, so the ObjC runtime + AppKit link too.
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "system:not windows"
         links { "ReflectCpp" }
+    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

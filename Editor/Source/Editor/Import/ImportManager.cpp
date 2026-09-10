@@ -4,6 +4,7 @@
 #include "Assimp/AssimpImporter.hpp"
 #include "Blend/BlendImporter.hpp"
 #include "CookPaths.hpp"
+#include "CookedJsonWrite.hpp"
 #include "LODFold.hpp"
 
 #include <Common/Core/Constants.hpp>
@@ -19,29 +20,6 @@
 
 namespace Desert::Editor
 {
-
-    template <typename T>
-    void WriteJsonToFile( const T& data, const std::filesystem::path& path )
-    {
-        auto json = rfl::json::write( data );
-
-        static const std::regex illegal( R"([<>:"/\\|?*])" );
-
-        std::filesystem::create_directories( path.parent_path() );
-
-        std::string filename = path.filename().string();
-        filename             = std::regex_replace( filename, illegal, "_" );
-
-        std::filesystem::path fixedPath = path.parent_path() / filename;
-
-        std::ofstream out( fixedPath, std::ios::binary );
-        if ( !out.is_open() )
-        {
-            throw std::runtime_error( "Failed to open file: " + fixedPath.string() );
-        }
-
-        out << json;
-    }
 
     static std::filesystem::path BuildCookedPath( const std::filesystem::path& sourcePath,
                                                   const std::string&           extension )
@@ -97,7 +75,15 @@ namespace Desert::Editor
             return;
 
         auto result = m_Importers[ext]->Import( path, *this );
-        CreateAssetsFromImport( result, path );
+        // The cook's verdict stops HERE, at a log line naming the file and the reason. It has nowhere
+        // further to go and that is deliberate rather than overlooked: this function is void because
+        // both of its callers are fire-and-forget — the boot scan (ImportAllFromDirectory, on
+        // JobSystem workers) and drag-and-drop. Widening it into a result would oblige every one of
+        // those to grow an answer nobody is waiting for. What Д31-D asked for is that a cooked file
+        // that was never written stops being INDISTINGUISHABLE from one that was; it now is.
+        if ( const auto cooked = CreateAssetsFromImport( result, path ); !cooked )
+            LOG_ERROR( "[Import] '{}' was parsed but its cooked output is incomplete: {}", path.string(),
+                       cooked.GetError() );
     }
 
     void ImportManager::ImportAllFromDirectory( const std::filesystem::path& root, bool force )
@@ -155,28 +141,35 @@ namespace Desert::Editor
                   Common::JobSystem::Get().WorkerCount() );
     }
 
-    void ImportManager::CreateAssetsFromImport( const ImportResult&          result,
-                                                const std::filesystem::path& sourcePath )
+    // EVERY PART IS ATTEMPTED, AND THE FIRST FAILURE IS THE ONE RETURNED. Stopping at the first would
+    // make one unwritable material hide a mesh that could have been cooked. Only the first reason
+    // travels up — the caller acts on "this cook is incomplete", not on the list — and every reason
+    // names its own file, so the one that arrives is enough to find the cause.
+    Common::BoolResultStr ImportManager::CreateAssetsFromImport( const ImportResult&          result,
+                                                                 const std::filesystem::path& sourcePath )
     {
-        if ( result.Mesh )
+        std::string firstFailure;
+        const auto  record = [&firstFailure]( const Common::BoolResultStr& outcome )
         {
-            SerializeMeshAsset( result.Mesh.value(), sourcePath );
-        }
+            if ( !outcome && firstFailure.empty() )
+                firstFailure = outcome.GetError();
+        };
+
+        if ( result.Mesh )
+            record( SerializeMeshAsset( result.Mesh.value(), sourcePath ) );
 
         if ( result.Skeleton )
-        {
-            SerializeSkeletonAsset( result.Skeleton.value(), sourcePath );
-        }
+            record( SerializeSkeletonAsset( result.Skeleton.value(), sourcePath ) );
 
-        for ( auto& anim : result.Animations )
-        {
-            SerializeAnimationAsset( anim, sourcePath );
-        }
+        for ( const auto& anim : result.Animations )
+            record( SerializeAnimationAsset( anim, sourcePath ) );
 
-        for ( auto& material : result.Materials )
-        {
-            SerializeMaterialAsset( material, sourcePath );
-        }
+        for ( const auto& material : result.Materials )
+            record( SerializeMaterialAsset( material, sourcePath ) );
+
+        if ( !firstFailure.empty() )
+            return Common::MakeError<bool>( firstFailure );
+        return BOOLSUCCESS;
     }
 
     namespace
@@ -233,8 +226,9 @@ namespace Desert::Editor
         }
     } // namespace
 
-    void ImportManager::SerializeMeshAsset( const Desert::Assets::Serialization::MeshAssetData& dataIn,
-                                            const std::filesystem::path&                        sourcePath )
+    Common::BoolResultStr
+    ImportManager::SerializeMeshAsset( const Desert::Assets::Serialization::MeshAssetData& dataIn,
+                                       const std::filesystem::path&                        sourcePath )
     {
         // Mutable copy so we can bake the LOD chain into it before writing.
         Desert::Assets::Serialization::MeshAssetData data = dataIn;
@@ -250,25 +244,27 @@ namespace Desert::Editor
         {
             cookedPath = BuildCookedPath( sourcePath, ".stmesh" );
         }
-        WriteJsonToFile( data, cookedPath );
+        return WriteCookedJson( data, cookedPath );
     }
 
-    void ImportManager::SerializeSkeletonAsset( const Desert::Assets::Serialization::SkeletonAssetData& data,
-                                                const std::filesystem::path& sourcePath )
+    Common::BoolResultStr
+    ImportManager::SerializeSkeletonAsset( const Desert::Assets::Serialization::SkeletonAssetData& data,
+                                           const std::filesystem::path&                            sourcePath )
     {
         auto cookedPath = BuildCookedPath( sourcePath, ".skeleton" );
-        WriteJsonToFile( data, cookedPath );
+        return WriteCookedJson( data, cookedPath );
     }
 
-    void ImportManager::SerializeAnimationAsset( const Desert::Assets::Serialization::AnimationAssetData& data,
-                                                 const std::filesystem::path& sourcePath )
+    Common::BoolResultStr
+    ImportManager::SerializeAnimationAsset( const Desert::Assets::Serialization::AnimationAssetData& data,
+                                            const std::filesystem::path&                             sourcePath )
     {
         auto cookedPath = BuildCookedPath( sourcePath, "_" + data.Name + ".anim" );
-        WriteJsonToFile( data, cookedPath );
+        return WriteCookedJson( data, cookedPath );
     }
 
-    void ImportManager::SerializeMaterialAsset( const ImportedMaterial&      material,
-                                                const std::filesystem::path& sourcePath )
+    Common::BoolResultStr ImportManager::SerializeMaterialAsset( const ImportedMaterial&      material,
+                                                                 const std::filesystem::path& sourcePath )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
@@ -290,9 +286,9 @@ namespace Desert::Editor
         // behaviour — re-import updates geometry, keeps the material asset). Delete the .demat to regenerate.
         std::error_code ec;
         if ( std::filesystem::exists( path, ec ) )
-            return;
+            return BOOLSUCCESS; // deliberately kept, not a failure to write
         // Typed extraction -> unified canon (the only on-disk material format).
-        WriteJsonToFile( material.Data.ToMaterialData(), path );
+        return WriteCookedJson( material.Data.ToMaterialData(), path );
     }
 
     Common::UUID ImportManager::ImportTexture( const std::filesystem::path& path )

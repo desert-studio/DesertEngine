@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -55,16 +56,40 @@ namespace Common::Utils
     // masking rule exactly one home — VFS::Resolve.
     inline constexpr std::string_view kDeletedEntriesKey = ".dpak-deleted";
 
+    // ONE STREAM, ONE VERDICT, AND IT IS Finalize's (Д35). This writer used to open a fresh
+    // std::ofstream per operation — one in the constructor for the header, one per blob, one for the
+    // index — and let each of them be destroyed at the end of its function. `~std::ofstream` flushes
+    // and SWALLOWS whatever the flush reports, so on a full disk or a disconnected volume the
+    // constructor set m_Ok, every AddData returned true and recorded its entry, and Finalize returned
+    // a non-zero count: three separate green answers about bytes nobody had confirmed, and an index
+    // naming blobs that were never written.
+    //
+    // The invariant that replaces them is ONE sentence: **the index cannot name what is not on the
+    // disk.** It is enforced by construction rather than by three checks — every byte of the archive
+    // goes through the single stream below, that stream is closed explicitly in Finalize, and
+    // Finalize's return value is read AFTER the close. So a failure at any point — header, any blob,
+    // the index itself — is visible in exactly one place, and the archive is either finished and whole
+    // or reported as failed.
+    //
+    // What that costs the caller: IsOpen() and AddData() are now honestly weaker than they look, and
+    // their comments say so. Finalize() is the only function here whose answer is about the disk.
     class PakWriter
     {
     public:
         // Begins a new archive (truncates). Check IsOpen() before adding.
         explicit PakWriter( const std::filesystem::path& pakPath );
 
+        // The archive file was opened and nothing has failed YET — not "the header reached the disk",
+        // which nothing can know before the flush. A false here is worth acting on (the path is
+        // unwritable); a true is permission to carry on, not a verdict. See the class comment.
         bool IsOpen() const;
 
         // Adds one file under the given mount-relative key ("Assets/x.desce"). Returns false on IO error
         // or when the key is the reserved deletion-list key (use SetDeletedKeys for that).
+        //
+        // A true means the bytes were handed to the archive's stream and the entry recorded, NOT that
+        // they are on the disk — see the class comment. A failure that only the flush can see turns up
+        // as Finalize() returning 0, and the archive is then never usable.
         bool AddFile( const std::string& key, const std::filesystem::path& sourceFile );
         bool AddData( const std::string& key, const void* data, size_t size );
 
@@ -77,10 +102,16 @@ namespace Common::Utils
         // contradiction that must be caught whichever came second.
         bool SetDeletedKeys( const std::vector<std::string>& keys );
 
-        // Writes the index + header. Returns the number of INDEX RECORDS written — content entries plus
-        // the deletion list if there is one — with 0 meaning failure or nothing to write. Counting the
-        // deletion list is what makes a patch that ONLY removes files (a legal and useful patch) come
-        // back non-zero instead of reading as an empty archive.
+        // Writes the index + header, CLOSES the archive and then reports. Returns the number of INDEX
+        // RECORDS written — content entries plus the deletion list if there is one — with 0 meaning
+        // failure or nothing to write. Counting the deletion list is what makes a patch that ONLY
+        // removes files (a legal and useful patch) come back non-zero instead of reading as an empty
+        // archive.
+        //
+        // THIS IS THE ARCHIVE'S ONLY VERDICT. The close happens before the count is returned, so a
+        // buffered failure anywhere in the archive's life reaches the caller here instead of into
+        // ~ofstream after the caller has been told a number. Calling it twice returns 0 the second
+        // time: the stream is shut and there is nothing left to confirm.
         size_t Finalize();
 
     private:
@@ -97,6 +128,7 @@ namespace Common::Utils
         bool WriteBlob( const std::string& key, const void* data, size_t size );
 
         std::filesystem::path    m_Path;
+        std::ofstream            m_Out; // the archive's ONE stream — see the class comment
         std::vector<Entry>       m_Entries;
         std::vector<std::string> m_Deleted;
         uint64_t                 m_Cursor = 0;

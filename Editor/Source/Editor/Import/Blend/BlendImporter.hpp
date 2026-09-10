@@ -4,13 +4,13 @@
 
 #include "../IAssetImporter.hpp"
 #include "../Assimp/AssimpImporter.hpp"
+#include "BlendConvertScript.hpp"
 
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <string>
 
 namespace Desert::Editor
@@ -151,41 +151,12 @@ namespace Desert::Editor
         }
 
         // Write the export script once (idempotent). Exports meshes + armatures + animations, applies
-        // modifiers, and COPIES textures next to the FBX so the AssimpImporter's filename fallback finds them.
+        // modifiers, and COPIES textures next to the FBX so the AssimpImporter's filename fallback finds
+        // them. The script and the write live in BlendConvertScript.hpp — this class drags Assimp in with
+        // it, and that was what kept the write's refusal branch out of reach of every test binary.
         static std::filesystem::path WriteConvertScript()
         {
-            namespace fs        = std::filesystem;
-            const fs::path path = Common::Constants::Path::COOKED_PATH / "BlendConvert/_convert.py";
-            std::error_code ec;
-            fs::create_directories( path.parent_path(), ec );
-
-            static const char* kScript = R"PY(
-import bpy, sys, os
-argv = sys.argv
-out = argv[argv.index("--") + 1]
-os.makedirs(os.path.dirname(out), exist_ok=True)
-bpy.ops.export_scene.fbx(
-    filepath=out,
-    use_selection=False,
-    apply_unit_scale=True,
-    bake_space_transform=False,
-    object_types={'MESH', 'ARMATURE'},
-    use_mesh_modifiers=True,
-    add_leaf_bones=False,
-    path_mode='COPY',
-    embed_textures=False,
-    bake_anim=True,
-)
-)PY";
-
-            std::ofstream out( path, std::ios::binary | std::ios::trunc );
-            if ( !out.is_open() )
-            {
-                LOG_ERROR( "[Blend] could not write convert script {}", path.string() );
-                return {};
-            }
-            out << kScript;
-            return path;
+            return WriteBlendConvertScript( Common::Constants::Path::COOKED_PATH / "BlendConvert/_convert.py" );
         }
     };
 } // namespace Desert::Editor

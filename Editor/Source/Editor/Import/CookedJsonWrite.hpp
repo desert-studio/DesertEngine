@@ -1,0 +1,58 @@
+#pragma once
+
+#include <Common/Core/Core.hpp> // BOOLSUCCESS
+#include <Common/Core/ResultStr.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+
+#include <rflcpp/rfl.hpp>
+#include <rflcpp/rfl/json.hpp>
+
+#include <filesystem>
+#include <regex>
+#include <string>
+#include <system_error>
+
+namespace Desert::Editor
+{
+    // ONE COPY OF THIS FUNCTION (Д35). It stood BYTE FOR BYTE IDENTICAL in ImportManager.cpp and in
+    // TextureImporter.cpp, both spelled `Desert::Editor::WriteJsonToFile` — two definitions of one
+    // external-linkage template, and one hole present in both. That duplication is why the hole is
+    // worth naming rather than only patching: a defect fixed in one copy comes back through the other,
+    // and neither copy's reader can tell there is another.
+    //
+    // WHAT THE HOLE WAS. Both copies opened a std::ofstream, threw on a failed OPEN, then did
+    // `out << json` and returned void. Nothing was checked after the insertion, so whether the bytes
+    // reached the disk depended on whether the payload happened to exceed the filebuf — and the
+    // importer carried on cooking as though the `.stmesh` / `.tex` metadata existed. It goes through
+    // the write primitive now, which closes before it decides.
+    //
+    // THE THROW IS GONE WITH IT. `throw std::runtime_error` from here ran on a JobSystem worker
+    // (ImportAllFromDirectory cooks in parallel) with nothing catching it, so a read-only cooked
+    // directory terminated the editor. The refusal is a value now, like everywhere else in this tree.
+    //
+    // The filename is sanitised because a source name may legally contain characters Windows refuses
+    // in a path. NOTE, and it is not this function's to fix: the freshness check in
+    // ImportManager::Import asks about the UNSANITISED path, so a source whose name needs sanitising
+    // re-cooks on every scan.
+    template <typename T>
+    [[nodiscard]] Common::BoolResultStr WriteCookedJson( const T& data, const std::filesystem::path& path )
+    {
+        static const std::regex illegal( R"([<>:"/\\|?*])" );
+
+        std::error_code ec;
+        std::filesystem::create_directories( path.parent_path(), ec );
+
+        const std::filesystem::path fixedPath =
+             path.parent_path() / std::regex_replace( path.filename().string(), illegal, "_" );
+
+        const std::string json = rfl::json::write( data );
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( fixedPath, json );
+             !written )
+        {
+            return Common::MakeFormattedError<bool>( "cooked metadata '{}' ({} bytes) was not written: {}",
+                                                     fixedPath.string(), json.size(), written.GetError() );
+        }
+
+        return BOOLSUCCESS;
+    }
+} // namespace Desert::Editor

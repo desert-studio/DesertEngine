@@ -57,6 +57,10 @@ project "CloudLayoutBaker"
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
+        -- The bake is written through Common::Utils::FileSystem (the tree's one write primitive), and
+        -- Common's file dialog is Objective-C, so linking it needs AppKit + the ObjC runtime. Same
+        -- reason PakTool carries these two lines.
+        links { "Cocoa.framework", "Foundation.framework" }
 
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }

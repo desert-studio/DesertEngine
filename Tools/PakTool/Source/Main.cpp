@@ -23,12 +23,12 @@
 // replacement. See Docs/Architecture/P3_CONTENT_MANIFEST.md.
 
 #include <Common/Utilities/ContentManifest.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -127,11 +127,14 @@ namespace
             }
             const fs::path dst = outDir / fs::path( key );
             fs::create_directories( dst.parent_path(), ec );
-            std::ofstream out( dst, std::ios::binary | std::ios::trunc );
-            out.write( data->data(), static_cast<std::streamsize>( data->size() ) );
-            if ( !out )
+            // Through the write primitive (Д35). This loop used to write through a local std::ofstream
+            // that was never closed before `if ( !out )`, so a full destination volume left short files
+            // behind and the command still printed "extracted N entries" and exited 0 — an extraction
+            // that reports its own count as proof is exactly where a silent truncation is invisible.
+            if ( const auto ok = Common::Utils::FileSystem::WriteContentToFileAtomic( dst, *data ); !ok )
             {
-                std::fprintf( stderr, "PakTool: failed to write %s\n", dst.string().c_str() );
+                std::fprintf( stderr, "PakTool: failed to write %s: %s\n", dst.string().c_str(),
+                              ok.GetError().c_str() );
                 return 1;
             }
             ++written;
@@ -174,12 +177,13 @@ namespace
 
         const std::string text = manifest.Serialize();
         fs::create_directories( outPath.parent_path(), ec );
-        std::ofstream out( outPath, std::ios::binary | std::ios::trunc );
-        out.write( text.data(), static_cast<std::streamsize>( text.size() ) );
-        out.close();
-        if ( !out )
+        // Through the write primitive. This site was already honest — it closed before deciding, and the
+        // Д31-D census quoted it as the model — but "correct because somebody remembered" is the thing
+        // that census exists to stop being the standard. There is one way to write a file in this tree.
+        if ( const auto ok = Common::Utils::FileSystem::WriteContentToFileAtomic( outPath, text ); !ok )
         {
-            std::fprintf( stderr, "PakTool: failed to write %s\n", outPath.string().c_str() );
+            std::fprintf( stderr, "PakTool: failed to write %s: %s\n", outPath.string().c_str(),
+                          ok.GetError().c_str() );
             return 1;
         }
         std::printf( "PakTool: manifest of %zu entr%s (%zu bytes) -> %s\n", manifest.Count(),
