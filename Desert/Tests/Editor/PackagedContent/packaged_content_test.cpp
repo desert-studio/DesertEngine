@@ -1365,6 +1365,7 @@ namespace
              { "CLOUD_TYPE_PATH", &P::CLOUD_TYPE_PATH, RootVerdict::Packaged, "" },
              { "CLOUD_VOLUME_PATH", &P::CLOUD_VOLUME_PATH, RootVerdict::Packaged, "" },
              { "CLOUD_LAYOUT_PATH", &P::CLOUD_LAYOUT_PATH, RootVerdict::Packaged, "" },
+             { "UI_THEME_PATH", &P::UI_THEME_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
              { "MESH_PATH_COOKED", &P::MESH_PATH_COOKED, RootVerdict::Packaged, "" },
              { "TEXTURE_PATH_COOKED", &P::TEXTURE_PATH_COOKED, RootVerdict::Packaged, "" },
