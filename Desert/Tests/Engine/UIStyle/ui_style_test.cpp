@@ -8,8 +8,11 @@
 // One direction alone proves half of it and is the half that passes while the feature is broken: a
 // resolver that ignored the style table entirely would satisfy "the theme changes things" by changing
 // everything. So every resolution test below asserts both, and the shipped themes are held to the
-// strongest form of it — Desert_Dark's tokens must equal the components' own defaults digit for digit, so
-// a canvas that switches from no theme to that one renders the frame it rendered before.
+// strongest form of it — Desert_Dark's tokens must equal the components' own defaults digit for digit,
+// which is what makes it the CONTROL half of a theme A/B: an element left at its defaults renders
+// identically with that theme and with none. (An element whose author typed a colour of its own IS
+// repainted by it, because a bound slot comes from the theme. That is the feature, not a violation of the
+// relation, and the frame evidence measures both halves separately.)
 //
 // The second half of the suite is a CENSUS of the slot register against the file that draws it. A slot
 // nobody reads is a dead setting in a table instead of in a component (§1.3), and it is invisible: the UI
@@ -452,8 +455,8 @@ TEST( UIThemeLibrary, TheShippedThemesDeclareTheSameStylesAndBindTheSameSlots )
 
 // THE STRONGEST RELATION IN THIS SUITE, and the one the frame evidence rests on.
 //
-// Desert_Dark exists to be the null step: a canvas that switches from NO theme to that theme must render
-// the frame it rendered before, or a theme A/B measures the step onto the theme system as well as the
+// Desert_Dark exists to be the CONTROL: an element left at its component defaults must render the same
+// with that theme and with none, or a theme A/B measures the step onto the theme system as well as the
 // step between two looks. That is only true while every token it binds equals the component field it
 // replaces, digit for digit — and "a preset table and the saved scenes disagreeing" is a defect this
 // engine has already shipped once, so the agreement is asserted rather than maintained by hand.
@@ -535,4 +538,12 @@ TEST( UIThemeLibrary, DesertDarkResolvesToTheComponentsOwnDefaults )
     EXPECT_EQ( Themed( StyleSlot::TextColor ), text.Color );
     EXPECT_EQ( Themed( StyleSlot::IconColor ), icon.Color );
     EXPECT_EQ( Themed( StyleSlot::DropTargetHighlight ), drop.HighlightColor );
+}
+
+// The suite's own entry point, as every suite here has: the TestSpecific dependency links gtest but not
+// gtest_main, so a suite without this links to nothing and fails at `_main` rather than at a test.
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

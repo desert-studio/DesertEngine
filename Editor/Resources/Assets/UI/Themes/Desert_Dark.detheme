@@ -1,7 +1,7 @@
 {
     "FormatVersion": 1,
     "DisplayName": "Desert Dark",
-    "Notes": "The engine's own look, stated as tokens. Every colour here is the value the matching component field defaults to, digit for digit, so a canvas that switches from no theme to this one renders the frame it rendered before \u2014 which is what makes it usable as the control half of a theme A/B. The HighContrastColors table is deliberately short: it holds only the tokens whose foreground/background separation is too low, and every token without a row here keeps its ordinary value.",
+    "Notes": "The engine's own look, stated as tokens. Every colour, radius and spacing here is the value the matching component field DEFAULTS to, digit for digit, and Desert/Tests/Engine/UIStyle asserts that agreement slot by slot rather than leaving it to be maintained by hand \u2014 a preset table and the saved scenes disagreeing is a defect this engine has already shipped once. WHAT THAT DOES AND DOES NOT MEAN: an element left at its defaults renders identically with this theme and with none, so this theme is the control half of a theme A/B. It does NOT mean switching it on changes nothing \u2014 an element whose author typed a colour of its own IS repainted, because a bound slot comes from the theme. That is the feature, and it is measured: on UI_ThemeProbe the opted-out panel is 0 of 22 500 pixels different across every theme change, and the themed background is 100 % different. The HighContrastColors table is deliberately short: it holds only the tokens whose foreground/background separation is too low, and every token without a row here keeps its ordinary value.",
     "Colors": [
         {
             "Name": "Surface",
@@ -186,6 +186,14 @@
                 0.75,
                 1.0
             ]
+        },
+        {
+            "Name": "OnField",
+            "Value": [
+                0.92,
+                0.94,
+                0.98
+            ]
         }
     ],
     "Metrics": [
@@ -308,7 +316,7 @@
                 },
                 {
                     "Slot": "Input.Text",
-                    "Token": "OnSurface"
+                    "Token": "OnField"
                 },
                 {
                     "Slot": "Input.Placeholder",
@@ -332,7 +340,7 @@
                 },
                 {
                     "Slot": "Dropdown.Text",
-                    "Token": "OnSurface"
+                    "Token": "OnField"
                 },
                 {
                     "Slot": "Dropdown.Highlight",

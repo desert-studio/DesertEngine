@@ -996,7 +996,9 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // The count is pinned as well as the membership, because the two fail differently: a type that loses
     // its REFLECT() drops out of `all` silently, and only the number says so.
     EXPECT_EQ( all.size(), std::size( kCensus ) );
-    EXPECT_EQ( all.size(), 37u );
+    // 37 -> 38 with Ю13's UIStyleData. The row is in kCensus above and its two fields are WIRED, so the
+    // number moved because the register did — which is the only reason this literal may ever be edited.
+    EXPECT_EQ( all.size(), 38u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

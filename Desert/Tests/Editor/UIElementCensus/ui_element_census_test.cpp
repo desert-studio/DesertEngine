@@ -69,6 +69,10 @@ namespace
          { "UIDraggableComponent", "modifier — makes an existing element draggable" },
          { "UIDropTargetComponent", "modifier — makes an existing element a drop target" },
          { "UIPointerEventsComponent", "modifier — adds enter/exit/press messages to an existing element" },
+         { "UIStyleComponent", "modifier — says which of the canvas theme's styles an existing element "
+                               "resolves through, and whether it consults the theme at all. An element "
+                               "without one already uses the theme's Default style, which is the whole "
+                               "point: theming must not require an edit of every entity" },
     };
 
     // The repository root, found by walking up from wherever the test binary was started — the same approach

@@ -186,6 +186,14 @@
                 0.45,
                 0.1
             ]
+        },
+        {
+            "Name": "OnField",
+            "Value": [
+                0.09,
+                0.1,
+                0.13
+            ]
         }
     ],
     "Metrics": [
@@ -308,7 +316,7 @@
                 },
                 {
                     "Slot": "Input.Text",
-                    "Token": "OnSurface"
+                    "Token": "OnField"
                 },
                 {
                     "Slot": "Input.Placeholder",
@@ -332,7 +340,7 @@
                 },
                 {
                     "Slot": "Dropdown.Text",
-                    "Token": "OnSurface"
+                    "Token": "OnField"
                 },
                 {
                     "Slot": "Dropdown.Highlight",
