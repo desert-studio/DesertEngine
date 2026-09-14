@@ -25,6 +25,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -121,6 +122,53 @@ TEST( AssetMissingFile, AParsedMaterialSavesNormally )
     const auto saved = material.Save();
     EXPECT_TRUE( saved.IsSuccess() ) << saved.GetError();
     EXPECT_FALSE( saved.GetValue().empty() );
+
+    fs::remove_all( path.parent_path() );
+}
+
+// A PARAMETER THAT IS NOT A NUMBER IS REFUSED BY NAME, and the alternative is not a bad file.
+//
+// `rfl::json::write` is `std::string( yyjson_mut_write( doc, 0, nullptr ) )`. yyjson with no write flags
+// has no spelling for a NaN or an infinity and answers a NULL pointer — measured on the vendored copy:
+// `{"v":0.5}` writes, NaN and inf both answer NULL — and that constructor then reads it. So the failure
+// mode of saving such a material is undefined behaviour inside a third-party header while the editor is
+// writing the artist's work, not a `.demat` somebody can repair.
+//
+// IT IS REACHABLE, AND NOT THROUGH THE FILE. yyjson refuses those tokens on the way IN as well, so no
+// `.demat` on disk can carry one and no test needs to pretend otherwise — this one puts the value in
+// through the same door the editor does, `MaterialData::SetParam`. The editor's door is an ImGui drag,
+// whose Ctrl-click text entry parses with `sscanf( buf, "%f", … )`; `%f` accepts `nan`, `inf` and `1e40`.
+TEST( AssetMissingFile, AMaterialHoldingANonNumberRefusesToSaveAndNamesTheParameter )
+{
+    const fs::path path = PathWith( "not_a_number.demat", R"({"Params":[],"Textures":[]})" );
+
+    for ( const float bad : { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
+                              -std::numeric_limits<float>::infinity() } )
+    {
+        Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+        ASSERT_TRUE( material.Load().IsSuccess() );
+
+        material.Data().SetParam( "Coverage", glm::vec4( bad, 0.0f, 0.0f, 0.0f ) );
+
+        const auto saved = material.Save();
+        ASSERT_FALSE( saved.IsSuccess() ) << "the writer was handed a value JSON cannot spell";
+        EXPECT_NE( saved.GetError().find( "Coverage" ), std::string::npos )
+             << "the refusal does not name the parameter the user has to fix: " << saved.GetError();
+        EXPECT_NE( saved.GetError().find( path.string() ), std::string::npos ) << saved.GetError();
+    }
+
+    // The control, and it is not decorative: a guard that read the whole vec4 of every parameter would
+    // refuse this one too, because a scalar's unused lanes are whatever the writer left in them. They are
+    // zero here, which is what the editor writes — the point of the control is that an ORDINARY material
+    // still saves after the guard exists.
+    {
+        Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+        ASSERT_TRUE( material.Load().IsSuccess() );
+        material.Data().SetParam( "Coverage", glm::vec4( 0.45f, 0.0f, 0.0f, 0.0f ) );
+        const auto saved = material.Save();
+        EXPECT_TRUE( saved.IsSuccess() ) << saved.GetError();
+        EXPECT_NE( saved.GetValue().find( "Coverage" ), std::string::npos );
+    }
 
     fs::remove_all( path.parent_path() );
 }

@@ -92,9 +92,15 @@ namespace Desert::Graphic
             if ( p.IsAssetRef() )
                 continue;
 
+            // ALL FOUR LANES ARE THE QUESTION HERE, and that is the difference from the cloud material's
+            // own reader. A medium's property is not a named field with a known arity: the vec4 is copied
+            // into the parameter block whole and the shader decides which lanes it reads, so a NaN in a
+            // lane this reader thinks is spare is still a NaN the shader may multiply by. There is no
+            // clamp anywhere on this path at all — the argument in Graphic::MaterialValueIsReadable
+            // applies a fortiori.
             glm::vec4 value = p.Default;
             for ( const auto& [name, over] : overrides.Params )
-                if ( name == key )
+                if ( name == key && MaterialValueIsReadable( key, over, MaterialValueLanes::Four ) )
                     value = over;
             values.Params.push_back( value );
         }

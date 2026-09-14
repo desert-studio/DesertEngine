@@ -206,26 +206,36 @@ namespace Desert::Editor
         chain.LayoutPattern = material.LayoutPattern;
         chain.LayoutMask    = material.LayoutMask;
 
-        // ── STAGE 5 IS NAMED BY STAGE 4, AND BY PATH ───────────────────────────────────────────────────
+        // ── STAGE 5 IS NAMED BY STAGE 4, AND THE TYPE HAS ALREADY ANSWERED ─────────────────────────────
         //
         // The noise volume is NOT a material parameter — a `.decloudtype` names its own, as a path inside
         // the file (CloudTypeData::NoiseVolume). That is why the rail's fifth row follows the fourth's
         // selection instead of standing beside it, and it is the correction O9 made to the drawn sheet,
         // which had drawn a Noise Volume slot the material does not have.
+        //
+        // THE PATH IS NOT RE-RESOLVED HERE, AND THAT IS THE WHOLE OF THE FIX. This used to read the path
+        // out of the type's data and hand it to `FindByPath` verbatim. The path is stored RELATIVE TO THE
+        // ASSETS ROOT — `Clouds/CloudNoise_FineWisp.dcnv` — while the registry keys a file on
+        // AssetHandle::StableKeyForPath, which resolves a relative spelling against the WORKING DIRECTORY
+        // and not against that root. So the bare spelling minted the untagged key
+        // `Clouds/CloudNoise_FineWisp.dcnv` while the preloader had registered the same file under
+        // `assets:Clouds/CloudNoise_FineWisp.dcnv`: two identities for one file, and stage 5 drew "the
+        // built-in volume" for the one shipped type that names one. Asking the ASSET for the handle it
+        // already bound (CloudTypeAsset::ResolveDependencies does the single join, and the renderer reads
+        // the same answer through CloudTypeService::GetNoiseVolume) is one source of truth instead of a
+        // second, weaker derivation. Desert/Tests/Engine/AssetPathIdentity pins the mechanism and the
+        // CloudStages census pins that nobody re-derives it.
         if ( m_Assets && m_TypeSlot < kCloudStageTypeSlots && !IsNull( chain.CloudTypes[m_TypeSlot] ) )
         {
             const auto type = m_Assets->FindByHandle<Assets::CloudTypeAsset>(
                  Common::UUID( static_cast<uint64_t>( chain.CloudTypes[m_TypeSlot] ) ) );
             if ( type && type->IsReadyForUse() )
             {
-                const auto& path = type->GetData().NoiseVolume;
-                if ( path && !path->empty() )
-                {
-                    if ( const auto noise = m_Assets->FindByPath<Assets::CloudNoiseVolumeAsset>( *path ) )
-                        chain.NoiseVolume = noise->GetMetadata().Handle;
-                }
-                // An absent or empty path is the BUILT-IN volume, which is not a file and therefore not a
-                // document. The pane says so; it does not report a missing asset.
+                // A null handle here is the BUILT-IN volume, which is not a file and therefore not a
+                // document. The pane says so; it does not report a missing asset. A type that NAMES a
+                // volume the registry does not hold has already been reported by name, with both
+                // spellings, from ResolveDependencies.
+                chain.NoiseVolume = type->GetNoiseVolume();
             }
         }
 
