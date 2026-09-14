@@ -104,7 +104,9 @@ if not defined CRTDIR (
     echo   Looked under "!VSINSTALL!\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT". 1>&2
     echo   Without it the package will not start on a machine that has no Visual C++ Redistributable, 1>&2
     echo   and it would not say why — so this refuses instead of shipping one that cannot run. 1>&2
-    echo   Install the "C++ x64 build tools redistributables" component in the Visual Studio Installer. 1>&2
+    echo   Add it in the Visual Studio Installer: 1>&2
+    echo       Microsoft.VisualStudio.Component.VC.Redist.14.Latest 1>&2
+    echo   scripts\Windows\Setup.bat requests that component, so a machine set up by it already has one. 1>&2
     exit /b 1
 )
 echo Package.bat: CRT from !CRTDIR!

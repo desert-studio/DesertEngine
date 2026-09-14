@@ -32,7 +32,6 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <vector>
 
@@ -130,13 +129,19 @@ int main( int argc, char** argv )
     }
     else
     {
-        std::ofstream out( outPath, std::ios::binary | std::ios::trunc );
-        if ( !out )
-            return Fail( "cannot write " + outPath );
+        // THROUGH THE ATOMIC WRITE, AND A CENSUS HAD TO TELL ME. The first version of this opened an
+        // ofstream, streamed the lines and tested the stream — before the destructor flushed it. Whether
+        // a short write was caught therefore depended on how many bytes happened to be buffered, which
+        // is invisible at the site. Here that is not a cosmetic risk: the packagers read this file and
+        // copy exactly what it names, so a closure truncated at the last line ships a package that
+        // starts and shows nothing — the precise failure this tool exists to prevent.
+        std::string body;
         for ( const auto& p : closure )
-            out << p << "\n";
-        if ( !out )
-            return Fail( "writing " + outPath + " failed part-way through" );
+            body += p + "\n";
+
+        const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( outPath, body );
+        if ( !written )
+            return Fail( "writing " + outPath + ": " + written.GetError() );
     }
 
     std::fprintf( stderr, "AssetClosure: %zu files reachable from %s\n", closure.size(), sceneKey.c_str() );

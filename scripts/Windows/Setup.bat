@@ -312,7 +312,7 @@ exit /b 0
 echo --- MSVC v143 toolset: NOT FOUND
 if "%NO_INSTALL%"=="1" (
     echo [ERROR] No Visual Studio 2022+ instance carries the MSVC v143 toolset. Install it with:
-    echo         winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
+    echo         winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.VC.Redist.14.Latest --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
     exit /b 1
 )
 where winget >NUL 2>&1
@@ -326,7 +326,7 @@ if errorlevel 1 (
 echo --- Installing Build Tools for Visual Studio 2022 ^(several GB; UAC will prompt^)
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e ^
     --accept-package-agreements --accept-source-agreements ^
-    --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
+    --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.VC.Redist.14.Latest --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
 if errorlevel 1 (
     echo [ERROR] winget could not install the Build Tools ^(exit %ERRORLEVEL%^).
     exit /b 1
