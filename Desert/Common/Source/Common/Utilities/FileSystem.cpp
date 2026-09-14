@@ -309,8 +309,8 @@ namespace Common::Utils
         return 0;
     }
 
-    Common::BoolResultStr FileSystem::WriteContentToFileAtomic( const std::filesystem::path& filepath,
-                                                                const std::string&           content )
+    Common::BoolResultStr FileSystem::WriteBytesToFileAtomic( const std::filesystem::path& filepath,
+                                                              std::span<const std::byte>   content )
     {
         // Contract and the reasoning behind every step are in the header. In one line: the original
         // file must survive a failure at ANY point, so nothing here ever opens the original for write.
@@ -326,7 +326,8 @@ namespace Common::Utils
                                                temp.string() );
         }
 
-        out << content;
+        out.write( reinterpret_cast<const char*>( content.data() ),
+                   static_cast<std::streamsize>( content.size() ) );
         // close() explicitly, BEFORE the verdict: it flushes, and a buffered failure (disk full, the
         // volume going away) may only surface here. The destructor would swallow exactly that.
         out.close();
@@ -352,6 +353,14 @@ namespace Common::Utils
                                                temp.string(), filepath.string(), renameEc.message() );
         }
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr FileSystem::WriteContentToFileAtomic( const std::filesystem::path& filepath,
+                                                                const std::string&           content )
+    {
+        // One body, two spellings — see the header. `as_bytes` over a string_view rather than a copy:
+        // the bytes are the caller's for the duration of the call and nothing here retains them.
+        return WriteBytesToFileAtomic( filepath, std::as_bytes( std::span( content.data(), content.size() ) ) );
     }
 
 } // namespace Common::Utils

@@ -62,16 +62,19 @@ namespace Common::Utils
         std::error_code ec;
         std::filesystem::create_directories( pakPath.parent_path(), ec );
 
-        std::ofstream out( m_Path, std::ios::binary | std::ios::trunc );
-        if ( !out )
+        // in|out|trunc rather than plain trunc: this one stream both appends blobs and later seeks back
+        // to patch the header, which is what makes a second handle (and a second unchecked destructor)
+        // unnecessary. See PakFile.hpp on why there is exactly one stream.
+        m_Out.open( m_Path, std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc );
+        if ( !m_Out )
             return;
 
         // Placeholder header; Finalize() rewrites it with the real index offset.
-        out.write( kMagicV2, 4 );
-        WritePod<uint32_t>( out, 0 );
-        WritePod<uint64_t>( out, 0 );
+        m_Out.write( kMagicV2, 4 );
+        WritePod<uint32_t>( m_Out, 0 );
+        WritePod<uint64_t>( m_Out, 0 );
         m_Cursor = kHeaderSize;
-        m_Ok     = static_cast<bool>( out );
+        m_Ok     = static_cast<bool>( m_Out );
     }
 
     bool PakWriter::IsOpen() const
@@ -96,13 +99,16 @@ namespace Common::Utils
         if ( !m_Ok )
             return false;
 
-        std::ofstream out( m_Path, std::ios::binary | std::ios::in | std::ios::out );
-        if ( !out )
+        m_Out.seekp( static_cast<std::streamoff>( m_Cursor ) );
+        m_Out.write( static_cast<const char*>( data ), static_cast<std::streamsize>( size ) );
+        if ( !m_Out )
+        {
+            // Sticky, so the failure cannot be walked past. An archive that lost one blob must not go
+            // on collecting entries for an index it can never make true; every later call now refuses
+            // and Finalize returns 0.
+            m_Ok = false;
             return false;
-        out.seekp( static_cast<std::streamoff>( m_Cursor ) );
-        out.write( static_cast<const char*>( data ), static_cast<std::streamsize>( size ) );
-        if ( !out )
-            return false;
+        }
 
         m_Entries.push_back( { key, m_Cursor, static_cast<uint64_t>( size ), PakContentHash( data, size ) } );
         m_Cursor += size;
@@ -153,26 +159,34 @@ namespace Common::Utils
                 return 0;
         }
 
-        std::ofstream out( m_Path, std::ios::binary | std::ios::in | std::ios::out );
-        if ( !out )
-            return 0;
-
         const uint64_t indexOffset = m_Cursor;
-        out.seekp( static_cast<std::streamoff>( indexOffset ) );
+        m_Out.seekp( static_cast<std::streamoff>( indexOffset ) );
         for ( const auto& entry : m_Entries )
         {
-            WritePod<uint32_t>( out, static_cast<uint32_t>( entry.Key.size() ) );
-            out.write( entry.Key.data(), static_cast<std::streamsize>( entry.Key.size() ) );
-            WritePod<uint64_t>( out, entry.Offset );
-            WritePod<uint64_t>( out, entry.Size );
-            WritePod<uint64_t>( out, entry.Hash );
+            WritePod<uint32_t>( m_Out, static_cast<uint32_t>( entry.Key.size() ) );
+            m_Out.write( entry.Key.data(), static_cast<std::streamsize>( entry.Key.size() ) );
+            WritePod<uint64_t>( m_Out, entry.Offset );
+            WritePod<uint64_t>( m_Out, entry.Size );
+            WritePod<uint64_t>( m_Out, entry.Hash );
         }
 
-        out.seekp( 0 );
-        out.write( kMagicV2, 4 );
-        WritePod<uint32_t>( out, static_cast<uint32_t>( m_Entries.size() ) );
-        WritePod<uint64_t>( out, indexOffset );
-        return out ? m_Entries.size() : 0;
+        m_Out.seekp( 0 );
+        m_Out.write( kMagicV2, 4 );
+        WritePod<uint32_t>( m_Out, static_cast<uint32_t>( m_Entries.size() ) );
+        WritePod<uint64_t>( m_Out, indexOffset );
+
+        // close() EXPLICITLY, BEFORE the count is returned. This is the archive's single flush: the
+        // header from the constructor, every blob and the index above are all still only as real as the
+        // filebuf says, and a full disk or a vanished volume surfaces HERE. Left to ~ofstream it would
+        // surface after this function had already handed its caller a number of entries, which is
+        // exactly the "the index names a blob that is not on disk" the class comment is about.
+        m_Out.close();
+        // Finished either way — a second Finalize has a closed stream and nothing left to confirm, so
+        // it must report failure rather than re-answer from m_Entries.
+        m_Ok = false;
+        if ( !m_Out )
+            return 0;
+        return m_Entries.size();
     }
 
     // ---------------------------------------------------------------- PakReader

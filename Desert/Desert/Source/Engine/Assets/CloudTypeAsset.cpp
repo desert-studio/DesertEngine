@@ -8,7 +8,6 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <algorithm>
-#include <fstream>
 #include <iterator>
 
 namespace Desert::Assets
@@ -147,14 +146,14 @@ namespace Desert::Assets
 
         const std::string text = WriteCloudType( written );
 
-        std::ofstream file( filepath, std::ios::trunc );
-        if ( !file )
-            return Common::MakeFormattedError<bool>( "'{}' could not be opened for writing", filepath.string() );
-
-        file.write( text.data(), static_cast<std::streamsize>( text.size() ) );
-        if ( !file )
-            return Common::MakeFormattedError<bool>( "'{}' was opened but the {} bytes could not be written",
-                                                     filepath.string(), text.size() );
+        // Through the write primitive, not a local std::ofstream (Д35). A `.decloudtype` is a few
+        // hundred bytes — smaller than one filebuf — so it is precisely the payload that never reaches
+        // the OS until the flush, and the flush of a local stream is its destructor, running after this
+        // function has already returned BOOLSUCCESS. The primitive closes before it decides, and writes
+        // through a temporary so a failed save cannot cost the artist the type they already had.
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( filepath, text ); !written )
+            return Common::MakeFormattedError<bool>( "'{}' ({} bytes) could not be written: {}", filepath.string(),
+                                                     text.size(), written.GetError() );
 
         LOG_INFO( "[Clouds] Cloud type written: '{}', base {:.2f} km, top {:.2f} km, {} bytes.", filepath.string(),
                   written.Shape.BaseAltitudeKm, written.Shape.TopAltitudeKm, text.size() );

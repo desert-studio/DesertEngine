@@ -24,15 +24,29 @@
 // because the reviewer sees a check. The condition under which it lies is invisible in the source and
 // depends on how many bytes the caller happened to have.
 //
-// WHAT WAS MEASURED on the commit this was written against, by running this matcher over
+// WHAT WAS MEASURED when this gate was written (Д31-D), by running this matcher over
 // Desert/Desert/Source, Desert/Common/Source, Editor/Source, Runtime/Source and Tools:
 //
 //     18 std::ofstream sites are written to.
 //      3 of them close before deciding — WriteContentToFileAtomic, PakTool's Manifest, DesertHeaderTool.
 //     15 do not.
 //
-// So the tree KNOWS the rule — it is written down, with its reason, at the site that paid for it — and it is
-// obeyed at one site in six. That ratio, not any single file, is why this is a gate and not a bug report.
+// So the tree KNEW the rule — it was written down, with its reason, at the site that paid for it — and it
+// was obeyed at one site in six. That ratio, not any single file, is why this is a gate and not a bug
+// report.
+//
+// WHAT Д35 DID WITH THAT LIST, because a census that only counts is a census nobody acts on. All fifteen
+// were closed, and not by fifteen copies of one patch: fifteen sites with one shape is a MISSING
+// ABSTRACTION. Fourteen of them now call Common::Utils::FileSystem::WriteBytesToFileAtomic (the write
+// primitive, which grew a byte-span spelling so a 64 MB voxel container did not have to be copied into a
+// std::string to reach it) — so "wrote and did not check" stopped being expressible at those sites rather
+// than merely stopped being done. PakWriter's three rows were one object lying three ways and became one
+// invariant: one stream for the archive's whole life, closed in Finalize, and Finalize's count read after
+// the close. The fifteenth, Tools/FbxMeshSplitter, links no engine code by design and keeps a local
+// close-and-check — the argument is at the site.
+//
+// The register below is therefore down to its single KEEP row. See it for why the register is a
+// std::array.
 //
 // THE RULE. A std::ofstream that is WRITTEN TO is closed explicitly, in the same block, before the function
 // decides what to tell its caller. Streams that are never written to are not the subject (truncating a file
@@ -50,9 +64,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -317,56 +333,36 @@ namespace
         const char* Verdict;
     };
 
+    // THE REGISTER IS A std::array AND NOT A C ARRAY, and the reason is that it MUST BE ABLE TO REACH
+    // ZERO ROWS. `constexpr KnownSite kRegister[] = {};` is not C++: a zero-length array is a GNU
+    // extension clang accepts silently and MSVC rejects with C2466. This project shipped that defect to
+    // `dev` twice in one day (И14), both times from a census whose whole GOAL was an empty register — so
+    // the type that holds a debt list has to be able to express the list's own success. `std::to_array`
+    // also derives the count from the rows, which is why nothing below states a number: a gate pinned to
+    // a COUNT is satisfied by editing the count.
+    //
+    // WHAT USED TO BE HERE. Fifteen FIX rows — PakWriter's three, the four cloud asset Saves,
+    // SequencerPanel::SaveClipToDisk, the two identical copies of WriteJsonToFile,
+    // BlendImporter::WriteConvertScript, the two bakers, PakTool::Extract and FbxMeshSplitter::WriteObj.
+    // Д35 closed all fifteen and deleted their rows, which is what the backwards gate below obliges: a
+    // row whose site is fixed is a false statement and goes red until it is removed.
+    //
     // clang-format off
-    constexpr KnownSite kRegister[] = {
-        // --- reports success for bytes it never confirmed. All of these must grow a close() and a check.
-        { "Desert/Common/Source/Common/Utilities/PakFile.cpp", "PakWriter::PakWriter",
-          "Д31-D/FIX: the header write sets m_Ok, so IsOpen() reports an archive that may hold no header." },
-        { "Desert/Common/Source/Common/Utilities/PakFile.cpp", "PakWriter::WriteBlob",
-          "Д31-D/FIX: returns true AND records the entry in m_Entries, so the index can name a blob that is "
-          "not on disk. This is the И12 shape — packaging reporting success over a failed write." },
-        { "Desert/Common/Source/Common/Utilities/PakFile.cpp", "PakWriter::Finalize",
-          "Д31-D/FIX: returns the entry count as the success value; `return out ? size : 0` is read before "
-          "the index has reached the disk." },
-        { "Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp", "CloudTypeAsset::Save",
-          "Д31-D/FIX: returns BOOLSUCCESS. The text is small, so it is exactly the payload that stays in the "
-          "buffer and reports green." },
-        { "Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp", "CloudLayoutAsset::Save",
-          "Д31-D/FIX: returns BOOLSUCCESS after an unflushed write." },
-        { "Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp", "CloudNoiseVolumeAsset::Save",
-          "Д31-D/FIX: returns BOOLSUCCESS after an unflushed write." },
-        { "Desert/Desert/Source/Engine/Assets/CloudModellingVolumeAsset.cpp", "CloudModellingVolumeAsset::Save",
-          "Д31-D/FIX: returns BOOLSUCCESS after an unflushed write." },
-        { "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.cpp", "SequencerPanel::SaveClipToDisk",
-          "Д31-D/FIX, WORST ROW: there is no post-write check here AT ALL — `out << rfl::json::write(data)` "
-          "and then the path is returned as the success value. A user pressing Save in the Sequencer is told "
-          "the clip was saved and given a path to a file that may be empty or truncated." },
-        { "Editor/Source/Editor/Import/ImportManager.cpp", "WriteJsonToFile",
-          "Д31-D/FIX: no post-write check at all; the function is void, so the importer carries on as though "
-          "the .mesh metadata had been written." },
-        { "Editor/Source/Editor/Import/TextureImporter.cpp", "WriteJsonToFile",
-          "Д31-D/FIX: byte-for-byte the same function as ImportManager.cpp's — the duplication is its own "
-          "finding, and both copies have the same hole." },
-        { "Editor/Source/Editor/Import/Blend/BlendImporter.hpp", "WriteConvertScript",
-          "Д31-D/FIX: returns the path as success, so a truncated Python script is handed to Blender and the "
-          "failure is reported as whatever Blender says about the broken script." },
-        { "Tools/CloudVolumeBaker/Source/main.cpp", "main",
-          "Д31-D/FIX: exits 0 for an unflushed bake." },
-        { "Tools/CloudLayoutBaker/Source/main.cpp", "main",
-          "Д31-D/FIX: exits 0 for an unflushed bake." },
-        { "Tools/PakTool/Source/Main.cpp", "Extract",
-          "Д31-D/FIX: prints `extracted N entries` and exits 0 for files that may not be complete." },
-        { "Tools/FbxMeshSplitter/FbxMeshSplitter.cpp", "WriteObj",
-          "Д31-D/FIX: an offline splitter, but it is the producer of the corpus other tasks measure on, so a "
-          "silently short .obj is a wrong measurement nobody can trace." },
-
+    constexpr auto kRegister = std::to_array<KnownSite>( {
         // --- deliberately left. The row states the argument, so the next reader does not re-derive it.
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp", "VulkanLogicalDevice::SavePipelineCache",
           "Д31-D/KEEP: returns void and claims nothing. The site already says why — a read-only install "
           "cannot write the cache and the cache is best-effort — and a lost cache costs a warm-up, not "
           "correctness. This row exists so the KEEP is a decision on the record rather than an omission." },
-    };
+    } );
     // clang-format on
+
+    // THE SAME REGISTER WITH NO ROWS IN IT, and it is not decoration: it is the compile-time half of the
+    // paragraph above. If the last KEEP is ever retired, `kRegister` becomes exactly this, and this line
+    // is what proves today — on every compiler the suite builds on, MSVC included — that the empty case
+    // is a legal C++ type and that the two gates below still work over it. The tests use it; it is not a
+    // declaration nobody reads.
+    constexpr std::array<KnownSite, 0> kEmptyRegister{};
 
     std::string Norm( std::string p )
     {
@@ -383,12 +379,30 @@ namespace
         return p;
     }
 
-    bool InRegister( const Finding& f )
+    // Over a SPAN, not over kRegister directly, so the very same code runs against kEmptyRegister. A
+    // gate that has only ever been exercised on a non-empty register is a gate nobody has checked can
+    // survive the day its work is finished.
+    bool InRegister( std::span<const KnownSite> reg, const Finding& f )
     {
-        for ( const KnownSite& k : kRegister )
+        for ( const KnownSite& k : reg )
             if ( Norm( f.File ) == k.File && f.Function == k.Function )
                 return true;
         return false;
+    }
+
+    // Rows that no longer describe a live site — the debt was paid, or the function was renamed. Either
+    // way the row is now false.
+    std::string StaleRows( std::span<const KnownSite> reg, const std::vector<Finding>& found )
+    {
+        std::string stale;
+        for ( const KnownSite& k : reg )
+        {
+            const bool live = std::any_of( found.begin(), found.end(), [&k]( const Finding& f )
+                                           { return Norm( f.File ) == k.File && f.Function == k.Function; } );
+            if ( !live )
+                stale += std::string( "\n    " ) + k.File + "  in " + k.Function + "()";
+        }
+        return stale;
     }
 
     std::vector<Finding> SweepTree()
@@ -416,7 +430,7 @@ TEST( WriteVerdictCensus, NoNewWriteDecidesBeforeItHasFlushed )
 
     std::string unlisted;
     for ( const Finding& f : SweepTree() )
-        if ( !InRegister( f ) )
+        if ( !InRegister( kRegister, f ) )
             unlisted += "\n    " + Norm( f.File ) + ":" + std::to_string( f.Line ) + "  in " + f.Function +
                         "()  — stream '" + f.Stream + "'";
 
@@ -427,9 +441,11 @@ TEST( WriteVerdictCensus, NoNewWriteDecidesBeforeItHasFlushed )
             "flush, and without an explicit close() that flush is the DESTRUCTOR — which runs after the "
             "success has already been returned. Whether the failure is caught therefore depends on the "
             "payload size, which is invisible at the site."
-         << "\n  Do one of: call Common::Utils::FileSystem::WriteContentToFileAtomic (which also makes the "
-            "write survivable), or close() explicitly and test the stream AFTER the close, as "
-            "FileSystem.cpp:320 and Tools/PakTool/Source/Main.cpp:177 do."
+         << "\n  Do one of: call Common::Utils::FileSystem::WriteContentToFileAtomic / "
+            "WriteBytesToFileAtomic (which also makes the write survivable — the whole tree writes files "
+            "this way and there is no second primitive), or, if the code genuinely cannot link Common, "
+            "close() explicitly and test the stream AFTER the close, as Tools/FbxMeshSplitter's "
+            "WriteWholeFile does and says why."
          << "\n  If the site genuinely claims nothing to anybody, add it to kRegister with the argument "
             "spelled out — see the VulkanDevice row.";
 }
@@ -445,14 +461,7 @@ TEST( WriteVerdictCensus, EveryRegisterRowStillDescribesARealSite )
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
     const std::vector<Finding> found = SweepTree();
 
-    std::string stale;
-    for ( const KnownSite& k : kRegister )
-    {
-        const bool live = std::any_of( found.begin(), found.end(), [&k]( const Finding& f )
-                                       { return Norm( f.File ) == k.File && f.Function == k.Function; } );
-        if ( !live )
-            stale += std::string( "\n    " ) + k.File + "  in " + k.Function + "()";
-    }
+    const std::string stale = StaleRows( kRegister, found );
 
     EXPECT_TRUE( stale.empty() ) << "a register row no longer matches any site — the debt was paid, or the "
                                     "function was renamed. Either way the row is now false and must go."
@@ -472,6 +481,32 @@ TEST( WriteVerdictCensus, EveryRegisterRowNamesTheTaskThatOwnsIt )
              << k.File << " in " << k.Function << "(): a row must decide — FIX or KEEP. A sighting without a "
              << "verdict is what this census exists not to produce.";
     }
+}
+
+// --- The register must be able to be EMPTY ---------------------------------------------------------------
+//
+// A debt register's success condition is that it runs out of rows, and this project has twice shipped a
+// register that could not express that: `constexpr T reg[] = {}` compiles on clang as a GNU extension and
+// is rejected by MSVC (C2466). The type is a std::array for that reason, and this test is what makes the
+// claim more than a comment — it runs both gates' logic over a register of length zero, on every compiler
+// this suite is built with.
+TEST( WriteVerdictCensus, TheRegisterCanBeEmptyAndBothGatesStillWork )
+{
+    static_assert( kEmptyRegister.empty(), "a zero-row register must be a legal value of the register type" );
+    static_assert( std::size( kEmptyRegister ) == 0 );
+
+    // Backwards: no rows means nothing can have gone stale, whatever the sweep found.
+    EXPECT_EQ( StaleRows( kEmptyRegister, SweepTree() ), "" );
+    EXPECT_EQ( StaleRows( kEmptyRegister, {} ), "" );
+
+    // Forwards: with no rows, every finding is unlisted — which is exactly what a finished register must
+    // do to the next unchecked write somebody adds.
+    const Finding anything{ "Editor/Source/Whatever.cpp", "Save", "out", 1 };
+    EXPECT_FALSE( InRegister( kEmptyRegister, anything ) );
+    EXPECT_TRUE( InRegister( kRegister, Finding{ "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp",
+                                                 "VulkanLogicalDevice::SavePipelineCache", "out", 1 } ) )
+         << "the same lookup must still recognise a row that IS there — an always-false InRegister would "
+            "pass the line above for the wrong reason";
 }
 
 // --- The gate can see the thing it bans ------------------------------------------------------------------

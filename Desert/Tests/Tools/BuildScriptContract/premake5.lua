@@ -10,19 +10,17 @@ project(test_name)
 
     files {
         test_files,
-        -- Units under test (pure CPU): the .anim channel list -> runtime clip conversion, and since Д35
-        -- its mirror -- runtime clip -> .anim, plus the file write that used to live inside an ImGui
-        -- panel and therefore could not be compiled into any test binary at all.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.cpp",
+        -- The same two translation units Tools/AssetClosure compiles, and for the same reason: this
+        -- suite asserts that the closure the PACKAGER ships covers the base scene, so it has to
+        -- compute it with the packager's own code rather than with a second implementation.
+        -- AssetReferencesScanProject.cpp is deliberately absent — it is the half that needs an engine.
+        "%{wks.location}/Editor/Source/Editor/Core/AssetReferences.cpp",
+        "%{wks.location}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
-    }
-    externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- <rflcpp/rfl.hpp>: the .anim format IS these structs
+        "%{wks.location}/Editor/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -37,17 +35,12 @@ project(test_name)
         defines { define }
     end
 
-    links { "Common", "Optick" } -- Common's JobSystem registers worker threads with Optick
+    links { "Common", "Optick" }
 
-    -- AnimationClipWrite.cpp reaches Common::Utils::FileSystem, and Common's file dialog is Objective-C,
-    -- so the ObjC runtime + AppKit link too. (That link cost is also the argument recorded in
-    -- Tools/FbxMeshSplitter for why that one tool keeps a local close-and-check instead.)
+    -- Common carries Objective-C (the macOS file dialog) and the linker pulls whole objects.
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }
     filter {}
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

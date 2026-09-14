@@ -38,6 +38,11 @@ group "Tools"
 include "Tools/CloudVolumeBaker/"
 include "Tools/CloudLayoutBaker/"
 include "Tools/LatticePeak/"
+-- Below Desert/ for the `deps` table, and it also compiles two Editor translation units — the ones
+-- that carry the asset-reference token rule and deliberately do not include the engine. It must NOT
+-- move above Editor/: nothing here links the Editor project, and duplicating those two objects into a
+-- tool is the point (see Tools/AssetClosure/premake5.lua).
+include "Tools/AssetClosure/"
 group ""
 
 include "Editor/"

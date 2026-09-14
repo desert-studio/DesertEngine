@@ -317,6 +317,96 @@ TEST( NewCloudAsset, AWriteThatCannotHappenIsAnErrorNamingThePath )
     EXPECT_NE( saved.GetError().find( "NewCloudType.decloudtype" ), std::string::npos ) << saved.GetError();
 }
 
+// A SAVE THAT DID NOT REACH THE DISK IS A REFUSAL, ONCE PER FORMAT (Д35)
+//
+// All four of these Saves used to end `return BOOLSUCCESS` after a write nobody had flushed, so whether a
+// failure was caught depended on whether the payload happened to exceed the filebuf — invisible at the
+// site and different for each of the four. They go through
+// Common::Utils::FileSystem::WriteBytesToFileAtomic now, which writes `<path>.tmp` beside the
+// destination and closes before it decides, so BLOCKING THE TEMP is a write that genuinely cannot
+// happen and is the same injection for all four regardless of size. (That the primitive also refuses a
+// failure only the FLUSH can see — the one this census is named for — is proven where it belongs, in
+// Desert/Tests/Common/FileSystemWrite, with a negative control.)
+//
+// The destination is deliberately WRITABLE and already occupied: a save that "fails" by destroying what
+// was there is the Д31-A defect, not a fix for it.
+namespace
+{
+    // The blocked working file, plus the original content the refusal must leave standing.
+    struct BlockedSave
+    {
+        std::filesystem::path Path;
+        std::string           Original;
+    };
+
+    BlockedSave BlockTemp( const char* name )
+    {
+        BlockedSave blocked;
+        blocked.Path     = Scratch() / name;
+        blocked.Original = "the file that was already here";
+        {
+            std::ofstream previous( blocked.Path, std::ios::binary | std::ios::trunc );
+            previous << blocked.Original;
+        }
+        std::filesystem::path temp = blocked.Path;
+        temp += ".tmp";
+        std::filesystem::remove_all( temp );
+        std::filesystem::create_directories( temp );
+        return blocked;
+    }
+
+    std::string ReadRawFile( const std::filesystem::path& p )
+    {
+        std::ifstream in( p, std::ios::binary );
+        return std::string( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    }
+
+    void ExpectRefusedAndOriginalIntact( const BlockedSave& blocked, const Common::BoolResultStr& saved )
+    {
+        EXPECT_FALSE( saved ) << "a save that could not be written reported success";
+        EXPECT_NE( saved.GetError().find( blocked.Path.filename().string() ), std::string::npos )
+             << "the refusal must name the file: " << saved.GetError();
+        EXPECT_EQ( ReadRawFile( blocked.Path ), blocked.Original )
+             << "the failed save cost the artist the file that was already there";
+    }
+} // namespace
+
+TEST( NewCloudAsset, ACloudTypeSaveThatCannotBeWrittenIsARefusal )
+{
+    const auto blocked = BlockTemp( "RefusedType.decloudtype" );
+    ExpectRefusedAndOriginalIntact(
+         blocked, Assets::CloudTypeAsset::Save( blocked.Path, Editor::NewCloudAsset::DefaultType( "Refused" ) ) );
+}
+
+TEST( NewCloudAsset, ACloudLayoutSaveThatCannotBeWrittenIsARefusal )
+{
+    auto layout = Editor::NewCloudAsset::DefaultLayout();
+    ASSERT_TRUE( layout ) << layout.GetError();
+
+    const auto blocked = BlockTemp( "RefusedLayout.dclayout" );
+    ExpectRefusedAndOriginalIntact( blocked, Assets::CloudLayoutAsset::Save( blocked.Path, layout.GetValue() ) );
+}
+
+TEST( NewCloudAsset, ANoiseVolumeSaveThatCannotBeWrittenIsARefusal )
+{
+    auto volume = Editor::NewCloudAsset::DefaultNoiseVolume( nullptr );
+    ASSERT_TRUE( volume ) << volume.GetError();
+
+    const auto blocked = BlockTemp( "RefusedNoise.dcnv" );
+    ExpectRefusedAndOriginalIntact( blocked,
+                                    Assets::CloudNoiseVolumeAsset::Save( blocked.Path, volume.GetValue() ) );
+}
+
+TEST( NewCloudAsset, AModellingVolumeSaveThatCannotBeWrittenIsARefusal )
+{
+    auto body = Editor::NewCloudAsset::DefaultModellingVolume( {} );
+    ASSERT_TRUE( body ) << body.GetError();
+
+    const auto blocked = BlockTemp( "RefusedBody.dcmv" );
+    ExpectRefusedAndOriginalIntact( blocked,
+                                    Assets::CloudModellingVolumeAsset::Save( blocked.Path, body.GetValue() ) );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

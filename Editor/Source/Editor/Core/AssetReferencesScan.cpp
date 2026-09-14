@@ -1,10 +1,7 @@
 #include "AssetReferences.hpp"
 
 #include <Common/Core/AssetHandle.hpp>
-#include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
-
-#include <Engine/Project/ProjectContext.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -57,15 +54,12 @@ namespace Desert::Editor
         }
     } // namespace
 
-    void BuildProjectAssetReferenceIndex( AssetReferenceIndex& index )
+    void BuildAssetReferenceIndex( AssetReferenceIndex& index, const std::filesystem::path& assetsRoot,
+                                   const std::filesystem::path& projectDir )
     {
         index.Clear();
-        if ( !::Desert::Project::ProjectContext::HasProject() )
-            return;
 
-        namespace fs              = std::filesystem;
-        const fs::path assetsRoot = Common::Constants::Path::ASSETS_PATH;
-        const fs::path projectDir = ::Desert::Project::ProjectContext::Directory();
+        namespace fs = std::filesystem;
 
         // THROUGH THE ONE ENUMERATION, so this index describes the content world and not the loose half
         // of it. A raw walk of the assets root stood here, and in a project served from a mounted .dpak

@@ -20,6 +20,7 @@
 
 #include <functional>
 #include <filesystem>
+#include <span>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -68,7 +69,9 @@ namespace Common::Utils
         [[nodiscard]] static Common::ResultStr<std::string>
         ReadFileContent( const std::filesystem::path& filepath );
 
-        // THE WRITE PRIMITIVE. There is exactly one, and this is it.
+        // THE WRITE PRIMITIVE. There is exactly one body, and this is it; the `Content` spelling below
+        // is the same call with the bytes taken from a string, and exists only so ~30 text call sites
+        // do not each have to spell `std::as_bytes`.
         //
         // WRITE-THEN-RENAME, so a file's PREVIOUS contents survive a failed write. It writes
         // `<filepath>.tmp` BESIDE the destination (same directory — rename is only atomic within one
@@ -98,6 +101,16 @@ namespace Common::Utils
         // On failure the result names which step failed and where, and the file on disk is unchanged —
         // the caller owns the policy (a tool counts the file as failed and exits non-zero; the editor
         // leaves its unsaved-changes mark standing and says why).
+        //
+        // WHY A BYTE SPAN AND NOT ONLY A STRING (Д35). The four cloud formats, the two bakers and
+        // PakTool all hold their payload as `std::vector<unsigned char>` — a `.dcnv` is 64 MB of RGBA8
+        // voxels — and the only way to reach a string-only primitive was to copy the whole buffer into
+        // a `std::string` first. That copy is what kept five of the fifteen Д31-D sites on their own
+        // hand-rolled `std::ofstream`, so the primitive grew the shape they already had instead of
+        // asking them to pay a copy to use it.
+        [[nodiscard]] static Common::BoolResultStr WriteBytesToFileAtomic( const std::filesystem::path& filepath,
+                                                                           std::span<const std::byte>   content );
+
         [[nodiscard]] static Common::BoolResultStr WriteContentToFileAtomic( const std::filesystem::path& filepath,
                                                                              const std::string& content );
 

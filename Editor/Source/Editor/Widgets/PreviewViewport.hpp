@@ -99,6 +99,23 @@ namespace Desert::Editor
             // palette, so switching preset does not silently discard it.
             float SkyIntensity = 1.0f;
 
+            // THE GRADE THIS PANE VIEWS THE ASSET THROUGH, and it is here because it was the single largest
+            // way the preview disagreed with the scene — larger than every march and bake budget put
+            // together by a factor of twenty-two.
+            //
+            // It used to be nothing at all: the preview scene took Core::SceneSettings::Exposure's struct
+            // default of 1.0, which is not a choice anybody made. Fifty of the fifty-one scenes in this
+            // repository that carry a cloud layer author 0.26 (the one that does not is Clouds_Sunset), so
+            // a cloud material was being authored at four times the exposure every level but one shows it
+            // at. Measured on Clouds_ShadowsOnGround from one camera: 100 % of pixels differ, mean 78.0 of
+            // 255, frame mean 134.6 against 212.6, against a repeat-shot floor of exactly 0.
+            //
+            // 1.0 STAYS THE DEFAULT AND THE DOME CHANGES IT, which is the arrangement LightIntensity is
+            // already on two fields below: a studio ball under a neutral dome is lit and graded as a studio
+            // subject, and a sky is not. ShowCloudMaterial writes the outdoor grade for the same reason it
+            // writes the outdoor sun, and a person who is matching a particular level edits this row.
+            float Exposure = 1.0f;
+
             // ── The key light, which is ALSO the sun in the sky ────────────────────────────────────────
             //
             // ONE VECTOR, and the mock is emphatic about it: the light that lights the object and the sun
@@ -160,12 +177,16 @@ namespace Desert::Editor
             // ECS::VolumetricCloudData::VolumeResolution and ApplySetup writes it onto the layer every
             // frame.
             //
-            // IT HAS NO ROW IN THE PREVIEW SCENE TAB YET, and that is stated rather than left to be
-            // discovered: the tab is drawn by MaterialEditorPanel, which O8 does not own. The row is one
-            // line beside the Max Steps slider — `ImGui::SliderInt( "Volume Resolution",
-            // &setup.CloudVolumeResolution, 128, 256 )` — and until it exists an artist who wants to see
-            // the sky at the level's own fidelity has to change it on the level's cloud component instead.
-            // Nothing here is dead: the value IS applied and it IS what the pane bakes at.
+            // IT HAS NO ROW IN THE PREVIEW SCENE TAB, AND SINCE O13 IT NEEDS NONE — which is a stronger
+            // answer than the row this comment used to owe. The row was owed because 128 could show a
+            // different sky from the level's 256 and an artist had no way to ask for the level's; it is
+            // not owed now, because 128 can no longer show a different sky. Graphic::CloudBakeSideForSpecies
+            // raises the grid back to 256 for exactly the types the cheap one could not carry — two of the
+            // nine shipped ones — and leaves the other seven on O8's measured saving. A row would be
+            // offering a person the chance to pick the wrong answer.
+            //
+            // SO IT IS A FLOOR RATHER THAN THE SIDE. The value IS applied and it IS the cheapest grid the
+            // pane will bake at; what it is not is a promise that the bake will use it.
             int32_t CloudVolumeResolution = 128;
 
             // Direction the light TRAVELS (sun -> scene), which is what TransformComponent::Translation on

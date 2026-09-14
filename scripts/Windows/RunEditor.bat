@@ -1,6 +1,6 @@
 @echo off
 setlocal
-REM Launch the Desert Editor built by BuildWindows.bat + CompileWindows.bat.
+REM Launch the Desert Editor built by BuildWindows.bat.
 REM
 REM Usage: scripts\Windows\RunEditor.bat [Debug^|Release] [editor args...]
 REM        (everything after the config is forwarded to the Editor, e.g. --project <path>)
@@ -14,7 +14,7 @@ if not "%~1"=="" shift
 set "EDITOR=%CD%\build\Bin\%CONFIG%\Editor.exe"
 
 if not exist "%EDITOR%" (
-    echo %EDITOR% not found — build first: scripts\Windows\CompileWindows.bat 1>&2
+    echo %EDITOR% not found — build first: scripts\Windows\BuildWindows.bat %CONFIG% 1>&2
     exit /b 1
 )
 

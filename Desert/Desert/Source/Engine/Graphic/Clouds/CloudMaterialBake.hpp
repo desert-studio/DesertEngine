@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -29,6 +30,52 @@ namespace Desert::Graphic
         int32_t   MaxSteps         = 128; ///< the march's budget; decides the finest resolvable chord
         glm::vec3 WindDirection    = { 1.0f, 0.0f, 0.0f };
     };
+
+    /**
+     * @brief The bake grid a set of species can actually be expressed on, voxels per horizontal side.
+     *
+     * WHAT THIS CLOSES, and it was a silent one. Assets::CloudProceduralCellExtentKm floors a species'
+     * placement cell at four voxels — a cluster narrower than the trilinear filter's own support cannot be
+     * carried by the volume at all — and that floor is `std::max( cell, 4 * regionSize / side )`. It is a
+     * MIDDLE LINK THAT DROPS A PROPERTY: the type authors a cell, the grid quietly enlarges it, and both
+     * ends look right. The symptom is not a blurrier sky, it is a DIFFERENT one — the lattice the clusters
+     * are placed on has a different pitch, so the clouds are in different places.
+     *
+     * Measured on the shipped library at the 48 km region: the floor is 0.75 km at 256 voxels and 1.50 km
+     * at 128, and two of the nine shipped types sit under the second — Altocumulus authors 0.90 km (x1.67)
+     * and Stratocumulus 1.05 km (x1.43). Rendering SIL_Altocumulus at 128 against 256 from the same camera
+     * moves 99.77 % of the frame, mean 35.1 of 255 against a repeat-shot floor of exactly 0, and the two
+     * frames are not the same sky with softer edges: the holes are elsewhere. The asset preview bakes at
+     * 128 (Editor PreviewViewport), so an artist tuning either of those two types was authoring against
+     * clouds the level would never draw.
+     *
+     * THE ANSWER IS TO RAISE THE GRID, NOT TO ACCEPT THE CLAMP, and it only ever raises: a budget is a
+     * promise about cost, and a cost is the one thing a preview may legitimately differ on. What it may not
+     * do is show a different field. The other seven types are unaffected and keep the cheap bake, which is
+     * the measured saving O8 shipped (229 ms against 961 ms).
+     *
+     * THE LADDER IS THE TWO RUNGS THIS SUBSYSTEM HAS MEASURED — the component's own Range, 128 and 256.
+     * An intermediate side would be a number nobody has priced or shot.
+     *
+     * @param regionSizeKm  the baked region across, kilometres
+     * @param species       the resolved species, whose CellKm is the authored placement pitch
+     * @param authoredSide  the side the view asked for, already clamped to the component's Range
+     */
+    inline uint32_t CloudBakeSideForSpecies( float                                              regionSizeKm,
+                                             const std::vector<Assets::CloudProceduralSpecies>& species,
+                                             uint32_t                                           authoredSide )
+    {
+        for ( const Assets::CloudProceduralSpecies& one : species )
+        {
+            // Solve the voxel half of CloudProceduralCellExtentKm's floor for the side: the cell survives
+            // while `4 * regionSizeKm / side <= cell`. The CHORD half of that floor is a different relation
+            // — what the march can find — and no grid can buy it off, so it is deliberately not read here.
+            const float neededSide = 4.0f * std::max( regionSizeKm, 0.0f ) / std::max( one.CellKm, 1e-3f );
+            if ( neededSide > static_cast<float>( authoredSide ) )
+                return static_cast<uint32_t>( Assets::kCloudProceduralVolumeSide );
+        }
+        return authoredSide;
+    }
 
     /**
      * @brief Everything the procedural bake takes FROM THE MATERIAL, and nothing it takes from a service.
@@ -63,10 +110,12 @@ namespace Desert::Graphic
 
         // THIS VIEW'S BAKE BUDGET, clamped to the component's own Range for the reason the four placement
         // numbers below state: a scene file is a text file and an out-of-range number in one must produce a
-        // sky rather than a refusal.
-        params.VolumeSideVoxels = static_cast<uint32_t>(
+        // sky rather than a refusal. It is RAISED again below, once the species are known, if this grid
+        // could not express one of their cells — see CloudBakeSideForSpecies.
+        const uint32_t authoredSide = static_cast<uint32_t>(
              std::clamp( layer.VolumeResolution, static_cast<int32_t>( Assets::kCloudProceduralVolumeSideMin ),
                          static_cast<int32_t>( Assets::kCloudProceduralVolumeSide ) ) );
+        params.VolumeSideVoxels = authoredSide;
 
         // THE SHELL, TAKEN FROM THE SPECIES AND NOT FROM THE COMPONENT, because that is where the packer
         // takes it from too: the layer's geometry is the UNION of its types' altitude ranges (decision
@@ -136,6 +185,11 @@ namespace Desert::Graphic
             species.Anisotropy = std::max( shapes[slot].PlacementAnisotropy, 1e-3f );
             params.Species.push_back( species );
         }
+
+        // THE GRID AGAINST THE CELLS, and it has to be here: the cell is what the relation is against, so
+        // the side cannot be settled before the species are known, and CloudProceduralCellExtentKm — which
+        // the patch floor below calls — reads the side it settles on.
+        params.VolumeSideVoxels = CloudBakeSideForSpecies( params.RegionSizeKm, params.Species, authoredSide );
 
         // THE PATCH AGAINST THE LATTICE, floored after the species are known because the CELL is what the
         // relation is against and a type's Placement Scale and Anisotropy both move it. Three cells is the

@@ -6,6 +6,12 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
+
+#ifndef _WIN32
+#include <csignal>
+#include <sys/resource.h>
+#endif
 
 #include "../../TestSupport/result_assert.hpp"
 
@@ -24,6 +30,40 @@ namespace
         fs::create_directories( dir );
         return dir;
     }
+
+#ifndef _WIN32
+    // See Desert/Tests/Common/FileSystemWrite for the full reasoning. In one line: RLIMIT_FSIZE makes a
+    // write past a byte cap fail with EFBIG, and a payload under one filebuf does not reach the kernel
+    // until the flush — so this is the failure PakWriter used to answer green about three separate ways.
+    class FileSizeCap
+    {
+    public:
+        explicit FileSizeCap( rlim_t bytes )
+        {
+            m_PreviousHandler = std::signal( SIGXFSZ, SIG_IGN );
+            getrlimit( RLIMIT_FSIZE, &m_Previous );
+            rlimit capped   = m_Previous;
+            capped.rlim_cur = bytes;
+            m_Applied       = setrlimit( RLIMIT_FSIZE, &capped ) == 0;
+        }
+
+        ~FileSizeCap()
+        {
+            setrlimit( RLIMIT_FSIZE, &m_Previous );
+            std::signal( SIGXFSZ, m_PreviousHandler );
+        }
+
+        bool Applied() const
+        {
+            return m_Applied;
+        }
+
+    private:
+        rlimit m_Previous{};
+        void ( *m_PreviousHandler )( int ) = SIG_DFL;
+        bool m_Applied                     = false;
+    };
+#endif
 } // namespace
 
 TEST( Pak, WriteReadRoundtrip )
@@ -387,6 +427,95 @@ TEST( Pak, ADamagedDeletionListIsAnOpenFailureWithAReason )
     const auto mounted = Common::Utils::VFS::MountPak( dir / "Patch_001.dpak" );
     EXPECT_FALSE( mounted.IsSuccess() );
     Common::Utils::VFS::Unmount();
+}
+
+// ---------------------------------------------------------------------------------------------------
+// THE WRITER'S ONE VERDICT (Д35)
+// ---------------------------------------------------------------------------------------------------
+//
+// PakWriter used to lie three ways about one archive: the constructor set m_Ok from a stream whose
+// header had not been flushed, AddData returned true AND recorded the entry for bytes nobody had
+// confirmed, and Finalize read `out ? size : 0` on a stream it never closed. All three were the same
+// missing sentence — THE INDEX CANNOT NAME WHAT IS NOT ON THE DISK — and they are now one stream held
+// for the archive's life, closed in Finalize, with the count read after the close.
+
+TEST( Pak, FinalizeRefusesAnArchiveWhoseBytesNeverReachedTheDisk )
+{
+#ifdef _WIN32
+    GTEST_SKIP() << "RLIMIT_FSIZE is POSIX; the flush-failure injection has no Windows equivalent here";
+#else
+    const fs::path dir = MakeTempDir();
+    const fs::path pak = dir / "capped.dpak";
+
+    size_t finalized = 1;
+    bool   opened    = false;
+    bool   added     = false;
+    {
+        // 64 bytes: the 16-byte header fits, everything after it does not. Every byte stays in the one
+        // filebuf, so nothing fails until the close inside Finalize — which is precisely the window in
+        // which this class used to return three green answers.
+        FileSizeCap cap( 64 );
+        ASSERT_TRUE( cap.Applied() ) << "RLIMIT_FSIZE could not be lowered; this test cannot mean anything";
+
+        Common::Utils::PakWriter writer( pak );
+        opened = writer.IsOpen();
+
+        const std::string blob( 2048, 'z' );
+        added     = writer.AddData( "Assets/a.bin", blob.data(), blob.size() );
+        finalized = writer.Finalize();
+    }
+
+    // IsOpen and AddData are ALLOWED to have said yes — they are about the stream, not the disk, and the
+    // header comment says so. What must not happen is the archive coming back finished.
+    EXPECT_TRUE( opened ) << "the file itself was creatable, so the open genuinely succeeded";
+    EXPECT_TRUE( added ) << "under one filebuf the insertion cannot fail; if it did, this test is no "
+                            "longer exercising the buffered case";
+    EXPECT_EQ( finalized, 0u ) << "Finalize reported a finished archive whose bytes the filesystem refused";
+
+    // And the verdict agrees with the disk: nothing can read the thing back.
+    Common::Utils::PakReader reader( pak );
+    EXPECT_FALSE( reader.IsOpen() ) << "an archive Finalize refused must not open";
+#endif
+}
+
+TEST( Pak, AFinalizedWriterDoesNotAnswerASecondTime )
+{
+    // Finalize closes the stream, so there is nothing left to confirm. Answering from m_Entries again
+    // would be a count about a file the writer no longer holds — the same "success from memory" shape.
+    const fs::path dir = MakeTempDir();
+
+    Common::Utils::PakWriter writer( dir / "twice.dpak" );
+    ASSERT_TRUE( writer.IsOpen() );
+    const std::string a = "hello";
+    ASSERT_TRUE( writer.AddData( "Assets/a.txt", a.data(), a.size() ) );
+
+    EXPECT_EQ( writer.Finalize(), 1u );
+    EXPECT_EQ( writer.Finalize(), 0u ) << "the second Finalize re-answered from memory";
+    EXPECT_FALSE( writer.AddData( "Assets/b.txt", a.data(), a.size() ) )
+         << "a finished archive accepted another entry";
+
+    // The first answer was true, and stays true: the archive on disk is the one entry it reported.
+    Common::Utils::PakReader reader( dir / "twice.dpak" );
+    ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
+    EXPECT_EQ( reader.EntryCount(), 1u );
+}
+
+TEST( Pak, AnUnwritablePathIsRefusedAtOpenRatherThanAtFinalize )
+{
+    // The negative control for the two above: when the failure IS visible at the open, IsOpen is the one
+    // that says so — so a false from IsOpen still means what every existing caller reads it as.
+    const fs::path dir     = MakeTempDir();
+    const fs::path blocker = dir / "not_a_directory";
+    {
+        std::ofstream make( blocker, std::ios::trunc );
+        make << "occupied";
+    }
+
+    Common::Utils::PakWriter writer( blocker / "inside.dpak" );
+    EXPECT_FALSE( writer.IsOpen() );
+    const std::string a = "hello";
+    EXPECT_FALSE( writer.AddData( "Assets/a.txt", a.data(), a.size() ) );
+    EXPECT_EQ( writer.Finalize(), 0u );
 }
 
 int main( int argc, char** argv )

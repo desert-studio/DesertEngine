@@ -15,6 +15,7 @@
 #include <cstring>
 #include <functional>
 #include <fstream>
+#include <sstream>
 #include <iostream>
 #include <limits>
 #include <system_error>
@@ -237,16 +238,60 @@ namespace FbxSplit
             return best;
         }
 
+        // THE WRITE VERDICT, IN ONE PLACE FOR THIS TOOL (Д35).
+        //
+        // Both writers below go through this, and this is the only place a stream is decided about. The
+        // rest of the tree writes files through Common::Utils::FileSystem::WriteContentToFileAtomic —
+        // there is exactly one write primitive and that is it — but this tool deliberately links NO
+        // engine code (see FbxMeshSplitter's premake5.lua: Assimp plus one header-only Editor constant
+        // table, and the file list is what CHECKS that). Reaching the primitive means linking libCommon,
+        // and with it spdlog, the JobSystem and, on macOS, AppKit and the Objective-C runtime, into a
+        // splitter that needs none of them.
+        //
+        // What is NOT out of reach is the RULE the primitive exists for: close() explicitly and test the
+        // stream AFTER the close. `write()` fills the filebuf; whether the bytes reached the disk is
+        // known only at the flush, and without this close that flush is ~ofstream, running after the
+        // function has already returned true. What is given up by not being the primitive is atomicity,
+        // and it is given up knowingly: this tool regenerates its whole output directory, so a failed
+        // run is re-run rather than recovered from.
+        bool WriteWholeFile( const std::filesystem::path& path, const std::string& content, std::string& error )
+        {
+            std::ofstream out( path, std::ios::binary | std::ios::trunc );
+            if ( !out )
+            {
+                error = "could not open " + path.string() + " for writing";
+                return false;
+            }
+
+            out.write( content.data(), static_cast<std::streamsize>( content.size() ) );
+            out.close();
+            if ( !out )
+            {
+                error = "could not write " + std::to_string( content.size() ) + " bytes to " + path.string();
+                return false;
+            }
+            return true;
+        }
+
         // Write one aiMesh as a Wavefront .obj, with the node WORLD transform `xf` baked into the geometry
         // (FBX stores tiny local-space verts + the real size/orientation in the node transform), then recenter
         // so the clump sits at the origin with its base at Y=0 — ideal for foliage instance placement. Indices
         // are 1-based and shared across v/vt/vn (one of each per vertex, same order), so face k -> vertex k+1.
         bool WriteObj( const aiMesh* mesh, const aiMatrix4x4& xf, float scale,
-                       const std::filesystem::path& outPath, const std::string& objName )
+                       const std::filesystem::path& outPath, const std::string& objName, std::string& error )
         {
-            std::ofstream f( outPath );
-            if ( !f )
-                return false;
+            // Built whole in memory, then written once through WriteWholeFile. It used to stream straight
+            // into a local std::ofstream that nobody closed or re-tested, so a short .obj went out as a
+            // success — and this tool PRODUCES the corpus other tasks measure on, which makes a silently
+            // truncated mesh a wrong measurement with nothing pointing back at its cause.
+            //
+            // WHAT THE BUFFER COSTS, measured rather than guessed: Editor/Resources/Assets/Meshes/base.fbx
+            // produces a 36.0 MB .obj, so that is the peak this holds on the biggest mesh in the
+            // repository. It is paid for uniformity — one place in this tool decides whether a write
+            // happened — and it is small beside the Assimp scene already resident. If a mesh ever makes
+            // that the wrong trade, the fix is to stream and close-and-check here too, not to go back to
+            // deciding in two places.
+            std::ostringstream f;
 
             const bool hasUV     = mesh->HasTextureCoords( 0 );
             const bool hasNormal = mesh->HasNormals();
@@ -311,7 +356,8 @@ namespace FbxSplit
                 }
                 f << '\n';
             }
-            return true;
+
+            return WriteWholeFile( outPath, f.str(), error );
         }
     } // namespace
 
@@ -401,9 +447,12 @@ namespace FbxSplit
             usedNames.insert( name );
 
             const std::filesystem::path objPath = meshDir / ( name + ".obj" );
-            if ( !WriteObj( mesh, meshXf[i], scale, objPath, name ) )
+            std::string                 objError;
+            if ( !WriteObj( mesh, meshXf[i], scale, objPath, name, objError ) )
             {
-                std::cerr << "[FbxMeshSplitter] WARN: failed to write " << objPath.string() << '\n';
+                // Named, and the mesh is left OUT of the manifest below — a collection that lists a mesh
+                // whose .obj is short or absent is the wrong measurement this tool must not produce.
+                std::cerr << "[FbxMeshSplitter] WARN: " << objError << '\n';
                 continue;
             }
 
@@ -429,12 +478,6 @@ namespace FbxSplit
 
         // Write the collection manifest next to the FBX so the engine's Collections panel picks it up.
         const std::filesystem::path manifestPath = fbxAbs.parent_path() / "collection.json";
-        std::ofstream               mf( manifestPath );
-        if ( !mf )
-        {
-            result.Error = "Could not write manifest: " + manifestPath.string();
-            return result;
-        }
         // Build the Materials array (only the slots that were actually found; cutout => AlphaCutoff + TwoSided
         // so foliage cards render right out of the box).
         std::string materialsJson;
@@ -460,12 +503,22 @@ namespace FbxSplit
             materialsJson += " }";
         }
 
-        const std::string collName = fbxAbs.parent_path().filename().string();
+        const std::string  collName = fbxAbs.parent_path().filename().string();
+        std::ostringstream mf;
         mf << "{\n  \"Name\": \"" << collName << "\",\n  \"Author\": \"FbxMeshSplitter\",\n";
         if ( !materialsJson.empty() )
             mf << "  \"Materials\": [\n" << materialsJson << "\n  ],\n";
         mf << "  \"Items\": [\n" << items << "\n  ]\n}\n";
-        mf.close();
+
+        // The manifest DID call close() — and then never looked at the stream again, so a failed flush
+        // still produced result.Success = true and a ManifestPath the caller would go on to read. A
+        // close whose result nobody reads is the same silence as no close at all; that is why the
+        // verdict lives in WriteWholeFile and not at the call sites.
+        if ( std::string error; !WriteWholeFile( manifestPath, mf.str(), error ) )
+        {
+            result.Error = "Could not write manifest: " + error;
+            return result;
+        }
 
         result.MaterialCount = static_cast<int>( materials.size() );
         std::cout << "[FbxMeshSplitter] " << materials.size() << " material(s) detected from textures.\n";

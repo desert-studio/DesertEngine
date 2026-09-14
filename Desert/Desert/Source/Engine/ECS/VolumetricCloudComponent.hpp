@@ -484,7 +484,17 @@ namespace Desert::ECS
                            "against 961 ms. Lower it when a view has to follow an edit quickly (an asset "
                            "preview does) and leave it at 256 for a level, where the sky is baked once and "
                            "looked at for hours. It stops at 128 because 64 was measured to invent four "
-                           "points of sky rather than draw the same sky more coarsely." ) )
+                           "points of sky rather than draw the same sky more coarsely. It is a FLOOR and "
+                           "not a command: a grid too coarse to express a cloud type's placement cell "
+                           "would move the clouds rather than blur them, so the bake raises it back to 256 "
+                           "for such a type and says so in the log." ) )
+        // A FLOOR SINCE O13. Graphic::CloudBakeSideForSpecies raises the grid when the asked-for side could
+        // not carry a type's authored placement cell — Assets::CloudProceduralCellExtentKm floors that cell
+        // at four voxels, so at 128 over the shipped 48 km region the floor is 1.50 km and two of the nine
+        // shipped types author finer (Altocumulus 0.90 km, Stratocumulus 1.05 km). The clamp was silent and
+        // it did not soften the sky, it relaid it: 99.77 % of the frame, mean 35.1 of 255 on
+        // SIL_Altocumulus against a repeat floor of 0.
+        //
         // 256, WHICH IS THE ONLY VALUE A LEVEL SHOULD USE, and the field exists for the other end. The
         // resolution used to be a constant, and the consequence was that a 512-pixel material-preview pane
         // baked exactly what a whole level bakes: measured on this machine in Debug, an artist dragging

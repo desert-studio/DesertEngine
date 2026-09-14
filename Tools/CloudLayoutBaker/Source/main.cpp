@@ -33,8 +33,11 @@
 // four species slots plus a mask is five planes — which is why the mask used to have to BE the pattern's
 // alpha.
 //
-// GPU-FREE, ASSET-LAYER-FREE, filesystem only through <fstream>. See the premake file for why that is
-// checked rather than hoped for.
+// GPU-FREE and ASSET-LAYER-FREE; the only filesystem it touches is the picture it decodes and the one
+// write, which goes through Common's write primitive. See the premake file for why that is checked
+// rather than hoped for.
+
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Assets/CloudLayout.hpp>
 
@@ -43,7 +46,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -530,18 +533,15 @@ int main( int argc, char** argv )
 
     const std::vector<unsigned char>& bytes = encoded.GetValue();
 
-    std::ofstream file( out, std::ios::binary | std::ios::trunc );
-    if ( !file )
+    // Through the write primitive, not a local std::ofstream (Д35). This tool used to exit 0 for a bake
+    // whose bytes were still in the filebuf, and the shipped example layout is the artefact whose
+    // provenance is this command — a silently short one would be re-derived from, not re-baked.
+    if ( const auto written =
+              Common::Utils::FileSystem::WriteBytesToFileAtomic( out, std::as_bytes( std::span( bytes ) ) );
+         !written )
     {
-        std::fprintf( stderr, "'%s' could not be opened for writing\n", out.c_str() );
-        return 1;
-    }
-
-    file.write( reinterpret_cast<const char*>( bytes.data() ), static_cast<std::streamsize>( bytes.size() ) );
-    if ( !file )
-    {
-        std::fprintf( stderr, "'%s' was opened but the %zu bytes could not be written\n", out.c_str(),
-                      bytes.size() );
+        std::fprintf( stderr, "'%s' (%zu bytes) was not written: %s\n", out.c_str(), bytes.size(),
+                      written.GetError().c_str() );
         return 1;
     }
 
