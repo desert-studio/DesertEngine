@@ -718,6 +718,41 @@ namespace Desert::Core::Serialize
 
             return s;
         }
+
+        // ONE ASSET REFERENCE, TWO SPELLINGS, ONE ANSWER. A mesh or material reference travels as a stable
+        // GUID and as a path: the GUID is the rename-safe one and is tried first, the path is what an older
+        // file carries and is the fallback. Zero means "this scene named nothing that resolves here", which
+        // the caller distinguishes from a live handle.
+        //
+        // Extracted rather than written inline for the third time: the static and skinned mesh blocks each
+        // spell this out, the instanced one now needs it too, and three copies of a fallback ORDER is three
+        // places for the order to differ.
+        uint64_t ResolveAssetRef( const Reflection::AssetResolver& resolver, const std::optional<uint64_t>& guid,
+                                  const std::optional<std::string>& path, const char* type )
+        {
+            uint64_t handle = 0;
+            if ( guid )
+            {
+                handle = resolver.FromGuid( *guid, type );
+            }
+            if ( handle == 0 && path )
+            {
+                handle = resolver.FromPath( *path, type );
+            }
+            return handle;
+        }
+
+        // The same answer for one slot of a material list, where either list may be absent or shorter.
+        uint64_t ResolveSlotRef( const Reflection::AssetResolver&               resolver,
+                                 const std::optional<std::vector<uint64_t>>&    guids,
+                                 const std::optional<std::vector<std::string>>& paths, std::size_t slot )
+        {
+            const std::optional<uint64_t> guid =
+                 ( guids && slot < guids->size() ) ? std::optional<uint64_t>( ( *guids )[slot] ) : std::nullopt;
+            const std::optional<std::string> path =
+                 ( paths && slot < paths->size() ) ? std::optional<std::string>( ( *paths )[slot] ) : std::nullopt;
+            return ResolveAssetRef( resolver, guid, path, "MaterialAsset" );
+        }
     } // namespace
 
     const ComponentRegistry& ComponentRegistry::Get()
@@ -977,44 +1012,23 @@ namespace Desert::Core::Serialize
 
                 // GUID first (rename-safe asset-database reference), path as fallback/back-compat --
                 // the same order the static path uses, and it did not before Г26.
-                uint64_t meshHandle = 0;
-                if ( data.MeshGuid )
-                {
-                    meshHandle = resolver.FromGuid( *data.MeshGuid, "StaticMeshAsset" );
-                }
-                if ( meshHandle == 0 && data.MeshPath )
-                {
-                    meshHandle = resolver.FromPath( *data.MeshPath, "StaticMeshAsset" );
-                }
+                const uint64_t meshHandle =
+                     ResolveAssetRef( resolver, data.MeshGuid, data.MeshPath, "StaticMeshAsset" );
                 if ( meshHandle != 0 )
                 {
                     ism.MeshHandle = Common::UUID( meshHandle );
                 }
 
-                size_t slotCount = 0;
-                if ( data.MaterialGuids )
-                {
-                    slotCount = data.MaterialGuids->size();
-                }
-                else if ( data.MaterialPaths )
-                {
-                    slotCount = data.MaterialPaths->size();
-                }
+                const size_t slotCount = data.MaterialGuids   ? data.MaterialGuids->size()
+                                         : data.MaterialPaths ? data.MaterialPaths->size()
+                                                              : 0;
                 if ( slotCount > 0 )
                 {
                     ism.MaterialSlots.clear();
                     for ( size_t i = 0; i < slotCount; ++i )
                     {
-                        uint64_t handle = 0;
-                        if ( data.MaterialGuids && i < data.MaterialGuids->size() )
-                        {
-                            handle = resolver.FromGuid( ( *data.MaterialGuids )[i], "MaterialAsset" );
-                        }
-                        if ( handle == 0 && data.MaterialPaths && i < data.MaterialPaths->size() )
-                        {
-                            handle = resolver.FromPath( ( *data.MaterialPaths )[i], "MaterialAsset" );
-                        }
-                        ism.MaterialSlots.emplace_back( handle );
+                        ism.MaterialSlots.emplace_back(
+                             ResolveSlotRef( resolver, data.MaterialGuids, data.MaterialPaths, i ) );
                     }
                 }
                 ism.Primitive = data.Primitive;
