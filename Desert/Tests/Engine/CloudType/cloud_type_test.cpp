@@ -1415,6 +1415,102 @@ TEST( CloudLayerLift, MovingTheKnobIsAReasonToRebake )
          Desert::Assets::CloudProceduralParamsEqual( BakeParamsFor( &rest, 1u ), BakeParamsFor( &lifted, 1u ) ) );
 }
 
+// ---------------------------------------------------------------------------------------------------
+// THE BAKE GRID AGAINST THE CELL THE TYPE AUTHORED — the relation, not either side of it
+// ---------------------------------------------------------------------------------------------------
+//
+// Assets::CloudProceduralCellExtentKm floors a species' placement cell at four voxels, so the grid a view
+// bakes on silently decides how far apart clusters are placed. Both sides look right on their own: the
+// type authors a legitimate cell, the view asks for a legitimate grid, and the middle link enlarges one
+// of them. At the shipped 48 km region the floor is 0.75 km at 256 voxels and 1.50 km at 128, and two of
+// the nine shipped types author finer than the second — Altocumulus at 0.90 km, Stratocumulus at 1.05.
+//
+// The symptom is not a softer sky. Rendering SIL_Altocumulus at 128 against 256 from one camera moved
+// 99.77 % of the frame, mean 35.1 of 255, against a repeat-shot floor of exactly 0 — the holes are in
+// different places, because the lattice is. The asset preview bakes at 128, so an artist tuning either of
+// those two types was authoring against clouds no level would draw.
+//
+// What is asserted is the RELATION: whatever grid a view asks for, the cell the bake ends up placing on
+// is the cell the type authored. Graphic::CloudBakeSideForSpecies is what makes that true, by raising the
+// grid; this fails the day the raise is removed, and it fails for a NEW type finer than 0.75 km, which is
+// the case no frame has been shot for.
+TEST( CloudTypeLibrary, NoBakeBudgetMovesTheCellAShippedTypeAuthored )
+{
+    for ( const int32_t askedSide : { 128, 160, 192, 256 } )
+    {
+        for ( const char* name : kShippedLibrary )
+        {
+            const CloudTypeShape shape = LoadShipped( name ).Shape;
+
+            Desert::Graphic::CloudBakeLayerInputs layer;
+            layer.VolumeResolution = askedSide;
+
+            Desert::Assets::CloudProceduralFieldParams params;
+            Desert::Graphic::ApplyCloudMaterialToBakeParams( Desert::Graphic::CloudMaterialValues{}, layer, &shape,
+                                                             1u, params );
+
+            ASSERT_EQ( params.Species.size(), 1u ) << name;
+
+            const float authoredCellKm = params.Species.front().CellKm;
+            const float voxelFloorKm = 4.0f * params.RegionSizeKm / static_cast<float>( params.VolumeSideVoxels );
+
+            std::printf( "[CloudTypeLibrary] %-18s asked %3d voxels, baked %3u, cell %.2f km against a "
+                         "%.2f km grid floor\n",
+                         name, askedSide, params.VolumeSideVoxels, authoredCellKm, voxelFloorKm );
+
+            EXPECT_LE( voxelFloorKm, authoredCellKm + 1e-4f )
+                 << name << " authors a " << authoredCellKm << " km placement cell and the bake settled on a "
+                 << params.VolumeSideVoxels << " grid, whose four-voxel floor is " << voxelFloorKm
+                 << " km. The clusters would be laid out on a coarser lattice than the type asks for, which "
+                    "is a different sky rather than a blurrier one";
+
+            // AND IT ONLY EVER RAISES. A grid that fell below what the view asked for would be this
+            // subsystem deciding a view's cost for it, which is the opposite failure and just as silent.
+            EXPECT_GE( static_cast<int32_t>( params.VolumeSideVoxels ), askedSide ) << name;
+        }
+    }
+}
+
+// The negative control, and it is the half that makes the test above mean something: the seven types the
+// cheap grid CAN carry must still bake on it, or the fix would simply be "always use 256" wearing a
+// relation's clothes — and that would throw away O8's measured saving (229 ms against 961 ms) on every
+// preview in the editor.
+TEST( CloudTypeLibrary, TheCheapBakeGridIsKeptForEveryTypeThatFitsOnIt )
+{
+    int kept   = 0;
+    int raised = 0;
+
+    for ( const char* name : kShippedLibrary )
+    {
+        const CloudTypeShape shape = LoadShipped( name ).Shape;
+
+        Desert::Graphic::CloudBakeLayerInputs layer;
+        layer.VolumeResolution = static_cast<int32_t>( Desert::Assets::kCloudProceduralVolumeSideMin );
+
+        Desert::Assets::CloudProceduralFieldParams params;
+        Desert::Graphic::ApplyCloudMaterialToBakeParams( Desert::Graphic::CloudMaterialValues{}, layer, &shape, 1u,
+                                                         params );
+
+        const bool wasRaised = params.VolumeSideVoxels > Desert::Assets::kCloudProceduralVolumeSideMin;
+        ( wasRaised ? raised : kept )++;
+
+        // Named one by one rather than counted, because a count can be satisfied by a different two types
+        // than the two that were measured.
+        const bool expectRaise = ( std::string( name ) == kCloudTypeAltocumulus ) ||
+                                 ( std::string( name ) == kCloudTypeStratocumulus );
+
+        EXPECT_EQ( wasRaised, expectRaise )
+             << name
+             << ( expectRaise ? " authors a cell the cheap grid cannot carry and must raise it"
+                              : " fits on the cheap grid and must keep it" );
+    }
+
+    std::printf( "[CloudTypeLibrary] cheap bake grid kept for %d of the shipped types, raised for %d\n", kept,
+                 raised );
+    EXPECT_EQ( kept, 7 );
+    EXPECT_EQ( raised, 2 );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

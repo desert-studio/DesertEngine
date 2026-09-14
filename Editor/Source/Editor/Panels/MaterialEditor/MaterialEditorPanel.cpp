@@ -1856,6 +1856,17 @@ namespace Desert::Editor
             ImGui::SetNextItemWidth( -FLT_MIN );
             ImGui::SliderFloat( "Sky Intensity", &setup.SkyIntensity, 0.0f, 4.0f );
 
+            // THE GRADE, and it is a row because a preview that grades differently from the level is a
+            // preview an artist cannot tune against. Same range as the level's own Exposure in Scene
+            // Settings, so the number typed here is the number typed there.
+            ImGui::SetNextItemWidth( -FLT_MIN );
+            ImGui::SliderFloat( "Exposure", &setup.Exposure, 0.0f, 10.0f, "%.2f" );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "The Exposure this pane grades through - the same field a level carries "
+                                   "in Scene Settings. A cloud material opens at 0.26, which is what 50 of "
+                                   "the 51 cloud scenes in this project author; set it to your level's "
+                                   "value if that level disagrees." );
+
             // ROTATION IS NOT OFFERED, and its absence is a decision rather than an omission. For a
             // preset sky the environment's rotation IS the sun's azimuth — the row below — so a second
             // control would be two knobs on one number; and for an HDR environment the engine has no
@@ -1919,7 +1930,25 @@ namespace Desert::Editor
         // open cloud-material window costs every frame, so they are shown rather than hidden in a constant.
         if ( dome && ImGui::CollapsingHeader( "Cloud Tracing", ImGuiTreeNodeFlags_DefaultOpen ) )
         {
-            ImGui::TextDisabled( "This preview's own budget. The scene's layer keeps its component's." );
+            // WHAT THIS PANE IS NOT, WITH THE NUMBERS, and the line it replaces named two of the six.
+            // "This preview's own budget. The scene's layer keeps its component's." was true and it let a
+            // person believe the rest of the frame was the level's. It is not: the lens is more than twice
+            // as wide, the march is cheaper and the occlusion tier is the cheap one. A divergence a person
+            // cannot see is a divergence they will author against — which is the whole of the complaint
+            // this text exists to answer, so it is written here rather than in a report nobody opens.
+            //
+            // WHAT IS DELIBERATELY ABSENT FROM THE LIST: the bake grid. It used to belong on it and no
+            // longer does — Graphic::CloudBakeSideForSpecies raises this pane's grid whenever the cheap one
+            // could not express a type's placement cell, so the field baked here is the field the level
+            // bakes. That one was not a budget, it was a different sky.
+            ImGui::TextDisabled( "This pane is not the level's camera and not the level's budget:" );
+            ImGui::BulletText( "96 deg of vertical field against the 45 every camera in this project\n"
+                               "authors: whatever fills a level's frame covers a third of this one" );
+            ImGui::BulletText( "the march and the give-up point below, against a layer's 256 and 0.005" );
+            ImGui::BulletText( "cloud quality forced to Low - the sun ray takes 16 samples, not 32" );
+            ImGui::BulletText( "no bloom, no lens flare, no height fog, and the wind is stopped" );
+            ImGui::TextDisabled( "The grade and the sun are yours, on the two headers above." );
+
             ImGui::SetNextItemWidth( -FLT_MIN );
             ImGui::SliderInt( "Max Steps", &setup.CloudMaxSteps, 8, 256 );
             ImGui::SetNextItemWidth( -FLT_MIN );
