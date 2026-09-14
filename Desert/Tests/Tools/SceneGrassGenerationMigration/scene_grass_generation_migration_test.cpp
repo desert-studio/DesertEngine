@@ -363,26 +363,22 @@ TEST( SceneGrassGenerationMigration, TheCarriedIntegersAreTheEnumsOwnValues )
 // that has nothing to do with grass. It now lives in Desert/Tests/Tools/SceneRetiredKeysMigration,
 // beside the step that is currently the head. What stays is this step's own generation and its place
 // above its predecessor -- facts about the grass retirement, which do not move.
-TEST( SceneGrassGenerationMigration, TheStepIsWhereItWasWrittenToBe )
+// THE HEAD ASSERTION TRAVELS WITH THE NEWEST STEP, and it left here twice -- Г26 moved it out when it
+// added the wind retirement, and Ю15 moved it out independently when it added the text-key sigil. Both
+// arrived at the same conclusion without seeing the other, which is the strongest kind of agreement:
+// "the last step and the engine's required generation are one number" is a claim about the CHAIN, not
+// about grass, and a copy of it in every earlier suite turns one version bump into N red suites for one
+// reason. That teaches whoever bumps next to edit numbers rather than read them. It lives with whichever
+// suite owns the head -- SceneTextKeySigilMigration today.
+//
+// What IS this suite's to assert: its own step's number, and that the step sits after the one it was
+// added behind and at or below the head. Those are facts about the grass retirement and do not move.
+TEST( SceneGrassGenerationMigration, TheStepSitsWhereItWasAddedInTheChain )
 {
-    EXPECT_EQ( 18, Migration::kSceneVersionGrassGeneration );
+    EXPECT_EQ( Migration::kSceneVersionGrassGeneration, 18 );
     EXPECT_GT( Migration::kSceneVersionGrassGeneration, Migration::kSceneVersionServiceAssetRoot );
     EXPECT_LE( Migration::kSceneVersionGrassGeneration, Core::kSceneVersion )
          << "a step cannot sit above the head the loader requires";
-TEST( SceneGrassGenerationMigration, TheStepSitsWhereItWasAddedInTheChain )
-{
-    // THIS USED TO ASSERT THAT ITS OWN STEP WAS THE HEAD, and that was true on the day it landed and
-    // false the moment the next step existed (Ю15's v19). "The last step and the engine's required
-    // generation are one number" is a claim about the CHAIN, and it belongs to whichever suite owns the
-    // last step — Desert/Tests/Tools/SceneTextKeySigilMigration holds it today. A copy of it in every
-    // earlier suite turns one version bump into N red suites for one reason, which teaches whoever bumps
-    // next to edit numbers rather than to read them.
-    //
-    // What IS this suite's to assert: its step's own number, and that the step sits after the one it was
-    // added behind and at or below the head.
-    EXPECT_EQ( Migration::kSceneVersionGrassGeneration, 18 );
-    EXPECT_GT( Migration::kSceneVersionGrassGeneration, Migration::kSceneVersionServiceAssetRoot );
-    EXPECT_LE( Migration::kSceneVersionGrassGeneration, Core::kSceneVersion );
 }
 
 TEST( SceneGrassGenerationMigration, TheChainRunsTheStepAndStampsTheHead )

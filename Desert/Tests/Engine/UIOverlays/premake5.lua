@@ -27,6 +27,14 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UIDataStore.cpp",
+        -- Ю15: after the merge the walk resolves every authored label through Localization, so this
+        -- suite links the resolver for the same reason UICanvasContext does. The overlay tests author
+        -- literals, so the resolver returns them unchanged -- which is the negative control, not a gap.
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizationService.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizedText.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Text/Utf8.cpp",
         -- The two new fields must survive a reload, and this suite proves it against the SAME reflection

@@ -272,7 +272,7 @@ TEST( SceneTextKeySigilMigration, TheStepIsTheHeadTheEngineRequires )
     // every scene in the repository stops opening at once. The header asserts it at compile time; this is
     // the readable failure if somebody ever deletes that static_assert.
     EXPECT_EQ( Migration::kSceneVersionTextKeySigil, Core::kSceneVersion );
-    EXPECT_EQ( Core::kSceneVersion, 19 );
+    EXPECT_EQ( Core::kSceneVersion, 20 );
 }
 
 int main( int argc, char** argv )

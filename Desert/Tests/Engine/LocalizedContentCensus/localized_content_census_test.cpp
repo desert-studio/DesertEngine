@@ -89,6 +89,16 @@ namespace
              { "UI_VisibilityStack_Hidden", "", "probe fixture (visibility stack)" },
              { "UI_VisibilityStack_Collapsed", "", "probe fixture (visibility stack)" },
              { "MAT_ProbeTextRows", "", "probe fixture: RED/GREEN/BLUE name the colours being measured" },
+
+             // Arrived in the same merge as this census, from two tasks that could not have known about
+             // it. Same rule as the rows above: these scenes exist to be photographed, and their labels
+             // are the negative control that proves a language change does NOT move a literal. Keying
+             // them would delete the control.
+             { "UI_OverlayProbe", "", "probe fixture (tooltips, menus, modals, toasts)" },
+             { "UI_ThemeProbe_Dark", "", "probe fixture (theme resolution, dark)" },
+             { "UI_ThemeProbe_Light", "", "probe fixture (theme resolution, light)" },
+             { "UI_ThemeProbe_None", "", "probe fixture (no theme: every slot falls back to authored)" },
+             { "UI_ThemeProbe_A11y", "", "probe fixture (font scale and high contrast)" },
         };
         return rules;
     }

@@ -313,15 +313,18 @@ TEST( SceneRetiredKeysMigration, ASceneWithNoSettingsBlockGetsTheCanonicalOne )
 // the newest step, which is the only suite that can hold it without going red the day the next one lands.
 // What stays here is this step's own generation and its place above its predecessor: those are facts
 // about the machine-quality retirement and they do not move.
-// THE HEAD ASSERTION, which travels with the NEWEST step and arrived here with Г26's v19. If a step is
-// ever added to Tools/SceneMigrator without raising Core::kSceneVersion, the tool stamps files at a
-// generation the loader refuses and every scene in the repository stops opening at once — and the file
-// that caused it looks correct in isolation. Move this test to the next step's suite when one lands;
-// leaving it behind is what makes the suite that did nothing wrong go red.
-TEST( SceneRetiredKeysMigration, TheNewestStepIsTheGenerationTheEngineRequires )
+// THE HEAD ASSERTION LEFT HERE, and the comment above it predicted exactly how. It arrived with Г26's
+// v19 saying "move this when the next step lands" — and the next step landed in the SAME MERGE, because
+// Ю15 was building one in parallel and numbered it 19 too. Two steps cannot share a generation: a file
+// stamped 19 could not say which of the two it had had. Ю15's became 20, and with it the head.
+//
+// What stays is this step's own place, which is a fact about the wind retirement and does not move.
+TEST( SceneRetiredKeysMigration, ThisStepSitsAboveTheOneItWasAddedBehind )
 {
-    EXPECT_EQ( Migration::kSceneVersionWindRetired, Core::kSceneVersion );
+    EXPECT_EQ( Migration::kSceneVersionWindRetired, 19 );
     EXPECT_GT( Migration::kSceneVersionWindRetired, Migration::kSceneVersionGrassGeneration );
+    EXPECT_LE( Migration::kSceneVersionWindRetired, Core::kSceneVersion )
+         << "a step cannot sit above the head the loader requires";
 }
 
 TEST( SceneRetiredKeysMigration, ThisStepSitsAboveItsPredecessor )
