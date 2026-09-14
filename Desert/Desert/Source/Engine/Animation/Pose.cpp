@@ -2,8 +2,10 @@
 
 #include <Engine/Animation/Skeleton.hpp>
 
+#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/compatibility.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
 
@@ -11,19 +13,19 @@ namespace Desert::Animation
 {
     glm::mat4 BoneTransform::ToMatrix() const
     {
-        return glm::translate( glm::mat4( 1.0f ), Translation ) * glm::toMat4( Rotation ) *
-               glm::scale( glm::mat4( 1.0f ), Scale );
+        return glm::translate( glm::mat4( 1.0F ), Translation ) * glm::toMat4( Rotation ) *
+               glm::scale( glm::mat4( 1.0F ), Scale );
     }
 
-    Common::ResultStr<BoneTransform> BoneTransform::FromMatrix( const glm::mat4& m )
+    Common::ResultStr<BoneTransform> BoneTransform::FromMatrix( const glm::mat4& matrix )
     {
-        const glm::mat3 basis( m );
+        const glm::mat3 basis( matrix );
         const float     det = glm::determinant( basis );
 
         // <= 0 rather than < 0: a zero determinant means at least one axis collapsed, and normalising it
         // below would divide by zero and hand back a quaternion of NaNs. Both are refusals for the same
         // reason — the matrix does not describe a translation, a rotation and a positive scale.
-        if ( det <= 0.0f )
+        if ( det <= 0.0F )
         {
             return Common::MakeFormattedError<BoneTransform>(
                  "a bone transform with determinant {} cannot be decomposed into translation/rotation/scale: "
@@ -33,7 +35,7 @@ namespace Desert::Animation
         }
 
         BoneTransform out;
-        out.Translation = glm::vec3( m[3] );
+        out.Translation = glm::vec3( matrix[3] );
         out.Scale       = glm::vec3( glm::length( basis[0] ), glm::length( basis[1] ), glm::length( basis[2] ) );
 
         glm::mat3 rotation;
@@ -45,12 +47,12 @@ namespace Desert::Animation
         return Common::MakeSuccess( out );
     }
 
-    BoneTransform Blend( const BoneTransform& a, const BoneTransform& b, float alpha )
+    BoneTransform Blend( const BoneTransform& from, const BoneTransform& to, float alpha )
     {
         BoneTransform out;
-        out.Translation = glm::mix( a.Translation, b.Translation, alpha );
-        out.Rotation    = glm::slerp( a.Rotation, b.Rotation, alpha );
-        out.Scale       = glm::mix( a.Scale, b.Scale, alpha );
+        out.Translation = glm::mix( from.Translation, to.Translation, alpha );
+        out.Rotation    = glm::slerp( from.Rotation, to.Rotation, alpha );
+        out.Scale       = glm::mix( from.Scale, to.Scale, alpha );
         return out;
     }
 
@@ -74,16 +76,18 @@ namespace Desert::Animation
     }
 
     ComponentPose::ComponentPose( const Skeleton& skeleton, const LocalPose& local )
-         : m_Skeleton( skeleton ), m_Local( local ), m_Global( local.Size(), glm::mat4( 1.0f ) ),
+         : m_Skeleton( skeleton ), m_Local( local ), m_Global( local.Size(), glm::mat4( 1.0F ) ),
            m_Converted( local.Size(), 0 )
     {
     }
 
     const glm::mat4& ComponentPose::Get( uint32_t bone )
     {
-        static const glm::mat4 identity( 1.0f );
+        static const glm::mat4 identity( 1.0F );
         if ( bone >= m_Global.size() )
+        {
             return identity;
+        }
 
         if ( m_Converted[bone] )
             return m_Global[bone];
@@ -100,7 +104,9 @@ namespace Desert::Animation
             m_Chain.push_back( walk );
             const uint32_t parent = m_Skeleton.ResolveParent( walk );
             if ( parent == Skeleton::NO_PARENT || m_Converted[parent] )
+            {
                 break;
+            }
             walk = parent;
         }
 
@@ -139,7 +145,7 @@ namespace Desert::Animation
 
     void ComponentPose::Reset( size_t boneCount )
     {
-        m_Global.assign( boneCount, glm::mat4( 1.0f ) );
+        m_Global.assign( boneCount, glm::mat4( 1.0F ) );
         m_Converted.assign( boneCount, 0 );
     }
 
@@ -150,7 +156,7 @@ namespace Desert::Animation
         const auto&  bones = m_Skeleton.GetBones();
         const size_t n     = m_Global.size();
         if ( out.size() != n )
-            out.assign( n, glm::mat4( 1.0f ) );
+            out.assign( n, glm::mat4( 1.0F ) );
         for ( size_t i = 0; i < n; ++i )
             out[i] = m_Global[i] * bones[i].OffsetMatrix;
     }

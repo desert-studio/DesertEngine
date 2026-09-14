@@ -1,7 +1,13 @@
 #include "Animator.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/Timestep.hpp>
 
+#include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/Skeleton.hpp>
+
+#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 
@@ -68,7 +74,9 @@ namespace Desert::Animation
     void Animator::SetBoneLocalPose( uint32_t boneIndex, const glm::mat4& localTransform )
     {
         if ( boneIndex >= m_AuthoringPose.Size() )
+        {
             return;
+        }
 
         auto decomposed = BoneTransform::FromMatrix( localTransform );
         if ( !decomposed.IsSuccess() )
@@ -82,7 +90,7 @@ namespace Desert::Animation
 
     glm::mat4 Animator::GetBoneLocalPose( uint32_t boneIndex ) const
     {
-        return boneIndex < m_AuthoringPose.Size() ? m_AuthoringPose[boneIndex].ToMatrix() : glm::mat4( 1.0f );
+        return boneIndex < m_AuthoringPose.Size() ? m_AuthoringPose[boneIndex].ToMatrix() : glm::mat4( 1.0F );
     }
 
     void Animator::SampleClipIntoLocalPose( const AnimationClip& clip, float time )
@@ -121,7 +129,7 @@ namespace Desert::Animation
 
     void Animator::Play( const AnimationClip& clip, bool loop )
     {
-        m_Current    = { &clip, 0.0f, loop };
+        m_Current    = { &clip, 0.0F, loop };
         m_Next       = {};
         m_IsBlending = false;
     }
@@ -129,13 +137,18 @@ namespace Desert::Animation
     void Animator::CrossFade( const AnimationClip& clip, float duration, bool loop )
     {
         if ( m_Current.Clip == &clip )
+        {
             return;
+        }
 
-        m_Next = { &clip, 0.0f, loop };
+        m_Next = { &clip, 0.0F, loop };
 
         m_IsBlending    = true;
-        m_BlendTime     = 0.0f;
-        m_BlendDuration = glm::max( duration, 0.0001f );
+        m_BlendTime     = 0.0F;
+        // A crossfade of zero would divide by zero in BlendAlpha; the floor is small enough that the
+        // first Update already reaches alpha 1, so a zero-length blend behaves as an instant cut.
+        constexpr float MIN_BLEND_SECONDS = 0.0001F;
+        m_BlendDuration                   = glm::max( duration, MIN_BLEND_SECONDS );
     }
 
     void Animator::Stop()
@@ -149,12 +162,14 @@ namespace Desert::Animation
     // Update — the pipeline
     // ============================================================
 
-    void Animator::Update( const Common::Timestep& ts )
+    void Animator::Update( const Common::Timestep& step )
     {
-        const float deltaTime = ts.GetSeconds() * m_PlaybackSpeed;
+        const float deltaTime = step.GetSeconds() * m_PlaybackSpeed;
 
         if ( !m_Current.IsValid() )
+        {
             return;
+        }
 
         UpdatePlayback( m_Current, deltaTime );
 
@@ -172,7 +187,7 @@ namespace Desert::Animation
 
         // Retire the blend AFTER evaluating, so the frame that reaches alpha 1 renders the target clip
         // rather than a pose built from a blend that has already been thrown away.
-        if ( m_IsBlending && m_Next.IsValid() && BlendAlpha() >= 1.0f )
+        if ( m_IsBlending && m_Next.IsValid() && BlendAlpha() >= 1.0F )
         {
             m_Current    = m_Next;
             m_Next       = {};
@@ -217,9 +232,9 @@ namespace Desert::Animation
 
         for ( const auto& layer : m_Layers )
         {
-            if ( !layer.Playback.IsValid() || layer.Weight <= 0.0f )
+            if ( !layer.Playback.IsValid() || layer.Weight <= 0.0F )
                 continue;
-            const float w = glm::clamp( layer.Weight, 0.0f, 1.0f );
+            const float w = glm::clamp( layer.Weight, 0.0F, 1.0F );
 
             for ( uint32_t i = 0; i < n; ++i )
             {
@@ -237,9 +252,9 @@ namespace Desert::Animation
                     BoneTransform        out;
                     out.Translation    = base.Translation + w * ( layerLocal.Translation - bind.Translation );
                     const glm::quat dR = layerLocal.Rotation * glm::inverse( bind.Rotation );
-                    out.Rotation       = glm::slerp( glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ), dR, w ) * base.Rotation;
-                    const glm::vec3 dS = layerLocal.Scale / glm::max( bind.Scale, glm::vec3( 1e-6f ) );
-                    out.Scale          = base.Scale * glm::mix( glm::vec3( 1.0f ), dS, w );
+                    out.Rotation       = glm::slerp( glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), dR, w ) * base.Rotation;
+                    const glm::vec3 dS = layerLocal.Scale / glm::max( bind.Scale, glm::vec3( 1e-6F ) );
+                    out.Scale          = base.Scale * glm::mix( glm::vec3( 1.0F ), dS, w );
                     pose[i]            = out;
                 }
                 else
@@ -259,43 +274,49 @@ namespace Desert::Animation
 
     void Animator::SyncLayerStage()
     {
-        const auto it      = std::find( m_Stages.begin(), m_Stages.end(), PoseStage::Layers );
-        const bool present = it != m_Stages.end();
+        const auto found   = std::find( m_Stages.begin(), m_Stages.end(), PoseStage::Layers );
+        const bool present = found != m_Stages.end();
         const bool wanted  = !m_Layers.empty();
 
         if ( wanted && !present )
             m_Stages.push_back( PoseStage::Layers );
         else if ( !wanted && present )
-            m_Stages.erase( it );
+            m_Stages.erase( found );
     }
 
     // ============================================================
     // Playback Update
     // ============================================================
 
-    void Animator::UpdatePlayback( ClipPlayback& playback, float dt )
+    void Animator::UpdatePlayback( ClipPlayback& playback, float deltaTime )
     {
         if ( !playback.IsValid() )
+        {
             return;
+        }
 
-        const float tps = playback.Clip->TicksPerSecond > 0.0f ? playback.Clip->TicksPerSecond : 25.0f;
+        const float tps = playback.Clip->TicksPerSecond > 0.0F ? playback.Clip->TicksPerSecond : 25.0F;
 
         const float prev     = playback.Time;
         const float duration = playback.Clip->Duration;
 
-        playback.Time += dt * tps;
+        playback.Time += deltaTime * tps;
 
-        const bool looped = playback.Loop && duration > 0.0f && playback.Time >= duration;
+        const bool looped = playback.Loop && duration > 0.0F && playback.Time >= duration;
 
         if ( playback.Loop )
-            playback.Time = duration > 0.0f ? fmod( playback.Time, duration ) : 0.0f;
+        {
+            playback.Time = duration > 0.0F ? fmod( playback.Time, duration ) : 0.0F;
+        }
         else
+        {
             playback.Time = glm::min( playback.Time, duration );
+        }
 
         // Fire the CURRENT clip's notifies whose time was crossed this frame (forward playback only). The
         // covered interval is (prev, newTime]; on a loop wrap it is (prev, duration) ∪ [0, newTime]. One
         // frame is assumed not to skip a whole loop (dt*tps < duration), which holds for real playback.
-        if ( &playback == &m_Current && dt > 0.0f && !playback.Clip->Notifies.empty() )
+        if ( &playback == &m_Current && deltaTime > 0.0F && !playback.Clip->Notifies.empty() )
         {
             const float newTime = playback.Time;
             for ( const auto& n : playback.Clip->Notifies )
@@ -316,7 +337,9 @@ namespace Desert::Animation
     {
         if ( const BoneTrack* track = ResolveTrack( clip, boneIndex ) )
             if ( track->HasKeys() )
+            {
                 return track->Sample( time );
+            }
         return m_BindPose[boneIndex];
     }
 
@@ -324,19 +347,25 @@ namespace Desert::Animation
     {
         const BoneTransform a = SampleLocalTransform( m_Current.Clip, boneIndex, m_Current.Time );
         if ( !m_IsBlending || !m_Next.IsValid() )
+        {
             return a;
+        }
 
         const float alpha = BlendAlpha();
 
         // Exactly the endpoints at the endpoints. `Blend` slerps, and slerp at alpha 0 is not bit-identical
         // to its input for every quaternion; short-circuiting is what makes "a crossfade at 0 is the source
         // clip, bit for bit" a property that can be asserted rather than approximated.
-        if ( alpha <= 0.0f )
+        if ( alpha <= 0.0F )
+        {
             return a;
+        }
 
         const BoneTransform b = SampleLocalTransform( m_Next.Clip, boneIndex, m_Next.Time );
-        if ( alpha >= 1.0f )
+        if ( alpha >= 1.0F )
+        {
             return b;
+        }
 
         return Blend( a, b, alpha );
     }
@@ -344,7 +373,9 @@ namespace Desert::Animation
     const BoneTrack* Animator::ResolveTrack( const AnimationClip* clip, uint32_t boneIndex ) const
     {
         if ( !clip )
+        {
             return nullptr;
+        }
 
         auto& binding = m_TrackBinding[clip];
 
@@ -367,14 +398,20 @@ namespace Desert::Animation
             {
                 const auto& track = clip->Tracks[t];
                 if ( track.BoneName.empty() )
+                {
                     continue;
+                }
                 if ( const auto bone = m_Skeleton.FindBoneIndex( track.BoneName ) )
+                {
                     binding.ByBone[*bone] = t;
+                }
             }
         }
 
         if ( boneIndex >= binding.ByBone.size() )
+        {
             return nullptr;
+        }
         const uint32_t track = binding.ByBone[boneIndex];
         return track == TrackBinding::NO_TRACK ? nullptr : &clip->Tracks[track];
     }
@@ -399,10 +436,14 @@ namespace Desert::Animation
     bool Animator::IsFinished() const
     {
         if ( !m_Current.IsValid() )
+        {
             return true;
+        }
 
         if ( m_Current.Loop )
+        {
             return false;
+        }
 
         return m_Current.Time >= m_Current.Clip->Duration;
     }
@@ -410,19 +451,25 @@ namespace Desert::Animation
     void Animator::SetTime( float time )
     {
         if ( !m_Current.IsValid() )
+        {
             return;
+        }
 
-        m_Current.Time = glm::clamp( time, 0.0f, m_Current.Clip->Duration );
+        m_Current.Time = glm::clamp( time, 0.0F, m_Current.Clip->Duration );
         EvaluatePipeline();
     }
 
     void Animator::SetLoop( bool loop )
     {
         if ( m_Current.IsValid() )
+        {
             m_Current.Loop = loop;
+        }
 
         if ( m_IsBlending && m_Next.IsValid() )
+        {
             m_Next.Loop = loop;
+        }
     }
 
     const AnimationClip* Animator::GetCurrentClip() const
@@ -440,7 +487,7 @@ namespace Desert::Animation
     int Animator::AddLayer( const AnimationClip& clip, float weight, bool additive, bool loop )
     {
         AnimationLayer layer;
-        layer.Playback = { &clip, 0.0f, loop };
+        layer.Playback = { &clip, 0.0F, loop };
         layer.Weight   = weight;
         layer.Additive = additive;
         m_Layers.push_back( std::move( layer ) );
@@ -451,9 +498,11 @@ namespace Desert::Animation
     void Animator::SetLayerClip( int index, const AnimationClip& clip )
     {
         if ( index < 0 || index >= static_cast<int>( m_Layers.size() ) )
+        {
             return;
+        }
         if ( m_Layers[index].Playback.Clip != &clip )
-            m_Layers[index].Playback = { &clip, 0.0f, m_Layers[index].Playback.Loop };
+            m_Layers[index].Playback = { &clip, 0.0F, m_Layers[index].Playback.Loop };
     }
 
     void Animator::SetLayerWeight( int index, float weight )
@@ -472,7 +521,9 @@ namespace Desert::Animation
                                         bool includeChildren )
     {
         if ( index < 0 || index >= static_cast<int>( m_Layers.size() ) )
+        {
             return;
+        }
 
         const auto&          bones = m_Skeleton.GetBones();
         std::vector<uint8_t> mask( bones.size(), 0 );
@@ -509,10 +560,14 @@ namespace Desert::Animation
     bool Animator::IsBoneInLayerMask( int index, uint32_t boneIndex ) const
     {
         if ( index < 0 || index >= static_cast<int>( m_Layers.size() ) )
+        {
             return false;
+        }
         const auto& mask = m_Layers[index].BoneMask;
         if ( mask.empty() )
+        {
             return boneIndex < m_Skeleton.GetBones().size();
+        }
         return boneIndex < mask.size() && mask[boneIndex] != 0;
     }
 

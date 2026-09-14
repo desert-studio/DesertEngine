@@ -52,9 +52,9 @@ namespace Desert::Animation
      */
     struct BoneTransform
     {
-        glm::vec3 Translation = glm::vec3( 0.0f );
-        glm::quat Rotation    = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
-        glm::vec3 Scale       = glm::vec3( 1.0f );
+        glm::vec3 Translation = glm::vec3( 0.0F );
+        glm::quat Rotation    = glm::quat( 1.0F, 0.0F, 0.0F, 0.0F );
+        glm::vec3 Scale       = glm::vec3( 1.0F );
 
         [[nodiscard]] glm::mat4 ToMatrix() const;
 
@@ -72,13 +72,13 @@ namespace Desert::Animation
          * nearest TRS, which is what every consumer of a TRS pose means by it. When a task introduces
          * signed scale, this is the one place that has to learn about it.
          */
-        [[nodiscard]] static Common::ResultStr<BoneTransform> FromMatrix( const glm::mat4& m );
+        [[nodiscard]] static Common::ResultStr<BoneTransform> FromMatrix( const glm::mat4& matrix );
     };
 
     /// Component-wise interpolation: lerp position and scale, slerp rotation. `alpha` is NOT clamped here —
     /// callers that need the endpoints bit-exact must short-circuit, because a round trip through this is
     /// not the identity on a matrix that was not exactly a TRS to begin with.
-    [[nodiscard]] BoneTransform Blend( const BoneTransform& a, const BoneTransform& b, float alpha );
+    [[nodiscard]] BoneTransform Blend( const BoneTransform& from, const BoneTransform& to, float alpha );
 
     /**
      * @brief PARENT-RELATIVE TRS, index-for-index with `Skeleton::GetBones()`.

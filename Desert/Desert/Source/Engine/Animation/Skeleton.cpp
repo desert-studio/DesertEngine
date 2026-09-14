@@ -1,6 +1,6 @@
 #include "Skeleton.hpp"
 
-#include <Common/Core/Logger.hpp>
+#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <string>
@@ -32,22 +32,24 @@ namespace Desert::Animation
 
     void Skeleton::BuildStructure()
     {
-        const size_t n = m_Bones.size();
-        m_Parents.assign( n, NO_PARENT );
+        const size_t count = m_Bones.size();
+        m_Parents.assign( count, NO_PARENT );
         m_ResolveOrder.clear();
-        m_ResolveOrder.reserve( n );
+        m_ResolveOrder.reserve( count );
 
-        std::vector<uint32_t> childCount( n, 0 );
+        std::vector<uint32_t> childCount( count, 0 );
         std::string           danglingParents;
         size_t                danglingCount = 0;
 
-        for ( uint32_t i = 0; i < n; ++i )
+        for ( uint32_t i = 0; i < count; ++i )
         {
             if ( !m_Bones[i].ParentBoneID.has_value() )
+            {
                 continue;
+            }
 
             const uint32_t parent = m_Bones[i].ParentBoneID.value();
-            if ( parent >= n || parent == i )
+            if ( parent >= count || parent == i )
             {
                 // Resolved as a root, ONCE, here — rather than by each of the eight chain walks deciding for
                 // itself, which is how one of them treated such a bone as a root and another never visited it.
@@ -74,29 +76,32 @@ namespace Desert::Animation
         // cycle — found rather than searched for, and cheaper than the recursion that used to run off the
         // stack when one existed.
         std::vector<uint32_t> pending;
-        pending.reserve( n );
-        for ( uint32_t i = 0; i < n; ++i )
+        pending.reserve( count );
+        for ( uint32_t i = 0; i < count; ++i )
             if ( m_Parents[i] == NO_PARENT )
                 pending.push_back( i );
 
-        std::vector<uint8_t> visited( n, 0 );
+        std::vector<uint8_t> visited( count, 0 );
         for ( size_t head = 0; head < pending.size(); ++head )
         {
             const uint32_t bone = pending[head];
             visited[bone]       = 1;
             m_ResolveOrder.push_back( bone );
             if ( childCount[bone] == 0 )
+            {
                 continue;
-            for ( uint32_t child = 0; child < n; ++child )
+            }
+            for ( uint32_t child = 0; child < count; ++child )
                 if ( m_Parents[child] == bone )
                     pending.push_back( child );
         }
 
-        if ( m_ResolveOrder.size() != n )
+        if ( m_ResolveOrder.size() != count )
         {
             std::string cyclic;
             size_t      cyclicCount = 0;
-            for ( uint32_t i = 0; i < n; ++i )
+            for ( uint32_t i = 0; i < count; ++i )
+            {
                 if ( !visited[i] )
                 {
                     ++cyclicCount;
@@ -107,6 +112,7 @@ namespace Desert::Animation
                     cyclic += cyclic.empty() ? "" : ", ";
                     cyclic += fmt::format( "{}('{}')", i, m_Bones[i].Name );
                 }
+            }
             m_StructureError += m_StructureError.empty() ? "" : " ";
             m_StructureError += fmt::format( "{} bone(s) form a parent cycle and are resolved as roots: [{}].",
                                              cyclicCount, cyclic );
@@ -115,10 +121,12 @@ namespace Desert::Animation
 
     bool Skeleton::SetLocalBindTransform( uint32_t bone, const glm::mat4& localBind )
     {
-        if ( bone >= m_Bones.size() )
-            return false;
-        m_Bones[bone].LocalBindTransform = localBind;
-        return true;
+        const bool inRange = bone < m_Bones.size();
+        if ( inRange )
+        {
+            m_Bones[bone].LocalBindTransform = localBind;
+        }
+        return inRange;
     }
 
     void Skeleton::WriteBindSkinningMatrices( std::vector<glm::mat4>& out ) const
@@ -154,7 +162,9 @@ namespace Desert::Animation
             }
 
         if ( bad == 0 )
+        {
             return Common::MakeSuccess( true );
+        }
 
         return Common::MakeFormattedError<bool>(
              "'{}' skins {} vertex influence(s) to a bone index this rig does not have (highest {}, the rig "
@@ -164,9 +174,9 @@ namespace Desert::Animation
              sourceName, bad, worst, boneCount );
     }
 
-    // ORDER-INDEPENDENT signature: identifies a rig by its SET of (bone name -> parent bone name) edges, NOT by
-    // the order bones happen to appear in the array. This matters because the same Mixamo rig exported WITH a
-    // skin (character) vs WITHOUT a skin (animation file) yields the bones in different array orders / from
+    // ORDER-INDEPENDENT signature: identifies a rig by its SET of (bone name -> parent bone name) edges, NOT
+    // by the order bones happen to appear in the array. This matters because the same Mixamo rig exported WITH
+    // a skin (character) vs WITHOUT a skin (animation file) yields the bones in different array orders / from
     // different sources (mesh weights vs animation channels) — an order-sensitive hash would give them
     // different signatures and the animation would never match the character. Hashing a sorted set of
     // name<parentName entries makes both produce the SAME signature while still distinguishing different rigs.

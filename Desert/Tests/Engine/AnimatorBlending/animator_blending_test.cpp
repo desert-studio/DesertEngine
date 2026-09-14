@@ -39,18 +39,30 @@ namespace
     bool MatExact( const glm::mat4& a, const glm::mat4& b )
     {
         for ( int c = 0; c < 4; ++c )
+        {
             for ( int r = 0; r < 4; ++r )
+            {
                 if ( a[c][r] != b[c][r] )
+                {
                     return false;
+                }
+            }
+        }
         return true;
     }
 
-    bool MatNear( const glm::mat4& a, const glm::mat4& b, float eps = 1e-4f )
+    bool MatNear( const glm::mat4& a, const glm::mat4& b, float eps = 1e-4F )
     {
         for ( int c = 0; c < 4; ++c )
+        {
             for ( int r = 0; r < 4; ++r )
+            {
                 if ( std::fabs( a[c][r] - b[c][r] ) > eps )
+                {
                     return false;
+                }
+            }
+        }
         return true;
     }
 
@@ -71,13 +83,13 @@ namespace
     {
         std::vector<BoneInfo> bones;
         bones.push_back( MakeBone( "root", std::nullopt,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 90.0f, 0.0f ) ) ) );
-        bones.push_back( MakeBone( "spine", 0u,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 30.0f, 0.0f ) ) *
-                                        glm::rotate( glm::mat4( 1.0f ), 0.35f, glm::vec3( 0, 0, 1 ) ) ) );
-        bones.push_back( MakeBone( "arm", 1u,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 20.0f, 0.0f, 0.0f ) ) *
-                                        glm::rotate( glm::mat4( 1.0f ), -0.8f, glm::vec3( 1, 0, 0 ) ) ) );
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 0.0F, 90.0F, 0.0F ) ) ) );
+        bones.push_back( MakeBone( "spine", 0U,
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 0.0F, 30.0F, 0.0F ) ) *
+                                        glm::rotate( glm::mat4( 1.0F ), 0.35F, glm::vec3( 0, 0, 1 ) ) ) );
+        bones.push_back( MakeBone( "arm", 1U,
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 20.0F, 0.0F, 0.0F ) ) *
+                                        glm::rotate( glm::mat4( 1.0F ), -0.8F, glm::vec3( 1, 0, 0 ) ) ) );
         Skeleton skeleton( std::move( bones ) );
         skeleton.RecomputeOffsetMatrices();
         return skeleton;
@@ -85,19 +97,19 @@ namespace
 
     /// A one-key clip: `bone` sits at `position` with `rotation`, for the whole of `duration`.
     AnimationClip StaticClip( const char* name, const char* bone, const glm::vec3& position,
-                              const glm::quat& rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ),
-                              float            duration = 2.0f )
+                              const glm::quat& rotation = glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
+                              float            duration = 2.0F )
     {
         AnimationClip clip;
         clip.AnimationName  = name;
         clip.Duration       = duration;
-        clip.TicksPerSecond = 1.0f;
+        clip.TicksPerSecond = 1.0F;
 
         BoneTrack track;
         track.BoneName = bone;
-        track.PositionKeys.push_back( { 0.0f, position } );
-        track.RotationKeys.push_back( { 0.0f, rotation } );
-        track.ScaleKeys.push_back( { 0.0f, glm::vec3( 1.0f ) } );
+        track.PositionKeys.push_back( { 0.0F, position } );
+        track.RotationKeys.push_back( { 0.0F, rotation } );
+        track.ScaleKeys.push_back( { 0.0F, glm::vec3( 1.0F ) } );
         clip.Tracks.push_back( std::move( track ) );
         return clip;
     }
@@ -116,20 +128,20 @@ TEST( AnimatorBlending, TheLayerStageJoinsAndLeavesWithTheLayerStack )
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
-    AnimationClip  clip = StaticClip( "Base", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ) );
+    AnimationClip  clip = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
 
-    ASSERT_EQ( animator.GetStages().size(), 1u );
+    ASSERT_EQ( animator.GetStages().size(), 1U );
     EXPECT_EQ( animator.GetStages()[0], PoseStage::Source )
          << "something has to produce a pose; Source is not optional";
 
-    animator.AddLayer( clip, 1.0f );
-    ASSERT_EQ( animator.GetStages().size(), 2u );
+    animator.AddLayer( clip, 1.0F );
+    ASSERT_EQ( animator.GetStages().size(), 2U );
     EXPECT_EQ( animator.GetStages()[1], PoseStage::Layers )
          << "layers must run AFTER the source — an order this test exists to state, because the previous "
             "code expressed it only as statement order inside Update()";
 
     animator.ClearLayers();
-    EXPECT_EQ( animator.GetStages().size(), 1u )
+    EXPECT_EQ( animator.GetStages().size(), 1U )
          << "a stage with nothing to do stayed in the list, so the list stopped describing what runs";
 }
 
@@ -145,17 +157,17 @@ TEST( AnimatorBlending, ACrossFadeAtZeroIsTheSourceClipBitForBit )
     // short-circuit this test exists to pin was UNREACHABLE and deleting it left the suite green — a
     // surviving mutation, and a test that proved nothing. A wide angle forces the sin(theta) path, where
     // sin(0)/sin(theta) is not exactly the identity in floating point.
-    AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ),
-                                  glm::angleAxis( 0.3f, glm::normalize( glm::vec3( 1, 2, 3 ) ) ) );
-    AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0f, 80.0f, 0.0f ),
-                                  glm::angleAxis( 2.4f, glm::normalize( glm::vec3( 3, -1, 2 ) ) ) );
+    AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ),
+                                  glm::angleAxis( 0.3F, glm::normalize( glm::vec3( 1, 2, 3 ) ) ) );
+    AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0F, 80.0F, 0.0F ),
+                                  glm::angleAxis( 2.4F, glm::normalize( glm::vec3( 3, -1, 2 ) ) ) );
 
     animator.Play( a );
-    animator.SetTime( 0.5f );
+    animator.SetTime( 0.5F );
     const glm::mat4 pureA = animator.GetPose().Matrices[1];
 
-    animator.CrossFade( b, 4.0f );
-    animator.Update( Timestep( 0.0f ) ); // alpha still 0
+    animator.CrossFade( b, 4.0F );
+    animator.Update( Timestep( 0.0F ) ); // alpha still 0
 
     EXPECT_TRUE( MatExact( animator.GetPose().Matrices[1], pureA ) )
          << "the first frame of a crossfade already moved the character. A blend at alpha 0 that is only "
@@ -167,16 +179,16 @@ TEST( AnimatorBlending, ACrossFadeAtOneIsTheTargetClip )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ) );
-    AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0f, 80.0f, 0.0f ) );
+    AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0F, 80.0F, 0.0F ) );
 
     animator.Play( b );
-    animator.SetTime( 0.0f );
+    animator.SetTime( 0.0F );
     const glm::mat4 pureB = animator.GetPose().Matrices[1];
 
     animator.Play( a );
-    animator.CrossFade( b, 1.0f );
-    animator.Update( Timestep( 1.0f ) ); // alpha hits exactly 1
+    animator.CrossFade( b, 1.0F );
+    animator.Update( Timestep( 1.0F ) ); // alpha hits exactly 1
 
     EXPECT_TRUE( MatNear( animator.GetPose().Matrices[1], pureB ) )
          << "the end of the blend is not the clip it blended to, so the transition ends with a snap";
@@ -193,21 +205,21 @@ TEST( AnimatorBlending, ACrossFadeKeepsTheSkeletonConnected )
     Animator       animator( skeleton );
 
     AnimationClip a =
-         StaticClip( "A", "arm", glm::vec3( 20.0f, 0.0f, 0.0f ), glm::angleAxis( 0.0f, glm::vec3( 0, 0, 1 ) ) );
+         StaticClip( "A", "arm", glm::vec3( 20.0F, 0.0F, 0.0F ), glm::angleAxis( 0.0F, glm::vec3( 0, 0, 1 ) ) );
     AnimationClip b =
-         StaticClip( "B", "arm", glm::vec3( 20.0f, 0.0f, 0.0f ), glm::angleAxis( 2.2f, glm::vec3( 0, 0, 1 ) ) );
+         StaticClip( "B", "arm", glm::vec3( 20.0F, 0.0F, 0.0F ), glm::angleAxis( 2.2F, glm::vec3( 0, 0, 1 ) ) );
 
     animator.Play( a );
-    animator.SetTime( 0.0f );
+    animator.SetTime( 0.0F );
     const float restLength = glm::length( BonePosition( animator, 2 ) - BonePosition( animator, 1 ) );
-    ASSERT_GT( restLength, 1.0f ) << "the fixture is degenerate: the arm sits on top of the spine";
+    ASSERT_GT( restLength, 1.0F ) << "the fixture is degenerate: the arm sits on top of the spine";
 
-    animator.CrossFade( b, 1.0f );
+    animator.CrossFade( b, 1.0F );
     for ( int step = 0; step < 10; ++step )
     {
-        animator.Update( Timestep( 0.1f ) );
+        animator.Update( Timestep( 0.1F ) );
         const float length = glm::length( BonePosition( animator, 2 ) - BonePosition( animator, 1 ) );
-        EXPECT_NEAR( length, restLength, restLength * 1e-3f )
+        EXPECT_NEAR( length, restLength, restLength * 1e-3F )
              << "at step " << step << " the arm is " << length << " from the spine instead of " << restLength
              << "; a rotation blend moved a bone away from its parent";
     }
@@ -220,16 +232,16 @@ TEST( AnimatorBlending, AnOverrideLayerAtFullWeightReplacesTheBase )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ) );
-    AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0f, 300.0f, 0.0f ) );
+    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 300.0F, 0.0F ) );
 
     animator.Play( layer );
-    animator.SetTime( 0.0f );
+    animator.SetTime( 0.0F );
     const glm::mat4 pureLayer = animator.GetPose().Matrices[1];
 
     animator.Play( base );
-    animator.AddLayer( layer, 1.0f );
-    animator.Update( Timestep( 0.0f ) );
+    animator.AddLayer( layer, 1.0F );
+    animator.Update( Timestep( 0.0F ) );
 
     EXPECT_TRUE( MatNear( animator.GetPose().Matrices[1], pureLayer ) )
          << "weight 1 on an override layer is not the layer, so the weight slider does not mean what it says";
@@ -240,19 +252,21 @@ TEST( AnimatorBlending, AnOverrideLayerAtZeroWeightChangesNothing )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ) );
-    AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0f, 300.0f, 0.0f ) );
+    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 300.0F, 0.0F ) );
 
     animator.Play( base );
-    animator.Update( Timestep( 0.0f ) );
+    animator.Update( Timestep( 0.0F ) );
     const auto without = animator.GetPose().Matrices;
 
-    animator.AddLayer( layer, 0.0f );
-    animator.Update( Timestep( 0.0f ) );
+    animator.AddLayer( layer, 0.0F );
+    animator.Update( Timestep( 0.0F ) );
 
     for ( size_t i = 0; i < without.size(); ++i )
+    {
         EXPECT_TRUE( MatExact( animator.GetPose().Matrices[i], without[i] ) )
              << "bone " << i << " moved under a layer of weight zero";
+    }
 }
 
 TEST( AnimatorBlending, AnAdditiveLayerAddsItsDeltaFromBindAndNotItsPose )
@@ -263,16 +277,16 @@ TEST( AnimatorBlending, AnAdditiveLayerAddsItsDeltaFromBindAndNotItsPose )
     // The bind local of "spine" translates (0,30,0). An additive clip putting it at (0,45,0) is a delta of
     // +15, so over a base at (0,100,0) the result must be (0,115,0) — NOT (0,45,0), which is what an
     // additive layer implemented as an override would give.
-    AnimationClip base     = StaticClip( "Base", "spine", glm::vec3( 0.0f, 100.0f, 0.0f ) );
-    AnimationClip additive = StaticClip( "Add", "spine", glm::vec3( 0.0f, 45.0f, 0.0f ) );
+    AnimationClip base     = StaticClip( "Base", "spine", glm::vec3( 0.0F, 100.0F, 0.0F ) );
+    AnimationClip additive = StaticClip( "Add", "spine", glm::vec3( 0.0F, 45.0F, 0.0F ) );
 
     animator.Play( base );
-    animator.AddLayer( additive, 1.0f, /*additive=*/true );
-    animator.Update( Timestep( 0.0f ) );
+    animator.AddLayer( additive, 1.0F, /*additive=*/true );
+    animator.Update( Timestep( 0.0F ) );
 
     const glm::vec3 spine = BonePosition( animator, 1 );
     const glm::vec3 root  = BonePosition( animator, 0 );
-    EXPECT_NEAR( spine.y - root.y, 115.0f, 1e-3f )
+    EXPECT_NEAR( spine.y - root.y, 115.0F, 1e-3F )
          << "the additive layer contributed its POSE rather than its delta from bind";
 }
 
@@ -281,16 +295,16 @@ TEST( AnimatorBlending, HalfWeightIsBetweenTheTwoAndOnTheSegment )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0f, 0.0f, 0.0f ) );
-    AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0f, 100.0f, 0.0f ) );
+    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 0.0F, 0.0F ) );
+    AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 100.0F, 0.0F ) );
 
     animator.Play( base );
-    animator.AddLayer( layer, 0.5f );
-    animator.Update( Timestep( 0.0f ) );
+    animator.AddLayer( layer, 0.5F );
+    animator.Update( Timestep( 0.0F ) );
 
     const glm::vec3 spine = BonePosition( animator, 1 );
     const glm::vec3 root  = BonePosition( animator, 0 );
-    EXPECT_NEAR( spine.y - root.y, 50.0f, 1e-3f ) << "a half-weight override is not halfway";
+    EXPECT_NEAR( spine.y - root.y, 50.0F, 1e-3F ) << "a half-weight override is not halfway";
 }
 
 // ── Masks ───────────────────────────────────────────────────────────────────────────────────────────
@@ -300,16 +314,16 @@ TEST( AnimatorBlending, ABoneOutsideTheMaskDoesNotMoveByOneBit )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ) );
-    AnimationClip layer = StaticClip( "Layer", "root", glm::vec3( 500.0f, 0.0f, 0.0f ) );
+    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    AnimationClip layer = StaticClip( "Layer", "root", glm::vec3( 500.0F, 0.0F, 0.0F ) );
 
     animator.Play( base );
-    animator.Update( Timestep( 0.0f ) );
+    animator.Update( Timestep( 0.0F ) );
     const Desert::Animation::BoneTransform spineWithout = animator.GetLocalPose()[1];
 
-    const int index = animator.AddLayer( layer, 1.0f );
+    const int index = animator.AddLayer( layer, 1.0F );
     animator.SetLayerMaskByNames( index, { "root" }, /*includeChildren=*/false );
-    animator.Update( Timestep( 0.0f ) );
+    animator.Update( Timestep( 0.0F ) );
 
     EXPECT_FALSE( animator.IsBoneInLayerMask( index, 1 ) );
 
@@ -326,7 +340,7 @@ TEST( AnimatorBlending, ABoneOutsideTheMaskDoesNotMoveByOneBit )
     EXPECT_EQ( spineWith.Scale, spineWithout.Scale );
 
     // And the negative control: the masked-IN bone did move.
-    EXPECT_NE( animator.GetLocalPose()[0].Translation.x, 0.0f )
+    EXPECT_NE( animator.GetLocalPose()[0].Translation.x, 0.0F )
          << "the layer changed nothing at all, so the test above proves nothing";
 }
 
@@ -334,9 +348,9 @@ TEST( AnimatorBlending, MaskingABoneMasksItsDescendantsByDefault )
 {
     const Skeleton skeleton = MakeRig(); // root -> spine -> arm
     Animator       animator( skeleton );
-    AnimationClip  clip = StaticClip( "Layer", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ) );
+    AnimationClip  clip = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
 
-    const int index = animator.AddLayer( clip, 1.0f );
+    const int index = animator.AddLayer( clip, 1.0F );
     animator.SetLayerMaskByNames( index, { "spine" } );
 
     EXPECT_FALSE( animator.IsBoneInLayerMask( index, 0 ) ) << "the PARENT was masked in";
@@ -352,14 +366,16 @@ TEST( AnimatorBlending, AnUnknownBoneNameMasksNothingRatherThanEverything )
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
-    AnimationClip  clip  = StaticClip( "Layer", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ) );
-    const int      index = animator.AddLayer( clip, 1.0f );
+    AnimationClip  clip  = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    const int      index = animator.AddLayer( clip, 1.0F );
 
     animator.SetLayerMaskByNames( index, { "no_such_bone" } );
     for ( uint32_t bone = 0; bone < 3; ++bone )
+    {
         EXPECT_FALSE( animator.IsBoneInLayerMask( index, bone ) )
              << "a mask naming only bones this rig does not have came out EMPTY, and an empty mask means "
                 "every bone — so a typo turns an upper-body layer into a full-body one";
+    }
 }
 
 // ── T0.4: layers through a crossfade ────────────────────────────────────────────────────────────────
@@ -371,18 +387,18 @@ TEST( AnimatorBlending, LayersKeepRunningThroughACrossFade )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip a     = StaticClip( "A", "spine", glm::vec3( 0.0f, 0.0f, 0.0f ) );
-    AnimationClip b     = StaticClip( "B", "spine", glm::vec3( 0.0f, 10.0f, 0.0f ) );
-    AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0f, 400.0f, 0.0f ) );
+    AnimationClip a     = StaticClip( "A", "spine", glm::vec3( 0.0F, 0.0F, 0.0F ) );
+    AnimationClip b     = StaticClip( "B", "spine", glm::vec3( 0.0F, 10.0F, 0.0F ) );
+    AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 400.0F, 0.0F ) );
 
     animator.Play( a );
-    animator.AddLayer( layer, 1.0f );
-    animator.CrossFade( b, 1.0f );
+    animator.AddLayer( layer, 1.0F );
+    animator.CrossFade( b, 1.0F );
 
-    animator.Update( Timestep( 0.25f ) ); // mid-blend
+    animator.Update( Timestep( 0.25F ) ); // mid-blend
     const glm::vec3 spine = BonePosition( animator, 1 );
     const glm::vec3 root  = BonePosition( animator, 0 );
-    EXPECT_NEAR( spine.y - root.y, 400.0f, 1e-3f )
+    EXPECT_NEAR( spine.y - root.y, 400.0F, 1e-3F )
          << "the layer was dropped for the duration of the blend; an upper-body override vanished for the "
             "whole transition and came back when it ended";
 }
@@ -396,17 +412,17 @@ TEST( AnimatorBlending, ATrackBindsByNameAndNotByPosition )
 
     // One track, named "arm", sitting at index 0 of the clip. A clip and the rig it drives come from
     // different files with different bone orders, which is the entire reason the binding is by name.
-    AnimationClip clip = StaticClip( "ArmOnly", "arm", glm::vec3( 77.0f, 0.0f, 0.0f ) );
+    AnimationClip clip = StaticClip( "ArmOnly", "arm", glm::vec3( 77.0F, 0.0F, 0.0F ) );
 
     animator.Play( clip );
-    animator.Update( Timestep( 0.0f ) );
+    animator.Update( Timestep( 0.0F ) );
 
     // The DISTANCE, not the x component: the spine carries a bind rotation, so the arm's local offset of
     // (77,0,0) arrives in component space turned by it. Asserting the x difference would be asserting
     // cos(0.35) — a fact about the fixture's rotation, not about whether the track reached its bone.
     const glm::vec3 arm   = BonePosition( animator, 2 );
     const glm::vec3 spine = BonePosition( animator, 1 );
-    EXPECT_NEAR( glm::length( arm - spine ), 77.0f, 1e-3f )
+    EXPECT_NEAR( glm::length( arm - spine ), 77.0F, 1e-3F )
          << "the clip's only track did not reach the bone it names";
 
     // And the negative control: the bone the clip does NOT name stayed where the bind put it.
@@ -420,15 +436,17 @@ TEST( AnimatorBlending, ATrackNameTheRigDoesNotHaveLeavesThatBoneAtBind )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip  foreign = StaticClip( "Foreign", "mixamorig:Hips", glm::vec3( 999.0f, 0.0f, 0.0f ) );
+    AnimationClip  foreign = StaticClip( "Foreign", "mixamorig:Hips", glm::vec3( 999.0F, 0.0F, 0.0F ) );
     const Animator rest( skeleton );
 
     animator.Play( foreign );
-    animator.Update( Timestep( 0.0f ) );
+    animator.Update( Timestep( 0.0F ) );
 
     for ( size_t i = 0; i < animator.GetPose().Matrices.size(); ++i )
+    {
         EXPECT_TRUE( MatNear( animator.GetPose().Matrices[i], rest.GetPose().Matrices[i] ) )
              << "bone " << i << " moved for a clip that animates no bone this rig has";
+    }
 }
 
 TEST( AnimatorBlending, TheTrackCacheIsRebuiltWhenTheClipsStorageMoves )
@@ -439,10 +457,10 @@ TEST( AnimatorBlending, TheTrackCacheIsRebuiltWhenTheClipsStorageMoves )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip clip = StaticClip( "Live", "spine", glm::vec3( 0.0f, 10.0f, 0.0f ) );
+    AnimationClip clip = StaticClip( "Live", "spine", glm::vec3( 0.0F, 10.0F, 0.0F ) );
     animator.Play( clip );
-    animator.Update( Timestep( 0.0f ) );
-    EXPECT_NEAR( BonePosition( animator, 1 ).y - BonePosition( animator, 0 ).y, 10.0f, 1e-3f );
+    animator.Update( Timestep( 0.0F ) );
+    EXPECT_NEAR( BonePosition( animator, 1 ).y - BonePosition( animator, 0 ).y, 10.0F, 1e-3F );
 
     // THE RELOADED CLIP DRIVES A DIFFERENT BONE, and that is what makes this test able to fail. Reloading
     // the same bone with a different value is not enough: the stale pointer aims at freed memory, and
@@ -456,12 +474,12 @@ TEST( AnimatorBlending, TheTrackCacheIsRebuiltWhenTheClipsStorageMoves )
     clip.Tracks.clear();
     clip.Tracks.shrink_to_fit();
 
-    AnimationClip reloaded = StaticClip( "Live", "arm", glm::vec3( 250.0f, 0.0f, 0.0f ) );
+    AnimationClip reloaded = StaticClip( "Live", "arm", glm::vec3( 250.0F, 0.0F, 0.0F ) );
     clip.Tracks            = std::move( reloaded.Tracks );
     ++clip.TrackRevision;
 
-    animator.Update( Timestep( 0.0f ) );
-    EXPECT_NEAR( glm::length( BonePosition( animator, 2 ) - BonePosition( animator, 1 ) ), 250.0f, 1e-3f )
+    animator.Update( Timestep( 0.0F ) );
+    EXPECT_NEAR( glm::length( BonePosition( animator, 2 ) - BonePosition( animator, 1 ) ), 250.0F, 1e-3F )
          << "the reloaded clip's track never reached its bone: the cache was keyed on the clip's ADDRESS, "
             "which an unload+reload does not change, so it kept the binding built against storage that has "
             "been returned to the allocator";
@@ -474,16 +492,16 @@ TEST( AnimatorBlending, ANotifyFiresExactlyOncePerPassOverItsTime )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ), glm::quat( 1, 0, 0, 0 ),
-                                     /*duration=*/1.0f );
-    clip.Notifies.push_back( AnimationNotify{ "Footstep", 0.5f } );
+    AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
+                                     /*duration=*/1.0F );
+    clip.Notifies.push_back( AnimationNotify{ "Footstep", 0.5F } );
 
     animator.Play( clip, /*loop=*/false );
 
     int fired = 0;
     for ( int step = 0; step < 20; ++step ) // 20 x 0.1 s = 2 s over a 1 s clip
     {
-        animator.Update( Timestep( 0.1f ) );
+        animator.Update( Timestep( 0.1F ) );
         fired += static_cast<int>( animator.ConsumeNotifies().size() );
     }
     EXPECT_EQ( fired, 1 ) << "a marker at 0.5 s fired " << fired << " times in one non-looping pass";
@@ -494,21 +512,21 @@ TEST( AnimatorBlending, ALoopingClipFiresItsNotifyOncePerLap )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip clip = StaticClip( "Run", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ), glm::quat( 1, 0, 0, 0 ),
-                                     /*duration=*/1.0f );
-    clip.Notifies.push_back( AnimationNotify{ "MidStep", 0.5f } );
+    AnimationClip clip = StaticClip( "Run", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
+                                     /*duration=*/1.0F );
+    clip.Notifies.push_back( AnimationNotify{ "MidStep", 0.5F } );
     // A MARKER INSIDE THE WRAP STEP, and without it this test proved nothing. With 0.1 s steps over a 1 s
     // clip, the frame that wraps covers (0.9, 1.0] u [0, 0.0] — a marker at 0.5 is nowhere near it, so
     // deleting the whole wrap-around branch left the suite green. A marker at 0.95 is reachable ONLY
     // through `n.Time > prev` on the wrapping frame, which is the half that was untested.
-    clip.Notifies.push_back( AnimationNotify{ "LateStep", 0.95f } );
+    clip.Notifies.push_back( AnimationNotify{ "LateStep", 0.95F } );
 
     animator.Play( clip, /*loop=*/true );
 
     int mid = 0, late = 0;
     for ( int step = 0; step < 30; ++step ) // 3.0 s => three laps
     {
-        animator.Update( Timestep( 0.1f ) );
+        animator.Update( Timestep( 0.1F ) );
         for ( const auto& name : animator.ConsumeNotifies() )
         {
             if ( name == "MidStep" )
@@ -528,12 +546,12 @@ TEST( AnimatorBlending, ScrubbingDoesNotFireNotifies )
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
 
-    AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0f, 30.0f, 0.0f ), glm::quat( 1, 0, 0, 0 ),
-                                     /*duration=*/1.0f );
-    clip.Notifies.push_back( AnimationNotify{ "Footstep", 0.5f } );
+    AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
+                                     /*duration=*/1.0F );
+    clip.Notifies.push_back( AnimationNotify{ "Footstep", 0.5F } );
 
     animator.Play( clip, false );
-    animator.SetTime( 0.9f ); // the Sequencer dragging the playhead past the marker
+    animator.SetTime( 0.9F ); // the Sequencer dragging the playhead past the marker
 
     EXPECT_TRUE( animator.ConsumeNotifies().empty() )
          << "dragging the playhead fired gameplay events; scrubbing a timeline would spawn footstep VFX";

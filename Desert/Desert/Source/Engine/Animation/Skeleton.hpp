@@ -85,7 +85,7 @@ namespace Desert::Animation
         void ResolveComponentSpace( LocalOf&& localOf, std::vector<glm::mat4>& out ) const
         {
             if ( out.size() != m_Bones.size() )
-                out.assign( m_Bones.size(), glm::mat4( 1.0f ) );
+                out.assign( m_Bones.size(), glm::mat4( 1.0F ) );
             for ( const uint32_t i : m_ResolveOrder )
             {
                 const glm::mat4 local  = localOf( i );
@@ -230,7 +230,9 @@ namespace Desert::Animation
         {
             m_Index = NOT_RESOLVED;
             if ( m_Name.empty() )
+            {
                 return false;
+            }
             if ( const auto found = skeleton.FindBoneIndex( m_Name ) )
                 m_Index = *found;
             return IsResolved();

@@ -32,12 +32,18 @@ using Desert::Animation::Skeleton;
 
 namespace
 {
-    bool MatNear( const glm::mat4& a, const glm::mat4& b, float eps = 1e-4f )
+    bool MatNear( const glm::mat4& a, const glm::mat4& b, float eps = 1e-4F )
     {
         for ( int c = 0; c < 4; ++c )
+        {
             for ( int r = 0; r < 4; ++r )
+            {
                 if ( std::fabs( a[c][r] - b[c][r] ) > eps )
+                {
                     return false;
+                }
+            }
+        }
         return true;
     }
 
@@ -58,17 +64,17 @@ namespace
     {
         std::vector<BoneInfo> bones;
         bones.push_back( MakeBone( "root", std::nullopt,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 3.0f, 11.0f, -2.0f ) ) ) );
-        bones.push_back( MakeBone( "spine", 0u,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 40.0f, 0.0f ) ) *
-                                        glm::rotate( glm::mat4( 1.0f ), 0.4f, glm::vec3( 0, 0, 1 ) ) ) );
-        bones.push_back( MakeBone( "upper_arm", 1u,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 17.0f, 6.0f, 0.0f ) ) *
-                                        glm::rotate( glm::mat4( 1.0f ), -0.9f, glm::vec3( 1, 0, 0 ) ) *
-                                        glm::scale( glm::mat4( 1.0f ), glm::vec3( 1.3f, 1.3f, 1.3f ) ) ) );
-        bones.push_back( MakeBone( "lower_arm", 2u,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, -23.0f, 4.0f ) ) *
-                                        glm::rotate( glm::mat4( 1.0f ), 0.6f, glm::vec3( 0, 1, 0 ) ) ) );
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 3.0F, 11.0F, -2.0F ) ) ) );
+        bones.push_back( MakeBone( "spine", 0U,
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 0.0F, 40.0F, 0.0F ) ) *
+                                        glm::rotate( glm::mat4( 1.0F ), 0.4F, glm::vec3( 0, 0, 1 ) ) ) );
+        bones.push_back( MakeBone( "upper_arm", 1U,
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 17.0F, 6.0F, 0.0F ) ) *
+                                        glm::rotate( glm::mat4( 1.0F ), -0.9F, glm::vec3( 1, 0, 0 ) ) *
+                                        glm::scale( glm::mat4( 1.0F ), glm::vec3( 1.3F, 1.3F, 1.3F ) ) ) );
+        bones.push_back( MakeBone( "lower_arm", 2U,
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 0.0F, -23.0F, 4.0F ) ) *
+                                        glm::rotate( glm::mat4( 1.0F ), 0.6F, glm::vec3( 0, 1, 0 ) ) ) );
         Skeleton skeleton( std::move( bones ) );
         skeleton.RecomputeOffsetMatrices();
         return skeleton;
@@ -80,18 +86,18 @@ namespace
     Skeleton MakeRichChainReversed()
     {
         std::vector<BoneInfo> bones;
-        bones.push_back( MakeBone( "lower_arm", 1u,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, -23.0f, 4.0f ) ) *
-                                        glm::rotate( glm::mat4( 1.0f ), 0.6f, glm::vec3( 0, 1, 0 ) ) ) );
-        bones.push_back( MakeBone( "upper_arm", 2u,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 17.0f, 6.0f, 0.0f ) ) *
-                                        glm::rotate( glm::mat4( 1.0f ), -0.9f, glm::vec3( 1, 0, 0 ) ) *
-                                        glm::scale( glm::mat4( 1.0f ), glm::vec3( 1.3f, 1.3f, 1.3f ) ) ) );
-        bones.push_back( MakeBone( "spine", 3u,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 40.0f, 0.0f ) ) *
-                                        glm::rotate( glm::mat4( 1.0f ), 0.4f, glm::vec3( 0, 0, 1 ) ) ) );
+        bones.push_back( MakeBone( "lower_arm", 1U,
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 0.0F, -23.0F, 4.0F ) ) *
+                                        glm::rotate( glm::mat4( 1.0F ), 0.6F, glm::vec3( 0, 1, 0 ) ) ) );
+        bones.push_back( MakeBone( "upper_arm", 2U,
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 17.0F, 6.0F, 0.0F ) ) *
+                                        glm::rotate( glm::mat4( 1.0F ), -0.9F, glm::vec3( 1, 0, 0 ) ) *
+                                        glm::scale( glm::mat4( 1.0F ), glm::vec3( 1.3F, 1.3F, 1.3F ) ) ) );
+        bones.push_back( MakeBone( "spine", 3U,
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 0.0F, 40.0F, 0.0F ) ) *
+                                        glm::rotate( glm::mat4( 1.0F ), 0.4F, glm::vec3( 0, 0, 1 ) ) ) );
         bones.push_back( MakeBone( "root", std::nullopt,
-                                   glm::translate( glm::mat4( 1.0f ), glm::vec3( 3.0f, 11.0f, -2.0f ) ) ) );
+                                   glm::translate( glm::mat4( 1.0F ), glm::vec3( 3.0F, 11.0F, -2.0F ) ) ) );
         Skeleton skeleton( std::move( bones ) );
         skeleton.RecomputeOffsetMatrices();
         return skeleton;
@@ -104,7 +110,7 @@ namespace
     /// product cancels a broken resolver against itself (see TheOneResolverAgreesWithTheEightItReplaced).
     std::vector<glm::mat4> LegacyChainGlobals( const std::vector<BoneInfo>& bones )
     {
-        std::vector<glm::mat4>             global( bones.size(), glm::mat4( 1.0f ) );
+        std::vector<glm::mat4>             global( bones.size(), glm::mat4( 1.0F ) );
         std::vector<bool>                  done( bones.size(), false );
         std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
         {
@@ -118,13 +124,15 @@ namespace
             return m;
         };
         for ( size_t i = 0; i < bones.size(); ++i )
+        {
             resolve( i );
+        }
         return global;
     }
 
     std::vector<glm::mat4> LegacyChainResolve( const std::vector<BoneInfo>& bones )
     {
-        std::vector<glm::mat4>             global( bones.size(), glm::mat4( 1.0f ) );
+        std::vector<glm::mat4>             global( bones.size(), glm::mat4( 1.0F ) );
         std::vector<bool>                  done( bones.size(), false );
         std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
         {
@@ -148,9 +156,9 @@ namespace
 
 TEST( PoseSubstrate, AnOrdinaryTransformSurvivesTheRoundTrip )
 {
-    const glm::mat4 m = glm::translate( glm::mat4( 1.0f ), glm::vec3( 4.0f, -9.0f, 2.5f ) ) *
-                        glm::rotate( glm::mat4( 1.0f ), 1.1f, glm::normalize( glm::vec3( 1, 2, 3 ) ) ) *
-                        glm::scale( glm::mat4( 1.0f ), glm::vec3( 2.0f, 0.5f, 1.25f ) );
+    const glm::mat4 m = glm::translate( glm::mat4( 1.0F ), glm::vec3( 4.0F, -9.0F, 2.5F ) ) *
+                        glm::rotate( glm::mat4( 1.0F ), 1.1F, glm::normalize( glm::vec3( 1, 2, 3 ) ) ) *
+                        glm::scale( glm::mat4( 1.0F ), glm::vec3( 2.0F, 0.5F, 1.25F ) );
 
     const auto trs = BoneTransform::FromMatrix( m );
     ASSERT_TRUE( trs.IsSuccess() ) << trs.GetError();
@@ -162,7 +170,7 @@ TEST( PoseSubstrate, AMirroredTransformIsRefusedInsteadOfStraightened )
     // Negative X scale: a real mirrored bone. The old decomposition took scale as the LENGTH of each basis
     // column, so this came back with scale +1 and the sign folded into the rotation as a turn that does not
     // exist — on EVERY blend, with no way for a caller to tell.
-    const glm::mat4 mirrored = glm::scale( glm::mat4( 1.0f ), glm::vec3( -1.0f, 1.0f, 1.0f ) );
+    const glm::mat4 mirrored = glm::scale( glm::mat4( 1.0F ), glm::vec3( -1.0F, 1.0F, 1.0F ) );
 
     const auto trs = BoneTransform::FromMatrix( mirrored );
     EXPECT_FALSE( trs.IsSuccess() ) << "a mirrored basis was silently rectified into a rotation";
@@ -173,7 +181,7 @@ TEST( PoseSubstrate, ADegenerateTransformIsRefusedRatherThanProducingNaNs )
 {
     // A collapsed axis divides by zero in the normalise step and hands back a quaternion of NaNs, which
     // then propagates through every blend downstream of it.
-    const glm::mat4 flat = glm::scale( glm::mat4( 1.0f ), glm::vec3( 1.0f, 0.0f, 1.0f ) );
+    const glm::mat4 flat = glm::scale( glm::mat4( 1.0F ), glm::vec3( 1.0F, 0.0F, 1.0F ) );
     EXPECT_FALSE( BoneTransform::FromMatrix( flat ).IsSuccess() );
 }
 
@@ -197,9 +205,11 @@ TEST( PoseSubstrate, TheOneResolverAgreesWithTheEightItReplaced )
 
     ASSERT_EQ( mine.size(), legacy.size() );
     for ( size_t i = 0; i < mine.size(); ++i )
+    {
         EXPECT_TRUE( MatNear( mine[i], legacy[i] ) )
              << "bone " << i << " ('" << skeleton.GetBones()[i].Name
              << "') resolves differently from the memoised recursion this replaced";
+    }
 }
 
 TEST( PoseSubstrate, BoneArrayOrderDoesNotChangeTheRig )
@@ -252,9 +262,9 @@ TEST( PoseSubstrate, TheResolveOrderPutsEveryParentBeforeItsChild )
 TEST( PoseSubstrate, AParentOutsideTheArrayResolvesAsARootAndIsReported )
 {
     std::vector<BoneInfo> bones;
-    bones.push_back( MakeBone( "root", std::nullopt, glm::mat4( 1.0f ) ) );
+    bones.push_back( MakeBone( "root", std::nullopt, glm::mat4( 1.0F ) ) );
     bones.push_back(
-         MakeBone( "orphan", 99u, glm::translate( glm::mat4( 1.0f ), glm::vec3( 5.0f, 0.0f, 0.0f ) ) ) );
+         MakeBone( "orphan", 99U, glm::translate( glm::mat4( 1.0F ), glm::vec3( 5.0F, 0.0F, 0.0F ) ) ) );
     Skeleton skeleton( std::move( bones ) );
 
     EXPECT_EQ( skeleton.ResolveParent( 1 ), Skeleton::NO_PARENT );
@@ -266,7 +276,7 @@ TEST( PoseSubstrate, AParentOutsideTheArrayResolvesAsARootAndIsReported )
     const auto bind = LocalPose::FromBindPose( skeleton );
     ASSERT_TRUE( bind.IsSuccess() );
     ComponentPose component( skeleton, bind.GetValue() );
-    EXPECT_FLOAT_EQ( component.Get( 1 )[3].x, 5.0f );
+    EXPECT_FLOAT_EQ( component.Get( 1 )[3].x, 5.0F );
 }
 
 TEST( PoseSubstrate, AParentCycleTerminatesInsteadOfExhaustingTheStack )
@@ -274,27 +284,27 @@ TEST( PoseSubstrate, AParentCycleTerminatesInsteadOfExhaustingTheStack )
     // The memoised recursion set its `done` flag on the way OUT, so a cycle recursed until the stack ended.
     // A crash is not a defined answer, and no test could have caught it because no test could survive it.
     std::vector<BoneInfo> bones;
-    bones.push_back( MakeBone( "a", 1u, glm::mat4( 1.0f ) ) );
-    bones.push_back( MakeBone( "b", 0u, glm::mat4( 1.0f ) ) );
+    bones.push_back( MakeBone( "a", 1U, glm::mat4( 1.0F ) ) );
+    bones.push_back( MakeBone( "b", 0U, glm::mat4( 1.0F ) ) );
     Skeleton skeleton( std::move( bones ) );
 
-    EXPECT_EQ( skeleton.GetResolveOrder().size(), 2u );
+    EXPECT_EQ( skeleton.GetResolveOrder().size(), 2U );
     EXPECT_NE( skeleton.GetStructureError().find( "cycle" ), std::string::npos ) << skeleton.GetStructureError();
 
     std::vector<glm::mat4> out;
     skeleton.WriteBindSkinningMatrices( out ); // must return at all
-    EXPECT_EQ( out.size(), 2u );
+    EXPECT_EQ( out.size(), 2U );
 }
 
 TEST( PoseSubstrate, TwoBonesWithOneNameIsReportedRatherThanResolvedAtRandom )
 {
     std::vector<BoneInfo> bones;
-    bones.push_back( MakeBone( "hand", std::nullopt, glm::mat4( 1.0f ) ) );
-    bones.push_back( MakeBone( "hand", 0u, glm::mat4( 1.0f ) ) );
+    bones.push_back( MakeBone( "hand", std::nullopt, glm::mat4( 1.0F ) ) );
+    bones.push_back( MakeBone( "hand", 0U, glm::mat4( 1.0F ) ) );
     Skeleton skeleton( std::move( bones ) );
 
     // FIRST WINS, which is what the linear scan did, so no caller's behaviour changes...
-    EXPECT_EQ( skeleton.FindBoneIndex( "hand" ), std::optional<uint32_t>( 0u ) );
+    EXPECT_EQ( skeleton.FindBoneIndex( "hand" ), std::optional<uint32_t>( 0U ) );
     // ...but the rig now says it has an ambiguity, which the scan could never report.
     EXPECT_NE( skeleton.GetStructureError().find( "named 'hand'" ), std::string::npos )
          << skeleton.GetStructureError();
@@ -310,7 +320,9 @@ TEST( PoseSubstrate, ResolvingOneBoneConvertsItsChainAndNothingElse )
 
     ComponentPose component( skeleton, bind.GetValue() );
     for ( uint32_t i = 0; i < 4; ++i )
+    {
         EXPECT_FALSE( component.Converted( i ) ) << "bone " << i << " was converted before anyone asked";
+    }
 
     (void)component.Get( 2 ); // upper_arm
 
@@ -333,7 +345,9 @@ TEST( PoseSubstrate, LazyAndEagerResolutionAreTheSameAnswer )
     eagerly.ConvertAll();
 
     for ( uint32_t i = 0; i < skeleton.GetBones().size(); ++i )
+    {
         EXPECT_TRUE( MatNear( lazily.Get( i ), eagerly.Get( i ) ) ) << "bone " << i;
+    }
 }
 
 TEST( PoseSubstrate, AskingForOneBoneTwiceDoesNotMoveIt )
@@ -367,9 +381,11 @@ TEST( PoseSubstrate, TheAnimatorsRestPoseIsTheSkeletonsBindPose )
 
     ASSERT_EQ( fromSkeleton.size(), fromAnimator.size() );
     for ( size_t i = 0; i < fromSkeleton.size(); ++i )
+    {
         EXPECT_TRUE( MatNear( fromSkeleton[i], fromAnimator[i] ) )
              << "bone " << i << " ('" << skeleton.GetBones()[i].Name
              << "') is in a different place depending on which of the two bind routes drew it";
+    }
 }
 
 TEST( PoseSubstrate, TheRestPoseSkinsTheMeshWhereItWasAuthored )
@@ -382,7 +398,9 @@ TEST( PoseSubstrate, TheRestPoseSkinsTheMeshWhereItWasAuthored )
     skeleton.WriteBindSkinningMatrices( skin );
 
     for ( size_t i = 0; i < skin.size(); ++i )
-        EXPECT_TRUE( MatNear( skin[i], glm::mat4( 1.0f ) ) ) << "bone " << i;
+    {
+        EXPECT_TRUE( MatNear( skin[i], glm::mat4( 1.0F ) ) ) << "bone " << i;
+    }
 }
 
 // ── T1.3: one bone index space ──────────────────────────────────────────────────────────────────────
@@ -437,14 +455,14 @@ TEST( PoseSubstrate, ABoneRefDistinguishesUnauthoredFromUnresolvable )
 
     BoneRef good( "upper_arm" );
     EXPECT_TRUE( good.Resolve( skeleton ) );
-    EXPECT_EQ( good.GetIndex(), 2u );
+    EXPECT_EQ( good.GetIndex(), 2U );
 
     // Renaming drops the cached index. Keeping it is the classic stale-cache defect: the ref reports
     // resolved, and hands back the OLD bone.
     good.SetName( "root" );
     EXPECT_FALSE( good.IsResolved() );
     EXPECT_TRUE( good.Resolve( skeleton ) );
-    EXPECT_EQ( good.GetIndex(), 0u );
+    EXPECT_EQ( good.GetIndex(), 0U );
 }
 
 int main( int argc, char** argv )

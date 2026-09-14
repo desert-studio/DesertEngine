@@ -95,7 +95,7 @@ namespace Desert::Animation
 
         [[nodiscard]] float GetDuration() const
         {
-            return m_Current.Clip ? m_Current.Clip->Duration : 0.0f;
+            return m_Current.Clip ? m_Current.Clip->Duration : 0.0F;
         }
 
         [[nodiscard]] bool IsFinished() const;
@@ -142,7 +142,7 @@ namespace Desert::Animation
         //     base — for aim offsets / lean / breathing.
         // Layers run THROUGH a crossfade: the base they fold over is the blend itself. AddLayer returns the
         // new layer index; the setters no-op on an out-of-range index.
-        int  AddLayer( const AnimationClip& clip, float weight = 1.0f, bool additive = false, bool loop = true );
+        int  AddLayer( const AnimationClip& clip, float weight = 1.0F, bool additive = false, bool loop = true );
         void SetLayerClip( int index, const AnimationClip& clip );
         void SetLayerWeight( int index, float weight );
         void SetLayerAdditive( int index, bool additive );
@@ -159,7 +159,7 @@ namespace Desert::Animation
         }
         [[nodiscard]] float GetLayerWeight( int index ) const
         {
-            return ( index >= 0 && index < static_cast<int>( m_Layers.size() ) ) ? m_Layers[index].Weight : 0.0f;
+            return ( index >= 0 && index < static_cast<int>( m_Layers.size() ) ) ? m_Layers[index].Weight : 0.0F;
         }
         [[nodiscard]] bool GetLayerAdditive( int index ) const
         {
@@ -177,7 +177,7 @@ namespace Desert::Animation
         struct ClipPlayback
         {
             const AnimationClip* Clip = nullptr;
-            float                Time = 0.0f;
+            float                Time = 0.0F;
             bool                 Loop = true;
 
             bool IsValid() const
@@ -189,7 +189,7 @@ namespace Desert::Animation
         struct AnimationLayer
         {
             ClipPlayback         Playback;         // clip + time + loop for this layer
-            float                Weight   = 1.0f;  // 0 = off, 1 = full
+            float                Weight   = 1.0F;  // 0 = off, 1 = full
             bool                 Additive = false; // additive delta vs bind, else override blend
             std::vector<uint8_t> BoneMask;         // per skeleton bone (1 = affected); empty = all bones
         };
@@ -216,7 +216,7 @@ namespace Desert::Animation
         // disagree if there is only one of them.
         [[nodiscard]] float BlendAlpha() const
         {
-            return m_IsBlending ? glm::clamp( m_BlendTime / m_BlendDuration, 0.0f, 1.0f ) : 0.0f;
+            return m_IsBlending ? glm::clamp( m_BlendTime / m_BlendDuration, 0.0F, 1.0F ) : 0.0F;
         }
 
         /// Local (parent-relative) transform of `boneIndex` driven by `clip` at `time`, or the bind-pose
@@ -272,10 +272,10 @@ namespace Desert::Animation
         ClipPlayback m_Next;
 
         bool  m_IsBlending    = false;
-        float m_BlendTime     = 0.0f;
-        float m_BlendDuration = 0.0f;
+        float m_BlendTime     = 0.0F;
+        float m_BlendDuration = 0.0F;
 
-        float m_PlaybackSpeed = 1.0f;
+        float m_PlaybackSpeed = 1.0F;
 
         // Notify names crossed during the last Update of the current clip, drained by ConsumeNotifies().
         std::vector<std::string> m_FiredNotifies;
