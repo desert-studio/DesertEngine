@@ -186,11 +186,32 @@ namespace Desert::Migration
     //                   would come back from this migration with a green lawn.
     inline constexpr int kSceneVersionGrassGeneration = 18;
 
+    //  19             - AUTHORED TEXT CAN NOW BE A STRING-TABLE KEY, and the two are told apart by their
+    //                   FORM: a leading '#' means "the rest of this is a key" (Ю15,
+    //                   Engine/Localization/LocalizedText.hpp). That makes one spelling change meaning -
+    //                   a label whose author really typed a hash first, which is legal today and reads
+    //                   as a key tomorrow - so every authored string that a leading hash would now
+    //                   capture is escaped to '##'.
+    //
+    //                   FOUR SITES, and they are exactly the authored strings that reach a reader's eye:
+    //                   `UIText.Text`, `UIInputField.Placeholder`, each `;`-separated item of
+    //                   `UIDropdown.Options`, and the world-space `Text.Text`. `UIInputField.Text` is
+    //                   deliberately NOT one of them: it is what a player typed, it is never resolved,
+    //                   and escaping it would put a hash into somebody's own words.
+    //
+    //                   THE SAME BUMP RETIRES `UIBinding.Format` - an author-typed printf format that
+    //                   was handed straight to std::snprintf with a double (typing `%s` in the Details
+    //                   panel was undefined behaviour) and that formatted every bound number in the C
+    //                   locale whatever language the reader was in. Its job is the string table's now.
+    //                   It is a row of kRetiredKeys rather than part of this step, for the reason that
+    //                   table's own note gives: it decides nothing from the value, it only drops.
+    inline constexpr int kSceneVersionTextKeySigil = 19;
+
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionGrassGeneration == kSceneVersion,
+    static_assert( kSceneVersionTextKeySigil == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -906,6 +927,17 @@ namespace Desert::Migration
          RetiredKey{ "Settings", "CloudQualityTier",
                      "the cloud march's occlusion budget is machine quality (K3) - High reproduces the "
                      "calibrated constants to the digit; it moved to MachineSettings::CloudQualityTier" },
+
+         // Ю15's one row, and it is the EnableSSGI kind rather than the K3 kind: nothing reads it any
+         // more, and what it used to do is done better somewhere else. The field held a printf format an
+         // author typed in the Details panel, which the canvas passed to std::snprintf with a double - so
+         // `%s` was undefined behaviour at run time - and which formatted every bound number in the C
+         // locale regardless of the reader's language. A `{n}` in the string table replaces it, placed by
+         // the translator and formatted for the reader.
+         RetiredKey{ "UIBinding", "Format",
+                     "the printf format on a Text binding was removed by Ю15: a number is now formatted "
+                     "for the reader's locale and its prefix/suffix belongs in the string table, where a "
+                     "translator can move it" },
     };
 
     // What MigrateRetiredKeys removed from one file.
@@ -1093,6 +1125,45 @@ namespace Desert::Migration
     // SHELF LIFE: this raises v17 to v18 and nothing else. It is deleted once no v17 file remains.
     GrassGenerationMigrationReport MigrateGrassGenerationV17ToV18( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateTextKeySigilV18ToV19 did to one file.
+    struct TextKeySigilMigrationReport
+    {
+        int Entities = 0; // entities with at least one escaped string
+        int Escaped  = 0; // strings that gained the escape
+
+        // WHICH ones, as "Title > UIText.Text = #done". Named rather than counted, like every other step
+        // here: the change is to an authored string a person typed, and they have to be able to see that
+        // it was escaped on purpose rather than corrupted (DC 1.4).
+        std::vector<std::string> EscapedNames;
+    };
+
+    // Raises a scene from schema v18 to v19: an authored string that a LEADING '#' would now read as a
+    // string-table key is escaped to '##', which the resolver turns back into a single '#' on the way to
+    // the screen (Localization::LiteralOf).
+    //
+    // FOUR SITES: `UIText.Text`, `UIInputField.Placeholder`, every `;`-separated item of
+    // `UIDropdown.Options`, and `Text.Text`. `UIInputField.Text` is NOT one - it is the player's own text
+    // and nothing resolves it.
+    //
+    // ONLY A LEADING HASH IS ESCAPED. A hash anywhere else is just a hash, and this repository's main menu
+    // is full of them: `[color=#FF7A33]` is a rich-text colour, and doubling every hash in a string would
+    // have broken every one of those labels.
+    //
+    // PURE - no GPU, no filesystem, no global state.
+    //
+    // NOT IDEMPOTENT, AND IT CANNOT BE. This was written claiming it was, and its own suite disproved the
+    // claim on the first run: a v18 literal that really begins "##" must become "###" (the resolver strips
+    // ONE leading hash, so that is the only spelling that still means "##"), and a second pass over the
+    // result cannot tell that string from one it has not seen. Correctness of the one-time conversion and
+    // idempotence are in direct conflict here, and correctness wins — a step that decides FROM a value
+    // must run exactly once and must be gated on its own number, which is what MigrateScene does with
+    // `statedSceneVersion < kSceneVersionTextKeySigil` and what the suite asserts through that entry point
+    // rather than by calling this twice. (The same rule the grass carry next door states for the same
+    // reason; kRetiredKeys is the one pass allowed an ungated gate, because it decides nothing.)
+    //
+    // SHELF LIFE: this raises v18 to v19 and nothing else. It is deleted once no v18 file remains.
+    TextKeySigilMigrationReport MigrateTextKeySigilV18ToV19( std::vector<Assets::EntityData>& entities );
+
     // Everything that ran, so the caller can say which FILE moved and how far.
     //
     // `File` and not `Scene` since И11: the same report comes back from MigratePrefab, because a
@@ -1156,6 +1227,9 @@ namespace Desert::Migration
         // the schema was below kSceneVersionGrassGeneration
         bool                           GrassGenerationRaised = false;
         GrassGenerationMigrationReport GrassGeneration;
+        // the schema was below kSceneVersionTextKeySigil
+        bool                        TextKeySigilRaised = false;
+        TextKeySigilMigrationReport TextKeySigil;
         // the schema was below kSceneVersionRetiredKeys
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
@@ -1166,7 +1240,7 @@ namespace Desert::Migration
                    CloudTypeRaised || CloudSetRaised || TerrainMaterialRaised || MaterialPathRaised ||
                    GravityUnitsRaised || UIVisibilityRaised || SSRUnitsRaised || CloudMaterialRaised ||
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
-                   RetiredKeysRaised;
+                   TextKeySigilRaised || RetiredKeysRaised;
         }
     };
 

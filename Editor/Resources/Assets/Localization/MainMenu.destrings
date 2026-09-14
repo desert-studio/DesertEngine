@@ -1,0 +1,274 @@
+{
+  "FormatVersion": 1,
+  "DisplayName": "Main menu",
+  "Entries": [
+    {
+      "Key": "menu.play",
+      "Comment": "Primary action on the main screen. A verb.",
+      "Forms": {
+        "en": {
+          "other": "PLAY"
+        },
+        "ru": {
+          "other": "ИГРАТЬ"
+        }
+      }
+    },
+    {
+      "Key": "menu.characters",
+      "Comment": "Menu item: the player's saved characters.",
+      "Forms": {
+        "en": {
+          "other": "CHARACTERS"
+        },
+        "ru": {
+          "other": "ПЕРСОНАЖИ"
+        }
+      }
+    },
+    {
+      "Key": "menu.servers",
+      "Comment": "Menu item: the server browser.",
+      "Forms": {
+        "en": {
+          "other": "SERVERS"
+        },
+        "ru": {
+          "other": "СЕРВЕРЫ"
+        }
+      }
+    },
+    {
+      "Key": "menu.store",
+      "Comment": "Menu item: the in-game shop.",
+      "Forms": {
+        "en": {
+          "other": "STORE"
+        },
+        "ru": {
+          "other": "МАГАЗИН"
+        }
+      }
+    },
+    {
+      "Key": "menu.settings",
+      "Comment": "Menu item that OPENS the settings screen. A noun; settings.title is that screen's heading.",
+      "Forms": {
+        "en": {
+          "other": "SETTINGS"
+        },
+        "ru": {
+          "other": "НАСТРОЙКИ"
+        }
+      }
+    },
+    {
+      "Key": "menu.quit",
+      "Comment": "Menu item: leave the game entirely.",
+      "Forms": {
+        "en": {
+          "other": "QUIT"
+        },
+        "ru": {
+          "other": "ВЫХОД"
+        }
+      }
+    },
+    {
+      "Key": "menu.connect",
+      "Comment": "Button on the server card. A verb: join this server.",
+      "Forms": {
+        "en": {
+          "other": "CONNECT"
+        },
+        "ru": {
+          "other": "ПОДКЛЮЧИТЬСЯ"
+        }
+      }
+    },
+    {
+      "Key": "menu.status.offline",
+      "Comment": "Shown until gameplay reports a friend count; overridden through the player.status binding.",
+      "Forms": {
+        "en": {
+          "other": "OFFLINE"
+        },
+        "ru": {
+          "other": "НЕ В СЕТИ"
+        }
+      }
+    },
+    {
+      "Key": "menu.status.friends",
+      "Comment": "{n} is the friend count. Russian needs three forms; English two. Russian's 'other' is the form a printed fraction takes.",
+      "Forms": {
+        "en": {
+          "one": "ONLINE   -   {n} friend",
+          "other": "ONLINE   -   {n} friends"
+        },
+        "ru": {
+          "one": "В СЕТИ   -   {n} друг",
+          "few": "В СЕТИ   -   {n} друга",
+          "many": "В СЕТИ   -   {n} друзей",
+          "other": "В СЕТИ   -   {n} друга"
+        }
+      }
+    },
+    {
+      "Key": "menu.profile.title",
+      "Comment": "Shown on the profile row until gameplay reports a level and a balance.",
+      "Forms": {
+        "en": {
+          "other": "PROFILE"
+        },
+        "ru": {
+          "other": "ПРОФИЛЬ"
+        }
+      }
+    },
+    {
+      "Key": "menu.profile.summary",
+      "Comment": "{level} is a number, {money} is already formatted money. Assembled by UIDataBridge.lua.",
+      "Forms": {
+        "en": {
+          "other": "Lv. {level}    {money}"
+        },
+        "ru": {
+          "other": "Ур. {level}    {money}"
+        }
+      }
+    },
+    {
+      "Key": "menu.server.caption.idle",
+      "Comment": "Shown on the server card until gameplay reports load and latency.",
+      "Forms": {
+        "en": {
+          "other": "SERVER"
+        },
+        "ru": {
+          "other": "СЕРВЕР"
+        }
+      }
+    },
+    {
+      "Key": "menu.news.patch",
+      "Comment": "News ticker row. The bracketed part is a rich-text colour tag, not text.",
+      "Forms": {
+        "en": {
+          "other": "[color=#FF7A33]PATCH[/color]  0.9.1 - housing & car auction"
+        },
+        "ru": {
+          "other": "[color=#FF7A33]ПАТЧ[/color]  0.9.1 - жильё и автоаукцион"
+        }
+      }
+    },
+    {
+      "Key": "menu.news.event",
+      "Comment": "News ticker row.",
+      "Forms": {
+        "en": {
+          "other": "[color=#2FE3FF]EVENT[/color]  Weekend races - 5,000,000$ prize"
+        },
+        "ru": {
+          "other": "[color=#2FE3FF]СОБЫТИЕ[/color]  Гонки выходного дня - приз 5 000 000$"
+        }
+      }
+    },
+    {
+      "Key": "menu.news.clan",
+      "Comment": "News ticker row.",
+      "Forms": {
+        "en": {
+          "other": "[color=#2FE3FF]CLAN[/color]  Vinewood Family recruiting"
+        },
+        "ru": {
+          "other": "[color=#2FE3FF]КЛАН[/color]  Vinewood Family набирает"
+        }
+      }
+    },
+    {
+      "Key": "menu.ticker",
+      "Comment": "Scrolling marquee at the bottom of the screen. Three announcements, wide gaps between them.",
+      "Forms": {
+        "en": {
+          "other": "Double XP until Monday        Season 4 starts Aug 15        Join our Discord community"
+        },
+        "ru": {
+          "other": "Двойной опыт до понедельника        4-й сезон стартует 15 августа        Заходите в наш Discord"
+        }
+      }
+    },
+    {
+      "Key": "menu.hints",
+      "Comment": "Keyboard hints. 'Tab', 'Enter' and 'Esc' are KEY NAMES and must not be translated.",
+      "Forms": {
+        "en": {
+          "other": "Tab - navigate    Enter - select    Esc - back"
+        },
+        "ru": {
+          "other": "Tab - перемещение    Enter - выбор    Esc - назад"
+        }
+      }
+    },
+    {
+      "Key": "settings.title",
+      "Comment": "Heading of the settings screen.",
+      "Forms": {
+        "en": {
+          "other": "SETTINGS"
+        },
+        "ru": {
+          "other": "НАСТРОЙКИ"
+        }
+      }
+    },
+    {
+      "Key": "settings.resolution",
+      "Comment": "Settings row. The resolution itself is placeholder content in this demo screen.",
+      "Forms": {
+        "en": {
+          "other": "Resolution      1920 x 1080"
+        },
+        "ru": {
+          "other": "Разрешение      1920 x 1080"
+        }
+      }
+    },
+    {
+      "Key": "settings.volume",
+      "Comment": "Settings row.",
+      "Forms": {
+        "en": {
+          "other": "Volume        80%"
+        },
+        "ru": {
+          "other": "Громкость        80%"
+        }
+      }
+    },
+    {
+      "Key": "settings.note",
+      "Comment": "Explains what this screen demonstrates: Back returns to the screen underneath.",
+      "Forms": {
+        "en": {
+          "other": "Screen stack: Back returns to Main"
+        },
+        "ru": {
+          "other": "Экран-состояние: Back возвращает на Main"
+        }
+      }
+    },
+    {
+      "Key": "settings.back",
+      "Comment": "Returns to the previous screen. The '<' is decoration.",
+      "Forms": {
+        "en": {
+          "other": "< BACK"
+        },
+        "ru": {
+          "other": "< НАЗАД"
+        }
+      }
+    }
+  ]
+}
