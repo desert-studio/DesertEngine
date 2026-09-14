@@ -178,16 +178,23 @@ That is wrong for the headless `--shot` path. Two independent measurements on th
 
 **Corrected again 2026-08-28, and this one is the important direction.** The sentence that stood
 here — "whatever the interactive editor does with a wall-clock timestep, `--shot-frames` advances the
-same way every run" — is **false for any scene with grass**. Grass sway is driven by
-`steady_clock::now()` (`SceneRenderer.cpp:353` → `GrassUB.Wind.w`), not by the frame counter, so
-`Terrain_Grass` differs by **8.94 % of pixels, max delta 50/255, between two runs of the UNMODIFIED
-binary**. With grass off, the same scene's floor is exactly 0 bytes. The developer who found it was
+same way every run" — is **false for any scene with grass**. Grass sway was driven by
+`steady_clock::now()` (`SceneRenderer.cpp` → `GrassUB.Wind.w`), not by the frame counter, so
+`Terrain_Grass` differed by **8.94 % of pixels, max delta 50/255, between two runs of the UNMODIFIED
+binary**. With grass off, the same scene's floor was exactly 0 bytes. The developer who found it was
 about to claim "these two frames are byte-identical" as the load-bearing evidence of a migration —
 which is exactly the claim a non-zero floor destroys.
 
+**That particular non-zero floor is gone, and the rule it taught is not.** Г25 removed the procedural
+grass generator (grass is a mesh asset from now on), and with it the only wall-clock input in the
+frame: re-measured 2026-09-14 on the same scene and camera at 715x784, `Terrain_Grass` is **0
+differing pixels of 560 560 between two runs**, down from 14.25 % (max 184/255) measured on the same
+machine minutes earlier against the pre-cut binary. **Do not read that as "the floor is zero again".**
+Nothing structural stops the next renderer from reaching for `steady_clock` — particles already do —
+and the cost of finding out is one run.
+
 So the rule is not "the floor is zero"; it is **"the floor is a property of the scene and the repeat
-shot costs one run"**. Take it. A wall-clock input anywhere in the frame — grass, and possibly
-others not yet found — puts it above zero. Then:
+shot costs one run"**. Take it. A wall-clock input anywhere in the frame puts it above zero. Then:
 
 - **Diff the pixels.** "18.4% of pixels changed, max delta 1/255" and "1.3% changed, max delta 14/255"
   are two different findings about two different fixes, and that separation was only available

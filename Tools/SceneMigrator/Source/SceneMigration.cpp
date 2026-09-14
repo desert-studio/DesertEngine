@@ -297,7 +297,11 @@ namespace Desert::Migration
              { "CharacterController", "Gravity", Arity::Scalar },
              { "Terrain", "Size", Arity::Scalar },
              { "Terrain", "HeightScale", Arity::Scalar },
-             { "Terrain", "GrassHeight", Arity::Scalar },
+             // `Terrain.GrassHeight` was the row after this one until Г25. It is gone rather than kept
+             // "for old files": this census is a statement about the LENGTH FIELDS THE SCHEMA HAS, and
+             // the v17 -> v18 step deletes that key from every payload it can reach, so a row here could
+             // only ever convert a number on its way to being removed. A census naming a field the schema
+             // does not have is the stale row this project has paid for twice.
              { "Text", "Size", Arity::Scalar },
         } );
 
