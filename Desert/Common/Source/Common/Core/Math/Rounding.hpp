@@ -50,10 +50,14 @@ namespace Common::Math
     /// answer defined.
     [[nodiscard]] inline std::uint8_t QuantiseUnitToByte( float unit ) noexcept
     {
-        if ( !( unit > 0.0f ) ) // false for NaN and for every value at or below zero
+        if ( !( unit > 0.0F ) )
+        { // false for NaN and for every value at or below zero
             return 0;
-        if ( unit >= 1.0f )
+        }
+        if ( unit >= 1.0F )
+        {
             return 255;
-        return static_cast<std::uint8_t>( std::lround( unit * 255.0f ) );
+        }
+        return static_cast<std::uint8_t>( std::lround( unit * 255.0F ) );
     }
 } // namespace Common::Math

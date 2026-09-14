@@ -17,6 +17,7 @@
 
 #include "argument_order_scan.hpp"
 
+#include <filesystem>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -30,8 +31,10 @@ namespace
     {
         std::string out;
         for ( const AO::Finding& f : findings )
+        {
             out += "\n  " + f.File + ":" + std::to_string( f.Line ) + "  object '" + f.Object + "'\n      " +
                    f.Expression;
+        }
         return out;
     }
 } // namespace
@@ -87,9 +90,11 @@ TEST( ArgumentOrder, EverySourceRootItClaimsToCoverExists )
     ASSERT_FALSE( root.empty() );
 
     for ( const std::string& tree : AO::SourceRoots() )
+    {
         EXPECT_TRUE( std::filesystem::is_directory( std::filesystem::path( root ) / tree ) )
              << "SourceRoots() names '" << tree
              << "', which is not a directory. The census is silently covering less than it claims.";
+    }
 
     // And the two files that carry the known instances of this defect's history must be inside the reach,
     // by path: the emitter Г24 fixed, and the renderer this suite was written for.
@@ -98,7 +103,9 @@ TEST( ArgumentOrder, EverySourceRootItClaimsToCoverExists )
     {
         bool inside = false;
         for ( const std::string& tree : AO::SourceRoots() )
-            inside = inside || std::string( covered ).rfind( tree, 0 ) == 0;
+        {
+            inside = inside || std::string( covered ).starts_with( tree );
+        }
         EXPECT_TRUE( inside ) << covered << " is outside every root this census walks.";
     }
 }
@@ -129,7 +136,7 @@ TEST( ArgumentOrder, TheScannerFindsTheShapeItIsFor )
     for ( const Case& c : positives )
     {
         const std::vector<AO::Finding> found = AO::ScanText( c.Code, "<inline>" );
-        EXPECT_EQ( found.size(), 1u ) << "the scanner did not see: " << c.Name << "\n  " << c.Code
+        EXPECT_EQ( found.size(), 1U ) << "the scanner did not see: " << c.Name << "\n  " << c.Code
                                       << Report( found );
     }
 
@@ -166,7 +173,7 @@ TEST( ArgumentOrder, TextInsideALiteralIsNotCode )
 
     const std::vector<AO::Finding> real =
          AO::ScanText( "void f() { Log( \"text\", spec.Name, std::move( spec ) ); }", "<inline>" );
-    EXPECT_EQ( real.size(), 1u ) << "blanking the literal also blanked the real read" << Report( real );
+    EXPECT_EQ( real.size(), 1U ) << "blanking the literal also blanked the real read" << Report( real );
 }
 
 int main( int argc, char** argv )

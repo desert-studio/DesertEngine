@@ -85,14 +85,16 @@ namespace Desert::Tests::ArgumentOrder
     {
         std::size_t start = end;
         while ( start > 0 && ConsumerText::IsIdentChar( code[start - 1] ) )
+        {
             --start;
+        }
         return code.substr( start, end - start );
     }
 
     inline std::string ReadAll( const fs::path& path )
     {
-        std::ifstream     in( path, std::ios::binary );
-        std::stringstream ss;
+        const std::ifstream in( path, std::ios::binary );
+        std::stringstream   ss;
         ss << in.rdbuf();
         return ss.str();
     }
@@ -102,9 +104,11 @@ namespace Desert::Tests::ArgumentOrder
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+            const std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
             if ( probe )
+            {
                 return prefix;
+            }
             prefix += "../";
         }
         return {};
@@ -120,12 +124,16 @@ namespace Desert::Tests::ArgumentOrder
         {
             const char c = s[i];
             if ( c == '(' || c == '[' || c == '{' )
+            {
                 ++depth;
+            }
             else if ( c == ')' || c == ']' || c == '}' )
             {
                 --depth;
                 if ( depth == 0 )
+                {
                     return i;
+                }
             }
         }
         return std::string::npos;
@@ -142,9 +150,13 @@ namespace Desert::Tests::ArgumentOrder
         {
             const char c = inner[i];
             if ( c == '(' || c == '[' || c == '{' )
+            {
                 ++depth;
+            }
             else if ( c == ')' || c == ']' || c == '}' )
+            {
                 --depth;
+            }
             else if ( c == ',' && depth == 0 )
             {
                 out.emplace_back( start, i );
@@ -175,12 +187,16 @@ namespace Desert::Tests::ArgumentOrder
                 {
                     const std::size_t close = MatchBracket( code, i );
                     if ( close == std::string::npos )
+                    {
                         return std::string::npos;
+                    }
                     i = close;
                     continue;
                 }
                 if ( code[i] == '<' )
+                {
                     ++angle;
+                }
                 else if ( code[i] == '>' )
                 {
                     --angle;
@@ -210,7 +226,9 @@ namespace Desert::Tests::ArgumentOrder
         while ( words >> word )
         {
             if ( !out.empty() )
+            {
                 out += ' ';
+            }
             out += word;
         }
         return out;
@@ -239,28 +257,40 @@ namespace Desert::Tests::ArgumentOrder
                     continue;
                 }
                 if ( c != '(' )
+                {
                     return std::string::npos;
+                }
 
                 std::size_t before = j;
                 while ( before > 0 && ( code[before - 1] == ' ' || code[before - 1] == '\n' ||
                                         code[before - 1] == '\t' || code[before - 1] == '\r' ) )
+                {
                     --before;
+                }
                 if ( before == 0 )
+                {
                     return std::string::npos;
+                }
                 const char lead = code[before - 1];
                 // A call, as opposed to a grouping parenthesis or an `if (` / `for (`: what precedes it
                 // closes a name or a template argument list. `if`, `for`, `while` and `switch` are
                 // identifier characters too, so they are excluded by name.
-                if ( !( IsIdentChar( lead ) || lead == '>' ) )
+                if ( !IsIdentChar( lead ) && lead != '>' )
+                {
                     return std::string::npos;
+                }
                 const std::string word = IdentEndingAt( code, before );
                 if ( word == "if" || word == "for" || word == "while" || word == "switch" || word == "catch" ||
                      word == "return" )
+                {
                     return std::string::npos;
+                }
                 return j;
             }
             if ( c == ';' && depth == 0 )
+            {
                 return std::string::npos;
+            }
         }
         return std::string::npos;
     }
@@ -279,22 +309,32 @@ namespace Desert::Tests::ArgumentOrder
             for ( std::size_t at = code.find( name ); at != std::string::npos; at = code.find( name, at + 1 ) )
             {
                 if ( at > 0 && ConsumerText::IsIdentChar( code[at - 1] ) )
+                {
                     continue;
+                }
                 const std::size_t open = CallParenAfter( code, at, name.size() );
                 if ( open == std::string::npos )
+                {
                     continue;
+                }
                 const std::size_t close = MatchBracket( code, open );
                 if ( close == std::string::npos )
+                {
                     continue;
+                }
                 if ( counts != nullptr )
+                {
                     ++counts->MoveSites;
+                }
 
                 // The object is the ROOT of the moved expression: `spec` of `std::move( spec.Inner )`.
                 const std::size_t first  = ConsumerText::SkipSpace( code, open + 1 );
                 const std::string object = ConsumerText::IdentAt( code, first );
                 if ( object.empty() || object == "std" || object == "static_cast" || object == "const_cast" ||
                      object == "reinterpret_cast" )
+                {
                     continue;
+                }
 
                 // WALK OUTWARD. `lo`..`hi` is the span already accounted for one level down, so a mention
                 // inside it is the move's own text and not a sibling read. Every enclosing call is a
@@ -305,10 +345,14 @@ namespace Desert::Tests::ArgumentOrder
                 {
                     const std::size_t opener = EnclosingCallParen( code, scan );
                     if ( opener == std::string::npos )
+                    {
                         break;
+                    }
                     const std::size_t enclosing = MatchBracket( code, opener );
                     if ( enclosing == std::string::npos )
+                    {
                         break;
+                    }
 
                     const std::string inner = code.substr( opener + 1, enclosing - opener - 1 );
                     std::string       siblings;
@@ -317,7 +361,9 @@ namespace Desert::Tests::ArgumentOrder
                         const std::size_t absFrom = opener + 1 + span.first;
                         const std::size_t absTo   = opener + 1 + span.second;
                         if ( absFrom <= lo && hi <= absTo )
+                        {
                             continue; // the argument the move itself lives in
+                        }
                         siblings += inner.substr( span.first, span.second - span.first );
                         siblings += ' ';
                     }
@@ -363,15 +409,21 @@ namespace Desert::Tests::ArgumentOrder
                 const fs::path& p = it->path();
                 if ( p.string().find( "ThirdParty" ) != std::string::npos ||
                      p.string().find( "lightweightvk" ) != std::string::npos )
+                {
                     continue;
+                }
                 const std::string ext = p.extension().string();
                 if ( ext != ".cpp" && ext != ".hpp" && ext != ".h" && ext != ".inl" )
+                {
                     continue;
+                }
 
                 ++counts.Files;
-                std::string relative = p.lexically_relative( fs::path( root ) ).generic_string();
+                const std::string relative = p.lexically_relative( fs::path( root ) ).generic_string();
                 for ( Finding& f : ScanText( ReadAll( p ), relative, &counts ) )
+                {
                     out.push_back( std::move( f ) );
+                }
             }
         }
         return out;

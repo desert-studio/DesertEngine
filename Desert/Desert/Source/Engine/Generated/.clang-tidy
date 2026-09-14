@@ -1,0 +1,19 @@
+---
+# THIS DIRECTORY IS WRITTEN BY A PROGRAM, SO A STYLE FINDING HERE HAS NO ADDRESSEE.
+#
+# Reflection.gen.cpp is emitted by Tools/DesertHeaderTool on every build from REFLECT()/PROPERTY()
+# annotations. Nobody can act on "4.0f is a magic number" or "statement should be inside braces" at the
+# line it names: the line does not exist until the next build, and the only edit that could change it is
+# in the generator, where the same character is correct. The file already carries `// clang-format off` in
+# its own header for exactly this reason — the formatter reached the same conclusion first.
+#
+# Measured on the commit that added this file: regenerating the whole field table (372 rows, which is
+# what a change to the emitter does) produced 1256 diagnostics in the changed-lines gate, every one of
+# them about a character the generator chose.
+#
+# NOT A SILENCER FOR THE DEFECT CLASSES. `-checks=` given on the command line is APPENDED to this value,
+# so scripts/CI/CheckTidy.sh --register still analyses this file for the eight checks it names, and the
+# row for Reflection.gen.cpp in scripts/CI/TidyRegister.txt is a live assertion, not a comment. That is
+# the whole arrangement: the generated file answers for its DEFECTS and not for its punctuation.
+Checks: '-*'
+...

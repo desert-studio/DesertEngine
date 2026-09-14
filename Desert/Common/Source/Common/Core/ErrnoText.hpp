@@ -34,7 +34,9 @@ namespace Common
         return text != nullptr ? std::string( text ) : "errno " + std::to_string( code );
 #else
         if ( strerror_r( code, buffer, sizeof( buffer ) ) != 0 )
+        {
             return "errno " + std::to_string( code );
+        }
         return buffer;
 #endif
     }

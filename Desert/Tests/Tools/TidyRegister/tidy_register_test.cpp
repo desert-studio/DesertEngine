@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -35,9 +36,11 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "scripts/CI/TidyRegister.txt" );
+            const std::ifstream probe( prefix + "scripts/CI/TidyRegister.txt" );
             if ( probe )
+            {
                 return prefix;
+            }
             prefix += "../";
         }
         return {};
@@ -45,8 +48,8 @@ namespace
 
     std::string ReadAll( const fs::path& path )
     {
-        std::ifstream     in( path, std::ios::binary );
-        std::stringstream ss;
+        const std::ifstream in( path, std::ios::binary );
+        std::stringstream   ss;
         ss << in.rdbuf();
         return ss.str();
     }
@@ -65,7 +68,9 @@ namespace
         for ( std::istringstream in( text ); std::getline( in, line ); )
         {
             if ( !line.empty() && line.back() == '\r' )
+            {
                 line.pop_back();
+            }
             if ( line == "CHECKS:" )
             {
                 section = 1;
@@ -77,11 +82,17 @@ namespace
                 continue;
             }
             if ( line.empty() || line[0] == '#' )
+            {
                 continue;
+            }
             if ( section == 1 )
+            {
                 out.Checks.push_back( line );
+            }
             else if ( section == 2 )
+            {
                 out.Files.push_back( line );
+            }
         }
         return out;
     }
@@ -137,10 +148,10 @@ TEST( TidyRegister, TheRegisterIsNotEmptyAndStillNamesTheRowsItWasBuiltFor )
 
     const Register reg = Parse( ReadAll( fs::path( root ) / "scripts/CI/TidyRegister.txt" ) );
 
-    EXPECT_GE( reg.Checks.size(), 8u ) << "the register lists only " << reg.Checks.size()
+    EXPECT_GE( reg.Checks.size(), 8U ) << "the register lists only " << reg.Checks.size()
                                        << " check(s); Д36 closed seven defect classes and pinned one"
                                           " false positive shut.";
-    EXPECT_GE( reg.Files.size(), 40u ) << "the register lists only " << reg.Files.size()
+    EXPECT_GE( reg.Files.size(), 40U ) << "the register lists only " << reg.Files.size()
                                        << " file(s). A register emptied by an over-eager edit passes the"
                                           " shell gate in seconds and reports itself clean.";
 
@@ -157,10 +168,12 @@ TEST( TidyRegister, TheRegisterIsNotEmptyAndStillNamesTheRowsItWasBuiltFor )
          "Tools/DesertHeaderTool/main.cpp",                                             // the empty catch
     };
     for ( const char* row : required )
+    {
         EXPECT_NE( std::find( reg.Files.begin(), reg.Files.end(), std::string( row ) ), reg.Files.end() )
              << row
              << " has been removed from the register. That file is the SITE one of the seven"
                 " classes was found at; dropping its row retires the class silently.";
+    }
 }
 
 int main( int argc, char** argv )

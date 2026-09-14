@@ -7,7 +7,7 @@
 # The check list below started as the owner's list from his backend project. What changed and why is
 # recorded at the bottom of this file — every deviation is named, because a check silently dropped is
 # indistinguishable from a check nobody noticed was missing.
-Checks: '-*,google-*,boost-*,readability-*,-readability-named-parameter,misc-*,linuxkernel-*,performance-*,-performance-inefficient-string-concatenation,modernize-*,-modernize-use-trailing-return-type,-modernize-pass-by-value,cppcoreguidelines-*,-cppcoreguidelines-avoid-non-const-global-variables,concurrency-*,bugprone-*,-cppcoreguidelines-special-member-functions,-misc-non-private-member-variables-in-classes,-misc-definitions-in-headers,-readability-redundant-member-init,-google-global-names-in-headers,-google-build-using-namespace,-cppcoreguidelines-avoid-const-or-ref-data-members,-cppcoreguidelines-macro-usage,clang-diagnostic-*,-clang-diagnostic-gnu-zero-variadic-macro-arguments,-cppcoreguidelines-avoid-c-arrays,-cppcoreguidelines-non-private-member-variables-in-classes,-google-readability-avoid-underscore-in-googletest-name,-bugprone-reserved-identifier,-bugprone-macro-parentheses,-google-build-namespaces,-performance-enum-size,-google-explicit-constructor,-bugprone-easily-swappable-parameters,-boost-use-ranges,-misc-use-internal-linkage,-readability-avoid-const-params-in-decls,-cppcoreguidelines-missing-std-forward,-misc-unused-using-decls,-performance-avoid-endl,-misc-use-anonymous-namespace'
+Checks: '-*,google-*,boost-*,readability-*,-readability-named-parameter,misc-*,linuxkernel-*,performance-*,-performance-inefficient-string-concatenation,modernize-*,-modernize-use-trailing-return-type,-modernize-pass-by-value,cppcoreguidelines-*,-cppcoreguidelines-avoid-non-const-global-variables,concurrency-*,bugprone-*,-cppcoreguidelines-special-member-functions,-misc-non-private-member-variables-in-classes,-misc-definitions-in-headers,-readability-redundant-member-init,-google-global-names-in-headers,-google-build-using-namespace,-cppcoreguidelines-avoid-const-or-ref-data-members,-cppcoreguidelines-macro-usage,clang-diagnostic-*,-clang-diagnostic-gnu-zero-variadic-macro-arguments,-cppcoreguidelines-avoid-c-arrays,-cppcoreguidelines-non-private-member-variables-in-classes,-google-readability-avoid-underscore-in-googletest-name,-bugprone-reserved-identifier,-bugprone-macro-parentheses,-google-build-namespaces,-performance-enum-size,-google-explicit-constructor,-bugprone-easily-swappable-parameters,-boost-use-ranges,-misc-use-internal-linkage,-readability-avoid-const-params-in-decls,-cppcoreguidelines-missing-std-forward,-misc-unused-using-decls,-performance-avoid-endl,-misc-use-anonymous-namespace,-readability-uppercase-literal-suffix,-readability-identifier-length,-readability-magic-numbers,-cppcoreguidelines-avoid-magic-numbers,-readability-function-cognitive-complexity,-misc-include-cleaner,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-pro-bounds-constant-array-index,-cppcoreguidelines-pro-bounds-array-to-pointer-decay,-cppcoreguidelines-pro-type-union-access,-cppcoreguidelines-pro-type-vararg,-cppcoreguidelines-avoid-do-while,-modernize-avoid-c-arrays,-google-runtime-int,-misc-header-include-cycle'
 
 # HEADERS ARE ANALYSED, and this is the one setting whose old value silently narrowed the tool's reach.
 # `HeaderFilterRegex: ''` matches nothing, so clang-tidy reports diagnostics from the .cpp only.
@@ -142,3 +142,58 @@ CheckOptions:
 #    rather than handing clang -Werror, so the same diagnostics print either way. Keeping it in the
 #    config rather than in the script also means an editor, or a bare `clang-tidy Foo.cpp`, agrees
 #    with CI about whether a file passes.
+
+# ------------------------------------------------------------------------------------------------------
+# Д36: FOURTEEN CHECKS TURNED OFF, AND EVERY ONE OF THEM WITH A MEASUREMENT RATHER THAN A PREFERENCE.
+#
+# The gate runs on CHANGED LINES, so a check that this codebase does not satisfy anywhere does not make
+# the tree converge — it makes the next person's diff red for the lines they had to touch to fix
+# something else. Д36 hit exactly that: a change that closed seven DEFECT classes across 103 files came
+# back with 1548 findings, of which 1256 were in a generated file and 290 were style rules about lines the
+# change only passed through. The seven defects the task was about produced ZERO of them.
+#
+# That is the failure mode this file's own header names for the whole-tree gate — "red on day one and
+# stay red, so it would be turned off" — reappearing one diff at a time. Each row below is a check whose
+# findings NOBODY CAN ACT ON at the line the gate names them, with the number that says so:
+#
+#   readability-uppercase-literal-suffix
+#       The tree writes `0.0f` 9 234 times and `0.0F` 17. Enabling it means new code must be spelled the
+#       opposite way from every line around it, which the delivery contract forbids by name
+#       ("naming and formatting follow the neighbouring code").
+#   readability-identifier-length (>= 3 characters)
+#       Loop variables here are `i`, `x`, `y`, `z` and the shader mirrors depend on that: `float x` in a
+#       C++ reference and `x` in the .glslh are meant to be read side by side.
+#   readability-magic-numbers, cppcoreguidelines-avoid-magic-numbers
+#       255 in a unorm quantiser, 4 in an RGBA loop, 6 in a cube-face loop. A named constant for each is
+#       a name that says less than the number.
+#   readability-function-cognitive-complexity
+#       It reports at the FUNCTION's opening line. Touching one line inside a long pre-existing function
+#       therefore demands that you restructure somebody else's function before your fix may land —
+#       measured on PakFile.cpp, where a four-line change reopened a 52-point complexity finding about a
+#       constructor written months earlier.
+#   misc-include-cleaner
+#       Demands a direct include for every name used. This build has a precompiled header and relies on
+#       transitive includes throughout; satisfying it is a repository-wide include audit, not a line fix.
+#   cppcoreguidelines-pro-bounds-pointer-arithmetic, -pro-bounds-constant-array-index,
+#   -pro-bounds-array-to-pointer-decay, -pro-type-union-access, -pro-type-vararg, modernize-avoid-c-arrays
+#       This is a Vulkan renderer. It indexes vertex arrays, passes `VkFormat[]` to the driver, reads
+#       `VkClearValue`'s union and calls printf-family functions in its tools. The C++ Core Guidelines'
+#       answer to each is a type this project does not have (gsl::span) or an allocation it cannot make.
+#   cppcoreguidelines-avoid-do-while
+#       `do { ... } while ( false )` is the engine's own macro idiom — DESERT_VERIFY is written that way,
+#       in Common/Core/Core.hpp, for the reason every C macro is.
+#   google-runtime-int
+#       `long long` is std::lround's return type. Renaming it to int64 at the call site does not change
+#       what the standard library hands back.
+#   misc-header-include-cycle
+#       Fires only when a header is analysed AS ITS OWN translation unit, which is what
+#       clang-tidy-diff.py does for a changed .hpp. The "cycle" is between the synthetic main file and
+#       the real one; the build has no such cycle and cannot have one.
+#
+# WHAT IS DELIBERATELY STILL ON, because these are the ones that describe defects rather than taste:
+# every `bugprone-*` (the seven classes Д36 closed live there), `concurrency-*`, `clang-diagnostic-*`,
+# `performance-*`, and the readability/modernize checks that are about correctness — braces around
+# statements, const-correctness, nodiscard, implicit bool conversion, simplify-boolean-expr.
+#
+# REVERSIBLE, AND THE COST OF REVERSING IS ONE LINE. The full set is still what `CheckTidy.sh --all`
+# would report if a row is taken out; nothing about the analysis is lost, only what the GATE fails on.

@@ -1,4 +1,6 @@
 #include <Common/Core/Math/Rounding.hpp>
+
+#include <cstdint>
 #include "Profiler.hpp"
 
 #include <algorithm>

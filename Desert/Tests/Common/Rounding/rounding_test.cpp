@@ -13,7 +13,6 @@
 
 #include <Common/Core/Math/Rounding.hpp>
 
-#include <cmath>
 #include <cstdint>
 #include <limits>
 
@@ -66,7 +65,9 @@ TEST( Rounding, EveryByteSurvivesTheRoundTrip )
     // 255 and not 256 is what makes this hold, and it is the property the cloud volume bakers depend on:
     // a voxel written, read back and written again must not drift a level per generation.
     for ( int byte = 0; byte <= 255; ++byte )
+    {
         EXPECT_EQ( QuantiseUnitToByte( static_cast<float>( byte ) / 255.0f ), byte ) << "at " << byte;
+    }
 }
 
 TEST( Rounding, OutOfRangeAndNaNClampRatherThanWrap )
