@@ -256,9 +256,13 @@ namespace Desert::Editor
         // entity it was opened on IS the answer — no election, no guard, and no second implementation of the
         // canvas pass (which is what this window's previous ImGui-based preview was, and why it was deleted).
         m_UIView.Materials = &m_Render2D.Materials();
-        ::Desert::UI::BeginUIFrame( m_UIView, scene->GetRegistry() );
+        // This window is an authoring view by definition — it has no pointer and its whole purpose is to
+        // show what was authored. An overlay canvas opened here is therefore shown as authored, unplaced,
+        // which is exactly what the marquee and the drag handles need.
+        m_UIView.AuthoringPreview = true;
+        ::Desert::UI::BeginUIFrame( m_UIView, scene->GetRegistry(), viewport );
         if ( const auto drawn = ::Desert::UI::RenderCanvas2D( m_UIView, scene->GetRegistry(), canvasEntity,
-                                                              m_Render2D.GetDrawList(), viewport,
+                                                              m_Render2D.GetDrawList(),
                                                               /*worldViewProj=*/nullptr,
                                                               /*input=*/nullptr );
              !drawn )

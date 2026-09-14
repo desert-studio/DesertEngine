@@ -1,3 +1,4 @@
+#include <Editor/Core/ShotOptions.hpp>
 #include "EditorUIPass.hpp"
 
 #include <Engine/Graphic/Renderer.hpp>
@@ -68,13 +69,40 @@ namespace Desert::Editor::Render
             auto&       pv = Editor::Core::UIPreview::Get();
             UI::UIInput input;
             std::string clicked;
-            const bool  feed = pv.Enabled && pv.HasInput && pv.DisplaySize.x > 0.0f && pv.DisplaySize.y > 0.0f;
-            if ( feed )
+
+            // A HEADLESS CAPTURE HAS NO CURSOR, so `--ui-pointer` is its cursor (Ю12). Until this existed
+            // there was no arrangement of flags that could photograph anything the UI does in RESPONSE to
+            // a pointer — a tooltip appearing after its hover delay and flipping at the edge of the view, a
+            // context menu opening where it was clicked — so the whole overlay state machine was provable
+            // only by a unit test. It is read here rather than written into UIPreview because the
+            // ViewportPanel rewrites that snapshot every frame it draws and would erase it.
+            const auto& shot     = ShotOptions::Get();
+            const bool  cliInput = shot.Active() && shot.HasUIPointer;
+            const bool  feed =
+                 cliInput || ( pv.Enabled && pv.HasInput && pv.DisplaySize.x > 0.0f && pv.DisplaySize.y > 0.0f );
+            if ( cliInput )
+            {
+                input.MousePx = shot.UIPointer;
+
+                // THE PRESS WAITS FOR AN ELECTION TO LAND ON. A capture's first frames have none — the
+                // scene is still being loaded and the canvas has not been walked yet — and the press edge
+                // happens exactly ONCE, on the first frame the button is reported down. Delivered
+                // immediately it was therefore spent on whatever the half-built frame elected, and the
+                // context menu never opened: measured, and it looks exactly like "the flag does nothing".
+                // `Hot` is the PREVIOUS frame's winner, so a non-null one means the UI is up and the
+                // element under the pointer this frame is the same one.
+                const bool ready     = m_UIView.Hot != entt::null;
+                input.MouseDown      = ready && shot.UIPress == ShotOptions::UIButtonHeld::Left;
+                input.MouseRightDown = ready && shot.UIPress == ShotOptions::UIButtonHeld::Right;
+            }
+            else if ( feed )
             {
                 input.MousePx       = { pv.MousePx.x * ( w / pv.DisplaySize.x ),
                                         pv.MousePx.y * ( h / pv.DisplaySize.y ) };
-                input.MouseDown     = pv.Down;
-                input.MouseReleased = pv.Released;
+                input.MouseDown      = pv.Down;
+                input.MouseReleased  = pv.Released;
+                input.MouseRightDown = pv.RightDown;
+                input.Escape         = pv.Escape;
                 input.ScrollDelta   = pv.Scroll;
                 input.Tab           = pv.Tab;
                 input.Submit        = pv.Submit;
@@ -97,13 +125,19 @@ namespace Desert::Editor::Render
             // UIViewContext::Materials.
             m_UIView.Materials = &m_Render2D.Materials();
 
+            // DESIGN MODE IS AN AUTHORING VIEW, AND PREVIEW IS NOT. With Play-in-editor off the overlays of
+            // the level — tooltips, menus, dialogs, the toast stack — are drawn where they were authored, so
+            // they can be selected, moved and edited in the viewport like any other canvas. Turning Preview
+            // on hands them to their state machine and they disappear until something opens them, which is
+            // what the author is previewing.
+            m_UIView.AuthoringPreview = !feed;
+
             const std::vector<entt::entity> canvases = UI::CanvasesInDrawOrder( scene->GetRegistry() );
-            UI::BeginUIFrame( m_UIView, scene->GetRegistry() );
+            UI::BeginUIFrame( m_UIView, scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
             for ( const entt::entity canvas : canvases )
-                if ( const auto drawn =
-                          UI::RenderCanvas2D( m_UIView, scene->GetRegistry(), canvas, m_Render2D.GetDrawList(),
-                                              UI::Rect{ 0.0f, 0.0f, w, h }, vpPtr, feed ? &input : nullptr,
-                                              feed ? &clicked : nullptr, feed ? &pv.Focused : nullptr );
+                if ( const auto drawn = UI::RenderCanvas2D(
+                          m_UIView, scene->GetRegistry(), canvas, m_Render2D.GetDrawList(), vpPtr,
+                          feed ? &input : nullptr, feed ? &clicked : nullptr, feed ? &pv.Focused : nullptr );
                      !drawn )
                     LOG_ERROR( "[UI Preview] {}", drawn.GetError() );
             UI::EndUIFrame( m_UIView, scene->GetRegistry(), m_Render2D.GetDrawList(), feed ? &input : nullptr,

@@ -204,8 +204,8 @@ namespace
 
         R2D::DrawList2D          dl;
         std::vector<std::string> out;
-        Desert::UI::BeginUIFrame( ctx, t.Registry );
-        const auto drawn = Desert::UI::RenderCanvas2D( ctx, t.Registry, t.Canvas, dl, kViewport, nullptr, &input );
+        Desert::UI::BeginUIFrame( ctx, t.Registry, kViewport );
+        const auto drawn = Desert::UI::RenderCanvas2D( ctx, t.Registry, t.Canvas, dl, nullptr, &input );
         EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
         // The routing is the VIEW's, not the walk's: it runs once per frame over the election every canvas
         // of that frame contributed to. This suite draws one canvas, so a frame is Begin / one walk / End.

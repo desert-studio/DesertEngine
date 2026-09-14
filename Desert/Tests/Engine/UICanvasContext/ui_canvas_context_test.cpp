@@ -205,27 +205,12 @@ namespace
                const UIInput* input = nullptr, std::string* outClicked = nullptr, entt::entity* focused = nullptr,
                std::vector<std::string>* outMessages = nullptr )
     {
-        Desert::UI::BeginUIFrame( ctx, reg );
-        const auto drawn = Desert::UI::RenderCanvas2D( ctx, reg, canvas, dl, kViewport,
+        Desert::UI::BeginUIFrame( ctx, reg, kViewport );
+        const auto drawn = Desert::UI::RenderCanvas2D( ctx, reg, canvas, dl,
                                                        /*worldViewProj=*/nullptr, input, outClicked, focused );
         EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
         Desert::UI::EndUIFrame( ctx, reg, dl, input, focused, outClicked, outMessages );
         return drawn.IsSuccess() && drawn.GetValue();
-    }
-
-    // ONE frame of @p ctx over TWO canvases, in the order given — what a view of a scene with a HUD and an
-    // overlay actually does.
-    void DrawTwo( UIViewContext& ctx, entt::registry& reg, entt::entity first, entt::entity second,
-                  R2D::DrawList2D& dl, const UIInput* input = nullptr, std::string* outClicked = nullptr )
-    {
-        Desert::UI::BeginUIFrame( ctx, reg );
-        for ( const entt::entity c : { first, second } )
-        {
-            const auto drawn = Desert::UI::RenderCanvas2D( ctx, reg, c, dl, kViewport,
-                                                           /*worldViewProj=*/nullptr, input, outClicked );
-            EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
-        }
-        Desert::UI::EndUIFrame( ctx, reg, dl, input, /*focused=*/nullptr, outClicked );
     }
 
     // Draw one frame of @p f through @p ctx and hand back what the button was painted.
@@ -1227,13 +1212,13 @@ TEST( UICanvasSelection, NotNamingACanvasIsARefusalAndNotTheFirstOne )
 
     UIViewContext   ctx;
     R2D::DrawList2D dl;
-    const auto      unnamed = Desert::UI::RenderCanvas2D( ctx, t.Registry, entt::null, dl, kViewport );
+    const auto      unnamed = Desert::UI::RenderCanvas2D( ctx, t.Registry, entt::null, dl );
     EXPECT_FALSE( unnamed.IsSuccess() ) << "RenderCanvas2D accepted no canvas and drew something anyway";
     EXPECT_TRUE( dl.GetVertices().empty() ) << "a refused walk still emitted geometry";
 
     // An entity that exists but is not a canvas is a DIFFERENT refusal — a caller bug, not an empty scene.
     R2D::DrawList2D dl2;
-    const auto      notACanvas = Desert::UI::RenderCanvas2D( ctx, t.Registry, t.PanelA, dl2, kViewport );
+    const auto      notACanvas = Desert::UI::RenderCanvas2D( ctx, t.Registry, t.PanelA, dl2 );
     EXPECT_FALSE( notACanvas.IsSuccess() );
     EXPECT_NE( notACanvas.GetError(), unnamed.GetError() )
          << "'you named nothing' and 'you named a panel' came back as the same sentence";
@@ -1921,10 +1906,10 @@ namespace
             R2D::DrawList2D dl;
             std::string     clicked;
             const auto      canvases = Desert::UI::CanvasesInDrawOrder( Registry );
-            Desert::UI::BeginUIFrame( view, Registry );
+            Desert::UI::BeginUIFrame( view, Registry, kViewport );
             for ( const entt::entity c : canvases )
             {
-                const auto drawn = Desert::UI::RenderCanvas2D( view, Registry, c, dl, kViewport,
+                const auto drawn = Desert::UI::RenderCanvas2D( view, Registry, c, dl,
                                                                /*worldViewProj=*/nullptr, &input, &clicked );
                 EXPECT_TRUE( drawn.IsSuccess() ) << drawn.GetError();
             }
@@ -2142,7 +2127,7 @@ TEST( UICanvasContextPair, AWalkWithNoOpenFrameIsRefusedByName )
     UIViewContext    view;
     R2D::DrawList2D  dl;
 
-    const auto refused = Desert::UI::RenderCanvas2D( view, f.Registry, f.Lower, dl, kViewport );
+    const auto refused = Desert::UI::RenderCanvas2D( view, f.Registry, f.Lower, dl );
     EXPECT_FALSE( refused.IsSuccess() )
          << "a walk with no BeginUIFrame drew a frame whose clock can never advance";
     EXPECT_NE( refused.GetError().find( "BeginUIFrame" ), std::string::npos ) << refused.GetError();

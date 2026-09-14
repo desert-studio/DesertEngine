@@ -250,11 +250,15 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   above are answered by the removal itself: nothing is obliged to destroy an object that is never
     //   created. The count is the whole evidence that the members left with the feature rather than being
     //   orphaned inside a class that no longer draws them.
-    EXPECT_EQ( CountOf( Form::Raw ), 354 );
+    //   824 -> 825 with Ю12 (UI overlays). ONE raw, and it is a string literal in a constexpr table:
+    //   CommandLineFlag::AlsoNeeds, the companion flags a flag cannot be given without. Nothing else the
+    //   overlay work added is a pointer at all — the overlay state is held by value in the (canvas x view)
+    //   cell, and the two new components are plain data.
+    EXPECT_EQ( CountOf( Form::Raw ), 355 );
     EXPECT_EQ( CountOf( Form::Shared ), 321 );
     EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 824 )
+    EXPECT_EQ( (int)Members().size(), 825 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

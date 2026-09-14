@@ -27,6 +27,7 @@
 #include <Engine/ECS/System/AttachmentSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/UI/UIDataStore.hpp>
+#include <Engine/UI/UIOverlay.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/AudioECSSystem.hpp>
@@ -194,6 +195,12 @@ namespace Desert::Player
 
         EngineContext::GetInstance().GetDevice()->WaitIdle(); // scene teardown frees GPU resources
         m_Scene->Clear();                                     // keeps the gameplay systems, drops the entities
+
+        // A notification raised by the level being left names an overlay canvas of THAT level. Carrying it
+        // across would either pop up in a world it says nothing about or, more likely, name an overlay the
+        // new level does not have and log a refusal for something nobody did. The view's own overlay state
+        // needs no help here — BeginUIFrame rebinds and resets it when the registry changes.
+        UI::UIOverlayRequests::Get().Clear();
 
         Core::SceneSerializer serializer( m_Scene.get(), m_AssetManager.get() );
         if ( const auto loaded = serializer.DeserializeFromJson( json, path ); !loaded )
@@ -370,6 +377,11 @@ namespace Desert::Player
                 input.MousePx       = { mx, my };
                 input.MouseDown     = down;
                 input.MouseReleased = m_PrevMouseDown && !down;
+                // The right button is reported HELD, not as an edge: the frame derives the edge itself from
+                // UIViewContext::PrevRightDown, exactly as it does for the left one, so the press a context
+                // menu opens on is computed in one place.
+                input.MouseRightDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Right );
+                input.Escape         = m_EscapePressed;
                 input.ScrollDelta   = m_ScrollAccum;
                 input.TypedText     = m_TypedText;
                 input.Backspace     = m_Backspace;
@@ -381,6 +393,7 @@ namespace Desert::Player
                 m_Backspace     = false;
                 m_TabPressed    = false;
                 m_SubmitPressed = false;
+                m_EscapePressed = false;
 
                 // Pointer events / drops can fire several times in one frame, so they come back in their
                 // own list; a button action still arrives through `clicked`.
@@ -394,11 +407,10 @@ namespace Desert::Player
                 // two canvases and both are drawn. A level with none draws nothing and says nothing — a
                 // game without UI is legitimate, and it was only ever a refusal because of the limit.
                 m_UIView.Materials = &m_Render2D->Materials();
-                UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry() );
+                UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
                 for ( const entt::entity canvas : UI::CanvasesInDrawOrder( m_Scene->GetRegistry() ) )
                     if ( const auto drawn = UI::RenderCanvas2D( m_UIView, m_Scene->GetRegistry(), canvas, dl,
-                                                                UI::Rect{ 0.0f, 0.0f, w, h }, vpPtr, &input,
-                                                                &clicked, &m_FocusedUI );
+                                                                vpPtr, &input, &clicked, &m_FocusedUI );
                          !drawn )
                         LOG_ERROR( "[Runtime] {}", drawn.GetError() );
                 UI::EndUIFrame( m_UIView, m_Scene->GetRegistry(), dl, &input, &m_FocusedUI, &clicked,
@@ -548,6 +560,9 @@ namespace Desert::Player
                          break;
                      case Common::KeyCode::Enter:
                          m_SubmitPressed = true;
+                         break;
+                     case Common::KeyCode::Escape:
+                         m_EscapePressed = true;
                          break;
                      default:
                          break;

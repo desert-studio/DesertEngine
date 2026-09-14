@@ -23,6 +23,8 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
+        -- The frame boundary calls the overlay state machine (Ю12), so the walk is these two files.
+        "%{wks.location}/Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UIDataStore.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.cpp",

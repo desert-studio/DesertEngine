@@ -62,6 +62,17 @@ namespace Desert::Editor
         bool        TakesValue;
         /// A value that parses, for the table-driven test. Null for a flag that takes none.
         const char* ExampleValue;
+
+        /// Flags this one cannot be given without, spelled as the rest of a command line (`"--ui-pointer
+        /// 640,360"`). Null for the ordinary case of a flag that stands alone.
+        ///
+        /// WHY THE TABLE CARRIES IT. `--ui-press` without `--ui-pointer` is refused, because a button held
+        /// at no position presses the top-left corner of the frame and produces a picture that looks like
+        /// evidence. The table-driven test parses each flag ON ITS OWN, so an undeclared dependency makes
+        /// that test red for the flag doing the right thing — and the repair anybody reaches for first is
+        /// to drop the refusal. Declaring it keeps both: the dependency is data the test can honour, and it
+        /// is written beside the flag rather than inside a test nobody reads when adding one.
+        const char* AlsoNeeds = nullptr;
     };
 
     inline constexpr CommandLineFlag kCommandLineFlags[] = {
@@ -80,6 +91,8 @@ namespace Desert::Editor
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
          { "--play", false, nullptr },
+         { "--ui-pointer", true, "640,360" },
+         { "--ui-press", true, "right", "--ui-pointer 640,360" },
     };
 
     /// Everything the command line resolved to. Held by value and copied into the process-wide singletons
@@ -124,6 +137,27 @@ namespace Desert::Editor
                 return false;
 
             out = value;
+            return true;
+        }
+
+        /// Exactly TWO comma-separated floats — a point on the screen. Same strictness as the vec3 below
+        /// and for the same reason: `--ui-pointer 640,360,0` is somebody who meant something else.
+        inline bool ParseVec2Strict( const std::string& text, glm::vec2& out )
+        {
+            const std::size_t comma = text.find( ',' );
+            if ( comma == std::string::npos )
+                return false;
+            if ( text.find( ',', comma + 1 ) != std::string::npos )
+                return false;
+
+            float x = 0.0f;
+            float y = 0.0f;
+            if ( !ParseFloatStrict( text.substr( 0, comma ), x ) )
+                return false;
+            if ( !ParseFloatStrict( text.substr( comma + 1 ), y ) )
+                return false;
+
+            out = glm::vec2( x, y );
             return true;
         }
 
@@ -278,6 +312,29 @@ namespace Desert::Editor
                 }
                 options.Shot.SequenceEvery = every;
             }
+            else if ( arg == "--ui-pointer" )
+            {
+                if ( !ParseVec2Strict( value, options.Shot.UIPointer ) )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--ui-pointer '{}' is not a point (two comma-separated numbers in framebuffer "
+                         "pixels, e.g. 640,360).",
+                         value );
+                }
+                options.Shot.HasUIPointer = true;
+            }
+            else if ( arg == "--ui-press" )
+            {
+                if ( value == "left" )
+                    options.Shot.UIPress = ShotOptions::UIButtonHeld::Left;
+                else if ( value == "right" )
+                    options.Shot.UIPress = ShotOptions::UIButtonHeld::Right;
+                else
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--ui-press '{}' is not a button ('left' or 'right').", value );
+                }
+            }
             else if ( arg == "--camera" )
             {
                 if ( !ParseVec3Strict( value, options.Shot.Position ) )
@@ -318,6 +375,16 @@ namespace Desert::Editor
                 options.Shot.HasForwardTo = true;
                 options.Shot.HasCamera    = true;
             }
+        }
+
+        // A held button with nowhere to hold it is a caller error and not a default. Without a pointer the
+        // button would be pressed at 0,0 and every such capture would quietly click the top-left corner of
+        // the frame — a silent wrong answer with a picture attached, which is the worst kind.
+        if ( options.Shot.UIPress != ShotOptions::UIButtonHeld::None && !options.Shot.HasUIPointer )
+        {
+            return Common::MakeError<CommandLineOptions>(
+                 "--ui-press needs --ui-pointer: a button held at no position would press the top-left "
+                 "corner of the frame." );
         }
 
         return Common::MakeSuccess( std::move( options ) );

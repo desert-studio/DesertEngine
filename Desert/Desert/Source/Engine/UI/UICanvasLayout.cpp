@@ -373,7 +373,7 @@ namespace Desert::UI
                 if ( !isCurrent && !isLeaving )
                     self = UISkipCause::ScreenNotCurrent;
             }
-            if ( self == UISkipCause::None && ctx != nullptr && BindingHidesElement( reg, e ) )
+            if ( self == UISkipCause::None && ctx != nullptr && BindingHidesElement( reg, e, ctx ) )
                 self = UISkipCause::BindingHidden;
 
             if ( scope.SkippedBy != entt::null )
@@ -543,14 +543,14 @@ namespace Desert::UI
         return "?";
     }
 
-    bool BindingHidesElement( entt::registry& reg, entt::entity e )
+    bool BindingHidesElement( entt::registry& reg, entt::entity e, const UICanvasContext* ctx )
     {
         if ( !reg.valid( e ) || !reg.has<ECS::UIBindingComponent>( e ) )
             return false;
         const auto& b = reg.get<ECS::UIBindingComponent>( e ).Data;
         if ( b.Target != ECS::UIBindTarget::Visible || b.Key.empty() )
             return false;
-        const auto v = UIDataStore::Get().Bool( b.Key );
+        const auto v = BindingStore( ctx, b.Key ).Bool( b.Key );
         return v.has_value() && !*v;
     }
 
@@ -563,10 +563,27 @@ namespace Desert::UI
         if ( !fit )
             return Common::MakeError( fit.GetError() );
 
-        const float scale     = fit.GetValue().Scale;
-        const auto& cd        = reg.get<ECS::UICanvasComponent>( canvas ).Data;
-        const Rect  childRoot = InsetRect( fit.GetValue().Root, cd.SafeArea.x * scale, cd.SafeArea.y * scale,
-                                           cd.SafeArea.z * scale, cd.SafeArea.w * scale );
+        const float scale = fit.GetValue().Scale;
+        const auto& cd    = reg.get<ECS::UICanvasComponent>( canvas ).Data;
+
+        // AN OVERLAY CANVAS IS DISPLACED, AND THIS QUERY HAS TO KNOW IT. RenderCanvas2D shifts the whole
+        // canvas root by the placement the overlay update computed, so a context menu draws where it was
+        // opened rather than where it was authored. Resolving it here without the shift is the middle link
+        // that drops a property — the menu would be clickable at the authored position and visible at the
+        // placed one — which is exactly what the note at the top of this file warns about.
+        //
+        // WITHOUT A CONTEXT there is no placement to apply and none is applied: an authoring host asks
+        // about the canvas as it was authored, which is where its handles and its marquee belong.
+        Rect       rootRect  = fit.GetValue().Root;
+        const bool isOverlay = reg.has<ECS::UIOverlayComponent>( canvas );
+        if ( isOverlay && ctx != nullptr )
+        {
+            rootRect.X += ctx->OverlayShift.x;
+            rootRect.Y += ctx->OverlayShift.y;
+        }
+
+        const Rect childRoot = InsetRect( rootRect, cd.SafeArea.x * scale, cd.SafeArea.y * scale,
+                                          cd.SafeArea.z * scale, cd.SafeArea.w * scale );
 
         // The canvas is drawn into the viewport and nowhere else, so that is the outermost clip — built as a
         // region, at identity, exactly as RenderCanvas2D builds its own, so every level below narrows ONE
@@ -575,6 +592,13 @@ namespace Desert::UI
         // to draw over the whole viewport.
         EnumScope root;
         root.Parent = childRoot;
+
+        // A CLOSED OVERLAY IS NOT AN EMPTY CANVAS. Its tree is enumerated as usual and every node comes back
+        // with CauseBy = the canvas, so "why can I not see this button" answers "the overlay it is in is
+        // closed" instead of answering nothing at all. Reporting an empty list would be the empty successful
+        // answer the contract forbids: the caller could not tell it from a canvas with no children.
+        if ( isOverlay && ctx != nullptr && !ctx->OverlayOpen )
+            root.SkippedBy = canvas;
         (void)Graphic::Render2D::IntersectClipRegion(
              root.Clip, glm::mat3( 1.0f ), { viewportPx.X, viewportPx.Y },
              { viewportPx.X + viewportPx.W, viewportPx.Y + viewportPx.H } );
