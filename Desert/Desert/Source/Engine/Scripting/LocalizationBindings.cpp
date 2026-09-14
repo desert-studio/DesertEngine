@@ -31,13 +31,19 @@ namespace Desert::Scripting
         {
             Localization::FormatArguments args;
             if ( !options )
+            {
                 return args;
+            }
 
             const sol::table& table = *options;
             if ( const sol::optional<double> count = table["count"] )
+            {
                 args.Count = *count;
+            }
             if ( const sol::optional<int> digits = table["digits"] )
+            {
                 args.CountFractionDigits = *digits;
+            }
             if ( const sol::optional<std::string> gender = table["gender"] )
             {
                 if ( const auto parsed = Localization::GenderFromName( *gender ) )

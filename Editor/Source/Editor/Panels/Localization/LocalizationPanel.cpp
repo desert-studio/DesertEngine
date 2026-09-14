@@ -20,7 +20,9 @@ namespace Desert::Editor
     void LocalizationPanel::OnUIRender()
     {
         if ( !GetVisibility() )
+        {
             return;
+        }
 
         auto& loc = Localization::Localization::Get();
 
@@ -83,7 +85,7 @@ namespace Desert::Editor
                                 ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
                                      ImGuiTableFlags_Resizable ) )
         {
-            ImGui::TableSetupColumn( "Key", ImGuiTableColumnFlags_WidthFixed, 220.0f );
+            ImGui::TableSetupColumn( "Key", ImGuiTableColumnFlags_WidthFixed, 220.0F );
             ImGui::TableSetupColumn( "In this language" );
             ImGui::TableSetupScrollFreeze( 0, 1 );
             ImGui::TableHeadersRow();

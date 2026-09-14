@@ -39,18 +39,18 @@ namespace Desert::Assets
         /// which is the correct state: the strings really are gone.
         Common::BoolResultStr Unload() override;
 
-        bool IsReadyForUse() const override
+        [[nodiscard]] bool IsReadyForUse() const override
         {
             return m_Ready;
         }
 
-        const Localization::StringTableData& GetData() const
+        [[nodiscard]] const Localization::StringTableData& GetData() const
         {
             return m_Data;
         }
 
         /// What to show in a slot: the file's DisplayName when it has one, the file's stem when it does not.
-        const std::string& GetDisplayName() const
+        [[nodiscard]] const std::string& GetDisplayName() const
         {
             return m_DisplayName;
         }
@@ -75,7 +75,7 @@ namespace Desert::Assets
     private:
         /// The id this table is published under: the file's path. One table per file, so the path is both
         /// the identity and the thing a conflict message must name.
-        std::string PublishId() const;
+        [[nodiscard]] std::string PublishId() const;
 
         Localization::StringTableData m_Data;
         std::string                   m_DisplayName;

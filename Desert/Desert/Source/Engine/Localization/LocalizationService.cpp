@@ -63,12 +63,12 @@ namespace Desert::Localization
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr Localization::RegisterTable( const std::string& id, StringTableData table )
+    Common::BoolResultStr Localization::RegisterTable( const std::string& tableId, StringTableData table )
     {
         // A re-registration of the same id is a hot reload: its old rows go first, so a key deleted from
         // the file is deleted from the lookup. Leaving them would make a removal a no-op and the feature
         // would report itself as working.
-        UnregisterTable( id );
+        UnregisterTable( tableId );
 
         for ( LocalizedEntry& entry : table.Entries )
         {
@@ -78,11 +78,11 @@ namespace Desert::Localization
                 const std::string owner = existing->second.Table;
                 // Undo the rows this call has already added, so a refused table contributes nothing at
                 // all rather than half of itself.
-                UnregisterTable( id );
+                UnregisterTable( tableId );
                 return Common::MakeFormattedError<bool>(
                      "string table '{}' defines key '{}', which '{}' already defines; one key must resolve "
                      "to one string, and which of the two wins would otherwise depend on load order",
-                     id, entry.Key, owner );
+                     tableId, entry.Key, owner );
             }
             // THE KEY IS COPIED OUT BEFORE THE MOVE, and that is not style. `emplace( entry.Key,
             // Row{ id, std::move( entry ) } )` puts a read of `entry` and a move-from `entry` in ONE
@@ -91,25 +91,25 @@ namespace Desert::Localization
             // shape this project has already paid for in the shader-graph emitter, where it made the
             // cache key platform-dependent.)
             std::string key = entry.Key;
-            m_Rows.emplace( std::move( key ), Row{ id, std::move( entry ) } );
+            m_Rows.emplace( std::move( key ), Row{ tableId, std::move( entry ) } );
         }
 
-        m_Tables.insert( id );
+        m_Tables.insert( tableId );
         ++m_Generation;
         m_Reported.clear();
         m_MissOrder.clear();
         return BOOLSUCCESS;
     }
 
-    void Localization::UnregisterTable( const std::string& id )
+    void Localization::UnregisterTable( const std::string& tableId )
     {
-        m_Tables.erase( id );
+        m_Tables.erase( tableId );
 
         // Always the full scan, never guarded by "was this id registered?": RegisterTable calls this to
         // undo a PARTIAL insertion, whose rows exist while the id does not, and a guard would leave them
         // behind — a refused table half-present is worse than one that failed outright.
         for ( auto it = m_Rows.begin(); it != m_Rows.end(); )
-            it = ( it->second.Table == id ) ? m_Rows.erase( it ) : std::next( it );
+            it = ( it->second.Table == tableId ) ? m_Rows.erase( it ) : std::next( it );
 
         ++m_Generation;
         m_Reported.clear();

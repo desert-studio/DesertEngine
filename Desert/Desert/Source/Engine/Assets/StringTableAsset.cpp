@@ -38,7 +38,9 @@ namespace Desert::Assets
         else
         {
             if ( auto read = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath ); read )
+            {
                 text = read.ExtractValue();
+            }
         }
 
         if ( text.empty() )

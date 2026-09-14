@@ -52,12 +52,18 @@ namespace Desert::Localization
         if ( !genderName.empty() )
         {
             if ( const std::string* both = lookup( genderName + "." + plural ) )
+            {
                 return both;
+            }
             if ( const std::string* onlyGender = lookup( genderName ) )
+            {
                 return onlyGender;
+            }
         }
         if ( const std::string* onlyPlural = lookup( plural ) )
+        {
             return onlyPlural;
+        }
         return lookup( std::string( PluralCategoryName( PluralCategory::Other ) ) );
     }
 

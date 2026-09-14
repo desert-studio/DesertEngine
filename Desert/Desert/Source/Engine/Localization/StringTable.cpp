@@ -15,7 +15,9 @@ namespace Desert::Localization
         {
             const auto gender = static_cast<Gender>( i );
             if ( GenderName( gender ) == name )
+            {
                 return gender;
+            }
         }
         return std::nullopt;
     }

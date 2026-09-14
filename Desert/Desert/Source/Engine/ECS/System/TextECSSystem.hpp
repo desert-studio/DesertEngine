@@ -30,6 +30,33 @@ namespace Desert::ECS
             m_CameraView = view;
         }
 
+        // WHY THIS IS NOT INSIDE Update. It was, and adding the localisation resolve above pushed that
+        // function's cognitive complexity to 24 against the gate's threshold of 19 — the analyser is
+        // right about the shape rather than about the count: the walk's job is "for every visible text
+        // entity, place a mesh in the frame", and "decide whether the mesh it has is the mesh it needs"
+        // is a separate decision with its own four-way condition.
+        //
+        // The layout is built from the RESOLVED string, and the component keeps what the author typed —
+        // nothing is ever written back into it, which is the same rule the canvas follows for a bound
+        // label. @p drawn is also what the cache is keyed on, so a language change rebuilds the glyph
+        // mesh for free: nothing else would have told it to.
+        static void RebuildGlyphMeshIfStale( TextComponent& text, const std::string& drawn,
+                                             const std::string& fontPath, const Text::BakedFont& baked )
+        {
+            if ( text.RuntimeMesh && text.BuiltText == drawn && text.BuiltFont == fontPath &&
+                 text.BuiltSize == text.Size )
+            {
+                return;
+            }
+
+            TextComponent laidOut = text;
+            laidOut.Text          = drawn;
+            text.RuntimeMesh      = BuildTextMesh( laidOut, baked );
+            text.BuiltText        = drawn;
+            text.BuiltFont        = fontPath;
+            text.BuiltSize        = text.Size;
+        }
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                      const Common::Timestep& /*ts*/ ) override
         {
@@ -67,20 +94,7 @@ namespace Desert::ECS
                          return;
                      const std::string fontPath = fontSvc->PathForHandle( fontHandle );
 
-                     // Rebuild the glyph mesh only when the laid-out result would differ.
-                     if ( !text.RuntimeMesh || text.BuiltText != drawn || text.BuiltFont != fontPath ||
-                          text.BuiltSize != text.Size )
-                     {
-                         // The layout is built from the RESOLVED string. The component keeps what the
-                         // author typed — nothing is ever written back into it — which is the same rule
-                         // the canvas follows for a bound label.
-                         TextComponent laidOut = text;
-                         laidOut.Text          = drawn;
-                         text.RuntimeMesh      = BuildTextMesh( laidOut, font->Baked );
-                         text.BuiltText        = drawn;
-                         text.BuiltFont   = fontPath;
-                         text.BuiltSize   = text.Size;
-                     }
+                     RebuildGlyphMeshIfStale( text, drawn, fontPath, font->Baked );
                      if ( !text.RuntimeMesh )
                          return;
 

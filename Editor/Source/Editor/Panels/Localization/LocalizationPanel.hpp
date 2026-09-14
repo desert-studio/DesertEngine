@@ -27,7 +27,7 @@ namespace Desert::Editor
     public:
         LocalizationPanel();
 
-        ImVec2 GetDefaultSize() const override
+        [[nodiscard]] ImVec2 GetDefaultSize() const override
         {
             return ImVec2( 560.0f, 420.0f );
         }

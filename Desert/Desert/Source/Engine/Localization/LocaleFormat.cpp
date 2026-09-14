@@ -68,13 +68,17 @@ namespace Desert::Localization
         bool EqualsFold( const std::string_view a, const std::string_view b, const bool upper )
         {
             if ( a.size() != b.size() )
+            {
                 return false;
+            }
             for ( size_t i = 0; i < a.size(); ++i )
             {
                 const char x = upper ? UpperAscii( a[i] ) : LowerAscii( a[i] );
                 const char y = upper ? UpperAscii( b[i] ) : LowerAscii( b[i] );
                 if ( x != y )
+                {
                     return false;
+                }
             }
             return true;
         }
@@ -92,7 +96,9 @@ namespace Desert::Localization
         const size_t cut      = tag.find_first_of( "-_" );
         const auto   language = tag.substr( 0, cut == std::string_view::npos ? tag.size() : cut );
         if ( language.empty() )
+        {
             return nullptr;
+        }
 
         for ( const LocaleRow& row : kLocales )
         {
@@ -143,7 +149,9 @@ namespace Desert::Localization
             run.IntegerLen     = point == std::string::npos ? text.size() : point;
             run.Digits         = text;
             if ( point != std::string::npos )
+            {
                 run.Digits.erase( point, 1 );
+            }
             return run;
         }
 
@@ -159,7 +167,9 @@ namespace Desert::Localization
             {
                 const size_t remaining = digits.size() - i;
                 if ( i != 0 && remaining % 3 == 0 )
+                {
                     out.append( separator );
+                }
                 out.push_back( digits[i] );
             }
             return out;
@@ -268,9 +278,13 @@ namespace Desert::Localization
         {
             std::string digits = std::to_string( value < 0 ? -value : value );
             if ( value < 0 )
+            {
                 digits.insert( digits.begin(), '-' );
+            }
             while ( digits.size() < width )
+            {
                 digits.insert( digits.begin(), '0' );
+            }
             out.append( digits );
         };
 
@@ -290,9 +304,13 @@ namespace Desert::Localization
                     continue;
                 }
                 while ( i < pattern.size() && pattern[i] != '\'' )
+                {
                     out.push_back( pattern[i++] );
+                }
                 if ( i < pattern.size() )
+                {
                     ++i; // the closing quote
+                }
                 continue;
             }
 
@@ -300,7 +318,9 @@ namespace Desert::Localization
             {
                 size_t run = 0;
                 while ( i + run < pattern.size() && pattern[i + run] == letter )
+                {
                     ++run;
+                }
 
                 switch ( letter )
                 {
@@ -321,9 +341,13 @@ namespace Desert::Localization
                     case 'y':
                         // `yy` is the two-digit year, every other width is the full year zero-padded.
                         if ( run == 2 )
+                        {
                             appendPadded( ( ( date.Year % 100 ) + 100 ) % 100, 2 );
+                        }
                         else
+                        {
                             appendPadded( date.Year, run );
+                        }
                         break;
                     default:
                         return Common::MakeFormattedError<std::string>(

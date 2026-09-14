@@ -13,7 +13,9 @@ namespace Desert::Localization
         {
             const auto category = static_cast<PluralCategory>( i );
             if ( PluralCategoryName( category ) == name )
+            {
                 return category;
+            }
         }
         return std::nullopt;
     }
@@ -22,7 +24,9 @@ namespace Desert::Localization
     {
         PluralOperands operands;
         if ( !std::isfinite( value ) )
+        {
             return operands;
+        }
 
         operands.N = std::fabs( value );
         operands.I = static_cast<uint64_t>( std::floor( operands.N ) );
@@ -58,7 +62,9 @@ namespace Desert::Localization
                 // says "1 file" and "1.0 files". The distinction only exists in how the number is printed,
                 // which is why V is an operand and not a property of the double.
                 if ( op.I == 1 && op.V == 0 )
+                {
                     return PluralCategory::One;
+                }
                 return PluralCategory::Other;
 
             case PluralRuleSet::FrenchOneMany:
@@ -68,9 +74,13 @@ namespace Desert::Localization
                 // French counts 0 as singular ("0 fichier"), which is the rule an English-shaped
                 // formatter gets wrong on the empty case — the case a UI shows most often.
                 if ( op.I == 0 || op.I == 1 )
+                {
                     return PluralCategory::One;
+                }
                 if ( op.I != 0 && op.I % 1000000 == 0 && op.V == 0 )
+                {
                     return PluralCategory::Many;
+                }
                 return PluralCategory::Other;
 
             case PluralRuleSet::EastSlavic:
@@ -84,11 +94,17 @@ namespace Desert::Localization
                 if ( op.V == 0 )
                 {
                     if ( op.I % 10 == 1 && op.I % 100 != 11 )
+                    {
                         return PluralCategory::One;
+                    }
                     if ( InRange( op.I % 10, 2, 4 ) && !InRange( op.I % 100, 12, 14 ) )
+                    {
                         return PluralCategory::Few;
+                    }
                     if ( op.I % 10 == 0 || InRange( op.I % 10, 5, 9 ) || InRange( op.I % 100, 11, 14 ) )
+                    {
                         return PluralCategory::Many;
+                    }
                 }
                 return PluralCategory::Other;
 
@@ -102,14 +118,20 @@ namespace Desert::Localization
                 // ("21 плик" is wrong in Polish), Polish calls it `many` ("21 plików"). One shared
                 // implementation for "the Slavic languages" would be wrong in one of the two.
                 if ( op.I == 1 && op.V == 0 )
+                {
                     return PluralCategory::One;
+                }
                 if ( op.V == 0 )
                 {
                     if ( InRange( op.I % 10, 2, 4 ) && !InRange( op.I % 100, 12, 14 ) )
+                    {
                         return PluralCategory::Few;
+                    }
                     if ( ( op.I != 1 && InRange( op.I % 10, 0, 1 ) ) || InRange( op.I % 10, 5, 9 ) ||
                          InRange( op.I % 100, 12, 14 ) )
+                    {
                         return PluralCategory::Many;
+                    }
                 }
                 return PluralCategory::Other;
 
@@ -122,11 +144,17 @@ namespace Desert::Localization
                 // hundred and cannot be approximated by any threshold.
                 {
                     if ( op.N == 0.0 )
+                    {
                         return PluralCategory::Zero;
+                    }
                     if ( op.N == 1.0 )
+                    {
                         return PluralCategory::One;
+                    }
                     if ( op.N == 2.0 )
+                    {
                         return PluralCategory::Two;
+                    }
                     // `n % 100` on a possibly fractional n. CLDR's `x = a..b` tests membership of the
                     // INTEGER SET {a..b} (TR35 §Language Plural Rules), so 3.5 is not `few` however
                     // close it sits to 3 — a `>= 3.0 && <= 10.0` transcription would silently widen the
@@ -135,9 +163,13 @@ namespace Desert::Localization
                     const double mod100  = std::fmod( op.N, 100.0 );
                     const bool   isWhole = mod100 == std::floor( mod100 );
                     if ( isWhole && mod100 >= 3.0 && mod100 <= 10.0 )
+                    {
                         return PluralCategory::Few;
+                    }
                     if ( isWhole && mod100 >= 11.0 && mod100 <= 99.0 )
+                    {
                         return PluralCategory::Many;
+                    }
                     return PluralCategory::Other;
                 }
         }
