@@ -415,11 +415,23 @@ namespace Desert::Editor
             ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.44f, 0.31f, 0.10f, 1.0f ) );
             ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.58f, 0.41f, 0.14f, 1.0f ) );
             ImGui::BeginDisabled( !canKey );
+            // AFTER A KEY, SHOW THE CLIP'S POSE AND NOT JUST THIS BONE'S. `SetTime` alone rebuilds the
+            // render from the clip's tracks while the authoring buffer the gizmo writes keeps its old
+            // contents, so from the second bone onward the artist posed against a skeleton that no longer
+            // showed their earlier work. Reloading the buffer from the clip at the playhead makes the two
+            // agree: every bone already keyed is in the clip, so every bone already keyed stays on screen.
+            const auto showKeyedPose = [&]( Animation::AnimationClip* clip )
+            {
+                animator->SetTime( playTime );
+                animator->SampleClipIntoLocalPose( *clip, playTime );
+                animator->ApplyLocalPose();
+            };
+
             if ( ImGui::Button( ICON_MDI_KEY_PLUS " Key Bone @ Playhead" ) && canKey )
             {
                 anim.Playing = false;
                 KeyBonePose( editClip, *animator, selBone, playTime );
-                animator->SetTime( playTime ); // re-evaluate so the new key shows immediately
+                showKeyedPose( editClip );
             }
             ImGui::EndDisabled();
             ImGui::PopStyleColor( 2 );
@@ -443,8 +455,11 @@ namespace Desert::Editor
                 {
                     anim.Playing = false;
                     KeyBonePose( editClip, *animator, selBone, playTime );
-                    animator->SetTime( playTime );
-                    m_RecordLast = cur;
+                    showKeyedPose( editClip );
+                    // The reload above rewrote the buffer, so re-read the baseline from it rather than
+                    // keeping `cur`: otherwise the next frame sees a difference that is the reload, not a
+                    // drag, and keys a second time.
+                    m_RecordLast = animator->GetBoneLocalPose( static_cast<uint32_t>( selBone ) );
                 }
             }
             else

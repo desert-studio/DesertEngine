@@ -54,11 +54,6 @@ namespace Desert::Animation
             m_LocalPose[i] = bones[i].LocalBindTransform;
     }
 
-    void Animator::ResetLocalPoseToBind()
-    {
-        InitLocalPose();
-    }
-
     void Animator::SetBoneLocalPose( uint32_t boneIndex, const glm::mat4& localTransform )
     {
         if ( boneIndex < m_LocalPose.size() )
@@ -174,11 +169,10 @@ namespace Desert::Animation
             UpdatePlayback( m_Next, deltaTime );
 
             m_BlendTime += deltaTime;
-            float alpha = glm::clamp( m_BlendTime / m_BlendDuration, 0.0f, 1.0f );
 
-            CalculateBlendedPose( alpha );
+            CalculateBlendedPose();
 
-            if ( alpha >= 1.0f )
+            if ( BlendAlpha() >= 1.0f )
             {
                 m_Current    = m_Next;
                 m_Next       = {};
@@ -190,16 +184,18 @@ namespace Desert::Animation
             CalculatePose( m_Current );
         }
 
-        // Overlay the animation layers on the base pose. Layer clocks advance every frame; the pose is only
-        // rebuilt when NOT crossfading (that brief frame plays the base blend alone). No-layer path untouched.
+        // Overlay the animation layers on the base pose, CROSSFADE INCLUDED. This used to read
+        // `if ( !m_IsBlending ) ApplyLayers();` under a comment calling it "that brief frame" — it is not a
+        // frame, it is the whole blend: a 0.5 s crossfade dropped an upper-body override for 0.5 s, and the
+        // comment was the only thing saying otherwise. ApplyLayers now builds its base from the SAME blend
+        // the no-layer path renders, so the layer stack survives the transition.
         if ( !m_Layers.empty() )
         {
             for ( auto& layer : m_Layers )
                 if ( layer.Playback.IsValid() )
                     UpdatePlayback( layer.Playback, deltaTime );
 
-            if ( !m_IsBlending )
-                ApplyLayers();
+            ApplyLayers();
         }
     }
 
@@ -259,39 +255,77 @@ namespace Desert::Animation
         }
     }
 
-    void Animator::CalculateBlendedPose( float alpha )
+    glm::mat4 Animator::BlendedBaseLocal( uint32_t boneIndex ) const
     {
-        const auto& bones = m_Skeleton.GetBones();
+        const glm::mat4 a = SampleLocalTransform( m_Current.Clip, boneIndex, m_Current.Time );
+        if ( !m_IsBlending || !m_Next.IsValid() )
+            return a;
 
-        for ( uint32_t i = 0; i < bones.size(); ++i )
+        const glm::mat4 b     = SampleLocalTransform( m_Next.Clip, boneIndex, m_Next.Time );
+        const float     alpha = BlendAlpha();
+
+        // Exactly the endpoints at the endpoints. Decompose/Compose is not an identity on a matrix with
+        // shear, so returning the sampled matrix itself — rather than a round-tripped copy of it — is what
+        // makes "alpha 0 is bit-for-bit the source clip" a property and not an approximation.
+        if ( alpha <= 0.0f )
+            return a;
+        if ( alpha >= 1.0f )
+            return b;
+
+        const TRS ta = Decompose( a );
+        const TRS tb = Decompose( b );
+
+        TRS blended;
+        blended.Translation = glm::mix( ta.Translation, tb.Translation, alpha );
+        blended.Rotation    = glm::slerp( ta.Rotation, tb.Rotation, alpha );
+        blended.Scale       = glm::mix( ta.Scale, tb.Scale, alpha );
+        return Compose( blended );
+    }
+
+    void Animator::CalculateBlendedPose()
+    {
+        // IT BLENDS LOCAL TRANSFORMS, AND IT USED TO BLEND SKINNING MATRICES. The old body sampled both
+        // clips into m_CurrentPose — whose entries are `chainGlobal * OffsetMatrix` — copied the array
+        // twice per root, and then slerped the rotation OF THAT PRODUCT. The inverse bind matrix is baked
+        // into it, so that quantity is not the bone's rotation and its slerp is not the bone's rotation
+        // blended; the error is invisible on a rig whose OffsetMatrix is near identity (our one probe is
+        // exactly that: one bone, both matrices identity) and shows up on the first imported character.
+        // It also looped over ROOTS and redid the whole array inside each iteration, so a two-root rig paid
+        // for the blend twice and pushed the first root's bones through a second Decompose/Compose round
+        // trip for nothing.
+        const auto&  bones = m_Skeleton.GetBones();
+        const size_t n     = bones.size();
+
+        std::vector<glm::mat4> local( n );
+        for ( size_t i = 0; i < n; ++i )
+            local[i] = BlendedBaseLocal( static_cast<uint32_t>( i ) );
+
+        ResolveSkinningInto( local );
+    }
+
+    void Animator::ResolveSkinningInto( const std::vector<glm::mat4>& local )
+    {
+        const auto&  bones = m_Skeleton.GetBones();
+        const size_t n     = bones.size();
+
+        std::vector<glm::mat4>             global( n, glm::mat4( 1.0f ) );
+        std::vector<bool>                  done( n, false );
+        std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
         {
-            if ( !bones[i].IsRoot() )
-                continue;
+            if ( done[i] )
+                return global[i];
+            glm::mat4 g = local[i];
+            if ( bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < n )
+                g = resolve( bones[i].ParentBoneID.value() ) * local[i];
+            global[i] = g;
+            done[i]   = true;
+            return g;
+        };
 
-            ClipPlayback a = m_Current;
-            ClipPlayback b = m_Next;
-
-            CalculateBoneTransform( a, i, glm::mat4( 1.0f ) );
-
-            std::vector<glm::mat4> poseA = m_CurrentPose.BoneMatrices;
-
-            CalculateBoneTransform( b, i, glm::mat4( 1.0f ) );
-
-            std::vector<glm::mat4> poseB = m_CurrentPose.BoneMatrices;
-
-            for ( size_t j = 0; j < poseA.size(); ++j )
-            {
-                TRS a = Decompose( poseA[j] );
-                TRS b = Decompose( poseB[j] );
-
-                TRS blended;
-                blended.Translation = glm::mix( a.Translation, b.Translation, alpha );
-                blended.Rotation    = glm::slerp( a.Rotation, b.Rotation, alpha );
-                blended.Scale       = glm::mix( a.Scale, b.Scale, alpha );
-
-                m_CurrentPose.BoneMatrices[j] = Compose( blended );
-            }
-        }
+        if ( m_CurrentPose.BoneMatrices.size() != n )
+            m_CurrentPose.BoneMatrices.assign( n, glm::mat4( 1.0f ) );
+        for ( size_t i = 0; i < n; ++i )
+            m_CurrentPose.BoneMatrices[i] = resolve( i ) * bones[i].OffsetMatrix;
     }
 
     const BoneTrack* Animator::ResolveTrack( const AnimationClip* clip, uint32_t boneIndex ) const
@@ -423,10 +457,12 @@ namespace Desert::Animation
         const auto&  bones = m_Skeleton.GetBones();
         const size_t n     = bones.size();
 
-        // 1) Base local transforms from the current clip (bind pose where it has no track).
+        // 1) Base local transforms: the current clip, or the CROSSFADE of current and next — the same
+        //    quantity CalculateBlendedPose renders, so layering does not have a second opinion about what
+        //    the base pose is.
         std::vector<glm::mat4> local( n );
         for ( size_t i = 0; i < n; ++i )
-            local[i] = SampleLocalTransform( m_Current.Clip, static_cast<uint32_t>( i ), m_Current.Time );
+            local[i] = BlendedBaseLocal( static_cast<uint32_t>( i ) );
 
         // 2) Fold each active layer over its masked bones, in local space.
         for ( const auto& layer : m_Layers )
@@ -468,24 +504,7 @@ namespace Desert::Animation
         }
 
         // 3) Rebuild the global chain + skinning matrices from the combined local transforms.
-        std::vector<glm::mat4>             global( n, glm::mat4( 1.0f ) );
-        std::vector<bool>                  done( n, false );
-        std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
-        {
-            if ( done[i] )
-                return global[i];
-            glm::mat4 g = local[i];
-            if ( bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < n )
-                g = resolve( bones[i].ParentBoneID.value() ) * local[i];
-            global[i] = g;
-            done[i]   = true;
-            return g;
-        };
-
-        if ( m_CurrentPose.BoneMatrices.size() != n )
-            m_CurrentPose.BoneMatrices.assign( n, glm::mat4( 1.0f ) );
-        for ( size_t i = 0; i < n; ++i )
-            m_CurrentPose.BoneMatrices[i] = resolve( i ) * bones[i].OffsetMatrix;
+        ResolveSkinningInto( local );
     }
 
     int Animator::AddLayer( const AnimationClip& clip, float weight, bool additive, bool loop )

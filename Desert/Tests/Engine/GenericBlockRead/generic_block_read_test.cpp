@@ -37,8 +37,8 @@ namespace
 
 // ── THE DEFECT ─────────────────────────────────────────────────────────────────────────────────────
 //
-// The exact block an older build wrote: `EnableRootMotion` and `GraphJson` were added after it. Before
-// the fix this returned nothing and the caller dropped AnimationComponent off the entity.
+// The exact block an older build wrote: `GraphJson` was added after it. Before the fix this returned
+// nothing and the caller dropped AnimationComponent off the entity.
 TEST( GenericBlockRead, AnAnimationBlockMissingTwoFieldsKeepsTheComponentAndDefaultsThem )
 {
     const auto older = FromJsonText( R"({"CurrentClip":"Run","Playing":true,"Loop":false,"PlaybackSpeed":2.5})" );
@@ -51,8 +51,7 @@ TEST( GenericBlockRead, AnAnimationBlockMissingTwoFieldsKeepsTheComponentAndDefa
     EXPECT_EQ( parsed.value().CurrentClip, "Run" ) << "a field that WAS present did not survive";
     EXPECT_FLOAT_EQ( parsed.value().PlaybackSpeed, 2.5f );
     EXPECT_FALSE( parsed.value().Loop );
-    // The absent ones take the struct's own defaults, which is what every call site already believed.
-    EXPECT_FALSE( parsed.value().EnableRootMotion );
+    // The absent one takes the struct's own default, which is what every call site already believed.
     EXPECT_TRUE( parsed.value().GraphJson.empty() );
 }
 
@@ -85,6 +84,9 @@ TEST( GenericBlockRead, AUIAnimBlockMissingItsPlaybackFlagsKeepsItsTracks )
 // An older build opening a NEWER build's scene meets keys it has never heard of. That has to keep
 // working: it is half of what ForeignKeys.hpp exists to protect, and a processor that tightened this
 // direction while loosening the other would be a straight trade rather than a fix.
+// `EnableRootMotion` is now one of those keys FOR REAL and not only in a fixture: it was removed from
+// AnimationComponentSer when it turned out nothing read it, so every scene written before that carries a
+// key this build does not declare. Keeping it in this fixture is the removal's own regression guard.
 TEST( GenericBlockRead, AnUnknownExtraFieldDoesNotRefuseTheBlock )
 {
     const auto newer =
@@ -118,12 +120,11 @@ TEST( GenericBlockRead, AFieldOfTheWrongTypeIsStillRefused )
 TEST( GenericBlockRead, WhatWriteBlockWritesIsWhatReadBlockReads )
 {
     Assets::AnimationComponentSer written;
-    written.CurrentClip      = "Anim_Idle";
-    written.Playing          = false;
-    written.Loop             = false;
-    written.PlaybackSpeed    = 0.25f;
-    written.EnableRootMotion = true;
-    written.GraphJson        = R"({"nodes":[]})";
+    written.CurrentClip   = "Anim_Idle";
+    written.Playing       = false;
+    written.Loop          = false;
+    written.PlaybackSpeed = 0.25f;
+    written.GraphJson     = R"({"nodes":[]})";
 
     const auto parsed =
          ReadBlock<Assets::AnimationComponentSer>( WriteBlock( written, "Animation" ), "Animation" );
@@ -133,7 +134,6 @@ TEST( GenericBlockRead, WhatWriteBlockWritesIsWhatReadBlockReads )
     EXPECT_EQ( parsed.value().Playing, written.Playing );
     EXPECT_EQ( parsed.value().Loop, written.Loop );
     EXPECT_FLOAT_EQ( parsed.value().PlaybackSpeed, written.PlaybackSpeed );
-    EXPECT_EQ( parsed.value().EnableRootMotion, written.EnableRootMotion );
     EXPECT_EQ( parsed.value().GraphJson, written.GraphJson );
 }
 

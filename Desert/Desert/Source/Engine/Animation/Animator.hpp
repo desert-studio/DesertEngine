@@ -72,7 +72,6 @@ namespace Desert::Animation
         // NOT mutate it. This buffer holds a per-bone LOCAL (parent-relative) transform, independent of bind,
         // that the editor gizmo writes to and the Sequencer keys from. Init = bind. Normal playback
         // (Update/SetTime) is UNAFFECTED by it — only ApplyLocalPose() renders it into the skinning matrices.
-        void                    ResetLocalPoseToBind();
         void                    SetBoneLocalPose( uint32_t boneIndex, const glm::mat4& localTransform );
         [[nodiscard]] glm::mat4 GetBoneLocalPose( uint32_t boneIndex ) const; // identity if out of range
         // Loads `clip`'s sampled LOCAL transforms at `time` into the pose buffer (bind for untracked bones),
@@ -153,7 +152,22 @@ namespace Desert::Animation
     private:
         void UpdatePlayback( ClipPlayback& playback, float deltaTime );
         void CalculatePose( const ClipPlayback& playback );
-        void CalculateBlendedPose( float alpha );
+        void CalculateBlendedPose();
+
+        // How far the crossfade has run, 0..1. Derived rather than stored: the alpha and the clock cannot
+        // disagree if there is only one of them.
+        [[nodiscard]] float BlendAlpha() const
+        {
+            return m_IsBlending ? glm::clamp( m_BlendTime / m_BlendDuration, 0.0f, 1.0f ) : 0.0f;
+        }
+
+        // The base pose's LOCAL transform for one bone: the current clip, or current->next blended by
+        // BlendAlpha() while crossfading. The one place that answers "what is the base pose right now",
+        // shared by the crossfade render and by layer composition.
+        [[nodiscard]] glm::mat4 BlendedBaseLocal( uint32_t boneIndex ) const;
+
+        // local (parent-relative) transforms -> m_CurrentPose skinning matrices.
+        void ResolveSkinningInto( const std::vector<glm::mat4>& local );
 
         // Local (parent-relative) transform of bone `boneIndex` driven by `clip` at `time`, or the bind-pose
         // local when the clip has no track for it. The building block for layer composition.
@@ -171,8 +185,8 @@ namespace Desert::Animation
         // mesh. Computed at construction so GetPose() is valid before any clip plays.
         void ComputeBindPose();
 
-        // Sizes m_LocalPose to the skeleton and fills it with the bind pose. Called at construction and by
-        // ResetLocalPoseToBind().
+        // Sizes m_LocalPose to the skeleton and fills it with the bind pose. Called at construction and
+        // whenever the buffer is found out of step with the rig.
         void InitLocalPose();
 
         // Returns the clip track that drives skeleton bone `boneIndex`, matched by bone NAME (not by the clip's
