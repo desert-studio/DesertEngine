@@ -22,6 +22,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -266,7 +267,9 @@ TEST( GenericBlockRead, TheBlockShapeASceneFileStatesIsTheOneThisStructReads )
 }
 
 // A mesh-asset ISM states no Primitive at all, and a component whose optional mesh path is the only
-// thing set must come back with its transforms — the case grass-as-an-asset takes.
+// thing set must come back with its transforms — the case grass-as-an-asset takes. This is also the
+// BACK-COMPATIBLE half of the GUID change: a block written before Г26 carries paths and no GUIDs, and
+// has to keep resolving.
 TEST( GenericBlockRead, AnAssetBackedInstancedStaticMeshKeepsItsTransformsWithNoPrimitive )
 {
     const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
@@ -290,6 +293,40 @@ TEST( GenericBlockRead, AnAssetBackedInstancedStaticMeshKeepsItsTransformsWithNo
          read.InstanceTransforms.value(); // NOLINT(bugprone-unchecked-optional-access)
     ASSERT_EQ( back.size(), 1U );
     EXPECT_FLOAT_EQ( back.at( 0 ).at( kTranslationZ ), 9.0F );
+}
+
+// THE RENAME-SAFE HALF, and the reason it was added. The static mesh mirror has carried
+// `MeshGuid`/`MaterialGuids` since the asset database existed; the INSTANCED mirror -- the one grass
+// assets are about to be scattered through -- carried the path alone, so renaming an instanced mesh
+// unresolved every instance of it while the identical reference on a plain StaticMesh survived. Both
+// fields must round-trip, and the GUID must be what a loader prefers.
+TEST( GenericBlockRead, AnInstancedStaticMeshCarriesTheRenameSafeGuidsAsWellAsThePaths )
+{
+    Assets::InstancedStaticMeshComponentSer written;
+    written.MeshPath           = "Cooked/Meshes/Grass.stmesh";
+    written.MeshGuid           = 0x0123456789ABCDEFULL;
+    written.MaterialPaths      = std::vector<std::string>{ "Materials/M_Grass.demat" };
+    written.MaterialGuids      = std::vector<uint64_t>{ 0xFEDCBA9876543210ULL };
+    written.InstanceTransforms = NineDistinctInstances();
+
+    const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
+         WriteBlock( written, "InstancedStaticMesh" ), "InstancedStaticMesh" );
+    ASSERT_TRUE( parsed.has_value() );
+    const Assets::InstancedStaticMeshComponentSer& read = parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
+
+    ASSERT_TRUE( read.MeshGuid.has_value() );
+    EXPECT_EQ( read.MeshGuid, 0x0123456789ABCDEFULL );
+    ASSERT_TRUE( read.MeshPath.has_value() );
+    EXPECT_EQ( read.MeshPath, "Cooked/Meshes/Grass.stmesh" );
+
+    ASSERT_TRUE( read.MaterialGuids.has_value() );
+    const std::vector<uint64_t>& guids = read.MaterialGuids.value(); // NOLINT(bugprone-unchecked-optional-access)
+    ASSERT_EQ( guids.size(), 1U );
+    EXPECT_EQ( guids.at( 0 ), 0xFEDCBA9876543210ULL );
+
+    ASSERT_TRUE( read.InstanceTransforms.has_value() );
+    ExpectSameMatrices( read.InstanceTransforms.value(), // NOLINT(bugprone-unchecked-optional-access)
+                        NineDistinctInstances() );
 }
 
 int main( int argc, char** argv )

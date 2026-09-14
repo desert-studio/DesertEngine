@@ -922,16 +922,24 @@ namespace Desert::Core::Serialize
 
                 auto resolver = MakeAssetResolver( assetManager );
                 if ( ism.MeshHandle )
+                {
                     if ( auto p = resolver.ToPath( static_cast<uint64_t>( ism.MeshHandle ), "StaticMeshAsset" );
                          !p.empty() )
                         ser.MeshPath = p;
+                    // GUID = the stable handle itself (asset-database identity); rename-safe.
+                    ser.MeshGuid = static_cast<uint64_t>( ism.MeshHandle );
+                }
 
                 if ( !ism.MaterialSlots.empty() )
                 {
                     ser.MaterialPaths = std::vector<std::string>{};
+                    ser.MaterialGuids = std::vector<uint64_t>{};
                     for ( auto handle : ism.MaterialSlots )
+                    {
                         ser.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
+                        ser.MaterialGuids->push_back( static_cast<uint64_t>( handle ) );
+                    }
                 }
                 ser.Primitive = ism.Primitive;
                 if ( !ism.InstanceTransforms.empty() )
@@ -961,13 +969,31 @@ namespace Desert::Core::Serialize
                 auto& ism      = entity.AddComponent<ECS::InstancedStaticMeshComponent>();
                 auto  resolver = MakeAssetResolver( assetManager );
 
-                if ( data.MeshPath )
-                    ism.MeshHandle = Common::UUID( resolver.FromPath( *data.MeshPath, "StaticMeshAsset" ) );
-                if ( data.MaterialPaths.has_value() )
+                // GUID first (rename-safe asset-database reference), path as fallback/back-compat --
+                // the same order the static path uses, and it did not before Г26.
+                uint64_t meshHandle = 0;
+                if ( data.MeshGuid )
+                    meshHandle = resolver.FromGuid( *data.MeshGuid, "StaticMeshAsset" );
+                if ( meshHandle == 0 && data.MeshPath )
+                    meshHandle = resolver.FromPath( *data.MeshPath, "StaticMeshAsset" );
+                if ( meshHandle != 0 )
+                    ism.MeshHandle = Common::UUID( meshHandle );
+
+                const size_t slotCount = data.MaterialGuids
+                                              ? data.MaterialGuids->size()
+                                              : ( data.MaterialPaths ? data.MaterialPaths->size() : 0 );
+                if ( slotCount > 0 )
                 {
                     ism.MaterialSlots.clear();
-                    for ( const auto& path : *data.MaterialPaths )
-                        ism.MaterialSlots.push_back( Common::UUID( resolver.FromPath( path, "MaterialAsset" ) ) );
+                    for ( size_t i = 0; i < slotCount; ++i )
+                    {
+                        uint64_t handle = 0;
+                        if ( data.MaterialGuids && i < data.MaterialGuids->size() )
+                            handle = resolver.FromGuid( ( *data.MaterialGuids )[i], "MaterialAsset" );
+                        if ( handle == 0 && data.MaterialPaths && i < data.MaterialPaths->size() )
+                            handle = resolver.FromPath( ( *data.MaterialPaths )[i], "MaterialAsset" );
+                        ism.MaterialSlots.push_back( Common::UUID( handle ) );
+                    }
                 }
                 ism.Primitive = data.Primitive;
                 if ( data.InstanceTransforms.has_value() )

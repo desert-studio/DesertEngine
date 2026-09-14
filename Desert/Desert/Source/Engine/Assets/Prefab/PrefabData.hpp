@@ -66,8 +66,17 @@ namespace Desert::Assets
     // needed in this translation unit).
     struct InstancedStaticMeshComponentSer
     {
+        // GUID AND PATH, LIKE THE STATIC AND SKINNED TWINS ABOVE, AND UNTIL Г26 ONLY THE PATH.
+        // The static mesh mirror has carried `MeshGuid`/`MaterialGuids` ("the stable handle itself;
+        // rename-safe") since the asset database existed, and the instanced mirror -- the one the owner
+        // is about to scatter grass assets through -- carried the path alone. So renaming or moving an
+        // instanced mesh or its material silently unresolved every instance of it, while the identical
+        // reference on a plain StaticMesh survived. Both ends of that chain looked right; the middle one
+        // dropped a property. GUID first, path as the fallback, exactly as StaticMesh does it.
         std::optional<std::string>                       MeshPath;
+        std::optional<uint64_t>                          MeshGuid;
         std::optional<std::vector<std::string>>          MaterialPaths;
+        std::optional<std::vector<uint64_t>>             MaterialGuids;
         std::optional<Geometry::PrimitiveType>           Primitive;
         std::optional<std::vector<std::array<float, 16>>> InstanceTransforms;
     };
