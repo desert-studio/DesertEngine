@@ -312,7 +312,8 @@ TEST( GenericBlockRead, AnInstancedStaticMeshCarriesTheRenameSafeGuidsAsWellAsTh
     const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
          WriteBlock( written, "InstancedStaticMesh" ), "InstancedStaticMesh" );
     ASSERT_TRUE( parsed.has_value() );
-    const Assets::InstancedStaticMeshComponentSer& read = parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
+    const Assets::InstancedStaticMeshComponentSer& read =
+         parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
 
     ASSERT_TRUE( read.MeshGuid.has_value() );
     EXPECT_EQ( read.MeshGuid, 0x0123456789ABCDEFULL );
