@@ -305,6 +305,9 @@ namespace Desert::Editor
                DocumentDisplayName( document.GetName() ) + "###" + document.GetName();
     }
 
+    // Cognitive complexity 27 against a threshold of 19, PRE-EXISTING and reported for any edit inside
+    // this constructor (Г26 added the autosave-migration call below). Named as debt, not fixed here.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     EditorLayer::EditorLayer( const Engine::Application* application, const std::string& layerName )
          : Common::Layer( layerName ), m_Application( application )
 
@@ -485,6 +488,18 @@ namespace Desert::Editor
         }
 
         BuiltinMeshRegistry::Init( nullptr );
+
+        // AUTOSAVES ARE RAISED TO THE CURRENT SCHEMA BEFORE ANYTHING ASKS TO OPEN ONE. They are the one
+        // class of `.desce` no task can convert -- the directory is gitignored, so it is absent from the
+        // worktree a schema step is written in and from the commit that converts the corpus -- and the
+        // consequence was measured on the v17 -> v18 raise: five of the owner's recovery copies stopped
+        // opening and had to be run through the migrator by hand. See CrashRecovery::MigrateAutosaves.
+        if ( !CrashRecovery::MigrateAutosaves() )
+        {
+            Editor::ToastManager::Push( "An autosave could not be raised to the current scene format and "
+                                        "will not open (see the log)",
+                                        Editor::ToastLevel::Error );
+        }
 
         // Crash recovery: if the previous session left its lock behind (unclean exit) and an autosave
         // exists, arm a prompt to reopen it. Then (re)arm the lock for THIS session; a clean shutdown

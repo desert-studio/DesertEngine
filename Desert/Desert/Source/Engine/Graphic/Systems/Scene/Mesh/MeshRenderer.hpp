@@ -339,6 +339,12 @@ namespace Desert::Graphic::System
         // forward static pipeline, so the same StaticMaterialPBR data binds. Null if the shader is missing.
         std::shared_ptr<Shader>           m_StaticGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_StaticGBufferPipeline;
+        // (Instanced x GBuffer). The G-buffer pass used to have no instanced cell at all, and the ISM
+        // queue -- which has no per-object path to fall back to -- was therefore dropped entirely in the
+        // deferred path. Null if the shader is missing, and DrawStaticMeshes says so rather than dropping
+        // the queue again.
+        std::shared_ptr<Shader>           m_InstancedGBufferShader;
+        std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
         std::shared_ptr<Shader>           m_StaticGlassShader;
         std::shared_ptr<GraphicsPipeline> m_StaticGlassPipeline;
@@ -380,6 +386,12 @@ namespace Desert::Graphic::System
         // InstanceTransforms SSBO; the shared scene data (camera/lights/shadow/env) is uploaded once/frame.
         std::shared_ptr<Graphic::MaterialPBR> m_StaticInstancedMaterial;
         MaterialInstancePtr                   m_StaticInstancedInstance;
+        // The same pair for the G-buffer pass. A material is one shader's descriptor sets plus a payload,
+        // so the pass that binds the (Instanced x GBuffer) pipeline has to bind sets allocated from that
+        // cell's own reflection -- the same reason m_RSMMaterial and m_GBufferUnownedMaterial exist for
+        // the static path.
+        std::shared_ptr<Graphic::MaterialPBR> m_InstancedGBufferMaterial;
+        MaterialInstancePtr                   m_InstancedGBufferInstance;
 
         // Skinned
         std::shared_ptr<GraphicsPipeline> m_SkinnedPipeline;

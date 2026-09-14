@@ -270,6 +270,68 @@ TEST_F( ShaderRootFixture, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
     }
 }
 
+// THE SECOND ABSENCE OF THE SAME KIND, AND IT COST NINE INVISIBLE CUBES.
+//
+// (Instanced x GBuffer) was a hole with a written reason: "instancing is disabled in the G-buffer pass,
+// every static takes the per-object path there". That is true of the meshes MeshRenderer AUTO-BATCHES --
+// when instancing is off they fall back to single draws -- and false of an InstancedStaticMesh entity,
+// which is ONE entity holding N transforms and has no per-object path to fall back to. So the deferred
+// pass dropped the entire ISM queue, with no line in the log, in the render path 81 of this
+// repository's 88 scenes state. Measured on Resources/Assets/Scenes/G26_ISMProbe.desce: nine instances
+// absent in Deferred and all nine present in Forward, from the same file.
+//
+// Stated over the paths, like the shadow rule above, with the ONE exception named and argued rather
+// than the rule being written as "the instanced path must have a G-buffer cell". A path added tomorrow
+// inherits the question.
+TEST_F( ShaderRootFixture, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
+{
+    // The exception, and why it is one: a skinned mesh is not rasterized into the G-buffer at all. It is
+    // drawn FORWARD over the deferred composite (MeshRenderer::RenderSkinnedManual), so a (Skinned x
+    // GBuffer) cell would be a shader nothing binds.
+    const auto drawnIntoTheGBuffer = []( MeshVertexPath path ) { return path != MeshVertexPath::Skinned; };
+
+    for ( const auto path : kAllPaths )
+    {
+        if ( MeshShaderFor( path, MeshPass::Forward ) == nullptr || !drawnIntoTheGBuffer( path ) )
+        {
+            continue;
+        }
+        EXPECT_NE( MeshShaderFor( path, MeshPass::GBuffer ), nullptr )
+             << "the " << MeshVertexPathName( path )
+             << " vertex path is rasterized into the deferred G-buffer and has no shader for it, so "
+                "every object on that path is missing from a deferred scene";
+    }
+}
+
+// The instanced G-buffer cell is the static one plus the path's own binding, and NOTHING else. Both
+// cells write the same four MRT targets from the same material payload; if they drifted apart, a scene
+// would shade its ISM entities by one G-buffer contract and its plain meshes by another, and the only
+// symptom would be that two cubes with one material look different.
+TEST_F( ShaderRootFixture, TheInstancedGBufferCellIsTheStaticOnePlusItsOwnBinding )
+{
+    const char* staticName    = MeshShaderFor( MeshVertexPath::Static, MeshPass::GBuffer );
+    const char* instancedName = MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer );
+    ASSERT_NE( staticName, nullptr );
+    ASSERT_NE( instancedName, nullptr );
+
+    auto staticBindings    = BindingMap( SetZero( ReflectGraphics( ShaderFileFor( staticName ) ) ) );
+    auto instancedBindings = BindingMap( SetZero( ReflectGraphics( ShaderFileFor( instancedName ) ) ) );
+    ASSERT_FALSE( staticBindings.empty() ) << staticName;
+    ASSERT_FALSE( instancedBindings.empty() ) << instancedName;
+
+    const auto own = MeshPathOwnBinding( MeshVertexPath::Instanced );
+    ASSERT_TRUE( own.has_value() );
+    const uint32_t ownBinding = own.value_or( 0 );
+    EXPECT_TRUE( instancedBindings.count( ownBinding ) )
+         << instancedName << " does not read binding " << ownBinding
+         << ", so it is not fetching a per-instance model matrix at all";
+    instancedBindings.erase( ownBinding );
+
+    EXPECT_EQ( Describe( instancedBindings ), Describe( staticBindings ) )
+         << "the two G-buffer cells declare different surfaces, so one of them is writing the G-buffer "
+            "from data the other does not have";
+}
+
 // ---- One surface, one binding per path --------------------------------------------------------------
 
 // The forward variants shade ONE surface, so their descriptor sets must be one set — differing only by

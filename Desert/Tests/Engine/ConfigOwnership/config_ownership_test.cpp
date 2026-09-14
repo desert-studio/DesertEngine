@@ -498,9 +498,8 @@ namespace
          { "LensFlareChromaShift", Owner::Level },
 
          { "Gravity", Owner::Level },
-         { "WindDirection", Owner::Level },
-         { "WindStrength", Owner::Level },
-         { "WindTurbulence", Owner::Level },
+         // The three Wind rows left with their fields (Г26): they were level data with no reader, and a
+         // value nobody reads has no owner to argue about.
 
          // The shipping player's splash for this level.
          { "SplashSprite", Owner::Level },

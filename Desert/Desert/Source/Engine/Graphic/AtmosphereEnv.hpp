@@ -37,7 +37,7 @@ namespace Desert::Graphic
     }
 
     // Per-frame, EVALUATED state of the sky — the runtime form other renderers consume via
-    // SceneRenderer::GetAtmosphere(), mirroring WindEnv / GetWind(). Its reason for existing is that the
+    // SceneRenderer::GetAtmosphere(). Its reason for existing is that the
     // sky's lighting and every other pass's lighting must come from one sun and one sky, or they disagree
     // in a way nobody finds by looking.
     //

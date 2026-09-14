@@ -44,8 +44,10 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <span>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using Desert::Reflection::FieldInfo;
@@ -64,6 +66,24 @@ namespace
         const char* Where = nullptr;
         const char* Task  = nullptr;
         const char* Dead  = nullptr;
+
+        // THE OTHER END OF THE CHAIN, and the reason Г26 added it. `Where` proves that SOMEBODY reads
+        // the field; it cannot prove that the value reaches a frame. `TerrainData::RockMode` had a WIRED
+        // row that was true — TerrainECSSystem packs it into the draw command's LayerModes.y — and the
+        // terrain shader never read LayerModes.y and never sampled the green splat channel, so the
+        // `Rock (G)` brush the editor offers painted nothing anybody could see. The census was satisfied
+        // one link before the frame. The same shape retired the three Wind fields above: BeginScene read
+        // all three, into a struct nothing read.
+        //
+        // A Frame anchor closes the gap for the rows that can state it: `Frame` is the file the value
+        // must SURVIVE to (a shader, in every case so far) and `FrameRead` is the exact expression that
+        // must appear in it, outside comments and string literals. It is not derivable — the packing is
+        // `glm::vec3(GrassMode, RockMode, SnowMode)` widened to a vec4 and named `u_T.LayerModes`, and
+        // nothing in either file states the correspondence — so it is written down once, per row, and
+        // then checked. Where it is MANDATORY rather than optional is decided from reflection: see
+        // EveryLayerModeFieldStatesWhereItReachesTheFrame.
+        const char* Frame     = nullptr;
+        const char* FrameRead = nullptr;
     };
 
     // How a consumer file is allowed to get hold of a value of this type. `Component` is the ECS wrapper
@@ -486,9 +506,10 @@ namespace
          // editor's transport owns pausing (runtime state, not scene data), and sixteen probe scenes had
          // authored `true` and got nothing — the misleading-knob defect itself.
 
-         { "WindDirection", kSceneRenderer },
-         { "WindStrength", kSceneRenderer },
-         { "WindTurbulence", kSceneRenderer },
+         // The three Wind rows are gone with their fields (Г26). They were WIRED to SceneRenderer, and
+         // that row was TRUE and USELESS: BeginScene did read all three into a WindEnv, and nothing ever
+         // read the WindEnv, so the census was satisfied one link before the frame. See the note on
+         // TerrainData's Frame anchors below, which is this suite's answer to that shape.
 
          // The shipping player's, and nothing else's.
          { "SplashSprite", kRuntimeLayer },
@@ -522,10 +543,23 @@ namespace
          { "Far", kScene },
     };
 
+    // The one shader every terrain in this engine is drawn by. A layer mode that TerrainECSSystem packs
+    // into the draw command has to be READ here, or the mode is a combo box that moves nothing.
+    constexpr const char* kTerrainShader = "Editor/Resources/Shaders/Programs/Terrain/Terrain.shader";
+
     constexpr Row kTerrainRows[] = {
-         { "Material", kTerrain },    { "Size", kTerrain },           { "Resolution", kTerrain },
-         { "HeightScale", kTerrain }, { "NoiseFrequency", kTerrain }, { "Seed", kTerrain },
-         { "GrassMode", kTerrain },   { "RockMode", kTerrain },       { "SnowMode", kTerrain },
+         { "Material", kTerrain },
+         { "Size", kTerrain },
+         { "Resolution", kTerrain },
+         { "HeightScale", kTerrain },
+         { "NoiseFrequency", kTerrain },
+         { "Seed", kTerrain },
+         // The three layer modes state BOTH ends: the C++ that packs the enum, and the slot the shader
+         // must read it out of. Two of the three have been dead in this exact way — GrassMode until Г25,
+         // RockMode until Г26 — with this census green throughout.
+         { "GrassMode", kTerrain, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.x" },
+         { "RockMode", kTerrain, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.y" },
+         { "SnowMode", kTerrain, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.z" },
     };
 
     constexpr Row kDirLightRows[] = {
@@ -1090,6 +1124,129 @@ TEST( SettingConsumers, EveryNamedConsumerActuallyReadsTheFieldItClaims )
                                    "another file and this row must follow it.";
         }
     }
+}
+
+// THE GAP BETWEEN "SOMEBODY READ IT" AND "IT REACHED THE FRAME".
+//
+// Both halves of this are new in Г26 and both come from one measured defect. `TerrainData::RockMode` was
+// WIRED to TerrainECSSystem.hpp and the row was TRUE: the system does read the field and packs it into
+// the draw command's LayerModes.y. Terrain.shader then read LayerModes.x and LayerModes.z and never .y,
+// and never sampled the green splat channel — so the editor's `Rock (G)` brush, whose own overlay tells
+// the user to "set the layer to 'Manual' in Details to see painted weights", painted a channel no pixel
+// was computed from. This suite was green the whole time, because it asks about the FIRST link of the
+// chain and the defect was in the LAST one. Г25 had fixed the identical defect one channel over
+// (GrassMode / LayerModes.x) without the census noticing either.
+//
+// So a row may state where the value must END UP, and here that statement is checked.
+namespace
+{
+    // The census tables are (pointer, count) pairs, which every loop in this file walks by hand. A span
+    // says the same thing without the pointer arithmetic, and is what the new checks below walk.
+    std::span<const Row> RowsOf( const Census& census )
+    {
+        return { census.Rows, census.Count };
+    }
+
+    // One row's frame anchor, checked. Split out of the TEST body because a per-row check inside two
+    // nested loops is what pushes a test function past the analyser's complexity threshold, and because
+    // the failure message is easier to read next to the thing it describes.
+    void ExpectFrameAnchorIsRead( const std::string& root, const Census& census, const Row& row )
+    {
+        using namespace Desert::Tests::ConsumerText;
+
+        ASSERT_NE( row.FrameRead, nullptr )
+             << census.Type << "::" << row.Field << " names a Frame file and no expression to find in it";
+
+        // Comments and string literals are stripped for the reason this file strips them everywhere
+        // else, and here it is load-bearing rather than tidy: the terrain shader NAMES `LayerModes.y` in
+        // the comment explaining why it went unread for two releases, so a plain substring search over
+        // the raw text would pass on the prose that documents the defect.
+        const std::string text = StripCommentsAndLiterals( ReadFile( root + row.Frame ) );
+        ASSERT_FALSE( text.empty() ) << "frame anchor " << row.Frame << " could not be read";
+
+        EXPECT_NE( text.find( row.FrameRead ), std::string::npos )
+             << census.Type << "::" << row.Field << " is packed and delivered, and " << row.Frame
+             << " does not read `" << row.FrameRead
+             << "`. The field has a consumer and still moves nothing on screen: that is the half-way "
+                "satisfaction this anchor exists to refuse.";
+    }
+
+    const Row* FindRow( const Census& census, std::string_view field )
+    {
+        for ( const Row& row : RowsOf( census ) )
+        {
+            if ( field == row.Field )
+            {
+                return &row;
+            }
+        }
+        return nullptr;
+    }
+
+    // Out of the TEST body for the same reason ExpectFrameAnchorIsRead is.
+    void ExpectLayerModeStatesItsFrame( const Census& census, const FieldInfo& field )
+    {
+        const Row* row = FindRow( census, field.Name );
+        ASSERT_NE( row, nullptr ) << census.Type << "::" << field.Name << " has no census row at all";
+        EXPECT_NE( row->Frame, nullptr )
+             << census.Type << "::" << field.Name
+             << " is a splat-layer mode and states no Frame anchor. A layer mode is honoured by a shader "
+                "or by nothing: name the shader and the slot it must read, or the combo box in Details is "
+                "decoration.";
+    }
+} // namespace
+
+TEST( SettingConsumers, EveryFrameAnchorIsActuallyReadWhereItSaysItIs )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "repository root not found - run from the workspace root or build/Bin";
+
+    int checked = 0;
+    for ( const Census& census : kCensus )
+    {
+        for ( const Row& row : RowsOf( census ) )
+        {
+            if ( row.Frame == nullptr )
+            {
+                continue;
+            }
+            ExpectFrameAnchorIsRead( root, census, row );
+            ++checked;
+        }
+    }
+
+    EXPECT_GT( checked, 0 ) << "no row states a frame anchor any more, so this test proves nothing";
+}
+
+// WHERE A FRAME ANCHOR IS COMPULSORY, DERIVED RATHER THAN LISTED.
+//
+// An opt-in anchor catches the rows somebody remembered; the next dead knob is the one nobody did. The
+// smallest rule that cannot be forgotten is stated over a TYPE rather than over a field name: every
+// reflected field whose type is `TerrainLayerMode` is, by construction, an authored choice that only a
+// shader can honour, so every one of them must say which slot honours it. A fourth terrain layer added
+// tomorrow inherits the requirement without anybody reading this file.
+//
+// This is deliberately NOT stated for every field that happens to reach a shader. Most do so through a
+// packing this census cannot see, and a rule that demanded an anchor it cannot derive would be answered
+// with whatever token makes it pass. The enum is the case where the demand is exact.
+TEST( SettingConsumers, EveryLayerModeFieldStatesWhereItReachesTheFrame )
+{
+    int found = 0;
+    for ( const Census& census : kCensus )
+    {
+        for ( const FieldInfo& field : Type( census.Type ).Fields )
+        {
+            if ( std::string( field.TypeName ) != "TerrainLayerMode" )
+            {
+                continue;
+            }
+            ++found;
+            ExpectLayerModeStatesItsFrame( census, field );
+        }
+    }
+
+    EXPECT_EQ( found, 3 ) << "the terrain's layer modes are Grass, Rock and Snow; a fourth (or a missing "
+                             "one) changes what Terrain.shader has to blend and is a reviewable edit";
 }
 
 // The debt register, pinned in both directions.

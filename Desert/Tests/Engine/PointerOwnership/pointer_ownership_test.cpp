@@ -250,30 +250,20 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   above are answered by the removal itself: nothing is obliged to destroy an object that is never
     //   created. The count is the whole evidence that the members left with the feature rather than being
     //   orphaned inside a class that no longer draws them.
-    //   824 -> ? with Ю12 AND Ю13 together, and the arithmetic is worth writing out because neither
-    //   branch's number survives the merge unchanged.
     //
-    //   Ю12 (UI overlays) added ONE raw, and it is a string literal in a constexpr table:
-    //   CommandLineFlag::AlsoNeeds, the companion flags a flag cannot be given without. Nothing else the
-    //   overlay work added is a pointer at all — the overlay state is held by value in the (canvas x view)
-    //   cell, and the two new components are plain data.
-    //
-    //   Ю13 (themes) added three raw members (ElementStyle::m_Theme, ElementStyle::m_Table and
-    //   CanvasStyle::m_Theme, all three registered) and ALSO FIXED THE SCAN. `Assets::Asset` is an alias
-    //   for `shared_ptr`, and the alias used to be matched against the whole declaration — so any member
-    //   NAMED `Asset` counted as a shared pointer whatever its type was. Four such members existed; three
-    //   are not pointers at all and leave the census, and the fourth, `SlotRow::Asset`, is a genuine RAW
-    //   pointer that had been sitting on the shared side of an ownership census never being asked either
-    //   question. It now has a register row.
-    //
-    //   THE NUMBERS BELOW WERE READ OFF A RUN, NOT PREDICTED. Both branches predicted their own totals
-    //   correctly in isolation and both are wrong about the merge, which is the whole reason this census
-    //   exists: the prediction is not the evidence, the run is.
+    //   824 -> 828 with Г26, and all FOUR are shared members of MeshRenderer: the (Instanced x GBuffer)
+    //   shader, its pipeline, its MaterialPBR and that material's instance. They are the deferred twins
+    //   of the four (Instanced x Forward) members already censused two lines apart in the same class,
+    //   and they exist because the G-buffer pass had no instanced cell at all -- which is why every
+    //   InstancedStaticMesh entity was dropped there in silence. Q1: the shader and the pipeline are
+    //   owned by the shader service and the pipeline cache and merely HELD here, exactly as the forward
+    //   pair is; the material and its instance are created here and outlive nothing. Q2: none is
+    //   deleted by this class; none is raw, so none takes a row in the register.
     EXPECT_EQ( CountOf( Form::Raw ), 359 );
-    EXPECT_EQ( CountOf( Form::Shared ), 319 );
+    EXPECT_EQ( CountOf( Form::Shared ), 323 );
     EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 827 )
+    EXPECT_EQ( (int)Members().size(), 831 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -491,9 +481,12 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // 326 -> 321 with Г25: the five GPU resources of the procedural grass generator, removed with it.
     // 321 -> 319 with Ю13: NOT a conversion of anything. Two members named `Asset` whose types are a
     // `std::string` and an `AssetHandle` were being counted here because the alias match ran over the
-    // member's name as well as its type; they are not pointers and never were. See the arithmetic at
-    // TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 319 );
+    // member's name as well as its type; they are not pointers and never were.
+    // 319 -> 323 with Г26: the (Instanced x GBuffer) shader, pipeline, material and material instance --
+    // the deferred twins of the forward instanced four that were already on this side.
+    // NEITHER BRANCH'S TOTAL SURVIVES THE MERGE: Ю13 alone says 319, Г26 alone says 325, and the tree
+    // says 323. Read off a run; see the arithmetic at TheScanFindsTheCensusedPopulation.
+    EXPECT_EQ( CountOf( Form::Shared ), 323 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

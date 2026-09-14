@@ -488,19 +488,6 @@ namespace Desert::Graphic
         m_SSRIntensity   = sceneSettings.SSRIntensity;
         m_SSRMaxDistance = sceneSettings.SSRMaxDistance;
 
-        // Evaluate the scene-global SHARED wind once per frame so every wind-driven renderer reads one
-        // coherent direction + strength via GetWind(). Direction is a compass heading (degrees) on the XZ
-        // plane; Time is monotonic seconds so the sway keeps animating. See GetWind() in the header for
-        // why this has no consumer between Г25 and the first wind-driven ASSET.
-        {
-            const float       rad       = glm::radians( sceneSettings.WindDirection );
-            static const auto windStart = std::chrono::steady_clock::now();
-            m_Wind.Direction            = glm::vec2( std::cos( rad ), std::sin( rad ) );
-            m_Wind.Strength             = sceneSettings.WindStrength;
-            m_Wind.Turbulence           = sceneSettings.WindTurbulence;
-            m_Wind.Time = std::chrono::duration<float>( std::chrono::steady_clock::now() - windStart ).count();
-        }
-
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in the Transparency phase.
         UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );

@@ -7,6 +7,8 @@
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
+// MeshShaderFor / MeshVertexPath / MeshPass — the (path x pass) table this file asks for its pipelines.
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/Units.hpp>
 
@@ -762,6 +764,13 @@ namespace Desert::Graphic::System
         renderer.EndRenderPass();
     }
 
+    // SUPPRESSED, NAMED, AND NOT FIXED HERE: cognitive complexity 153 against a threshold of 19. That is
+    // TRUE and PRE-EXISTING -- this function has bucketed by mesh, chosen a pass variant, packed two
+    // SSBOs and recorded three kinds of draw since long before the analyser gate landed (И15) -- and the
+    // gate reports a function-level finding for ANY edit anywhere inside the function, so a one-line fix
+    // in here cannot land without either this line or a split that is a task of its own. Named in Г26's
+    // report as debt rather than hidden.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void MeshRenderer::DrawStaticMeshes()
     {
         if ( m_StaticQueue.empty() )
@@ -810,10 +819,23 @@ namespace Desert::Graphic::System
         // next batch before the GPU executes the recorded draws (last-write-wins). Each instanced draw then
         // reads its own transform slice via firstInstance (gl_InstanceIndex) and its own material via the
         // MaterialIndex push constant (push constants ARE snapshotted per draw, so they stay correct).
-        // Instancing is disabled in the deferred G-buffer pass (its instanced variant isn't built yet) — all
-        // statics take the per-object path with m_StaticGBufferPipeline.
-        const bool instancingOn = m_StaticInstancedPipeline && m_StaticInstancedMaterial &&
-                                  m_StaticInstancedInstance && !m_Wireframe && !m_DeferredGeometry;
+        //
+        // THE CELL OF THE PASS BEING DRAWN, AND THAT IS THE WHOLE OF Г26's FIRST FIX. This used to read
+        // `... && !m_DeferredGeometry`, justified by "instancing is disabled in the deferred G-buffer
+        // pass (its instanced variant isn't built yet)". The justification was true for the AUTO-BATCHED
+        // statics below, which fall back to per-object draws, and false for the ISM queue, which is one
+        // entity carrying N transforms and has no per-object path: it was dropped whole, with no log
+        // line, in the render path most of this repository's scenes state. The G-buffer pass has its own
+        // instanced cell now, so the gate asks whether THIS pass has one instead of asking which pass it
+        // is.
+        auto* instancedPipeline =
+             m_DeferredGeometry ? m_InstancedGBufferPipeline.get() : m_StaticInstancedPipeline.get();
+        auto* instancedMaterial =
+             m_DeferredGeometry ? m_InstancedGBufferMaterial.get() : m_StaticInstancedMaterial.get();
+        auto* instancedInstance =
+             m_DeferredGeometry ? m_InstancedGBufferInstance.get() : m_StaticInstancedInstance.get();
+        const bool instancingOn = instancedPipeline != nullptr && instancedMaterial != nullptr &&
+                                  instancedInstance != nullptr && !m_Wireframe;
         auto& instTransforms = m_ScratchInstTransforms;
         auto& instMaterials  = m_ScratchInstMaterials;
         auto& instDraws      = m_ScratchInstDraws;
@@ -1035,6 +1057,26 @@ namespace Desert::Graphic::System
         // UE-style Instanced Static Meshes (one entity = N instances): fold into the same instanced
         // accumulation as the auto-batched static meshes. Each ISM is one batch; its transforms come
         // straight from the component array (no per-instance ECS cost), appended to the shared SSBO.
+        //
+        // AND IT IS NOT SILENT WHEN IT CANNOT. The queue has no per-object fallback, so "instancing is
+        // unavailable" means "these entities do not appear". §1.4: that is refused out loud, with the
+        // pass it happened in and how many entities it cost, rather than substituted with nothing.
+        if ( !instancingOn && !m_InstancedQueue.empty() )
+        {
+            static bool s_WarnedNoInstancedCell = false;
+            if ( !s_WarnedNoInstancedCell )
+            {
+                s_WarnedNoInstancedCell = true;
+                LOG_ERROR( "[MeshRenderer] {} Instanced Static Mesh entit(ies) are NOT drawn in the {} "
+                           "pass: it has no usable instanced cell (pipeline {}, material {}, instance {}"
+                           "{}). An ISM is one entity holding N transforms and has no per-object path to "
+                           "fall back to, so nothing of it reaches the frame.",
+                           m_InstancedQueue.size(), m_DeferredGeometry ? "G-buffer" : "forward",
+                           instancedPipeline ? "ok" : "MISSING", instancedMaterial ? "ok" : "MISSING",
+                           instancedInstance ? "ok" : "MISSING", m_Wireframe ? ", wireframe view on" : "" );
+            }
+        }
+
         if ( instancingOn )
         {
             for ( const auto& ism : m_InstancedQueue )
@@ -1062,8 +1104,8 @@ namespace Desert::Graphic::System
         if ( instancingOn && !instDraws.empty() )
         {
             DESERT_PROFILE_SCOPE( "Mesh: Instanced Batches" );
-            auto* instMat  = m_StaticInstancedMaterial.get();
-            auto* instInst = m_StaticInstancedInstance.get();
+            auto* instMat  = instancedMaterial;
+            auto* instInst = instancedInstance;
 
             if ( auto* sb = instMat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
                 sb->SetRawData( instTransforms.data(),
@@ -1075,11 +1117,14 @@ namespace Desert::Graphic::System
             frameState.ApplyTo( instInst );
             MaterialPBR::UpdateTransform( instInst, glm::mat4( 1.0f ) ); // unused by the instanced VS
 
+            // The instanced vertex stage reads its model matrix from the InstanceTransforms SSBO, so the
+            // per-draw transform is unused; it is named rather than repeated as a literal.
+            const glm::mat4 unusedModelTransform( 1.0F );
             for ( const auto& d : instDraws )
             {
                 instMat->SetMaterialIndex( d.MaterialIndex );
                 instMat->Bind( instInst );
-                renderer.RenderMesh( m_StaticInstancedPipeline.get(), d.Mesh, glm::mat4( 1.0f ),
+                renderer.RenderMesh( instancedPipeline, d.Mesh, unusedModelTransform,
                                      instMat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance );
             }
         }
@@ -1362,6 +1407,51 @@ namespace Desert::Graphic::System
         m_GBufferUnownedMaterial = MaterialPBR::Create( MeshVertexPath::Static, MeshPass::GBuffer );
         if ( !m_GBufferUnownedMaterial )
             return false;
+
+        // (Instanced x GBuffer). Without it the deferred pass had no instanced cell, and since the ISM
+        // queue is the one queue with NO per-object fallback, every InstancedStaticMesh entity was
+        // dropped there in silence -- in the render path most of this repository's scenes state. Optional
+        // like the rest of this pass: a refusal costs instancing in the G-buffer, and DrawStaticMeshes
+        // logs what that costs rather than dropping the queue without a word.
+        m_InstancedGBufferShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
+             MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer ) );
+        if ( m_InstancedGBufferShader )
+        {
+            GraphicsPipelineSpecification ispec;
+            ispec.DebugName      = "StaticMeshGBufferInstanced";
+            ispec.Layout         = { { Graphic::ShaderDataType::Float3, "a_Position" },
+                                     { Graphic::ShaderDataType::Float3, "a_Normal" },
+                                     { Graphic::ShaderDataType::Float3, "a_Tangent" },
+                                     { Graphic::ShaderDataType::Float3, "a_Bitangent" },
+                                     { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+            ispec.DepthCompareOp = DepthCompare::CloserOrEqual;
+            ispec.CullMode       = CullMode::Back;
+            ispec.Shader         = m_InstancedGBufferShader;
+            ispec.Framebuffer    = gbuffer;
+
+            if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
+            {
+                m_InstancedGBufferPipeline = instanced.GetValue();
+                m_InstancedGBufferMaterial = MaterialPBR::Create( MeshVertexPath::Instanced, MeshPass::GBuffer );
+                if ( m_InstancedGBufferMaterial )
+                {
+                    m_InstancedGBufferInstance =
+                         m_InstancedGBufferMaterial->CreateInstance( "StaticInstancedGBufferBatch" );
+                }
+            }
+            else
+            {
+                LOG_ERROR( "[MeshRenderer] instanced drawing is off in the DEFERRED path: {}. Instanced "
+                           "Static Meshes will not be drawn while the scene renders deferred.",
+                           instanced.GetError() );
+            }
+        }
+        else
+        {
+            LOG_ERROR( "[MeshRenderer] shader '{}' is missing; Instanced Static Meshes will not be drawn "
+                       "while the scene renders deferred.",
+                       MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer ) );
+        }
         return true;
     }
 

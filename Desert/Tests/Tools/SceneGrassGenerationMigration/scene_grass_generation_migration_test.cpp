@@ -35,6 +35,9 @@
 
 #include <SceneMigration.hpp>
 
+// Core::kSceneVersion -- the head this step is checked to sit at or below.
+#include <Engine/Core/Serialize/SceneFormat.hpp>
+
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 
@@ -354,10 +357,18 @@ TEST( SceneGrassGenerationMigration, TheCarriedIntegersAreTheEnumsOwnValues )
     EXPECT_EQ( ModeOf( *TerrainOf( off[0] ) ), ReflectedLayerMode( "Off" ) );
 }
 
-TEST( SceneGrassGenerationMigration, TheStepIsTheGenerationTheEngineRequires )
+// THE HEAD ASSERTION TRAVELS WITH THE NEWEST STEP, and it left here when Г26 added v19. It was
+// `EXPECT_EQ( kSceneVersionGrassGeneration, Core::kSceneVersion )`, which is only true while THIS is
+// the last step; holding it here would redden this suite the day the next step lands, for a reason
+// that has nothing to do with grass. It now lives in Desert/Tests/Tools/SceneRetiredKeysMigration,
+// beside the step that is currently the head. What stays is this step's own generation and its place
+// above its predecessor -- facts about the grass retirement, which do not move.
+TEST( SceneGrassGenerationMigration, TheStepIsWhereItWasWrittenToBe )
 {
-    EXPECT_EQ( Migration::kSceneVersionGrassGeneration, Core::kSceneVersion );
+    EXPECT_EQ( 18, Migration::kSceneVersionGrassGeneration );
     EXPECT_GT( Migration::kSceneVersionGrassGeneration, Migration::kSceneVersionServiceAssetRoot );
+    EXPECT_LE( Migration::kSceneVersionGrassGeneration, Core::kSceneVersion )
+         << "a step cannot sit above the head the loader requires";
 }
 
 TEST( SceneGrassGenerationMigration, TheChainRunsTheStepAndStampsTheHead )

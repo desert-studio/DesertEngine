@@ -186,11 +186,21 @@ namespace Desert::Migration
     //                   would come back from this migration with a green lawn.
     inline constexpr int kSceneVersionGrassGeneration = 18;
 
+    //  19             - a scene no longer states the WIND (Г26). `WindDirection`, `WindStrength` and
+    //                   `WindTurbulence` were authored in all 86 scenes and read by NOTHING: their one
+    //                   consumer was the procedural grass generator that step 18 removed, and the three
+    //                   fields were kept then so that the next wind-driven renderer would find them
+    //                   waiting. There was no next one, and a field waiting for a future reader is
+    //                   indistinguishable from a forgotten one - §1.3's dead setting. Wind returns with
+    //                   the thing it moves, and with a unit chosen by whatever reads it. Three more rows
+    //                   of kRetiredKeys rather than a step of its own - see the note on that table.
+    inline constexpr int kSceneVersionWindRetired = 19;
+
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionGrassGeneration == kSceneVersion,
+    static_assert( kSceneVersionWindRetired == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -906,6 +916,22 @@ namespace Desert::Migration
          RetiredKey{ "Settings", "CloudQualityTier",
                      "the cloud march's occlusion budget is machine quality (K3) - High reproduces the "
                      "calibrated constants to the digit; it moved to MachineSettings::CloudQualityTier" },
+
+         // Г26's three, and they are the FIRST kind of row again - values nothing reads and nothing
+         // reads elsewhere either. The wind's only consumer was the procedural grass generator that
+         // step 18 removed; the fields were kept at that moment so the next wind-driven renderer would
+         // find them, and there was no next one. Nothing is carried anywhere, because there is nowhere
+         // to carry it TO: a heading in degrees, an amplitude in no unit and a gustiness with no scale
+         // are three numbers whose meaning was defined by the one reader that is gone.
+         RetiredKey{ "Settings", "WindDirection",
+                     "the scene's wind had no reader between the procedural grass generator (removed at "
+                     "scene schema v18) and a wind-driven ASSET that does not exist yet; wind comes back "
+                     "with the thing it sways, and with a unit chosen by whatever reads it" },
+         RetiredKey{ "Settings", "WindStrength",
+                     "same: the wind amplitude drove the removed grass generator and nothing since" },
+         RetiredKey{ "Settings", "WindTurbulence",
+                     "same, and this one never had a reader at all - it was authored 'reserved for "
+                     "foliage/hair/cloth response' and stayed reserved" },
     };
 
     // What MigrateRetiredKeys removed from one file.
