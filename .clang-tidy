@@ -18,15 +18,24 @@ Checks: '-*,google-*,boost-*,readability-*,-readability-named-parameter,misc-*,l
 # with no negative lookahead and there are two third-party roots (ThirdParty/ and Editor/ThirdParty/).
 # Listing where our code lives is also the version that does not need editing when a submodule is
 # added: a new dependency lands under a ThirdParty/ directory, which no alternative below matches.
-HeaderFilterRegex: '(Desert/(Desert|Common|Tests)|Editor/Source|Runtime/Source|Tools/[A-Za-z]+/Source)/'
+#
+# The path segments are spelled `[A-Za-z0-9_+-]+`, which cannot match `..`, and THAT is what keeps
+# third-party headers out. clang reports a header by the path it resolved, so `#include
+# <DesertShared/ResultStr.hpp>` from Desert/Common comes back as
+# `Desert/Common/Source/Common/Core/../../../../../ThirdParty/desert-shared/Include/...` — a string
+# that begins inside our tree and ends in somebody else's. A regex that merely starts at our roots
+# lets every one of those through.
+HeaderFilterRegex: '(Desert/(Desert|Common|Tests)|Editor/Source|Runtime/Source|Tools/[A-Za-z]+/Source)/([A-Za-z0-9_+-]+/)*[A-Za-z0-9_+-]+\.(hpp|h)$'
 
-# NOT WarningsAsErrors: '*'. The owner's config had it, and on this tree it would make every one of
-# the 902 translation units fail. The severity decision lives in the gate instead
-# (scripts/CI/CheckTidy.sh exits 1 on any finding in the lines you changed), which is the same shape
-# as the clang-format gate: the config describes what is wrong, the gate decides what blocks a merge.
-# Putting it here as well would make an interactive `clang-tidy Foo.cpp` unusable for reading, since
-# an error stops the run rather than listing everything.
-WarningsAsErrors: ''
+# KEPT AS THE OWNER WROTE IT. This is what gives the gate an exit code: clang-tidy returns 0 over a
+# wall of warnings, and both run-clang-tidy and clang-tidy-diff.py report the maximum child exit
+# code, so without this a gate reading the return value is green no matter what it found. Measured on
+# JobSystem.cpp: 62 diagnostics either way, exit 0 without it and exit 1 with it.
+# It does NOT truncate the listing — that was the suspicion, and it is wrong: clang-tidy re-maps
+# severity in its own diagnostic consumer, it does not hand clang -Werror, so nothing stops early and
+# the same 62 lines are printed. Leaving it here rather than in the script also means an editor or a
+# bare `clang-tidy Foo.cpp` agrees with CI about whether the file passes.
+WarningsAsErrors: '*'
 FormatStyle: none
 CheckOptions:
   - key:             llvm-else-after-return.WarnOnConditionVariables

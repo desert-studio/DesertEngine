@@ -62,20 +62,16 @@ if [ "$(uname -s)" = "Darwin" ]; then
         echo "clang-tidy: xcrun could not name a macOS SDK; the analyser cannot find libc++." >&2
         exit 2
     fi
-    EXTRA+=(--extra-arg=-isysroot --extra-arg="$SDK")
+    EXTRA+=(-extra-arg=-isysroot -extra-arg="$SDK")
 fi
 
 JOBS="${TIDY_JOBS:-$( (sysctl -n hw.ncpu 2>/dev/null || nproc) )}"
 
-# THE EXIT CODE COMES FROM HERE, NOT FROM .clang-tidy, and the split is deliberate. clang-tidy exits
-# 0 with findings unless warnings are errors, so both run-clang-tidy and clang-tidy-diff.py — which
-# report the maximum child exit code — return 0 over a wall of diagnostics. A gate that read the
-# output text instead would be a gate that passes when the tool crashes.
-# It is NOT in .clang-tidy because that file is also what a developer's editor and a bare
-# `clang-tidy Foo.cpp` read: with '*' there, the first clang-diagnostic-* finding becomes an error,
-# and clang stops at its error limit, so the listing you are reading gets truncated exactly when it
-# is longest. Blocking is the gate's job; describing is the config's.
-WAE=(-warnings-as-errors=*)
+# THE EXIT CODE IS THE VERDICT, AND IT COMES FROM .clang-tidy's `WarningsAsErrors: '*'`.
+# clang-tidy exits 0 with findings unless warnings are errors, and run-clang-tidy and
+# clang-tidy-diff.py both report the maximum child exit code — so without that setting this gate
+# would be green over a wall of diagnostics. Nothing here re-asserts it: one place decides, and a
+# developer running clang-tidy by hand gets the same verdict CI does.
 
 if [ "${1:-}" = "--all" ]; then
     RCT="$(command -v run-clang-tidy-18 || echo "$TIDY_DIR/run-clang-tidy")"
@@ -84,7 +80,7 @@ if [ "${1:-}" = "--all" ]; then
         exit 2
     fi
     echo "--- whole workspace, -j$JOBS"
-    "$RCT" -p "$ROOT" -clang-tidy-binary "$TIDY" -quiet -j "$JOBS" "${EXTRA[@]}"
+    "$RCT" -p "$ROOT" -clang-tidy-binary "$TIDY" -quiet -j "$JOBS" ${EXTRA[@]+"${EXTRA[@]}"}
     RC=$?
     [ "$RC" -eq 0 ] && echo "clang-tidy: clean over the whole workspace"
     exit $RC
@@ -133,7 +129,7 @@ fi
 # -p1 because `git diff` prefixes a/ and b/. -use-color 0 keeps the log readable in Actions.
 OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' \
       | python3 "$DIFFPY" -clang-tidy-binary "$TIDY" -p1 -path "$ROOT" -j "$JOBS" \
-                -use-color 0 -quiet "${EXTRA[@]}" 2>&1)
+                -use-color 0 -quiet ${EXTRA[@]+"${EXTRA[@]}"} 2>&1)
 RC=$?
 printf '%s\n' "$OUT"
 if [ "$RC" -eq 0 ]; then
