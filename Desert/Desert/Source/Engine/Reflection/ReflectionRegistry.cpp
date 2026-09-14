@@ -12,7 +12,15 @@ namespace Desert::Reflection
 
     const TypeInfo* ReflectionRegistry::Register( TypeInfo info )
     {
-        auto [it, inserted] = m_Types.insert_or_assign( info.Name, std::move( info ) );
+        // The key is read into a local BEFORE the value is moved. `insert_or_assign( info.Name,
+        // std::move( info ) )` reads and consumes one object in one argument list, and C++ does not order
+        // arguments — clang left to right, MSVC right to left, both conforming. It happens to be harmless
+        // today only because insert_or_assign binds an rvalue reference and moves inside its own body; a
+        // callee that took its value BY VALUE would make the same line construct the key from a moved-from
+        // string on one compiler and not the other, with nothing in the diff to show it. The shape is what
+        // Desert/Tests/Engine/ArgumentOrder refuses, not the outcome, because the outcome is invisible here.
+        const std::string key = info.Name;
+        auto [it, inserted]   = m_Types.insert_or_assign( key, std::move( info ) );
         return &it->second;
     }
 
