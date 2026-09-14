@@ -126,17 +126,36 @@ if [ ! -f "$DIFFPY" ]; then
     exit 2
 fi
 
-# -p1 because `git diff` prefixes a/ and b/. -use-color 0 keeps the log readable in Actions.
+# -p1 because `git diff` prefixes a/ and b/. -W ignore silences Python 3.13+ SyntaxWarnings about
+# LLVM 18's own unescaped regex literals, which are not ours to fix and bury the real output.
 OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' \
-      | python3 "$DIFFPY" -clang-tidy-binary "$TIDY" -p1 -path "$ROOT" -j "$JOBS" \
-                -use-color 0 -quiet ${EXTRA[@]+"${EXTRA[@]}"} 2>&1)
+      | python3 -W ignore "$DIFFPY" -clang-tidy-binary "$TIDY" -p1 -path "$ROOT" -j "$JOBS" \
+                -quiet ${EXTRA[@]+"${EXTRA[@]}"} 2>&1)
 RC=$?
 printf '%s\n' "$OUT"
-if [ "$RC" -eq 0 ]; then
-    echo "clang-tidy: the lines you changed are clean (vs $BASE)"
-    exit 0
-fi
-echo ""
-echo "clang-tidy findings in the lines you changed (exit $RC). Reproduce locally with:"
-echo "  scripts/CI/CheckTidy.sh $BASE"
-exit 1
+
+# THREE OUTCOMES, NOT TWO, and the middle one was wrong here for a while. clang-tidy-diff.py returns
+# the maximum exit code of the clang-tidy processes it ran — 0 clean, 1 diagnosed — but argparse
+# failures and a crashed interpreter come back as 2 or higher, and an earlier version of this script
+# reported those as "findings in the lines you changed". It did exactly what this gate exists to
+# stop: an instrument answering a different question, with a confident message on top. Caught by the
+# mutation test, which went red for the right code and the wrong reason.
+case "$RC" in
+    0)
+        echo "clang-tidy: the lines you changed are clean (vs $BASE)"
+        exit 0
+        ;;
+    1)
+        echo ""
+        echo "clang-tidy findings in the lines you changed. Reproduce locally with:"
+        echo "  scripts/CI/CheckTidy.sh $BASE"
+        exit 1
+        ;;
+    *)
+        echo "" >&2
+        echo "clang-tidy: the gate FAILED TO RUN (clang-tidy-diff.py exited $RC)." >&2
+        echo "This is an environment failure, NOT an analysis finding — the output above is the" >&2
+        echo "tool's own complaint, not a diagnosis of your code." >&2
+        exit 2
+        ;;
+esac
