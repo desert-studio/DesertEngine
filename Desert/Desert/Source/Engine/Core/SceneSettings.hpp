@@ -18,12 +18,16 @@ namespace Desert::Core
     // screen-space lighting pass, which scales to many dynamic lights (city lamps/windows) and unlocks
     // screen-space GI/AO.
     //
-    // DEFERRED IS THE DEFAULT AND WHAT ESSENTIALLY EVERYTHING RUNS. Recounted 2026-09-04 over
-    // Editor/Resources/Assets/Scenes: 46 scenes write RenderingPath 1, three write nothing and inherit
-    // the default (also Deferred), and exactly two — MAT_ProbeShadows and MAT_ProbeUnlitShadows — are
-    // Forward. So 49 of 51. An earlier revision of this comment said "51 of 53"; that count swept in
-    // Autosave/, which holds two `_autosave.desce` copies of scenes already counted. Exclude that
-    // directory when counting anything about authored scenes. The comment also used to describe Forward
+    // DEFERRED IS THE DEFAULT AND WHAT ESSENTIALLY EVERYTHING RUNS. Recounted 2026-09-14 over
+    // Editor/Resources/Assets/Scenes (Autosave/ excluded — it holds copies of scenes already counted,
+    // and an earlier revision of this comment said "51 of 53" because it swept them in): 88 scenes, of
+    // which 81 write RenderingPath 1 and 7 write 0. Every scene now states the key, so nothing inherits
+    // the default any more. The Forward seven are all MAT_Probe* fixtures: BatchStress, CascadeSeam,
+    // Clouds, GeoShadows, GraphBatchStress, Shadows and UnlitShadows.
+    //
+    // The 2026-09-04 revision said "46 of 51" and was already three generations of scenes out of date
+    // when Г26 read it — and Г26 quoted it into a commit message before recounting. A count in a comment
+    // has no way of ageing out loud; recount before citing one. The comment also used to describe Forward
     // as "the default" and "the safe path", which had not been true for a long time and made the two
     // paths look interchangeable.
     //

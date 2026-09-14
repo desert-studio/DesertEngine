@@ -170,7 +170,7 @@ namespace Desert::Graphic
     // statics, which fall back to per-object draws when instancing is off, and FALSE of an
     // InstancedStaticMesh entity, which is one entity carrying N transforms and has no per-object path
     // to fall back to. So the G-buffer pass dropped the whole ISM queue with no line in the log, in the
-    // render path 46 of the repository's 86 scenes state. The cell is filled (Г26); the comment is kept
+    // render path 81 of the repository's 88 scenes state. The cell is filled (Г26); the comment is kept
     // because a hole justified by a half-true sentence is the failure this table exists to make visible.
     //
     // A hole answers nullptr and the caller must SAY so rather than silently drawing something else —

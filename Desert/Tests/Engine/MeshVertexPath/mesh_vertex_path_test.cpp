@@ -276,8 +276,8 @@ TEST_F( ShaderRootFixture, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
 // every static takes the per-object path there". That is true of the meshes MeshRenderer AUTO-BATCHES --
 // when instancing is off they fall back to single draws -- and false of an InstancedStaticMesh entity,
 // which is ONE entity holding N transforms and has no per-object path to fall back to. So the deferred
-// pass dropped the entire ISM queue, with no line in the log, in the render path 46 of this
-// repository's 86 scenes state. Measured on Resources/Assets/Scenes/G26_ISMProbe.desce: nine instances
+// pass dropped the entire ISM queue, with no line in the log, in the render path 81 of this
+// repository's 88 scenes state. Measured on Resources/Assets/Scenes/G26_ISMProbe.desce: nine instances
 // absent in Deferred and all nine present in Forward, from the same file.
 //
 // Stated over the paths, like the shadow rule above, with the ONE exception named and argued rather

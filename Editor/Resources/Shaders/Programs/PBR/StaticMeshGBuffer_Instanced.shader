@@ -7,7 +7,7 @@ Shader "StaticMeshGBuffer_Instanced"
     // disabled in the G-buffer pass, every static takes the per-object path there" -- was true of the
     // AUTO-BATCHED statics (they fall back to per-object draws) and false of an InstancedStaticMesh
     // entity, which has no per-object path to fall back to. So every ISM entity was dropped, without a
-    // line in the log, in the deferred path -- which is the default and what 46 of the repository's 86
+    // line in the log, in the deferred path -- which is the default and what 81 of the repository's 88
     // scenes state. Measured on Resources/Assets/Scenes/G26_ISMProbe.desce: nine instances invisible in
     // Deferred, all nine drawn in Forward, from the same file.
     //
