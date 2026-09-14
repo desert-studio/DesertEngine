@@ -1,5 +1,7 @@
 #include "VectorImage.hpp"
 
+#include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -698,9 +700,10 @@ namespace Desert::Vector
         if ( segs.empty() )
             return out;
 
-        // Distance is spread across the byte range over `padding` texels, matching the font baker so one
-        // shader (and one smoothstep width) serves glyphs and icons alike.
-        const float pixelDistScale = static_cast<float>( kSdfOnEdgeValue ) / std::max( 1.0f, (float)padding );
+        // The byte range spans exactly kSdfAtlasDistanceRangeTexels texels — the same band the glyph
+        // atlas uses and the number the shader divides by. It used to be derived from `padding` instead,
+        // which gave icons a 12-texel band against the glyphs' 10 while a comment claimed they matched.
+        const float pixelDistScale = 255.0f / Core::Formats::kSdfAtlasDistanceRangeTexels;
 
         out.resize( static_cast<size_t>( dim ) * dim );
         for ( uint32_t y = 0; y < dim; ++y )
@@ -731,7 +734,8 @@ namespace Desert::Vector
                 }
 
                 const float dist  = std::sqrt( best ) * ( winding != 0 ? 1.0f : -1.0f );
-                const float value = static_cast<float>( kSdfOnEdgeValue ) + dist * pixelDistScale;
+                const float value =
+                     static_cast<float>( Core::Formats::kSdfAtlasOnEdgeByte ) + dist * pixelDistScale;
                 out[static_cast<size_t>( y ) * dim + x] =
                      static_cast<uint8_t>( std::clamp( value, 0.0f, 255.0f ) );
             }

@@ -11,16 +11,26 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Text/FontBaker.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Text/Msdf.cpp",
         "%{wks.location}/ThirdParty/stb/stb_truetype.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",       -- <Engine/Text/FontBaker.hpp>
+        -- The shader root, because SdfTextReference.hpp compiles Common/SdfText.glslh AS C++: the
+        -- median and the screen-space ramp under test are the text the fragment shaders run, not a
+        -- second copy of them that could agree with itself while the GPU does something else.
+        "%{wks.location}/Editor/Resources/Shaders",
     }
     externalincludedirs {
         "%{wks.location}/ThirdParty/stb/include",      -- <stb_truetype/stb_truetype.h>
     }
+
+    -- glm, for the vec2/vec3 the shader text is compiled against.
+    for name, path in pairs(deps.Common.IncludeDir) do
+        externalincludedirs { path }
+    end
 
     for name, path in pairs(deps.TestSpecific.IncludeDir) do
         externalincludedirs { path }

@@ -1,0 +1,75 @@
+#ifndef DESERT_SDF_TEXT_GLSLH
+#define DESERT_SDF_TEXT_GLSLH
+
+// How the three channels of a glyph atlas become one coverage value. Compiled as GLSL by
+// Programs/UI/UIText.shader (screen-space text and icons) and Programs/Text/TextSDF.shader (text in
+// the world), and AS C++ by Desert/Tests/Engine/FontBaker — so the corner and minification
+// properties are asserted about the text the GPU runs, not about a copy of it.
+//
+// TWO THINGS THIS FILE IS RESPONSIBLE FOR.
+//
+// 1. THE MEDIAN. Each channel holds the distance to a different subset of the outline's edges, chosen
+//    so the two edges meeting at any corner never share all three channels. Away from a corner the
+//    three agree and the median is the ordinary distance; at a corner two disagree and the median
+//    follows the pair that actually meets there, reconstructing the corner as the intersection of two
+//    half-planes instead of rounding it off. Taking .r alone — which is what a single-channel field
+//    forced — throws that away and rounds every junction: A, W, M, serifs, thin crossings.
+//
+// 2. THE EDGE WIDTH, IN SCREEN PIXELS AND NOT IN A CONSTANT. Both callers draw at sizes nobody can
+//    predict — the world one is looked at from touching distance to the horizon and at any angle — so
+//    the ramp has to be one screen pixel wide WHEREVER the fragment happens to land. It is derived from
+//    the derivative of the ATLAS UV, never from the derivative of the sampled distance: at a corner the
+//    median switches channel and fwidth of the sampled value spikes there, widening the ramp at exactly
+//    the feature the median exists to keep sharp. The UV's derivative has no such discontinuity, and it
+//    carries perspective and anisotropy for free, which is what makes an angled world label correct.
+
+// Full width of the encodable distance band in ATLAS TEXELS. MUST equal Desert::Text::
+// kDistanceRangeTexels — the value the baker quantizes with — and Desert/Tests/Engine/FontBaker
+// asserts it. Bigger is not better: it buys minification headroom (below one screen pixel of ramp,
+// minified text breaks up) and costs quantization precision at large sizes.
+const float DESERT_TEXT_DISTANCE_RANGE_TEXELS = 10.0f;
+
+float SdfTextMedian( vec3 msd )
+{
+    return max( min( msd.r, msd.g ), min( max( msd.r, msd.g ), msd.b ) );
+}
+
+// How many SCREEN pixels the encoded distance band spans at this fragment, never fewer than one.
+//
+// Two decisions, and BOTH were measured rather than reasoned (Desert/Tests/Engine/FontBaker):
+//
+//  * THE AVERAGE OF THE TWO AXES' TEXEL DENSITIES, not the larger of the two reciprocal ranges. They
+//    agree whenever the glyph is square on screen and part company when it is foreshortened — a world
+//    label seen edge-on. Averaging the densities follows the WORSE-sampled axis, so an angled label
+//    blurs; following the better one keeps it nominally crisp and aliases along the compressed axis.
+//    Blur is the correct answer for an undersampled axis.
+//
+//  * THE FLOOR AT ONE PIXEL, which is the opposite of what this file said when it was written. The
+//    argument for letting the ramp widen past a pixel was that minified text should fade rather than
+//    break up; the measurement says it merely goes translucent. Once the band spans less than a screen
+//    pixel it also SATURATES in less than a pixel, so a texel deep inside a stroke reports only
+//    +0.3 px of depth and the stroke never reaches full opacity — scored against the glyph's own
+//    supersampled coverage at 3 px of height, the widening ramp is nearly twice as wrong as the floored
+//    one (RMS 0.146 against 0.081). The floor is a lie about distances the band cannot hold, and it is a
+//    much smaller lie than the honest under-scaling.
+//
+// The floor is also why DESERT_TEXT_DISTANCE_RANGE_TEXELS is as wide as it is: ten texels keeps the
+// true ramp at or above a pixel down to 4.8 px of rendered glyph height, so the lie only starts below
+// the size at which a label stops being readable anyway.
+float SdfTextScreenPxRange( vec2 uvDerivative, vec2 atlasSize )
+{
+    vec2  texelsPerPixel = abs( uvDerivative ) * atlasSize;
+    float density        = max( 0.5f * ( texelsPerPixel.x + texelsPerPixel.y ), 1e-6f );
+    return max( DESERT_TEXT_DISTANCE_RANGE_TEXELS / density, 1.0f );
+}
+
+// Coverage in [0,1]: the signed distance in screen pixels, read as the fraction of this pixel the
+// outline's half-plane covers. Linear rather than a smoothstep on purpose — coverage by a straight
+// edge IS linear in the distance, and a smoothstep only adds a gamma nobody asked for.
+float SdfTextAlpha( vec3 msd, float screenPxRange )
+{
+    float signedDistance = SdfTextMedian( msd ) - 0.5f;
+    return clamp( screenPxRange * signedDistance + 0.5f, 0.0f, 1.0f );
+}
+
+#endif // DESERT_SDF_TEXT_GLSLH

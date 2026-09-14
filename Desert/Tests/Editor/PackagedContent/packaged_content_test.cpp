@@ -559,8 +559,11 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     Desert::Text::BakedFont font;
     font.AtlasWidth        = 2;
     font.AtlasHeight       = 2;
-    font.AtlasR8           = { 10, 20, 30, 40 };
+    font.AtlasRGBA         = { 10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255 };
     font.PixelHeight       = Desert::Text::kDefaultBakePixelHeight;
+    // The band the atlas was baked with: TryLoadBakedFont refuses an atlas whose band disagrees with the
+    // one this build renders, so a fixture that leaves it at zero is a fixture that gets refused.
+    font.DistanceRangeTexels = Desert::Text::kDistanceRangeTexels;
     const uint64_t fontKey = Desert::Text::FontCacheKey( { 1, 2, 3 }, font.PixelHeight, {} );
     Desert::Text::StoreBakedFont( Desert::Text::FontCachePath( fontKey ), font );
 
@@ -594,7 +597,7 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     Desert::Text::BakedFont loadedFont;
     ASSERT_TRUE( Desert::Text::TryLoadBakedFont( Desert::Text::FontCachePath( fontKey ), loadedFont ) )
          << "the packed font atlas is invisible to the runtime's cache lookup";
-    EXPECT_EQ( loadedFont.AtlasR8, font.AtlasR8 );
+    EXPECT_EQ( loadedFont.AtlasRGBA, font.AtlasRGBA );
     EXPECT_EQ( loadedFont.PixelHeight, font.PixelHeight );
 
     Desert::Vector::BakedIcon loadedIcon;

@@ -29,9 +29,17 @@ namespace Desert::Vector
     inline constexpr int      kIconPadding = 6;
     inline constexpr uint32_t kIconCellDim = kIconSize + 2u * static_cast<uint32_t>( kIconPadding );
 
-    // Bumped when anything about HOW an icon is baked changes (kIconSize/kIconPadding, the SVG
-    // parser's curve tolerance, the colour-run collapse) — every cached bake becomes a miss.
-    inline constexpr uint32_t kBakedIconCacheVersion = 1;
+    // Bumped when anything about HOW an icon is baked changes (kIconSize/kIconPadding, the distance
+    // encoding, the SVG parser's curve tolerance, the colour-run collapse) — every cached bake becomes a
+    // miss. 2: the field now spans Core::Formats::kSdfAtlasDistanceRangeTexels texels rather than
+    // kIconPadding, so that it and the glyph atlas mean the same thing to the one shader that reads both.
+    //
+    // NOTE, and it is the same defect the font cache was just cured of: this version is folded into
+    // IconCacheKey, so bumping it makes every existing .dicon UNREACHABLE rather than refused. Old files
+    // stay on disk forever and a packaged game's icon bakes go quietly unused. Fixing it means moving the
+    // version out of the key and into the file, as Engine/Text/FontBaker now does; that is a change to the
+    // icon cache, which this task does not own.
+    inline constexpr uint32_t kBakedIconCacheVersion = 2;
 
     // One SDF bitmap per COLOUR RUN of the source SVG (consecutive shapes sharing a fill collapse
     // into one layer; document order preserved, so overlapping paths still stack back-to-front).

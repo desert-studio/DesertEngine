@@ -1,3 +1,4 @@
+#include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
 #include <Engine/Vector/VectorImage.hpp>
 
 #include <gtest/gtest.h>
@@ -6,6 +7,10 @@
 #include <vector>
 
 using namespace Desert::Vector;
+
+// The edge byte is a property of the ENCODING both distance-field atlases share, not of the icon
+// rasterizer — see Engine/Core/Formats/SdfAtlasEncoding.hpp.
+using Desert::Core::Formats::kSdfAtlasOnEdgeByte;
 
 namespace
 {
@@ -20,7 +25,7 @@ namespace
         bool Inside( uint32_t x, uint32_t y ) const
         {
             const uint32_t px = x + Pad, py = y + Pad;
-            return px < Dim && py < Dim && Sdf[static_cast<size_t>( py ) * Dim + px] >= kSdfOnEdgeValue;
+            return px < Dim && py < Dim && Sdf[static_cast<size_t>( py ) * Dim + px] >= kSdfAtlasOnEdgeByte;
         }
     };
 
@@ -106,8 +111,8 @@ TEST( VectorImageRaster, PaddingStaysOutside )
     ASSERT_EQ( sdf.size(), static_cast<size_t>( dim ) * dim );
     for ( uint32_t x = 0; x < dim; ++x )
     {
-        EXPECT_LT( sdf[x], kSdfOnEdgeValue ) << "top gutter row is inside at x=" << x;
-        EXPECT_LT( sdf[static_cast<size_t>( dim - 1 ) * dim + x], kSdfOnEdgeValue ) << "bottom gutter";
+        EXPECT_LT( sdf[x], kSdfAtlasOnEdgeByte ) << "top gutter row is inside at x=" << x;
+        EXPECT_LT( sdf[static_cast<size_t>( dim - 1 ) * dim + x], kSdfAtlasOnEdgeByte ) << "bottom gutter";
     }
 }
 

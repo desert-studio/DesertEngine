@@ -1,6 +1,12 @@
-// SDF text: samples a single-channel signed-distance font atlas and outputs EMISSIVE HDR colour so
-// the existing bloom pass picks up bright text for free (EmissiveIntensity > ~1 blooms). Alpha-blended
-// over the scene; the edge is antialiased in screen space via fwidth of the distance field.
+// Text IN THE WORLD: samples the multi-channel signed-distance font atlas and outputs EMISSIVE HDR
+// colour so the existing bloom pass picks up bright text for free (EmissiveIntensity > ~1 blooms).
+// Alpha-blended over the scene.
+//
+// A world label is the hard case the whole distance-field arrangement exists for: it is read from
+// touching distance, from the horizon, and at any angle in between, so neither the edge width nor the
+// corner quality may depend on a size chosen anywhere. Both come out of Common/SdfText.glslh from the
+// screen-space derivative of the ATLAS UV, which is the one quantity that already knows the distance,
+// the foreshortening and the perspective divide.
 Shader "TextSDF"
 {
     Domain Surface
@@ -49,13 +55,13 @@ Shader "TextSDF"
         In(0) vec2 v_UV;
         Out(0) vec4 o_Color;
 
+        #include <Common/SdfText.glslh>
+
         void main()
         {
-            // SDF stored around 0.5 (the baker's on-edge value 128/255). Screen-space AA width from the
-            // distance-field gradient keeps edges crisp at any world size / camera distance.
-            float dist  = texture( u_SDFAtlas, v_UV ).r;
-            float width = max( fwidth( dist ), 0.0001 );
-            float alpha = smoothstep( 0.5 - width, 0.5 + width, dist );
+            vec3  msd     = texture( u_SDFAtlas, v_UV ).rgb;
+            float pxRange = SdfTextScreenPxRange( fwidth( v_UV ), vec2( textureSize( u_SDFAtlas, 0 ) ) );
+            float alpha   = SdfTextAlpha( msd, pxRange );
 
             if ( alpha <= 0.0 )
                 discard;

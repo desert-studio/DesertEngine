@@ -1,8 +1,13 @@
 Shader "UIText"
 {
-    // Screen-space SDF text for the 2D batcher. Same vertex layout as UI2D (pos/uv/colour, ortho push
-    // constant), but the fragment reads a single-channel signed-distance glyph atlas (FontService) and
-    // antialiases the edge in screen space via fwidth — crisp at any font size. Tinted by the vertex colour.
+    // Screen-space distance-field text for the 2D batcher. Same vertex layout as UI2D (pos/uv/colour,
+    // ortho push constant); the fragment reads a MULTI-CHANNEL glyph atlas (FontService) and
+    // reconstructs coverage through Common/SdfText.glslh — crisp corners at any font size, tinted by
+    // the vertex colour.
+    //
+    // It also draws ICONS (IconService), whose atlas carries one distance field replicated across RGB.
+    // The median of three equal channels is that field, so icons reconstruct exactly as they did when
+    // this shader sampled .r — no branch, no second shader, and no icon regression to pay for text.
     Vertex
     {
         In(0) vec2 a_Position;
@@ -34,13 +39,13 @@ Shader "UIText"
 
         Out(0) vec4 o_Color;
 
+        #include <Common/SdfText.glslh>
+
         void main()
         {
-            // SDF stored around 0.5 (the baker's on-edge value 128/255). Screen-space AA width from the
-            // distance-field gradient keeps edges crisp at any size.
-            float dist  = texture(u_SDFAtlas, v_TexCoord).r;
-            float width = max(fwidth(dist), 0.0001);
-            float alpha = smoothstep(0.5 - width, 0.5 + width, dist);
+            vec3  msd         = texture(u_SDFAtlas, v_TexCoord).rgb;
+            float pxRange     = SdfTextScreenPxRange(fwidth(v_TexCoord), vec2(textureSize(u_SDFAtlas, 0)));
+            float alpha       = SdfTextAlpha(msd, pxRange);
 
             if (alpha <= 0.0)
                 discard;

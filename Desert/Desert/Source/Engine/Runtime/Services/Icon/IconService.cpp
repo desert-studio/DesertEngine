@@ -1,5 +1,7 @@
 #include "IconService.hpp"
 
+#include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
+
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
 #include <Engine/Vector/IconBake.hpp>
 #include <Engine/Vector/VectorImage.hpp>
@@ -152,12 +154,17 @@ namespace Desert::Runtime
             dim *= 2;
         }
 
-        // RGB carries the distance field (the UI text shader samples .r and reconstructs the edge itself).
+        // RGB carries the distance field, REPLICATED across all three channels. The UI text shader now
+        // reconstructs a glyph with the median of its three channels (Common/SdfText.glslh); the median of
+        // three equal channels is that one field, so an icon decodes exactly as it did when the shader
+        // sampled .r — no branch, no second shader, and an icon costs nothing for text's corners.
         // ALPHA is free, so it gets a sharpened coverage mask: any plain alpha-blended draw — the editor's
         // Details preview — then shows the icon's real silhouette rather than a soft grey blob.
         std::vector<unsigned char> rgba( static_cast<size_t>( dim ) * dim * 4, 0 );
-        const float                edge     = static_cast<float>( Vector::kSdfOnEdgeValue );
-        const float                perTexel = edge / static_cast<float>( Vector::kIconPadding );
+        const float                edge = static_cast<float>( Core::Formats::kSdfAtlasOnEdgeByte );
+        // Bytes per texel of distance, from the ONE encoding both atlases use — not from this atlas's own
+        // padding, which is a packing decision and was never the same number.
+        const float perTexel = 255.0f / Core::Formats::kSdfAtlasDistanceRangeTexels;
 
         for ( size_t i = 0; i < m_Bitmaps.size(); ++i )
         {
