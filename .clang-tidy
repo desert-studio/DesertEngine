@@ -9,10 +9,14 @@
 # indistinguishable from a check nobody noticed was missing.
 Checks: '-*,google-*,boost-*,readability-*,-readability-named-parameter,misc-*,linuxkernel-*,performance-*,-performance-inefficient-string-concatenation,modernize-*,-modernize-use-trailing-return-type,-modernize-pass-by-value,cppcoreguidelines-*,-cppcoreguidelines-avoid-non-const-global-variables,concurrency-*,bugprone-*,-cppcoreguidelines-special-member-functions,-misc-non-private-member-variables-in-classes,-misc-definitions-in-headers,-readability-redundant-member-init,-google-global-names-in-headers,-google-build-using-namespace,-cppcoreguidelines-avoid-const-or-ref-data-members,-cppcoreguidelines-macro-usage,clang-diagnostic-*,-clang-diagnostic-gnu-zero-variadic-macro-arguments,-cppcoreguidelines-avoid-c-arrays,-cppcoreguidelines-non-private-member-variables-in-classes,-google-readability-avoid-underscore-in-googletest-name,-bugprone-reserved-identifier,-bugprone-macro-parentheses,-google-build-namespaces,-performance-enum-size,-google-explicit-constructor,-bugprone-easily-swappable-parameters,-boost-use-ranges,-misc-use-internal-linkage,-readability-avoid-const-params-in-decls,-cppcoreguidelines-missing-std-forward,-misc-unused-using-decls,-performance-avoid-endl,-misc-use-anonymous-namespace'
 
-# HEADERS ARE ANALYSED, and this is the one setting whose old value silently halved the tool's reach.
-# `HeaderFilterRegex: ''` matches nothing, so clang-tidy reported diagnostics from the .cpp only:
-# measured on this tree, 15 900 of 28 042 findings — 57 % — are in our own .hpp, and this engine puts
-# a large share of its logic there (every CRTP widget, every template container, every inline getter).
+# HEADERS ARE ANALYSED, and this is the one setting whose old value silently narrowed the tool's reach.
+# `HeaderFilterRegex: ''` matches nothing, so clang-tidy reports diagnostics from the .cpp only.
+# Measured over the whole workspace (565 translation units, llvm 18.1.8): 8 258 of the 67 406 DISTINCT
+# source locations the check set finds are in our own .hpp/.h — 12.3 % of the defects, and 89 % of the
+# printed lines (648 697 of 727 689), because a header is re-reported by every unit that includes it.
+# The 12.3 % is the number that matters: those are findings that an empty filter makes UNREACHABLE, and
+# this engine puts a large share of its logic in headers (every CRTP widget, every template container,
+# every inline getter).
 #
 # The regex names OUR source roots rather than excluding ThirdParty, because llvm::Regex is POSIX ERE
 # with no negative lookahead and there are two third-party roots (ThirdParty/ and Editor/ThirdParty/).
@@ -66,30 +70,75 @@ CheckOptions:
     value:           'false'
   - key:             google-readability-function-size.StatementThreshold
     value:           '500'
+  # KEPT AT THE OWNER'S 19, AND THE SUSPICION THAT IT IS TOO LOW FOR A RENDERER WAS MEASURED AND IS
+  # NOT WHAT THE NUMBERS SAY. Over the workspace it fires 854 times (282 of them outside the tests).
+  # Raising it barely helps and costs exactly the functions worth hearing about: 25 leaves 625, 30
+  # leaves 473, 50 leaves 172, 100 leaves 44. The median COMPLEXITY of a firing function is 32 and the
+  # worst is 487 (Editor/.../PropertyEditorBuilder.cpp DrawField) — so the population is not "slightly
+  # over a strict line", it is a long tail, and any threshold that quietened it would have to sit
+  # above 100, i.e. above every function anyone would call complicated.
+  # It is also nearly free under a changed-lines gate: the diagnostic is reported at the function's
+  # DECLARATION line, so editing a statement in the middle of a 487-complexity function does not
+  # produce it. It fires when you write a new function that is already too complex, or when you touch
+  # the signature of one that is — which is exactly when it is worth being told.
   - key:             readability-function-cognitive-complexity.Threshold
     value:           '19'
 ...
 
-# WHAT WAS REMOVED FROM THE OWNER'S CONFIG, AND THE EVIDENCE FOR EACH. Every one was verified by
-# running clang-tidy 18.1.8 against this tree; none was taken on suspicion.
+# WHAT THE OWNER'S CONFIG DID WHEN IT WAS RUN, AND WHY NONE OF IT HAD EVER RUN.
 #
-#  * `AnalyzeTemporaryDtors: false` — the option was deleted from clang-tidy in LLVM 16. clang-tidy 18
-#    accepts the key without a word and ignores it. Dead.
-#  * `Extra` — a bare key on its own line, left over from an edit. YAML reads it as `Extra: null`,
-#    clang-tidy ignores unknown top-level keys, and the file parses. Dead, and misleading.
-#  * `User: altsybeev` — another project's author name. It feeds google-readability-todo, which is not
-#    reached here; `--dump-config` shows the local username regardless, so it never took effect.
-#  * `clang-tidy.extra-args` under CheckOptions — extra-args is a COMMAND-LINE flag, not a check
-#    option. Confirmed absent from `--dump-config`, so `-Wno-enum-constexpr-conversion` was never
-#    applied. It is not needed either: measured, this tree produces zero
-#    clang-diagnostic-enum-constexpr-conversion. If one appears, the flag belongs in CheckTidy.sh.
-#  * every `cert-*` option (NewSuffixes, CheckedFunctions, DiagnoseSignedUnsignedCharComparisons,
-#    WarnOnlyIfThisHasSuspiciousField) — `cert-*` is not in Checks and `--list-checks` enables zero of
-#    them, so all four were options for checks that never ran. The group itself is left OFF: its
-#    members that matter here are aliases of bugprone-* and cppcoreguidelines-* checks already on.
+# The file arrived from the owner's backend project and had been in this repository since 27 July
+# with nothing invoking it. Every statement below was produced by running clang-tidy 18.1.8 against
+# the file itself (`--dump-config`, `--list-checks`), not by reading it.
+#
+# It carried SIX defects, and the first one is the reason the other five were invisible: `Checks:`
+# was indented five spaces under the `---`, so clang-tidy read the check list and SILENTLY DISCARDED
+# every key after it. `--dump-config` on the original reports `WarningsAsErrors: ''` where the file
+# says `'*'`, and `User: danya100kg` — this machine's login — where the file says `altsybeev`. The
+# other four are all FATAL, and the discard is what hid them: de-indent that one key and clang-tidy
+# refuses the file outright, one error at a time, in this order:
+#
+#   1. `  value: 'L;LL;LU;LLU'` under `cert-dcl16-c.NewSuffixes` is indented two spaces where every
+#      other value is indented four → `error: Unexpected token. Expected Block Entry or Block End.`
+#   2. `clang-tidy.extra-args` with a YAML LIST value → `error: unexpected scalar`. A CheckOption
+#      value must be a scalar; extra-args is a COMMAND-LINE flag and not a check option at all, so
+#      `-Wno-enum-constexpr-conversion` was never applied. It is not needed either: this tree
+#      produces zero clang-diagnostic-enum-constexpr-conversion. Should one appear, the flag belongs
+#      in CheckTidy.sh's -extra-arg list.
+#   3. `AnalyzeTemporaryDtors: false` → `error: unknown key 'AnalyzeTemporaryDtors'`. The option was
+#      deleted from clang-tidy in LLVM 16. It is NOT ignored — it rejects the whole file.
+#   4. `Extra`, a bare key on its own line left over from an edit → `error: unknown key 'Extra'`.
+#      Also fatal, for the same reason.
+#
+# `User: altsybeev` is the sixth and the only non-fatal one: with the file parsing it DOES take
+# effect (`--dump-config` prints altsybeev), feeding google-readability-todo another project's author
+# name. Removed.
+#
+# So the honest summary is not "some of the config was ineffective". The config as written cannot be
+# loaded at all, and the only reason clang-tidy accepted it is a YAML indentation slip that threw
+# four fatal errors away along with every setting they sat next to.
+#
+# ALSO DELETED: a byte-identical second copy at Desert/.clang-tidy, which shadowed this one for the
+# whole engine, Common and every test — 735 of the 912 database entries, 440 of the 565 distinct
+# translation units. The files did not differ, so
+# there was nothing to merge.
+#
+# ALSO DELETED: every `cert-*` option (NewSuffixes, CheckedFunctions,
+# DiagnoseSignedUnsignedCharComparisons, WarnOnlyIfThisHasSuspiciousField). `cert-*` is not in
+# `Checks` and `--list-checks` enables zero of them, so all four configured checks that never ran.
+# The group stays OFF: its members that matter here are aliases of bugprone-* and cppcoreguidelines-*
+# checks already enabled, and enabling both spellings double-reports every finding.
 #
 # WHAT WAS KEPT DESPITE LOOKING WRONG:
 #  * `- cppcoreguidelines-non-private-member-variables-in-classes` had a space after the minus, which
-#    looks like a glob that disables nothing. It is not: clang-tidy trims each glob, and
-#    `--list-checks` shows the check disabled either way. The space is gone above for readability
-#    only — the behaviour is unchanged, and this line exists so nobody "fixes" it a second time.
+#    looks like a glob that disables nothing. It is not: clang-tidy trims each glob. Measured with
+#    `--list-checks` — the check is absent with the space, absent without it, and present when the
+#    line is removed. The space is gone above for readability only; this note exists so nobody
+#    "fixes" it a second time.
+#  * `WarningsAsErrors: '*'` is kept exactly as the owner wrote it, because it is what gives the gate
+#    an exit code at all: clang-tidy returns 0 over a wall of warnings, and both run-clang-tidy and
+#    clang-tidy-diff.py report the maximum child exit code. It does NOT truncate the listing — that
+#    was the suspicion and it is wrong; clang-tidy re-maps severity in its own diagnostic consumer
+#    rather than handing clang -Werror, so the same diagnostics print either way. Keeping it in the
+#    config rather than in the script also means an editor, or a bare `clang-tidy Foo.cpp`, agrees
+#    with CI about whether a file passes.

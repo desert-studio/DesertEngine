@@ -61,7 +61,13 @@ if [ ${#MAKEFILES[@]} -eq 0 ]; then
 fi
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# The partial file gets a UNIQUE name and not "$OUT.partial". Two gates can run in one tree at the
+# same moment — scripts/MacOS/BuildMacOS.sh ends by invoking CheckTidy.sh, and a developer running
+# CheckTidy.sh by hand alongside it is ordinary — and with a fixed sibling name the first `mv` takes
+# the file the second is still writing, so the second dies on "No such file or directory" and the gate
+# reports an environment failure that is really a collision. Measured here on 2026-09-14.
+PARTIAL="$(mktemp "${OUT}.partial.XXXXXX" 2>/dev/null || echo "$TMP/compile_commands.json")"
+trap 'rm -rf "$TMP"; rm -f "$PARTIAL"' EXIT
 
 TOTAL=0
 KEPT=0
@@ -139,7 +145,7 @@ MISMATCH=()
     done
     echo ""
     echo "]"
-} >"$OUT.partial"
+} >"$PARTIAL"
 
 if [ ${#MISMATCH[@]} -gt 0 ]; then
     echo "GenCompileCommands: dry run disagrees with the makefile's own source list" >&2
@@ -151,6 +157,6 @@ if [ "$KEPT" -eq 0 ]; then
     exit 2
 fi
 
-mv "$OUT.partial" "$OUT"
+mv "$PARTIAL" "$OUT"
 echo "compile_commands.json: $KEPT entries from ${#MAKEFILES[@]} projects ($CONFIG); \
 $((TOTAL - KEPT)) ThirdParty entries excluded -> $OUT"

@@ -83,6 +83,71 @@ jobs:
       - name: Check formatting of changed lines
         run: ./scripts/CI/CheckFormat.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
+  # Static analysis gate: the LINES CHANGED by this push/PR must be clean under clang-tidy.
+  #
+  # WHY CHANGED LINES AND NOT THE TREE, with the number behind it: measured on this commit, the check
+  # set in .clang-tidy reports 727 689 diagnostics over the 565 translation units of the workspace
+  # (67 406 distinct source locations once a header seen from many units is counted once). A whole-tree gate would be red on its first run and on every
+  # run after it, so it would be switched off — which is precisely the state this task found the
+  # repository's .clang-tidy in, unrun since 27 July. The format gate made the same call for the same
+  # reason and the tree has converged under it ever since: code you TOUCH becomes clean.
+  #
+  # ITS OWN JOB, AND NOT `needs:` ANYTHING. It is deliberately off the critical path: Windows already
+  # measures 73-93 minutes against its 150-minute ceiling and has been cancelled by its own timeout
+  # twice, and the macOS sanitizers job sits at 61-73 % of its own. This job neither gates them nor is
+  # gated by them, so its verdict is separable and its minutes are spent in parallel.
+  #
+  # macOS AND NOT ubuntu, unlike the format gate, and the reason is the same pin that puts the
+  # formatter on 18. clang-tidy analyses a TRANSLATION UNIT, so its verdict depends on the platform's
+  # system headers and on which side of every `#ifdef __APPLE__` the code falls. A Linux runner would
+  # analyse a different program from the one any developer here can reproduce, and a gate whose
+  # findings cannot be reproduced locally is a gate that gets argued with instead of fixed. Every
+  # developer on this project runs Homebrew's llvm@18 already (the formatter lives in the same keg).
+  tidy:
+    name: clang-tidy (changed lines)
+    runs-on: macos-14 # Apple Silicon — the platform whose headers the developers' verdict comes from
+    # Measured on a developer machine: premake + the compile database is 40 s and the analysis itself
+    # is ~13 s of CPU per translation unit, so the cost here is set by how many files a push touches,
+    # not by the size of the tree. The rest is Homebrew. 45 minutes is roughly three times the
+    # observed run and is a ceiling rather than a budget; if it is ever approached, the reason will be
+    # a push touching a hundred files, which is worth noticing rather than absorbing.
+    timeout-minutes: 45
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # premake enumerates ThirdParty; a missing submodule is a missing makefile
+          fetch-depth: 0 # merge-base needs history
+          filter: blob:none # ...and not the half-gigabyte of verification screenshots in it
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-${{ runner.os }}-tidy-${{ hashFiles('scripts/MacOS/Setup.sh') }}
+          restore-keys: brew-${{ runner.os }}-
+
+      - name: Setup dependencies
+        run: ./scripts/MacOS/Setup.sh
+
+      # llvm@18 IS NOT INSTALLED BY Setup.sh UNDER CI, deliberately and with a measurement behind it:
+      # it is a ~1.5 GB bottle that the build jobs never invoke, and the sanitizers job cannot afford
+      # it. This is the one job that does, so it pays for it here rather than making every macOS job
+      # pay. Keg-only, so nothing is linked into PATH — CheckTidy.sh looks for the binary by its
+      # absolute path, exactly as CheckFormat.sh does for the formatter.
+      - name: Install clang-tidy 18
+        run: brew install llvm@18
+
+      # THE DATABASE COMES FROM THE BUILD, BY THE BUILD'S OWN COMMAND. --gen-only stops after
+      # `premake5 gmake2`, which is the same generation step a normal build runs; CheckTidy.sh then
+      # asks those makefiles, in dry run, what they would compile. Nothing here is a second opinion
+      # about the build's flags that could drift from them.
+      - name: Generate project files
+        run: ./scripts/MacOS/BuildMacOS.sh Debug --gen-only
+
+      - name: clang-tidy the changed lines
+        run: ./scripts/CI/CheckTidy.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+
   # Dynamic checks: the whole workspace builds with ASan+UBSan (the premake makefiles append
   # env CXXFLAGS/LDFLAGS) and the full test suite runs under them. Leak detection stays off —
   # LSan is unsupported on Apple Silicon.

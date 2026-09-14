@@ -153,6 +153,11 @@ most expensive defects in this project all shipped built, tested and unseen.
    (`git add` new files first — untracked files are skipped locally and checked by CI). Local v22
    disagrees with CI. As a developer, check against **your branch's merge-base**, not `dev`;
    checking against `dev` reformats other people's landed lines into your diff.
+3a. **Static analysis clean on changed lines under llvm@18**, the same keg as the formatter:
+   `scripts/CI/CheckTidy.sh <merge-base>` — 0 clean, 1 findings, **2 the gate could not run**, and 2
+   is never a pass. A macOS build runs it for you at the end unless you pass `--no-analyze`; CI runs
+   it as its own job. Changed lines and not the tree, for the same reason the formatter works that
+   way: `.clang-tidy` reports five figures of diagnostics over the workspace as it stands.
 4. No new TODOs, stubs or dead parameters.
 5. Tests on the pure logic, written and passing — **all suites, not the matching one**, and frames
    if the render changed. See `desert-engine-verify`.

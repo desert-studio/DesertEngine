@@ -391,6 +391,9 @@ doc, or a comment at the site.
    `git add` new files, then
    `/opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format`.
    Local v22 disagrees with CI and passes work CI rejects.
+2a. Static analysis with **llvm@18's clang-tidy**, on changed lines, against your branch's
+   merge-base: `scripts/CI/CheckTidy.sh <merge-base>`. Read the EXIT CODE, not the output — 0 clean,
+   1 findings, 2 the gate could not run. A macOS build runs it at the end by default.
 3. The full sweep from §3 — zero failures.
 4. Frames from §1 if anything on screen could have changed: **three elevations**, animation frozen
    for any pixel comparison, and the repeat-noise number beside your diff.

@@ -65,7 +65,19 @@ if [ "$(uname -s)" = "Darwin" ]; then
     EXTRA+=(-extra-arg=-isysroot -extra-arg="$SDK")
 fi
 
-JOBS="${TIDY_JOBS:-$( (sysctl -n hw.ncpu 2>/dev/null || nproc) )}"
+# A CPU COUNT THAT CAME OUT EMPTY MUST NOT BE PASSED ON AS ONE. Both probes are platform-specific —
+# sysctl on macOS, nproc elsewhere — and on a stripped PATH neither resolves, leaving JOBS empty; the
+# script then handed clang-tidy-diff.py `-j` with no value, argparse rejected it, and the whole gate
+# came back as an environment failure for a reason that had nothing to do with the environment it was
+# reporting on. Measured here on 2026-09-14. Four is a working default, and the substitution is said
+# out loud rather than assumed.
+JOBS="${TIDY_JOBS:-$( (sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null) )}"
+case "$JOBS" in
+    ''|*[!0-9]*)
+        echo "clang-tidy: could not read a CPU count (sysctl/nproc both unavailable); using -j4." >&2
+        JOBS=4
+        ;;
+esac
 
 # THE EXIT CODE IS THE VERDICT, AND IT COMES FROM .clang-tidy's `WarningsAsErrors: '*'`.
 # clang-tidy exits 0 with findings unless warnings are errors, and run-clang-tidy and
@@ -93,30 +105,60 @@ else
     BASE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
 fi
 
-# WHY CHANGED LINES AND NOT THE WHOLE TREE: measured on this commit, the owner's check set reports
-# five figures of findings over 902 translation units. A whole-tree gate would be red on day one and
-# stay red, so it would be turned off — which is how a config ends up in the repository that nobody
-# runs, the exact state this task found .clang-tidy in. The format gate made the same call for the
-# same reason and the tree has been converging under it ever since: code you TOUCH becomes clean.
-CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE" -- '*.cpp' '*.hpp' | sed "s#^#$ROOT/#")
+# WHY CHANGED LINES AND NOT THE WHOLE TREE: measured on this commit with `--all`, the check set in
+# .clang-tidy reports 727 689 diagnostics over the 565 distinct translation units of the
+# workspace (912 database entries; a source compiled by several test projects is one unit here), which
+# collapse to 67 406 distinct source locations once the same header seen from many units is
+# counted once. A whole-tree gate would be red on day one and stay red, so it would be turned off —
+# which is how a config ends up in the repository that nobody runs, the exact state this task found
+# .clang-tidy in. The format gate made the same call for the same reason and the tree has been
+# converging under it ever since: code you TOUCH becomes clean.
+# THE EXTENSION LIST IS DERIVED FROM WHAT THE BUILD ACTUALLY COMPILES, not from habit. The database
+# holds .cpp AND .mm — Common/Platform/MacOS is Objective-C++ — and the tree carries two .h alongside
+# its .hpp. An extension missing from this list is the quietest possible hole in the gate: the file
+# changes, nothing matches, and the script prints "no C++ files changed" and exits 0.
+CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE" \
+          -- '*.cpp' '*.hpp' '*.mm' '*.h' | sed "s#^#$ROOT/#")
 if [ -z "$CHANGED" ]; then
     echo "clang-tidy: no C++ files changed vs $BASE — nothing to analyse"
     exit 0
 fi
 N_CHANGED=$(printf '%s\n' "$CHANGED" | grep -c .)
 
-# The database holds translation units, so a changed HEADER is never in it and a changed .cpp that
-# belongs to no project is not either. Counting the overlap is what separates "this change has
-# nothing to analyse" from "the database is stale and I am about to pass on nothing".
-COVERED=$(CHANGED_FILES="$CHANGED" python3 -c '
+# HOW MANY OF THE CHANGED FILES THIS GATE CAN ACTUALLY SEE. Counting the overlap with the database is
+# what separates "this change has nothing to analyse" from "the database does not describe this tree
+# and I am about to report a pass over zero files".
+#
+# A changed HEADER is deliberately NOT required to be in the database — it never can be. clang-tidy's
+# InterpolatingCompilationDatabase infers a command for a file the database does not name from the
+# nearest one it does, and for a header that is exactly right: measured on
+# Editor/Source/Editor/Import/CookedJsonWrite.hpp — a header-only file no project compiles — it parsed
+# the real translation unit and reported real diagnostics about our own code.
+#
+# A changed .cpp or .mm that is ABSENT IS FATAL, and this is the one place the same interpolation is a
+# trap rather than a feature. Borrowing another project's flags gives the file another project's
+# include paths, so a test source analysed with the engine's command line fails on `gtest/gtest.h file
+# not found` — a clang-diagnostic-error, which WarningsAsErrors then reports with exit 1, i.e. as a
+# finding about your code. That is precisely the instrument-answering-a-different-question shape this
+# gate exists to catch, so absence is reported as an environment failure and named file by file.
+# It happens for two reasons and the message names both: premake was not re-run after the file was
+# added, or the build was generated without test projects while the change is in Desert/Tests.
+COUNTS=$(CHANGED_FILES="$CHANGED" python3 -c '
 import json, os
 db = {e["file"] for e in json.load(open("compile_commands.json"))}
-print(sum(1 for l in os.environ["CHANGED_FILES"].split() if l in db))')
+changed = os.environ["CHANGED_FILES"].split()
+print(sum(1 for f in changed if f in db))
+print(" ".join(f for f in changed if f.endswith((".cpp", ".mm")) and f not in db))')
+COVERED=$(printf '%s\n' "$COUNTS" | sed -n 1p)
+ORPHANS=$(printf '%s\n' "$COUNTS" | sed -n 2p)
 echo "changed C++ files vs $BASE: $N_CHANGED, of which $COVERED are translation units in the database"
-if [ "$COVERED" -eq 0 ] && printf '%s\n' "$CHANGED" | grep -q '\.cpp$'; then
-    echo "clang-tidy: $N_CHANGED C++ files changed, .cpp among them, yet NONE is in" >&2
-    echo "compile_commands.json. The database does not describe this tree — regenerate the project" >&2
-    echo "files ('CI=true premake5 gmake2'). Refusing to report a pass over zero files." >&2
+if [ -n "$ORPHANS" ]; then
+    echo "clang-tidy: these changed sources are in NO premake project, so nothing compiles them and" >&2
+    echo "the gate cannot know their flags:" >&2
+    printf '    %s\n' $ORPHANS >&2
+    echo "Re-generate with 'CI=true premake5 gmake2' — test projects exist only with CI set or" >&2
+    echo "--with-tests. If a file is still absent afterwards, it is missing from a premake5.lua and" >&2
+    echo "is not being built at all. This is an environment failure, NOT an analysis finding." >&2
     exit 2
 fi
 
@@ -128,7 +170,7 @@ fi
 
 # -p1 because `git diff` prefixes a/ and b/. -W ignore silences Python 3.13+ SyntaxWarnings about
 # LLVM 18's own unescaped regex literals, which are not ours to fix and bury the real output.
-OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' \
+OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' '*.mm' '*.h' \
       | python3 -W ignore "$DIFFPY" -clang-tidy-binary "$TIDY" -p1 -path "$ROOT" -j "$JOBS" \
                 -quiet ${EXTRA[@]+"${EXTRA[@]}"} 2>&1)
 RC=$?
