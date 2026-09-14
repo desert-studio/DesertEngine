@@ -24,9 +24,15 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <cstring>
 #include <fstream>
+#include <iostream>
+#include <iterator>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <string>
@@ -338,6 +344,309 @@ TEST( CloudMaterialSchema, BuildAppliesSchemaThenOverridesAndSkipsWhatItDoesNotK
 // carry two shapes of the same value indefinitely and the next person to touch either end would meet both.
 // Migration::MigrateCloudMaterialAlbedoToColour raises the file ONCE instead, and the SceneCloudMaterial-
 // Migration suite is where that is tested.
+// ── A NUMBER THE RENDERER CANNOT READ IS REFUSED BY NAME, FOR EVERY PARAMETER ─────────────────────────
+//
+// THE DEFECT, AND WHY IT IS ONE TEST OVER THE WHOLE TABLE RATHER THAN FOUR ASSERTIONS. `std::clamp` is
+// `v < lo ? lo : hi < v ? hi : v`; every comparison against a NaN is false; so a NaN comes out of a clamp
+// unchanged. Task O11 found that on one knob and guarded that knob. O13 measured the same shape on four
+// more in Graphic::ApplyCloudMaterialToBakeParams — Coverage, PlacementDensity, PlacementScatter,
+// PatchStrength — and the medium resolver has no clamp on its path at all. Guarding them one at a time is
+// how a subsystem ends up with the fifth one unguarded, so the guard moved to the single seam every value
+// enters through (Detail::AssignCloudValue over Graphic::MaterialValueIsReadable), and this is that seam
+// asserted OVER THE WHOLE CENSUS TABLE: a parameter added to kValues is a parameter this test covers on
+// the same day, with no second list to remember.
+//
+// THE THREE VALUES ARE NOT DECORATIVE. A NaN is the one a clamp passes through; the two infinities are the
+// ones that survive a `std::max` floor and reach a division; and for the four integer parameters a finite
+// 1e30 is just as undefined as any of them, because `static_cast<int32_t>` of an out-of-range float is UB
+// BEFORE any range check downstream can look at it.
+//
+// WHAT REFUSAL MEANS HERE: the field keeps what the schema gave it. That is asserted as "the built look is
+// the schema-only look, field for field" rather than as "the field is not NaN", because the second would
+// pass on a reader that substituted a zero — which is a different sky, silently.
+namespace
+{
+    // The whole look compared field by field. It exists because the struct has padding and a memcmp of two
+    // separately constructed ones can differ in bytes nobody reads; and because a mismatch has to NAME the
+    // field, or a red line says only "something moved".
+    void ExpectSameLook( const CloudMaterialValues& got, const CloudMaterialValues& want,
+                         const std::string& context )
+    {
+#define O14_SAME( field ) EXPECT_EQ( got.field, want.field ) << context << ": " << #field << " moved"
+        O14_SAME( CloudType1 );
+        O14_SAME( CloudType2 );
+        O14_SAME( CloudType3 );
+        O14_SAME( CloudType4 );
+        O14_SAME( Coverage );
+        O14_SAME( CoverageContrast );
+        O14_SAME( WeatherTileSize );
+        O14_SAME( Seed );
+        O14_SAME( PlacementDensity );
+        O14_SAME( PlacementScatter );
+        O14_SAME( PlacementSizeVariety );
+        O14_SAME( PatchTileSize );
+        O14_SAME( PatchStrength );
+        O14_SAME( LayoutPattern );
+        O14_SAME( LayoutMask );
+        O14_SAME( LayoutPatternStrength );
+        O14_SAME( LayoutMaskStrength );
+        O14_SAME( LayoutRepeats );
+        O14_SAME( LayoutRotation );
+        O14_SAME( LayoutOffset );
+        O14_SAME( DetailTileSize );
+        O14_SAME( DetailStrength );
+        O14_SAME( DensityScale );
+        O14_SAME( ExtinctionScale );
+        O14_SAME( ScatteringAlbedo );
+        O14_SAME( PhaseG );
+        O14_SAME( PhaseGBackward );
+        O14_SAME( PhaseBlend );
+        O14_SAME( AmbientOcclusionStrength );
+        O14_SAME( MultiScatterOctaves );
+        O14_SAME( MultiScatterContribution );
+        O14_SAME( MultiScatterOcclusion );
+        O14_SAME( MultiScatterEccentricity );
+        O14_SAME( AmbientScale );
+        O14_SAME( Medium );
+#undef O14_SAME
+    }
+} // namespace
+
+TEST( CloudMaterialSchema, NoParameterCanCarryANumberTheRendererCannotRead )
+{
+    const CloudMaterialValues schemaOnly = BuildCloudMaterialValues( &Schema(), MaterialOverrides{} );
+
+    // Every one of them is finite to begin with — otherwise the test below would be asserting that a
+    // broken default equals itself.
+    ASSERT_TRUE( std::isfinite( schemaOnly.Coverage ) );
+    ASSERT_TRUE( std::isfinite( schemaOnly.ExtinctionScale ) );
+
+    const float kNaN  = std::numeric_limits<float>::quiet_NaN();
+    const float kInf  = std::numeric_limits<float>::infinity();
+    const float kHuge = 1e30f; // finite, and still undefined as an int32
+
+    std::size_t lanesCovered = 0;
+    std::size_t casesRun     = 0;
+
+    for ( const ValueRow& row : kValues )
+    {
+        std::vector<float> unreadable = { kNaN, kInf, -kInf };
+        if ( row.IsInt )
+            unreadable.push_back( kHuge );
+
+        for ( int lane = 0; lane < row.Components; ++lane )
+        {
+            ++lanesCovered;
+            for ( const float bad : unreadable )
+            {
+                // The OTHER lanes stay finite on purpose: the claim is that the reader refuses the
+                // parameter because of the lane it is about to read, not because something else in the
+                // vec4 happened to be odd.
+                glm::vec4 value( 0.5f, 0.5f, 0.5f, 0.5f );
+                value[lane] = bad;
+
+                MaterialOverrides overrides;
+                overrides.Params.emplace_back( row.Name, value );
+
+                ++casesRun;
+                ExpectSameLook( BuildCloudMaterialValues( &Schema(), overrides ), schemaOnly,
+                                std::string( row.Name ) + " lane " + std::to_string( lane ) + " = " +
+                                     std::to_string( bad ) );
+            }
+        }
+    }
+
+    // DERIVED AND PRINTED, NOT PINNED. A number in the source could be edited to match a census that had
+    // stopped looking; what is asserted is that the table was not empty and that every lane of it ran.
+    EXPECT_EQ( lanesCovered, 33u ) << "the census table's lane count moved — read kValues, not this number";
+    std::cout << "[ CENSUS   ] cloud material value parameters: " << std::size( kValues ) << ", lanes "
+              << lanesCovered << ", unreadable cases refused: " << casesRun << std::endl;
+
+    // THE NEGATIVE CONTROL. A reader that refused everything would pass every line above.
+    MaterialOverrides good;
+    good.Params.emplace_back( "Coverage", glm::vec4( 0.33f, 0.0f, 0.0f, 0.0f ) );
+    good.Params.emplace_back( "MultiScatterOctaves", glm::vec4( 4.0f, 0.0f, 0.0f, 0.0f ) );
+    good.Params.emplace_back( "AmbientScale", glm::vec4( 0.25f, 0.5f, 0.75f, 0.0f ) );
+    const CloudMaterialValues readable = BuildCloudMaterialValues( &Schema(), good );
+    EXPECT_FLOAT_EQ( readable.Coverage, 0.33f );
+    EXPECT_EQ( readable.MultiScatterOctaves, 4 );
+    EXPECT_EQ( readable.AmbientScale, glm::vec3( 0.25f, 0.5f, 0.75f ) );
+}
+
+// ── THE BOUNDARY: WHAT EVERY CLAMP DOWNSTREAM READS IS SOMETHING THE ENTRY ALREADY REFUSED ────────────
+//
+// THE QUESTION THIS ANSWERS, asked because "four clamps pass a NaN" was the brief and four was not the
+// number. A clamp does not repair a non-finite value, so the honest count is "how many places in the tree
+// clamp a cloud material value and would therefore hand a NaN onward". It is DERIVED here rather than
+// written down: the source is scanned for `std::clamp` / `std::max` / `std::min` applied to a field of
+// CloudMaterialValues, and the field names are collected.
+//
+// THE RELATION, and it is what makes this a test rather than a statistic: every field any of those sites
+// reads must be a field the entry guard covers, i.e. a row of kValues. Then "the clamp cannot see a
+// non-finite value" is a property of the pair rather than a hope about either half, and a parameter that
+// is clamped somewhere but is not a census row reddens this instead of being the one nobody guarded.
+//
+// WHY THE GUARD IS NOT ALSO PUT AT EACH SITE: because there are thirty-one of them across three files and
+// the medium path has none at all — that is precisely the "fifteen places of one shape" the abstraction
+// replaces. Fixing them one at a time is how the thirty-second arrives unguarded.
+namespace
+{
+    std::string RepoRootForBoundary()
+    {
+        std::string prefix = "./";
+        for ( int up = 0; up < 6; ++up )
+        {
+            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Graphic/Clouds/CloudMaterialBake.hpp" );
+            if ( probe )
+                return prefix;
+            prefix += "../";
+        }
+        return {};
+    }
+} // namespace
+
+TEST( CloudMaterialSchema, EveryCloudMaterialValueAClampReadsIsOneTheEntryRefuses )
+{
+    namespace fs = std::filesystem;
+
+    const std::string root = RepoRootForBoundary();
+    ASSERT_FALSE( root.empty() );
+
+    // The three spellings the readers give a CloudMaterialValues: the bake's parameter, the packer's, and
+    // the renderer's member. Typed, and small enough to audit by eye; what is DERIVED is where they occur.
+    const std::vector<std::string> receivers = { "look.", "material.", "m_Material.", "values." };
+    const std::vector<std::string> guards    = { "std::clamp(", "std::max(", "std::min(" };
+
+    std::set<std::string> clampedFields;
+    std::size_t           sites = 0;
+
+    std::vector<fs::path> sources;
+    for ( const char* tree : { "Desert/Desert/Source/Engine/Graphic", "Editor/Source/Editor/Panels/Clouds" } )
+    {
+        std::error_code ec;
+        for ( auto it = fs::recursive_directory_iterator( fs::path( root ) / tree, ec );
+              !ec && it != fs::recursive_directory_iterator(); ++it )
+            if ( it->path().extension() == ".cpp" || it->path().extension() == ".hpp" )
+                sources.push_back( it->path() );
+    }
+    ASSERT_FALSE( sources.empty() );
+
+    for ( const fs::path& path : sources )
+    {
+        std::ifstream      in( path, std::ios::binary );
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        std::string src = buffer.str();
+        // The prose in these files quotes the very expressions being counted, so comments have to go or
+        // the census counts itself. Whitespace inside the call is squeezed out for the same reason the
+        // receivers are typed: `std::clamp( look.X` and `std::clamp(look.X` are one site.
+        src.erase( std::remove( src.begin(), src.end(), ' ' ), src.end() );
+
+        std::string stripped;
+        stripped.reserve( src.size() );
+        for ( std::size_t i = 0; i < src.size(); )
+        {
+            if ( src.compare( i, 2, "//" ) == 0 )
+            {
+                while ( i < src.size() && src[i] != '\n' )
+                    ++i;
+                continue;
+            }
+            if ( src.compare( i, 2, "/*" ) == 0 )
+            {
+                i += 2;
+                while ( i + 1 < src.size() && src.compare( i, 2, "*/" ) != 0 )
+                    ++i;
+                i += 2;
+                continue;
+            }
+            stripped.push_back( src[i++] );
+        }
+
+        for ( const std::string& guard : guards )
+        {
+            std::string squeezedGuard = guard;
+            squeezedGuard.erase( std::remove( squeezedGuard.begin(), squeezedGuard.end(), ' ' ),
+                                 squeezedGuard.end() );
+            for ( std::size_t at = stripped.find( squeezedGuard ); at != std::string::npos;
+                  at             = stripped.find( squeezedGuard, at + 1 ) )
+            {
+                const std::size_t argAt = at + squeezedGuard.size();
+                for ( const std::string& receiver : receivers )
+                {
+                    if ( stripped.compare( argAt, receiver.size(), receiver ) != 0 )
+                        continue;
+                    std::size_t end = argAt + receiver.size();
+                    while (
+                         end < stripped.size() &&
+                         ( std::isalnum( static_cast<unsigned char>( stripped[end] ) ) || stripped[end] == '_' ) )
+                        ++end;
+                    const std::string field =
+                         stripped.substr( argAt + receiver.size(), end - argAt - receiver.size() );
+                    if ( field.empty() )
+                        continue;
+                    ++sites;
+                    clampedFields.insert( field );
+                }
+            }
+        }
+    }
+
+    // Derived and printed. The number is evidence, not a gate: a gate on it could be satisfied by editing
+    // it, and the thing that must hold is the relation below.
+    std::cout << "[ CENSUS   ] clamp/max/min sites over a cloud material value: " << sites << ", distinct "
+              << "fields: " << clampedFields.size() << std::endl;
+    EXPECT_GT( sites, 0u ) << "the boundary census found no clamped material value — it has stopped looking";
+
+    std::set<std::string> guarded;
+    for ( const ValueRow& row : kValues )
+        guarded.insert( row.Name );
+
+    for ( const std::string& field : clampedFields )
+        EXPECT_TRUE( guarded.count( field ) != 0 )
+             << "CloudMaterialValues::" << field
+             << " is clamped somewhere downstream but is not a census "
+                "row, so nothing refuses a non-finite value for it at the entry — a clamp will pass it "
+                "straight through to the GPU";
+}
+
+// The medium's own resolver, which has NO clamp anywhere on its path: the vec4 is copied into the
+// parameter block whole and the shader decides which lanes it reads. All four lanes are therefore the
+// question, and a refused property keeps the schema default the graph author typed.
+TEST( CloudMediumValues, APropertyThatCannotBeReadKeepsTheGraphsOwnDefault )
+{
+    std::vector<ShaderParam> schema;
+    {
+        ShaderParam tint;
+        tint.Name    = "Tint";
+        tint.Default = glm::vec4( 0.2f, 0.4f, 0.6f, 1.0f );
+        schema.push_back( tint );
+    }
+
+    const std::string key = Desert::Core::CloudMediumOverrideKey( "Tint" );
+
+    for ( int lane = 0; lane < 4; ++lane )
+    {
+        glm::vec4 bad( 0.9f, 0.9f, 0.9f, 0.9f );
+        bad[lane] = std::numeric_limits<float>::quiet_NaN();
+
+        MaterialOverrides overrides;
+        overrides.Params.emplace_back( key, bad );
+
+        const auto values = Desert::Graphic::BuildCloudMediumValues( schema, overrides );
+        ASSERT_EQ( values.Params.size(), 1u );
+        EXPECT_EQ( values.Params[0], glm::vec4( 0.2f, 0.4f, 0.6f, 1.0f ) )
+             << "lane " << lane << " was unreadable and the property did not fall back to the schema";
+    }
+
+    // Negative control: a readable override still wins.
+    MaterialOverrides good;
+    good.Params.emplace_back( key, glm::vec4( 1.0f, 0.0f, 0.0f, 0.5f ) );
+    const auto values = Desert::Graphic::BuildCloudMediumValues( schema, good );
+    ASSERT_EQ( values.Params.size(), 1u );
+    EXPECT_EQ( values.Params[0], glm::vec4( 1.0f, 0.0f, 0.0f, 0.5f ) );
+}
+
 TEST( CloudMaterialSchema, TheAlbedoIsAColourAndAnOldScalarIsNotQuietlyRepaired )
 {
     MaterialOverrides scalarAsWritten;

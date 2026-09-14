@@ -1,6 +1,7 @@
 #include "SurfaceMaterialAsset.hpp"
 
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
+#include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Core/Serialize/GLMReflect.hpp>
 #include <Engine/Core/Serialize/CustomReflect.hpp>
 #include <Engine/Assets/Serialization/Material.hpp>
@@ -178,6 +179,37 @@ namespace Desert::Assets
                  "writing them out would destroy the authored parameters permanently. Fix or delete the "
                  "file first.",
                  m_Metadata.Filepath.string() );
+
+        // A NUMBER THAT IS NOT A NUMBER IS REFUSED HERE, BY NAME, AND THE ALTERNATIVE IS NOT A BAD FILE.
+        //
+        // `rfl::json::write` is `std::string( yyjson_mut_write( … ) )` and yyjson with no write flags
+        // REFUSES a NaN or an infinity — it returns a null pointer, which that constructor then reads.
+        // Measured on the vendored copy: `{"v":0.5}` writes, NaN and inf both answer NULL. So a material
+        // holding one does not produce a broken `.demat`; it produces undefined behaviour inside a
+        // third-party header while the editor is saving the artist's work.
+        //
+        // IT IS REACHABLE, and not through the file: yyjson refuses those tokens on the way IN too, so no
+        // `.demat` on disk can carry one. The editor can. Every material row is an ImGui drag
+        // (MaterialEditorPanel's DragScalarN / SliderScalarN), ImGui's Ctrl-click text entry parses with
+        // `sscanf( buf, "%f", … )`, and `%f` accepts `nan`, `inf` and `1e40`. One typed word and Save is a
+        // null dereference.
+        //
+        // ALL FOUR LANES, because all four are what gets written. The renderer's reader asks the same
+        // question of the lanes IT will use (Graphic::MaterialValueIsFinite, shared so the two cannot
+        // disagree about what a number is) and keeps the shader's default for the parameter; this one
+        // cannot fall back to anything, because the caller asked for the bytes of THIS material.
+        for ( const auto& param : m_Data.Params )
+        {
+            if ( Graphic::MaterialValueIsFinite( param.Value, Graphic::MaterialValueLanes::Four ) )
+                continue;
+
+            return Common::MakeFormattedError<std::string>(
+                 "refusing to write '{}': parameter '{}' holds ({}, {}, {}, {}), which JSON has no "
+                 "spelling for — the writer would dereference a null pointer rather than produce a file. "
+                 "Reset that parameter or type a number into it.",
+                 m_Metadata.Filepath.string(), param.Name, param.Value.x, param.Value.y, param.Value.z,
+                 param.Value.w );
+        }
 
         return Common::MakeSuccess( rfl::json::write( m_Data ) );
     }

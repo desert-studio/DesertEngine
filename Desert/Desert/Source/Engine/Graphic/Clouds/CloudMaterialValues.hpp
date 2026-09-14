@@ -135,46 +135,81 @@ namespace Desert::Graphic
 
     namespace Detail
     {
+        // ── A NUMBER THAT CANNOT BE READ LEAVES THE FIELD ALONE ─────────────────────────────────────────
+        //
+        // ONE STATEMENT FOR ALL TWENTY-NINE VALUE PARAMETERS, and the arity comes from the FIELD'S TYPE so
+        // there is no second table of component counts to drift from the struct. Graphic::MaterialValueIsReadable
+        // carries the argument for why the check is here rather than at each clamp downstream; the short
+        // version is that `std::clamp` propagates a NaN and every reader of these values clamps.
+        //
+        // LEAVING THE FIELD ALONE IS THE DECISION. The field already holds the schema default at this
+        // point (BuildCloudMaterialValues applies the schema first and the `.demat` chain over it), so a
+        // refused override means "this parameter as the shader authored it", named in the log — not a
+        // zero, and not a NaN the GPU has to make sense of.
+        inline void AssignCloudValue( float& field, std::string_view name, const glm::vec4& p )
+        {
+            if ( MaterialValueIsReadable( name, p, MaterialValueLanes::One ) )
+                field = p.x;
+        }
+
+        inline void AssignCloudValue( int32_t& field, std::string_view name, const glm::vec4& p )
+        {
+            if ( MaterialValueIsReadableAsInt( name, p.x ) )
+                field = static_cast<int32_t>( p.x );
+        }
+
+        inline void AssignCloudValue( glm::vec2& field, std::string_view name, const glm::vec4& p )
+        {
+            if ( MaterialValueIsReadable( name, p, MaterialValueLanes::Two ) )
+                field = { p.x, p.y };
+        }
+
+        inline void AssignCloudValue( glm::vec3& field, std::string_view name, const glm::vec4& p )
+        {
+            if ( MaterialValueIsReadable( name, p, MaterialValueLanes::Three ) )
+                field = { p.x, p.y, p.z };
+        }
+
         // One override application. Values by name from the params list, handles by name from the
         // textures list (asset references share that map — it is name -> uint64, nothing texture-specific).
         inline void ApplyCloudOverride( CloudMaterialValues& v, std::string_view name, const glm::vec4& p )
         {
             if ( name == "Coverage" )
-                v.Coverage = p.x;
+                AssignCloudValue( v.Coverage, name, p );
             else if ( name == "CoverageContrast" )
-                v.CoverageContrast = p.x;
+                AssignCloudValue( v.CoverageContrast, name, p );
             else if ( name == "WeatherTileSize" )
-                v.WeatherTileSize = p.x;
+                AssignCloudValue( v.WeatherTileSize, name, p );
             else if ( name == "Seed" )
-                v.Seed = static_cast<int32_t>( p.x );
+                AssignCloudValue( v.Seed, name, p );
             else if ( name == "PlacementDensity" )
-                v.PlacementDensity = p.x;
+                AssignCloudValue( v.PlacementDensity, name, p );
             else if ( name == "PlacementScatter" )
-                v.PlacementScatter = p.x;
+                AssignCloudValue( v.PlacementScatter, name, p );
             else if ( name == "PlacementSizeVariety" )
-                v.PlacementSizeVariety = p.x;
+                AssignCloudValue( v.PlacementSizeVariety, name, p );
             else if ( name == "PatchTileSize" )
-                v.PatchTileSize = p.x;
+                AssignCloudValue( v.PatchTileSize, name, p );
             else if ( name == "PatchStrength" )
-                v.PatchStrength = p.x;
+                AssignCloudValue( v.PatchStrength, name, p );
             else if ( name == "LayoutPatternStrength" )
-                v.LayoutPatternStrength = p.x;
+                AssignCloudValue( v.LayoutPatternStrength, name, p );
             else if ( name == "LayoutMaskStrength" )
-                v.LayoutMaskStrength = p.x;
+                AssignCloudValue( v.LayoutMaskStrength, name, p );
             else if ( name == "LayoutRepeats" )
-                v.LayoutRepeats = static_cast<int32_t>( p.x );
+                AssignCloudValue( v.LayoutRepeats, name, p );
             else if ( name == "LayoutRotation" )
-                v.LayoutRotation = static_cast<int32_t>( p.x );
+                AssignCloudValue( v.LayoutRotation, name, p );
             else if ( name == "LayoutOffset" )
-                v.LayoutOffset = { p.x, p.y };
+                AssignCloudValue( v.LayoutOffset, name, p );
             else if ( name == "DetailTileSize" )
-                v.DetailTileSize = p.x;
+                AssignCloudValue( v.DetailTileSize, name, p );
             else if ( name == "DetailStrength" )
-                v.DetailStrength = p.x;
+                AssignCloudValue( v.DetailStrength, name, p );
             else if ( name == "DensityScale" )
-                v.DensityScale = p.x;
+                AssignCloudValue( v.DensityScale, name, p );
             else if ( name == "ExtinctionScale" )
-                v.ExtinctionScale = p.x;
+                AssignCloudValue( v.ExtinctionScale, name, p );
             // THREE COMPONENTS, AND A `.demat` WRITTEN BEFORE THE CHANGE CARRIES ONE. `[0.98, 0, 0, 0]` read
             // as a colour is a RED cloud, which is why Migration::MigrateCloudMaterialAlbedoToColour exists
             // and why it is content-detected: this reader deliberately does NOT paper over the old shape by
@@ -182,25 +217,25 @@ namespace Desert::Graphic
             // authored colour once the slot is three-component — unexpressible, and it would hide an
             // unmigrated file for ever instead of letting the migrator find it once.
             else if ( name == "ScatteringAlbedo" )
-                v.ScatteringAlbedo = { p.x, p.y, p.z };
+                AssignCloudValue( v.ScatteringAlbedo, name, p );
             else if ( name == "PhaseG" )
-                v.PhaseG = p.x;
+                AssignCloudValue( v.PhaseG, name, p );
             else if ( name == "PhaseGBackward" )
-                v.PhaseGBackward = p.x;
+                AssignCloudValue( v.PhaseGBackward, name, p );
             else if ( name == "PhaseBlend" )
-                v.PhaseBlend = p.x;
+                AssignCloudValue( v.PhaseBlend, name, p );
             else if ( name == "AmbientOcclusionStrength" )
-                v.AmbientOcclusionStrength = p.x;
+                AssignCloudValue( v.AmbientOcclusionStrength, name, p );
             else if ( name == "MultiScatterOctaves" )
-                v.MultiScatterOctaves = static_cast<int32_t>( p.x );
+                AssignCloudValue( v.MultiScatterOctaves, name, p );
             else if ( name == "MultiScatterContribution" )
-                v.MultiScatterContribution = p.x;
+                AssignCloudValue( v.MultiScatterContribution, name, p );
             else if ( name == "MultiScatterOcclusion" )
-                v.MultiScatterOcclusion = p.x;
+                AssignCloudValue( v.MultiScatterOcclusion, name, p );
             else if ( name == "MultiScatterEccentricity" )
-                v.MultiScatterEccentricity = p.x;
+                AssignCloudValue( v.MultiScatterEccentricity, name, p );
             else if ( name == "AmbientScale" )
-                v.AmbientScale = { p.x, p.y, p.z };
+                AssignCloudValue( v.AmbientScale, name, p );
             // An unknown name is NOT an error here: a `.demat` may carry params for a shader revision
             // ahead of or behind this binary, and the schema census — not this switch — is what pins the
             // live set. It is skipped, and the material editor shows the value it stored.
