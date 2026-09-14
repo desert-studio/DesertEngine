@@ -60,9 +60,15 @@ namespace
          // The named action moved when the UI editor became a document (U7-2): its "Create UI Canvas"
          // button was an empty state INSIDE the window, and a document is opened over a canvas that
          // exists. The two doors that were always there are the ones left.
+         // CORRECTED BY Ю12. The last clause used to read "a second canvas would not be drawn (the
+         // renderer takes the first)", which stopped being true when Ю4 keyed the walk's state by
+         // (canvas x view) and made the drawing hosts iterate CanvasesInDrawOrder. It is the recurring
+         // shape: a comment asserting a guarantee the tree no longer gives, left standing because
+         // nothing reads a reason string. The overlays this file now also excludes are four more
+         // canvases per level, so the stale sentence was about to be read as permission.
          { "UICanvasComponent", "the canvas root itself — created by the viewport toolbar's UI ▸ UI Canvas "
-                                "or Details ▸ Add Component ▸ UI Canvas, and a second canvas would not be "
-                                "drawn (the renderer takes the first)" },
+                                "or Details ▸ Add Component ▸ UI Canvas, and a level may hold several: "
+                                "every one is drawn, in authored Sort Order" },
          { "UILayoutComponent", "the rect. Every element gets one automatically in AddUIChild; on its own "
                                 "it is an invisible box" },
          { "UIScreenComponent", "the screen machine: a screen with no name is skipped by the renderer's "
