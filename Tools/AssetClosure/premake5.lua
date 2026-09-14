@@ -19,6 +19,7 @@ project "AssetClosure"
     }
 
     includedirs {
+        "%{wks.location}/Tools/Shared",
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Editor/Source",
     }

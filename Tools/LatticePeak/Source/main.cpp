@@ -43,8 +43,11 @@
 //               [--pgm PATH] [--csv PATH]
 //   LatticePeak --frame <png> <x0> <y0> <x1> <y1> [<png> <x0> <y0> <x1> <y1> ...]
 
+#include <ToolMain.hpp>
+
 #include "LatticePeakMath.hpp"
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <Engine/Assets/CloudProceduralVolume.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
 
@@ -194,8 +197,7 @@ namespace
         std::fprintf( file, "P5\n%d %d\n255\n", width, height );
         for ( float v : map )
         {
-            const unsigned char byte =
-                 static_cast<unsigned char>( std::clamp( v * scale, 0.0f, 1.0f ) * 255.0f + 0.5f );
+            const unsigned char byte = Common::Math::QuantiseUnitToByte( v * scale );
             std::fwrite( &byte, 1, 1, file );
         }
         std::fclose( file );
@@ -601,9 +603,13 @@ namespace
         const bool swapped     = std::fabs( windX ) < 1e-6f;
 
         const int predictX =
-             axisAligned ? static_cast<int>( ( swapped ? extent.y : extent.x ) / voxelKm + 0.5f ) : 0;
+             axisAligned
+                  ? static_cast<int>( Common::Math::RoundToNearest( ( swapped ? extent.y : extent.x ) / voxelKm ) )
+                  : 0;
         const int predictZ =
-             axisAligned ? static_cast<int>( ( swapped ? extent.x : extent.y ) / voxelKm + 0.5f ) : 0;
+             axisAligned
+                  ? static_cast<int>( Common::Math::RoundToNearest( ( swapped ? extent.x : extent.y ) / voxelKm ) )
+                  : 0;
 
         if ( !axisAligned )
             std::printf( "  (wind %.3f,%.3f is not along a volume axis; no per-axis prediction is made)\n", windX,
@@ -737,7 +743,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     if ( argc < 2 )
         return Usage();
@@ -749,4 +755,12 @@ int main( int argc, char** argv )
         return FrameMode( argc, argv );
 
     return Usage();
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "LatticePeak", argc, argv, &RunTool );
 }

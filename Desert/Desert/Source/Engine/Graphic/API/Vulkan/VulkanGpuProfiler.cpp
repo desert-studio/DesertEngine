@@ -50,13 +50,15 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<VkQueueFamilyProperties> families( familyCount );
             vkGetPhysicalDeviceQueueFamilyProperties( physical, &familyCount, families.data() );
 
-            const auto graphicsFamily = device->GetPhysicalDevice()->GetGraphicsFamily();
-            if ( !graphicsFamily.has_value() || static_cast<uint32_t>( *graphicsFamily ) >= familyCount )
+            const uint32_t graphicsFamily = device->GetPhysicalDevice()->GetGraphicsFamily();
+            if ( graphicsFamily >= familyCount )
             {
-                LOG_WARN( "[GpuProfiler] No graphics queue family — GPU timing stays off." );
+                LOG_WARN( "[GpuProfiler] Graphics queue family {} is outside the {} the driver reports "
+                          "here — GPU timing stays off.",
+                          graphicsFamily, familyCount );
                 return;
             }
-            const uint32_t validBits = families[static_cast<uint32_t>( *graphicsFamily )].timestampValidBits;
+            const uint32_t validBits = families[graphicsFamily].timestampValidBits;
             if ( validBits == 0 )
             {
                 LOG_WARN( "[GpuProfiler] Graphics queue reports 0 valid timestamp bits — GPU timing stays "
@@ -177,7 +179,7 @@ namespace Desert::Graphic::API::Vulkan
 
             // Slot 0 carries the whole-frame bracket: it is one number per frame, not per renderer, and
             // parking it in the slot that always exists keeps Resolve's loop uniform.
-            FrameSlotState& state = m_State[frameIndex * EngineContext::kMaxRendererSlots];
+            FrameSlotState& state = m_State[static_cast<size_t>( frameIndex ) * EngineContext::kMaxRendererSlots];
             state.Scopes.push_back( ScopeRecord{ Common::Profiling::kGpuFrameTotalScope,
                                                  FrameTotalQueryBase( frameIndex ), kNoParent } );
             state.Pending = true;

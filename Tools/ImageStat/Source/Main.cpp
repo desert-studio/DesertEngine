@@ -17,6 +17,8 @@
 // 0.33 means nothing until the reference's 0.48 is on the line below it.
 
 #define STB_IMAGE_IMPLEMENTATION
+#include <ToolMain.hpp>
+
 #include <stb_image/stb_image.h>
 #include <algorithm>
 #include <cstdio>
@@ -35,7 +37,7 @@ struct Stats
 static Stats Measure( const unsigned char* px, int w, int /*h*/, int ch, int x0, int y0, int x1, int y1 )
 {
     std::vector<double> lum;
-    lum.reserve( ( x1 - x0 ) * ( y1 - y0 ) );
+    lum.reserve( static_cast<size_t>( x1 - x0 ) * static_cast<size_t>( y1 - y0 ) );
     double satSum = 0;
     int    n      = 0;
     for ( int y = y0; y < y1; ++y )
@@ -60,7 +62,7 @@ static Stats Measure( const unsigned char* px, int w, int /*h*/, int ch, int x0,
     return s;
 }
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     for ( int i = 1; i + 4 < argc; i += 5 )
     {
@@ -85,4 +87,12 @@ int main( int argc, char** argv )
         stbi_image_free( px );
     }
     return 0;
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "ImageStat", argc, argv, &RunTool );
 }

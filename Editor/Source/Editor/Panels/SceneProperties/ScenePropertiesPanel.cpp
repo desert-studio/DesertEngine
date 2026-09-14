@@ -229,14 +229,21 @@ namespace Desert::Editor
             {
                 m_Preview->SetMesh( smc.MeshHandle, smc.MaterialSlots );
             }
-            else
+            else if ( smc.Primitive.has_value() )
             {
                 // A primitive: preview the shape itself with its own material, not a stand-in sphere.
-                const auto shape =
-                     *smc.Primitive == Geometry::PrimitiveType::Plane
-                          ? PreviewViewport::Shape::Plane
-                          : ( *smc.Primitive == Geometry::PrimitiveType::Sphere ? PreviewViewport::Shape::Sphere
-                                                                                : PreviewViewport::Shape::Cube );
+                //
+                // ASKED HERE and not inferred from `key`. It is true that PreviewKeyOf() returns 0 when a
+                // component has neither a mesh nor a primitive, so reaching this branch with an absent
+                // Primitive is unreachable TODAY — through a relation held in another function, with
+                // nothing at either end stating it. That is the middle-link shape: both ends read
+                // correctly and the property lives in neither.
+                const Geometry::PrimitiveType primitive = *smc.Primitive;
+                const auto                    shape =
+                     primitive == Geometry::PrimitiveType::Plane
+                                             ? PreviewViewport::Shape::Plane
+                                             : ( primitive == Geometry::PrimitiveType::Sphere ? PreviewViewport::Shape::Sphere
+                                                                                              : PreviewViewport::Shape::Cube );
                 m_Preview->SetMaterial( smc.MaterialSlots.empty()
                                              ? Assets::AssetHandle( static_cast<uint64_t>( 0 ) )
                                              : smc.MaterialSlots.front(),

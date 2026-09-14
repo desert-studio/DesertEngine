@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <Engine/Graphic/Clouds/CloudPayload.hpp>
 
 #include <glm/glm.hpp>
@@ -70,7 +71,7 @@ namespace Desert::Graphic
     inline uint32_t CloudShadowResolutionForScale( float scale )
     {
         const float scaled = static_cast<float>( kCloudShadowMapResolution ) * std::max( scale, 0.0f );
-        return std::max( 64u, static_cast<uint32_t>( scaled + 0.5f ) );
+        return std::max( 64u, static_cast<uint32_t>( Common::Math::RoundToNearest( scaled ) ) );
     }
 
     /// Half the side of the covered square at a tier's scale, kilometres.

@@ -19,6 +19,8 @@
 // it, so a reply arriving IS the synchronisation: `desertctl run ... && desertctl shot-window ...` needs no
 // sleep between the two, and a sleep is what every one of these scripts used to be full of.
 
+#include <ToolMain.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <cerrno>
@@ -285,7 +287,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     std::string              socketPath;
     std::string              subject;
@@ -456,6 +458,14 @@ int main( int argc, char** argv )
             std::fprintf( stderr, "desertctl: refused: %s\n", reason.value().c_str() );
     }
     return kRefused;
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "DesertCtl", argc, argv, &RunTool );
 }
 
 #endif // DESERT_PLATFORM_WINDOWS

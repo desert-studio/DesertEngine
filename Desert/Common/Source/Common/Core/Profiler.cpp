@@ -1,3 +1,4 @@
+#include <Common/Core/Math/Rounding.hpp>
 #include "Profiler.hpp"
 
 #include <algorithm>
@@ -36,10 +37,10 @@ namespace Common::Profiling
             ScopeResult avg;
             avg.Name      = name;
             avg.TotalMs   = result.TotalMs * inv;                              // avg ms / frame
-            avg.Calls     = static_cast<uint32_t>( result.Calls * inv + 0.5 ); // avg calls / frame
+            avg.Calls     = static_cast<uint32_t>( Math::RoundToNearest( result.Calls * inv ) ); // avg calls/frame
             avg.GpuMs     = result.GpuMs * inv;                                // avg GPU ms / frame
             avg.GpuSelfMs = result.GpuSelfMs * inv;
-            avg.GpuCalls  = static_cast<uint32_t>( result.GpuCalls * inv + 0.5 );
+            avg.GpuCalls  = static_cast<uint32_t>( Math::RoundToNearest( result.GpuCalls * inv ) );
             m_Display.push_back( avg );
         }
         if ( m_SortByTime )

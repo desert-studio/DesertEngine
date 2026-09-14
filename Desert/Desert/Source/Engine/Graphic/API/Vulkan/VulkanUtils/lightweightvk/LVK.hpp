@@ -587,8 +587,30 @@ namespace lvk {
         }
         uint32_t getVertexSize() const;
 
+        // FIELD BY FIELD, NOT BYTE BY BYTE. `VertexAttribute` is three uint32_t followed by a uintptr_t,
+        // so on a 64-bit target the compiler inserts four bytes of padding that no constructor writes;
+        // memcmp over the struct therefore compared uninitialised memory, and two identical vertex layouts
+        // could answer "different" depending on what had last occupied that stack. (Vendored tree; the
+        // same line is in lightweightvk upstream.)
         bool operator==(const VertexInput& other) const {
-            return memcmp(this, &other, sizeof(VertexInput)) == 0;
+            for ( uint32_t i = 0; i != LVK_VERTEX_ATTRIBUTES_MAX; i++ )
+            {
+                const VertexAttribute& a = attributes[i];
+                const VertexAttribute& b = other.attributes[i];
+                if ( a.location != b.location || a.binding != b.binding || a.format != b.format ||
+                     a.offset != b.offset )
+                {
+                    return false;
+                }
+            }
+            for ( uint32_t i = 0; i != LVK_VERTEX_BUFFER_MAX; i++ )
+            {
+                if ( inputBindings[i].stride != other.inputBindings[i].stride )
+                {
+                    return false;
+                }
+            }
+            return true;
         }
     };
 

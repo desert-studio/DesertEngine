@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/ContainerBytes.hpp>
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <Common/Core/JobSystem.hpp>
 
 #include <glm/gtc/quaternion.hpp>
@@ -137,8 +138,7 @@ namespace Desert::Assets
 
         unsigned char Quantize( float unit )
         {
-            const float clamped = std::clamp( unit, 0.0f, 1.0f );
-            return static_cast<unsigned char>( clamped * 255.0f + 0.5f );
+            return Common::Math::QuantiseUnitToByte( unit );
         }
 
         /**
@@ -916,7 +916,7 @@ namespace Desert::Assets
 
         for ( uint32_t channel = 0; channel < 4u; ++channel )
         {
-            const uint32_t stored = ReadU32( at + 28 + channel * 4u );
+            const uint32_t stored = ReadU32( at + 28u + static_cast<size_t>( channel ) * 4u );
             if ( stored != channel )
                 return Common::MakeFormattedError<CloudModellingVolumeData>(
                      "channel {} declares meaning {}, but this build reads volumes whose channels are "

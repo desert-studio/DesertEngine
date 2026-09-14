@@ -26,6 +26,8 @@
 // means nothing until the repaired build's 1.4 is on the line below it.
 
 #define STB_IMAGE_IMPLEMENTATION
+#include <ToolMain.hpp>
+
 #include <stb_image/stb_image.h>
 
 #include "ImageDiffMath.hpp"
@@ -44,7 +46,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     if ( argc < 7 )
     {
@@ -116,4 +118,12 @@ int main( int argc, char** argv )
     }
 
     return failures == 0 ? 0 : 1;
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "ImageDiff", argc, argv, &RunTool );
 }

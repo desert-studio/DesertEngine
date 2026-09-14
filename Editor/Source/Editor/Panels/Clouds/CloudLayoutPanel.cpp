@@ -2,6 +2,7 @@
 
 #include "CloudDocumentOpen.hpp"
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
@@ -1390,9 +1391,9 @@ namespace Desert::Editor
                 // it would misreport how much cloud a region has.
                 const float t = std::clamp( coverage, 0.0f, 1.0f );
 
-                sky[target + 0] = static_cast<unsigned char>( ( 0.24f + 0.74f * t ) * 255.0f + 0.5f );
-                sky[target + 1] = static_cast<unsigned char>( ( 0.43f + 0.55f * t ) * 255.0f + 0.5f );
-                sky[target + 2] = static_cast<unsigned char>( ( 0.74f + 0.26f * t ) * 255.0f + 0.5f );
+                sky[target + 0] = Common::Math::QuantiseUnitToByte( 0.24f + 0.74f * t );
+                sky[target + 1] = Common::Math::QuantiseUnitToByte( 0.43f + 0.55f * t );
+                sky[target + 2] = Common::Math::QuantiseUnitToByte( 0.74f + 0.26f * t );
                 sky[target + 3] = 255u;
             }
         }

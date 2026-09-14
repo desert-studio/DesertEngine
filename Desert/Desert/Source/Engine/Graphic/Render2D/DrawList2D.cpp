@@ -235,10 +235,11 @@ namespace Desert::Graphic::Render2D
         {
             for ( uint32_t i = 0; i + 1 < pairCount; ++i )
             {
-                const Vertex2D& o0  = pairs[i * 2];
-                const Vertex2D& in0 = pairs[i * 2 + 1];
-                const Vertex2D& o1  = pairs[( i + 1 ) * 2];
-                const Vertex2D& in1 = pairs[( i + 1 ) * 2 + 1];
+                const size_t    at  = static_cast<size_t>( i ) * 2;
+                const Vertex2D& o0  = pairs[at];
+                const Vertex2D& in0 = pairs[at + 1];
+                const Vertex2D& o1  = pairs[at + 2];
+                const Vertex2D& in1 = pairs[at + 3];
                 EmitClippedTriangle( cmd, o0, o1, in1 );
                 EmitClippedTriangle( cmd, o0, in1, in0 );
             }
@@ -246,7 +247,7 @@ namespace Desert::Graphic::Render2D
         }
 
         const uint32_t base = static_cast<uint32_t>( m_Vertices.size() );
-        m_Vertices.insert( m_Vertices.end(), pairs, pairs + pairCount * 2 );
+        m_Vertices.insert( m_Vertices.end(), pairs, pairs + static_cast<size_t>( pairCount ) * 2 );
         for ( uint32_t i = 0; i + 1 < pairCount; ++i ) // two triangles bridge rim pair i -> i+1
         {
             const uint32_t o0 = base + i * 2, in0 = base + i * 2 + 1;

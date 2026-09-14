@@ -429,8 +429,8 @@ namespace Desert::Editor
         }
 
         std::ostringstream msg;
-        msg << "Packaged '" << projectName << "' -> " << fs::absolute( root, ec ).string() << "  ("
-            << stats.Files << " files, " << ( stats.Bytes / ( 1024 * 1024 ) ) << " MB, " << options.Config
+        msg << "Packaged '" << projectName << "' -> " << fs::absolute( root, ec ).string() << "  (" << stats.Files
+            << " files, " << ( stats.Bytes / ( std::size_t{ 1024 } * 1024 ) ) << " MB, " << options.Config
             << " runtime" << ( bundle ? ( bundledVulkan ? ", Vulkan bundled" : ", Vulkan NOT bundled" ) : "" )
             << ")";
         // WHAT THE COOK COULD NOT PUT IN, said in the result rather than left to a log line nobody
@@ -488,8 +488,9 @@ namespace Desert::Editor
             return { false, "Failed to finalize " + pakPath.string() + " (no entries?)", "" };
 
         std::ostringstream msg;
-        msg << "Content.dpak rebuilt: " << stats.Files << " file(s), " << ( stats.Bytes / ( 1024 * 1024 ) )
-            << " MB -> " << fs::absolute( pakPath, ec ).string();
+        msg << "Content.dpak rebuilt: " << stats.Files << " file(s), "
+            << ( stats.Bytes / ( std::size_t{ 1024 } * 1024 ) ) << " MB -> "
+            << fs::absolute( pakPath, ec ).string();
         // Both counts, for the reason PackageGame's twin above states at length.
         if ( cook.Failures > 0 )
             msg << "  WARNING: " << cook.Failures

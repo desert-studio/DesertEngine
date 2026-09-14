@@ -6739,7 +6739,7 @@ namespace Desert::Editor
         if ( ImGui::Button( "Discard", ImVec2( 110, 0 ) ) )
         {
             m_SaveAndOpenError.clear();
-            if ( havePending )
+            if ( m_PendingOpenScene.has_value() )
                 LoadScene( *m_PendingOpenScene );
             m_PendingOpenScene.reset();
             ImGui::CloseCurrentPopup();

@@ -230,7 +230,11 @@ namespace Desert::Editor::Tools
                     Core::FoliagePaint::ToggleActive( uuid );
                 ImGui::SameLine();
                 const std::string label = name + "   (" + std::to_string( ism.InstanceTransforms.size() ) + ")";
-                if ( ImGui::Selectable( label.c_str(), editing.has_value() && *editing == uuid ) )
+                // `optional == value` and not `has_value() && *opt == value`: the standard comparison is
+                // false for an empty optional by definition, so the two are the same question with one
+                // fewer dereference to keep in step with its guard.
+                const bool editingThis = editing == uuid;
+                if ( ImGui::Selectable( label.c_str(), editingThis ) )
                     Core::FoliagePaint::SetEditingType( uuid );
                 ImGui::PopID();
             }

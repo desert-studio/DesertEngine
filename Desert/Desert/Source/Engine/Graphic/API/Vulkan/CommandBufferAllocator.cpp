@@ -58,7 +58,7 @@ namespace Desert::Graphic::API::Vulkan
 
             VkCommandPoolCreateInfo cmdPoolInfo = {};
             cmdPoolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-            cmdPoolInfo.queueFamilyIndex        = device->GetPhysicalDevice()->GetGraphicsFamily().value();
+            cmdPoolInfo.queueFamilyIndex        = device->GetPhysicalDevice()->GetGraphicsFamily();
             cmdPoolInfo.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             for ( auto& cmdPool : m_CommandGraphicPool )
             {
@@ -73,7 +73,7 @@ namespace Desert::Graphic::API::Vulkan
 
             VkCommandPoolCreateInfo cmdPoolInfo = {};
             cmdPoolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-            cmdPoolInfo.queueFamilyIndex        = device->GetPhysicalDevice()->GetComputeFamily().value();
+            cmdPoolInfo.queueFamilyIndex        = device->GetPhysicalDevice()->GetComputeFamily();
             cmdPoolInfo.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             for ( auto& cmdPool : m_ComputeCommandPool )
             {
@@ -88,7 +88,7 @@ namespace Desert::Graphic::API::Vulkan
 
             VkCommandPoolCreateInfo cmdPoolInfo = {};
             cmdPoolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-            cmdPoolInfo.queueFamilyIndex        = device->GetPhysicalDevice()->GetTransferFamily().value();
+            cmdPoolInfo.queueFamilyIndex        = device->GetPhysicalDevice()->GetTransferFamily();
             cmdPoolInfo.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             for ( auto& cmdPool : m_TransferOpsCommandPool )
             {

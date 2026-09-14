@@ -15,12 +15,16 @@
 // tool reads them. See Engine/Reflection/ReflectionMacros.hpp.
 
 #include <algorithm>
+#include <ToolMain.hpp>
+
 #include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <optional>
 #include <sstream>
+#include <charconv>
+#include <string_view>
 #include <string>
 #include <vector>
 
@@ -231,13 +235,36 @@ namespace
     {
         std::string e = TrimCopy( exprRaw );
         if ( e.empty() ) return running;
-        try
+
+        // PARSED WITHOUT EXCEPTIONS. This was std::stoll inside `catch ( ... ) {}` — a handler that is
+        // indistinguishable from a forgotten one, and which also swallowed anything else the try block
+        // might ever throw. std::from_chars reports "that was not a number" in its return value, which is
+        // what this function actually wants to know: the symbolic lookup below is the answer, not an error.
+        // The base prefix is stripped by hand because from_chars takes a base explicitly and has no
+        // spelling for std::stoll's base-0 magic.
+        std::string_view text     = e;
+        bool             negative = false;
+        int              base     = 10;
+        if ( !text.empty() && ( text.front() == '-' || text.front() == '+' ) )
         {
-            size_t    pos = 0;
-            long long v   = std::stoll( e, &pos, 0 ); // base 0 → handles 0x / decimal
-            if ( pos == e.size() ) return v;
+            negative = text.front() == '-';
+            text.remove_prefix( 1 );
         }
-        catch ( ... ) {}
+        if ( text.size() > 2 && text[0] == '0' && ( text[1] == 'x' || text[1] == 'X' ) )
+        {
+            base = 16;
+            text.remove_prefix( 2 );
+        }
+        else if ( text.size() > 1 && text[0] == '0' )
+        {
+            base = 8;
+            text.remove_prefix( 1 );
+        }
+
+        long long  value  = 0;
+        const auto parsed = std::from_chars( text.data(), text.data() + text.size(), value, base );
+        if ( parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() )
+            return negative ? -value : value;
         for ( const auto& [n, val] : sofar )
             if ( n == e ) return val;
         return running;
@@ -860,7 +887,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     if ( argc < 3 )
     {
@@ -922,4 +949,12 @@ int main( int argc, char** argv )
     std::cout << "[DesertHeaderTool] generated " << outputFile.string() << " ("
               << types.size() << " reflected types, " << scanned << " headers scanned)\n";
     return 0;
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "DesertHeaderTool", argc, argv, &RunTool );
 }

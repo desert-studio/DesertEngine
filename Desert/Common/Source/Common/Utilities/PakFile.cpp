@@ -340,12 +340,16 @@ namespace Common::Utils
                                            kDeletedEntriesKey );
                 return;
             }
-            size_t start = 0;
-            while ( start < list->size() )
+            // Unwrapped once, here, where the refusal above is still in view. Five dereferences inside the
+            // loop meant five readers (and every static analyser) had to carry that refusal across a back
+            // edge to know the optional was engaged.
+            const std::string& text  = *list;
+            size_t             start = 0;
+            while ( start < text.size() )
             {
-                const size_t end = list->find( '\n', start );
-                std::string key = list->substr( start, ( end == std::string::npos ? list->size() : end ) - start );
-                start           = ( end == std::string::npos ) ? list->size() : end + 1;
+                const size_t end = text.find( '\n', start );
+                std::string  key = text.substr( start, ( end == std::string::npos ? text.size() : end ) - start );
+                start            = ( end == std::string::npos ) ? text.size() : end + 1;
                 if ( key.empty() )
                     continue;
                 if ( key == kDeletedEntriesKey )

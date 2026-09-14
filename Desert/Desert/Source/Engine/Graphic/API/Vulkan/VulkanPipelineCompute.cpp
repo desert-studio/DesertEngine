@@ -1,5 +1,4 @@
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanRenderCommandBuffer.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>

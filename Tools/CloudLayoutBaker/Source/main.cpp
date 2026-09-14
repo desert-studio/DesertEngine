@@ -37,6 +37,8 @@
 // write, which goes through Common's write primitive. See the premake file for why that is checked
 // rather than hoped for.
 
+#include <ToolMain.hpp>
+
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Assets/CloudLayout.hpp>
@@ -247,7 +249,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     std::string out;
     std::string image;
@@ -555,4 +557,12 @@ int main( int argc, char** argv )
                  layout.PatternMean[1], layout.PatternMean[2], layout.PatternMean[3] );
 
     return 0;
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "CloudLayoutBaker", argc, argv, &RunTool );
 }

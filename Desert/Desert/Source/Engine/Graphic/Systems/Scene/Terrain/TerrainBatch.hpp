@@ -45,7 +45,7 @@ namespace Desert::Graphic::System
         glm::vec4 LayerModes{ 0.0f };
     };
 
-    static_assert( sizeof( TerrainInstance ) == 7 * 16,
+    static_assert( sizeof( TerrainInstance ) == 7 * sizeof( glm::vec4 ),
                    "TerrainInstance must stay seven 16-byte slots - the GLSL mirror in Terrain.shader "
                    "reads these offsets" );
     static_assert( offsetof( TerrainInstance, Params ) == 64 && offsetof( TerrainInstance, Params2 ) == 80 &&

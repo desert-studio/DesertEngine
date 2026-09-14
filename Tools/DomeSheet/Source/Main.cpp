@@ -34,6 +34,8 @@
 // whose label had to be guessed from its path is a tile that can be labelled wrongly by a rename.
 
 #define STB_IMAGE_IMPLEMENTATION
+#include <ToolMain.hpp>
+
 #include <stb_image/stb_image.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -110,7 +112,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     std::vector<int> elevations{ 5, 25, 45, 65, 85 };
     int              azimuths = 8;
@@ -247,4 +249,12 @@ int main( int argc, char** argv )
     std::printf( "%s  %dx%d  %zu tiles, %d columns, 1/%d scale\n", output.c_str(), sheet.Width, sheet.Height,
                  tiles.size(), geometry.Columns, scale );
     return 0;
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "DomeSheet", argc, argv, &RunTool );
 }

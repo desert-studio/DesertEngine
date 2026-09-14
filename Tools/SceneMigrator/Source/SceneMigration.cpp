@@ -1765,13 +1765,20 @@ namespace Desert::Migration
 
                 // Rebuilt rather than edited in place, like every step above: rfl::Object is an ordered
                 // vector of pairs with no erase and no rename, so a rename IS a rebuild.
+                // The replacement is resolved ONCE, before the rebuild: inside the loop the guard beside
+                // the dereference is the same statement, but a reader (and any analyser) has to carry that
+                // across a back edge to see it, and the value does not depend on the iteration.
+                std::optional<rfl::Generic> renamed;
+                if ( respelled.has_value() )
+                    renamed = rfl::Generic( *respelled );
+
                 rfl::Generic::Object kept;
                 for ( const auto& [key, value] : fields.value() )
                 {
                     if ( key != site.OldKey )
                         kept[key] = value;
                     else
-                        kept[site.NewKey] = respelled.has_value() ? rfl::Generic( *respelled ) : value;
+                        kept[site.NewKey] = renamed.value_or( value );
                 }
 
                 if ( respelled.has_value() )
@@ -1906,9 +1913,17 @@ namespace Desert::Migration
             const bool statesMode  = in.get( "GrassMode" ).has_value();
             const auto enableValue = in.get( "EnableGrass" );
 
-            std::optional<int64_t> carried;
+            // TWO PLAIN VALUES, NOT AN OPTIONAL. "Is there a mode to carry" and "which mode" are asked in
+            // four separate places below; an optional makes the second question a dereference that has to
+            // stay in step with the first across a loop body, and the two are cheaper to keep honest apart.
+            int64_t carriedMode = kLayerModeOff;
+            bool    haveCarried = false;
             if ( !statesMode && enableValue.has_value() )
             {
+                // The mode is decided as a VALUE and only then carried, so the line that reports it reads
+                // the same object the branches wrote. It used to dereference an optional instead, which is
+                // the same number reached through a second question nothing here answers.
+                int64_t    mode = kLayerModeOff;
                 const auto flag = enableValue.value().to_bool();
                 if ( !flag.has_value() )
                 {
@@ -1917,14 +1932,15 @@ namespace Desert::Migration
                     LOG_WARN( "[SceneMigration] entity '{0}': Terrain.EnableGrass is {1}, expected a "
                               "boolean - the grass ground layer is set to Off",
                               entity.Tag.value_or( "Entity" ), Describe( enableValue.value() ) );
-                    carried = kLayerModeOff;
                 }
                 else
                 {
-                    carried = flag.value() ? kLayerModeAuto : kLayerModeOff;
+                    mode = flag.value() ? kLayerModeAuto : kLayerModeOff;
                 }
+                carriedMode = mode;
+                haveCarried = true;
                 report.CarriedNames.push_back( std::string( "Terrain.GrassMode=" ) +
-                                               ( *carried == kLayerModeAuto ? "Auto" : "Off" ) +
+                                               ( mode == kLayerModeAuto ? "Auto" : "Off" ) +
                                                " (was EnableGrass=" + Describe( enableValue.value() ) + ")" );
             }
 
@@ -1948,10 +1964,10 @@ namespace Desert::Migration
                 ++removedHere;
                 report.RemovedNames.push_back( "Terrain." + key + "=" + Describe( value ) );
             }
-            if ( carried.has_value() )
-                out["GrassMode"] = *carried;
+            if ( haveCarried )
+                out["GrassMode"] = carriedMode;
 
-            if ( removedHere == 0 && !carried.has_value() )
+            if ( removedHere == 0 && !haveCarried )
                 continue;
 
             entity.Components["Terrain"] = rfl::Generic( out );

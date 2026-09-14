@@ -1,3 +1,4 @@
+#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -196,13 +197,40 @@ namespace Desert::Graphic::API::Vulkan
         int requestedQueueTypes = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
         m_QueueFamilyIndices    = GetQueueFamilyIndices( requestedQueueTypes );
 
+        // REFUSE HERE, ONCE, BY NAME — this is what makes every reader downstream able to take a plain
+        // index. The three lines below used to read `.value_or( -1 )`, which handed Vulkan a queue family
+        // index of 0xFFFFFFFF and let device creation carry on; the five readers further out unwrapped the
+        // same optionals with `.value()` and `*`, so a driver reporting no graphics family produced either
+        // an uncaught std::bad_optional_access inside a constructor or undefined behaviour, depending on
+        // which of them ran first. GetQueueFamilyIndices() already falls the compute and transfer families
+        // back to the graphics one, so all three are present exactly when the graphics family is.
+        if ( !m_QueueFamilyIndices.GraphicsFamily || !m_QueueFamilyIndices.ComputeFamily ||
+             !m_QueueFamilyIndices.TransferFamily )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "the selected physical device reports no usable queue families for the work this engine "
+                 "submits — graphics: {}, compute: {}, transfer: {} (of {} families the driver listed)",
+                 m_QueueFamilyIndices.GraphicsFamily ? std::to_string( *m_QueueFamilyIndices.GraphicsFamily )
+                                                     : "none",
+                 m_QueueFamilyIndices.ComputeFamily ? std::to_string( *m_QueueFamilyIndices.ComputeFamily )
+                                                    : "none",
+                 m_QueueFamilyIndices.TransferFamily ? std::to_string( *m_QueueFamilyIndices.TransferFamily )
+                                                     : "none",
+                 m_QueueFamilyProperties.size() );
+        }
+
+        m_ResolvedQueueFamilies.Graphics = *m_QueueFamilyIndices.GraphicsFamily;
+        m_ResolvedQueueFamilies.Compute  = *m_QueueFamilyIndices.ComputeFamily;
+        m_ResolvedQueueFamilies.Transfer = *m_QueueFamilyIndices.TransferFamily;
+        m_QueueFamiliesResolved          = true;
+
         static constexpr float queuePriority = 1.0f;
 
         if ( requestedQueueTypes & VK_QUEUE_GRAPHICS_BIT )
         {
             VkDeviceQueueCreateInfo queueCreateInfo{};
             queueCreateInfo.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queueCreateInfo.queueFamilyIndex = m_QueueFamilyIndices.GraphicsFamily.value_or( -1 );
+            queueCreateInfo.queueFamilyIndex = m_ResolvedQueueFamilies.Graphics;
             queueCreateInfo.queueCount       = 1;
             queueCreateInfo.pQueuePriorities = &queuePriority;
             m_QueueCreateInfos.push_back( queueCreateInfo );
@@ -213,7 +241,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             VkDeviceQueueCreateInfo queueCreateInfo{};
             queueCreateInfo.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queueCreateInfo.queueFamilyIndex = m_QueueFamilyIndices.ComputeFamily.value_or( -1 );
+            queueCreateInfo.queueFamilyIndex = m_ResolvedQueueFamilies.Compute;
             queueCreateInfo.queueCount       = 1;
             queueCreateInfo.pQueuePriorities = &queuePriority;
             m_QueueCreateInfos.push_back( queueCreateInfo );
@@ -225,7 +253,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             VkDeviceQueueCreateInfo queueCreateInfo{};
             queueCreateInfo.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queueCreateInfo.queueFamilyIndex = m_QueueFamilyIndices.TransferFamily.value_or( -1 );
+            queueCreateInfo.queueFamilyIndex = m_ResolvedQueueFamilies.Transfer;
             queueCreateInfo.queueCount       = 1;
             queueCreateInfo.pQueuePriorities = &queuePriority;
             m_QueueCreateInfos.push_back( queueCreateInfo );
@@ -269,9 +297,11 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanLogicalDevice::~VulkanLogicalDevice()
+    try
     {
         Destroy();
     }
+    DESERT_DESTRUCTOR_GUARD( "~VulkanLogicalDevice" )
 
     const Engine::DeviceCapabilities& VulkanLogicalDevice::GetCapabilities() const
     {
@@ -386,12 +416,9 @@ namespace Desert::Graphic::API::Vulkan
         VK_CHECK_RESULT( vkCreateDevice( m_PhysicalDevice->GetVulkanPhysicalDevice(), &createInfo, nullptr,
                                          &m_LogicalDevice ) );
 
-        vkGetDeviceQueue( m_LogicalDevice, *m_PhysicalDevice->m_QueueFamilyIndices.GraphicsFamily, 0,
-                          &m_GraphicsQueue );
-        vkGetDeviceQueue( m_LogicalDevice, *m_PhysicalDevice->m_QueueFamilyIndices.ComputeFamily, 0,
-                          &m_ComputeQueue );
-        vkGetDeviceQueue( m_LogicalDevice, *m_PhysicalDevice->m_QueueFamilyIndices.TransferFamily, 0,
-                          &m_TransferQueue );
+        vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetGraphicsFamily(), 0, &m_GraphicsQueue );
+        vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetComputeFamily(), 0, &m_ComputeQueue );
+        vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetTransferFamily(), 0, &m_TransferQueue );
 
         CreatePipelineCache();
 

@@ -58,7 +58,7 @@ namespace Desert::Graphic::Render
             std::size_t                  Size = 0;
         };
 
-        static constexpr std::size_t kPageSize = 64 * 1024;
+        static constexpr std::size_t kPageSize = std::size_t{ 64 } * 1024;
 
         void DestroyCommands()
         {

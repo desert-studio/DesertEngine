@@ -76,7 +76,7 @@ namespace Desert::Geometry
                     localTris.push_back( baseIndices[triStart + t] );
 
                 std::vector<float> pos;
-                pos.reserve( sm.VertexCount * 3 );
+                pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
                 for ( uint32_t v = 0; v < sm.VertexCount; ++v )
                 {
                     const auto& p = vertices[sm.VertexOffset + v].Position;

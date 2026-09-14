@@ -3,6 +3,7 @@
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -266,7 +267,8 @@ namespace Desert::Editor
         ImGui::Separator();
 
         // Stats.
-        const int maxAlive = std::min( d.MaxParticles, static_cast<int>( d.SpawnRate * d.Lifetime + 0.5f ) );
+        const int maxAlive = std::min(
+             d.MaxParticles, static_cast<int>( Common::Math::RoundToNearest( d.SpawnRate * d.Lifetime ) ) );
         ImGui::TextDisabled( "~%d particles alive (rate x lifetime, capped at Max).", std::max( 0, maxAlive ) );
     }
 

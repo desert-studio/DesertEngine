@@ -9,6 +9,10 @@ project "DesertHeaderTool"
         "**.hpp",
     }
 
+    includedirs {
+        "%{wks.location}/Tools/Shared",
+    }
+
     -- Keep the tool self-contained: it links nothing from the engine and uses only the STL.
     filter "configurations:Debug"
         symbols "On"

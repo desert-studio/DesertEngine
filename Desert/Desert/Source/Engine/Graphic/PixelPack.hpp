@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -72,8 +73,7 @@ namespace Desert::Graphic
             {
                 float value = 0.0f;
                 std::memcpy( &value, raw + i * sizeof( float ), sizeof( float ) );
-                value  = value < 0.0f ? 0.0f : ( value > 1.0f ? 1.0f : value );
-                out[i] = static_cast<uint8_t>( value * 255.0f + 0.5f );
+                out[i] = Common::Math::QuantiseUnitToByte( value );
             }
             return out;
         }

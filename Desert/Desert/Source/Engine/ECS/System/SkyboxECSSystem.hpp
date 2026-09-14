@@ -54,7 +54,10 @@ namespace Desert::ECS
             }
 
             const auto primarySky = Graphic::SelectPrimarySky( skyIds );
-            if ( skyEntities.size() > 1 && !m_DuplicateSkyLogged )
+            // `skyEntities.size() > 1` is not the same statement as "SelectPrimarySky found one" — it only
+            // implies it through a contract of SelectPrimarySky that nothing at this call site says. Asked
+            // directly, so a rule change there cannot turn this log line into a dereference of nothing.
+            if ( primarySky.has_value() && skyEntities.size() > 1 && !m_DuplicateSkyLogged )
             {
                 LOG_WARN( "[SkyAtmosphere] {} Sky Atmosphere components in the scene; the one on entity '{}' "
                           "drives the frame (lowest id). The others are ignored: {}",

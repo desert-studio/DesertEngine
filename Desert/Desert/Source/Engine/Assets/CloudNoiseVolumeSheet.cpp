@@ -112,7 +112,8 @@ namespace Desert::Assets
                      ( static_cast<size_t>( originY + y ) * sheet.Width + originX ) * kBytesPerVoxel;
 
                 std::copy( volume.Voxels.begin() + static_cast<std::ptrdiff_t>( source ),
-                           volume.Voxels.begin() + static_cast<std::ptrdiff_t>( source + n * kBytesPerVoxel ),
+                           volume.Voxels.begin() +
+                                static_cast<std::ptrdiff_t>( source + static_cast<size_t>( n ) * kBytesPerVoxel ),
                            image.Pixels.begin() + static_cast<std::ptrdiff_t>( target ) );
             }
         }
@@ -176,7 +177,8 @@ namespace Desert::Assets
                 const size_t target = ( ( static_cast<size_t>( z ) * n + y ) * n ) * kBytesPerVoxel;
 
                 std::copy( pixels.begin() + static_cast<std::ptrdiff_t>( source ),
-                           pixels.begin() + static_cast<std::ptrdiff_t>( source + n * kBytesPerVoxel ),
+                           pixels.begin() +
+                                static_cast<std::ptrdiff_t>( source + static_cast<size_t>( n ) * kBytesPerVoxel ),
                            volume.Voxels.begin() + static_cast<std::ptrdiff_t>( target ) );
             }
         }

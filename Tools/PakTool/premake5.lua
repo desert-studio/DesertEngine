@@ -13,6 +13,7 @@ project "PakTool"
     }
 
     includedirs {
+        "%{wks.location}/Tools/Shared",
         "%{wks.location}/Desert/Common/Source",
     }
 

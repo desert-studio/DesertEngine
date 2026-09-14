@@ -16,6 +16,7 @@ project "DShaderTool"
     }
 
     includedirs {
+        "%{wks.location}/Tools/Shared",
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
     }

@@ -19,6 +19,7 @@
  * whatever the curve's height, which is the property that makes it an answer rather than an impression.
  */
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -357,7 +358,7 @@ namespace LatticePeak
     {
         int histogram[256] = { 0 };
         for ( float v : lum )
-            histogram[std::clamp( static_cast<int>( v * 255.0f + 0.5f ), 0, 255 )]++;
+            histogram[Common::Math::QuantiseUnitToByte( v )]++;
 
         const double total = static_cast<double>( lum.size() );
         if ( total <= 0.0 )

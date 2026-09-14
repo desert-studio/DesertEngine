@@ -75,9 +75,11 @@ namespace Desert::Assets
         // Root names the first record BY ID, so it can only be written when that record has one. It used to
         // fall back to a default-constructed UUID, which was a random number — a root id pointing at no
         // entity, baked into the file.
-        if ( !m_EntityData.empty() && m_EntityData.front().id.has_value() )
+        if ( !m_EntityData.empty() )
         {
-            data.Root = *m_EntityData.front().id;
+            const auto& firstId = m_EntityData.front().id;
+            if ( firstId.has_value() )
+                data.Root = *firstId;
         }
 
         // The one writer: stamps both generation integers, so every file this engine saves is one its

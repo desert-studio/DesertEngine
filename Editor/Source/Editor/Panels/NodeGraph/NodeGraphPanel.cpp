@@ -523,8 +523,9 @@ namespace Desert::Editor
         // ShaderName is the ONLY thing that makes this material the graph's; a material left over from an
         // earlier compile keeps whatever shader it had, so set it every time.
         asset->Data().ShaderName = m_Doc.Name;
-        if ( !asset->Data().MaterialId.has_value() || asset->Data().MaterialId->IsNull() )
-            asset->Data().MaterialId = Common::UUID::Generate();
+        auto& materialId         = asset->Data().MaterialId;
+        if ( !materialId.has_value() || materialId->IsNull() )
+            materialId = Common::UUID::Generate();
         // Logged, and then carried on with deliberately: the preview material lives in memory for this
         // session and the registration below is what makes the preview render. The file only matters to
         // the NEXT session, so a failed write costs a stale preview material next launch — worth saying,

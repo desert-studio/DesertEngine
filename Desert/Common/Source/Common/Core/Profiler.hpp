@@ -12,6 +12,7 @@
 // Use DESERT_PROFILE_FRAME(name) once at the top of the frame loop, and DESERT_PROFILE_SCOPE(name) inside
 // any scope you want timed. Names must be string literals (so Optick can cache its descriptors).
 
+#include <Common/Core/DestructorGuard.hpp>
 #include <optick.h>
 
 #include <chrono>
@@ -166,11 +167,13 @@ namespace Common::Profiling
         {
         }
         ~ScopedTimer()
+        try
         {
             const auto end = std::chrono::high_resolution_clock::now();
             Profiler::Get().AddSample(
                  m_Name, std::chrono::duration<double, std::milli>( end - m_Start ).count() );
         }
+        DESERT_DESTRUCTOR_GUARD( "~ScopedTimer" )
 
     private:
         const char*                                    m_Name;

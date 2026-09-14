@@ -583,9 +583,10 @@ namespace Desert::Editor
         std::vector<std::string> names( bones.size() );
         for ( size_t i = 0; i < bones.size(); ++i )
         {
-            parents[i] = -1;
-            if ( bones[i].ParentBoneID.has_value() )
-                parents[i] = static_cast<int>( bones[i].ParentBoneID.value() );
+            parents[i]             = -1;
+            const auto& parentBone = bones[i].ParentBoneID;
+            if ( parentBone.has_value() )
+                parents[i] = static_cast<int>( *parentBone );
             names[i] = bones[i].Name;
         }
 
@@ -610,11 +611,17 @@ namespace Desert::Editor
         for ( size_t i = 0; i < screen.size(); ++i )
         {
             const int p = parents[i];
-            if ( p < 0 || p >= static_cast<int>( screen.size() ) || !screen[p] || !screen[i] )
+            if ( p < 0 || p >= static_cast<int>( screen.size() ) )
+                continue;
+            // Each projected point is read ONCE. Subscripting twice — once to test, once to unwrap — makes
+            // the guard and the use two different objects to anything reasoning about this loop.
+            const auto& parentPoint = screen[static_cast<size_t>( p )];
+            const auto& childPoint  = screen[i];
+            if ( !parentPoint.has_value() || !childPoint.has_value() )
                 continue;
 
-            const ImVec2 P  = *screen[p];
-            const ImVec2 C  = *screen[i];
+            const ImVec2 P  = *parentPoint;
+            const ImVec2 C  = *childPoint;
             const float  dx = C.x - P.x, dy = C.y - P.y;
             const float  len = std::sqrt( dx * dx + dy * dy );
             if ( len < 1.0f )
@@ -642,9 +649,10 @@ namespace Desert::Editor
             m_BoneScreenPositions.clear();
         for ( size_t i = 0; i < screen.size(); ++i )
         {
-            if ( !screen[i] )
+            const auto& point = screen[i];
+            if ( !point.has_value() )
                 continue;
-            const ImVec2 c = *screen[i];
+            const ImVec2 c = *point;
             if ( recordForPick )
                 m_BoneScreenPositions.emplace_back( static_cast<int>( i ), c ); // absolute-screen — for PickBone
 
