@@ -51,15 +51,11 @@ namespace Desert::Graphic
         void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                           const MaterialExecutor* materialExecutor );
 
-        // Vertexless draw: the vertex shader synthesizes geometry from gl_VertexIndex (GPU terrain patches).
-        // instanceCount > 1 -> instanced draw (gl_InstanceIndex), used by GPU-driven grass foliage.
+        // Vertexless draw: the vertex shader synthesizes geometry from gl_VertexIndex (GPU terrain patches,
+        // particle billboards). Instanced MESH drawing is SubmitMesh's instanceCount, which is a different
+        // seam and the one hardware instancing of assets goes through.
         void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                             const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1 );
-
-        // GPU-driven instanced draw whose instanceCount comes from @p argsBuffer (a VkDrawIndirectCommand
-        // written by a compute cull pass). Used by GPU-culled grass.
-        void SubmitVerticesIndirect( const GraphicsPipeline* pipeline, ShaderResources::StorageBuffer* argsBuffer,
-                                     const MaterialExecutor* materialExecutor );
+                             const MaterialExecutor* materialExecutor );
 
         // In-frame compute dispatch (records into the frame command buffer outside any render pass,
         // inserts a trailing compute->shader barrier). The compute mip-chain bloom is built on this.

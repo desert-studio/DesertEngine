@@ -305,7 +305,8 @@ namespace Desert::Core
         // paused, forever" is a trap and the transport already answers the real need.
 
         // Wind — a SHARED environment force, deliberately scene-global (like Gravity), NOT owned by the
-        // Skybox. It is the single source of truth for the wind that drives grass/foliage sway today and
+        // Skybox. It is the single source of truth for the wind, which drives NOTHING between Г25 (which
+        // removed the procedural grass, its only reader) and the first wind-driven asset, and
         // hair and cloth next. Consumers read it via SceneRenderer::GetWind() (renderers) so
         // one direction/strength moves everything coherently.
         PROPERTY( DisplayName( "Wind Direction" ), Category( "Wind" ), Range( 0.0f, 360.0f ) )

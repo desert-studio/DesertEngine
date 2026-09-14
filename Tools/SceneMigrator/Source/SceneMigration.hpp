@@ -166,11 +166,31 @@ namespace Desert::Migration
     //                   `UIIcon.Icon` and `UIPanel.Video`
     inline constexpr int kSceneVersionServiceAssetRoot = 17;
 
+    //  18             - a terrain no longer carries the PROCEDURAL GRASS GENERATOR's settings (Г25).
+    //                   `EnableGrass`, `GrassDensity`, `GrassHeight`, `GrassBladesPerClump`,
+    //                   `GrassWidth` and `GrassBrightness` described blades the renderer SYNTHESIZED -
+    //                   a GPU cull compute over a seeded grid feeding an indirect instanced draw of
+    //                   hashed geometry. Grass is a MESH ASSET from here on, scattered by the Foliage
+    //                   paint tool onto an InstancedStaticMeshComponent, so there is nothing left to
+    //                   generate and nothing for these six numbers to drive.
+    //
+    //                   FIVE ARE DROPPED AND ONE IS CARRIED, and that split is the whole step.
+    //                   `EnableGrass` was not only the generator's switch: it was ALSO the gate on the
+    //                   terrain's grass SPLAT LAYER in Terrain.shader (LayerModes.w), which is a ground
+    //                   TEXTURE and survives the cut. The layer's own authored mode, `GrassMode`, was
+    //                   reflected, serialized, shown in Details and read by nothing - so the value a
+    //                   scene actually stated about its grass ground lived in the generator's switch.
+    //                   The step moves it where it belongs: EnableGrass=false becomes GrassMode=Off,
+    //                   EnableGrass=true becomes GrassMode=Auto, and a file already stating GrassMode
+    //                   keeps what it states. Without the carry, every terrain that said "no grass"
+    //                   would come back from this migration with a green lawn.
+    inline constexpr int kSceneVersionGrassGeneration = 18;
+
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionServiceAssetRoot == kSceneVersion,
+    static_assert( kSceneVersionGrassGeneration == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1025,6 +1045,54 @@ namespace Desert::Migration
     ServiceAssetRootMigrationReport MigrateServiceAssetRootV16ToV17( std::vector<Assets::EntityData>& entities,
                                                                      const std::filesystem::path&     assetsRoot );
 
+    // What MigrateGrassGenerationV17ToV18 did to one file.
+    struct GrassGenerationMigrationReport
+    {
+        int Entities    = 0; // entities whose "Terrain" payload was touched
+        int KeysRemoved = 0; // 0..6 per terrain - how many of the six the payload actually stated
+
+        // WHICH ones, with the value each held - "Terrain.GrassDensity=512". Named rather than counted,
+        // like every other dropping step here: these were AUTHORED numbers and the person who authored
+        // one has to be able to see that the field is gone because the feature is, not because something
+        // broke (DC 1.4).
+        std::vector<std::string> RemovedNames;
+
+        // Terrains that gained a `GrassMode` derived from `EnableGrass`, as "Terrain.GrassMode=Off (was
+        // EnableGrass=false)". The carry is the half of this step that changes what is DRAWN, so it is
+        // named the same way the drops are.
+        std::vector<std::string> CarriedNames;
+    };
+
+    // Raises a scene from schema v17 to v18: a terrain stops carrying the procedural grass generator.
+    //
+    // WHAT IT DOES TO ONE "Terrain" PAYLOAD, in this order:
+    //
+    //   1. If the payload does NOT already state `GrassMode`, one is written from `EnableGrass`:
+    //      false (or a stated-but-unusable value, see below) -> "Off", true -> "Auto". A payload that
+    //      states neither key is left without a `GrassMode`, so the component's own default (Auto)
+    //      applies - which is what a file that never expressed an opinion has always meant.
+    //   2. All six generator keys are removed, `EnableGrass` included: it has been read by then, and
+    //      leaving it would keep a key the component no longer declares alive in the file (the saver
+    //      preserves unknown keys since K11, so a key we removed on purpose rides along for ever unless
+    //      something deliberately takes it out).
+    //
+    // WHY THE CARRY IS NOT A ROW OF kRetiredKeys. That table only DROPS, and it is deliberately ungated
+    // and idempotent because it decides nothing from the values. This step decides `GrassMode` FROM a
+    // value, so it must run exactly once and must be gated on its own number - and splitting the six
+    // keys between the two mechanisms would let a file be half-converted by a tool run from a branch
+    // that had one and not the other.
+    //
+    // `EnableGrass` present but not a boolean is treated as false and REPORTED: the field it named does
+    // not exist any more, so there is no type for it to be right for, and "Off" is the reading that
+    // cannot invent grass a scene never asked for.
+    //
+    // PURE - no GPU, no filesystem, no global state.
+    //
+    // Idempotent: a payload stating none of the six is left byte-identical and reports zero.
+    //
+    // SHELF LIFE: this raises v17 to v18 and nothing else. It is deleted once no v17 file remains.
+    GrassGenerationMigrationReport MigrateGrassGenerationV17ToV18( std::vector<Assets::EntityData>& entities );
+
     // Everything that ran, so the caller can say which FILE moved and how far.
     //
     // `File` and not `Scene` since И11: the same report comes back from MigratePrefab, because a
@@ -1085,6 +1153,9 @@ namespace Desert::Migration
         // the schema was below kSceneVersionServiceAssetRoot
         bool                            ServiceAssetRootRaised = false;
         ServiceAssetRootMigrationReport ServiceAssetRoot;
+        // the schema was below kSceneVersionGrassGeneration
+        bool                           GrassGenerationRaised = false;
+        GrassGenerationMigrationReport GrassGeneration;
         // the schema was below kSceneVersionRetiredKeys
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
@@ -1094,7 +1165,8 @@ namespace Desert::Migration
             return SkyRaised || UnitsRaised || TonemapperRaised || CloudNoiseRaised || CloudSpeciesRaised ||
                    CloudTypeRaised || CloudSetRaised || TerrainMaterialRaised || MaterialPathRaised ||
                    GravityUnitsRaised || UIVisibilityRaised || SSRUnitsRaised || CloudMaterialRaised ||
-                   DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || RetiredKeysRaised;
+                   DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
+                   RetiredKeysRaised;
         }
     };
 

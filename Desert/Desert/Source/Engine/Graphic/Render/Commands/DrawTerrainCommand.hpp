@@ -27,28 +27,24 @@ namespace Desert::Graphic::Render
         float     NoiseFrequency;
         int       Seed;
 
-        glm::vec3 LayerModes  = glm::vec3( 0.0f ); // grass/rock/snow: 0=Auto, 1=Manual, 2=Off
-        Image2D*  SplatMap    = nullptr;           // per-terrain painted splat map (non-owning)
-        glm::vec4 GrassParams = glm::vec4( 0.0f ); // x=enable, y=density, z=height, w=width (Stage 7 grass)
-        glm::vec3 GrassTint   = glm::vec3( 1.0f ); // RGB tint multiplier on grass color
+        glm::vec3 LayerModes = glm::vec3( 0.0f ); // grass/rock/snow: 0=Auto, 1=Manual, 2=Off
+        Image2D*  SplatMap   = nullptr;           // per-terrain painted splat map (non-owning)
 
         Graphic::MaterialOverrides Overrides;
 
         DrawTerrainCommand( const glm::mat4& transform, float size, int resolution, float heightScale,
                             float noiseFrequency, int seed, const glm::vec3& layerModes = glm::vec3( 0.0f ),
-                            Image2D* splatMap = nullptr, const glm::vec4& grassParams = glm::vec4( 0.0f ),
-                            const glm::vec3&           grassTint = glm::vec3( 1.0f ),
-                            Graphic::MaterialOverrides overrides = {} )
+                            Image2D* splatMap = nullptr, Graphic::MaterialOverrides overrides = {} )
              : Transform( transform ), Size( size ), Resolution( resolution ), HeightScale( heightScale ),
                NoiseFrequency( noiseFrequency ), Seed( seed ), LayerModes( layerModes ), SplatMap( splatMap ),
-               GrassParams( grassParams ), GrassTint( grassTint ), Overrides( std::move( overrides ) )
+               Overrides( std::move( overrides ) )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitTerrain( Transform, Size, Resolution, HeightScale, NoiseFrequency, Seed,
-                                    LayerModes, SplatMap, GrassParams, GrassTint, Overrides );
+            renderer.SubmitTerrain( Transform, Size, Resolution, HeightScale, NoiseFrequency, Seed, LayerModes,
+                                    SplatMap, Overrides );
         }
     };
 } // namespace Desert::Graphic::Render

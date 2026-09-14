@@ -504,21 +504,9 @@ namespace
     };
 
     constexpr Row kTerrainRows[] = {
-         { "Material", kTerrain },
-         { "Size", kTerrain },
-         { "Resolution", kTerrain },
-         { "HeightScale", kTerrain },
-         { "NoiseFrequency", kTerrain },
-         { "Seed", kTerrain },
-         { "GrassMode", kTerrain },
-         { "RockMode", kTerrain },
-         { "SnowMode", kTerrain },
-         { "EnableGrass", kTerrain },
-         { "GrassDensity", kTerrain },
-         { "GrassHeight", kTerrain },
-         { "GrassBladesPerClump", kTerrain },
-         { "GrassWidth", kTerrain },
-         { "GrassBrightness", kTerrain },
+         { "Material", kTerrain },    { "Size", kTerrain },           { "Resolution", kTerrain },
+         { "HeightScale", kTerrain }, { "NoiseFrequency", kTerrain }, { "Seed", kTerrain },
+         { "GrassMode", kTerrain },   { "RockMode", kTerrain },       { "SnowMode", kTerrain },
     };
 
     constexpr Row kDirLightRows[] = {

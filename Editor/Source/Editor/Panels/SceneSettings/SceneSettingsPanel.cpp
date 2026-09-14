@@ -323,8 +323,11 @@ namespace Desert::Editor
             ImGui::TextDisabled( "Deferred: static meshes only, directional light (WIP)." );
         }
 
-        // Shared wind — a scene-global environment force (not owned by the Skybox). Drives grass
-        // drift now; hair/cloth later. Consumed via SceneRenderer::GetWind().
+        // Shared wind — a scene-global environment force (not owned by the Skybox). It reaches
+        // SceneRenderer::GetWind() and stops there: Г25 removed the procedural grass, which was its only
+        // reader, and the next one is whatever sways an ASSET (instanced foliage, hair, cloth). The three
+        // values are authored level data that every scene in the repository states, so they were raised
+        // with the owner rather than retired by a rendering task - see SceneRenderer::GetWind().
         if ( Utils::ImGuiUtilities::SectionHeader( "Wind" ) )
         {
             ImGui::SliderFloat( "Direction (deg)", &s.WindDirection, 0.0f, 360.0f );

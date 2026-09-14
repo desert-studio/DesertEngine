@@ -957,9 +957,12 @@ TEST( CloudShadowReceiver, EverySunLitShaderReachesTheOneSharedFactor )
          "Programs/PBR/SkinnedMeshPBR.shader",          // drawn FORWARD even in Deferred
          "Programs/PBR/StaticMeshGlass.shader",         // drawn FORWARD over the composite
          "Programs/Terrain/Terrain.shader",             // drawn by neither mesh path
-         // The blades, because the LAWN is here: Terrain.shader and Grass.shader are authored to read as
-         // one material, and shading one and not the other turns a field into bright fuzz over dark soil.
-         "Programs/Grass/Grass.shader",
+         // Programs/Grass/Grass.shader was the seventh row until Г25. It shaded the PROCEDURAL grass
+         // blades, which had to take the same cloud shadow as the ground beneath them or a field became
+         // bright fuzz over dark soil. The generator is gone - grass is a mesh asset now, so it is drawn
+         // by StaticMeshPBR_Instanced, which is already the third row above and already carries the
+         // receiver. The row is removed rather than kept pointing at a file: this census ASSERTS each
+         // path exists, so a stale row is a red suite and not a silent gap.
     };
 
     for ( const char* relative : kConsumers )

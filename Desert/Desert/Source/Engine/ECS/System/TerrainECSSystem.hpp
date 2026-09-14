@@ -73,15 +73,9 @@ namespace Desert::ECS
                                             static_cast<float>( terrain.RockMode ),
                                             static_cast<float>( terrain.SnowMode ) );
 
-                const glm::vec4 grassParams( terrain.EnableGrass ? 1.0f : 0.0f,
-                                             static_cast<float>( terrain.GrassDensity ), terrain.GrassHeight,
-                                             terrain.GrassWidth );
-
                 renderCommandBuffer.Emplace<Graphic::Render::DrawTerrainCommand>(
                      transform.GetTransform(), terrain.Size, terrain.Resolution, terrain.HeightScale,
-                     terrain.NoiseFrequency, terrain.Seed, layerModes, terrainComp.SplatMap.get(), grassParams,
-                     glm::vec3( terrain.GrassBrightness, static_cast<float>( terrain.GrassBladesPerClump ),
-                                0.0f ), // x=brightness, y=bladesPerClump (packed into the GrassTint channel)
+                     terrain.NoiseFrequency, terrain.Seed, layerModes, terrainComp.SplatMap.get(),
                      std::move( overrides ) );
             }
         }

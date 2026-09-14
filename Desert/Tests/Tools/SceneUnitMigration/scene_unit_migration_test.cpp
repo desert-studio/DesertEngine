@@ -100,6 +100,19 @@ namespace
         return -1.0;
     }
 
+    // Whether a payload STATES a key at all. Separate from Field() on purpose: Field() fails loudly on a
+    // missing key, which is right when a value is expected and useless when ABSENCE is the assertion.
+    bool Has( const SceneSerialized& scene, std::size_t entity, const char* component, const char* field )
+    {
+        const auto payload = scene.Entities.at( entity ).Components.get( component );
+        if ( !payload.has_value() )
+            return false;
+        const auto obj = payload.value().to_object();
+        if ( !obj.has_value() )
+            return false;
+        return obj.value().get( field ).has_value();
+    }
+
     double Gravity( const SceneSerialized& scene )
     {
         EXPECT_TRUE( scene.Settings.has_value() );
@@ -165,7 +178,13 @@ TEST( SceneUnitMigration, UnstampedSceneIsMigratedExactlyOnce )
     EXPECT_NEAR( Field( scene, kSign, "Text", "Size" ), 80.0, 1e-9 );
     EXPECT_DOUBLE_EQ( Field( scene, kGround, "Terrain", "Size" ), 40000.0 );
     EXPECT_DOUBLE_EQ( Field( scene, kGround, "Terrain", "HeightScale" ), 1200.0 );
-    EXPECT_NEAR( Field( scene, kGround, "Terrain", "GrassHeight" ), 40.0, 1e-9 );
+    // `Terrain.GrassHeight` is authored in the fixture above and is NOT asserted at 40.0 here, because
+    // the chain does not leave it behind to assert: it named the procedural grass generator's blade
+    // height, the units census stopped claiming it with Г25, and the v17 -> v18 step removes it from the
+    // payload outright. Asserted absent rather than dropped from the test — a length that stops being
+    // converted and a length that is silently skipped look identical until someone says which happened.
+    EXPECT_FALSE( Has( scene, kGround, "Terrain", "GrassHeight" ) )
+         << "the v17 -> v18 step must take the grass generator's blade height out of the payload";
     EXPECT_NEAR( Gravity( scene ), 981.0, 1e-9 );
 
     // Fields that are NOT lengths keep their authored value - a census that over-reaches inflates a scene

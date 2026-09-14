@@ -5,7 +5,6 @@
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
-#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
 #include <memory>
@@ -33,11 +32,6 @@ namespace Desert::Graphic::System
         // Per-terrain splat map (R=grass,G=rock,B=snow weights), painted by the editor brush. Non-owning;
         // null => the white fallback is used (Manual layers show everywhere until painted).
         Image2D* SplatMap = nullptr;
-
-        // GPU-instanced grass (Stage 7): x = enable (>0.5), y = density (blades/side), z = blade height,
-        // w = width scale.
-        glm::vec4 GrassParams = glm::vec4( 0.0f );
-        glm::vec3 GrassTint   = glm::vec3( 1.0f ); // RGB tint multiplier on the grass color
 
         // Material param + texture overrides from the entity's MaterialComponent, applied generically to the
         // DataDrivenMaterial by name (params e.g. "Tint"/"DetailTiling"; textures = the splat layers
@@ -67,16 +61,6 @@ namespace Desert::Graphic::System
             m_Queue.clear();
         }
 
-        // GPU grass culling: dispatch the cull compute (compacts visible clumps + writes the indirect
-        // draw count) into the frame command buffer BEFORE the render graph records the grass draw. Must
-        // run outside any render pass (SceneRenderer calls it after ClearMainFramebuffer).
-        void CullGrassInFrame();
-
-    private:
-        // Lazily (re)create the visible-instance + indirect-args buffers when the grid grows; injects the
-        // visible buffer into the grass material so the vertex shader reads the SAME compute-written SSBO.
-        void EnsureGrassCullBuffers( uint32_t maxInstances );
-
     private:
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
 
@@ -90,19 +74,5 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, std::unique_ptr<DataDrivenMaterial>> m_Materials;
 
         std::vector<TerrainDrawData> m_Queue;
-
-        // GPU-instanced grass (Stage 7): a second pipeline/material drawn in the same Geometry phase.
-        std::shared_ptr<GraphicsPipeline>   m_GrassPipeline;
-        std::unique_ptr<DataDrivenMaterial> m_GrassMaterial;
-        // Baked grass-clump alpha texture: the fragment samples this ONCE instead of looping over blades
-        // per pixel — keeps FPS high regardless of blade detail.
-        std::shared_ptr<Image2D>            m_GrassClumpTex;
-
-        // GPU grass culling (compacts visible clumps -> indirect instanced draw). Single grass terrain:
-        // one visible-instance buffer + one indirect-args buffer, reused each frame.
-        std::shared_ptr<ComputePipeline>                m_GrassCullPipeline;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_GrassVisibleBuf;  // compacted visible clump ids
-        std::shared_ptr<ShaderResources::StorageBuffer> m_GrassIndirectBuf; // VkDrawIndirectCommand
-        uint32_t                                        m_GrassVisibleCapacity = 0; // in clumps
     };
 } // namespace Desert::Graphic::System

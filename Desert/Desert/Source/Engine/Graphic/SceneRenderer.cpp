@@ -488,9 +488,10 @@ namespace Desert::Graphic
         m_SSRIntensity   = sceneSettings.SSRIntensity;
         m_SSRMaxDistance = sceneSettings.SSRMaxDistance;
 
-        // Evaluate the scene-global SHARED wind once per frame so every wind-driven renderer (grass now;
-        // hair/cloth next) reads one coherent direction + strength via GetWind(). Direction is a
-        // compass heading (degrees) on the XZ plane; Time is monotonic seconds so the sway keeps animating.
+        // Evaluate the scene-global SHARED wind once per frame so every wind-driven renderer reads one
+        // coherent direction + strength via GetWind(). Direction is a compass heading (degrees) on the XZ
+        // plane; Time is monotonic seconds so the sway keeps animating. See GetWind() in the header for
+        // why this has no consumer between Г25 and the first wind-driven ASSET.
         {
             const float       rad       = glm::radians( sceneSettings.WindDirection );
             static const auto windStart = std::chrono::steady_clock::now();
@@ -498,23 +499,6 @@ namespace Desert::Graphic
             m_Wind.Strength             = sceneSettings.WindStrength;
             m_Wind.Turbulence           = sceneSettings.WindTurbulence;
             m_Wind.Time = std::chrono::duration<float>( std::chrono::steady_clock::now() - windStart ).count();
-        }
-
-        // Grass interactor: the player character bends grass away as it moves. The shader takes ONE influencer,
-        // so use the first CharacterController entity (the player); a small array would extend this to NPCs.
-        // w = influence radius in WORLD UNITS, and a world unit is a centimetre — this was a bare 1.5f from
-        // the metre era, i.e. a radius of one and a half CENTIMETRES, so the grass never bent for anyone.
-        {
-            const float kGrassInteractRadius     = Common::Units::Metres( 1.5f );
-            m_GrassInteractor                    = glm::vec4( 0.0f );
-            const auto& reg                      = scene.GetRegistry();
-            auto        chars = reg.view<const ECS::CharacterControllerComponent, const ECS::TransformComponent>();
-            for ( auto e : chars )
-            {
-                const auto& tr    = chars.get<const ECS::TransformComponent>( e );
-                m_GrassInteractor = glm::vec4( tr.Translation, kGrassInteractRadius );
-                break;
-            }
         }
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
@@ -661,13 +645,6 @@ namespace Desert::Graphic
         {
             DESERT_PROFILE_PASS( "ClearMainFramebuffer" );
             ClearMainFramebuffer();
-        }
-
-        // GPU grass culling: dispatch the cull compute (outside any render pass) BEFORE the render graph
-        // records the grass draw, so the indirect instanceCount + compacted visible list are ready.
-        {
-            DESERT_PROFILE_PASS( "Grass: CullInFrame" );
-            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->CullGrassInFrame();
         }
 
         // Particle simulation compute (outside any render pass) BEFORE the graph records the billboard draw,
@@ -1302,8 +1279,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::SubmitTerrain( const glm::mat4& transform, float size, int resolution, float heightScale,
                                        float noiseFrequency, int seed, const glm::vec3& layerModes,
-                                       Image2D* splatMap, const glm::vec4& grassParams, const glm::vec3& grassTint,
-                                       const MaterialOverrides& overrides )
+                                       Image2D* splatMap, const MaterialOverrides& overrides )
     {
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Transform      = transform,
@@ -1314,8 +1290,6 @@ namespace Desert::Graphic
                          .Seed           = seed,
                          .LayerModes     = layerModes,
                          .SplatMap       = splatMap,
-                         .GrassParams    = grassParams,
-                         .GrassTint      = grassTint,
                          .Overrides      = overrides } );
     }
 

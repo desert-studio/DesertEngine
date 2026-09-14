@@ -241,11 +241,20 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   command, the copy of it the probe prints, and the view's pointer to the cache that owns them.
     //   Two shared (the cache's target framebuffer and each entry's pipeline) and two unique (each
     //   entry's runtime material, and the shared error entry) are ownership and answer for themselves.
+    //
+    //   830 -> 824 with Г25, and this one goes DOWN: the procedural grass generator was removed whole,
+    //   because grass becomes a mesh ASSET scattered by the Foliage tool. Six members of TerrainRenderer
+    //   went with it — five shared (the grass graphics pipeline, the baked clump atlas, the cull compute
+    //   pipeline, the compacted visible-clump buffer and the indirect-args buffer) and one unique (the
+    //   grass DataDrivenMaterial). None was raw, so none held a row in the register, and the two questions
+    //   above are answered by the removal itself: nothing is obliged to destroy an object that is never
+    //   created. The count is the whole evidence that the members left with the feature rather than being
+    //   orphaned inside a class that no longer draws them.
     EXPECT_EQ( CountOf( Form::Raw ), 354 );
-    EXPECT_EQ( CountOf( Form::Shared ), 326 );
-    EXPECT_EQ( CountOf( Form::Unique ), 112 );
+    EXPECT_EQ( CountOf( Form::Shared ), 321 );
+    EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 830 )
+    EXPECT_EQ( (int)Members().size(), 824 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -460,7 +469,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // genuinely shared -- a Framebuffer is held by the scene that made it and by every pipeline compiled
     // against its render pass, and a GraphicsPipeline by the cache entry and by the specification it was
     // created from -- so they belong on this side of the census rather than being narrowed for tidiness.
-    EXPECT_EQ( CountOf( Form::Shared ), 326 );
+    // 326 -> 321 with Г25: the five GPU resources of the procedural grass generator, removed with it.
+    EXPECT_EQ( CountOf( Form::Shared ), 321 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

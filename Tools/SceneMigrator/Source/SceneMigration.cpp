@@ -297,7 +297,11 @@ namespace Desert::Migration
              { "CharacterController", "Gravity", Arity::Scalar },
              { "Terrain", "Size", Arity::Scalar },
              { "Terrain", "HeightScale", Arity::Scalar },
-             { "Terrain", "GrassHeight", Arity::Scalar },
+             // `Terrain.GrassHeight` was the row after this one until Г25. It is gone rather than kept
+             // "for old files": this census is a statement about the LENGTH FIELDS THE SCHEMA HAS, and
+             // the v17 -> v18 step deletes that key from every payload it can reach, so a row here could
+             // only ever convert a number on its way to being removed. A census naming a field the schema
+             // does not have is the stale row this project has paid for twice.
              { "Text", "Size", Arity::Scalar },
         } );
 
@@ -1859,6 +1863,105 @@ namespace Desert::Migration
         return report;
     }
 
+    GrassGenerationMigrationReport MigrateGrassGenerationV17ToV18( std::vector<Assets::EntityData>& entities )
+    {
+        GrassGenerationMigrationReport report;
+
+        // The six keys the procedural generator owned, spelled once. `EnableGrass` is FIRST because it is
+        // the one that is read before it is dropped.
+        static constexpr std::array kGeneratorKeys = {
+             "EnableGrass", "GrassDensity", "GrassHeight", "GrassBladesPerClump", "GrassWidth", "GrassBrightness",
+        };
+
+        // The values TerrainLayerMode serializes as. An enum is written by the reflection serializer as
+        // its INTEGER (ReflectionSerializer.cpp, FieldType::Enum), so these are the numbers a `.desce`
+        // carries and not the names. Stated here rather than reached for through the reflection registry,
+        // which is a global this function must not touch.
+        constexpr int64_t kLayerModeAuto = 0;
+        constexpr int64_t kLayerModeOff  = 2;
+
+        for ( Assets::EntityData& entity : entities )
+        {
+            const auto terrain = entity.Components.get( "Terrain" );
+            if ( !terrain.has_value() )
+                continue;
+
+            const auto fields = terrain.value().to_object();
+            if ( !fields.has_value() )
+            {
+                LOG_WARN( "[SceneMigration] entity '{0}': the Terrain payload is {1}, not an object - the "
+                          "grass generator's keys could not be removed and stay in the file",
+                          entity.Tag.value_or( "Entity" ), Describe( terrain.value() ) );
+                continue;
+            }
+
+            const auto& in = fields.value();
+
+            // ── 1. Read the carry BEFORE anything is dropped ────────────────────────────────────────
+            //
+            // A file that already states GrassMode keeps what it states: the authored value wins over one
+            // derived from a switch that is going away. A file that states NEITHER key gets no GrassMode
+            // written, so the component's own default applies - which is what "this scene never expressed
+            // an opinion" has always meant and is not something a migration may decide for it.
+            const bool statesMode  = in.get( "GrassMode" ).has_value();
+            const auto enableValue = in.get( "EnableGrass" );
+
+            std::optional<int64_t> carried;
+            if ( !statesMode && enableValue.has_value() )
+            {
+                const auto flag = enableValue.value().to_bool();
+                if ( !flag.has_value() )
+                {
+                    // Present but not a boolean. "Off" is the only reading that cannot invent grass a
+                    // scene never asked for, and it is said out loud rather than chosen quietly (DC 1.4).
+                    LOG_WARN( "[SceneMigration] entity '{0}': Terrain.EnableGrass is {1}, expected a "
+                              "boolean - the grass ground layer is set to Off",
+                              entity.Tag.value_or( "Entity" ), Describe( enableValue.value() ) );
+                    carried = kLayerModeOff;
+                }
+                else
+                {
+                    carried = flag.value() ? kLayerModeAuto : kLayerModeOff;
+                }
+                report.CarriedNames.push_back( std::string( "Terrain.GrassMode=" ) +
+                                               ( *carried == kLayerModeAuto ? "Auto" : "Off" ) +
+                                               " (was EnableGrass=" + Describe( enableValue.value() ) + ")" );
+            }
+
+            // ── 2. Rebuild the payload without the six ───────────────────────────────────────────────
+            //
+            // Rebuilt rather than erased in place for the same reason MigrateRetiredKeys rebuilds:
+            // rfl::Object is an ordered vector of pairs with no erase(), and rebuilding preserves the
+            // order of everything else, which is what makes a file read and written back unchanged come
+            // out byte-identical.
+            rfl::Generic::Object out;
+            int                  removedHere = 0;
+            for ( const auto& [key, value] : in )
+            {
+                const bool isGeneratorKey =
+                     std::find( kGeneratorKeys.begin(), kGeneratorKeys.end(), key ) != kGeneratorKeys.end();
+                if ( !isGeneratorKey )
+                {
+                    out[key] = value;
+                    continue;
+                }
+                ++removedHere;
+                report.RemovedNames.push_back( "Terrain." + key + "=" + Describe( value ) );
+            }
+            if ( carried.has_value() )
+                out["GrassMode"] = *carried;
+
+            if ( removedHere == 0 && !carried.has_value() )
+                continue;
+
+            entity.Components["Terrain"] = rfl::Generic( out );
+            ++report.Entities;
+            report.KeysRemoved += removedHere;
+        }
+
+        return report;
+    }
+
     CloudMaterialMigrationReport MigrateCloudMaterialV11ToV12( std::vector<Assets::EntityData>& entities,
                                                                const std::string&               sceneName )
     {
@@ -2384,6 +2487,16 @@ namespace Desert::Migration
             // It runs for a prefab too, on the entity half of the table: a retired COMPONENT key is dead
             // in a `.deprefab` for exactly the reasons it is dead in a `.desce`, and the saver preserves
             // it in both.
+            // Touches only "Terrain" payloads, which no step above reads or writes except the v6 -> v7
+            // material step - and that one moves a MaterialComponent off the entity rather than editing
+            // the Terrain payload's keys, so the two are independent. Before the retirement pass, like
+            // every other step: that pass is the statement of what must not be in the finished file.
+            if ( statedSceneVersion < kSceneVersionGrassGeneration )
+            {
+                report.GrassGenerationRaised = true;
+                report.GrassGeneration       = MigrateGrassGenerationV17ToV18( entities );
+            }
+
             if ( statedSceneVersion < kSceneVersion )
             {
                 report.RetiredKeysRaised = true;

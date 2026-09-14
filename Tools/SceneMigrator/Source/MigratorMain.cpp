@@ -417,6 +417,24 @@ namespace
                 out << "; under NEITHER content root, carried over untagged: " << name;
             out << ")";
         }
+        if ( report.GrassGenerationRaised )
+        {
+            out << " scene v" << Desert::Migration::kSceneVersionServiceAssetRoot << "->v"
+                << Desert::Migration::kSceneVersionGrassGeneration << " (";
+            if ( report.GrassGeneration.Entities == 0 )
+                out << "stamp only - no terrain stated a grass generator key";
+            else
+                out << report.GrassGeneration.KeysRemoved << " grass generator key(s) removed from "
+                    << report.GrassGeneration.Entities << " terrain(s)";
+            // Named with their values, because this is the only place the numbers a designer authored
+            // for the generator are ever said again.
+            for ( const auto& name : report.GrassGeneration.RemovedNames )
+                out << " " << name;
+            // And the carry, separately: it is the half of the step that changes what is DRAWN.
+            for ( const auto& name : report.GrassGeneration.CarriedNames )
+                out << "; carried " << name;
+            out << ")";
+        }
         if ( report.RetiredKeysRaised )
         {
             // NOT a step's own pair of numbers, unlike every line above: the retirement pass is
