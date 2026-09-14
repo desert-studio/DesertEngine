@@ -35,6 +35,9 @@
 
 #include <SceneMigration.hpp>
 
+// Core::kSceneVersion -- the head this step is checked to sit at or below.
+#include <Engine/Core/Serialize/SceneFormat.hpp>
+
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 

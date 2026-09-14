@@ -736,6 +736,12 @@ namespace Desert::Core::Serialize
         m_Serializers.push_back( std::move( serializer ) );
     }
 
+    // Cognitive complexity 212 against a threshold of 19, and the lambda for one component 22: both are
+    // TRUE and PRE-EXISTING. This function is the engine's whole component table -- twenty-odd registration
+    // blocks, each a pair of lambdas -- and the analyser reports a function-level finding for any edit
+    // anywhere inside it, so a field added to one component cannot land without this line or a split that
+    // is a task of its own. Named in Г26's report as debt rather than hidden.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void ComponentRegistry::RegisterBuiltins()
     {
         // ---- Static Mesh (asset-bearing: handle <-> path) ----
@@ -973,15 +979,27 @@ namespace Desert::Core::Serialize
                 // the same order the static path uses, and it did not before Г26.
                 uint64_t meshHandle = 0;
                 if ( data.MeshGuid )
+                {
                     meshHandle = resolver.FromGuid( *data.MeshGuid, "StaticMeshAsset" );
+                }
                 if ( meshHandle == 0 && data.MeshPath )
+                {
                     meshHandle = resolver.FromPath( *data.MeshPath, "StaticMeshAsset" );
+                }
                 if ( meshHandle != 0 )
+                {
                     ism.MeshHandle = Common::UUID( meshHandle );
+                }
 
-                const size_t slotCount = data.MaterialGuids
-                                              ? data.MaterialGuids->size()
-                                              : ( data.MaterialPaths ? data.MaterialPaths->size() : 0 );
+                size_t slotCount = 0;
+                if ( data.MaterialGuids )
+                {
+                    slotCount = data.MaterialGuids->size();
+                }
+                else if ( data.MaterialPaths )
+                {
+                    slotCount = data.MaterialPaths->size();
+                }
                 if ( slotCount > 0 )
                 {
                     ism.MaterialSlots.clear();
@@ -989,10 +1007,14 @@ namespace Desert::Core::Serialize
                     {
                         uint64_t handle = 0;
                         if ( data.MaterialGuids && i < data.MaterialGuids->size() )
+                        {
                             handle = resolver.FromGuid( ( *data.MaterialGuids )[i], "MaterialAsset" );
+                        }
                         if ( handle == 0 && data.MaterialPaths && i < data.MaterialPaths->size() )
+                        {
                             handle = resolver.FromPath( ( *data.MaterialPaths )[i], "MaterialAsset" );
-                        ism.MaterialSlots.push_back( Common::UUID( handle ) );
+                        }
+                        ism.MaterialSlots.emplace_back( handle );
                     }
                 }
                 ism.Primitive = data.Primitive;

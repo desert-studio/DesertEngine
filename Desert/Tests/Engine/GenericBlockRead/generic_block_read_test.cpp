@@ -165,6 +165,11 @@ namespace
     constexpr std::size_t kTranslationY   = 13;
     constexpr std::size_t kTranslationZ   = 14;
 
+    // Two arbitrary but DISTINCT 64-bit handles: the point of the assertion is that each comes back as
+    // itself, so the values only have to be recognisable and different from one another.
+    constexpr uint64_t kMeshGuid     = 0x0123456789ABCDEFULL;
+    constexpr uint64_t kMaterialGuid = 0xFEDCBA9876543210ULL;
+
     constexpr float kGridStep  = 200.0F; // the 3x3 grid Г25's control frame used, in world units (cm)
     constexpr float kGridStart = 200.0F;
     constexpr int   kGridSide  = 3;
@@ -304,9 +309,9 @@ TEST( GenericBlockRead, AnInstancedStaticMeshCarriesTheRenameSafeGuidsAsWellAsTh
 {
     Assets::InstancedStaticMeshComponentSer written;
     written.MeshPath           = "Cooked/Meshes/Grass.stmesh";
-    written.MeshGuid           = 0x0123456789ABCDEFULL;
+    written.MeshGuid           = kMeshGuid;
     written.MaterialPaths      = std::vector<std::string>{ "Materials/M_Grass.demat" };
-    written.MaterialGuids      = std::vector<uint64_t>{ 0xFEDCBA9876543210ULL };
+    written.MaterialGuids      = std::vector<uint64_t>{ kMaterialGuid };
     written.InstanceTransforms = NineDistinctInstances();
 
     const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
@@ -316,14 +321,14 @@ TEST( GenericBlockRead, AnInstancedStaticMeshCarriesTheRenameSafeGuidsAsWellAsTh
          parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
 
     ASSERT_TRUE( read.MeshGuid.has_value() );
-    EXPECT_EQ( read.MeshGuid, 0x0123456789ABCDEFULL );
+    EXPECT_EQ( read.MeshGuid, kMeshGuid );
     ASSERT_TRUE( read.MeshPath.has_value() );
     EXPECT_EQ( read.MeshPath, "Cooked/Meshes/Grass.stmesh" );
 
     ASSERT_TRUE( read.MaterialGuids.has_value() );
     const std::vector<uint64_t>& guids = read.MaterialGuids.value(); // NOLINT(bugprone-unchecked-optional-access)
     ASSERT_EQ( guids.size(), 1U );
-    EXPECT_EQ( guids.at( 0 ), 0xFEDCBA9876543210ULL );
+    EXPECT_EQ( guids.at( 0 ), kMaterialGuid );
 
     ASSERT_TRUE( read.InstanceTransforms.has_value() );
     ExpectSameMatrices( read.InstanceTransforms.value(), // NOLINT(bugprone-unchecked-optional-access)
