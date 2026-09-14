@@ -42,8 +42,9 @@ namespace Desert::Graphic
             MarkDirty(); // every slot owes itself this write
         }
 
-        // Replace the reflection-created buffer with an externally-owned one (e.g. a correctly-sized,
-        // compute-written SSBO for GPU-culled grass). Marks dirty so the next Apply rebinds the new VkBuffer.
+        // Replace the reflection-created buffer with an externally-owned one (the particle simulation's
+        // compute-written buffer, the procedural sky's parameter rows). Marks dirty so the next Apply
+        // rebinds the new VkBuffer.
         void SetBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
         {
             m_Buffer     = buffer;

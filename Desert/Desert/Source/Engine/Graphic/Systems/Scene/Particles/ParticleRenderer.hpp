@@ -23,7 +23,7 @@ namespace Desert::Graphic::System
 {
     // GPU particle system. Per emitter: a PERSISTENT storage buffer of particle state that a compute shader
     // (ParticleSimulate) integrates + respawns each frame, drawn as camera-facing billboards (ParticleBillboard)
-    // in the Transparency phase. Mirrors the grass GPU-cull flow: PrepareFrame snapshots emitters (CPU) in
+    // in the Transparency phase. The flow is: PrepareFrame snapshots emitters (CPU) in
     // BeginScene, SimulateInFrame dispatches the compute (command buffer active) BEFORE the render graph, and
     // the registered Transparency pass draws the result.
     class ParticleRenderer final : public RenderSystem
@@ -52,7 +52,7 @@ namespace Desert::Graphic::System
         void PrepareFrame( const ::Desert::Core::Scene& scene );
 
         // Record the per-emitter compute dispatches. Call in OnUpdate, outside any render pass, BEFORE the
-        // render graph records the billboard draw (like grass CullGrassInFrame).
+        // render graph records the billboard draw.
         void SimulateInFrame();
 
     private:

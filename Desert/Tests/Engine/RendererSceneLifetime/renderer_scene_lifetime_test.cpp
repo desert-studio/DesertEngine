@@ -234,8 +234,8 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
          { "JumpFloodSystem", "Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp", false,
            "outline appearance is pushed in every frame by the editor" },
          { "TerrainSystem", "Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp", false,
-           "the grass visibility buffer is grow-only and its count is re-zeroed per frame; material "
-           "entries are keyed by texture set and only read for terrains in this frame's queue" },
+           "material entries are keyed by texture set and only read for terrains in this frame's queue; "
+           "the draw queue is cleared every frame" },
          { "TonemapSystem", "Graphic/Systems/Scene/PostProcessing/TonemapRenderer.hpp", false,
            "every parameter is pushed from SceneSettings in BeginScene" },
          { "BackdropBlurSystem", "Graphic/Systems/Scene/PostProcessing/BackdropBlurRenderer.hpp", false,

@@ -5,7 +5,8 @@
 namespace Desert::Graphic
 {
     // Per-frame, evaluated state of the scene's SHARED wind (authored in SceneSettings::Wind*). This is the
-    // runtime form the renderers consume via SceneRenderer::GetWind(): grass/foliage today, hair + cloth
+    // runtime form the renderers consume via SceneRenderer::GetWind(). NOTHING consumes it today - its
+    // one reader was the procedural grass generator, removed by Г25; see the note over GetWind(). Hair + cloth
     // next. Keeping it here (not on the Skybox) is the whole point — one wind moves the world.
     struct WindEnv
     {

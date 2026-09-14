@@ -112,7 +112,7 @@ namespace Desert::Editor
             switch ( domain )
             {
                 case D::Terrain:
-                    return "draws the scene's terrain and its grass, geometry the renderer synthesizes "
+                    return "draws the scene's terrain, a tessellated patch grid the renderer synthesizes "
                            "itself, so there is no sphere, cube or plane this pane could put it on. Edit "
                            "it here and look at the terrain in the viewport.";
                 case D::PostProcess:

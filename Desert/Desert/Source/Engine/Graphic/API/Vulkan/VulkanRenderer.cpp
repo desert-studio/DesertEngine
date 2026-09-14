@@ -524,9 +524,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     void VulkanRendererAPI::SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                            const MaterialExecutor* materialExecutor, uint32_t instanceCount )
+                                            const MaterialExecutor* materialExecutor )
     {
-        if ( !m_CurrentCommandBuffer || vertexCount == 0 || instanceCount == 0 )
+        if ( !m_CurrentCommandBuffer || vertexCount == 0 )
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
         if ( !BindGraphicsPipeline( pipeline ) )
@@ -564,54 +564,8 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // Vertexless: the vertex shader synthesizes geometry from gl_VertexIndex. For a patch-list
-        // (tessellation) pipeline, vertexCount = patchCount * PatchControlPoints. instanceCount > 1 draws
-        // gl_InstanceIndex 0..N-1 (GPU-driven grass derives each blade's placement from it).
-        vkCmdDraw( m_CurrentCommandBuffer, vertexCount, instanceCount, 0, 0 );
-    }
-
-    void VulkanRendererAPI::SubmitVerticesIndirect( const GraphicsPipeline*         pipeline,
-                                                    ShaderResources::StorageBuffer* argsBuffer,
-                                                    const MaterialExecutor*         materialExecutor )
-    {
-        if ( !m_CurrentCommandBuffer || !argsBuffer )
-            return;
-
-        const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( !BindGraphicsPipeline( pipeline ) )
-            return;
-
-        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-
-        if ( materialExecutor )
-        {
-            materialExecutor->Apply();
-            auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
-            if ( !vkBackend->HasDescriptorSets() )
-            {
-                LOG_WARN( "VulkanRendererAPI::SubmitVerticesIndirect: MaterialExecutor has no descriptor sets!" );
-                return;
-            }
-            vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                           VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex );
-
-            const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
-            VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-            if ( pcBuffer.Size && vulkanShader->GetShaderPushConstant().has_value() )
-            {
-                // The reflected size, for the reason spelled out in SubmitVertices above.
-                auto pcInfo = vulkanShader->GetShaderPushConstant().value();
-                if ( pcInfo.Size > 0 )
-                {
-                    vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                        (VkShaderStageFlags)pcInfo.ShaderStage, 0, pcInfo.Size, pcBuffer.Data );
-                }
-            }
-        }
-
-        // The cull compute wrote a VkDrawIndirectCommand at offset 0 of the (per-frame) args buffer.
-        auto* vkArgs = static_cast<ShaderResources::API::Vulkan::VulkanStorageBuffer*>( argsBuffer );
-        const VkBuffer argsVk = vkArgs->GetDescriptorBufferInfo( frameIndex ).buffer;
-        vkCmdDrawIndirect( m_CurrentCommandBuffer, argsVk, 0, 1, sizeof( VkDrawIndirectCommand ) );
+        // (tessellation) pipeline, vertexCount = patchCount * PatchControlPoints.
+        vkCmdDraw( m_CurrentCommandBuffer, vertexCount, 1, 0, 0 );
     }
 
     void VulkanRendererAPI::DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,

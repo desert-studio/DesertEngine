@@ -176,14 +176,16 @@ TEST( PassOrder, EqualPassesKeepRegistrationOrder )
 {
     const std::vector<RenderPhaseID> phaseOrder = { RenderPhase::Geometry };
 
-    // What MeshRenderer and TerrainRenderer do today: three passes in Geometry, no explicit placement.
+    // What MeshRenderer and TerrainRenderer do today: the two passes Geometry actually holds, neither
+    // of them explicitly placed. (There was a third, "GrassPass", until Г25 removed the procedural
+    // grass generator; the tie-break argument is the same with two, and the 64-element case below is
+    // what carries it past the size where a sort could keep the order by luck.)
     const std::vector<Pass> passes = {
          { "MeshGeometryPass", RenderPhase::Geometry, RenderPassOrder::Default },
          { "TerrainPass", RenderPhase::Geometry, RenderPassOrder::Default },
-         { "GrassPass", RenderPhase::Geometry, RenderPassOrder::Default },
     };
 
-    const std::vector<std::string> expected = { "MeshGeometryPass", "TerrainPass", "GrassPass" };
+    const std::vector<std::string> expected = { "MeshGeometryPass", "TerrainPass" };
     EXPECT_EQ( SortNames( passes, phaseOrder ), expected );
 
     // And it must still hold past the size where a sort stops being an insertion sort — with a handful
@@ -291,13 +293,13 @@ TEST( PassOrder, ShuffledRegistrationAcrossPhasesSortsByPhaseThenRegistration )
          { "Terrain", RenderPhase::Geometry, RenderPassOrder::Default },
          { "Cascade0", RenderPhase::DepthPrePass, RenderPassOrder::Default },
          { "Particles", RenderPhase::Transparency, RenderPassOrder::Default },
-         { "Grass", RenderPhase::Geometry, RenderPassOrder::Default },
+         { "Mesh", RenderPhase::Geometry, RenderPassOrder::Default },
          { "Cascade1", RenderPhase::DepthPrePass, RenderPassOrder::Default },
          { "Skybox", RenderPhase::Sky, RenderPassOrder::Default },
     };
 
     const std::vector<std::string> expected = { "Cascade0", "Cascade1",  "Skybox",    "Terrain",
-                                                "Grass",    "Particles", "DebugLines" };
+                                                "Mesh",     "Particles", "DebugLines" };
     EXPECT_EQ( SortNames( passes, phaseOrder ), expected );
 }
 

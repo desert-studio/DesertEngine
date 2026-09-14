@@ -162,9 +162,7 @@ namespace Desert::Graphic
         // Submit one terrain entity for this frame (from TerrainECSSystem via DrawTerrainCommand).
         void SubmitTerrain( const glm::mat4& transform, float size, int resolution, float heightScale,
                             float noiseFrequency, int seed, const glm::vec3& layerModes = glm::vec3( 0.0f ),
-                            Image2D* splatMap = nullptr, const glm::vec4& grassParams = glm::vec4( 0.0f ),
-                            const glm::vec3&         grassTint = glm::vec3( 1.0f ),
-                            const MaterialOverrides& overrides = {} );
+                            Image2D* splatMap = nullptr, const MaterialOverrides& overrides = {} );
 
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-PBR shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for
@@ -304,19 +302,18 @@ namespace Desert::Graphic
         }
 
         // Scene-global SHARED wind (authored in SceneSettings, refreshed each BeginScene). Renderers that
-        // respond to wind (grass/foliage now; hair/cloth next) read it from here so one direction +
-        // strength animate the whole world coherently.
+        // respond to wind read it from here so one direction + strength animate the whole world
+        // coherently.
+        //
+        // IT HAS NO CONSUMER TODAY, and that is stated here rather than left to be discovered. Its only
+        // reader was the procedural grass generator, which Г25 removed because grass becomes mesh assets;
+        // the next reader is whatever sways an asset (instanced foliage, hair, cloth). The three
+        // SceneSettings fields behind it are authored level data that EVERY scene in the repository
+        // states, so Г25 raised them with the owner instead of retiring a scene-wide field on a
+        // rendering task's initiative - see the report for Г25.
         const WindEnv& GetWind() const
         {
             return m_Wind;
-        }
-
-        // Grass "interactor": a single actor (the player character) that bends grass away as it moves.
-        // xyz = world position, w = influence radius in WORLD UNITS / centimetres (0 = disabled).
-        // Refreshed each BeginScene.
-        const glm::vec4& GetGrassInteractor() const
-        {
-            return m_GrassInteractor;
         }
 
         // CSM debug: the per-cascade shadow depth maps (for the editor's cascade viewer).
@@ -500,9 +497,6 @@ namespace Desert::Graphic
         ShaderProtocols::SpotLight      m_SpotLight;
 
         WindEnv m_Wind; // scene-global shared wind, refreshed from SceneSettings each BeginScene
-
-        // Player-character grass interactor (xyz world pos, w radius), refreshed each BeginScene.
-        glm::vec4 m_GrassInteractor{ 0.0f };
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
         Common::Settings::AntiAliasingMode m_AAMode       = Common::Settings::AntiAliasingMode::FXAA;

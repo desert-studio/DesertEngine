@@ -290,13 +290,13 @@ namespace Desert::Editor
         // cube onto a ray-traced ball, with its own refusals about the cube rather than the domain (no
         // TextureCube in the schema / nothing bound / a dangling skybox).
         //
-        // A SURFACE material only appears if its shader draws MESH GEOMETRY. Both of the engine's Terrain-domain
-        // shaders synthesize their geometry from `gl_VertexIndex` instead — Terrain.shader as a control-point
-        // patch grid for the tessellator, Grass.shader as indirect blade instances — and neither has
-        // anything that could be fed by a primitive's vertex buffer. Nothing errors and nothing crashes:
-        // the pane simply renders an empty scene, and a grey rectangle that explains nothing is the
-        // silent fallback the delivery contract forbids (§1.4). An artist cannot tell "this domain has no
-        // preview shape" from "the preview is broken", and the difference decides whether they go looking
+        // A SURFACE material only appears if its shader draws MESH GEOMETRY. The engine's one Terrain-domain
+        // shader synthesizes its geometry from `gl_VertexIndex` instead — Terrain.shader as a control-point
+        // patch grid for the tessellator — and has nothing that could be fed by a primitive's vertex
+        // buffer. (There were two until Г25 removed Grass.shader with the procedural grass generator.) Nothing
+        // errors and nothing crashes: the pane simply renders an empty scene, and a grey rectangle that explains
+        // nothing is the silent fallback the delivery contract forbids (§1.4). An artist cannot tell "this domain
+        // has no preview shape" from "the preview is broken", and the difference decides whether they go looking
         // for a bug.
         //
         // Also answers for the two states that are not about the domain at all — a shader that is not

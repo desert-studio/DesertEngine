@@ -38,8 +38,11 @@ namespace Desert::Graphic::System
     {
         glm::mat4 Model{ 1.0f };
         glm::vec4 Params{ 0.0f };     // x = size, y = gridDim, z = heightScale, w = tessLevel
-        glm::vec4 Params2{ 0.0f };    // x = noiseFrequency, y = seed, z = grass brightness, w = spare
-        glm::vec4 LayerModes{ 0.0f }; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = grassEnable
+        glm::vec4 Params2{ 0.0f };    // x = noiseFrequency, y = seed, z/w = spare
+        // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off). w is std430 padding, not a field: a
+        // vec3 here would still occupy 16 bytes and a glm::vec3 member would occupy 12, which is how a
+        // C++/GLSL mirror silently shears. .w carried the grass ENABLE flag until Г25 cut the generator.
+        glm::vec4 LayerModes{ 0.0f };
     };
 
     static_assert( sizeof( TerrainInstance ) == 7 * 16,

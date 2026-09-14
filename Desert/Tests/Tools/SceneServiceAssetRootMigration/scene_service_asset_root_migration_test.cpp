@@ -441,23 +441,23 @@ TEST( SceneServiceAssetRootMigration, AFileAlreadyAtTheHeadIsNotRunAgain )
          << "a file at the head must not be re-spelled by this step";
 }
 
-// ── The head ──────────────────────────────────────────────────────────────────────────────────────
+// ── This step's place in the chain ────────────────────────────────────────────────────────────────
 
-// THE HEAD ASSERTION, which travels with the newest step. It came here from SceneScriptRootMigration,
-// which came by it from SceneRetiredKeysMigration, which came by it from SceneDebugViewMigration. It
-// lives in whichever suite owns the last step because that is the only suite that can hold it without
-// going red the day the next step lands — and going red is the point: the message names the move, so the
-// person who raises the version is told what to do rather than finding an unexplained failure.
+// THE HEAD ASSERTION HAS MOVED ON, and this is what it leaves behind. It was here until Г25 added the
+// v17 -> v18 grass-generation step; it now lives in SceneGrassGenerationMigration, which came by it from
+// here, as this suite came by it from SceneScriptRootMigration, that one from SceneRetiredKeysMigration
+// and that one from SceneDebugViewMigration.
 //
-// It is the run-time half of the static_assert in SceneMigration.hpp. If a step is ever added without
-// raising Core::kSceneVersion the tool stamps files at a version the loader refuses, every scene in the
-// repository stops opening at once, and each file looks correct in isolation.
-TEST( SceneServiceAssetRootMigration, ThisIsTheHeadStepAndItSitsAboveItsPredecessor )
+// What stays is this step's own identity: its number, and the fact that it sits above the step before
+// it. Those are facts about THIS migration and are true for ever; "is the head" was never a fact about
+// this step at all, which is precisely why the assertion travels and says so when it goes red.
+TEST( SceneServiceAssetRootMigration, ThisStepSitsAboveItsPredecessorAndBelowTheHead )
 {
     EXPECT_EQ( 17, Migration::kSceneVersionServiceAssetRoot );
     EXPECT_GT( Migration::kSceneVersionServiceAssetRoot, Migration::kSceneVersionScriptRoot );
-    EXPECT_EQ( Migration::kSceneVersionServiceAssetRoot, Core::kSceneVersion )
-         << "a newer step exists; move this assertion to that suite the way this one moved here";
+    EXPECT_LE( Migration::kSceneVersionServiceAssetRoot, Core::kSceneVersion )
+         << "this step is stamped above the generation the engine requires - the tool would write files "
+            "the loader refuses";
 }
 
 // ── The corpus ────────────────────────────────────────────────────────────────────────────────────

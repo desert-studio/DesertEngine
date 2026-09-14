@@ -77,20 +77,12 @@ namespace Desert::Graphic
                                   const MaterialExecutor* materialExecutor )                            = 0;
 
         // Vertexless draw of @p vertexCount vertices (no vertex/index buffer bound). The vertex shader
-        // synthesizes geometry from gl_VertexIndex. Used by the GPU terrain (patch-list tessellation).
-        // @p instanceCount > 1 issues an instanced draw (gl_InstanceIndex per instance) — GPU-driven
-        // foliage (grass) derives each blade's transform from gl_InstanceIndex without an instance buffer.
+        // synthesizes geometry from gl_VertexIndex. Used by the GPU terrain (patch-list tessellation) and
+        // the particle billboards. Hardware instancing of ASSETS is SubmitMesh's @p instanceCount above;
+        // this seam draws one instance because nothing synthesizes per-instance geometry any more (Г25
+        // removed the procedural grass, which was the only caller that did).
         virtual void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                     const MaterialExecutor* materialExecutor,
-                                     uint32_t                instanceCount = 1 )                        = 0;
-
-        // GPU-driven instanced draw whose instanceCount is produced on the GPU: @p argsBuffer holds a
-        // VkDrawIndirectCommand (vertexCount, instanceCount, firstVertex, firstInstance) written by a
-        // prior compute cull pass. Used by grass: the cull compute compacts visible clumps and writes
-        // the count, so no CPU readback / no per-instance VS work for culled clumps.
-        virtual void SubmitVerticesIndirect( const GraphicsPipeline*         pipeline,
-                                             ShaderResources::StorageBuffer* argsBuffer,
-                                             const MaterialExecutor*         materialExecutor ) = 0;
+                                     const MaterialExecutor* materialExecutor ) = 0;
 
         // Like DispatchComputeInFrame but the compute writes are made visible to the VERTEX stage
         // (storage read) and to the DRAW_INDIRECT stage (indirect command read) — for GPU cull passes

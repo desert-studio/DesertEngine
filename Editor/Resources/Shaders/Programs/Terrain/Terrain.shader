@@ -52,8 +52,8 @@ Shader "Terrain"
         {
             mat4 Model;
             vec4 Params;     // x = world size, y = gridDim (patches/side), z = heightScale, w = tessLevel
-            vec4 Params2;    // x = noiseFrequency, y = seed, z = grass brightness, w = spare
-            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = grassEnable
+            vec4 Params2;    // x = noiseFrequency, y = seed, z/w = spare
+            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = std430 padding
         };
         ReadBuffer(8) TerrainInstances
         {
@@ -111,8 +111,8 @@ Shader "Terrain"
         {
             mat4 Model;
             vec4 Params;     // x = size, y = gridDim, z = heightScale, w = tessLevel (used here as MAX/near tess)
-            vec4 Params2;    // x = noiseFrequency, y = seed, z = grass brightness, w = spare
-            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = grassEnable
+            vec4 Params2;    // x = noiseFrequency, y = seed, z/w = spare
+            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = std430 padding
         };
         ReadBuffer(8) TerrainInstances
         {
@@ -200,8 +200,8 @@ Shader "Terrain"
         {
             mat4 Model;
             vec4 Params;     // x = size, y = gridDim, z = heightScale, w = tessLevel
-            vec4 Params2;    // x = noiseFrequency, y = seed, z = grass brightness, w = spare
-            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = grassEnable
+            vec4 Params2;    // x = noiseFrequency, y = seed, z/w = spare
+            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = std430 padding
         };
         ReadBuffer(8) TerrainInstances
         {
@@ -322,8 +322,8 @@ Shader "Terrain"
         {
             mat4 Model;
             vec4 Params;     // x = size, y = gridDim, z = heightScale, w = tessLevel
-            vec4 Params2;    // x = noiseFrequency, y = seed, z = grass brightness, w = spare
-            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = grassEnable
+            vec4 Params2;    // x = noiseFrequency, y = seed, z/w = spare
+            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = std430 padding
         };
         ReadBuffer(8) TerrainInstances
         {
@@ -392,19 +392,21 @@ Shader "Terrain"
             // Slope = how far the normal tilts from straight up (0 = flat, 1 = vertical cliff).
             float slope = clamp( 1.0 - N.y, 0.0, 1.0 );
 
-            // Base tints (placeholder until Stage 6 PBR textures). Under grass the ground is GREEN (a darker grass
-            // tone) so it fills the gaps between blades and the field reads as a continuous lawn (the instanced
-            // blades add the 3D fuzz on top). Non-grass ground is rock.
-            // Ground UNDER grass: a DARK olive that matches the lit blade tone, so the gaps between thin blades
-            // blend into a continuous lawn instead of glowing bright-green. (Flat ground catches full sun, so its
-            // albedo must be darker than the angled, AO'd blades to read at the same brightness.) + world variation.
-            // Params2.z carries the grass Brightness (engine-synced) so the lawn ground tracks the blades when
-            // you drag the Grass Brightness slider — they always read as one material.
+            // Base tints (placeholder until Stage 6 PBR textures). The grass layer is a DARK olive ground
+            // tone; rock is the default ground and snow caps it.
+            //
+            // IT USED TO BE THE FLOOR UNDER GENERATED BLADES and it is not any more (Г25). The tone was
+            // chosen dark so the gaps between thin procedural blades read as a continuous lawn rather than
+            // glowing bright-green through them, and it was multiplied by Params2.z — the blade Brightness
+            // slider — so ground and blades tracked each other as one material. Both the blades and that
+            // slider are gone; the tone is kept as authored because it is the ground this repository's
+            // terrain scenes were dressed against, and grass now arrives as a MESH ASSET scattered by the
+            // Foliage tool, which stands on this ground rather than being tinted with it.
+            //
             // 0.031/0.027 are frequencies per world unit — a ~2 m patch, which is what the metre era's
-            // 3.1/2.7 meant. Left alone they were a 2 cm chequer under the blades: shimmer, not variation.
+            // 3.1/2.7 meant. Left alone they were a 2 cm chequer: shimmer, not variation.
             float groundVar  = sin( v_WorldPos.x * 0.031 ) * sin( v_WorldPos.z * 0.027 ) * 0.5 + 0.5;
-            float grassBright = max( u_T.Params2.z, 0.05 );
-            vec3  grassCol   = vec3( 0.052, 0.10, 0.034 ) * ( 0.75 + 0.5 * groundVar ) * grassBright;
+            vec3  grassCol   = vec3( 0.052, 0.10, 0.034 ) * ( 0.75 + 0.5 * groundVar );
             vec3  rockCol   = vec3( 0.40, 0.37, 0.33 ); // bare rock (default base)
             vec3  snowCol   = vec3( 0.86, 0.88, 0.92 );
 
@@ -421,10 +423,15 @@ Shader "Terrain"
             float grassAuto = 1.0 - rockAuto; // grass only on flat-ish ground
             float snowAuto  = smoothstep( 0.75, 0.95, v_Height01 ) * ( 1.0 - smoothstep( 0.4, 0.7, slope ) );
 
-            // ROCK is the default ground. Where grass is enabled (LayerModes.w) on flat ground, the ground turns
-            // GREEN — a continuous lawn base that fills the gaps between the instanced blades. Full field (not
-            // splat-gated) so the user gets a lawn without painting; the splat only trims it (floor 0.4).
-            float wGrass = u_T.LayerModes.w * grassAuto * max( splat.r, 0.4 );
+            // ROCK is the default ground; the grass and snow layers are mixed over it by their own modes.
+            //
+            // THE GRASS LAYER IS GATED BY ITS OWN MODE, AND UNTIL Г25 IT WAS NOT. `Grass Layer` was a
+            // reflected, serialized, Details-visible enum that TerrainECSSystem packed into LayerModes.x —
+            // and nothing in this file ever read LayerModes.x. The real gate was LayerModes.w, the GRASS
+            // GENERATOR's enable flag, so turning the blades off also took the ground texture with it and
+            // the authored mode moved nothing. The generator is gone; the layer is now what it always said
+            // it was.
+            float wGrass = LayerWeight( u_T.LayerModes.x, grassAuto, splat.r );
             float wSnow  = LayerWeight( u_T.LayerModes.z, snowAuto, splat.b );
 
             vec3 albedo = rockT;

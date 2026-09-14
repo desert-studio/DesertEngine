@@ -87,9 +87,12 @@ namespace Desert::ShaderResources::API::Vulkan
         {
             VkBufferCreateInfo bufferInfo = {};
             bufferInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-            // INDIRECT lets a storage buffer also serve as a vkCmdDrawIndirect args source (GPU-culled
-            // grass writes its draw count here). Harmless for storage buffers never used indirectly.
-            bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+            // STORAGE ONLY. Every storage buffer also carried INDIRECT until Г25, granted for ONE
+            // caller: the grass cull compute wrote a VkDrawIndirectCommand into a storage buffer and the
+            // grass draw read it back through vkCmdDrawIndirect. That generator is gone and no draw in
+            // this engine is indirect any more, so the capability is granted to nobody - and a usage bit
+            // nothing uses is a claim about this buffer that is not true.
+            bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             bufferInfo.size  = m_Size;
 
             const auto allocatedBuffer = vulkanContext->GetVulkanAllocator()->RT_AllocateBuffer(
