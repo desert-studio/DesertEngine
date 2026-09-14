@@ -1700,8 +1700,13 @@ namespace Desert::Migration
                 const bool renames = std::string_view( site.OldKey ) != site.NewKey;
                 const auto text    = named.value().to_string();
 
-                std::optional<std::string> respelled;           // set only when a root could place the value
-                bool                       unplaceable = false; // named in the report, value untouched
+                std::optional<std::string> respelled; // set only when a root could place the value
+                // `bool unplaceable` stood here, assigned nowhere and read nowhere. It compiled unnoticed
+                // because this TU was built only by the tool and by the migration suites, whose warning
+                // settings let it pass; the Editor links the file since Г26 (CrashRecovery::
+                // MigrateAutosaves) and the Editor's build reported it on the first compile. The
+                // unplaceable case is already carried by report.UnrootedNames, which is what the report
+                // actually reads.
 
                 if ( !text.has_value() )
                 {
