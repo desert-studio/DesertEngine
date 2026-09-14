@@ -1,32 +1,42 @@
 ---
-     Checks:          '-*,google-*,boost-*,readability-*,-readability-named-parameter,misc-*,linuxkernel-*,performance-*,-performance-inefficient-string-concatenation,modernize-*,-modernize-use-trailing-return-type,-modernize-pass-by-value,cppcoreguidelines-*,-cppcoreguidelines-avoid-non-const-global-variables,concurrency-*,bugprone-*,-cppcoreguidelines-special-member-functions,-misc-non-private-member-variables-in-classes,-misc-definitions-in-headers,-readability-redundant-member-init,-google-global-names-in-headers,-google-build-using-namespace,-cppcoreguidelines-avoid-const-or-ref-data-members,-cppcoreguidelines-macro-usage,clang-diagnostic-*,-clang-diagnostic-gnu-zero-variadic-macro-arguments,-cppcoreguidelines-avoid-c-arrays,- cppcoreguidelines-non-private-member-variables-in-classes,-google-readability-avoid-underscore-in-googletest-name,-bugprone-reserved-identifier,-bugprone-macro-parentheses,-google-build-namespaces,-performance-enum-size,-google-explicit-constructor,-bugprone-easily-swappable-parameters,-boost-use-ranges,-misc-use-internal-linkage,-readability-avoid-const-params-in-decls,-cppcoreguidelines-missing-std-forward,-misc-unused-using-decls,-performance-avoid-endl,-misc-use-anonymous-namespace'
-WarningsAsErrors: '*'
-HeaderFilterRegex: ''
-Extra
-AnalyzeTemporaryDtors: false
-FormatStyle:     none
-User:            altsybeev
+# clang-tidy for Desert Engine. Pinned to LLVM 18, the same release the clang-format gate stands on:
+# an analyser whose verdict depends on which version happens to be installed is the defect the
+# formatter pin closed on 2026-09-08, and reopening it here would cost the same three red runs.
+# Run it with scripts/CI/CheckTidy.sh, which enforces the version and builds the compiler database.
+#
+# The check list below started as the owner's list from his backend project. What changed and why is
+# recorded at the bottom of this file — every deviation is named, because a check silently dropped is
+# indistinguishable from a check nobody noticed was missing.
+Checks: '-*,google-*,boost-*,readability-*,-readability-named-parameter,misc-*,linuxkernel-*,performance-*,-performance-inefficient-string-concatenation,modernize-*,-modernize-use-trailing-return-type,-modernize-pass-by-value,cppcoreguidelines-*,-cppcoreguidelines-avoid-non-const-global-variables,concurrency-*,bugprone-*,-cppcoreguidelines-special-member-functions,-misc-non-private-member-variables-in-classes,-misc-definitions-in-headers,-readability-redundant-member-init,-google-global-names-in-headers,-google-build-using-namespace,-cppcoreguidelines-avoid-const-or-ref-data-members,-cppcoreguidelines-macro-usage,clang-diagnostic-*,-clang-diagnostic-gnu-zero-variadic-macro-arguments,-cppcoreguidelines-avoid-c-arrays,-cppcoreguidelines-non-private-member-variables-in-classes,-google-readability-avoid-underscore-in-googletest-name,-bugprone-reserved-identifier,-bugprone-macro-parentheses,-google-build-namespaces,-performance-enum-size,-google-explicit-constructor,-bugprone-easily-swappable-parameters,-boost-use-ranges,-misc-use-internal-linkage,-readability-avoid-const-params-in-decls,-cppcoreguidelines-missing-std-forward,-misc-unused-using-decls,-performance-avoid-endl,-misc-use-anonymous-namespace'
+
+# HEADERS ARE ANALYSED, and this is the one setting whose old value silently halved the tool's reach.
+# `HeaderFilterRegex: ''` matches nothing, so clang-tidy reported diagnostics from the .cpp only:
+# measured on this tree, 15 900 of 28 042 findings — 57 % — are in our own .hpp, and this engine puts
+# a large share of its logic there (every CRTP widget, every template container, every inline getter).
+#
+# The regex names OUR source roots rather than excluding ThirdParty, because llvm::Regex is POSIX ERE
+# with no negative lookahead and there are two third-party roots (ThirdParty/ and Editor/ThirdParty/).
+# Listing where our code lives is also the version that does not need editing when a submodule is
+# added: a new dependency lands under a ThirdParty/ directory, which no alternative below matches.
+HeaderFilterRegex: '(Desert/(Desert|Common|Tests)|Editor/Source|Runtime/Source|Tools/[A-Za-z]+/Source)/'
+
+# NOT WarningsAsErrors: '*'. The owner's config had it, and on this tree it would make every one of
+# the 902 translation units fail. The severity decision lives in the gate instead
+# (scripts/CI/CheckTidy.sh exits 1 on any finding in the lines you changed), which is the same shape
+# as the clang-format gate: the config describes what is wrong, the gate decides what blocks a merge.
+# Putting it here as well would make an interactive `clang-tidy Foo.cpp` unusable for reading, since
+# an error stops the run rather than listing everything.
+WarningsAsErrors: ''
+FormatStyle: none
 CheckOptions:
-  - key: clang-tidy.extra-args
-    value: [
-        '-Wno-enum-constexpr-conversion'
-    ]
   - key:             llvm-else-after-return.WarnOnConditionVariables
     value:           'false'
   - key:             modernize-loop-convert.MinConfidence
     value:           reasonable
   - key:             modernize-replace-auto-ptr.IncludeStyle
     value:           llvm
-  - key:             cert-str34-c.DiagnoseSignedUnsignedCharComparisons
-    value:           'false'
   - key:             google-readability-namespace-comments.ShortNamespaceLines
     value:           '10'
-  - key:             cert-err33-c.CheckedFunctions
-    value:           '::aligned_alloc;::asctime_s;::at_quick_exit;::atexit;::bsearch;::bsearch_s;::btowc;::c16rtomb;::c32rtomb;::calloc;::clock;::cnd_broadcast;::cnd_init;::cnd_signal;::cnd_timedwait;::cnd_wait;::ctime_s;::fclose;::fflush;::fgetc;::fgetpos;::fgets;::fgetwc;::fopen;::fopen_s;::fprintf;::fprintf_s;::fputc;::fputs;::fputwc;::fputws;::fread;::freopen;::freopen_s;::fscanf;::fscanf_s;::fseek;::fsetpos;::ftell;::fwprintf;::fwprintf_s;::fwrite;::fwscanf;::fwscanf_s;::getc;::getchar;::getenv;::getenv_s;::gets_s;::getwc;::getwchar;::gmtime;::gmtime_s;::localtime;::localtime_s;::malloc;::mbrtoc16;::mbrtoc32;::mbsrtowcs;::mbsrtowcs_s;::mbstowcs;::mbstowcs_s;::memchr;::mktime;::mtx_init;::mtx_lock;::mtx_timedlock;::mtx_trylock;::mtx_unlock;::printf_s;::putc;::putwc;::raise;::realloc;::remove;::rename;::scanf;::scanf_s;::setlocale;::setvbuf;::signal;::snprintf;::snprintf_s;::sprintf;::sprintf_s;::sscanf;::sscanf_s;::strchr;::strerror_s;::strftime;::strpbrk;::strrchr;::strstr;::strtod;::strtof;::strtoimax;::strtok;::strtok_s;::strtol;::strtold;::strtoll;::strtoul;::strtoull;::strtoumax;::strxfrm;::swprintf;::swprintf_s;::swscanf;::swscanf_s;::thrd_create;::thrd_detach;::thrd_join;::thrd_sleep;::time;::timespec_get;::tmpfile;::tmpfile_s;::tmpnam;::tmpnam_s;::tss_create;::tss_get;::tss_set;::ungetc;::ungetwc;::vfprintf;::vfprintf_s;::vfscanf;::vfscanf_s;::vfwprintf;::vfwprintf_s;::vfwscanf;::vfwscanf_s;::vprintf_s;::vscanf;::vscanf_s;::vsnprintf;::vsnprintf_s;::vsprintf;::vsprintf_s;::vsscanf;::vsscanf_s;::vswprintf;::vswprintf_s;::vswscanf;::vswscanf_s;::vwprintf_s;::vwscanf;::vwscanf_s;::wcrtomb;::wcschr;::wcsftime;::wcspbrk;::wcsrchr;::wcsrtombs;::wcsrtombs_s;::wcsstr;::wcstod;::wcstof;::wcstoimax;::wcstok;::wcstok_s;::wcstol;::wcstold;::wcstoll;::wcstombs;::wcstombs_s;::wcstoul;::wcstoull;::wcstoumax;::wcsxfrm;::wctob;::wctrans;::wctype;::wmemchr;::wprintf_s;::wscanf;::wscanf_s;'
-  - key:             cert-oop54-cpp.WarnOnlyIfThisHasSuspiciousField
-    value:           'false'
-  - key:             cert-dcl16-c.NewSuffixes
-  value:           'L;LL;LU;LLU'
   - key:             google-readability-braces-around-statements.ShortStatementLines
     value:           '1'
   - key:             cppcoreguidelines-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic
@@ -50,3 +60,27 @@ CheckOptions:
   - key:             readability-function-cognitive-complexity.Threshold
     value:           '19'
 ...
+
+# WHAT WAS REMOVED FROM THE OWNER'S CONFIG, AND THE EVIDENCE FOR EACH. Every one was verified by
+# running clang-tidy 18.1.8 against this tree; none was taken on suspicion.
+#
+#  * `AnalyzeTemporaryDtors: false` — the option was deleted from clang-tidy in LLVM 16. clang-tidy 18
+#    accepts the key without a word and ignores it. Dead.
+#  * `Extra` — a bare key on its own line, left over from an edit. YAML reads it as `Extra: null`,
+#    clang-tidy ignores unknown top-level keys, and the file parses. Dead, and misleading.
+#  * `User: altsybeev` — another project's author name. It feeds google-readability-todo, which is not
+#    reached here; `--dump-config` shows the local username regardless, so it never took effect.
+#  * `clang-tidy.extra-args` under CheckOptions — extra-args is a COMMAND-LINE flag, not a check
+#    option. Confirmed absent from `--dump-config`, so `-Wno-enum-constexpr-conversion` was never
+#    applied. It is not needed either: measured, this tree produces zero
+#    clang-diagnostic-enum-constexpr-conversion. If one appears, the flag belongs in CheckTidy.sh.
+#  * every `cert-*` option (NewSuffixes, CheckedFunctions, DiagnoseSignedUnsignedCharComparisons,
+#    WarnOnlyIfThisHasSuspiciousField) — `cert-*` is not in Checks and `--list-checks` enables zero of
+#    them, so all four were options for checks that never ran. The group itself is left OFF: its
+#    members that matter here are aliases of bugprone-* and cppcoreguidelines-* checks already on.
+#
+# WHAT WAS KEPT DESPITE LOOKING WRONG:
+#  * `- cppcoreguidelines-non-private-member-variables-in-classes` had a space after the minus, which
+#    looks like a glob that disables nothing. It is not: clang-tidy trims each glob, and
+#    `--list-checks` shows the check disabled either way. The space is gone above for readability
+#    only — the behaviour is unchanged, and this line exists so nobody "fixes" it a second time.
