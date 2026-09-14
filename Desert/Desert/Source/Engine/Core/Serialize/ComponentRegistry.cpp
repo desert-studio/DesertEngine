@@ -9,6 +9,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <cstring>
+#include <optional>
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
@@ -1019,9 +1020,15 @@ namespace Desert::Core::Serialize
                     ism.MeshHandle = Common::UUID( meshHandle );
                 }
 
-                const size_t slotCount = data.MaterialGuids   ? data.MaterialGuids->size()
-                                         : data.MaterialPaths ? data.MaterialPaths->size()
-                                                              : 0;
+                size_t slotCount = 0;
+                if ( data.MaterialGuids )
+                {
+                    slotCount = data.MaterialGuids->size();
+                }
+                else if ( data.MaterialPaths )
+                {
+                    slotCount = data.MaterialPaths->size();
+                }
                 if ( slotCount > 0 )
                 {
                     ism.MaterialSlots.clear();
