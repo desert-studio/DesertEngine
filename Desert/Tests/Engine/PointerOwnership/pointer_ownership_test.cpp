@@ -250,11 +250,20 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   above are answered by the removal itself: nothing is obliged to destroy an object that is never
     //   created. The count is the whole evidence that the members left with the feature rather than being
     //   orphaned inside a class that no longer draws them.
+    //
+    //   824 -> 828 with Г26, and all FOUR are shared members of MeshRenderer: the (Instanced x GBuffer)
+    //   shader, its pipeline, its MaterialPBR and that material's instance. They are the deferred twins
+    //   of the four (Instanced x Forward) members already censused two lines apart in the same class,
+    //   and they exist because the G-buffer pass had no instanced cell at all -- which is why every
+    //   InstancedStaticMesh entity was dropped there in silence. Q1: the shader and the pipeline are
+    //   owned by the shader service and the pipeline cache and merely HELD here, exactly as the forward
+    //   pair is; the material and its instance are created here and outlive nothing. Q2: none is
+    //   deleted by this class; none is raw, so none takes a row in the register.
     EXPECT_EQ( CountOf( Form::Raw ), 354 );
-    EXPECT_EQ( CountOf( Form::Shared ), 321 );
+    EXPECT_EQ( CountOf( Form::Shared ), 325 );
     EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 824 )
+    EXPECT_EQ( (int)Members().size(), 828 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -470,7 +479,9 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // against its render pass, and a GraphicsPipeline by the cache entry and by the specification it was
     // created from -- so they belong on this side of the census rather than being narrowed for tidiness.
     // 326 -> 321 with Г25: the five GPU resources of the procedural grass generator, removed with it.
-    EXPECT_EQ( CountOf( Form::Shared ), 321 );
+    // 321 -> 325 with Г26: the (Instanced x GBuffer) shader, pipeline, material and material instance --
+    // the deferred twins of the forward instanced four that were already on this side.
+    EXPECT_EQ( CountOf( Form::Shared ), 325 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

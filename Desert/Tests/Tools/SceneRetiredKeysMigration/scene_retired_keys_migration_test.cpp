@@ -313,6 +313,17 @@ TEST( SceneRetiredKeysMigration, ASceneWithNoSettingsBlockGetsTheCanonicalOne )
 // the newest step, which is the only suite that can hold it without going red the day the next one lands.
 // What stays here is this step's own generation and its place above its predecessor: those are facts
 // about the machine-quality retirement and they do not move.
+// THE HEAD ASSERTION, which travels with the NEWEST step and arrived here with Г26's v19. If a step is
+// ever added to Tools/SceneMigrator without raising Core::kSceneVersion, the tool stamps files at a
+// generation the loader refuses and every scene in the repository stops opening at once — and the file
+// that caused it looks correct in isolation. Move this test to the next step's suite when one lands;
+// leaving it behind is what makes the suite that did nothing wrong go red.
+TEST( SceneRetiredKeysMigration, TheNewestStepIsTheGenerationTheEngineRequires )
+{
+    EXPECT_EQ( Migration::kSceneVersionWindRetired, Core::kSceneVersion );
+    EXPECT_GT( Migration::kSceneVersionWindRetired, Migration::kSceneVersionGrassGeneration );
+}
+
 TEST( SceneRetiredKeysMigration, ThisStepSitsAboveItsPredecessor )
 {
     EXPECT_EQ( 15, Migration::kSceneVersionMachineQuality );
