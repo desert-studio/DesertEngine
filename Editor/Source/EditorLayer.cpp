@@ -345,6 +345,13 @@ namespace Desert::Editor
         // hero clouds above: a layout names nothing and is named only by a material.
         m_StartupStages.push_back(
              { "Preloading painted layouts...", [this] { m_AssetPreloader->PreloadCloudLayouts(); } } );
+        // THE SAME LINE THE PAINTED LAYOUT SPENT ITS WHOLE LIFE WITHOUT — added WITH the feature this
+        // time, and for exactly the failure the comment above records: a scene naming a theme the scan
+        // never ran would log "referenced but not registered" and draw every element's own colours, which
+        // looks precisely like a theme system that does not work. Order-free: a theme names only font
+        // paths, which FontService registers on demand, and nothing else names a theme.
+        m_StartupStages.push_back(
+             { "Preloading UI themes...", [this] { m_AssetPreloader->PreloadUIThemes(); } } );
 
         // WHAT THIS MACHINE CAN AFFORD — a different file from editor.json and deliberately so (К3).
         // editor.json is one person's copy of the EDITOR and the packaged game never opens it, while every

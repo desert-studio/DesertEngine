@@ -58,6 +58,9 @@ namespace Desert::Runtime
         // And the same again for a sculpted body: the renderer resolves it by handle every frame, so a
         // re-upload is the whole of the reload.
         void PollCloudModellingVolumes( Assets::AssetManager& assetManager );
+        // And the same again for a UI theme: the canvas walk asks UIThemeService for it by handle every
+        // frame, so re-registering the flattened table IS the whole of the reload — no scene to refresh.
+        void PollUIThemes( Assets::AssetManager& assetManager );
 
         // Records @p path's mtime and reports whether it MOVED since the last poll. A file seen for the
         // first time returns false: the first sighting is a baseline, not an edit.

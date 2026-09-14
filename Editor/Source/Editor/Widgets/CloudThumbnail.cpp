@@ -6,6 +6,7 @@
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
+#include <Engine/Assets/UIThemeData.hpp>
 #include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -451,6 +452,70 @@ namespace Desert::Editor::CloudThumbnail
             }
             return Common::MakeSuccess( std::move( out ) );
         }
+
+        // ------------------------------------------------------------------------------------------
+        // `.detheme` — the palette, which is what a theme IS
+        // ------------------------------------------------------------------------------------------
+        //
+        // NOT A CLOUD, AND THIS FILE'S NAME NO LONGER DESCRIBES IT. What every producer here has in
+        // common is the property the file's own header argues for — the picture is COMPUTED ON THE CPU
+        // from the asset's own bytes, with no device and no renderer slot — and a theme has exactly that
+        // property for a better reason than any cloud format: a theme's picture is its colours, and its
+        // colours are literally the file's contents. Renaming this translation unit to match (it is
+        // `CpuThumbnail`, not `CloudThumbnail`) is a rename across ThumbnailService and two suites, and
+        // is named as debt rather than done here.
+        //
+        // WHY A STRIP AND NOT A SWATCH GRID. A theme has tens of tokens and a 64-pixel tile has room for
+        // about eight distinguishable bands, so a grid of every token would be a mosaic nobody can read.
+        // The strip takes the palette IN FILE ORDER, which is the order a theme author writes it in and
+        // therefore the order in which the load-bearing colours come first — a surface, then an accent.
+        Common::ResultStr<std::vector<unsigned char>> PaintUITheme( const std::vector<unsigned char>& bytes )
+        {
+            auto parsed = Assets::ParseUITheme( std::string( bytes.begin(), bytes.end() ) );
+            if ( !parsed )
+                return Common::MakeFormattedError<std::vector<unsigned char>>( "{}", parsed.GetError() );
+
+            const Assets::UIThemeData theme = parsed.ExtractValue();
+            if ( theme.Colors.empty() )
+                return Common::MakeFormattedError<std::vector<unsigned char>>(
+                     "the theme declares no colours at all, so its picture would be an empty square — "
+                     "indistinguishable from a producer that failed, which is the one thing a thumbnail "
+                     "must never be" );
+
+            std::vector<unsigned char> out = Backdrop();
+
+            // A margin, so the tile reads as a swatch card rather than as a full-bleed colour — the
+            // backdrop is what makes a grid of themes look like one family of assets.
+            constexpr uint32_t kMargin = kSide / 10u;
+            const uint32_t     top     = kMargin;
+            const uint32_t     bottom  = kSide - kMargin;
+            const uint32_t     left    = kMargin;
+            const uint32_t     right   = kSide - kMargin;
+
+            const std::size_t bands = std::min<std::size_t>( theme.Colors.size(), 8u );
+            const float       bandH = static_cast<float>( bottom - top ) / static_cast<float>( bands );
+
+            for ( std::size_t b = 0; b < bands; ++b )
+            {
+                const glm::vec3 c = theme.Colors[b].Value;
+                // The palette is LINEAR, as every colour field in this engine is, and a thumbnail is
+                // shown in sRGB. Without the encode a dark surface and a slightly darker one are two
+                // indistinguishable near-blacks — the exact failure the flat-square assertion exists for.
+                const auto Encode = []( float v )
+                {
+                    const float clamped = std::clamp( v, 0.0f, 1.0f );
+                    return 255.0f * std::pow( clamped, 1.0f / 2.2f );
+                };
+
+                const uint32_t y0 = top + static_cast<uint32_t>( static_cast<float>( b ) * bandH );
+                const uint32_t y1 = top + static_cast<uint32_t>( static_cast<float>( b + 1 ) * bandH );
+                for ( uint32_t y = y0; y < y1 && y < bottom; ++y )
+                    for ( uint32_t x = left; x < right; ++x )
+                        PutPixel( out, x, y, Encode( c.r ), Encode( c.g ), Encode( c.b ) );
+            }
+
+            return Common::MakeSuccess( std::move( out ) );
+        }
     } // namespace
 
     Common::ResultStr<std::vector<unsigned char>> Paint( const std::string& assetPath )
@@ -476,6 +541,8 @@ namespace Desert::Editor::CloudThumbnail
             return PaintModellingVolume( payload );
         if ( ext == "decloudtype" )
             return PaintCloudType( payload );
+        if ( ext == "detheme" )
+            return PaintUITheme( payload );
 
         return Common::MakeFormattedError<std::vector<unsigned char>>(
              "'{}' has extension '{}', which no CPU thumbnail producer claims. If the Content Browser "

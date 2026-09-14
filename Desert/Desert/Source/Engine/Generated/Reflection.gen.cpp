@@ -339,6 +339,14 @@ namespace
                     .Register();
             }
             {
+                using T = ::Desert::ECS::UIStyleData;
+                TypeBuilder( "UIStyleData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "Source", .Type = FieldType::Enum, .Offset = offsetof( T, Source ), .Size = sizeof( T::Source ), .TypeName = "UIStyleSource", .Meta = PropertyMetadata{ .DisplayName = "Source", .Category = "UI Style", .Tooltip = "Theme: bound slots come from the canvas's theme, the rest from this element. Local: every slot is this element's own value.", }, .EnumValues = { EnumValue{ "Theme", 0 }, EnumValue{ "Local", 1 }, } } )
+                    .Field( FieldInfo{ .Name = "Style", .Type = FieldType::String, .Offset = offsetof( T, Style ), .Size = sizeof( T::Style ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Style", .Category = "UI Style", .Tooltip = "A style declared by the canvas's theme, e.g. \"Default\" or \"Primary\".", } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
                 using T = ::Desert::ECS::UICanvasData;
                 TypeBuilder( "UICanvasData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "ScaleMode", .Type = FieldType::Enum, .Offset = offsetof( T, ScaleMode ), .Size = sizeof( T::ScaleMode ), .TypeName = "UICanvasScaleMode", .Meta = PropertyMetadata{ .DisplayName = "Scale Mode", .Category = "UI Canvas", }, .EnumValues = { EnumValue{ "Stretch", 0 }, EnumValue{ "ScaleWithScreen", 1 }, EnumValue{ "Letterbox", 2 }, } } )
@@ -351,6 +359,9 @@ namespace
                     .Field( FieldInfo{ .Name = "Visible", .Type = FieldType::Bool, .Offset = offsetof( T, Visible ), .Size = sizeof( T::Visible ), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Visible", .Category = "UI Canvas", } } )
                     .Field( FieldInfo{ .Name = "SortOrder", .Type = FieldType::Int, .Offset = offsetof( T, SortOrder ), .Size = sizeof( T::SortOrder ), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Sort Order", .Category = "UI Canvas", } } )
                     .Field( FieldInfo{ .Name = "SafeArea", .Type = FieldType::Vec4, .Offset = offsetof( T, SafeArea ), .Size = sizeof( T::SafeArea ), .TypeName = "glm::vec4", .Meta = PropertyMetadata{ .DisplayName = "Safe Area L/T/R/B", .Category = "UI Canvas", } } )
+                    .Field( FieldInfo{ .Name = "Theme", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Theme ), .Size = sizeof( T::Theme ), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Theme", .Category = "UI Theme", .IsAsset = true, .AssetType = "UIThemeAsset", } } )
+                    .Field( FieldInfo{ .Name = "FontScale", .Type = FieldType::Float, .Offset = offsetof( T, FontScale ), .Size = sizeof( T::FontScale ), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Font Scale", .Category = "UI Theme", .HasRange = true, .RangeMin = 0.5f, .RangeMax = 3.0f, } } )
+                    .Field( FieldInfo{ .Name = "HighContrast", .Type = FieldType::Bool, .Offset = offsetof( T, HighContrast ), .Size = sizeof( T::HighContrast ), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "High Contrast", .Category = "UI Theme", } } )
                     .WithDefault<T>()
                     .Register();
             }

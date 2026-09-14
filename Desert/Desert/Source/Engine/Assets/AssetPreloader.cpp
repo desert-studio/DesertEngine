@@ -13,6 +13,7 @@
 #include "CloudTypeAsset.hpp"
 #include "CloudModellingVolumeAsset.hpp"
 #include "CloudLayoutAsset.hpp"
+#include "UIThemeAsset.hpp"
 
 namespace Desert::Assets
 {
@@ -34,6 +35,7 @@ namespace Desert::Assets
     constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_TYPE_EXTENSIONS   = { ".decloudtype" };
     constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_BODY_EXTENSIONS   = { ".dcmv" };
     constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_LAYOUT_EXTENSIONS = { ".dclayout" };
+    constexpr std::array<std::string_view, 1> SUPPORTED_UI_THEME_EXTENSIONS     = { ".detheme" };
 
     AssetPreloader::AssetPreloader( const std::shared_ptr<AssetManager>& assetManager,
                                     Animation::AnimationLibrary&         animationLibrary )
@@ -296,6 +298,27 @@ namespace Desert::Assets
                 if ( const auto result = service->Register( typeAsset ); !result )
                     LOG_ERROR( "[Clouds] Cloud type '{}' could not be registered: {}",
                                typeAsset->GetMetadata().Filepath.string(), result.GetError() );
+            }
+        }
+    }
+
+    void AssetPreloader::PreloadUIThemes()
+    {
+        // Loaded eagerly for the same reason a cloud type is: a theme is a few kilobytes of JSON, the
+        // first frame of a themed canvas needs its numbers, and a canvas that names one must find it
+        // already there rather than draw its elements' own colours for the first second of every session
+        // — which would look exactly like a theme that does not work.
+        ProcessAssetFiles<UIThemeAsset>( Common::Constants::Path::UI_THEME_PATH, SUPPORTED_UI_THEME_EXTENSIONS,
+                                         m_AssetManager, AssetPriority::Medium );
+
+        if ( auto manager = m_AssetManager.lock() )
+        {
+            auto* service = Runtime::ResourceRegistry::GetUIThemeService();
+            for ( const auto& [handle, themeAsset] : manager->FindAllByType<Assets::UIThemeAsset>() )
+            {
+                if ( const auto result = service->Register( themeAsset ); !result )
+                    LOG_ERROR( "[UI] Theme '{}' could not be registered: {}",
+                               themeAsset->GetMetadata().Filepath.string(), result.GetError() );
             }
         }
     }

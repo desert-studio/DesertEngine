@@ -549,6 +549,45 @@ namespace Desert::Tests::PointerCensus
           "below it: the panel prints it as an address so an author can tell two material batches apart, "
           "nothing dereferences it, and UIFrameProbe::Reset drops the whole list at the start of every "
           "capture so the value never outlives the frame it came from" },
+        // FOUND BY Ю13 AND NOT BY Ю13'S CODE. This member is a raw pointer and has been one all along;
+        // the scan called it a `shared_ptr` because `Assets::Asset` is an alias for one and the alias was
+        // matched against the whole declaration, MEMBER NAME INCLUDED — so a member literally named
+        // `Asset` answered to it. The scan looks at the TYPE now (pointer_ownership_scan.hpp), which is
+        // what made this row necessary: a genuine raw pointer had been sitting on the shared side of an
+        // ownership census, never asked either question.
+        { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp",
+          "SlotRow", "Asset", Guard::CallScoped,
+          "an argument pack. DrawElementRows builds a SlotRow from a `shared_ptr` LOCAL it is still "
+          "holding, hands it to DrawSlotRow and lets both die at the end of that iteration; the co-owner "
+          "is alive for the whole of the call, so the pointee cannot be freed inside it. Null is legal and "
+          "means the element has no material of its own, which the row draws as 'Engine default material'" },
+
+        // Ю13's three. All of them point INTO THE SERVICE'S OWN CACHE, which is a function-local static
+        // reached through ResourceRegistry — i.e. an object with static storage duration that the whole
+        // process outlives, released only by ResourceRegistry::ClearAll from Renderer::Shutdown, inside
+        // main. They are re-derived at the top of EVERY canvas walk from the canvas's handle, so a theme
+        // that was hot-reloaded, evicted or repointed between two frames is never seen through a stale
+        // pointer: the walk asks the service again rather than remembering the answer.
+        { "Desert/Desert/Source/Engine/UI/UIStyleResolver.hpp",
+          "ElementStyle", "m_Theme", Guard::ReboundBeforeEveryUse,
+          "the flattened theme this element resolves through, owned by Runtime::UIThemeService (a "
+          "function-local static released by ResourceRegistry::ClearAll inside main). An ElementStyle is "
+          "built per element per frame from CanvasStyle, which is itself rebuilt at the top of every "
+          "RenderCanvas2D from the canvas's own handle, so the pointer is at most one walk old and cannot "
+          "name an entry a hot reload replaced. Null is a legal value and means 'this canvas has no "
+          "theme', which every query answers by returning the element's own authored value" },
+        { "Desert/Desert/Source/Engine/UI/UIStyleResolver.hpp",
+          "ElementStyle", "m_Table", Guard::ObservedContainsUs,
+          "the style's per-slot binding table, a value MEMBER of the UIThemeRuntime m_Theme points at — "
+          "so it lives exactly as long as that entry does and the two cannot disagree about lifetime. "
+          "Null means the theme declares no style of that name, which the walk reports once and answers "
+          "by falling back to the element's own authored values" },
+        { "Desert/Desert/Source/Engine/UI/UIStyleResolver.hpp",
+          "CanvasStyle", "m_Theme", Guard::ReboundBeforeEveryUse,
+          "the same service-owned entry as ElementStyle::m_Theme above, held for the length of ONE canvas "
+          "walk: RenderCanvas2D constructs a CanvasStyle from UIThemeService::Get at the top of the walk "
+          "and the object dies with the walk, which is what makes a theme switch reach the very next "
+          "frame without any invalidation to remember" },
         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
           "UIViewContext", "Materials", Guard::ObservedContainsUs,
           "where this view's UI materials come from, as an IUIMaterialSource. The one implementation is "

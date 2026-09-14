@@ -9,6 +9,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
+#include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Graphic/Texture.hpp>
@@ -853,6 +854,96 @@ namespace Desert::Editor
                 // Shown by FILE NAME, unlike the type above: a `.dcmv` has no display-name field, because
                 // it is a shape rather than a named kind of weather, and the file name is what the artist
                 // gave it in the Content Browser.
+                if ( field.Meta.AssetType == "UIThemeAsset" )
+                {
+                    uint64_t* themeHandle = static_cast<uint64_t*>( p );
+
+                    // "None" IS A MEANINGFUL STATE AND SAYS SO. A canvas with no theme is not broken: every
+                    // element draws the colours its author typed, which is what every scene authored before
+                    // themes existed does. The preview distinguishes that from a handle whose file the asset
+                    // scan did not find, because those two look identical on screen.
+                    std::string preview = "None (elements use their own colours)";
+                    if ( *themeHandle != 0 )
+                    {
+                        preview = "(missing)";
+                        if ( assetMgr )
+                        {
+                            if ( auto theme = assetMgr->FindByHandle<Assets::UIThemeAsset>(
+                                      Common::UUID( *themeHandle ) ) )
+                                preview = theme->GetDisplayName();
+                        }
+                    }
+
+                    ImGui::SetNextItemWidth( -1.0f );
+                    if ( ImGui::BeginCombo( "##uitheme", preview.c_str() ) )
+                    {
+                        if ( ImGui::Selectable( "None (elements use their own colours)", *themeHandle == 0 ) )
+                        {
+                            *themeHandle = 0;
+                            changed      = true;
+                        }
+                        if ( assetMgr )
+                        {
+                            for ( const auto& [h, theme] : assetMgr->FindAllByType<Assets::UIThemeAsset>() )
+                            {
+                                const bool selected = ( static_cast<uint64_t>( h ) == *themeHandle );
+                                if ( ImGui::Selectable( theme->GetDisplayName().c_str(), selected ) )
+                                {
+                                    *themeHandle = static_cast<uint64_t>( h );
+                                    changed      = true;
+                                }
+                                if ( selected )
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    if ( ImGui::BeginDragDropTarget() )
+                    {
+                        if ( const ImGuiPayload* pl =
+                                  ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                        {
+                            const std::string path( static_cast<const char*>( pl->Data ),
+                                                    pl->DataSize > 0 ? pl->DataSize - 1 : 0 );
+                            // The extension is checked HERE because the Content Browser emits one generic
+                            // AssetFile payload for every type it has no icon for. Without the check this
+                            // slot would accept a dropped .demat and bind a handle to a file that can never
+                            // parse as a theme.
+                            if ( assetMgr && !path.empty() &&
+                                 std::filesystem::path( path ).extension() == Assets::kUIThemeExtension )
+                            {
+                                auto& mutableManager = const_cast<Assets::AssetManager&>( *assetMgr );
+                                auto  theme          = mutableManager.FindByPath<Assets::UIThemeAsset>( path );
+                                if ( !theme )
+                                    theme = mutableManager.CreateAsset<Assets::UIThemeAsset>(
+                                         Assets::AssetPriority::Medium, path );
+                                if ( theme && theme->IsReadyForUse() )
+                                {
+                                    // Registered on the spot: a theme dropped from outside the shipped
+                                    // library is never scanned by the preloader, and without this the
+                                    // canvas would hold a handle the service has never heard of — a slot
+                                    // that names a theme and draws none.
+                                    if ( const auto registered =
+                                              Runtime::ResourceRegistry::GetUIThemeService()->Register( theme );
+                                         !registered )
+                                        LOG_ERROR( "[UI] Dropped theme '{}' could not be registered: {}", path,
+                                                   registered.GetError() );
+
+                                    *themeHandle = static_cast<uint64_t>( theme->GetMetadata().Handle );
+                                    changed      = true;
+                                }
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if ( ImGui::IsItemHovered() )
+                        ImGui::SetTooltip( "Pick a theme or drag a .detheme here. \"None\" means every "
+                                           "element of this canvas draws its own authored colours — which "
+                                           "is not a failure, it is how a canvas behaves with no theme." );
+                    break;
+                }
+
                 if ( field.Meta.AssetType == "CloudModellingVolumeAsset" )
                 {
                     uint64_t* volumeHandle = static_cast<uint64_t*>( p );

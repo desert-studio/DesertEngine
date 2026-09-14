@@ -926,6 +926,51 @@ namespace Desert::ECS
         UIDropdownData Data;
     };
 
+    // ------------------------------------------------------------------------------------------------
+    // WHERE AN ELEMENT'S COLOURS, FONTS AND SPACINGS COME FROM (Ю13)
+    //
+    // The canvas names a theme; this component names which STYLE of that theme this element resolves
+    // through. An element with no UIStyleComponent uses the theme's "Default" style — theming must not
+    // require an edit of every entity, which is the thing themes exist to avoid.
+    //
+    // THE PRECEDENCE IS NOT A RULE, IT IS A TABLE. A style binds some slots and not others; a bound slot
+    // comes from the theme, an unbound one from the element's own authored field. There is never a moment
+    // when both apply, so nothing can quietly beat anything — and the Details "UI Style" block prints the
+    // source of every slot, so an author can see which of the two a colour came from without guessing.
+    // ------------------------------------------------------------------------------------------------
+
+    // Does this element resolve through the canvas's theme at all?
+    //
+    // WHY AN ENUM AND NOT A RESERVED STYLE NAME like "None": a magic string is exactly the silent
+    // convention this decision is trying to avoid, and it cannot be seen in the Details panel. Both
+    // values are read by UICanvasRenderer2D.cpp.
+    enum class UIStyleSource
+    {
+        Theme, // resolve bound slots from the canvas's theme; unbound ones stay local
+        Local  // ignore the theme entirely — every slot is this element's own authored field
+    };
+
+    struct UIStyleData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Source" ), Category( "UI Style" ),
+                  Tooltip( "Theme: bound slots come from the canvas's theme, the rest from this element. "
+                           "Local: every slot is this element's own value." ) )
+        UIStyleSource Source = UIStyleSource::Theme;
+
+        // The style's name inside the theme. A name the theme does not declare is REPORTED with the
+        // element's tag and this name (once per canvas), and the element falls back to fully local — the
+        // values its author actually typed — rather than to an invented default or to nothing drawn.
+        PROPERTY( DisplayName( "Style" ), Category( "UI Style" ),
+                  Tooltip( "A style declared by the canvas's theme, e.g. \"Default\" or \"Primary\"." ) )
+        std::string Style = "Default";
+    };
+    struct UIStyleComponent
+    {
+        UIStyleData Data;
+    };
+
     // Root of a screen-space UI tree. Child entities with a UILayout are laid out against this canvas. Add UI
     // elements as CHILDREN of the canvas entity (the viewport "UI" menu / UI Editor do this for you).
     struct UICanvasData
@@ -982,6 +1027,41 @@ namespace Desert::ECS
         // mobile notches / rounded corners. On desktop set manually to preview a device; 0 = full canvas.
         PROPERTY( DisplayName( "Safe Area L/T/R/B" ), Category( "UI Canvas" ) )
         glm::vec4 SafeArea = glm::vec4( 0.0f );
+
+        // --- Theme (Ю13) --------------------------------------------------------------------------------
+        //
+        // WHY THE THEME HANGS OFF THE CANVAS. A canvas is the root of one UI tree, and Ю4 already keyed
+        // every piece of walk state by (canvas x view) precisely because a value owned by the PROCESS
+        // cannot express two canvases or two viewports. A theme in a global would bring that back in the
+        // place an author notices first: a HUD and a menu overlay in one scene could not have two looks,
+        // and the UI Editor's preview could not show a theme the viewport is not on.
+        //
+        // WHY NOT PER ELEMENT. An element picks a STYLE (UIStyleComponent), which is a role INSIDE a
+        // theme. Two themes inside one canvas is two palettes fighting on one screen, and the ancestor
+        // walk it would cost is paid per element per frame for a capability a second canvas already
+        // expresses — UICanvas has a Sort Order for exactly that.
+        //
+        // Empty is not an error and is the state of every scene authored before themes existed: each
+        // element then draws the colours its author typed into it. Read by UICanvasRenderer2D.cpp.
+        PROPERTY( DisplayName( "Theme" ), Category( "UI Theme" ), Asset<UIThemeAsset> )
+        Assets::AssetHandle Theme;
+
+        // ACCESSIBILITY, AND IT IS LIVE WITH OR WITHOUT A THEME. Multiplies every font size this canvas
+        // draws at — the theme's, the element's own, and the auto-size floor — so raising it is one field
+        // rather than an edit of every UIText in the scene. It is here and not in the theme because it is
+        // the PLAYER's preference applied on top of whatever look the designer authored; a theme that
+        // carried its own type scale would make "larger text" mean "a different theme".
+        PROPERTY( DisplayName( "Font Scale" ), Category( "UI Theme" ), Range( 0.5f, 3.0f ) )
+        float FontScale = 1.0f;
+
+        // The other half of the accessibility pair: while this is on, a colour token the theme declares a
+        // high-contrast value for resolves to that value instead. A theme that declares none is simply
+        // unaffected, and a canvas with no theme is unaffected too — this switches a PALETTE, it does not
+        // apply an algorithm to arbitrary colours, which is why it can never make a designed screen look
+        // like something nobody drew. See Engine/Assets/UIThemeData.hpp for why the override table is
+        // sparse rather than a second theme file.
+        PROPERTY( DisplayName( "High Contrast" ), Category( "UI Theme" ) )
+        bool HighContrast = false;
     };
     struct UICanvasComponent
     {

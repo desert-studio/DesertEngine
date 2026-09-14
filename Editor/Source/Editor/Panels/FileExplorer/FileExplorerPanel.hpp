@@ -69,7 +69,13 @@ namespace Desert::Editor
         /// THEY WERE `Unknown` UNTIL M11, which is why the owner could not pick a cloud by looking: an
         /// unknown type gets the generic document glyph, so four different assets drew one identical
         /// grey square and the browser's own type filter could not name them.
-        Cloud
+        Cloud,
+
+        /// A UI theme (`.detheme`) — named colours, metrics and fonts plus the styles that bind them.
+        /// Its OWN type rather than sharing one: it has no producer in common with anything above (a
+        /// theme is not painted from bytes the way a cloud is), and the browser's type filter has to be
+        /// able to name it, which is the whole reason the cloud formats stopped being `Unknown`.
+        UITheme
     };
 
     struct DirectoryInformation

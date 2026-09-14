@@ -22,6 +22,9 @@
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
+#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
+#include <Engine/UI/UICanvasLayout.hpp>
+#include <Engine/UI/UIStyleResolver.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -931,6 +934,169 @@ namespace Desert::Editor
     }
 
     // UI Canvas: the reflected fields, plus the way into the window that authors this canvas.
+    // ── UI STYLE ────────────────────────────────────────────────────────────────────────────────────
+    //
+    // WHY THIS IS A CUSTOM ENTRY AND NOT THE REFLECTED ONE-LINER. The two fields are the easy half; the
+    // half that had to exist is the TABLE UNDER THEM, which says, slot by slot, WHERE the value the
+    // element is drawn with came from — the theme (and through which token) or the element's own field.
+    //
+    // That table is the answer to "a colour set on the element and a colour set by the theme: who wins,
+    // and can a person see it". The honest answer is that neither wins, because a slot has exactly one
+    // source; but an answer nobody can see is indistinguishable from the silent one. This is where it is
+    // seen. The engine's recurring defect is precisely two plausible values with no way to tell which
+    // one reached the screen, and a table that prints the source per slot is the cheapest possible cure.
+    static ComponentEditorEntry MakeUIStyleEntry()
+    {
+        using C = ::Desert::ECS::UIStyleComponent;
+        ComponentEditorEntry e;
+        e.Name              = "UI Style";
+        e.CanRemove         = true;
+        e.ReflectedTypeName = "UIStyleData";
+        e.Has               = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
+        e.Add               = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
+        e.Remove            = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
+        e.DataPtr           = []( ::Desert::ECS::Entity& en ) -> void* { return &en.GetComponent<C>().Data; };
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
+        {
+            auto& c = en.GetComponent<C>();
+            PropertyEditorBuilder::Draw( &c.Data, "UIStyleData", ctx.AssetMgr(), ctx.UIHelper, ctx.FieldFilter );
+
+            if ( ctx.FieldFilter )
+                return; // while searching, only the matched fields are on screen
+
+            entt::registry* reg = en.GetRegistry();
+            if ( reg == nullptr )
+                return;
+
+            // The theme is the CANVAS's, found from this element the only way the engine allows — by its
+            // canvas ancestor. An element outside a canvas has no theme and the panel says so rather than
+            // drawing an empty table, because "no theme" and "a theme that binds nothing" look identical.
+            const entt::entity canvas = ::Desert::UI::CanvasOf( *reg, en.GetHandle() );
+            const auto*        theme = canvas != entt::null && reg->has<::Desert::ECS::UICanvasComponent>( canvas )
+                                            ? ::Desert::Runtime::ResourceRegistry::GetUIThemeService()->Get(
+                                            reg->get<::Desert::ECS::UICanvasComponent>( canvas ).Data.Theme )
+                                            : nullptr;
+
+            ImGui::Spacing();
+            if ( theme == nullptr )
+            {
+                ImGui::TextDisabled( "This element's canvas has no theme, so every slot below is this "
+                                     "element's own value." );
+                return;
+            }
+
+            bool                             unknown = false;
+            const ::Desert::UI::CanvasStyle  canvasStyle( theme, 1.0f, false );
+            const ::Desert::UI::ElementStyle style = canvasStyle.For( c.Data.Style, unknown );
+
+            if ( unknown )
+            {
+                ImGui::TextColored( ThemeManager::GetErrorColor(), "%s",
+                                    ( "The theme \"" + theme->Name + "\" declares no style \"" + c.Data.Style +
+                                      "\" — every slot below is local." )
+                                         .c_str() );
+                return;
+            }
+            if ( c.Data.Source == ::Desert::ECS::UIStyleSource::Local )
+            {
+                ImGui::TextDisabled( "Source is Local, so the theme is not consulted: every slot below is "
+                                     "this element\'s own value." );
+            }
+
+            // WHICH SLOTS ARE THIS ELEMENT'S. The register names slots "<Element>.<Slot>"; the rows below
+            // pair a prefix with the component that draws it, so a panel sees the panel's slots and an
+            // element that is both a panel and a text block sees both sets. A prefix with no row here
+            // simply does not appear — which is a row missing from a TABLE OF WHAT TO SHOW, not a slot
+            // going unread; Desert/Tests/Engine/UIStyle is what guards the second thing.
+            const auto ElementHasPrefix = [&en]( std::string_view prefix )
+            {
+                using namespace ::Desert::ECS;
+                if ( prefix == "Panel" )
+                    return en.HasComponent<UIPanelComponent>();
+                if ( prefix == "Button" )
+                    return en.HasComponent<UIButtonComponent>();
+                if ( prefix == "Text" )
+                    return en.HasComponent<UITextComponent2D>();
+                if ( prefix == "Icon" )
+                    return en.HasComponent<UIIconComponent>();
+                if ( prefix == "Image" )
+                    return en.HasComponent<UIImageComponent>();
+                if ( prefix == "Progress" )
+                    return en.HasComponent<UIProgressBarComponent>();
+                if ( prefix == "Toggle" )
+                    return en.HasComponent<UIToggleComponent>();
+                if ( prefix == "Slider" )
+                    return en.HasComponent<UISliderComponent>();
+                if ( prefix == "ScrollView" )
+                    return en.HasComponent<UIScrollViewComponent>();
+                if ( prefix == "Input" )
+                    return en.HasComponent<UIInputFieldComponent>();
+                if ( prefix == "Dropdown" )
+                    return en.HasComponent<UIDropdownComponent>();
+                if ( prefix == "DropTarget" )
+                    return en.HasComponent<UIDropTargetComponent>();
+                if ( prefix == "LayoutGroup" )
+                    return en.HasComponent<UILayoutGroupComponent>();
+                return false;
+            };
+
+            if ( !ImGui::BeginTable( "##uistyleslots", 3,
+                                     ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+                return;
+
+            ImGui::TableSetupColumn( "Slot" );
+            ImGui::TableSetupColumn( "Source" );
+            ImGui::TableSetupColumn( "Value" );
+            ImGui::TableHeadersRow();
+
+            for ( std::size_t i = 0; i < ::Desert::UI::kStyleSlotCount; ++i )
+            {
+                const auto             slot = static_cast<::Desert::UI::StyleSlot>( i );
+                const std::string_view name = ::Desert::UI::StyleSlotName( slot );
+                const std::string_view prefix( name.data(), name.find( '.' ) );
+                if ( !ElementHasPrefix( prefix ) )
+                    continue;
+
+                const bool themed = c.Data.Source == ::Desert::ECS::UIStyleSource::Theme && style.IsThemed( slot );
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted( name.data(), name.data() + name.size() );
+
+                ImGui::TableNextColumn();
+                if ( themed )
+                    ImGui::TextColored( ThemeManager::GetHighlightColor(), "Theme" );
+                else
+                    ImGui::TextDisabled( "Local" );
+
+                ImGui::TableNextColumn();
+                switch ( ::Desert::UI::StyleSlotKindOf( slot ) )
+                {
+                    case ::Desert::UI::StyleSlotKind::Color:
+                    {
+                        const glm::vec3 v = style.Color( slot, glm::vec3( 0.5f ) );
+                        ImGui::ColorButton( name.data(), ImVec4( v.r, v.g, v.b, 1.0f ),
+                                            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker,
+                                            ImVec2( 40.0f, 0.0f ) );
+                        break;
+                    }
+                    case ::Desert::UI::StyleSlotKind::Metric:
+                        ImGui::Text( "%.1f px", style.Metric( slot, 0.0f ) );
+                        break;
+                    case ::Desert::UI::StyleSlotKind::Font:
+                        ImGui::Text( "%.1f px", style.FontSize( slot, 0.0f ) );
+                        break;
+                }
+            }
+            ImGui::EndTable();
+
+            ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                 "A slot the style binds comes from the theme; every other slot is this element's own "
+                 "field. Nothing overrides anything — a slot has exactly one source, and this is it." );
+        };
+        return e;
+    }
+
     static ComponentEditorEntry MakeUICanvasEntry()
     {
         using C = ::Desert::ECS::UICanvasComponent;
@@ -1553,6 +1719,8 @@ namespace
 
     const int _desert_uicanvas_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeUICanvasEntry() );
+    const int _desert_uistyle_component_reg =
+         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeUIStyleEntry() );
     const int _desert_uilayout_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeUILayoutEntry() );
 

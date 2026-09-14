@@ -137,6 +137,11 @@ namespace Desert::Editor::ThumbnailFormats
          { "dcmv", Producer::Painted,
            "the sculpted body seen from the side: the maximum density along the view axis through the "
            "stored voxels, which is the silhouette of the hero cloud itself" },
+         { "detheme", Producer::Painted,
+           "the theme's palette, in file order: the first eight colour tokens as horizontal bands on the "
+           "family backdrop. A theme IS its colours, so this is not a chart about the file — it is the "
+           "file. Eight because a 64-pixel tile holds about that many distinguishable bands, and because "
+           "an author writes the load-bearing tokens first (a surface, then an accent)" },
          { "decloudtype", Producer::Painted,
            "the species' own silhouette, drawn from the sampled vertical profile the file stores: "
            "half-width against height, mirrored about the centre. It is the shape this type makes, not a "

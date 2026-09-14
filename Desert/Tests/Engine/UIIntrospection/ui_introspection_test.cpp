@@ -65,6 +65,14 @@ namespace Desert::Runtime
     {
         return nullptr;
     }
+    // Ю13's theme service. Absent like the rest, which is a MEANINGFUL state and not a hole: a canvas
+    // with no theme service behind it resolves every slot from the elements' own authored fields, which
+    // is exactly what a canvas with no theme does and what every scene authored before themes existed
+    // does. The walk copes with the accessor being null and never dereferences it.
+    UIThemeService* ResourceRegistry::GetUIThemeService()
+    {
+        return nullptr;
+    }
     IconService* ResourceRegistry::GetIconService()
     {
         return nullptr;
@@ -104,6 +112,11 @@ namespace Desert::Runtime
     Graphic::Image2D* VideoService::Resolve( uint64_t )
     {
         ADD_FAILURE() << "VideoService::Resolve reached with no video service";
+        return nullptr;
+    }
+    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
+    {
+        ADD_FAILURE() << "UIThemeService::Get reached with no theme service";
         return nullptr;
     }
     Font* FontService::Get( uint64_t, float )

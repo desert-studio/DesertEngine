@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "desert-editor": {
+      "command": "python3",
+      "args": [
+        "Tools/DesertCtl/mcp/desert_mcp.py",
+        "--socket",
+        "/tmp/desert-editor.sock"
+      ],
+      "env": {
+        "DESERTCTL": "build/Bin/Debug/DesertCtl"
+      }
+    }
+  }
+}

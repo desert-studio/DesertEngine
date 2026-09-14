@@ -92,6 +92,10 @@ namespace
                                  "chrome by the viewport toolbar's UI ▸ Overlay submenu" },
          { "UIOverlayTriggerComponent", "modifier — makes an existing element open an overlay on hover or "
                                         "on a click" },
+         { "UIStyleComponent", "modifier — says which of the canvas theme's styles an existing element "
+                               "resolves through, and whether it consults the theme at all. An element "
+                               "without one already uses the theme's Default style, which is the whole "
+                               "point: theming must not require an edit of every entity" },
     };
 
     // The repository root, found by walking up from wherever the test binary was started — the same approach

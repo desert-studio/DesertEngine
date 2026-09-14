@@ -306,10 +306,36 @@ namespace Desert::Tests::PointerCensus
         using namespace ConsumerText;
 
         const Aliases aliases = DeclaredAliases( root );
-        const auto    names   = [&]( const std::string& decl, const std::vector<std::string>& list )
+
+        // AN ALIAS NAMES A TYPE, SO IT IS LOOKED FOR IN THE TYPE AND NOT IN THE WHOLE DECLARATION.
+        //
+        // Found by Ю13: `std::string Asset;` — a font token's PATH inside a UI theme — was counted as a
+        // `shared_ptr`, because `Assets::Asset` is one of the two aliases declared outside the scanned
+        // trees and the match ran over the declaration's every word, the member's NAME included. Two
+        // members of a plain data struct therefore arrived on the shared side of a census whose whole
+        // subject is ownership, and the count that is supposed to make a silent shift visible moved for a
+        // reason that had nothing to do with ownership at all.
+        //
+        // The member name is the LAST identifier of the declaration (arrays and initialisers are already
+        // cut off above), so dropping it leaves exactly the type. A declaration with one identifier is not
+        // a member declaration and yields an empty type, which matches nothing — the same direction of
+        // failure the scanner already prefers everywhere else.
+        const auto typeOf = []( const std::string& decl )
         {
+            std::size_t end = decl.size();
+            while ( end > 0 && !IsIdentChar( decl[end - 1] ) )
+                --end;
+            std::size_t start = end;
+            while ( start > 0 && IsIdentChar( decl[start - 1] ) )
+                --start;
+            return decl.substr( 0, start );
+        };
+
+        const auto names = [&]( const std::string& decl, const std::vector<std::string>& list )
+        {
+            const std::string type = typeOf( decl );
             for ( const std::string& alias : list )
-                if ( !WordPositions( decl, alias ).empty() )
+                if ( !WordPositions( type, alias ).empty() )
                     return true;
             return false;
         };

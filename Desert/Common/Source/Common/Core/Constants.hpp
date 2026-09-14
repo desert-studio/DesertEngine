@@ -62,6 +62,7 @@ namespace Common::Constants
             CloudType,
             CloudVolume,
             CloudLayout,
+            UITheme,
             Cooked,
             MeshCooked,
             TextureCooked,
@@ -114,6 +115,10 @@ namespace Common::Constants
              /* CloudType     */ { "Clouds/Types/", DirRoot::Assets },
              /* CloudVolume   */ { "Clouds/Volumes/", DirRoot::Assets },
              /* CloudLayout   */ { "Clouds/Layouts/", DirRoot::Assets },
+             // UI themes (`.detheme`) get their own folder under UI/ rather than sitting loose in the
+             // assets root: a theme is scanned separately so no other kind can be offered in a canvas's
+             // theme slot, and UI/ is where the rest of the UI's own content will land.
+             /* UITheme       */ { "UI/Themes/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
              /* MeshCooked    */ { "Meshes/", DirRoot::Cooked },
              /* TextureCooked */ { "Textures/", DirRoot::Cooked },
@@ -329,6 +334,7 @@ namespace Common::Constants
         inline const std::filesystem::path& CLOUD_TYPE_PATH     = Dir( ContentDir::CloudType );
         inline const std::filesystem::path& CLOUD_VOLUME_PATH   = Dir( ContentDir::CloudVolume );
         inline const std::filesystem::path& CLOUD_LAYOUT_PATH   = Dir( ContentDir::CloudLayout );
+        inline const std::filesystem::path& UI_THEME_PATH       = Dir( ContentDir::UITheme );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
         inline const std::filesystem::path& TEXTURE_PATH_COOKED = Dir( ContentDir::TextureCooked );

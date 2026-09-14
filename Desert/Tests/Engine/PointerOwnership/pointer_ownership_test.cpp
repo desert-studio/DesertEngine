@@ -250,15 +250,30 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   above are answered by the removal itself: nothing is obliged to destroy an object that is never
     //   created. The count is the whole evidence that the members left with the feature rather than being
     //   orphaned inside a class that no longer draws them.
-    //   824 -> 825 with Ю12 (UI overlays). ONE raw, and it is a string literal in a constexpr table:
+    //   824 -> ? with Ю12 AND Ю13 together, and the arithmetic is worth writing out because neither
+    //   branch's number survives the merge unchanged.
+    //
+    //   Ю12 (UI overlays) added ONE raw, and it is a string literal in a constexpr table:
     //   CommandLineFlag::AlsoNeeds, the companion flags a flag cannot be given without. Nothing else the
     //   overlay work added is a pointer at all — the overlay state is held by value in the (canvas x view)
     //   cell, and the two new components are plain data.
-    EXPECT_EQ( CountOf( Form::Raw ), 355 );
-    EXPECT_EQ( CountOf( Form::Shared ), 321 );
+    //
+    //   Ю13 (themes) added three raw members (ElementStyle::m_Theme, ElementStyle::m_Table and
+    //   CanvasStyle::m_Theme, all three registered) and ALSO FIXED THE SCAN. `Assets::Asset` is an alias
+    //   for `shared_ptr`, and the alias used to be matched against the whole declaration — so any member
+    //   NAMED `Asset` counted as a shared pointer whatever its type was. Four such members existed; three
+    //   are not pointers at all and leave the census, and the fourth, `SlotRow::Asset`, is a genuine RAW
+    //   pointer that had been sitting on the shared side of an ownership census never being asked either
+    //   question. It now has a register row.
+    //
+    //   THE NUMBERS BELOW WERE READ OFF A RUN, NOT PREDICTED. Both branches predicted their own totals
+    //   correctly in isolation and both are wrong about the merge, which is the whole reason this census
+    //   exists: the prediction is not the evidence, the run is.
+    EXPECT_EQ( CountOf( Form::Raw ), 359 );
+    EXPECT_EQ( CountOf( Form::Shared ), 319 );
     EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 825 )
+    EXPECT_EQ( (int)Members().size(), 827 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -474,7 +489,11 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // against its render pass, and a GraphicsPipeline by the cache entry and by the specification it was
     // created from -- so they belong on this side of the census rather than being narrowed for tidiness.
     // 326 -> 321 with Г25: the five GPU resources of the procedural grass generator, removed with it.
-    EXPECT_EQ( CountOf( Form::Shared ), 321 );
+    // 321 -> 319 with Ю13: NOT a conversion of anything. Two members named `Asset` whose types are a
+    // `std::string` and an `AssetHandle` were being counted here because the alias match ran over the
+    // member's name as well as its type; they are not pointers and never were. See the arithmetic at
+    // TheScanFindsTheCensusedPopulation.
+    EXPECT_EQ( CountOf( Form::Shared ), 319 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

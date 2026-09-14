@@ -22,9 +22,11 @@ namespace Desert::Editor
         // indexed as reference TARGETS, they just contribute no searchable text.
         bool IsTextAsset( const std::string& ext )
         {
-            static const std::vector<std::string> kText = { ".demat",  ".desce", ".deprefab", ".dgraph",
-                                                            ".deproj", ".desky", ".decol",    ".json",
-                                                            ".lua",    ".shader", ".glslh" };
+            // `.detheme` is here because a theme names FONT FILES by path, so "who references this
+            // .ttf" has to be able to answer "the Dark theme does".
+            static const std::vector<std::string> kText = { ".demat",  ".desce",  ".deprefab", ".dgraph",
+                                                            ".deproj", ".desky",  ".decol",    ".json",
+                                                            ".lua",    ".shader", ".glslh",    ".detheme" };
             return std::find( kText.begin(), kText.end(), ext ) != kText.end();
         }
 

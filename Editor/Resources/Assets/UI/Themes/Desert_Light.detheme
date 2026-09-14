@@ -1,0 +1,453 @@
+{
+    "FormatVersion": 1,
+    "DisplayName": "Desert Light",
+    "Notes": "The second look, and the reason the first one exists: the two declare the SAME token names and the SAME style names, so a canvas swaps between them by changing one asset handle and nothing in the scene moves. Radii and spacings are deliberately different from Desert Dark's as well as the colours, so a theme A/B measures the metric path and not only the colour path.",
+    "Colors": [
+        {
+            "Name": "Surface",
+            "Value": [
+                0.94,
+                0.94,
+                0.96
+            ]
+        },
+        {
+            "Name": "SurfaceDeep",
+            "Value": [
+                0.86,
+                0.87,
+                0.9
+            ]
+        },
+        {
+            "Name": "Field",
+            "Value": [
+                0.99,
+                0.99,
+                1.0
+            ]
+        },
+        {
+            "Name": "Track",
+            "Value": [
+                0.8,
+                0.81,
+                0.85
+            ]
+        },
+        {
+            "Name": "Accent",
+            "Value": [
+                0.13,
+                0.45,
+                0.3
+            ]
+        },
+        {
+            "Name": "AccentHover",
+            "Value": [
+                0.2,
+                0.58,
+                0.4
+            ]
+        },
+        {
+            "Name": "AccentPressed",
+            "Value": [
+                0.08,
+                0.32,
+                0.21
+            ]
+        },
+        {
+            "Name": "Selected",
+            "Value": [
+                0.78,
+                0.55,
+                0.1
+            ]
+        },
+        {
+            "Name": "SelectedInk",
+            "Value": [
+                0.95,
+                0.7,
+                0.18
+            ]
+        },
+        {
+            "Name": "Disabled",
+            "Value": [
+                0.78,
+                0.78,
+                0.8
+            ]
+        },
+        {
+            "Name": "OnSurface",
+            "Value": [
+                0.09,
+                0.1,
+                0.13
+            ]
+        },
+        {
+            "Name": "Muted",
+            "Value": [
+                0.45,
+                0.47,
+                0.52
+            ]
+        },
+        {
+            "Name": "Positive",
+            "Value": [
+                0.18,
+                0.55,
+                0.28
+            ]
+        },
+        {
+            "Name": "Info",
+            "Value": [
+                0.14,
+                0.42,
+                0.72
+            ]
+        },
+        {
+            "Name": "Focus",
+            "Value": [
+                0.85,
+                0.35,
+                0.1
+            ]
+        },
+        {
+            "Name": "Highlight",
+            "Value": [
+                0.72,
+                0.8,
+                0.9
+            ]
+        },
+        {
+            "Name": "Knob",
+            "Value": [
+                0.2,
+                0.22,
+                0.26
+            ]
+        },
+        {
+            "Name": "Scrollbar",
+            "Value": [
+                0.55,
+                0.57,
+                0.62
+            ]
+        },
+        {
+            "Name": "Danger",
+            "Value": [
+                0.72,
+                0.22,
+                0.2
+            ]
+        },
+        {
+            "Name": "DangerHover",
+            "Value": [
+                0.84,
+                0.3,
+                0.26
+            ]
+        },
+        {
+            "Name": "DangerPressed",
+            "Value": [
+                0.52,
+                0.14,
+                0.12
+            ]
+        },
+        {
+            "Name": "ToggleBox",
+            "Value": [
+                0.99,
+                0.99,
+                1.0
+            ]
+        },
+        {
+            "Name": "DropHighlight",
+            "Value": [
+                0.85,
+                0.45,
+                0.1
+            ]
+        },
+        {
+            "Name": "OnField",
+            "Value": [
+                0.09,
+                0.1,
+                0.13
+            ]
+        }
+    ],
+    "Metrics": [
+        {
+            "Name": "PanelRadius",
+            "Value": 12.0
+        },
+        {
+            "Name": "ControlRadius",
+            "Value": 10.0
+        },
+        {
+            "Name": "Spacing",
+            "Value": 12.0
+        },
+        {
+            "Name": "Padding",
+            "Value": 16.0
+        }
+    ],
+    "Fonts": [
+        {
+            "Name": "Body",
+            "Asset": "",
+            "Size": 22.0
+        },
+        {
+            "Name": "Title",
+            "Asset": "Roboto-Bold.ttf",
+            "Size": 34.0
+        }
+    ],
+    "Styles": [
+        {
+            "Name": "Default",
+            "Slots": [
+                {
+                    "Slot": "Panel.Color",
+                    "Token": "Surface"
+                },
+                {
+                    "Slot": "Panel.CornerRadius",
+                    "Token": "PanelRadius"
+                },
+                {
+                    "Slot": "Button.Normal",
+                    "Token": "Accent"
+                },
+                {
+                    "Slot": "Button.Hover",
+                    "Token": "AccentHover"
+                },
+                {
+                    "Slot": "Button.Pressed",
+                    "Token": "AccentPressed"
+                },
+                {
+                    "Slot": "Button.Selected",
+                    "Token": "Selected"
+                },
+                {
+                    "Slot": "Button.SelectedAccent",
+                    "Token": "SelectedInk"
+                },
+                {
+                    "Slot": "Button.Disabled",
+                    "Token": "Disabled"
+                },
+                {
+                    "Slot": "Text.Color",
+                    "Token": "OnSurface"
+                },
+                {
+                    "Slot": "Icon.Color",
+                    "Token": "OnSurface"
+                },
+                {
+                    "Slot": "Progress.Background",
+                    "Token": "Track"
+                },
+                {
+                    "Slot": "Progress.Fill",
+                    "Token": "Positive"
+                },
+                {
+                    "Slot": "Progress.CornerRadius",
+                    "Token": "ControlRadius"
+                },
+                {
+                    "Slot": "Toggle.Box",
+                    "Token": "ToggleBox"
+                },
+                {
+                    "Slot": "Toggle.Check",
+                    "Token": "Info"
+                },
+                {
+                    "Slot": "Toggle.CornerRadius",
+                    "Token": "ControlRadius"
+                },
+                {
+                    "Slot": "Slider.Track",
+                    "Token": "Track"
+                },
+                {
+                    "Slot": "Slider.Fill",
+                    "Token": "AccentHover"
+                },
+                {
+                    "Slot": "Slider.Handle",
+                    "Token": "Knob"
+                },
+                {
+                    "Slot": "ScrollView.Background",
+                    "Token": "SurfaceDeep"
+                },
+                {
+                    "Slot": "ScrollView.Scrollbar",
+                    "Token": "Scrollbar"
+                },
+                {
+                    "Slot": "Input.Text",
+                    "Token": "OnField"
+                },
+                {
+                    "Slot": "Input.Placeholder",
+                    "Token": "Muted"
+                },
+                {
+                    "Slot": "Input.Background",
+                    "Token": "SurfaceDeep"
+                },
+                {
+                    "Slot": "Input.Focus",
+                    "Token": "Focus"
+                },
+                {
+                    "Slot": "Input.CornerRadius",
+                    "Token": "ControlRadius"
+                },
+                {
+                    "Slot": "Dropdown.Background",
+                    "Token": "Field"
+                },
+                {
+                    "Slot": "Dropdown.Text",
+                    "Token": "OnField"
+                },
+                {
+                    "Slot": "Dropdown.Highlight",
+                    "Token": "Highlight"
+                },
+                {
+                    "Slot": "Dropdown.CornerRadius",
+                    "Token": "ControlRadius"
+                },
+                {
+                    "Slot": "DropTarget.Highlight",
+                    "Token": "DropHighlight"
+                },
+                {
+                    "Slot": "LayoutGroup.Spacing",
+                    "Token": "Spacing"
+                }
+            ]
+        },
+        {
+            "Name": "Primary",
+            "Slots": [
+                {
+                    "Slot": "Button.Normal",
+                    "Token": "Positive"
+                },
+                {
+                    "Slot": "Button.Hover",
+                    "Token": "Info"
+                },
+                {
+                    "Slot": "Button.Pressed",
+                    "Token": "AccentPressed"
+                },
+                {
+                    "Slot": "Text.Color",
+                    "Token": "OnSurface"
+                },
+                {
+                    "Slot": "Panel.Color",
+                    "Token": "Accent"
+                },
+                {
+                    "Slot": "Panel.CornerRadius",
+                    "Token": "PanelRadius"
+                }
+            ]
+        },
+        {
+            "Name": "Danger",
+            "Slots": [
+                {
+                    "Slot": "Button.Normal",
+                    "Token": "Danger"
+                },
+                {
+                    "Slot": "Button.Hover",
+                    "Token": "DangerHover"
+                },
+                {
+                    "Slot": "Button.Pressed",
+                    "Token": "DangerPressed"
+                },
+                {
+                    "Slot": "Text.Color",
+                    "Token": "OnSurface"
+                }
+            ]
+        },
+        {
+            "Name": "Title",
+            "Slots": [
+                {
+                    "Slot": "Text.Font",
+                    "Token": "Title"
+                },
+                {
+                    "Slot": "Text.Color",
+                    "Token": "OnSurface"
+                }
+            ]
+        }
+    ],
+    "HighContrastColors": [
+        {
+            "Name": "Surface",
+            "Value": [
+                1.0,
+                1.0,
+                1.0
+            ]
+        },
+        {
+            "Name": "OnSurface",
+            "Value": [
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "Muted",
+            "Value": [
+                0.15,
+                0.15,
+                0.18
+            ]
+        }
+    ]
+}

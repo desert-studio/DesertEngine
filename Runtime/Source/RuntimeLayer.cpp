@@ -97,6 +97,12 @@ namespace Desert::Player
         // was written, tested and never called, so a packaged game rendered every painted sky
         // procedurally. Order-free like the line above.
         m_AssetPreloader->PreloadCloudLayouts();
+        // The UI themes (Ю13). HERE AND NOT ONLY IN THE EDITOR, because this is the process that ships:
+        // a canvas whose theme the player's build never scanned draws every element's own colour, which
+        // is a game that looks right in the editor and wrong on the player's machine — the worst shape a
+        // missing preload can take. Order-free: a theme names only font paths, which FontService
+        // registers on demand, and nothing else names a theme.
+        m_AssetPreloader->PreloadUIThemes();
 
         // Same system set + order as the editor's Play mode.
         m_Scene->AddSystem<ECS::MeshECSSystem>();

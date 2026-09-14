@@ -8,6 +8,8 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Text/FontBaker.hpp>
+#include <Engine/UI/UIStyleResolver.hpp>
+#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Text/Utf8.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -60,7 +62,67 @@ namespace Desert::UI
         {
             UIViewContext&   View;
             UICanvasContext& Canvas;
+            // The canvas's theme and its two accessibility knobs, resolved once per walk. A default one
+            // (no theme, scale 1, contrast off) is what every canvas authored before Ю13 gets, and it
+            // makes every query below return the element's own authored value.
+            CanvasStyle Style;
         };
+
+        // THE STYLE ONE ELEMENT RESOLVES THROUGH — the only place an element is paired with a style.
+        //
+        // An element with no UIStyleComponent takes the theme's default style: theming must not require an
+        // edit of every entity, which is the thing themes exist to avoid. `Local` opts out of the THEME and
+        // NOT out of accessibility — a player who needs larger text needs it on the elements whose colours
+        // an author pinned too, so the font scale travels either way.
+        //
+        // A style name the theme does not declare is REPORTED, once per name per canvas cell, with the
+        // element's tag: a typo there draws the element's own colours, which is indistinguishable by eye
+        // from a theme that simply does not cover this element. The fallback is the element's authored
+        // values — what its author actually typed — rather than an invented default or nothing drawn.
+        ElementStyle StyleFor( WalkCtx& ctx, const entt::registry& reg, entt::entity e )
+        {
+            const ECS::UIStyleData* authored =
+                 reg.has<ECS::UIStyleComponent>( e ) ? &reg.get<ECS::UIStyleComponent>( e ).Data : nullptr;
+
+            if ( authored != nullptr && authored->Source == ECS::UIStyleSource::Local )
+                return ElementStyle( nullptr, nullptr, ctx.Style.FontScale(), ctx.Style.HighContrast() );
+
+            // A copy rather than a reference: the alternative binds a reference to a temporary built from
+            // the default-name constant. "Default" fits in a std::string's small buffer, so it costs no
+            // allocation.
+            const std::string name =
+                 authored != nullptr ? authored->Style : std::string( Assets::kUIThemeDefaultStyle );
+
+            bool               unknown = false;
+            const ElementStyle style   = ctx.Style.For( name, unknown );
+            if ( unknown && ctx.Canvas.WarnedStyles.insert( name ).second )
+            {
+                LOG_ERROR( "[UI] Element '{}' asks for the style '{}', which the theme '{}' does not "
+                           "declare — it draws its own authored colours instead.",
+                           reg.has<ECS::TagComponent>( e ) ? reg.get<ECS::TagComponent>( e ).Tag
+                                                           : std::string( "<untagged>" ),
+                           name, ctx.Style.Theme()->Name );
+            }
+            return style;
+        }
+
+        // Applies the four Text slots to a copy of the element's own data. A copy rather than a set of
+        // separate locals because DrawText2D reads the block as a whole (wrap, auto-size, effects all
+        // depend on the size), so resolving into the block is what keeps ONE path through the text layout
+        // instead of a themed one and a local one.
+        ECS::UITextData Themed( const ElementStyle& st, ECS::UITextData t )
+        {
+            t.Color        = st.Color( StyleSlot::TextColor, t.Color );
+            t.ShadowColor  = st.Color( StyleSlot::TextShadow, t.ShadowColor );
+            t.OutlineColor = st.Color( StyleSlot::TextOutline, t.OutlineColor );
+            t.Font         = st.Font( StyleSlot::TextFont, t.Font );
+            t.FontSize     = st.FontSize( StyleSlot::TextFont, t.FontSize );
+            // The auto-size floor has no slot of its own and must not: it is a relation to FontSize, not a
+            // design decision a theme makes. It is SCALED, though, or it would stop being a floor for the
+            // size it is a floor for the moment the accessibility multiplier moved.
+            t.MinFontSize = st.ScaleFontSize( t.MinFontSize );
+            return t;
+        }
 
         // Per-button hover interpolation (0=rest, 1=hovered), eased each frame toward the target so hover
         // colours cross-fade instead of snapping. The clock is keyed by entity INSIDE the view's context —
@@ -413,6 +475,10 @@ namespace Desert::UI
             entt::entity Entity;
             Rect         Box;   // the dropdown's box rect (screen px)
             float        Scale; // canvas scale for its text
+            // The style the BOX was drawn with, carried here rather than re-resolved after the walk. The
+            // open list is the same control as the closed box and must be the same colours; resolving it a
+            // second time would be a second answer that happens to agree today.
+            ElementStyle Style;
         };
 
         // Every non-empty UIScreen name in @p e's sub-tree, in draw order.
@@ -1060,8 +1126,38 @@ namespace Desert::UI
             }
         }
 
+        // ONE STATEMENT OF A LAYOUT GROUP'S GEOMETRY, read by the two places that must agree about it: the
+        // Content Size Fitter's MEASURE and the layout that then positions the children. They were two
+        // copies of five lines, which was survivable while both read the same component — and stops being
+        // the moment a theme can move the padding, because a themed padding applied in one of them and not
+        // the other is a container that hugs its children at the wrong size. Same shape as every "two
+        // values that must agree" defect in this engine, so there is one value.
+        LayoutGroupParams GroupParams( const ECS::UILayoutGroupData& g, const ElementStyle& st, float scale )
+        {
+            LayoutGroupParams params;
+            params.Type = g.Type == ECS::UILayoutType::Horizontal ? LayoutGroupType::Horizontal
+                          : g.Type == ECS::UILayoutType::Grid     ? LayoutGroupType::Grid
+                                                                  : LayoutGroupType::Vertical;
+
+            // A THEMED PADDING IS ONE NUMBER ON ALL FOUR EDGES. A theme says "panels breathe by 12 px",
+            // which is a symmetric statement; the asymmetric cases (a title bar with a deeper top inset)
+            // are layout rather than livery and stay on the element. Asked through IsThemed rather than
+            // through a sentinel, because 0 is a legal padding and a sentinel would make it unreachable.
+            const glm::vec4 padding = st.IsThemed( StyleSlot::LayoutGroupPadding )
+                                           ? glm::vec4( st.Metric( StyleSlot::LayoutGroupPadding, 0.0f ) )
+                                           : g.Padding;
+            params.PaddingL         = padding.x * scale;
+            params.PaddingT         = padding.y * scale;
+            params.PaddingR         = padding.z * scale;
+            params.PaddingB         = padding.w * scale;
+            params.Spacing          = st.Metric( StyleSlot::LayoutGroupSpacing, g.Spacing ) * scale;
+            params.CellSize         = g.CellSize * scale;
+            params.Columns          = g.Columns;
+            return params;
+        }
+
         // Content size (px) a layout-group container needs to hug its children — for the Content Size Fitter.
-        glm::vec2 GroupContentPx( entt::registry& reg, entt::entity e, float scale )
+        glm::vec2 GroupContentPx( entt::registry& reg, entt::entity e, const ElementStyle& st, float scale )
         {
             if ( !reg.has<ECS::UILayoutGroupComponent>( e ) || !reg.has<ECS::RelationshipComponent>( e ) )
                 return { 0.0f, 0.0f };
@@ -1079,18 +1175,7 @@ namespace Desert::UI
                 }
                 sizes.push_back( pref * scale );
             }
-            LayoutGroupParams params;
-            params.Type     = g.Type == ECS::UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                              : g.Type == ECS::UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                                      : LayoutGroupType::Vertical;
-            params.PaddingL = g.Padding.x * scale;
-            params.PaddingT = g.Padding.y * scale;
-            params.PaddingR = g.Padding.z * scale;
-            params.PaddingB = g.Padding.w * scale;
-            params.Spacing  = g.Spacing * scale;
-            params.CellSize = g.CellSize * scale;
-            params.Columns  = g.Columns;
-            return MeasureLayoutGroup( params, sizes );
+            return MeasureLayoutGroup( GroupParams( g, st, scale ), sizes );
         }
 
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
@@ -1113,6 +1198,10 @@ namespace Desert::UI
             if ( !IsElementVisible( reg, e ) )
                 return;
 
+            // THIS ELEMENT'S STYLE, resolved once, before the rect: a themed padding changes what the
+            // Content Size Fitter measures, so the style has to exist before the geometry does.
+            const ElementStyle st = StyleFor( ctx, reg, e );
+
             Rect       rect      = parent;
             const bool hasLayout = reg.has<ECS::UILayoutComponent>( e );
             if ( forcedRect )
@@ -1129,7 +1218,7 @@ namespace Desert::UI
                 rect          = ApplyAspectFit( rect, L.AspectRatio, static_cast<int>( L.AspectMode ) );
                 if ( ( L.FitWidth || L.FitHeight ) && reg.has<ECS::UILayoutGroupComponent>( e ) )
                 {
-                    const glm::vec2 content = GroupContentPx( reg, e, scale );
+                    const glm::vec2 content = GroupContentPx( reg, e, st, scale );
                     if ( L.FitWidth )
                         rect.W = content.x;
                     if ( L.FitHeight )
@@ -1321,7 +1410,10 @@ namespace Desert::UI
                 {
                     const auto& dt = reg.get<ECS::UIDropTargetComponent>( e ).Data;
                     if ( Accepts( dt, ctx.View.Drag.Payload ) )
-                        dl.AddRect( mn, mx, glm::vec4( dt.HighlightColor, hot ? 1.0f : 0.6f ), hot ? 3.0f : 2.0f );
+                        dl.AddRect( mn, mx,
+                                    glm::vec4( st.Color( StyleSlot::DropTargetHighlight, dt.HighlightColor ),
+                                               hot ? 1.0f : 0.6f ),
+                                    hot ? 3.0f : 2.0f );
                 }
 
                 // Panels and buttons render their sprite (single or 9-slice) tinted by the colour, or a flat
@@ -1335,11 +1427,13 @@ namespace Desert::UI
                     const bool down  = hover && input->MouseDown;
                     // Resting colour is Selected (persistent highlight) or Normal; hover cross-fades toward
                     // HoverColor (eased), press snaps to PressedColor, Disabled overrides everything.
-                    const glm::vec3 rest = b.Selected ? b.SelectedColor : b.NormalColor;
+                    const glm::vec3 rest = b.Selected ? st.Color( StyleSlot::ButtonSelected, b.SelectedColor )
+                                                      : st.Color( StyleSlot::ButtonNormal, b.NormalColor );
                     const float     ht   = HoverEase( ctx, e, hover && !down );
-                    const glm::vec3 c    = b.Disabled ? b.DisabledColor
-                                           : down     ? b.PressedColor
-                                                      : glm::mix( rest, b.HoverColor, ht );
+                    const glm::vec3 c =
+                         b.Disabled ? st.Color( StyleSlot::ButtonDisabled, b.DisabledColor )
+                         : down     ? st.Color( StyleSlot::ButtonPressed, b.PressedColor )
+                                    : glm::mix( rest, st.Color( StyleSlot::ButtonHover, b.HoverColor ), ht );
 
                     // Image can change with state (hover / press), falling back to the normal Sprite.
                     Assets::AssetHandle spr = b.Sprite;
@@ -1355,8 +1449,10 @@ namespace Desert::UI
                     {
                         const float barW  = std::max( 2.0f, 3.0f * scale );
                         const float inset = 4.0f * scale;
-                        dl.AddRectFilled( { mn.x, mn.y + inset }, { mn.x + barW, mx.y - inset },
-                                          glm::vec4( b.SelectedAccent, 1.0f ), barW * 0.5f );
+                        dl.AddRectFilled(
+                             { mn.x, mn.y + inset }, { mn.x + barW, mx.y - inset },
+                             glm::vec4( st.Color( StyleSlot::ButtonSelectedAccent, b.SelectedAccent ), 1.0f ),
+                             barW * 0.5f );
                     }
 
                     // `focused` is the HOST's, and it survives between frames — so a control that held focus
@@ -1410,6 +1506,12 @@ namespace Desert::UI
                                                       ( 0.5f + 0.5f * std::sin( NowSeconds() * p.PulseSpeed ) ) )
                                  : p.Opacity;
 
+                    // Resolved once: the corner radius is read by the glow, the shadow and the fill, and a
+                    // per-site lookup is three chances for two of them to disagree about one rounding.
+                    const glm::vec3 panelColor  = st.Color( StyleSlot::PanelColor, p.Color );
+                    const float     cornerPx    = st.Metric( StyleSlot::PanelCornerRadius, p.CornerRadius );
+                    const float     borderWidth = st.Metric( StyleSlot::PanelBorderWidth, p.BorderWidth );
+
                     if ( p.Glow && p.GlowSize > 0.0f )
                     {
                         const int   layers = 6;
@@ -1417,18 +1519,21 @@ namespace Desert::UI
                         for ( int i = 0; i < layers; ++i ) // large faint -> small; overlap into a soft glow
                         {
                             const float ex = gs * ( 1.0f - static_cast<float>( i ) / layers );
-                            dl.AddRectFilled( { mn.x - ex, mn.y - ex }, { mx.x + ex, mx.y + ex },
-                                              glm::vec4( p.GlowColor, 0.10f * op ), p.CornerRadius + ex );
+                            dl.AddRectFilled(
+                                 { mn.x - ex, mn.y - ex }, { mx.x + ex, mx.y + ex },
+                                 glm::vec4( st.Color( StyleSlot::PanelGlow, p.GlowColor ), 0.10f * op ),
+                                 cornerPx + ex );
                         }
                     }
 
                     if ( p.Shadow )
                         dl.AddRectFilled( { mn.x + p.ShadowOffset.x * scale, mn.y + p.ShadowOffset.y * scale },
                                           { mx.x + p.ShadowOffset.x * scale, mx.y + p.ShadowOffset.y * scale },
-                                          glm::vec4( p.ShadowColor, op ), p.CornerRadius * scale );
+                                          glm::vec4( st.Color( StyleSlot::PanelShadow, p.ShadowColor ), op ),
+                                          cornerPx * scale );
 
                     // Circle forces full rounding (radius = half the shorter side) for avatars / badges / dots.
-                    const float rounding = p.Circle ? std::min( rect.W, rect.H ) * 0.5f : p.CornerRadius * scale;
+                    const float rounding = p.Circle ? std::min( rect.W, rect.H ) * 0.5f : cornerPx * scale;
 
                     // A streamed video fills the panel (its stable texture is updated outside the pass by the
                     // VideoService); it takes precedence over the sprite/gradient fill while a path is set.
@@ -1446,18 +1551,19 @@ namespace Desert::UI
                     // execute comes back as the magenta error entry, named once in the log.
                     const auto* uiMaterial = ResolveUIMaterial( ctx, e, p.Material );
                     if ( uiMaterial )
-                        dl.AddMaterialRect( uiMaterial, mn, mx, Tinted( ctx, glm::vec4( p.Color, op ) ) );
+                        dl.AddMaterialRect( uiMaterial, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ) );
                     else if ( p.BackdropBlur > 0.0f && !video && !HandleSet( p.Sprite ) )
-                        dl.AddGlassRect( mn, mx, Tinted( ctx, glm::vec4( p.Color, op ) ), rounding,
+                        dl.AddGlassRect( mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ), rounding,
                                          p.BackdropBlur );
                     else if ( video )
                         dl.AddImage( video, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f },
-                                     Tinted( ctx, glm::vec4( p.Color, op ) ) );
+                                     Tinted( ctx, glm::vec4( panelColor, op ) ) );
                     else if ( p.UseGradient && !HandleSet( p.Sprite ) )
-                        dl.AddRectFilledMultiColor( mn, mx, Tinted( ctx, glm::vec4( p.Color, op ) ),
-                                                    glm::vec4( p.GradientColor, op ) );
+                        dl.AddRectFilledMultiColor(
+                             mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ),
+                             glm::vec4( st.Color( StyleSlot::PanelGradient, p.GradientColor ), op ) );
                     else
-                        DrawBox( dl, mn, mx, Tinted( ctx, glm::vec4( p.Color, op ) ), p.Sprite, p.SpriteBorder,
+                        DrawBox( dl, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ), p.Sprite, p.SpriteBorder,
                                  scale, rounding );
 
                     // Gradient ring hugging the edge (avatar / status / progress ring).
@@ -1466,35 +1572,45 @@ namespace Desert::UI
                         const glm::vec2 c      = ( mn + mx ) * 0.5f;
                         const float     outerR = std::min( rect.W, rect.H ) * 0.5f;
                         const float     rw     = std::max( 1.0f, p.RingWidth * scale );
-                        dl.AddRing( c, outerR, outerR - rw, glm::vec4( p.RingColorA, 1.0f ),
-                                    glm::vec4( p.RingColorB, 1.0f ) );
+                        dl.AddRing( c, outerR, outerR - rw,
+                                    glm::vec4( st.Color( StyleSlot::PanelRingA, p.RingColorA ), 1.0f ),
+                                    glm::vec4( st.Color( StyleSlot::PanelRingB, p.RingColorB ), 1.0f ) );
                     }
 
-                    if ( p.BorderWidth > 0.0f )
-                        dl.AddRect( mn, mx, glm::vec4( p.BorderColor, 1.0f ), p.BorderWidth * scale );
+                    if ( borderWidth > 0.0f )
+                        dl.AddRect( mn, mx, glm::vec4( st.Color( StyleSlot::PanelBorder, p.BorderColor ), 1.0f ),
+                                    borderWidth * scale );
                 }
                 else if ( reg.has<ECS::UIProgressBarComponent>( e ) )
                 {
                     ECS::UIProgressBarData pb = reg.get<ECS::UIProgressBarComponent>( e ).Data;
                     if ( binding.Value )
                         pb.Value = *binding.Value; // bound: the store drives the fill
-                    const float r = pb.CornerRadius * scale;
-                    dl.AddRectFilled( mn, mx, Tinted( ctx, glm::vec4( pb.Background, 1.0f ) ), r );
+                    const float r = st.Metric( StyleSlot::ProgressCornerRadius, pb.CornerRadius ) * scale;
+                    dl.AddRectFilled(
+                         mn, mx,
+                         Tinted( ctx,
+                                 glm::vec4( st.Color( StyleSlot::ProgressBackground, pb.Background ), 1.0f ) ),
+                         r );
                     const float t = std::clamp( pb.Value, 0.0f, 1.0f );
                     if ( t > 0.0f )
-                        dl.AddRectFilled( mn, { mn.x + rect.W * t, mx.y }, glm::vec4( pb.Fill, 1.0f ), r );
+                        dl.AddRectFilled( mn, { mn.x + rect.W * t, mx.y },
+                                          glm::vec4( st.Color( StyleSlot::ProgressFill, pb.Fill ), 1.0f ), r );
                 }
                 else if ( reg.has<ECS::UIToggleComponent>( e ) )
                 {
                     auto&      tg    = reg.get<ECS::UIToggleComponent>( e ).Data;
                     const bool  hover = input && hot;
-                    const float r = tg.CornerRadius * scale;
-                    dl.AddRectFilled( mn, mx, Tinted( ctx, glm::vec4( tg.BoxColor, 1.0f ) ), r );
+                    const float r     = st.Metric( StyleSlot::ToggleCornerRadius, tg.CornerRadius ) * scale;
+                    dl.AddRectFilled(
+                         mn, mx, Tinted( ctx, glm::vec4( st.Color( StyleSlot::ToggleBox, tg.BoxColor ), 1.0f ) ),
+                         r );
                     if ( tg.Value )
                     {
                         const float pad = std::min( rect.W, rect.H ) * 0.22f; // inset "check" fill
                         dl.AddRectFilled( { mn.x + pad, mn.y + pad }, { mx.x - pad, mx.y - pad },
-                                          glm::vec4( tg.CheckColor, 1.0f ), r * 0.5f );
+                                          glm::vec4( st.Color( StyleSlot::ToggleCheck, tg.CheckColor ), 1.0f ),
+                                          r * 0.5f );
                     }
                     const bool isFocused = interactive && focused && *focused == e;
                     if ( input && ( ( hover && input->MouseReleased ) || ( isFocused && input->Submit ) ) )
@@ -1509,11 +1625,16 @@ namespace Desert::UI
                     const float fillX = mn.x + rect.W * t;
                     const float cy    = ( mn.y + mx.y ) * 0.5f;
                     const float hs    = rect.H * 0.6f; // handle half-size (circle via rounding)
-                    dl.AddRectFilled( mn, mx, Tinted( ctx, glm::vec4( sl.TrackColor, 1.0f ) ), pill );
+                    dl.AddRectFilled(
+                         mn, mx,
+                         Tinted( ctx, glm::vec4( st.Color( StyleSlot::SliderTrack, sl.TrackColor ), 1.0f ) ),
+                         pill );
                     if ( t > 0.0f )
-                        dl.AddRectFilled( mn, { fillX, mx.y }, glm::vec4( sl.FillColor, 1.0f ), pill );
+                        dl.AddRectFilled( mn, { fillX, mx.y },
+                                          glm::vec4( st.Color( StyleSlot::SliderFill, sl.FillColor ), 1.0f ),
+                                          pill );
                     dl.AddRectFilled( { fillX - hs, cy - hs }, { fillX + hs, cy + hs },
-                                      glm::vec4( sl.HandleColor, 1.0f ), hs );
+                                      glm::vec4( st.Color( StyleSlot::SliderHandle, sl.HandleColor ), 1.0f ), hs );
 
                     const bool hover = input && hot;
                     if ( hover && input->MouseDown )
@@ -1532,26 +1653,39 @@ namespace Desert::UI
                     const bool isFocused = interactive && focused && *focused == e;
                     const bool hover     = input && hot;
 
-                    dl.AddRectFilled( mn, mx, Tinted( ctx, glm::vec4( f.Background, 1.0f ) ),
-                                      f.CornerRadius * scale );
+                    // The field's own slots, resolved once: the text colour is read by the glyphs AND by the
+                    // caret, and the size by the glyphs AND by the caret's x — two lookups each would be two
+                    // chances for the caret to sit where the text does not.
+                    const glm::vec3 fieldText = st.Color( StyleSlot::InputText, f.TextColor );
+                    const float     fieldSize = st.FontSize( StyleSlot::InputFont, f.FontSize );
+
+                    dl.AddRectFilled(
+                         mn, mx,
+                         Tinted( ctx, glm::vec4( st.Color( StyleSlot::InputBackground, f.Background ), 1.0f ) ),
+                         st.Metric( StyleSlot::InputCornerRadius, f.CornerRadius ) * scale );
                     if ( isFocused )
-                        dl.AddRect( mn, mx, glm::vec4( f.FocusColor, 1.0f ), std::max( 1.0f, 2.0f * scale ) );
+                        dl.AddRect( mn, mx, glm::vec4( st.Color( StyleSlot::InputFocus, f.FocusColor ), 1.0f ),
+                                    std::max( 1.0f, 2.0f * scale ) );
 
                     // Text (or dimmed placeholder), clipped to the field; caret at the end when focused.
                     const bool      showPlaceholder = f.Text.empty() && !isFocused;
                     ECS::UITextData td;
                     td.Text     = showPlaceholder ? f.Placeholder : f.Text;
-                    td.FontSize = f.FontSize;
-                    td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
-                    td.Align    = ECS::UITextAlign::Left;
+                    td.FontSize = fieldSize;
+                    td.Color =
+                         showPlaceholder ? st.Color( StyleSlot::InputPlaceholder, f.PlaceholderColor ) : fieldText;
+                    // An empty handle is "the built-in face", which is what this synthetic block has always
+                    // drawn with — so an unthemed field is byte-identical to what it was.
+                    td.Font  = st.Font( StyleSlot::InputFont, Assets::AssetHandle{} );
+                    td.Align = ECS::UITextAlign::Left;
                     dl.PushClipRect( mn, mx );
                     DrawText2D( dl, td, rect, scale, ctx.View.Tint );
                     if ( isFocused )
                     {
-                        const float caretX = rect.X + 6.0f + MeasureTextPx( f.Text, f.FontSize * scale );
+                        const float caretX = rect.X + 6.0f + MeasureTextPx( f.Text, fieldSize * scale );
                         dl.AddRectFilled( { caretX, rect.Y + rect.H * 0.2f },
                                           { caretX + std::max( 1.0f, scale ), rect.Y + rect.H * 0.8f },
-                                          glm::vec4( f.TextColor, 1.0f ) );
+                                          glm::vec4( fieldText, 1.0f ) );
                     }
                     dl.PopClipRect();
 
@@ -1570,22 +1704,29 @@ namespace Desert::UI
                     auto&      d       = reg.get<ECS::UIDropdownComponent>( e ).Data;
                     const auto options = SplitOptions( d.Options );
 
-                    dl.AddRectFilled( mn, mx, Tinted( ctx, glm::vec4( d.Background, 1.0f ) ),
-                                      d.CornerRadius * scale );
+                    // Resolved once: the arrow is the same ink as the label, and two lookups would be two
+                    // chances for them to stop being.
+                    const glm::vec3 listText = st.Color( StyleSlot::DropdownText, d.TextColor );
+
+                    dl.AddRectFilled(
+                         mn, mx,
+                         Tinted( ctx, glm::vec4( st.Color( StyleSlot::DropdownBackground, d.Background ), 1.0f ) ),
+                         st.Metric( StyleSlot::DropdownCornerRadius, d.CornerRadius ) * scale );
 
                     ECS::UITextData td;
                     td.Text     = ( d.SelectedIndex >= 0 && d.SelectedIndex < (int)options.size() )
                                        ? options[d.SelectedIndex]
                                        : std::string();
-                    td.FontSize = d.FontSize;
-                    td.Color    = d.TextColor;
+                    td.FontSize = st.FontSize( StyleSlot::DropdownFont, d.FontSize );
+                    td.Color    = listText;
+                    td.Font     = st.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                     td.Align    = ECS::UITextAlign::Left;
                     DrawText2D( dl, td, rect, scale, ctx.View.Tint );
 
                     // Down-arrow on the right edge.
                     const float ax = mx.x - rect.H * 0.5f, ay = ( mn.y + mx.y ) * 0.5f, aw = rect.H * 0.16f;
                     dl.AddTriangleFilled( { ax - aw, ay - aw * 0.7f }, { ax + aw, ay - aw * 0.7f },
-                                          { ax, ay + aw * 0.7f }, glm::vec4( d.TextColor, 1.0f ) );
+                                          { ax, ay + aw * 0.7f }, glm::vec4( listText, 1.0f ) );
 
                     const bool hover     = input && hot;
                     const bool isFocused = interactive && focused && *focused == e;
@@ -1597,27 +1738,23 @@ namespace Desert::UI
                         // not a rect in a space that no longer exists by then. An open list under a
                         // rotated dropdown therefore hangs straight down from the box's bounds, which is
                         // what a screen-space overlay does everywhere else in this engine.
-                        popups->push_back( { e, ScreenBounds( rect ), scale } );
+                        popups->push_back( { e, ScreenBounds( rect ), scale, st } );
                 }
 
                 if ( reg.has<ECS::UITextComponent2D>( e ) )
                 {
                     // A bound label draws the store's string without the component ever being touched.
+                    ECS::UITextData text = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
                     if ( binding.Text )
-                    {
-                        ECS::UITextData bound = reg.get<ECS::UITextComponent2D>( e ).Data;
-                        bound.Text            = *binding.Text;
-                        DrawText2D( dl, bound, rect, scale, ctx.View.Tint );
-                    }
-                    else
-                    {
-                        DrawText2D( dl, reg.get<ECS::UITextComponent2D>( e ).Data, rect, scale, ctx.View.Tint );
-                    }
+                        text.Text = *binding.Text;
+                    DrawText2D( dl, text, rect, scale, ctx.View.Tint );
                 }
 
                 if ( reg.has<ECS::UIIconComponent>( e ) )
                 {
-                    DrawIcon( dl, reg.get<ECS::UIIconComponent>( e ).Data, rect, ctx.View.Tint );
+                    ECS::UIIconData icon = reg.get<ECS::UIIconComponent>( e ).Data;
+                    icon.Color           = st.Color( StyleSlot::IconColor, icon.Color );
+                    DrawIcon( dl, icon, rect, ctx.View.Tint );
                 }
 
                 if ( reg.has<ECS::UIImageComponent>( e ) )
@@ -1626,8 +1763,9 @@ namespace Desert::UI
                     // With no sprite bound it draws nothing (an empty Image is invisible, not a solid box).
                     const auto& im = reg.get<ECS::UIImageComponent>( e ).Data;
                     if ( HandleSet( im.Sprite ) )
-                        DrawBox( dl, mn, mx, Tinted( ctx, glm::vec4( im.Tint, im.Opacity ) ), im.Sprite,
-                                 im.SpriteBorder, scale, 0.0f );
+                        DrawBox( dl, mn, mx,
+                                 Tinted( ctx, glm::vec4( st.Color( StyleSlot::ImageTint, im.Tint ), im.Opacity ) ),
+                                 im.Sprite, im.SpriteBorder, scale, 0.0f );
                 }
 
                 // Keyboard focus: record this control for Tab-cycling, and draw a focus ring when it holds
@@ -1641,8 +1779,10 @@ namespace Desert::UI
                     if ( focusables )
                         focusables->push_back( e );
                     if ( focused && *focused == e && !reg.has<ECS::UIInputFieldComponent>( e ) )
-                        dl.AddRect( mn, mx, glm::vec4( 0.30f, 0.62f, 0.98f, 1.0f ),
-                                    std::max( 1.0f, 2.0f * scale ) );
+                        dl.AddRect(
+                             mn, mx,
+                             glm::vec4( st.Color( StyleSlot::FocusRing, glm::vec3( 0.30f, 0.62f, 0.98f ) ), 1.0f ),
+                             std::max( 1.0f, 2.0f * scale ) );
                 }
             }
 
@@ -1657,8 +1797,9 @@ namespace Desert::UI
                 if ( reg.has<ECS::UIScrollViewComponent>( e ) )
                 {
                     auto& sv = reg.get<ECS::UIScrollViewComponent>( e ).Data;
-                    dl.AddRectFilled( { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H },
-                                      glm::vec4( sv.Background, 1.0f ) );
+                    dl.AddRectFilled(
+                         { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H },
+                         glm::vec4( st.Color( StyleSlot::ScrollViewBackground, sv.Background ), 1.0f ) );
 
                     const float contentPx = sv.ContentHeight * scale;
                     scrollMaxPx           = std::max( 0.0f, contentPx - rect.H );
@@ -1716,15 +1857,7 @@ namespace Desert::UI
                         flex.push_back( fg );
                     }
 
-                    LayoutGroupParams params;
-                    params.Type         = g.Type == ECS::UILayoutType::Horizontal ? LayoutGroupType::Horizontal
-                                          : g.Type == ECS::UILayoutType::Grid     ? LayoutGroupType::Grid
-                                                                                  : LayoutGroupType::Vertical;
-                    params.PaddingL     = g.Padding.x * scale;
-                    params.PaddingT     = g.Padding.y * scale;
-                    params.PaddingR     = g.Padding.z * scale;
-                    params.PaddingB     = g.Padding.w * scale;
-                    params.Spacing      = g.Spacing * scale;
+                    LayoutGroupParams params = GroupParams( g, st, scale );
                     params.StretchCross = g.StretchCross;
                     params.CellSize     = g.CellSize * scale;
                     params.Columns      = g.Columns;
@@ -1756,8 +1889,10 @@ namespace Desert::UI
                         const float thumbH    = std::max( barW * 2.0f, rect.H * ( rect.H / contentPx ) );
                         const float t         = ( sv.ScrollY * scale ) / scrollMaxPx;
                         const float thumbY    = rect.Y + t * ( rect.H - thumbH );
-                        dl.AddRectFilled( { trackX, thumbY }, { rect.X + rect.W, thumbY + thumbH },
-                                          glm::vec4( sv.ScrollbarColor, 1.0f ), barW * 0.5f );
+                        dl.AddRectFilled(
+                             { trackX, thumbY }, { rect.X + rect.W, thumbY + thumbH },
+                             glm::vec4( st.Color( StyleSlot::ScrollViewScrollbar, sv.ScrollbarColor ), 1.0f ),
+                             barW * 0.5f );
                     }
                 }
             }
@@ -1857,7 +1992,7 @@ namespace Desert::UI
                  static_cast<std::uint32_t>( canvasEntity ) );
 
         // THE PAIR, BOUND HERE AND NOWHERE ELSE: this view's own cell for this canvas.
-        WalkCtx ctx{ view, view.CanvasState( canvasEntity ) };
+        WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };
 
         const auto& canvasData = reg.get<ECS::UICanvasComponent>( canvasEntity ).Data;
         if ( !canvasData.Visible )
@@ -1871,6 +2006,25 @@ namespace Desert::UI
         const ECS::UIOverlayData* overlay = OverlayDataOf( reg, canvasEntity );
         if ( overlay != nullptr && !ctx.Canvas.OverlayOpen )
             return Common::MakeSuccess( false );
+        // THE CANVAS'S THEME, RESOLVED ONCE PER WALK (Ю13). Asked of the service by handle every frame
+        // rather than cached in the cell, which is what makes a theme switch — a different handle in the
+        // slot, or a hot reload of the same file — reach the very next frame with no scene reload and no
+        // invalidation to remember. An empty slot answers nullptr and every element then draws the colours
+        // its author typed, which is the state of every canvas authored before themes existed.
+        {
+            auto* themes = Runtime::ResourceRegistry::GetUIThemeService();
+            ctx.Style    = CanvasStyle( themes != nullptr ? themes->Get( canvasData.Theme ) : nullptr,
+                                     canvasData.FontScale, canvasData.HighContrast );
+
+            // The refusals below are accumulated against ONE theme. Pointing the slot at another one must
+            // let the same name be reported again — it may be a typo against this theme and a real style in
+            // that one, and a set that outlived the theme it was built for would silence exactly that.
+            if ( ctx.Canvas.WarnedStylesTheme != canvasData.Theme )
+            {
+                ctx.Canvas.WarnedStyles.clear();
+                ctx.Canvas.WarnedStylesTheme = canvasData.Theme;
+            }
+        }
 
         Rect  canvasRect;
         float scale;
@@ -2078,7 +2232,8 @@ namespace Desert::UI
             const Rect  popup{ pi.Box.X, pi.Box.Y + pi.Box.H, pi.Box.W,
                               rowH * static_cast<float>( options.size() ) };
             dl.AddRectFilled( { popup.X, popup.Y }, { popup.X + popup.W, popup.Y + popup.H },
-                              glm::vec4( d.Background, 1.0f ), d.CornerRadius * pi.Scale );
+                              glm::vec4( pi.Style.Color( StyleSlot::DropdownBackground, d.Background ), 1.0f ),
+                              pi.Style.Metric( StyleSlot::DropdownCornerRadius, d.CornerRadius ) * pi.Scale );
 
             bool clickedOption = false;
             for ( std::size_t i = 0; i < options.size(); ++i )
@@ -2087,12 +2242,14 @@ namespace Desert::UI
                 const bool hover = input && input->MousePx.x >= row.X && input->MousePx.x <= row.X + row.W &&
                                    input->MousePx.y >= row.Y && input->MousePx.y <= row.Y + row.H;
                 if ( hover )
-                    dl.AddRectFilled( { row.X, row.Y }, { row.X + row.W, row.Y + row.H },
-                                      glm::vec4( d.Highlight, 1.0f ) );
+                    dl.AddRectFilled(
+                         { row.X, row.Y }, { row.X + row.W, row.Y + row.H },
+                         glm::vec4( pi.Style.Color( StyleSlot::DropdownHighlight, d.Highlight ), 1.0f ) );
                 ECS::UITextData td;
                 td.Text     = options[i];
-                td.FontSize = d.FontSize;
-                td.Color    = d.TextColor;
+                td.FontSize = pi.Style.FontSize( StyleSlot::DropdownFont, d.FontSize );
+                td.Color    = pi.Style.Color( StyleSlot::DropdownText, d.TextColor );
+                td.Font     = pi.Style.Font( StyleSlot::DropdownFont, Assets::AssetHandle{} );
                 td.Align    = ECS::UITextAlign::Left;
                 DrawText2D( dl, td, row, pi.Scale, ctx.View.Tint );
                 if ( hover && input->MouseReleased )
@@ -2319,8 +2476,36 @@ namespace Desert::UI
                 const glm::vec2 half = view.Drag.Size * 0.5f;
                 const glm::vec2 mn   = input->MousePx - half;
                 const glm::vec2 mx   = input->MousePx + half;
-                dl.AddRectFilled( mn, mx, glm::vec4( 0.35f, 0.55f, 0.85f, view.Drag.Ghost * 0.6f ), 6.0f );
-                dl.AddRect( mn, mx, glm::vec4( 0.75f, 0.87f, 1.0f, view.Drag.Ghost ), 2.0f );
+                // The ghost is drawn AFTER the walk, so there is no WalkCtx in scope to resolve through.
+                // It takes the DRAG SOURCE's style — the ghost is a picture of that element — and it gets
+                // there by rebuilding the source's own (canvas x view) cell rather than by a second copy
+                // of StyleFor's rules, which would be two statements of "which style does this element
+                // resolve through" and therefore two that can disagree.
+                ElementStyle ghostStyle;
+                if ( reg.valid( view.Drag.Source ) )
+                {
+                    const entt::entity ghostCanvas = CanvasOf( reg, view.Drag.Source );
+                    if ( ghostCanvas != entt::null && reg.has<ECS::UICanvasComponent>( ghostCanvas ) )
+                    {
+                        const auto& ghostCanvasData = reg.get<ECS::UICanvasComponent>( ghostCanvas ).Data;
+                        auto*       themes          = Runtime::ResourceRegistry::GetUIThemeService();
+                        WalkCtx     ghostCtx{
+                             view, view.CanvasState( ghostCanvas ),
+                             CanvasStyle( themes != nullptr ? themes->Get( ghostCanvasData.Theme ) : nullptr,
+                                          ghostCanvasData.FontScale, ghostCanvasData.HighContrast ) };
+                        ghostStyle = StyleFor( ghostCtx, reg, view.Drag.Source );
+                    }
+                }
+                dl.AddRectFilled(
+                     mn, mx,
+                     glm::vec4( ghostStyle.Color( StyleSlot::DragGhost, glm::vec3( 0.35f, 0.55f, 0.85f ) ),
+                                view.Drag.Ghost * 0.6f ),
+                     6.0f );
+                dl.AddRect(
+                     mn, mx,
+                     glm::vec4( ghostStyle.Color( StyleSlot::DragGhostBorder, glm::vec3( 0.75f, 0.87f, 1.0f ) ),
+                                view.Drag.Ghost ),
+                     2.0f );
             }
         }
 

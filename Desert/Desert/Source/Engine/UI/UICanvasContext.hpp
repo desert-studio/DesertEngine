@@ -14,6 +14,7 @@
 #include <iterator>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // The runtime state of the UI walk, keyed by the PAIR (canvas x view).
@@ -156,6 +157,14 @@ namespace Desert::UI
         // editor's preview would overwrite the viewport's. That is the exact defect this whole file was
         // written to undo, and reintroducing it for a string is not a saving.
         UIDataStore Locals;
+        // Style names this cell has already refused (Ю13): a UIStyleComponent naming a style the canvas's
+        // theme does not declare. Per NAME rather than per ENTITY, because a mistyped style is normally on
+        // the twenty elements that were duplicated from one another and the interesting fact is the name,
+        // said once. Cleared when the canvas's theme handle changes, so the same typo is reported again
+        // against a theme that might have declared it.
+        std::unordered_set<std::string> WarnedStyles;
+        // The theme handle WarnedStyles was accumulated against — see above.
+        Assets::AssetHandle WarnedStylesTheme;
     };
 
     // WHICH STORE A BINDING ON THIS CANVAS READS, asked once so the two readers cannot drift.

@@ -79,15 +79,31 @@ namespace
     constexpr uint64_t kResolvedHandle = kMeasuredHandle;
     const std::string  kResolvedKey    = "cooked:Textures/T_Checker.tex";
 
-    // Only the texture type is mapped: UIPanelData also declares a `Video` slot (VideoAsset), and a
-    // resolver that answered every type alike would let a sprite pass on a video's branch.
+    // The theme slot's own pair, and it is a DIFFERENT KEY on purpose: UIPanelData also declares a
+    // `Video` slot (VideoAsset) and the canvas now declares a theme, so a resolver that answered every
+    // type alike would let a sprite pass on a video's branch and a theme on a texture's. Two types, two
+    // keys, and neither key is accepted on the other's branch.
+    const std::string kThemeKey = "UI/Themes/Desert_Dark.detheme";
+
     AssetResolver KeyResolver()
     {
         AssetResolver r;
         r.ToPath = []( uint64_t handle, const std::string& type ) -> std::string
-        { return ( type == "TextureAsset" && handle == kResolvedHandle ) ? kResolvedKey : std::string(); };
+        {
+            if ( type == "TextureAsset" && handle == kResolvedHandle )
+                return kResolvedKey;
+            if ( type == "UIThemeAsset" && handle == kResolvedHandle )
+                return kThemeKey;
+            return std::string();
+        };
         r.FromPath = []( const std::string& key, const std::string& type ) -> uint64_t
-        { return ( type == "TextureAsset" && key == kResolvedKey ) ? kResolvedHandle : 0ull; };
+        {
+            if ( type == "TextureAsset" && key == kResolvedKey )
+                return kResolvedHandle;
+            if ( type == "UIThemeAsset" && key == kThemeKey )
+                return kResolvedHandle;
+            return 0ull;
+        };
         return r;
     }
 } // namespace
@@ -138,6 +154,12 @@ TEST( UIComponentRoundTrip, EveryAuthoredCanvasFieldComesBack )
     written.Sprite           = Desert::Assets::AssetHandle( kResolvedHandle );
     written.Visible          = false;
     written.SafeArea         = glm::vec4( 4.0f, 8.0f, 12.0f, 16.0f );
+    // Ю13's three. The theme HANDLE in particular is the field whose absence from this list would be the
+    // sixth instance of "authored and silently not saved" (У13): a canvas whose theme did not survive a
+    // save looks exactly like a theme system that works, until the scene is reopened.
+    written.Theme        = Desert::Assets::AssetHandle( kResolvedHandle );
+    written.FontScale    = 1.75f;
+    written.HighContrast = true;
 
     const AssetResolver resolver = KeyResolver();
     const auto          object   = SerializeReflected( Type( "UICanvasData" ), &written, &resolver );
@@ -154,6 +176,29 @@ TEST( UIComponentRoundTrip, EveryAuthoredCanvasFieldComesBack )
     EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), kResolvedHandle );
     EXPECT_EQ( read.Visible, written.Visible );
     EXPECT_EQ( read.SafeArea, written.SafeArea );
+    EXPECT_EQ( static_cast<uint64_t>( read.Theme ), kResolvedHandle );
+    EXPECT_FLOAT_EQ( read.FontScale, written.FontScale );
+    EXPECT_EQ( read.HighContrast, written.HighContrast );
+}
+
+// THE ELEMENT'S HALF OF THE SAME QUESTION. Two fields, and both of them decide what the element is drawn
+// with: a Source that came back as Theme on an element authored Local repaints it from the palette, and a
+// Style that came back empty falls the element back to Default with no message, because "" is a style name
+// the theme genuinely does not declare and the walk reports it as a typo rather than as a lost field.
+TEST( UIComponentRoundTrip, TheElementStyleSurvivesTheTrip )
+{
+    ECS::UIStyleData written;
+    written.Source = ECS::UIStyleSource::Local;
+    written.Style  = "Primary";
+
+    const AssetResolver resolver = KeyResolver();
+    const auto          object   = SerializeReflected( Type( "UIStyleData" ), &written, &resolver );
+
+    ECS::UIStyleData read;
+    DeserializeReflected( Type( "UIStyleData" ), &read, ThroughJsonText( object ), &resolver );
+
+    EXPECT_EQ( read.Source, written.Source );
+    EXPECT_EQ( read.Style, written.Style );
 }
 
 // --- (3) The other two UI slots that carry an asset ----------------------------------------------

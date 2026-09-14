@@ -17,6 +17,7 @@
 #include "Services/CloudType/CloudTypeService.hpp"
 #include "Services/CloudModelling/CloudModellingService.hpp"
 #include "Services/CloudLayout/CloudLayoutService.hpp"
+#include "Services/UITheme/UIThemeService.hpp"
 
 namespace Desert::Runtime
 {
@@ -47,6 +48,10 @@ namespace Desert::Runtime
         // placement BAKE and never by a shader, which is the one service here that owns nothing on the GPU
         // by design rather than by accident.
         static CloudLayoutService* GetCloudLayoutService();
+        // The UI themes (`.detheme`) a canvas can point at, flattened once per process rather than once
+        // per viewport. Owns nothing on the GPU: the one device object a theme reaches (a font atlas)
+        // belongs to FontService, which is where this one binds its font paths.
+        static UIThemeService* GetUIThemeService();
 
         // Clear() every service above. Called once, from Renderer::Shutdown(), i.e. from ~Application and
         // therefore inside main. WHY IT HAS TO BE SAID OUT LOUD: each service is a function-local static,
