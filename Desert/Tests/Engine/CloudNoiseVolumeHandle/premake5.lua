@@ -51,6 +51,16 @@ project(test_name)
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick" }
 
+    -- BROKEN BY Д35, NOT BY WHAT THIS SUITE TESTS, and it is a LINK failure so nothing here changed
+    -- shape. `CloudNoiseVolumeAsset::Save` moved onto Common::Utils::FileSystem::WriteBytesToFileAtomic,
+    -- which pulls FileSystem.o out of libCommon.a — and that object references the Objective-C file
+    -- dialogs in MacOSFileSystem. Every suite that already touched FileSystem carries these two
+    -- frameworks for exactly this reason (Desert/Tests/Common/FileSystemWrite and four neighbours);
+    -- this one had never needed them until the asset's writer moved.
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
+
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }
