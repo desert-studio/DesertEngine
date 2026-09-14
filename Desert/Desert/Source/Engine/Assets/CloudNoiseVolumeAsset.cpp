@@ -4,6 +4,7 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <fstream>
+#include <span>
 
 namespace Desert::Assets
 {
@@ -136,15 +137,15 @@ namespace Desert::Assets
 
         const std::vector<unsigned char> encoded = EncodeCloudNoiseVolume( volume );
 
-        std::ofstream file( filepath, std::ios::binary | std::ios::trunc );
-        if ( !file )
-            return Common::MakeFormattedError<bool>( "'{}' could not be opened for writing", filepath.string() );
-
-        file.write( reinterpret_cast<const char*>( encoded.data() ),
-                    static_cast<std::streamsize>( encoded.size() ) );
-        if ( !file )
-            return Common::MakeFormattedError<bool>( "'{}' was opened but the {} bytes could not be written",
-                                                     filepath.string(), encoded.size() );
+        // Through the write primitive, not a local std::ofstream (Д35): the local stream's flush is its
+        // destructor, which runs after this function has already returned BOOLSUCCESS. A `.dcnv` is tens
+        // of megabytes, so most of it does reach the OS during the write — but the tail does not, and a
+        // volume filling up mid-bake produced a green save and a volume the decoder later refuses.
+        if ( const auto written = Common::Utils::FileSystem::WriteBytesToFileAtomic(
+                  filepath, std::as_bytes( std::span( encoded ) ) );
+             !written )
+            return Common::MakeFormattedError<bool>( "'{}' ({} bytes) could not be written: {}", filepath.string(),
+                                                     encoded.size(), written.GetError() );
 
         LOG_INFO( "[Clouds] Noise volume written: '{}', {}^3 RGBA8, {} bytes, seed {}.", filepath.string(),
                   volume.Params.Resolution, encoded.size(), volume.Params.Seed );

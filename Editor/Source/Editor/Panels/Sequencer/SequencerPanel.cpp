@@ -2,6 +2,7 @@
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/ToastManager.hpp>
 // SelectionManager and PanelContext are gone from this file with the selection it used to follow. What is
 // left of Selection here is SkeletonEditMode, which is not a selection at all: it is the viewport MODE the
 // bone gizmo runs in, and keying by manipulation reads it.
@@ -19,13 +20,11 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
-#include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
-
-#include <rflcpp/rfl/json.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/quaternion.hpp>
@@ -35,7 +34,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -196,44 +194,29 @@ namespace Desert::Editor
         return name;
     }
 
-    std::string SequencerPanel::SaveClipToDisk( const Animation::AnimationClip& clip )
+    // WHAT IS LEFT HERE IS THE PANEL'S PART: where the file goes. The clip -> `.anim` conversion and the
+    // write moved to Assets::Serialization::SaveClipToFile, beside the loader that reads them back
+    // (Д35) — this panel cannot be compiled into a test binary, and the write half of the format was
+    // the half no suite could reach because of it.
+    Common::ResultStr<std::string> SequencerPanel::SaveClipToDisk( const Animation::AnimationClip& clip )
     {
-        namespace Ser = Assets::Serialization;
-
-        Ser::AnimationAssetData data;
-        data.Name              = clip.AnimationName;
-        data.Duration          = clip.Duration;
-        data.TicksPerSecond    = clip.TicksPerSecond;
-        data.SkeletonSignature = clip.SkeletonSignature;
-        for ( const auto& tr : clip.Tracks )
-        {
-            Ser::ChannelData ch;
-            ch.BoneName = tr.BoneName;
-            for ( const auto& k : tr.PositionKeys )
-                ch.Positions.push_back( { k.Time, k.Position } );
-            for ( const auto& k : tr.RotationKeys )
-                ch.Rotations.push_back( { k.Time, k.Rotation } );
-            for ( const auto& k : tr.ScaleKeys )
-                ch.Scales.push_back( { k.Time, k.Scale } );
-            data.Channels.push_back( std::move( ch ) );
-        }
-        for ( const auto& n : clip.Notifies )
-            data.Notifies.push_back( { n.Name, n.Time } );
-
         std::error_code ec;
         std::filesystem::create_directories( Common::Constants::Path::MESH_PATH_COOKED, ec );
         const std::filesystem::path path =
              Common::Constants::Path::MESH_PATH_COOKED / ( "_" + clip.AnimationName + ".anim" );
 
-        std::ofstream out( path, std::ios::binary );
-        if ( !out )
+        // IT RETURNS A RESULT AND NOT A PATH-OR-EMPTY-STRING. The old signature was `std::string`, an
+        // empty one meaning failure — and its only caller, the Save button, discarded it, so a refusal
+        // had nowhere to go. The reason has to reach the person who pressed the button, not the log
+        // they do not have open.
+        if ( const auto written = Assets::Serialization::SaveClipToFile( path, clip ); !written )
         {
-            LOG_WARN( "[Sequencer] Could not write clip to {}", path.string() );
-            return {};
+            LOG_ERROR( "[Sequencer] {}", written.GetError() );
+            return Common::MakeError<std::string>( written.GetError() );
         }
-        out << rfl::json::write( data );
+
         LOG_INFO( "[Sequencer] Saved clip '{}' -> {}", clip.AnimationName, path.string() );
-        return path.string();
+        return Common::MakeSuccess( path.string() );
     }
 
     // FOUR EMPTY STATES USED TO STAND HERE — no scene, nothing selected, selection not in the scene,
@@ -347,7 +330,16 @@ namespace Desert::Editor
         {
             ImGui::SameLine();
             if ( ImGui::Button( ICON_MDI_CONTENT_SAVE " Save" ) )
-                SaveClipToDisk( *animator->GetCurrentClip() );
+            {
+                // The refusal is put in front of the person who pressed the button. This call used to
+                // discard its result entirely, so a save that did not happen looked exactly like one
+                // that did — which is the Д31-D shape this row was the worst instance of.
+                const auto saved = SaveClipToDisk( *animator->GetCurrentClip() );
+                if ( saved )
+                    ToastManager::Push( "Saved clip to " + saved.GetValue(), ToastLevel::Success );
+                else
+                    ToastManager::Push( "Clip NOT saved: " + saved.GetError(), ToastLevel::Error, 8.0f );
+            }
             Utils::ImGuiUtilities::Tooltip(
                  "Write this clip to Cooked/Meshes/_<name>.anim so it survives a restart\n"
                  "(rediscovered by the asset preloader next session)." );

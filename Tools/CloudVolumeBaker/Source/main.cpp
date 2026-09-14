@@ -21,6 +21,8 @@
 // a shape phase A3 measured becomes a file without forty megabytes of them living in the repository.
 // Without either the shipped example recipe is baked, which is the file the demo scene names.
 
+#include <Common/Utilities/FileSystem.hpp>
+
 #include <Engine/Assets/CloudModellingCatalogue.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
@@ -29,6 +31,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -161,18 +164,15 @@ int main( int argc, char** argv )
 
     const std::vector<unsigned char> encoded = Desert::Assets::EncodeCloudModellingVolume( data );
 
-    std::ofstream out( outPath, std::ios::binary | std::ios::trunc );
-    if ( !out )
+    // Through the write primitive, not a local std::ofstream (Д35). This tool used to exit 0 for a bake
+    // whose bytes were still in the filebuf: a build machine with a full disk produced a `.dcmv` that a
+    // later step read as corrupt, with nothing connecting the two.
+    if ( const auto written =
+              Common::Utils::FileSystem::WriteBytesToFileAtomic( outPath, std::as_bytes( std::span( encoded ) ) );
+         !written )
     {
-        std::fprintf( stderr, "CloudVolumeBaker: '%s' could not be opened for writing\n", outPath.c_str() );
-        return 1;
-    }
-
-    out.write( reinterpret_cast<const char*>( encoded.data() ), static_cast<std::streamsize>( encoded.size() ) );
-    if ( !out )
-    {
-        std::fprintf( stderr, "CloudVolumeBaker: '%s' was opened but the %zu bytes could not be written\n",
-                      outPath.c_str(), encoded.size() );
+        std::fprintf( stderr, "CloudVolumeBaker: '%s' (%zu bytes) was not written: %s\n", outPath.c_str(),
+                      encoded.size(), written.GetError().c_str() );
         return 1;
     }
 
