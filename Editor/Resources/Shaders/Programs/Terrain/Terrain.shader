@@ -419,23 +419,42 @@ Shader "Terrain"
             // regardless of where the terrain entity sits in the world.
             vec2  splatUV  = ( v_WorldPos.xz - u_T.Model[3].xz ) / max( u_T.Params.x, 0.001 ) + 0.5;
             vec4  splat    = texture( u_SplatMap, splatUV );
+            // EACH LAYER'S OWN AUTO RULE, AND grassAuto IS 1.0 ON PURPOSE (Г26). It used to be
+            // `1.0 - rockAuto`, which is the same picture written the other way round: rock was the BED
+            // and grass was mixed over it by the complement of the slope rule, so the rock layer had no
+            // weight of its own and `LayerModes.y` had nothing to gate. Writing it as "grass covers the
+            // ground, rock takes it back on slopes, snow caps it" gives rock a weight the mode can act on
+            // and is ALGEBRAICALLY THE SAME MIX while every layer is on Auto:
+            //   mix(mix(rock, grass, 1), rock, rockAuto) == rock*rockAuto + grass*(1 - rockAuto),
+            // which is exactly what the old two-line form produced. That is why every terrain scene in the
+            // repository renders byte-identically across this change, and it is the negative control the
+            // change was measured with.
             float rockAuto  = smoothstep( 0.25, 0.55, slope );
-            float grassAuto = 1.0 - rockAuto; // grass only on flat-ish ground
+            float grassAuto = 1.0;                                 // the ground is grass until something takes it
             float snowAuto  = smoothstep( 0.75, 0.95, v_Height01 ) * ( 1.0 - smoothstep( 0.4, 0.7, slope ) );
 
-            // ROCK is the default ground; the grass and snow layers are mixed over it by their own modes.
+            // THE ROCK LAYER WAS THE THIRD DEAD KNOB OF THE SAME FAMILY, AND IT SURVIVED THE CENSUS THAT
+            // WAS SUPPOSED TO CATCH IT. `Rock Layer` is a reflected, serialized, Details-visible enum;
+            // TerrainECSSystem packs it into LayerModes.y; this file never read LayerModes.y and never
+            // sampled splat.g, so the paint tool's own instruction — "set the layer to 'Manual' in Details
+            // to see painted weights" — was false for the `Rock (G)` brush, which is one of the three it
+            // offers. Г25 fixed exactly this for grass (LayerModes.x) and the same shape was left standing
+            // one channel over. `SettingConsumers` stayed green throughout, because a WIRED row asks for a
+            // read of the FIELD and TerrainECSSystem reads it: the census sees the first link of the chain
+            // and cannot see that the last one drops it.
             //
-            // THE GRASS LAYER IS GATED BY ITS OWN MODE, AND UNTIL Г25 IT WAS NOT. `Grass Layer` was a
-            // reflected, serialized, Details-visible enum that TerrainECSSystem packed into LayerModes.x —
-            // and nothing in this file ever read LayerModes.x. The real gate was LayerModes.w, the GRASS
-            // GENERATOR's enable flag, so turning the blades off also took the ground texture with it and
-            // the authored mode moved nothing. The generator is gone; the layer is now what it always said
-            // it was.
+            // ROCK IS STILL THE BED under everything, because a ground shader must draw something where no
+            // layer claims a pixel and inventing a fourth colour for that case would be a worse answer
+            // than the ground this repository's terrain scenes are dressed against. With grass on Auto the
+            // bed is fully covered, so `Rock Layer = Off` is visible where it means something — the
+            // slopes — rather than nowhere.
             float wGrass = LayerWeight( u_T.LayerModes.x, grassAuto, splat.r );
+            float wRock  = LayerWeight( u_T.LayerModes.y, rockAuto, splat.g );
             float wSnow  = LayerWeight( u_T.LayerModes.z, snowAuto, splat.b );
 
             vec3 albedo = rockT;
             albedo      = mix( albedo, grassT, clamp( wGrass, 0.0, 1.0 ) );
+            albedo      = mix( albedo, rockT, clamp( wRock, 0.0, 1.0 ) );
             albedo      = mix( albedo, snowT, clamp( wSnow, 0.0, 1.0 ) );
 
             // PBR-ish lighting using the SCENE directional light (dir/color/intensity). Camera position recovered
