@@ -15,7 +15,7 @@ namespace Desert::Runtime
     // A baked, GPU-resident font: the SDF atlas texture + the CPU glyph metrics that lay text out.
     struct Font
     {
-        std::shared_ptr<Graphic::Image2D> Atlas; // RGBA8, SDF in every channel (shader reads .r)
+        std::shared_ptr<Graphic::Image2D> Atlas; // RGBA8; RGB is the multi-channel distance field, A = 255
         Text::BakedFont                   Baked; // metrics: glyph UVs/advances + vertical metrics
     };
 

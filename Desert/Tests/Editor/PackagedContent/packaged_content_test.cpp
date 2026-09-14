@@ -23,6 +23,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
+#include <Engine/Text/FontBaker.hpp>
 #include <Engine/Text/FontCache.hpp>
 #include <Engine/Vector/IconBake.hpp>
 
@@ -37,6 +38,8 @@
 #include <PackagedContent.hpp>
 
 #include <gtest/gtest.h>
+
+#include <cstdint>
 
 #include <algorithm>
 #include <cstdlib>
@@ -559,8 +562,16 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     Desert::Text::BakedFont font;
     font.AtlasWidth        = 2;
     font.AtlasHeight       = 2;
-    font.AtlasR8           = { 10, 20, 30, 40 };
+    // Four texels of a grey ramp with the opaque alpha the real baker writes; the values themselves
+    // carry no meaning beyond "these exact bytes must come back".
+    constexpr uint8_t          kOpaque = 255;
+    const std::vector<uint8_t> atlas   = { 10, 10, 10, kOpaque, 20, 20, 20, kOpaque,
+                                           30, 30, 30, kOpaque, 40, 40, 40, kOpaque };
+    font.AtlasRGBA                     = atlas;
     font.PixelHeight       = Desert::Text::kDefaultBakePixelHeight;
+    // The band the atlas was baked with: TryLoadBakedFont refuses an atlas whose band disagrees with the
+    // one this build renders, so a fixture that leaves it at zero is a fixture that gets refused.
+    font.DistanceRangeTexels = Desert::Text::kDistanceRangeTexels;
     const uint64_t fontKey = Desert::Text::FontCacheKey( { 1, 2, 3 }, font.PixelHeight, {} );
     Desert::Text::StoreBakedFont( Desert::Text::FontCachePath( fontKey ), font );
 
@@ -594,7 +605,7 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     Desert::Text::BakedFont loadedFont;
     ASSERT_TRUE( Desert::Text::TryLoadBakedFont( Desert::Text::FontCachePath( fontKey ), loadedFont ) )
          << "the packed font atlas is invisible to the runtime's cache lookup";
-    EXPECT_EQ( loadedFont.AtlasR8, font.AtlasR8 );
+    EXPECT_EQ( loadedFont.AtlasRGBA, font.AtlasRGBA );
     EXPECT_EQ( loadedFont.PixelHeight, font.PixelHeight );
 
     Desert::Vector::BakedIcon loadedIcon;

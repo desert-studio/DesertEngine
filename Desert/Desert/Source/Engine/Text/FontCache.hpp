@@ -20,22 +20,25 @@
 
 namespace Desert::Text
 {
-    // Content-addressed cache key: a version tag + the TTF bytes + the bake size + the extra glyph
-    // set. Any font-file edit or size change produces a fresh key, so the on-disk cache never goes
-    // stale (FNV-1a, same scheme as the SPIR-V shader cache). The baker's other params
-    // (padding/atlasWidth) are compile-time constants folded into kBakedFontCacheVersion, so bumping
-    // that version alone invalidates every cached atlas. `extraCodepoints` must be sorted+unique so
-    // the same glyph set always yields the same key regardless of request order.
+    // Content-addressed cache key: the TTF bytes + EVERY input the bake actually has — the size, the
+    // gutter, the atlas width, the distance range — plus the extra glyph set (FNV-1a, same scheme as the
+    // SPIR-V shader cache). `extraCodepoints` must be sorted+unique so the same glyph set always yields
+    // the same key regardless of request order.
+    //
+    // The FORMAT VERSION IS NOT IN HERE, and that is the point. Folding it into the key made a version
+    // bump rename every atlas instead of rejecting it: the old files stayed on disk forever, a shipped
+    // .dpak's atlases became unreachable, and the only symptom was a slower start nobody could attribute.
+    // The parameters above are in here because they genuinely change the picture under one name; the
+    // version is in the FILE, where TryLoadBakedFont can refuse it out loud.
     uint64_t FontCacheKey( const std::vector<uint8_t>& ttf, float pixelHeight,
                            const std::vector<uint32_t>& extraCodepoints );
 
     // Cooked/FontCache/<key as 16 hex digits>.dfont under the CURRENT project's cooked tree.
     std::filesystem::path FontCachePath( uint64_t key );
 
-    // The ONE bake the cache key describes: BakeFontSDF with the engine's padding/atlas parameters
-    // (those are folded into kBakedFontCacheVersion rather than the key). FontService and the game
-    // packager both bake through here — a bake with different parameters under the same key would be
-    // a cache that lies.
+    // The ONE bake the cache key describes: BakeFontMSDF with the engine's bake parameters, every one of
+    // which FontCacheKey hashes. FontService and the game packager both bake through here — a bake with
+    // different parameters under the same key would be a cache that lies.
     BakedFont BakeFontForCache( const std::vector<uint8_t>& ttf, float pixelHeight,
                                 const std::vector<uint32_t>& extraCodepoints );
 

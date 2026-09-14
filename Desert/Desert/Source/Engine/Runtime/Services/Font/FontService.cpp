@@ -1,5 +1,6 @@
 #include "FontService.hpp"
 
+#include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
 #include <Engine/Text/FontCache.hpp>
 
@@ -64,23 +65,24 @@ namespace Desert::Runtime
              std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() - atlasStart )
                   .count();
 
-        // The engine's attachment/sampler formats are RGBA8 (no R8) — expand the single-channel SDF
-        // into all four channels so the shader can read .r and a debug view still shows the atlas.
-        std::vector<unsigned char> rgba( static_cast<size_t>( baked.AtlasWidth ) * baked.AtlasHeight * 4 );
-        for ( size_t i = 0; i < baked.AtlasR8.size(); ++i )
-        {
-            const unsigned char v = baked.AtlasR8[i];
-            rgba[i * 4 + 0]       = v;
-            rgba[i * 4 + 1]       = v;
-            rgba[i * 4 + 2]       = v;
-            rgba[i * 4 + 3]       = v;
-        }
+        // The baker already produces the atlas in the engine's one sampled format (RGBA8): RGB is the
+        // multi-channel field, alpha is opaque. There is no channel expansion left to do here, and no
+        // place left for a copy of the field to drift from the original.
+        std::vector<unsigned char> rgba( baked.AtlasRGBA.begin(), baked.AtlasRGBA.end() );
 
         Core::Formats::Image2DSpecification spec = {
-             .Tag        = "FontAtlas:" + key,
-             .Width      = baked.AtlasWidth,
-             .Height     = baked.AtlasHeight,
-             .Format     = Core::Formats::ImageFormat::RGBA8F,
+             .Tag    = "FontAtlas:" + key,
+             .Width  = baked.AtlasWidth,
+             .Height = baked.AtlasHeight,
+             .Format = Core::Formats::ImageFormat::RGBA8F,
+             // NO MIPS, AND NOT BY OMISSION. `GenerateMips` builds lower levels with linear blits, and
+             // averaging the three channels of a multi-channel field destroys it: the median of averaged
+             // channels is not the average of medians, so a minified glyph would reconstruct edges that
+             // are in none of its outlines. There is no CPU-supplied mip-chain upload path to hand it a
+             // correctly built chain instead. Minification is answered in the shader, where the edge ramp
+             // is floored at one screen pixel (Common/SdfText.glslh); scored against a glyph's own
+             // supersampled coverage, that is worst-pixel 0.22 at 5 px of rendered height and 0.21 at
+             // 3 px — Desert/Tests/Engine/FontBaker has the numbers and the alternative it beat.
              .Mips       = 1,
              .Data       = std::move( rgba ),
              .Usage      = Core::Formats::Image2DUsage::Image2D,

@@ -250,6 +250,12 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   above are answered by the removal itself: nothing is obliged to destroy an object that is never
     //   created. The count is the whole evidence that the members left with the feature rather than being
     //   orphaned inside a class that no longer draws them.
+    //   824 -> 822 with Ю14 (multi-channel text), and this one goes DOWN by two raw pointers, both in
+    //   the font baker. `RawGlyph::Bitmap` is gone because stb no longer allocates the glyph bitmap —
+    //   the multi-channel field is generated into a std::vector the RawGlyph owns — and `Placed::G` is
+    //   gone because the packer now stores the glyph's INDEX rather than its address, which is also the
+    //   answer to the second question: an index cannot dangle when the vector it indexes reallocates.
+    //   One raw pointer was added in its place, `Msdf::EdgePoint::NearEdge`, and it has a row.
     //
     //   824 -> 828 with Г26, and all FOUR are shared members of MeshRenderer: the (Instanced x GBuffer)
     //   shader, its pipeline, its MaterialPBR and that material's instance. They are the deferred twins
@@ -259,11 +265,11 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   owned by the shader service and the pipeline cache and merely HELD here, exactly as the forward
     //   pair is; the material and its instance are created here and outlive nothing. Q2: none is
     //   deleted by this class; none is raw, so none takes a row in the register.
-    EXPECT_EQ( CountOf( Form::Raw ), 359 );
+    EXPECT_EQ( CountOf( Form::Raw ), 357 );
     EXPECT_EQ( CountOf( Form::Shared ), 323 );
     EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 831 )
+    EXPECT_EQ( (int)Members().size(), 829 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

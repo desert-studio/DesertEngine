@@ -46,14 +46,14 @@ namespace Desert::Vector
     // `curveTolerance` is the flattening error in viewBox units (smaller = more segments).
     VectorImage ParseSvg( const char* xml, size_t size, float curveTolerance = 0.05f );
 
-    // SDF edge value — must match Text::kSdfOnEdgeValue so icons and glyphs share one shader.
-    inline constexpr unsigned char kSdfOnEdgeValue = 128;
-
     // Rasterises the image into a square single-channel SDF of `size`+2*padding texels: the shape is
     // fitted (aspect-preserved) into the inner `size` box, and each texel stores the signed distance to
-    // the outline, `kSdfOnEdgeValue` at the edge, rising inside. Distances are exact (per-texel nearest
-    // segment) rather than a propagated transform — an icon is small and this runs at import time only.
-    // Returns an empty vector if the image is invalid.
+    // the outline in the ONE encoding the text shader decodes (Core/Formats/SdfAtlasEncoding.hpp) —
+    // kSdfAtlasOnEdgeByte at the edge, rising inside, spread over kSdfAtlasDistanceRangeTexels texels.
+    // A `padding` below half that band is legal and still encodes correct distances — the field simply
+    // never reaches the ends of its byte range, which costs headroom for outlines and glow, not accuracy.
+    // Distances are exact (per-texel nearest segment) rather than a propagated transform — an icon is small and
+    // this runs at import time only. Returns an empty vector if the image is invalid.
     //
     // [shapeBegin, shapeEnd) selects a RANGE of shapes; the default takes them all. A multi-colour icon
     // is baked one colour run at a time, and because the fit box is always derived from the WHOLE image
