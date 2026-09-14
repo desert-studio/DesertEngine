@@ -134,16 +134,26 @@ if defined CI (
     exit /b 0
 )
 if not exist "%ANALYZER%" (
-    REM A REFUSAL, NOT A SHRUG. The analyser is on by default, so "it is on" and "it quietly did not
-    REM happen" cannot both be true. The Windows entry point does not exist yet — the gate landed as
-    REM scripts/CI/CheckTidy.sh, which is bash — and naming the exact file that is missing is what
-    REM keeps this from turning into a permanent silent skip on one platform.
+    REM NOT IMPLEMENTED ON THIS PLATFORM is a THIRD state, and it is not the same as COULD NOT RUN.
+    REM
+    REM "Could not run" is transient — a missing binary, a wrong version, a broken database — and it
+    REM must refuse, because it is indistinguishable from "ran and found nothing" by output alone.
+    REM This is not that. The Windows entry point has never been written: the gate reads a compile
+    REM database built from premake's gmake2 makefiles, and a Windows build is MSBuild/MSVC, so the
+    REM analyser would read a DIFFERENT PROGRAM than the one being shipped. Refusing until somebody
+    REM writes it does not produce analysis — it produces a platform whose build always fails, which
+    REM is how "--no-analyze" becomes the command everybody types and the gate dies unnoticed.
+    REM
+    REM So it says so on every build, loudly, and proceeds. What keeps this from becoming a permanent
+    REM silent skip is not the exit code: it is the row in BuildScriptContract's kPendingReferences,
+    REM which names the owing task and REDDENS the moment scripts\CI\CheckTidy.bat appears.
     echo. 1>&2
-    echo BUILD OK, BUT THE ANALYSER DID NOT RUN: "%ANALYZER%" is missing. 1>&2
-    echo   Static analysis is on by default, so this is a refusal rather than a skip. 1>&2
-    echo   Build without it deliberately:  scripts\Windows\BuildWindows.bat %CONFIG% --no-analyze 1>&2
-    endlocal
-    exit /b 1
+    echo !!! static analysis NOT AVAILABLE ON WINDOWS YET: "%ANALYZER%" does not exist. 1>&2
+    echo     Nothing was checked by clang-tidy. This is a known gap, not a failure of your build: 1>&2
+    echo     the gate needs an MSVC compile database, which is its own task. 1>&2
+    echo     On macOS the same build DOES analyse, so a change that only builds here is unchecked. 1>&2
+    echo. 1>&2
+    goto after_analysis
 )
 
 echo --- Static analysis ^(clang-tidy, changed lines^)
@@ -165,3 +175,9 @@ echo clang-tidy COULD NOT RUN ^(exit %ANALYZER_RC%^) — an environment failure,
 echo   The binaries in build\Bin\%CONFIG% are still valid. 1>&2
 endlocal
 exit /b 1
+
+:after_analysis
+REM Reached ONLY by the not-implemented-on-this-platform branch above. The build succeeded and was
+REM not analysed, and the line that says so has already been printed to stderr.
+endlocal
+exit /b 0
