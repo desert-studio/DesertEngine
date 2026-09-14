@@ -295,7 +295,15 @@ jobs:
   windows:
     name: Windows ${{ matrix.config }}
     needs: [ format ]
-    runs-on: windows-latest
+    # PINNED, NOT "latest". On 2026-09-14 `windows-latest` rolled forward to an image carrying Visual
+    # Studio 18 Enterprise, which does NOT ship the MSVC v143 toolset. premake's vs2022 action writes
+    # PlatformToolset=v143 into every .vcxproj, so msbuild on that image fails with MSB8020 -- Setup.bat
+    # now says so by name instead, which is how the five red runs after dff392b5 got diagnosed at all.
+    #
+    # The label moving under us is the defect, not the image: a runner that silently changes compiler
+    # is a green CI that stopped meaning what it meant. So the image is named, and moving to a newer
+    # toolset is its own migration with its own measurement -- not something a label does overnight.
+    runs-on: windows-2022
     # 150, not 90, and the margin is the point. Measured 2026-09-05 over the last four green runs,
     # Windows Debug takes 73, 73, 76 and 84 minutes — 81 % to 93 % of a 90-minute budget. Twice it went
     # over and GitHub cancelled it, at ~90 minutes each time (runs 33915939489 and 33940280564).
