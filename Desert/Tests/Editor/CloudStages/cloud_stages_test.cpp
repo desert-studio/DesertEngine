@@ -28,6 +28,8 @@
 // Why this lives in a header at all: CloudsPanel.cpp is one of the editor translation units no suite
 // compiles (scripts/CI/UnreachedSources.sh), so a rule written there is a rule nothing can assert.
 
+#include "../../Engine/SettingConsumers/setting_consumers_reader.hpp"
+
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Panels/Clouds/CloudStages.hpp>
 
@@ -36,7 +38,13 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -374,6 +382,286 @@ TEST( CloudStagesAgreeWithTheEngine, TheRailAndTheLayerCountTheSameTypeSlots )
     // trusted: the day the layer grows a fifth slot, this reddens instead of the rail quietly showing four
     // of five.
     EXPECT_EQ( kCloudStageTypeSlots, static_cast<uint32_t>( Desert::ECS::kCloudTypeSlots ) );
+}
+
+// =================================================================================================
+// 6. NOBODY RE-DERIVES A CLOUD TYPE'S NOISE VOLUME — a census over the SOURCE TEXT
+// =================================================================================================
+//
+// WHY A TEXT CENSUS AND NOT AN ASSERTION. The rule is about a call that must not be written, in a file no
+// suite compiles (CloudsPanel.cpp), against a registry no suite here has. Every part of that is outside
+// what a linked test can reach, and the rule still has to be kept — the same trade
+// Desert/Tests/Engine/GpuWriteCensus makes, with the same reader (comments and string literals are
+// blanked first, so this file's own prose cannot satisfy or violate its own rule).
+//
+// THE RULE: a `.decloudtype` stores its noise volume as a path RELATIVE TO THE ASSETS ROOT, and exactly
+// one place in the engine joins it to that root — `Assets::CloudTypeAsset::ResolveDependencies`, which
+// binds the handle and reports by name, with both spellings, when the file is not registered. Every other
+// reader asks the asset (`CloudTypeAsset::GetNoiseVolume`) or the service that caches its answer
+// (`CloudTypeService::GetNoiseVolume`).
+//
+// WHAT IT COST WHEN IT WAS BROKEN, and why "the registry deduplicates spellings" does not cover it. The
+// Clouds window handed the stored spelling to `AssetManager::FindByPath` verbatim. `AssetKey` does reduce
+// every spelling of one file to one key — but it resolves a RELATIVE spelling against the WORKING
+// DIRECTORY, not against the assets root, so `Clouds/CloudNoise_FineWisp.dcnv` minted the untagged key
+// `Clouds/CloudNoise_FineWisp.dcnv` while the preloader had registered the file as
+// `assets:Clouds/CloudNoise_FineWisp.dcnv`. The lookup missed for the one shipped type that names a
+// volume, and stage 5 said "the built-in volume" about a sky that was not using it. The mechanism is
+// pinned in Desert/Tests/Engine/AssetPathIdentity; this is the gate that stops it being written again.
+namespace
+{
+    namespace fs = std::filesystem;
+
+    std::string RepoRootForCensus()
+    {
+        std::string prefix = "./";
+        for ( int up = 0; up < 6; ++up )
+        {
+            std::ifstream probe( prefix + "Editor/Source/Editor/Panels/Clouds/CloudsPanel.cpp" );
+            if ( probe )
+                return prefix;
+            prefix += "../";
+        }
+        return {};
+    }
+
+    std::string ReadAllForCensus( const fs::path& path )
+    {
+        std::ifstream      in( path, std::ios::binary );
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        return buffer.str();
+    }
+
+    // Every source the engine, the editor and the runtime compile. Not narrowed to the cloud directories:
+    // the rule is about a call anybody can write, and the site that broke it was in the editor while the
+    // format it misread is in the engine.
+    std::vector<fs::path> CensusSources( const std::string& root )
+    {
+        std::vector<fs::path> out;
+        for ( const char* tree :
+              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+        {
+            std::error_code ec;
+            for ( auto it = fs::recursive_directory_iterator( fs::path( root ) / tree, ec );
+                  !ec && it != fs::recursive_directory_iterator(); ++it )
+            {
+                const fs::path& p = it->path();
+                if ( p.string().find( "lightweightvk" ) != std::string::npos )
+                    continue;
+                if ( p.extension() == ".cpp" || p.extension() == ".hpp" )
+                    out.push_back( p );
+            }
+        }
+        return out;
+    }
+
+    struct Finding
+    {
+        std::string File;
+        std::size_t Line;
+        std::string What;
+    };
+
+    std::size_t LineOfOffset( const std::string& text, std::size_t at )
+    {
+        return 1u + static_cast<std::size_t>( std::count( text.begin(), text.begin() + at, '\n' ) );
+    }
+
+    // The template argument list of one call, `<...>`, or empty when there is none. Read separately from
+    // the value arguments because WHAT is being looked up lives here and WITH WHAT lives there.
+    std::string TemplateArgumentsAt( const std::string& src, std::size_t nameEnd )
+    {
+        std::size_t i = Desert::Tests::ConsumerText::SkipSpace( src, nameEnd );
+        if ( i >= src.size() || src[i] != '<' )
+            return {};
+
+        const std::size_t begin = i;
+        int               angle = 0;
+        for ( ; i < src.size(); ++i )
+        {
+            if ( src[i] == '<' )
+                ++angle;
+            else if ( src[i] == '>' && --angle == 0 )
+                return src.substr( begin, i - begin + 1 );
+        }
+        return {};
+    }
+
+    // The argument text of one call, from the '(' after the name to its matching ')'. Nesting is counted
+    // so a call inside the argument list does not end it early.
+    std::string ArgumentsAt( const std::string& src, std::size_t nameEnd )
+    {
+        std::size_t i = Desert::Tests::ConsumerText::SkipSpace( src, nameEnd );
+        // A template argument list may sit between the name and the '(' — FindByPath<T>( path ).
+        if ( i < src.size() && src[i] == '<' )
+        {
+            int angle = 0;
+            for ( ; i < src.size(); ++i )
+            {
+                if ( src[i] == '<' )
+                    ++angle;
+                else if ( src[i] == '>' && --angle == 0 )
+                {
+                    ++i;
+                    break;
+                }
+            }
+            i = Desert::Tests::ConsumerText::SkipSpace( src, i );
+        }
+        if ( i >= src.size() || src[i] != '(' )
+            return {};
+
+        int         depth = 0;
+        std::size_t begin = i;
+        for ( ; i < src.size(); ++i )
+        {
+            if ( src[i] == '(' )
+                ++depth;
+            else if ( src[i] == ')' && --depth == 0 )
+                return src.substr( begin, i - begin + 1 );
+        }
+        return {};
+    }
+} // namespace
+
+TEST( CloudStagesCensus, OnlyTheFormatsOwnReaderLooksUpANoiseVolumeByPath )
+{
+    const std::string root = RepoRootForCensus();
+    ASSERT_FALSE( root.empty() ) << "the census could not find the repository from the working directory";
+
+    // NAMED ROWS, NOT A COUNT. A gate that pinned "there are two such calls" is satisfied by editing the
+    // two; what is pinned is WHICH file may make one and WHY, so a third site has to be argued for here
+    // before it can be written. The number examined is printed beside it so that a census which quietly
+    // stopped looking is visible.
+    struct AllowedSite
+    {
+        const char* File;
+        const char* Why;
+    };
+    const AllowedSite kAllowed[] = {
+         { "Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
+           "the reader of the format that STORES the path: it is the only code that knows the path is "
+           "relative to the assets root, and it does the one join (ResolveDependencies)" },
+         { "Editor/Source/Editor/Panels/Clouds/CloudNoiseVolumePanel.cpp",
+           "re-registers a file it has just WRITTEN, by the absolute path it wrote to — not a stored "
+           "reference, so no root is being guessed at" },
+    };
+
+    std::vector<Finding> findings;
+    std::size_t          callsExamined = 0;
+    std::size_t          volumeLookups = 0;
+
+    for ( const fs::path& path : CensusSources( root ) )
+    {
+        const std::string src = Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAllForCensus( path ) );
+        const std::string generic = fs::path( path ).generic_string();
+
+        for ( const std::size_t at : Desert::Tests::ConsumerText::WordPositions( src, "FindByPath" ) )
+        {
+            const std::size_t nameEnd = at + std::string( "FindByPath" ).size();
+            const std::string call    = TemplateArgumentsAt( src, nameEnd );
+            const std::string args    = ArgumentsAt( src, nameEnd );
+            if ( args.empty() )
+                continue;
+            ++callsExamined;
+
+            if ( call.find( "CloudNoiseVolumeAsset" ) == std::string::npos )
+                continue;
+            ++volumeLookups;
+
+            bool allowed = false;
+            for ( const AllowedSite& row : kAllowed )
+            {
+                const std::string suffix( row.File );
+                if ( generic.size() >= suffix.size() &&
+                     generic.compare( generic.size() - suffix.size(), suffix.size(), suffix ) == 0 )
+                {
+                    allowed = true;
+                    break;
+                }
+            }
+            if ( allowed )
+                continue;
+
+            findings.push_back( { generic, LineOfOffset( src, at ),
+                                  "a cloud noise volume is looked up by path outside the register above: "
+                                  "FindByPath" +
+                                       call + args } );
+        }
+    }
+
+    EXPECT_GT( callsExamined, 0u ) << "the census found no FindByPath call at all — it has stopped looking";
+    EXPECT_EQ( volumeLookups, std::size( kAllowed ) )
+         << "the register names " << std::size( kAllowed ) << " sites and the tree has " << volumeLookups
+         << ": a row whose site is gone is a row that no longer defends anything";
+    std::cout << "[ CENSUS   ] FindByPath calls examined: " << callsExamined
+              << ", noise-volume lookups: " << volumeLookups << ", outside the register: " << findings.size()
+              << std::endl;
+
+    for ( const Finding& f : findings )
+        ADD_FAILURE() << f.File << ":" << f.Line << " — " << f.What;
+    EXPECT_TRUE( findings.empty() );
+}
+
+// THE DEFECT'S OWN SHAPE, and the reason the register above is not enough on its own. The site this gate
+// was written for held the stored path in a local called `path`, so nothing about the CALL said where the
+// string had come from — only the line above it did. What names it unambiguously is the READ: a cloud
+// type's data is where the stored, root-relative spelling lives, and nothing outside the asset itself has
+// any business taking it out of there. The asset has already resolved it; `GetNoiseVolume` is the answer.
+TEST( CloudStagesCensus, NobodyTakesTheStoredPathOutOfACloudTypesData )
+{
+    const std::string root = RepoRootForCensus();
+    ASSERT_FALSE( root.empty() );
+
+    std::vector<Finding> findings;
+    std::size_t          dataReads = 0;
+
+    for ( const fs::path& path : CensusSources( root ) )
+    {
+        const std::string src = Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAllForCensus( path ) );
+
+        for ( const std::size_t at : Desert::Tests::ConsumerText::WordPositions( src, "GetData" ) )
+        {
+            std::size_t i = Desert::Tests::ConsumerText::SkipSpace( src, at + 7 );
+            if ( i >= src.size() || src[i] != '(' )
+                continue;
+            i = Desert::Tests::ConsumerText::SkipSpace( src, i + 1 );
+            if ( i >= src.size() || src[i] != ')' )
+                continue;
+            ++dataReads;
+            i = Desert::Tests::ConsumerText::SkipSpace( src, i + 1 );
+            if ( i < src.size() && src[i] == '.' &&
+                 Desert::Tests::ConsumerText::WordAt( src, i + 1, "NoiseVolume" ) )
+                findings.push_back( { fs::path( path ).generic_string(), LineOfOffset( src, at ),
+                                      "the stored, root-relative noise-volume path is read out of a cloud "
+                                      "type's data; ask the asset for the handle it bound instead" } );
+        }
+    }
+
+    EXPECT_GT( dataReads, 0u ) << "the census found no GetData() call at all — it has stopped looking";
+    std::cout << "[ CENSUS   ] GetData() reads examined: " << dataReads
+              << ", noise-volume paths taken out: " << findings.size() << std::endl;
+
+    for ( const Finding& f : findings )
+        ADD_FAILURE() << f.File << ":" << f.Line << " — " << f.What;
+    EXPECT_TRUE( findings.empty() );
+}
+
+// The positive half. A register that is empty because nobody resolves the volume AT ALL would also be
+// empty, and the window would then draw an empty stage 5 for ever — which is the failure §1.4 is about.
+TEST( CloudStagesCensus, TheCloudsWindowReadsTheHandleTheTypeAlreadyBound )
+{
+    const std::string root = RepoRootForCensus();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string panel = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAllForCensus( fs::path( root ) / "Editor/Source/Editor/Panels/Clouds/CloudsPanel.cpp" ) );
+    ASSERT_FALSE( panel.empty() );
+
+    EXPECT_FALSE( Desert::Tests::ConsumerText::WordPositions( panel, "GetNoiseVolume" ).empty() )
+         << "CloudsPanel.cpp no longer reads the handle CloudTypeAsset resolved, so stage 5 of the rail "
+            "resolves to nothing whatever the type names";
 }
 
 int main( int argc, char** argv )

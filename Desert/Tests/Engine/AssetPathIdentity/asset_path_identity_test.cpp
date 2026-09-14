@@ -471,6 +471,58 @@ TEST( AssetPathIdentity, AnIdentityCannotBeBuiltFromASpellingAlone )
     SUCCEED();
 }
 
+// A PATH RELATIVE TO THE ASSETS ROOT IS NOT A SPELLING OF THE FILE, AND THE REGISTRY CANNOT MAKE IT ONE.
+//
+// This is the half of the identity that the suite above does NOT give you, and a task was opened on the
+// belief that it did: `AssetKey` reduces every spelling of one file to one key, so surely a bare
+// `Clouds/CloudNoise_FineWisp.dcnv` finds the volume the preloader registered. It does not, and the
+// reason is one line of `StableKeyForPath`: a relative spelling is resolved through `fs::absolute`,
+// which prepends the WORKING DIRECTORY. It is `<cwd>/Clouds/...` that is then matched against the
+// content roots, and that place is under none of them — so the key stays the untagged, normalised
+// spelling while the registered file's key is `assets:Clouds/...`. Two identities, one file.
+//
+// WHY THIS IS NOT A DEFECT IN THE DERIVATION. The engine has exactly one place that may join a
+// root-relative reference to its root, and which root it is depends on the FORMAT that stored it: a
+// `.decloudtype` stores its noise volume relative to ASSETS_PATH, a `.desce` stores paths relative to
+// the project. A registry that guessed would have to try every root and would then answer a file under
+// `Cooked/` when asked for one under `Resources/Assets/`. The join belongs to the reader of the format,
+// and this test exists so that "the key is spelling-independent" is never again read as "the key is
+// root-independent".
+//
+// WHO PAID FOR IT: Editor/Source/Editor/Panels/Clouds/CloudsPanel.cpp handed the stored spelling to
+// `FindByPath` verbatim, so the Clouds window's noise stage reported "the built-in volume" for the one
+// shipped cloud type that names a file. `Assets::CloudTypeAsset::ResolveDependencies` does the single
+// join and is what the panel now reads back.
+TEST( AssetPathIdentity, ARootRelativeReferenceIsAnotherIdentityUntilItsOwnFormatJoinsIt )
+{
+    const ProjectRootGuard      roots;
+    const auto                  project = OpenProject( "assets_root_relative" );
+    const WorkingDirectoryGuard cwd( project );
+
+    // Exactly what the shipped `Cirrus.decloudtype` carries in its "NoiseVolume" field, and exactly where
+    // the file sits. Spelled here rather than read off disk because the claim is about the KEY.
+    const std::filesystem::path stored( "Clouds/CloudNoise_FineWisp.dcnv" );
+    const Common::Filepath      rooted = ( Common::Constants::Path::ASSETS_PATH / stored ).lexically_normal();
+
+    AssetManager mgr;
+    const auto registered = mgr.CreateAsset<TextureProbe>( AssetPriority::Low, rooted, /*loadAfterCreate=*/false );
+    ASSERT_NE( registered, nullptr );
+
+    // The two keys are the finding, and they are asserted BEFORE the lookups so that a red line here says
+    // which of the two halves moved.
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( rooted ), "assets:Clouds/CloudNoise_FineWisp.dcnv" );
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( stored ), "Clouds/CloudNoise_FineWisp.dcnv" )
+         << "a path the working directory does not put under a content root keeps its own spelling";
+    EXPECT_NE( Common::AssetHandle::StableKeyForPath( rooted ), Common::AssetHandle::StableKeyForPath( stored ) );
+
+    EXPECT_EQ( mgr.FindByPath<TextureProbe>( stored ), nullptr )
+         << "the bare root-relative spelling must NOT resolve: if it starts to, the join in "
+            "CloudTypeAsset::ResolveDependencies has become a second answer to a question the registry "
+            "now answers, and one of the two has to go";
+    EXPECT_EQ( mgr.FindByPath<TextureProbe>( rooted ).get(), registered.get() )
+         << "the joined spelling is the one the registry holds";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
