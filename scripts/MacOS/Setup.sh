@@ -53,11 +53,16 @@ BREW_PACKAGES=(
 # declarations split across lines, and on aligned const-declaration blocks — and the symptom is a red
 # CI run on code that was clean locally. That happened three times in one day.
 #
-# NOT ON CI, and the exclusion is measured rather than tidy: the macOS jobs never run CheckFormat.sh
-# (the format gate is a separate ubuntu job with an apt package), llvm@18 is a ~1.5 GB bottle, and the
-# `sanitizers` job already sits at 61-73 % of its 90-minute ceiling. Paying that on every macOS run to
-# install a formatter no macOS job invokes is how a job crosses its timeout, and a timed-out job
-# reports as `cancelled`, which looks like nothing being wrong.
+# NOT ON CI, and the exclusion is measured rather than tidy: llvm@18 is a ~1.5 GB bottle and the
+# `sanitizers` job already sits at 61-73 % of its 90-minute ceiling. Paying that on every macOS run is
+# how a job crosses its timeout, and a timed-out job reports as `cancelled`, which looks like nothing
+# being wrong.
+#
+# EXACTLY ONE CI JOB NEEDS THE KEG AND IT INSTALLS THE KEG ITSELF: `tidy` in ci.yml runs
+# scripts/CI/CheckTidy.sh, whose clang-tidy is pinned to the same llvm@18 the formatter uses. It has
+# its own `brew install llvm@18` step for that reason, so the cost lands on the one job that spends it
+# rather than on the two builds that do not. (The format gate is a separate ubuntu job with an apt
+# package and never touches this script at all.)
 #
 # Keg-only, so it is deliberately NOT linked into PATH: `clang-format` there would shadow the system
 # one for everything else on the machine. The check in step 5 prints the one PATH prefix that runs it.
