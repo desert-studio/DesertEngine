@@ -58,6 +58,12 @@ namespace Desert::Editor
         // the rest climbs to just under the zenith.
         constexpr float kDomeDefaultPitch = 0.5236f; // 30 degrees, radians
         constexpr float kDomeDefaultYaw   = -0.6f;
+        // THE GRADE A CLOUD SKY IS LOOKED AT THROUGH IN THIS REPOSITORY. Counted rather than chosen: of the
+        // 51 scenes under Resources/Assets/Scenes carrying a VolumetricCloud component, 50 author
+        // Exposure 0.26 and one (Clouds_Sunset) authors 1.0. The dome takes the modal value so that the
+        // material is tuned at the exposure it will be shipped at; the row on the Preview Scene tab is
+        // there for the level that disagrees.
+        constexpr float kDomeExposure = 0.26f;
         // The ground, as a Plane primitive scaled until its edge is past anything the eye reads as a
         // distance. 20 km at 1.7 m of eye height is well beyond where the atmosphere takes over.
         constexpr float kDomeGroundSize = Common::Units::Metres( 20000.0f );
@@ -403,6 +409,10 @@ namespace Desert::Editor
         // it would render an empty depth map every frame and every fragment would fall outside it.
         auto& settings         = m_Scene->GetSettings();
         settings.EnableShadows = m_Fill != Fill::SkyDome && m_Setup.ShowFloor && m_Setup.FloorReceivesShadow;
+        // THE GRADE, EVERY FRAME AND FROM THE SETUP, so the pane follows the row instead of holding
+        // whatever SceneSettings was constructed with. See SceneSetup::Exposure for the census behind the
+        // dome's value: a cloud material used to be authored four stops off every level that ships it.
+        settings.Exposure = m_Setup.Exposure;
         // THE GRID IS NOT A SCENE SETTING ANY MORE. К2 moved every debug overlay onto the RENDERER
         // (Graphic::DebugViewState), because a view preference in a level file is one person's opinion
         // travelling through git — and six of those flags reached the Runtime, one of them forcing the
@@ -742,6 +752,12 @@ namespace Desert::Editor
             // SunIntensity is a radiance and this is an illuminance, and Components.hpp is explicit that
             // the two are different quantities that must not be computed from one another.
             m_Setup.LightIntensity = 22.0f;
+            // AND THE GRADE THAT SUN IS SEEN THROUGH, on the same terms and from the same file: 0.26 is
+            // what fifty of the fifty-one cloud scenes in this repository author, Clouds_ShadowsOnGround
+            // among them. The pane's own default of 1.0 is Core::SceneSettings' struct default and was
+            // never a decision; leaving it there made the preview 78 of 255 brighter on average than any
+            // level that would ship the material. See SceneSetup::Exposure.
+            m_Setup.Exposure = kDomeExposure;
         }
 
         m_Fill       = Fill::SkyDome;

@@ -574,6 +574,29 @@ namespace Desert::Graphic::System
                       Assets::CountCloudProceduralBlobs( m_ModellingParams, m_ModellingOriginKm ),
                       m_ModellingParams.RegionSizeKm / static_cast<float>( bakedSide ) * 1000.0f,
                       m_ModellingBakesCancelled );
+
+            // THE GRID WAS RAISED, AND THE READER IS TOLD SO AT THE PLACE THE SIDE IS ALREADY PRINTED.
+            // Graphic::CloudBakeSideForSpecies only ever raises, and only when the asked-for grid could not
+            // express a type's authored placement cell — at which point the cheaper grid does not draw a
+            // coarser sky, it draws a DIFFERENT one, so the budget has to give. Saying nothing is what let
+            // the asset preview place altocumulus on a 1.50 km lattice while the level used 0.90 km.
+            const uint32_t askedSide = static_cast<uint32_t>( std::clamp(
+                 m_Data.VolumeResolution, static_cast<int32_t>( Assets::kCloudProceduralVolumeSideMin ),
+                 static_cast<int32_t>( Assets::kCloudProceduralVolumeSide ) ) );
+            if ( bakedSide > askedSide )
+            {
+                float smallestCellKm = 0.0f;
+                for ( const Assets::CloudProceduralSpecies& one : m_ModellingParams.Species )
+                    if ( smallestCellKm <= 0.0f || one.CellKm < smallestCellKm )
+                        smallestCellKm = one.CellKm;
+
+                LOG_INFO( "[Clouds] The bake grid was raised from the {} voxels this view asked for to {}: "
+                          "the finest type places cells {:.2f} km apart and a {} grid can only express "
+                          "{:.2f} km, which would have placed the clouds on a different lattice rather than "
+                          "drawn the same ones more coarsely.",
+                          askedSide, bakedSide, smallestCellKm, askedSide,
+                          4.0f * m_ModellingParams.RegionSizeKm / static_cast<float>( askedSide ) );
+            }
         }
 
         return m_ModellingValid;
