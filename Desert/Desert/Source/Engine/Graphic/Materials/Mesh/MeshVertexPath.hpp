@@ -162,10 +162,16 @@ namespace Desert::Graphic
     //
     //   (Skinned  x GBuffer) — a skinned mesh is drawn FORWARD over the deferred composite instead
     //                          (MeshRenderer::RenderSkinnedManual), so it needs no G-buffer variant.
-    //   (Instanced x GBuffer) — same story: instancing is disabled in the G-buffer pass, every static
-    //                          takes the per-object path there.
     //   (* x Glass)          — transparency is a static-mesh feature; no skinned or instanced glass
     //                          exists to draw.
+    //
+    // (Instanced x GBuffer) WAS A HOLE AND WAS NOT ONE. Its stated reason — "instancing is disabled in
+    // the G-buffer pass, every static takes the per-object path there" — was true of the AUTO-BATCHED
+    // statics, which fall back to per-object draws when instancing is off, and FALSE of an
+    // InstancedStaticMesh entity, which is one entity carrying N transforms and has no per-object path
+    // to fall back to. So the G-buffer pass dropped the whole ISM queue with no line in the log, in the
+    // render path 46 of the repository's 86 scenes state. The cell is filled (Г26); the comment is kept
+    // because a hole justified by a half-true sentence is the failure this table exists to make visible.
     //
     // A hole answers nullptr and the caller must SAY so rather than silently drawing something else —
     // that silence is what defect (2) above was made of.

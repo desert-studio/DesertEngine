@@ -11,7 +11,7 @@ namespace Desert::Graphic
              // Forward                  GBuffer               Glass                Shadow depth
              { "StaticMeshPBR", "StaticMeshGBuffer", "StaticMeshGlass", "Shadow" },
              { "SkinnedMeshPBR", nullptr, nullptr, "Shadow_Skinned" },
-             { "StaticMeshPBR_Instanced", nullptr, nullptr, "Shadow_Instanced" },
+             { "StaticMeshPBR_Instanced", "StaticMeshGBuffer_Instanced", nullptr, "Shadow_Instanced" },
         };
     } // namespace
 

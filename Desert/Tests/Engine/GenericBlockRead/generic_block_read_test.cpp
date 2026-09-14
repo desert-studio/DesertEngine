@@ -17,8 +17,13 @@
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
+// PrimitiveType, which an ISM block states instead of a mesh path.
+#include <Engine/Geometry/PrimitiveType.hpp>
 
+#include <array>
+#include <cstddef>
 #include <string>
+#include <vector>
 
 using Desert::Core::Serialize::ReadBlock;
 using Desert::Core::Serialize::WriteBlock;
@@ -135,6 +140,156 @@ TEST( GenericBlockRead, WhatWriteBlockWritesIsWhatReadBlockReads )
     EXPECT_FLOAT_EQ( parsed.value().PlaybackSpeed, written.PlaybackSpeed );
     EXPECT_EQ( parsed.value().EnableRootMotion, written.EnableRootMotion );
     EXPECT_EQ( parsed.value().GraphJson, written.GraphJson );
+}
+
+// ── THE INSTANCED STATIC MESH, END TO END THROUGH THE BLOCK A .desce CARRIES ───────────────────────
+//
+// WHY THIS IS HERE AND WHAT IT DOES *NOT* PROVE. Nine instances authored in a scene file did not appear
+// on screen while a plain StaticMesh beside them, at the same matrices, did (Г25's control frame). Two
+// halves could have lost them — the file->component trip, and the component->frame trip — and the honest
+// thing is to test the one that can be tested purely and to say where the defect actually was. It was
+// the SECOND half: MeshRenderer gated its instanced queue on `!m_DeferredGeometry`, so in the deferred
+// path the queue was never drained and no per-object path existed to catch it. That is fixed by the
+// (Instanced x GBuffer) cell, and it is pinned by Desert/Tests/Engine/MeshVertexPath, not here.
+//
+// The trip below is the OTHER half, and it was never covered by anything: an ISM block is the only
+// component payload in this engine that carries a `std::vector<std::array<float, 16>>`, i.e. a nesting
+// depth no other mirror struct exercises, plus an optional enum. A silent loss there would look exactly
+// like the defect that was actually found, which is why "the ends look right" is not an argument.
+
+namespace
+{
+    constexpr std::size_t kMatrixElements = 16; // a mat4, flattened column-major, as a .desce stores it
+    constexpr std::size_t kTranslationX   = 12; // ...so the translation is elements 12, 13, 14
+    constexpr std::size_t kTranslationY   = 13;
+    constexpr std::size_t kTranslationZ   = 14;
+
+    constexpr float kGridStep  = 200.0F; // the 3x3 grid Г25's control frame used, in world units (cm)
+    constexpr float kGridStart = 200.0F;
+    constexpr int   kGridSide  = 3;
+
+    // The diagonal of a column-major mat4: elements 0, 5, 10 and 15.
+    constexpr std::array<std::size_t, 4> kDiagonal = { 0, 5, 10, 15 };
+
+    std::array<float, kMatrixElements> Identity()
+    {
+        std::array<float, kMatrixElements> mat{};
+        for ( const std::size_t element : kDiagonal )
+        {
+            mat.at( element ) = 1.0F;
+        }
+        return mat;
+    }
+
+    // Nine instances on a 3x3 grid. Every translation is distinct on purpose: a trip that returned nine
+    // copies of the first matrix would satisfy a size check and lose eight instances.
+    std::vector<std::array<float, kMatrixElements>> NineDistinctInstances()
+    {
+        std::vector<std::array<float, kMatrixElements>> flat;
+        for ( int col = 0; col < kGridSide; ++col )
+        {
+            for ( int row = 0; row < kGridSide; ++row )
+            {
+                std::array<float, kMatrixElements> mat = Identity();
+                mat.at( kTranslationX )                = kGridStart + ( static_cast<float>( col ) * kGridStep );
+                mat.at( kTranslationY )                = -kGridStart + ( static_cast<float>( row ) * kGridStep );
+                mat.at( kTranslationZ )                = static_cast<float>( ( col * kGridSide ) + row );
+                flat.push_back( mat );
+            }
+        }
+        return flat;
+    }
+    // Element by element, because a size check passes on nine copies of one matrix. Out of the TEST body
+    // so the body stays one statement per claim.
+    void ExpectSameMatrices( const std::vector<std::array<float, kMatrixElements>>& back,
+                             const std::vector<std::array<float, kMatrixElements>>& expected )
+    {
+        ASSERT_EQ( back.size(), expected.size() );
+        for ( std::size_t instance = 0; instance < expected.size(); ++instance )
+        {
+            for ( std::size_t element = 0; element < kMatrixElements; ++element )
+            {
+                EXPECT_FLOAT_EQ( back.at( instance ).at( element ), expected.at( instance ).at( element ) )
+                     << "instance " << instance << ", element " << element;
+            }
+        }
+    }
+} // namespace
+
+TEST( GenericBlockRead, AnInstancedStaticMeshSurvivesTheTripWithEveryMatrixIntact )
+{
+    const std::vector<std::array<float, kMatrixElements>> flat = NineDistinctInstances();
+
+    Assets::InstancedStaticMeshComponentSer written;
+    written.Primitive          = Desert::Geometry::PrimitiveType::Cube;
+    written.InstanceTransforms = flat;
+
+    const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
+         WriteBlock( written, "InstancedStaticMesh" ), "InstancedStaticMesh" );
+    ASSERT_TRUE( parsed.has_value() );
+    const Assets::InstancedStaticMeshComponentSer& read =
+         parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
+
+    ASSERT_TRUE( read.Primitive.has_value() );
+    EXPECT_EQ( read.Primitive, Desert::Geometry::PrimitiveType::Cube );
+
+    ASSERT_TRUE( read.InstanceTransforms.has_value() );
+    const std::vector<std::array<float, kMatrixElements>>& back =
+         read.InstanceTransforms.value(); // NOLINT(bugprone-unchecked-optional-access)
+    ExpectSameMatrices( back, flat );
+}
+
+// The shape a real `.desce` states, read as text rather than round-tripped — because a round trip can
+// agree with itself while disagreeing with the files on disk. This is the block
+// Editor/Resources/Assets/Scenes/G26_ISMProbe.desce carries under its "InstancedStaticMesh" key, cut to
+// two instances. (ReadBlock is handed the block's CONTENTS; EntitySerializer looks the key up.)
+TEST( GenericBlockRead, TheBlockShapeASceneFileStatesIsTheOneThisStructReads )
+{
+    const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
+         FromJsonText( R"({"Primitive":"Cube","InstanceTransforms":[)"
+                       R"([1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,200.0,-200.0,0.0,1.0],)"
+                       R"([1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,400.0,0.0,0.0,1.0]]})" ),
+         "InstancedStaticMesh" );
+    ASSERT_TRUE( parsed.has_value() );
+    const Assets::InstancedStaticMeshComponentSer& read =
+         parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
+
+    ASSERT_TRUE( read.Primitive.has_value() );
+    EXPECT_EQ( read.Primitive, Desert::Geometry::PrimitiveType::Cube );
+
+    ASSERT_TRUE( read.InstanceTransforms.has_value() );
+    const std::vector<std::array<float, kMatrixElements>>& back =
+         read.InstanceTransforms.value(); // NOLINT(bugprone-unchecked-optional-access)
+    ASSERT_EQ( back.size(), 2U );
+    EXPECT_FLOAT_EQ( back.at( 0 ).at( kTranslationX ), 200.0F );
+    EXPECT_FLOAT_EQ( back.at( 1 ).at( kTranslationX ), 400.0F );
+}
+
+// A mesh-asset ISM states no Primitive at all, and a component whose optional mesh path is the only
+// thing set must come back with its transforms — the case grass-as-an-asset takes.
+TEST( GenericBlockRead, AnAssetBackedInstancedStaticMeshKeepsItsTransformsWithNoPrimitive )
+{
+    const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
+         FromJsonText( R"({"MeshPath":"Cooked/Meshes/Grass.stmesh",)"
+                       R"("MaterialPaths":["Materials/M_Grass.demat"],"InstanceTransforms":[)"
+                       R"([1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,7.0,8.0,9.0,1.0]]})" ),
+         "InstancedStaticMesh" );
+    ASSERT_TRUE( parsed.has_value() );
+    const Assets::InstancedStaticMeshComponentSer& read =
+         parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
+
+    EXPECT_FALSE( read.Primitive.has_value() );
+    ASSERT_TRUE( read.MeshPath.has_value() );
+    EXPECT_EQ( read.MeshPath, "Cooked/Meshes/Grass.stmesh" );
+
+    ASSERT_TRUE( read.MaterialPaths.has_value() );
+    EXPECT_EQ( read.MaterialPaths.value().size(), 1U ); // NOLINT(bugprone-unchecked-optional-access)
+
+    ASSERT_TRUE( read.InstanceTransforms.has_value() );
+    const std::vector<std::array<float, kMatrixElements>>& back =
+         read.InstanceTransforms.value(); // NOLINT(bugprone-unchecked-optional-access)
+    ASSERT_EQ( back.size(), 1U );
+    EXPECT_FLOAT_EQ( back.at( 0 ).at( kTranslationZ ), 9.0F );
 }
 
 int main( int argc, char** argv )
