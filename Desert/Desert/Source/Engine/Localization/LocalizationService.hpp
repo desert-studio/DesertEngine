@@ -5,6 +5,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -40,7 +41,10 @@ namespace Desert::Localization
         /// The language a build starts in, and the language the shipped tables are authored in. English,
         /// because that is what the engine's own content is written in; a project whose tables have no
         /// English is told so by name at the first resolve rather than shown blank labels.
-        static constexpr const char* kSourceLanguage = "en";
+        /// A `string_view` and not a `const char*`: the pointer-ownership census counts every raw pointer
+        /// member in the tree and asks it to name its guard, and a constant that need not be one should not
+        /// add a row to that register.
+        static constexpr std::string_view kSourceLanguage = "en";
 
         static Localization& Get();
 

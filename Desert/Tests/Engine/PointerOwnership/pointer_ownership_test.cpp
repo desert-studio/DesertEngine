@@ -250,11 +250,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   above are answered by the removal itself: nothing is obliged to destroy an object that is never
     //   created. The count is the whole evidence that the members left with the feature rather than being
     //   orphaned inside a class that no longer draws them.
-    EXPECT_EQ( CountOf( Form::Raw ), 354 );
+    //   824 -> 825 with Ю15: ONE member, `Localization::m_Language`, which points at a row of the
+    //   constexpr locale table (Engine/Localization/LocaleFormat.cpp) and is registered as StaticStorage.
+    //   Both questions are answered by the language: nobody allocated the table, and nobody can destroy
+    //   it. The source-language constant that came with it was written as `const char*` and would have
+    //   been a second row; it is a `std::string_view` instead, which is why this is +1 and not +2.
+    EXPECT_EQ( CountOf( Form::Raw ), 355 );
     EXPECT_EQ( CountOf( Form::Shared ), 321 );
     EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 824 )
+    EXPECT_EQ( (int)Members().size(), 825 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
