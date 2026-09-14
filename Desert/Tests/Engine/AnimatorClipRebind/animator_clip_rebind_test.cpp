@@ -93,7 +93,7 @@ namespace
 
     float RootTranslationY( const Animator& animator )
     {
-        return animator.GetPose().BoneMatrices.at( 0 )[3].y;
+        return animator.GetPose().Matrices.at( 0 )[3].y;
     }
 } // namespace
 
@@ -133,8 +133,8 @@ TEST( AnimatorClipRebind, ThePoseFollowsTheClipsCurrentTracksAfterItsStorageIsRe
 
     // The second bone appeared with the reload, so a binding rebuilt correctly resolves it too. A cache
     // that merely dropped its stale pointers without re-deriving the mapping would leave this at bind.
-    ASSERT_GE( animator.GetPose().BoneMatrices.size(), 2u );
-    EXPECT_FLOAT_EQ( animator.GetPose().BoneMatrices[1][3].y, 250.0f + 7.0f )
+    ASSERT_GE( animator.GetPose().Matrices.size(), 2u );
+    EXPECT_FLOAT_EQ( animator.GetPose().Matrices[1][3].y, 250.0f + 7.0f )
          << "the bone the reload ADDED is not bound. Child is parented to Root, so its skinning matrix is "
             "Root's translation plus its own.";
 }

@@ -19,6 +19,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 
     includedirs {

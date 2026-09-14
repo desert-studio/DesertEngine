@@ -13,6 +13,7 @@ project(test_name)
         -- Units under test (pure CPU: the match rule and the signature it is compared against).
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 
     includedirs {

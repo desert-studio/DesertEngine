@@ -250,11 +250,18 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   above are answered by the removal itself: nothing is obliged to destroy an object that is never
     //   created. The count is the whole evidence that the members left with the feature rather than being
     //   orphaned inside a class that no longer draws them.
-    EXPECT_EQ( CountOf( Form::Raw ), 354 );
+    //   824 -> 823 with A1 (the pose substrate), and it goes DOWN by one RAW. Animator::TrackBinding::ByBone
+    //   was a vector of BoneTrack pointers into the clip's own storage, held safe by a rebind discipline; it
+    //   is now a vector of track INDICES. Both questions are answered by the type rather than by a rule
+    //   somebody has to keep: an index cannot point at freed memory, and the generation stamp the clip now
+    //   carries (AnimationClip::TrackRevision) closes the case the address comparison could not see — an
+    //   unload and reload of the same size, which the allocator satisfies from the very block it just freed,
+    //   leaving data() and size() both unchanged across a complete replacement of the list.
+    EXPECT_EQ( CountOf( Form::Raw ), 353 );
     EXPECT_EQ( CountOf( Form::Shared ), 321 );
     EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 824 )
+    EXPECT_EQ( (int)Members().size(), 823 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

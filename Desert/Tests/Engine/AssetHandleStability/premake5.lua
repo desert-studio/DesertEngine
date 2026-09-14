@@ -37,6 +37,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
         -- SkeletonAsset::Load builds an Animation::Skeleton, whose constructor computes the signature.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 
     includedirs {

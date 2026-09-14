@@ -36,6 +36,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
         -- SkeletonAsset::Load builds an Animation::Skeleton, whose constructor computes the signature.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         -- PrefabAsset is deliberately ABSENT. Its CreateFromEntity reaches ECS::Entity and the scene
         -- serializer, i.e. the whole world layer, and dragging that in to assert one Unload body would
         -- make this suite need a scene. Its contract is held textually instead, in

@@ -6,6 +6,8 @@
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/CommandHistory.hpp>
 
+#include <Common/Core/Logger.hpp>
+
 #include <memory>
 
 #include <ImGui/imgui.h>
@@ -55,11 +57,10 @@ namespace Desert::Editor::Tools
                 auto* base = Runtime::ResourceRegistry::GetMeshService()->Get( m_Mesh );
                 if ( !base || !base->IsSkinned() )
                     return false;
-                auto& bones = static_cast<SkinnedMesh*>( base )->GetSkeletonMutable()->GetBonesMutable();
-                if ( m_Bone < 0 || m_Bone >= static_cast<int>( bones.size() ) )
+                if ( m_Bone < 0 )
                     return false;
-                bones[m_Bone].LocalBindTransform = m;
-                return true;
+                return static_cast<SkinnedMesh*>( base )->GetSkeletonMutable()->SetLocalBindTransform(
+                     static_cast<uint32_t>( m_Bone ), m );
             }
 
             Assets::AssetHandle m_Mesh;
@@ -283,8 +284,8 @@ namespace Desert::Editor::Tools
         auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
         if ( !mesh || !mesh->IsSkinned() )
             return;
-        auto* skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeletonMutable();
-        auto& bones    = skeleton->GetBonesMutable();
+        auto*       skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeletonMutable();
+        const auto& bones    = skeleton->GetBones();
         if ( boneIdx >= static_cast<int>( bones.size() ) )
             return;
 
@@ -296,31 +297,39 @@ namespace Desert::Editor::Tools
             animator = entity.GetComponent<ECS::AnimationComponent>().Animator.get();
         const bool usePose = ( animator != nullptr );
 
-        // The local (parent-relative) transform to build the bone chain from: the animated pose in pose mode,
-        // else the bind pose.
-        const auto localOf = [&]( size_t i ) -> glm::mat4 {
-            return usePose ? animator->GetBoneLocalPose( static_cast<uint32_t>( i ) )
-                           : bones[i].LocalBindTransform;
-        };
-
         const glm::mat4 entityWorld = entity.GetComponent<ECS::TransformComponent>().GetTransform();
 
         // Chain global per bone — the SAME space the mesh is skinned in, so the gizmo sits on the bone.
-        std::vector<glm::mat4>             chainGlobal( bones.size(), glm::mat4( 1.0f ) );
-        std::vector<bool>                  done( bones.size(), false );
-        std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
+        //
+        // THE LAZY COMPONENT POSE'S ONE PRODUCTION CALLER, and it is the shape the type exists for: of a
+        // hundred bones this wants exactly two — the one being dragged and its parent — so the resolve costs
+        // their depth rather than the rig. It used to be a memoised recursion over the whole array, one of
+        // eight copies of the same eleven lines.
+        Animation::LocalPose poseSource;
+        if ( usePose )
         {
-            if ( done[i] )
-                return chainGlobal[i];
-            glm::mat4 g = localOf( i );
-            if ( bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < bones.size() )
-                g = resolve( bones[i].ParentBoneID.value() ) * localOf( i );
-            chainGlobal[i] = g;
-            done[i]        = true;
-            return g;
-        };
+            poseSource.Resize( bones.size() );
+            for ( uint32_t i = 0; i < bones.size(); ++i )
+            {
+                const auto trs = Animation::BoneTransform::FromMatrix( animator->GetBoneLocalPose( i ) );
+                if ( trs.IsSuccess() )
+                    poseSource[i] = trs.GetValue();
+            }
+        }
+        else
+        {
+            auto bind = Animation::LocalPose::FromBindPose( *skeleton );
+            if ( !bind.IsSuccess() )
+            {
+                LOG_ERROR( "[BoneGizmo] cannot place a gizmo on this rig: {}", bind.GetError() );
+                return;
+            }
+            poseSource = std::move( bind.GetValue() );
+        }
 
-        glm::mat4 gizmoWorld = entityWorld * resolve( static_cast<size_t>( boneIdx ) );
+        Animation::ComponentPose chainGlobal( *skeleton, poseSource );
+
+        glm::mat4 gizmoWorld = entityWorld * chainGlobal.Get( static_cast<uint32_t>( boneIdx ) );
 
         ImGuizmo::SetOrthographic( false );
         ImGuizmo::SetDrawlist();
@@ -361,8 +370,9 @@ namespace Desert::Editor::Tools
             // The new local (parent-relative) transform from the gizmo's world matrix.
             const glm::mat4 newGlobalMesh = glm::inverse( entityWorld ) * gizmoWorld;
             glm::mat4       parentGlobal( 1.0f );
-            if ( bones[boneIdx].ParentBoneID.has_value() && bones[boneIdx].ParentBoneID.value() < bones.size() )
-                parentGlobal = resolve( bones[boneIdx].ParentBoneID.value() );
+            if ( const uint32_t parent = skeleton->ResolveParent( static_cast<uint32_t>( boneIdx ) );
+                 parent != Animation::Skeleton::NO_PARENT )
+                parentGlobal = chainGlobal.Get( parent );
             const glm::mat4 newLocal = glm::inverse( parentGlobal ) * newGlobalMesh;
 
             if ( usePose )
@@ -373,7 +383,7 @@ namespace Desert::Editor::Tools
             }
             else
             {
-                bones[boneIdx].LocalBindTransform = newLocal; // rig / rest-pose editing
+                skeleton->SetLocalBindTransform( static_cast<uint32_t>( boneIdx ), newLocal ); // rest-pose edit
             }
         }
 

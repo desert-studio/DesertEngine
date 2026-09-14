@@ -104,8 +104,8 @@ TEST( AnimatorPose, ApplyLocalPoseRendersPosedSkeleton )
     const glm::mat4 childGlobal = rootGlobal * posedChildLocal;
     const glm::mat4 expected    = childGlobal * bones[1].OffsetMatrix;
 
-    ASSERT_GE( anim.GetPose().BoneMatrices.size(), 2u );
-    EXPECT_TRUE( MatNear( anim.GetPose().BoneMatrices[1], expected ) );
+    ASSERT_GE( anim.GetPose().Matrices.size(), 2u );
+    EXPECT_TRUE( MatNear( anim.GetPose().Matrices[1], expected ) );
 }
 
 TEST( AnimatorPose, SampleClipIntoLocalPoseLoadsKeys )
@@ -130,12 +130,12 @@ TEST( AnimatorPose, PlaybackIgnoresLocalPoseBuffer )
 
     anim.Play( clip );
     anim.SetTime( 0.0f );
-    const glm::mat4 p1 = anim.GetPose().BoneMatrices[1];
+    const glm::mat4 p1 = anim.GetPose().Matrices[1];
 
     // Editing the pose buffer must NOT change what SetTime/playback produces (additive-only guarantee).
     anim.SetBoneLocalPose( 1, glm::translate( glm::mat4( 1.0f ), glm::vec3( 99.0f, 0.0f, 0.0f ) ) );
     anim.SetTime( 0.0f );
-    const glm::mat4 p2 = anim.GetPose().BoneMatrices[1];
+    const glm::mat4 p2 = anim.GetPose().Matrices[1];
 
     EXPECT_TRUE( MatNear( p1, p2 ) );
 }
