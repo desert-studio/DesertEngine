@@ -96,6 +96,9 @@ namespace Desert::Player
         // was written, tested and never called, so a packaged game rendered every painted sky
         // procedurally. Order-free like the line above.
         m_AssetPreloader->PreloadCloudLayouts();
+        // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
+        // everything else, so the player sees the language the build boots in with no extra plumbing.
+        m_AssetPreloader->PreloadStringTables();
 
         // Same system set + order as the editor's Play mode.
         m_Scene->AddSystem<ECS::MeshECSSystem>();

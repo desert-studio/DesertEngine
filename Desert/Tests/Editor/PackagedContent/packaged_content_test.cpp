@@ -1361,6 +1361,7 @@ namespace
              { "PREFAB_PATH", &P::PREFAB_PATH, RootVerdict::Packaged, "" },
              { "SCRIPT_PATH", &P::SCRIPT_PATH, RootVerdict::Packaged, "" },
              { "COLLECTIONS_PATH", &P::COLLECTIONS_PATH, RootVerdict::Packaged, "" },
+             { "LOCALIZATION_PATH", &P::LOCALIZATION_PATH, RootVerdict::Packaged, "" },
              { "CLOUD_NOISE_PATH", &P::CLOUD_NOISE_PATH, RootVerdict::Packaged, "" },
              { "CLOUD_TYPE_PATH", &P::CLOUD_TYPE_PATH, RootVerdict::Packaged, "" },
              { "CLOUD_VOLUME_PATH", &P::CLOUD_VOLUME_PATH, RootVerdict::Packaged, "" },

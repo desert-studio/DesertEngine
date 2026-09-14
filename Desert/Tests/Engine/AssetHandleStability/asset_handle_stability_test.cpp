@@ -33,6 +33,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetMetadata.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
+#include <Engine/Assets/StringTableAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
@@ -101,6 +102,7 @@ namespace
              { AssetTypeID::CloudModellingVolume, "CloudModellingVolumeAsset",
                &HandleOf<Desert::Assets::CloudModellingVolumeAsset> },
              { AssetTypeID::CloudLayout, "CloudLayoutAsset", &HandleOf<Desert::Assets::CloudLayoutAsset> },
+             { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset> },
         };
         return kinds;
     }
@@ -259,6 +261,34 @@ namespace
 // first and on its own: if the default-constructed UUID is ever random again, the rest of this suite is
 // measuring symptoms.
 // ---------------------------------------------------------------------------------------------------
+
+// WHOSE LIFETIME IS IT? A type is either scene content, which the eviction sweep may release when no
+// live world names it, or project content, which no root walk can ever reach and which must therefore be
+// exempt. There is no third answer, and getting it wrong in either direction is silent:
+//
+//   * a scene type wrongly exempt never gets released and the sweep stops doing its job;
+//   * a project type wrongly swept is what actually happened here — both shipped string tables were
+//     released on the first sweep after a scene loaded, and every keyed label on screen turned into its
+//     own key with one error line to explain it.
+//
+// The predicate has no `default:`, so a new asset type stops compiling until somebody decides. This
+// asserts that the decision taken for each EXISTING type is still the one the catalogue above describes.
+TEST( AssetHandleStability, EveryTypeSaysWhetherItsLifetimeIsTheSceneOrTheProject )
+{
+    // Exactly one type is project-scoped today, and it is named rather than counted.
+    EXPECT_TRUE( Desert::Assets::IsProjectScopedAsset( AssetTypeID::StringTable ) )
+         << "a string table is named by no component -- a '#key' is a string, not a handle -- so no root "
+            "walk can reach one and the sweep would release it on the first scene load";
+
+    for ( const AssetKind& kind : Catalogue() )
+    {
+        if ( kind.Type == AssetTypeID::StringTable )
+            continue;
+        EXPECT_FALSE( Desert::Assets::IsProjectScopedAsset( kind.Type ) )
+             << kind.Name << " claims to outlive every world; if that is true it must say why here, and if "
+                             "it is not, the sweep will never release it";
+    }
+}
 
 TEST( AssetHandleStability, ADefaultConstructedUuidIsNull )
 {
@@ -1066,6 +1096,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::CloudType,
          AssetTypeID::CloudModellingVolume,
          AssetTypeID::CloudLayout,
+         AssetTypeID::StringTable,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

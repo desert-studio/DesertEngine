@@ -165,6 +165,11 @@ namespace Desert::Assets
         /// and "did something" must not be one number (§1.4) — a sweep that releases nothing because
         /// everything was already cold looks exactly like a sweep that is broken.
         uint32_t AlreadyCold = 0;
+        /// Skipped because the type's lifetime is the PROJECT's and no root walk can reach it
+        /// (Assets::IsProjectScopedAsset). Counted rather than passed over in silence: "nothing swept it"
+        /// and "it was reachable" are different facts, and a sweep whose numbers do not add up to
+        /// Registered is a sweep nobody can check.
+        uint32_t ProjectScoped = 0;
         /// Built GPU objects dropped, by kind.
         uint32_t MeshesDropped    = 0;
         uint32_t MaterialsDropped = 0;

@@ -22,6 +22,13 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
+        -- Ю15: every authored label the walk draws goes through Localization::Resolve, so the resolver
+        -- and the locale table come with it. They pull in no renderer and no device, which is the point.
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizationService.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizedText.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UIIntrospection.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UIDataStore.cpp",

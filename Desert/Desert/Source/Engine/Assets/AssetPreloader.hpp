@@ -73,6 +73,10 @@ namespace Desert::Assets
         // asset and no other asset names it — so its position in the order is free; it is last because a
         // scene without one still has a sky, which is the state every shipped scene is in.
         void PreloadCloudLayouts();
+        // String tables (`.destrings`). Independent of everything above — a table names no other asset and
+        // no other asset names it. Loading one PUBLISHES it to the process's localisation lookup, which is
+        // why there is no register loop beside this call the way the cloud stages have one.
+        void PreloadStringTables();
 
     private:
         std::weak_ptr<AssetManager> m_AssetManager;

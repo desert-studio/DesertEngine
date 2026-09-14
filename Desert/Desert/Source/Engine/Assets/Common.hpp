@@ -49,6 +49,11 @@ namespace Desert::Assets
         // — decision D-5 stands, and these are tables, not nodes. Read at the BAKE and never in the march,
         // so a painting costs the hottest pass of the frame nothing — see Engine/Assets/CloudLayout.hpp.
         CloudLayout,
+        // A table of translated strings (`.destrings`): key -> text, per language, per grammatical form.
+        // A first-class asset because it is authored content with a file of its own, and because loading
+        // one PUBLISHES it to the process's lookup — which is what makes a translation edit reach the
+        // screen without a restart. See Engine/Localization/StringTable.hpp.
+        StringTable,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -56,6 +61,47 @@ namespace Desert::Assets
         // asserts is exactly how five types kept a random per-launch identity for as long as they did.
         Count,
     };
+
+    /**
+     * @brief Is this type's lifetime the PROJECT's rather than the scene's?
+     *
+     * MEASURED, not assumed. The eviction sweep traces reachability from the components of every live
+     * scene (Engine/Core/SceneAssetRoots.hpp), so an asset no component NAMES is unreachable by
+     * construction and is released. A string table is named by no component and can never be: a `#key` in
+     * an authored label is a STRING, not an `AssetHandle`, which is the whole point of the sigil. So the
+     * first sweep after a scene loaded swept both shipped tables out — measured on UI_ElementProbe, where
+     * the log read "String table ... loaded: 22 keys" at boot and "key 'probe.title' is in none of the 0
+     * loaded string tables" three seconds later, with every keyed label on screen replaced by its own key.
+     *
+     * The fix is not a root: there is nothing to hang one on. It is the statement that some content does
+     * not belong to a world at all. A `switch` with NO `default:` so that -Wswitch reports a new asset
+     * type here, at the point where somebody has to decide which side of the line it is on.
+     */
+    constexpr bool IsProjectScopedAsset( const AssetTypeID type )
+    {
+        switch ( type )
+        {
+            case AssetTypeID::StringTable:
+                return true;
+            case AssetTypeID::Unknown:
+            case AssetTypeID::Mesh:
+            case AssetTypeID::Material:
+            case AssetTypeID::Texture2D:
+            case AssetTypeID::Skybox:
+            case AssetTypeID::Shader:
+            case AssetTypeID::Skeleton:
+            case AssetTypeID::Animation:
+            case AssetTypeID::Prefab:
+            case AssetTypeID::CloudNoiseVolume:
+            case AssetTypeID::CloudType:
+            case AssetTypeID::CloudModellingVolume:
+            case AssetTypeID::CloudLayout:
+            case AssetTypeID::Count:
+                return false;
+        }
+        // Unreachable for every enumerator above.
+        return false;
+    }
 
     // The enumerator's name, for the one caller that has to say WHICH types disagreed: AssetManager's
     // typed lookup, when a record turns out to hold something other than what was asked for. "type 4 was
@@ -98,6 +144,8 @@ namespace Desert::Assets
                 return "CloudModellingVolume";
             case AssetTypeID::CloudLayout:
                 return "CloudLayout";
+            case AssetTypeID::StringTable:
+                return "StringTable";
             case AssetTypeID::Count:
                 return "Count";
         }

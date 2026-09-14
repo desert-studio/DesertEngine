@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/ShotOptions.hpp>
+#include <Engine/Localization/LocaleFormat.hpp>
 
 #include <charconv>
 #include <cerrno>
@@ -76,6 +77,7 @@ namespace Desert::Editor
          { "--shot-sequence", true, "/tmp/seq" },
          { "--shot-every", true, "1" },
          { "--control-socket", true, "/tmp/desert-editor.sock" },
+         { "--language", true, "ru" },
          { "--gpu-profile", false, nullptr },
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
@@ -98,6 +100,20 @@ namespace Desert::Editor
         /// The path is named rather than fixed so two editors on one machine each get their own; a shared
         /// one would have them answering each other's clients, and the client could not tell.
         std::string ControlSocket;
+
+        /// `--language <tag>`: the language the process starts in. Empty means the source language
+        /// (Localization::kSourceLanguage).
+        ///
+        /// IT EXISTS FOR THE SAME REASON `--scene` DOES: an unattended capture has to be able to say what
+        /// it is photographing. Without it, a frame of a translated screen could only be taken by a human
+        /// clicking a menu, which is the one thing this machine cannot synthesise — and a headless A/B of
+        /// two languages is the only evidence that a language change reaches the frame at all.
+        ///
+        /// AND IT IS WHY THE BOOT LANGUAGE IS NOT THE MACHINE'S OS LOCALE. Reading the OS would make every
+        /// headless frame a function of the machine that took it, so a pixel A/B across two checkouts
+        /// would silently be comparing two languages. Deterministic by construction instead, with this
+        /// flag as the only way to move it before the first frame.
+        std::string Language;
     };
 
     namespace CommandLineDetail
@@ -258,6 +274,26 @@ namespace Desert::Editor
                 options.Shot.Sequence = value;
             else if ( arg == "--control-socket" )
                 options.ControlSocket = value;
+            else if ( arg == "--language" )
+            {
+                // Checked HERE, against the compiled locale table, rather than at the point of use. The
+                // table is static data, so the check is still pure — and a typo in a language tag on an
+                // unattended run must stop the run rather than render the default language under the name
+                // of the one that was asked for. That is the same silent-fallback shape `--sceen` had.
+                if ( Localization::FindLocale( value ) == nullptr )
+                {
+                    std::string known;
+                    for ( const Localization::LocaleRow& row : Localization::Locales() )
+                    {
+                        if ( !known.empty() )
+                            known += ", ";
+                        known += std::string( row.Tag );
+                    }
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--language '{}' is not a language this build knows; it knows: {}", value, known );
+                }
+                options.Language = value;
+            }
             else if ( arg == "--shot-frames" )
             {
                 int frames = 0;

@@ -4,6 +4,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Text/Utf8.hpp>
@@ -42,6 +43,16 @@ namespace Desert::ECS
                      if ( text.Text.empty() )
                          return;
 
+                     // WORLD TEXT IS AUTHORED TEXT AND GOES THROUGH THE SAME RESOLVER AS A UI LABEL
+                     // (Ю15): a leading '#' is a string-table key, anything else is a literal. Uniform on
+                     // purpose — "every string drawn from a component goes through one function" is a
+                     // property a reader can rely on, and "every string except the ones in the world" is
+                     // not.
+                     //
+                     // The resolved string is also what the mesh cache is keyed on below, so a language
+                     // change rebuilds the glyph mesh for free: nothing else would have told it to.
+                     const std::string drawn = Localization::Localization::Get().Resolve( text.Text ).Text;
+
                      // Resolve the font asset handle -> baked atlas (unset falls back to the built-in default).
                      auto*          fontSvc    = Runtime::ResourceRegistry::GetFontService();
                      const uint64_t fontHandle = static_cast<uint64_t>( text.Font ) != 0
@@ -49,7 +60,7 @@ namespace Desert::ECS
                                                       : fontSvc->DefaultFontHandle();
                      // Anything beyond ASCII has to be requested before the atlas is resolved (see
                      // FontService::RequestGlyphs) — otherwise Cyrillic/CJK text bakes to nothing.
-                     fontSvc->RequestGlyphs( fontHandle, Text::Utf8Decode( text.Text ) );
+                     fontSvc->RequestGlyphs( fontHandle, Text::Utf8Decode( drawn ) );
 
                      auto* font = fontSvc->Get( fontHandle );
                      if ( !font )
@@ -57,11 +68,16 @@ namespace Desert::ECS
                      const std::string fontPath = fontSvc->PathForHandle( fontHandle );
 
                      // Rebuild the glyph mesh only when the laid-out result would differ.
-                     if ( !text.RuntimeMesh || text.BuiltText != text.Text || text.BuiltFont != fontPath ||
+                     if ( !text.RuntimeMesh || text.BuiltText != drawn || text.BuiltFont != fontPath ||
                           text.BuiltSize != text.Size )
                      {
-                         text.RuntimeMesh = BuildTextMesh( text, font->Baked );
-                         text.BuiltText   = text.Text;
+                         // The layout is built from the RESOLVED string. The component keeps what the
+                         // author typed — nothing is ever written back into it — which is the same rule
+                         // the canvas follows for a bound label.
+                         TextComponent laidOut = text;
+                         laidOut.Text          = drawn;
+                         text.RuntimeMesh      = BuildTextMesh( laidOut, font->Baked );
+                         text.BuiltText        = drawn;
                          text.BuiltFont   = fontPath;
                          text.BuiltSize   = text.Size;
                      }

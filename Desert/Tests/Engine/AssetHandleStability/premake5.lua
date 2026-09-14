@@ -35,6 +35,12 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/StringTableAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizedText.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizationService.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
         -- SkeletonAsset::Load builds an Animation::Skeleton, whose constructor computes the signature.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }
