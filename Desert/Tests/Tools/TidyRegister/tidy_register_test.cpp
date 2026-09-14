@@ -137,8 +137,9 @@ TEST( TidyRegister, TheRegisterIsNotEmptyAndStillNamesTheRowsItWasBuiltFor )
 
     const Register reg = Parse( ReadAll( fs::path( root ) / "scripts/CI/TidyRegister.txt" ) );
 
-    EXPECT_GE( reg.Checks.size(), 7u ) << "the register lists only " << reg.Checks.size()
-                                       << " check(s); Д36 closed seven classes.";
+    EXPECT_GE( reg.Checks.size(), 8u ) << "the register lists only " << reg.Checks.size()
+                                       << " check(s); Д36 closed seven defect classes and pinned one"
+                                          " false positive shut.";
     EXPECT_GE( reg.Files.size(), 40u ) << "the register lists only " << reg.Files.size()
                                        << " file(s). A register emptied by an over-eager edit passes the"
                                           " shell gate in seconds and reports itself clean.";

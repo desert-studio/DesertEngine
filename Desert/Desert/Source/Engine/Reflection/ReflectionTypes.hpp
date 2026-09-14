@@ -91,6 +91,21 @@ namespace Desert::Reflection
         int64_t     Value = 0;
     };
 
+    /// THE BYTES A MEMBER OCCUPIES INSIDE ITS STRUCT — not the number of elements it holds.
+    ///
+    /// Spelled as a named function rather than as `sizeof( T::Member )` at each of the ~600 generated
+    /// field rows for one reason and it is not the diagnostic: `sizeof` of a `std::string` member reads,
+    /// at a glance and to a static analyser alike, as somebody who meant `.size()`. It is not — this
+    /// number sits beside `offsetof` and the pair describes where the member LIVES, which is what the
+    /// property editor uses to address it. clang-tidy's `bugprone-sizeof-container` says the same thing
+    /// seventeen times about Reflection.gen.cpp, and every one of those is a false positive; naming the
+    /// quantity answers the check instead of muting it, and the answer is then also readable by a person.
+    template <typename Member>
+    [[nodiscard]] constexpr std::size_t FieldFootprint() noexcept
+    {
+        return sizeof( Member );
+    }
+
     struct FieldInfo
     {
         std::string      Name;          // C++ field name

@@ -27,6 +27,12 @@
 #                                     the wrong way.
 #   assignment-in-if-condition ...... an `=` that reads as an `==` at a glance.
 #   empty-catch ..................... a handler indistinguishable from a forgotten one.
+#   sizeof-container ................ the ONE false positive of the seven, and it is pinned CLOSED rather
+#                                     than suppressed: Reflection.gen.cpp's `sizeof( T::Field )` really did
+#                                     mean the field's footprint inside the struct, beside its offsetof,
+#                                     and it is now spelled Reflection::FieldFootprint<decltype(...)>() —
+#                                     a name a reader and an analyser both understand. The row is here so
+#                                     that a generator reverting to `sizeof` brings the seventeen back.
 #
 # NOT in this list, and each absence is deliberate:
 #   bugprone-branch-clone ........... 14 live findings, all switch arms that legitimately share a body.
@@ -41,11 +47,13 @@ bugprone-implicit-widening-of-multiplication-result
 bugprone-incorrect-roundings
 bugprone-assignment-in-if-condition
 bugprone-empty-catch
+bugprone-sizeof-container
 
 # ------------------------------------------------------------------------------------------------------
 # One path per line, repository-relative, and every one of them must be a translation unit the compiler
 # database names — a row the gate cannot analyse is reported as an environment failure, not as a pass.
 FILES:
+Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp
 Desert/Common/Source/Common/Core/Profiler.cpp
 Desert/Common/Source/Common/Utilities/PakFile.cpp
 Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp

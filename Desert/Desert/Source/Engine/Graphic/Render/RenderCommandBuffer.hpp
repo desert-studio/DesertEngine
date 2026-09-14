@@ -58,7 +58,11 @@ namespace Desert::Graphic::Render
             std::size_t                  Size = 0;
         };
 
-        static constexpr std::size_t kPageSize = std::size_t{ 64 } * 1024;
+        // 64ull and not 64: the product is what is widened to std::size_t, so spelling the literal's
+        // type is what stops a 32-bit multiplication being read as a 64-bit one. Written as a suffix
+        // rather than as `std::size_t{ 64 } * 1024` because the brace form makes the pointer-ownership
+        // census read `} * 1024` as a raw-pointer member declaration — measured, it did.
+        static constexpr std::size_t kPageSize = 64ull * 1024;
 
         void DestroyCommands()
         {

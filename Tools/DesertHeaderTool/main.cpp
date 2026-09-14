@@ -851,8 +851,10 @@ namespace
                 o << "                    .Field( FieldInfo{ "
                   << ".Name = \"" << f.name << "\", "
                   << ".Type = FieldType::" << f.fieldType << ", "
-                  << ".Offset = offsetof( T, " << f.name << " ), "
-                  << ".Size = sizeof( T::" << f.name << " ), "
+                  << ".Offset = offsetof( T, " << f.name
+                  << " ), "
+                  // FieldFootprint<decltype(...)>() and not sizeof(...): see the note on the function.
+                  << ".Size = ::Desert::Reflection::FieldFootprint<decltype( T::" << f.name << " )>(), "
                   << ".TypeName = \"" << f.cppType << "\", "
                   << ".Meta = ";
                 EmitMetadata( o, f.meta );
