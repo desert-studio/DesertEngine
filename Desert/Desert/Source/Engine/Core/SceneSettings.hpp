@@ -304,17 +304,22 @@ namespace Desert::Core
         // exists to forbid; deleted by Д26 rather than wired, because a scene file that ships "physics is
         // paused, forever" is a trap and the transport already answers the real need.
 
-        // Wind — a SHARED environment force, deliberately scene-global (like Gravity), NOT owned by the
-        // Skybox. It is the single source of truth for the wind, which drives NOTHING between Г25 (which
-        // removed the procedural grass, its only reader) and the first wind-driven asset, and
-        // hair and cloth next. Consumers read it via SceneRenderer::GetWind() (renderers) so
-        // one direction/strength moves everything coherently.
-        PROPERTY( DisplayName( "Wind Direction" ), Category( "Wind" ), Range( 0.0f, 360.0f ) )
-        float WindDirection  = 20.0f; // compass heading on the ground (XZ) plane, degrees
-        PROPERTY( DisplayName( "Wind Strength" ), Category( "Wind" ), Range( 0.0f, 1.0f ) )
-        float WindStrength   = 0.15f; // base force / foliage sway amplitude
-        PROPERTY( DisplayName( "Wind Turbulence" ), Category( "Wind" ), Range( 0.0f, 3.0f ) )
-        float WindTurbulence = 1.0f;  // gustiness (reserved for foliage/hair/cloth response)
+        // WIND STOOD HERE - three fields, stated by all 86 scenes, read by NOBODY (Г26).
+        //
+        // Their one consumer was the procedural grass generator, which Г25 removed because grass arrives
+        // as a mesh asset now; Г25 kept the fields and wired them to SceneRenderer::GetWind() so the next
+        // reader would find them ready. There was no next reader, and a field waiting for a future
+        // consumer is indistinguishable from a forgotten one - the dead setting §1.3 of the contract
+        // forbids, in its purest form: three sliders in every scene's Details moving nothing at all.
+        //
+        // WHEN LEAVES SWAY, WIND COMES BACK WITH THE THING THAT SWAYS, and with a unit and a meaning
+        // chosen by whatever actually reads it - rather than a heading in degrees, an amplitude in
+        // nothing, and a "gustiness" whose scale was never defined against anything. Cutting it also took
+        // the last std::chrono::steady_clock read out of the frame's per-frame state (SceneRenderer), the
+        // input that made a repeat shot of a grass scene differ from itself by 14 % of its pixels.
+        //
+        // The retirement is written where it will be found: kRetiredKeys in Tools/SceneMigrator, which
+        // drops the three keys from the files at scene schema v19.
 
         // Water moved OUT of global scene settings: it is a gameplay value, not a render setting. It now
         // lives on the spawned "Water" entity (World.spawnWater drops a plane at the level); World.waterLevel

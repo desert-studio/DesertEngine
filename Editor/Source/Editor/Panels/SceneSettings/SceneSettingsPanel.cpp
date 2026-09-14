@@ -323,19 +323,6 @@ namespace Desert::Editor
             ImGui::TextDisabled( "Deferred: static meshes only, directional light (WIP)." );
         }
 
-        // Shared wind — a scene-global environment force (not owned by the Skybox). It reaches
-        // SceneRenderer::GetWind() and stops there: Г25 removed the procedural grass, which was its only
-        // reader, and the next one is whatever sways an ASSET (instanced foliage, hair, cloth). The three
-        // values are authored level data that every scene in the repository states, so they were raised
-        // with the owner rather than retired by a rendering task - see SceneRenderer::GetWind().
-        if ( Utils::ImGuiUtilities::SectionHeader( "Wind" ) )
-        {
-            ImGui::SliderFloat( "Direction (deg)", &s.WindDirection, 0.0f, 360.0f );
-            ImGui::SliderFloat( "Strength", &s.WindStrength, 0.0f, 1.0f );
-            ImGui::SliderFloat( "Turbulence", &s.WindTurbulence, 0.0f, 3.0f );
-            ImGui::TextDisabled( "Shared: one direction moves every wind-driven renderer." );
-        }
-
         // NOTE: the Time of Day section was removed on purpose — the sun's state is the directional
         // light entity itself (its position IS the direction; the sky/lighting follow it). One
         // source of truth, no second global knob fighting the hand-placed sun.

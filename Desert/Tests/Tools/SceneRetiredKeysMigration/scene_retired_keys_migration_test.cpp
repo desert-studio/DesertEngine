@@ -194,6 +194,54 @@ TEST( SceneRetiredKeysMigration, TheFiveMachineQualityKeysAreRetiredAndReportedW
     EXPECT_TRUE( saysWhere ) << "the report does not say where these values went";
 }
 
+// Г26's three, as a set, for the same reason: what leaves the level file is THE WIND, and a table
+// missing one of the three is a scene format that still states part of it. Unlike K3's five these go
+// nowhere at all -- there is no store to carry them to, because the meaning of each was defined by the
+// one reader (the procedural grass generator, cut at scene schema v18) and it is gone.
+TEST( SceneRetiredKeysMigration, TheThreeWindKeysAreRetiredAndReportedWithTheirValues )
+{
+    std::optional<rfl::Generic> settings =
+         Settings( R"({"WindDirection":20.0,"WindStrength":0.15,"WindTurbulence":1.0,"Gravity":981.0})" );
+    std::vector<Assets::EntityData> entities;
+
+    const auto report = Migration::MigrateRetiredKeys( settings, entities );
+
+    EXPECT_EQ( report.KeysRemoved, 3 );
+    EXPECT_EQ( KeysOf( settings ), ( std::vector<std::string>{ "Gravity" } ) );
+
+    for ( const char* key : { "WindDirection", "WindStrength", "WindTurbulence" } )
+    {
+        const bool named =
+             std::any_of( report.RemovedNames.begin(), report.RemovedNames.end(), [key]( const std::string& line )
+                          { return line.find( std::string( "Settings." ) + key + "=" ) != std::string::npos; } );
+        EXPECT_TRUE( named ) << key << " was removed without being named with its value";
+    }
+}
+
+// THE CLOUD LAYER KEEPS ITS OWN WIND, and this is the assertion that says the retirement cut the right
+// thing. `VolumetricCloudData::WindDirection` is a live, read field with the same NAME as one of the
+// three rows above; the rows name the `Settings` block and the migration removes keys from the block
+// they name, so a layer's wind must survive a pass that deletes the scene's.
+TEST( SceneRetiredKeysMigration, ACloudLayersOwnWindIsNotTouchedByTheScenesWindRetirement )
+{
+    std::optional<rfl::Generic> settings = Settings( R"({"WindDirection":20.0})" );
+
+    Assets::EntityData cloud;
+    cloud.Components["VolumetricCloud"] =
+         rfl::json::read<rfl::Generic>( R"({"WindDirection":[1.0,0.0,0.0],"WindSpeed":7.0})" ).value();
+    std::vector<Assets::EntityData> entities = { cloud };
+
+    const auto report = Migration::MigrateRetiredKeys( settings, entities );
+
+    EXPECT_EQ( report.KeysRemoved, 1 );
+    EXPECT_FALSE( Has( settings, "WindDirection" ) );
+
+    const auto kept = entities[0].Components.get( "VolumetricCloud" );
+    ASSERT_TRUE( kept.has_value() );
+    EXPECT_TRUE( Has( kept.value(), "WindDirection" ) )
+         << "the cloud layer lost its own wind to a retirement aimed at the scene's";
+}
+
 // ── canonicalisation ─────────────────────────────────────────────────────────────────────────────
 
 TEST( SceneRetiredKeysMigration, CanonicalisationStatesEveryFieldTheSaverWouldStateInTheSaversOrder )

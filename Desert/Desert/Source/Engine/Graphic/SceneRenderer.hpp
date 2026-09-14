@@ -11,7 +11,6 @@
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
-#include <Engine/Graphic/WindEnv.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
@@ -264,8 +263,7 @@ namespace Desert::Graphic
 
         // The evaluated per-frame sky: sun direction and radiance, ambient above/below, night factor, the
         // planet radius, and an OPAQUE handle to the packed sky-parameter buffer. Consumers never see the
-        // sky's authoring representation, so a change to the palette cannot break them. Mirrors
-        // GetWind()/WindEnv.
+        // sky's authoring representation, so a change to the palette cannot break them.
         const AtmosphereEnv& GetAtmosphere() const;
 
         // This view's cloud field, prepared for the sky's environment bake. The bake is SkyboxRenderer's
@@ -299,21 +297,6 @@ namespace Desert::Graphic
         const auto& GetDirectionLights() const
         {
             return m_DirectionLights;
-        }
-
-        // Scene-global SHARED wind (authored in SceneSettings, refreshed each BeginScene). Renderers that
-        // respond to wind read it from here so one direction + strength animate the whole world
-        // coherently.
-        //
-        // IT HAS NO CONSUMER TODAY, and that is stated here rather than left to be discovered. Its only
-        // reader was the procedural grass generator, which Г25 removed because grass becomes mesh assets;
-        // the next reader is whatever sways an asset (instanced foliage, hair, cloth). The three
-        // SceneSettings fields behind it are authored level data that EVERY scene in the repository
-        // states, so Г25 raised them with the owner instead of retiring a scene-wide field on a
-        // rendering task's initiative - see the report for Г25.
-        const WindEnv& GetWind() const
-        {
-            return m_Wind;
         }
 
         // CSM debug: the per-cascade shadow depth maps (for the editor's cascade viewer).
@@ -495,8 +478,6 @@ namespace Desert::Graphic
         ShaderProtocols::DirectionLight m_DirectionLights;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
-
-        WindEnv m_Wind; // scene-global shared wind, refreshed from SceneSettings each BeginScene
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
         Common::Settings::AntiAliasingMode m_AAMode       = Common::Settings::AntiAliasingMode::FXAA;

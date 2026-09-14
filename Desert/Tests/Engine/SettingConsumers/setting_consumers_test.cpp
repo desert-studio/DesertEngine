@@ -467,9 +467,9 @@ namespace
          // editor's transport owns pausing (runtime state, not scene data), and sixteen probe scenes had
          // authored `true` and got nothing — the misleading-knob defect itself.
 
-         { "WindDirection", kSceneRenderer },
-         { "WindStrength", kSceneRenderer },
-         { "WindTurbulence", kSceneRenderer },
+         // The three Wind rows are gone with their fields (Г26). They were WIRED to SceneRenderer, and
+         // that row was TRUE and USELESS: BeginScene did read all three into a WindEnv, and nothing ever
+         // read the WindEnv, so the census was satisfied one link before the frame.
 
          // The shipping player's, and nothing else's.
          { "SplashSprite", kRuntimeLayer },
