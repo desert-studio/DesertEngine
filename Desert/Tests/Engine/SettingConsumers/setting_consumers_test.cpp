@@ -812,9 +812,10 @@ namespace
     };
 
     constexpr Row kBindingRows[] = {
-         { "Key", kCanvasRenderer },
-         { "Target", kCanvasRenderer },
-         { "Format", kCanvasRenderer },
+         { "Key", kCanvasRenderer }, { "Target", kCanvasRenderer },
+         // `Format` was here and is GONE (Ю15). It held a printf format an author typed in the Details
+         // panel and the canvas handed to std::snprintf with a double, and it formatted every bound number
+         // in the C locale whatever language the reader was in. Its job is the string table's now.
     };
 
     constexpr Row kScreenRows[] = {

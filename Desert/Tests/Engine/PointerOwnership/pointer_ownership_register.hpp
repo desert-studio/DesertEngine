@@ -265,6 +265,13 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
           "Rule", "Replacement", Guard::StaticStorage,
           "a string literal in a function-local `static const Rule kRules[]`; the table and every literal in it have static storage duration, so nothing can outlive them" },
+        { "Desert/Desert/Source/Engine/Localization/LocalizationService.hpp",
+          "Localization", "m_Language", Guard::StaticStorage,
+          "a row of the `constexpr std::array` of languages in Engine/Localization/LocaleFormat.cpp, "
+          "reached only through FindLocale, which returns either a pointer into that table or nullptr. "
+          "The table has static storage duration, so Q2 is closed by the language; Q1 does not arise "
+          "because nobody allocated it. Never null after Get() — the constructor resolves the source "
+          "language and says so loudly if that row has been deleted" },
         { "Desert/Desert/Source/Engine/Graphic/MappedMemory.hpp",
           "MappedMemory", "kNeverAttempted", Guard::StaticStorage,
           "a string literal held by a constexpr static" },

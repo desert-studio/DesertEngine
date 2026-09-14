@@ -40,6 +40,12 @@ project(test_name)
         -- layer up — which is why both compile straight into a suite that links no renderer.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/StringTableAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizedText.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizationService.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
         -- SkeletonAsset::Load builds an Animation::Skeleton, whose constructor computes the signature.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }

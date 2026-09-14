@@ -103,6 +103,9 @@ namespace Desert::Player
         // missing preload can take. Order-free: a theme names only font paths, which FontService
         // registers on demand, and nothing else names a theme.
         m_AssetPreloader->PreloadUIThemes();
+        // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
+        // everything else, so the player sees the language the build boots in with no extra plumbing.
+        m_AssetPreloader->PreloadStringTables();
 
         // Same system set + order as the editor's Play mode.
         m_Scene->AddSystem<ECS::MeshECSSystem>();

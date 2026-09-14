@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/Text/FontBaker.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
@@ -345,7 +346,8 @@ namespace Desert::UI
         struct BindingSample
         {
             bool                       Hide = false; // Visible target said no
-            std::optional<std::string> Text;         // Text target
+            std::optional<std::string> Text;         // Text target, string value
+            std::optional<double>      Number;       // Text target, numeric value
             std::optional<float>       Value;        // Slider / ProgressBar target
         };
 
@@ -366,17 +368,19 @@ namespace Desert::UI
             {
                 case ECS::UIBindTarget::Text:
                 {
-                    if ( !b.Format.empty() )
+                    // A NUMBER AND A STRING ARE DIFFERENT ARGUMENTS, not two spellings of one. A number is
+                    // the count a translation's plural form is chosen from and what `{n}` prints in the
+                    // reader's own locale; a string simply stands in for the authored text (and is then
+                    // resolved on the same terms, so gameplay can write a key into the store and have it
+                    // translated). Deciding between them here rather than at the draw site keeps the two
+                    // in one place.
+                    //
+                    // `store.Text` converts a number to text, so it is asked SECOND: asking it first would
+                    // turn every numeric binding into a C-locale string and lose the count.
+                    if ( const auto n = store.Number( b.Key ) )
                     {
-                        // A format is about numbers ("HP: %.0f"); fall back to the raw text if the value
-                        // isn't numeric, so a mistyped binding still shows something sane.
-                        if ( const auto n = store.Number( b.Key ) )
-                        {
-                            char buf[256];
-                            std::snprintf( buf, sizeof( buf ), b.Format.c_str(), *n );
-                            out.Text = std::string( buf );
-                            break;
-                        }
+                        out.Number = *n;
+                        break;
                     }
                     if ( const auto t = store.Text( b.Key ) )
                         out.Text = *t;
@@ -400,6 +404,40 @@ namespace Desert::UI
                     break;
             }
             return out;
+        }
+
+        /**
+         * @brief THE ONE PLACE AN AUTHORED UI STRING BECOMES A DRAWN STRING.
+         *
+         * Every label on a canvas goes through here, which is what makes the subsystem's decisive relation
+         * true by construction rather than by discipline: a key is translated, a literal is not, and no
+         * draw site gets to decide differently.
+         *
+         * The bound value, when there is one, stands in for the authored text and is then resolved on the
+         * SAME terms — so gameplay writing a key into the data store gets a translation, and gameplay
+         * writing a player's name gets the name.
+         */
+        std::string ResolveLabel( const std::string& authored, const BindingSample& binding )
+        {
+            Localization::FormatArguments args;
+            if ( binding.Number )
+                args.Count = *binding.Number;
+
+            const std::string_view source =
+                 binding.Text ? std::string_view( *binding.Text ) : std::string_view( authored );
+            const auto resolved = Localization::Localization::Get().Resolve( source, args );
+
+            // A number bound to a LITERAL label replaces it, formatted for the reader's locale — that is
+            // what "bind this number to this label" has always meant here, and it is now locale-aware
+            // instead of going through a C-locale printf. A number bound to a KEY is the key's `{n}`
+            // argument instead, which the resolve above has already spent.
+            if ( binding.Number && !binding.Text &&
+                 resolved.Outcome == Localization::Localization::Outcome::Literal )
+            {
+                return Localization::FormatNumber( Localization::Localization::Get().Language(), *binding.Number,
+                                                   0 );
+            }
+            return resolved.Text;
         }
 
         // The tint of the element being drawn lives in the context (UICanvasContext::Tint) — multiplied into
@@ -431,6 +469,11 @@ namespace Desert::UI
         }
 
         // Split a ';'-separated option string into its items (empty items skipped).
+        //
+        // EACH ITEM IS RESOLVED ON ITS OWN (Ю15), not the list: a dropdown mixes translated labels with
+        // proper nouns — a server name, a player's own preset — far more often than it is wholly one or
+        // the other, and a per-list rule would force the author to choose. The separator is not part of
+        // any item, so a key never contains one.
         std::vector<std::string> SplitOptions( const std::string& s )
         {
             std::vector<std::string> out;
@@ -440,14 +483,14 @@ namespace Desert::UI
                 if ( c == ';' )
                 {
                     if ( !cur.empty() )
-                        out.push_back( cur );
+                        out.push_back( Localization::Localization::Get().Resolve( cur ).Text );
                     cur.clear();
                 }
                 else
                     cur += c;
             }
             if ( !cur.empty() )
-                out.push_back( cur );
+                out.push_back( Localization::Localization::Get().Resolve( cur ).Text );
             return out;
         }
 
@@ -1678,6 +1721,14 @@ namespace Desert::UI
                     // drawn with — so an unthemed field is byte-identical to what it was.
                     td.Font  = st.Font( StyleSlot::InputFont, Assets::AssetHandle{} );
                     td.Align = ECS::UITextAlign::Left;
+                    // The PLACEHOLDER is authored and therefore localisable; `f.Text` is what the player
+                    // typed and is drawn exactly as typed — translating a person's own input would be
+                    // absurd, and it is the one string on a canvas that must never go through the table.
+                    td.Text     = showPlaceholder ? Localization::Localization::Get().Resolve( f.Placeholder ).Text
+                                                  : f.Text;
+                    td.FontSize = f.FontSize;
+                    td.Color    = showPlaceholder ? f.PlaceholderColor : f.TextColor;
+                    td.Align    = ECS::UITextAlign::Left;
                     dl.PushClipRect( mn, mx );
                     DrawText2D( dl, td, rect, scale, ctx.View.Tint );
                     if ( isFocused )
@@ -1748,6 +1799,11 @@ namespace Desert::UI
                     if ( binding.Text )
                         text.Text = *binding.Text;
                     DrawText2D( dl, text, rect, scale, ctx.View.Tint );
+                    // A bound label draws the store's string, and a keyed one draws its translation, both
+                    // without the component ever being touched — the authored text is never written back.
+                    ECS::UITextData bound = reg.get<ECS::UITextComponent2D>( e ).Data;
+                    bound.Text            = ResolveLabel( bound.Text, binding );
+                    DrawText2D( dl, bound, rect, scale, ctx.View.Tint );
                 }
 
                 if ( reg.has<ECS::UIIconComponent>( e ) )

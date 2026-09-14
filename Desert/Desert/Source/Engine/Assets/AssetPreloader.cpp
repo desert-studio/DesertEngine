@@ -14,6 +14,7 @@
 #include "CloudModellingVolumeAsset.hpp"
 #include "CloudLayoutAsset.hpp"
 #include "UIThemeAsset.hpp"
+#include "StringTableAsset.hpp"
 
 namespace Desert::Assets
 {
@@ -36,6 +37,8 @@ namespace Desert::Assets
     constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_BODY_EXTENSIONS   = { ".dcmv" };
     constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_LAYOUT_EXTENSIONS = { ".dclayout" };
     constexpr std::array<std::string_view, 1> SUPPORTED_UI_THEME_EXTENSIONS     = { ".detheme" };
+    constexpr std::array<std::string_view, 1> SUPPORTED_STRING_TABLE_EXTENSIONS = {
+         Localization::kStringTableExtension };
 
     AssetPreloader::AssetPreloader( const std::shared_ptr<AssetManager>& assetManager,
                                     Animation::AnimationLibrary&         animationLibrary )
@@ -370,6 +373,25 @@ namespace Desert::Assets
                                layoutAsset->GetMetadata().Filepath.string(), result.GetError() );
             }
         }
+    }
+
+    void AssetPreloader::PreloadStringTables()
+    {
+        // LOADING IS PUBLISHING for this type: StringTableAsset::Load hands its rows to the process-wide
+        // Localization lookup, so there is no register loop after the scan the way the cloud stages have
+        // one. That is deliberate — a table that parsed but was not published would be an asset reporting
+        // success while every key it owns resolved as missing, which is the empty-successful-answer shape.
+        //
+        // ORDER IS FREE: a table names no other asset and no other asset names it. It is FIRST among the
+        // optional stages anyway, because a missing translation is visible on the very first frame drawn
+        // and the log line it produces is much easier to read before the rest of the content arrives.
+        //
+        // A PROJECT WITH NO Localization/ FOLDER IS NOT AN ERROR. It is a project whose UI is authored in
+        // literals, which is every project that predates this stage; the scan matches nothing, no table is
+        // published, and every literal element draws exactly what it drew before.
+        ProcessAssetFiles<StringTableAsset>( Common::Constants::Path::LOCALIZATION_PATH,
+                                             SUPPORTED_STRING_TABLE_EXTENSIONS, m_AssetManager,
+                                             AssetPriority::High );
     }
 
     void AssetPreloader::PreloadShaders()

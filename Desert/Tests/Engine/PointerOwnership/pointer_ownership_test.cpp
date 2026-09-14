@@ -270,6 +270,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
     EXPECT_EQ( (int)Members().size(), 829 )
+    //   824 -> 825 with Ю15: ONE member, `Localization::m_Language`, which points at a row of the
+    //   constexpr locale table (Engine/Localization/LocaleFormat.cpp) and is registered as StaticStorage.
+    //   Both questions are answered by the language: nobody allocated the table, and nobody can destroy
+    //   it. The source-language constant that came with it was written as `const char*` and would have
+    //   been a second row; it is a `std::string_view` instead, which is why this is +1 and not +2.
+    EXPECT_EQ( CountOf( Form::Raw ), 355 );
+    EXPECT_EQ( CountOf( Form::Shared ), 321 );
+    EXPECT_EQ( CountOf( Form::Unique ), 111 );
+    EXPECT_EQ( CountOf( Form::Weak ), 38 );
+    EXPECT_EQ( (int)Members().size(), 825 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

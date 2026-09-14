@@ -114,6 +114,7 @@ TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
          { &Path::PREFAB_PATH, "Resources/Assets/Prefabs/" },
          { &Path::SCRIPT_PATH, "Resources/Assets/Scripts/" },
          { &Path::COLLECTIONS_PATH, "Resources/Assets/Collections/" },
+         { &Path::LOCALIZATION_PATH, "Resources/Assets/Localization/" },
          { &Path::CLOUD_NOISE_PATH, "Resources/Assets/Clouds/" },
          { &Path::CLOUD_TYPE_PATH, "Resources/Assets/Clouds/Types/" },
          { &Path::CLOUD_VOLUME_PATH, "Resources/Assets/Clouds/Volumes/" },

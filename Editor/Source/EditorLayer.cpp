@@ -11,6 +11,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Common/Core/Units.hpp>
@@ -89,6 +90,7 @@
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
 #include "Editor/Panels/Build/BuildSettingsPanel.hpp"
 #include "Editor/Panels/History/HistoryPanel.hpp"
+#include "Editor/Panels/Localization/LocalizationPanel.hpp"
 #include "Editor/Panels/Validation/SceneValidationPanel.hpp"
 #include "Editor/Panels/Clouds/CloudModellingVolumePanel.hpp"
 #include "Editor/Panels/Clouds/CloudDocumentOpen.hpp"
@@ -355,6 +357,11 @@ namespace Desert::Editor
         // paths, which FontService registers on demand, and nothing else names a theme.
         m_StartupStages.push_back(
              { "Preloading UI themes...", [this] { m_AssetPreloader->PreloadUIThemes(); } } );
+        // Order-free, and early among the optional stages on purpose: a missing translation shows up on
+        // the very first frame drawn, and its log line is far easier to read before the rest of the
+        // content's lines arrive.
+        m_StartupStages.push_back(
+             { "Preloading string tables...", [this] { m_AssetPreloader->PreloadStringTables(); } } );
 
         // WHAT THIS MACHINE CAN AFFORD — a different file from editor.json and deliberately so (К3).
         // editor.json is one person's copy of the EDITOR and the packaged game never opens it, while every
@@ -646,6 +653,7 @@ namespace Desert::Editor
         m_Panels.Add<Editor::CollectionsPanel>( m_AssetManager.get() );
         m_Panels.Add<Editor::HistoryPanel>();
         m_Panels.Add<Editor::SceneValidationPanel>( m_MainScene, m_AssetManager.get() );
+        m_Panels.Add<Editor::LocalizationPanel>();
         m_Panels.Add<Editor::UIDebuggerPanel>( m_MainScene );
         // THE FOUR CLOUD PANELS ARE NOT CONSTRUCTED HERE ANY MORE. They were singletons in this list, each
         // reached from the View menu and bound to whatever file its own combo had last opened; they are now
@@ -3267,6 +3275,24 @@ namespace Desert::Editor
                                   } } );
         }
 
+        // LANGUAGE — one entry per language the compiled locale table knows, generated from the table so
+        // a language added there is offered here the moment it exists and cannot be forgotten.
+        //
+        // OFFERED FOR EVERY KNOWN LANGUAGE, not only the ones this project has strings in, and that is
+        // deliberate: switching to a language with no translations is how an author SEES what is missing
+        // (every keyed label draws its own key, and the log names each one). Hiding the entry would hide
+        // the hole.
+        //
+        // It is also the only way a language change can be photographed on this machine, where synthetic
+        // input is closed at the OS: the control channel runs these entries, so `run` then `shot.window`
+        // captures the switched interface in one session.
+        for ( const Localization::LocaleRow& row : Localization::Locales() )
+        {
+            const std::string tag = std::string( row.Tag );
+            commands.push_back( { "Language", tag + " - " + std::string( row.Endonym ),
+                                  [tag] { return Localization::Localization::Get().SetLanguage( tag ); } } );
+        }
+
         // Documents — FOCUS an open one. A separate category because the verb is different and the
         // difference is the point of this task: a tool is opened, a document is switched to. Nothing here
         // creates or destroys a window, so a mistyped search cannot cost the user one.
@@ -5650,7 +5676,10 @@ namespace Desert::Editor
         // for a panel that does not exist. They are opened from the component that holds them, in Details.
         static constexpr const char* kGraphGroup[]     = { "Node Graph" };
         static constexpr const char* kSequencerGroup[] = { "Anim Layers" };
-        static constexpr const char* kToolGroup[]      = { "Modeling", "Model from Photos", "Build Settings" };
+        // Localization sits with the tools rather than with the level: it is about the PROJECT's strings,
+        // not about the scene that happens to be open, and it keeps answering after every scene change.
+        static constexpr const char* kToolGroup[] = { "Modeling", "Model from Photos", "Build Settings",
+                                                      "Localization" };
 
         std::unordered_set<std::string> placed;
         for ( const auto& group :

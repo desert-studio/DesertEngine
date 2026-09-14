@@ -4,6 +4,7 @@
 #include <Engine/EntryPoint.hpp>
 
 #include <Editor/Core/CommandLine.hpp>
+#include <Engine/Localization/LocalizationService.hpp>
 #include <Editor/Core/ProjectContext.hpp>
 #include <Engine/Project/EngineRegistration.hpp>
 #include <Editor/Core/ShotOptions.hpp>
@@ -109,6 +110,21 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // measurement would include a few frames of the other configuration.
     Desert::Editor::ShotOptions::Get()                               = options.Shot;
     Desert::Editor::Control::ControlChannelOptions::Get().SocketPath = options.ControlSocket;
+
+    // The language, before the first frame for the same reason: a run that renders two frames of two
+    // languages is not a capture of either. An empty value leaves the process in its source language,
+    // which is the state every run had before this flag existed. The tag has already been checked against
+    // the compiled locale table by the parse, so this cannot fail for a reason the caller has not been
+    // told about — but it is still unwrapped, because a refusal nobody reads is the shape this whole
+    // subsystem is built to avoid.
+    if ( !options.Language.empty() )
+    {
+        if ( const auto set = Desert::Localization::Localization::Get().SetLanguage( options.Language ); !set )
+        {
+            std::fprintf( stderr, "%s\n", set.GetError().c_str() );
+            std::exit( 2 );
+        }
+    }
 
     // GPU timing is OFF unless --gpu-profile asks for it. A run that did not ask to be measured is not
     // measured, and its frame time is the one a budget decision should be taken on.

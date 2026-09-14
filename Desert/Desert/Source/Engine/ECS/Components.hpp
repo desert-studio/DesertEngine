@@ -865,7 +865,10 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Text" ), Category( "UI Input Field" ) )
         std::string Text;
 
-        PROPERTY( DisplayName( "Placeholder" ), Category( "UI Input Field" ) )
+        // Localisable on the same terms as UIText::Text — a leading hash is a string-table key. The user's
+        // own typed `Text` above is NOT: it is what the player wrote, and translating it would be absurd.
+        PROPERTY( DisplayName( "Placeholder" ), Category( "UI Input Field" ),
+                  Tooltip( "Shown while empty. A leading hash makes it a string-table key instead" ) )
         std::string Placeholder = "Enter text...";
 
         PROPERTY( DisplayName( "Font Size" ), Category( "UI Input Field" ), Range( 6.0f, 96.0f ) )
@@ -897,7 +900,13 @@ namespace Desert::ECS
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "Options (';'-separated)" ), Category( "UI Dropdown" ) )
+        // EACH OPTION is localisable on its own — a leading hash on one entry makes that entry a key, and
+        // the separator is not part of any of them. Per option rather than per list because a dropdown
+        // mixes translated labels with proper nouns (a server name, a player's own preset) far more often
+        // than it is wholly one or the other.
+        PROPERTY( DisplayName( "Options (';'-separated)" ), Category( "UI Dropdown" ),
+                  Tooltip( "One entry per option. A leading hash on an entry makes that entry a "
+                           "string-table key" ) )
         std::string Options = "Option A;Option B;Option C";
 
         PROPERTY( DisplayName( "Selected Index" ), Category( "UI Dropdown" ) )
@@ -1422,6 +1431,13 @@ namespace Desert::ECS
     // MVVM-lite: ties this element to a key in the UI data store, which gameplay (C++ or Lua via
     // ui.set) writes. Nothing is written back into the component — the bound value is applied on the way
     // to the screen — so a binding can never overwrite what the author typed.
+    //
+    // THERE USED TO BE A `Format` FIELD HERE and it was deleted by Ю15, not deprecated. It held a printf
+    // format the author typed in the Details panel and handed straight to `std::snprintf` with a double:
+    // typing `%s` in an editor field was undefined behaviour at run time, and every number it printed was
+    // formatted in the C locale on every screen in every language. Its job moved into the string table,
+    // where a translator can put `{n}` (or `{n:2}`) wherever their language wants it and the number is
+    // formatted for the reader's locale. The scene migration to version 19 drops the dead key by name.
     struct UIBindingData
     {
         REFLECT()
@@ -1433,11 +1449,6 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Target" ), Category( "UI Binding" ) )
         UIBindTarget Target = UIBindTarget::Text;
-
-        PROPERTY( DisplayName( "Format" ), Category( "UI Binding" ),
-                  Tooltip( "Text target only: printf format applied to a NUMBER, e.g. HP: %.0f — empty shows the "
-                           "value as-is" ) )
-        std::string Format;
     };
     struct UIBindingComponent
     {
@@ -1810,7 +1821,13 @@ namespace Desert::ECS
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "Text" ), Category( "UI Text" ) )
+        // A LEADING '#' MAKES THIS A KEY into the project's string tables ("#menu.play"); anything else is
+        // a literal and is never translated. '##' at the start is an escape for a literal '#'. One field,
+        // because two (a literal and a key, with a rule about which wins) is a defect class this project
+        // has a name for — see Engine/Localization/LocalizedText.hpp for why this shape was chosen over
+        // the other two.
+        PROPERTY( DisplayName( "Text" ), Category( "UI Text" ),
+                  Tooltip( "Shown as typed. A leading hash makes it a string-table key instead" ) )
         std::string Text = "Label";
 
         PROPERTY( DisplayName( "Font Size" ), Category( "UI Text" ), Range( 6.0f, 200.0f ) )

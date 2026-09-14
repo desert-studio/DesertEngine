@@ -1795,6 +1795,122 @@ namespace Desert::Migration
         return report;
     }
 
+    TextKeySigilMigrationReport MigrateTextKeySigilV18ToV19( std::vector<Assets::EntityData>& entities )
+    {
+        // WHERE AN AUTHORED, READER-FACING STRING CAN SIT IN A .desce. Four rows, and the set is the
+        // argument: these are exactly the strings the canvas and the world-text system now put through
+        // Localization::Resolve, so they are exactly the strings whose leading '#' changed meaning.
+        // `UIInputField.Text` is absent on purpose — it is the player's own text, nothing resolves it,
+        // and escaping it would put a hash into somebody's words.
+        struct Site
+        {
+            const char* Component;
+            const char* Key;
+            bool        SemicolonList; // UIDropdown.Options is many strings in one field
+        };
+        static constexpr auto kSites = std::to_array<Site>( {
+             { "UIText", "Text", false },
+             { "UIInputField", "Placeholder", false },
+             { "UIDropdown", "Options", true },
+             { "Text", "Text", false },
+        } );
+
+        // Only a LEADING hash. A hash anywhere else is just a hash — `[color=#FF7A33]` is a rich-text
+        // colour and this repository's main menu is full of them.
+        //
+        // A v18 STRING BEGINNING "##" IS ESCAPED TOO, to "###", and that is not an oversight: the resolver
+        // strips exactly ONE leading hash, so "###" is the only spelling that still draws "##". This is
+        // what makes the step non-idempotent and therefore gated — see the header.
+        const auto escape = []( const std::string& text )
+        { return ( !text.empty() && text.front() == '#' ) ? "#" + text : text; };
+
+        TextKeySigilMigrationReport report;
+
+        for ( auto& entity : entities )
+        {
+            const std::string tag        = entity.Tag.value_or( "Entity" );
+            bool              touchedAny = false;
+
+            for ( const Site& site : kSites )
+            {
+                const auto payload = entity.Components.get( site.Component );
+                if ( !payload.has_value() )
+                    continue;
+
+                const auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                {
+                    LOG_WARN( "[SceneMigration] entity '{0}': the {1} payload is {2}, not an object - the "
+                              "{3} string in it could not be escaped and stays as it is",
+                              tag, site.Component, Describe( payload.value() ), site.Key );
+                    continue;
+                }
+
+                const auto named = fields.value().get( site.Key );
+                if ( !named.has_value() )
+                    continue; // this component states no such string - tree untouched
+
+                const auto text = named.value().to_string();
+                if ( !text.has_value() )
+                {
+                    LOG_WARN( "[SceneMigration] entity '{0}': {1}.{2} is {3}, not a string - it is left "
+                              "exactly as it is",
+                              tag, site.Component, site.Key, Describe( named.value() ) );
+                    continue;
+                }
+
+                // Decided before anything is written, which is what makes the step idempotent: a payload
+                // with nothing to escape leaves the tree byte-identical and a second run finds nothing.
+                std::string rewritten;
+                if ( site.SemicolonList )
+                {
+                    // Each item on its own, because each item is resolved on its own. The separator is not
+                    // part of any of them, so an empty item stays empty and the shape of the list is kept
+                    // exactly — including a trailing separator, which SplitOptions ignores and a rewrite
+                    // that "tidied" it would change.
+                    std::string item;
+                    for ( const char c : text.value() )
+                    {
+                        if ( c == ';' )
+                        {
+                            rewritten += escape( item ) + ';';
+                            item.clear();
+                        }
+                        else
+                        {
+                            item += c;
+                        }
+                    }
+                    rewritten += escape( item );
+                }
+                else
+                {
+                    rewritten = escape( text.value() );
+                }
+
+                if ( rewritten == text.value() )
+                    continue;
+
+                // Rebuilt rather than edited in place, like every step above: rfl::Object is an ordered
+                // vector of pairs with no in-place assignment through its iterators.
+                rfl::Generic::Object kept;
+                for ( const auto& [key, value] : fields.value() )
+                    kept[key] = ( key == site.Key ) ? rfl::Generic( rewritten ) : value;
+
+                entity.Components[site.Component] = rfl::Generic( std::move( kept ) );
+                report.Escaped += 1;
+                report.EscapedNames.push_back( std::string( tag ) + " > " + site.Component + "." + site.Key +
+                                               " = " + rewritten );
+                touchedAny = true;
+            }
+
+            if ( touchedAny )
+                report.Entities += 1;
+        }
+
+        return report;
+    }
+
     RetiredKeysMigrationReport MigrateRetiredKeys( std::optional<rfl::Generic>&     settings,
                                                    std::vector<Assets::EntityData>& entities )
     {
@@ -2500,6 +2616,15 @@ namespace Desert::Migration
             {
                 report.GrassGenerationRaised = true;
                 report.GrassGeneration       = MigrateGrassGenerationV17ToV18( entities );
+            }
+
+            // Touches four authored STRINGS that no step above reads or writes — the service-asset step
+            // next door edits `UIText.Font`, a different key of the same payload, so the two are
+            // independent. Before the retirement pass, like every other step.
+            if ( statedSceneVersion < kSceneVersionTextKeySigil )
+            {
+                report.TextKeySigilRaised = true;
+                report.TextKeySigil       = MigrateTextKeySigilV18ToV19( entities );
             }
 
             if ( statedSceneVersion < kSceneVersion )

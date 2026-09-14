@@ -78,6 +78,10 @@ namespace Desert::Assets
         // independent of every cloud stage above. A canvas without a theme still draws, which is the
         // state every scene authored before themes existed is in.
         void PreloadUIThemes();
+        // String tables (`.destrings`). Independent of everything above — a table names no other asset and
+        // no other asset names it. Loading one PUBLISHES it to the process's localisation lookup, which is
+        // why there is no register loop beside this call the way the cloud stages have one.
+        void PreloadStringTables();
 
     private:
         std::weak_ptr<AssetManager> m_AssetManager;

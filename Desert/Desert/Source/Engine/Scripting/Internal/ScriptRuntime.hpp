@@ -510,4 +510,5 @@ namespace Desert::Scripting
     void RegisterReflectionBindings( ScriptEngine::Impl& impl ); // auto component access from reflection
     void RegisterAudioBindings( ScriptEngine::Impl& impl );      // Audio.play / Audio.stopAll
     void RegisterUIBindings( ScriptEngine::Impl& impl );         // ui.set/get/send + OnUIMessage bridge
+    void RegisterLocalizationBindings( ScriptEngine::Impl& impl ); // loc.text/plural/number/money/date
 } // namespace Desert::Scripting

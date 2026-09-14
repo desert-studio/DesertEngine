@@ -58,6 +58,7 @@ namespace Common::Constants
             Prefab,
             Script,
             Collections,
+            Localization,
             CloudNoise,
             CloudType,
             CloudVolume,
@@ -111,6 +112,7 @@ namespace Common::Constants
              /* Prefab        */ { "Prefabs/", DirRoot::Assets },
              /* Script        */ { "Scripts/", DirRoot::Assets },
              /* Collections   */ { "Collections/", DirRoot::Assets },
+             /* Localization  */ { "Localization/", DirRoot::Assets },
              /* CloudNoise    */ { "Clouds/", DirRoot::Assets },
              /* CloudType     */ { "Clouds/Types/", DirRoot::Assets },
              /* CloudVolume   */ { "Clouds/Volumes/", DirRoot::Assets },
@@ -330,6 +332,7 @@ namespace Common::Constants
         inline const std::filesystem::path& PREFAB_PATH         = Dir( ContentDir::Prefab );
         inline const std::filesystem::path& SCRIPT_PATH         = Dir( ContentDir::Script );
         inline const std::filesystem::path& COLLECTIONS_PATH    = Dir( ContentDir::Collections );
+        inline const std::filesystem::path& LOCALIZATION_PATH   = Dir( ContentDir::Localization );
         inline const std::filesystem::path& CLOUD_NOISE_PATH    = Dir( ContentDir::CloudNoise );
         inline const std::filesystem::path& CLOUD_TYPE_PATH     = Dir( ContentDir::CloudType );
         inline const std::filesystem::path& CLOUD_VOLUME_PATH   = Dir( ContentDir::CloudVolume );

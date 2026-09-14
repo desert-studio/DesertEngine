@@ -310,7 +310,7 @@ namespace
                 using T = ::Desert::ECS::UIInputFieldData;
                 TypeBuilder( "UIInputFieldData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Text", .Type = FieldType::String, .Offset = offsetof( T, Text ), .Size = sizeof( T::Text ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Text", .Category = "UI Input Field", } } )
-                    .Field( FieldInfo{ .Name = "Placeholder", .Type = FieldType::String, .Offset = offsetof( T, Placeholder ), .Size = sizeof( T::Placeholder ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Placeholder", .Category = "UI Input Field", } } )
+                    .Field( FieldInfo{ .Name = "Placeholder", .Type = FieldType::String, .Offset = offsetof( T, Placeholder ), .Size = sizeof( T::Placeholder ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Placeholder", .Category = "UI Input Field", .Tooltip = "Shown while empty. A leading hash makes it a string-table key instead", } } )
                     .Field( FieldInfo{ .Name = "FontSize", .Type = FieldType::Float, .Offset = offsetof( T, FontSize ), .Size = sizeof( T::FontSize ), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Font Size", .Category = "UI Input Field", .HasRange = true, .RangeMin = 6.0f, .RangeMax = 96.0f, } } )
                     .Field( FieldInfo{ .Name = "TextColor", .Type = FieldType::Vec3, .Offset = offsetof( T, TextColor ), .Size = sizeof( T::TextColor ), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Text Color", .Category = "UI Input Field", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "PlaceholderColor", .Type = FieldType::Vec3, .Offset = offsetof( T, PlaceholderColor ), .Size = sizeof( T::PlaceholderColor ), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Placeholder Color", .Category = "UI Input Field", .IsColor = true, } } )
@@ -323,7 +323,7 @@ namespace
             {
                 using T = ::Desert::ECS::UIDropdownData;
                 TypeBuilder( "UIDropdownData", sizeof( T ) )
-                    .Field( FieldInfo{ .Name = "Options", .Type = FieldType::String, .Offset = offsetof( T, Options ), .Size = sizeof( T::Options ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Options (';'-separated)", .Category = "UI Dropdown", } } )
+                    .Field( FieldInfo{ .Name = "Options", .Type = FieldType::String, .Offset = offsetof( T, Options ), .Size = sizeof( T::Options ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Options (';'-separated)", .Category = "UI Dropdown", .Tooltip = "One entry per option. A leading hash on an entry makes that entry a string-table key", } } )
                     .Field( FieldInfo{ .Name = "SelectedIndex", .Type = FieldType::Int, .Offset = offsetof( T, SelectedIndex ), .Size = sizeof( T::SelectedIndex ), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Selected Index", .Category = "UI Dropdown", } } )
                     .Field( FieldInfo{ .Name = "Open", .Type = FieldType::Bool, .Offset = offsetof( T, Open ), .Size = sizeof( T::Open ), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Open", .Category = "UI Dropdown", } } )
                     .Field( FieldInfo{ .Name = "FontSize", .Type = FieldType::Float, .Offset = offsetof( T, FontSize ), .Size = sizeof( T::FontSize ), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Font Size", .Category = "UI Dropdown", .HasRange = true, .RangeMin = 6.0f, .RangeMax = 96.0f, } } )
@@ -434,7 +434,6 @@ namespace
                 TypeBuilder( "UIBindingData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Key", .Type = FieldType::String, .Offset = offsetof( T, Key ), .Size = sizeof( T::Key ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Key", .Category = "UI Binding", .Tooltip = "Data-store key, e.g. player.hp — write it from Lua with ui.set( key, value )", } } )
                     .Field( FieldInfo{ .Name = "Target", .Type = FieldType::Enum, .Offset = offsetof( T, Target ), .Size = sizeof( T::Target ), .TypeName = "UIBindTarget", .Meta = PropertyMetadata{ .DisplayName = "Target", .Category = "UI Binding", }, .EnumValues = { EnumValue{ "Text", 0 }, EnumValue{ "Value", 1 }, EnumValue{ "Opacity", 2 }, EnumValue{ "Color", 3 }, EnumValue{ "Visible", 4 }, } } )
-                    .Field( FieldInfo{ .Name = "Format", .Type = FieldType::String, .Offset = offsetof( T, Format ), .Size = sizeof( T::Format ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Format", .Category = "UI Binding", .Tooltip = "Text target only: printf format applied to a NUMBER, e.g. HP: %.0f — empty shows the value as-is", } } )
                     .WithDefault<T>()
                     .Register();
             }
@@ -532,7 +531,7 @@ namespace
             {
                 using T = ::Desert::ECS::UITextData;
                 TypeBuilder( "UITextData", sizeof( T ) )
-                    .Field( FieldInfo{ .Name = "Text", .Type = FieldType::String, .Offset = offsetof( T, Text ), .Size = sizeof( T::Text ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Text", .Category = "UI Text", } } )
+                    .Field( FieldInfo{ .Name = "Text", .Type = FieldType::String, .Offset = offsetof( T, Text ), .Size = sizeof( T::Text ), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Text", .Category = "UI Text", .Tooltip = "Shown as typed. A leading hash makes it a string-table key instead", } } )
                     .Field( FieldInfo{ .Name = "FontSize", .Type = FieldType::Float, .Offset = offsetof( T, FontSize ), .Size = sizeof( T::FontSize ), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Font Size", .Category = "UI Text", .HasRange = true, .RangeMin = 6.0f, .RangeMax = 200.0f, } } )
                     .Field( FieldInfo{ .Name = "Font", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Font ), .Size = sizeof( T::Font ), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Font", .Category = "UI Text", .IsAsset = true, .AssetType = "FontAsset", } } )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = sizeof( T::Color ), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "UI Text", .IsColor = true, } } )

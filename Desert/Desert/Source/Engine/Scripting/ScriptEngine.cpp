@@ -26,6 +26,7 @@ namespace Desert::Scripting
         RegisterReflectionBindings( *m_Impl ); // after EntityCore: extends the Entity usertype
         RegisterAudioBindings( *m_Impl );
         RegisterUIBindings( *m_Impl );
+        RegisterLocalizationBindings( *m_Impl );
     }
 
     ScriptEngine::~ScriptEngine() = default;
