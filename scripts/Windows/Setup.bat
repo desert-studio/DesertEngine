@@ -34,7 +34,9 @@ set "VULKAN_SDK_VERSION=1.3.290.0"
 set "PREMAKE_VERSION=5.0.0-beta8"
 
 REM The MSVC toolset the generated solution asks for. premake's vs2022 action emits
-REM PlatformToolset=v143, and v143 is MSVC 14.3x on disk — see the check in :require_msvc.
+REM PlatformToolset=v143. NOTE that v143 is a TOOLSET NAME, not a directory number: VS 2022 shipped
+REM 14.3x at first and ships 14.4x since 17.10, and both are v143. Checking for "14.3*" rejected a
+REM perfectly good Visual Studio 2022 — see :require_msvc.
 set "PREMAKE_ACTION=vs2022"
 
 set "NO_INSTALL=0"
@@ -277,7 +279,7 @@ REM for Visual Studio 2022 — a SEPARATE instance, which is why installing it c
 REM existing Visual Studio.
 REM
 REM WHY v143 SPECIFICALLY, AND WHY 2022 IS THE FLOOR: premake's `vs2022` action writes
-REM PlatformToolset=v143 into every .vcxproj, and v143 is MSVC 14.3x on disk. A newer Visual Studio
+REM PlatformToolset=v143 into every .vcxproj. A newer Visual Studio
 REM (17.14, or an 18.x "2026") satisfies this only if it ALSO carries v143 — its own default toolset
 REM is a different one, and msbuild fails with MSB8020 ("The build tools for v143 cannot be found")
 REM rather than quietly retargeting. Checking the directory is therefore the honest check; checking
@@ -289,9 +291,17 @@ for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Mic
 if not defined VSINSTALL goto msvc_missing
 
 set "V143="
-for /d %%d in ("!VSINSTALL!\VC\Tools\MSVC\14.3*") do set "V143=%%~nxd"
+REM v143 IS A TOOLSET NAME, NOT A DIRECTORY NUMBER. This used to match "14.3*" on the assumption that
+REM the two are the same string. They are not: Visual Studio 2022 shipped MSVC 14.3x at release and
+REM ships 14.4x since 17.10, and every one of them is PlatformToolset v143. The narrow pattern turned
+REM a healthy VS 2022 Enterprise into "[ERROR] has no MSVC v143 toolset" and took CI down with it.
+REM
+REM v144 does not exist yet; when it does, the directory alone will stop being enough and this has to
+REM ask vswhere for the component instead. Until then any 14.x under a VS 2022-or-newer install IS the
+REM toolset premake asks for, and the FLOOR is enforced by the VS version above, not by this number.
+for /d %%d in ("!VSINSTALL!\VC\Tools\MSVC\14.*") do set "V143=%%~nxd"
 if not defined V143 (
-    echo [ERROR] "!VSINSTALL!" has no MSVC v143 toolset ^(VC\Tools\MSVC\14.3x^).
+    echo [ERROR] "!VSINSTALL!" has no MSVC v143 toolset ^(no VC\Tools\MSVC\14.* directory^).
     echo         The generated solution asks for PlatformToolset v143; msbuild fails with MSB8020
     echo         without it. Add it in the Visual Studio Installer:
     echo             Microsoft.VisualStudio.Component.VC.Tools.x86.x64
