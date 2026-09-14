@@ -285,8 +285,9 @@ TEST( AssetHandleStability, EveryTypeSaysWhetherItsLifetimeIsTheSceneOrTheProjec
         if ( kind.Type == AssetTypeID::StringTable )
             continue;
         EXPECT_FALSE( Desert::Assets::IsProjectScopedAsset( kind.Type ) )
-             << kind.Name << " claims to outlive every world; if that is true it must say why here, and if "
-                             "it is not, the sweep will never release it";
+             << kind.Name
+             << " claims to outlive every world; if that is true it must say why here, and if "
+                "it is not, the sweep will never release it";
     }
 }
 

@@ -5654,7 +5654,10 @@ namespace Desert::Editor
         // for a panel that does not exist. They are opened from the component that holds them, in Details.
         static constexpr const char* kGraphGroup[]     = { "Node Graph" };
         static constexpr const char* kSequencerGroup[] = { "Anim Layers" };
-        static constexpr const char* kToolGroup[]      = { "Modeling", "Model from Photos", "Build Settings" };
+        // Localization sits with the tools rather than with the level: it is about the PROJECT's strings,
+        // not about the scene that happens to be open, and it keeps answering after every scene change.
+        static constexpr const char* kToolGroup[] = { "Modeling", "Model from Photos", "Build Settings",
+                                                      "Localization" };
 
         std::unordered_set<std::string> placed;
         for ( const auto& group :

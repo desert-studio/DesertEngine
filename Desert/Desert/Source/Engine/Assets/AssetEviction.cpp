@@ -17,10 +17,10 @@ namespace Desert::Assets
         text += "swept " + std::to_string( Registered ) + " registered asset(s): " + std::to_string( Roots ) +
                 " root(s) expanded to " + std::to_string( Reachable ) + " reachable; released " +
                 std::to_string( Released ) + ", already cold " + std::to_string( AlreadyCold ) + ", refused " +
-                std::to_string( Refused ) + ", project-scoped " + std::to_string( ProjectScoped ) +
-                ". Dropped " + std::to_string( MeshesDropped ) +
-                " built mesh(es) and " + std::to_string( MaterialsDropped ) + " built material(s). GPU rows " +
-                std::to_string( LedgerRowsBefore ) + " -> " + std::to_string( LedgerRowsAfter ) + ".";
+                std::to_string( Refused ) + ", project-scoped " + std::to_string( ProjectScoped ) + ". Dropped " +
+                std::to_string( MeshesDropped ) + " built mesh(es) and " + std::to_string( MaterialsDropped ) +
+                " built material(s). GPU rows " + std::to_string( LedgerRowsBefore ) + " -> " +
+                std::to_string( LedgerRowsAfter ) + ".";
 
         for ( const std::string& refusal : Refusals )
             text += "\n  refused: " + refusal;
@@ -123,7 +123,7 @@ namespace Desert::Assets
             // NOT EVERY ASSET BELONGS TO A WORLD. A project-scoped type is named by no component, so the
             // root walk can never reach one and "unreachable" says nothing about whether it is in use —
             // see Assets::IsProjectScopedAsset for the measurement that put this line here.
-            if ( IsProjectScopedAsset( metadata.Type ) )
+            if ( IsProjectScopedAsset( metadata.AssetType ) )
             {
                 outcome.ProjectScoped++;
                 continue;
