@@ -45,6 +45,26 @@ BREW_PACKAGES=(
     googletest              # unit tests (optional, --with-tests builds)
 )
 
+# WHY llvm@18 IS A DEVELOPER DEPENDENCY AND NOT A BUILD ONE, and why it is nevertheless installed
+# here. Every push is gated on scripts/CI/CheckFormat.sh, which CI runs against clang-format 18 and
+# nothing else (ci.yml pins the `clang-format-18` package deliberately, with the reasoning written out
+# beside it). A developer checking with whatever `clang-format` their machine happens to have gets a
+# DIFFERENT verdict — v22 and v18 disagree on parameter-less multi-line lambdas, on multi-variable
+# declarations split across lines, and on aligned const-declaration blocks — and the symptom is a red
+# CI run on code that was clean locally. That happened three times in one day.
+#
+# NOT ON CI, and the exclusion is measured rather than tidy: the macOS jobs never run CheckFormat.sh
+# (the format gate is a separate ubuntu job with an apt package), llvm@18 is a ~1.5 GB bottle, and the
+# `sanitizers` job already sits at 61-73 % of its 90-minute ceiling. Paying that on every macOS run to
+# install a formatter no macOS job invokes is how a job crosses its timeout, and a timed-out job
+# reports as `cancelled`, which looks like nothing being wrong.
+#
+# Keg-only, so it is deliberately NOT linked into PATH: `clang-format` there would shadow the system
+# one for everything else on the machine. The check in step 5 prints the one PATH prefix that runs it.
+if [ -z "${CI:-}" ]; then
+    BREW_PACKAGES+=(llvm@18)
+fi
+
 echo "--- Installing Homebrew packages: ${BREW_PACKAGES[*]}"
 for pkg in "${BREW_PACKAGES[@]}"; do
     if brew list --formula "$pkg" >/dev/null 2>&1; then
@@ -293,6 +313,20 @@ MISSING_PATHS=()
 for required in "${REQUIRED_PATHS[@]}"; do
     [ -e "$ROOT/$required" ] || MISSING_PATHS+=("$required")
 done
+
+# The format gate's binaries. Checked by RUNNING one, because "llvm@18 is installed" and "the gate
+# can run" are two different facts: the formula is keg-only, so its bin/ is not on PATH, and
+# CheckFormat.sh looks for clang-format-18 or clang-format and by default finds neither.
+if [ -z "${CI:-}" ]; then
+    FORMAT_PREFIX="$(brew --prefix llvm@18 2>/dev/null || true)"
+    if [ -n "$FORMAT_PREFIX" ] && [ -x "$FORMAT_PREFIX/bin/clang-format" ] &&
+        [ -x "$FORMAT_PREFIX/bin/git-clang-format" ]; then
+        echo "    format gate: $("$FORMAT_PREFIX/bin/clang-format" --version)"
+        echo "    run it with:  PATH=\"$FORMAT_PREFIX/bin:\$PATH\" ./scripts/CI/CheckFormat.sh <merge-base>"
+    else
+        fail "llvm@18's clang-format / git-clang-format are not runnable (scripts/CI/CheckFormat.sh needs them)"
+    fi
+fi
 
 if [ ${#MISSING_PATHS[@]} -eq 0 ]; then
     echo "    all ${#REQUIRED_PATHS[@]} required paths present"

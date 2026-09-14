@@ -10,7 +10,7 @@
 local root = _MAIN_SCRIPT_DIR .. "/ThirdParty/reflect-cpp"
 
 if not os.isfile( root .. "/src/reflectcpp.cpp" ) then
-    error( "ThirdParty/reflect-cpp/src is missing. Run scripts/MacOS/Setup.sh to fetch the reflect-cpp v0.19.0 sources." )
+    error( "ThirdParty/reflect-cpp/src is missing. Run scripts/MacOS/Setup.sh (or scripts\\Windows\\Setup.bat) to fetch the reflect-cpp v0.19.0 sources." )
 end
 
 project "ReflectCpp"

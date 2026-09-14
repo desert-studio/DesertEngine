@@ -14,7 +14,7 @@ if not "%~1"=="" shift
 set "RUNTIME=%CD%\build\Bin\%CONFIG%\Runtime.exe"
 
 if not exist "%RUNTIME%" (
-    echo %RUNTIME% not found — build first: scripts\Windows\CompileWindows.bat 1>&2
+    echo %RUNTIME% not found — build first: scripts\Windows\BuildWindows.bat %CONFIG% 1>&2
     exit /b 1
 )
 
