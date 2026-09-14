@@ -56,6 +56,14 @@ namespace Desert::Runtime
     {
         return nullptr;
     }
+    // Ю13's theme service, needed here because this suite LINKS the walk rather than reading it as text.
+    // Absent like the rest, and that is a meaningful state rather than a hole: a canvas with no theme
+    // service resolves every slot from the elements' own authored fields, which is what an overlay
+    // authored before themes existed does. The walk copes with the accessor being null.
+    UIThemeService* ResourceRegistry::GetUIThemeService()
+    {
+        return nullptr;
+    }
     IconService* ResourceRegistry::GetIconService()
     {
         return nullptr;
@@ -87,6 +95,13 @@ namespace Desert::Runtime
     Graphic::Image2D* VideoService::Resolve( uint64_t )
     {
         ADD_FAILURE() << "VideoService::Resolve reached with no video service";
+        return nullptr;
+    }
+    // Reachable only if the walk stopped honouring a null service accessor; the stub above answers
+    // nullptr, so a canvas here resolves every slot from the author's own fields and Get is never asked.
+    const Assets::UIThemeRuntime* UIThemeService::Get( const Assets::AssetHandle& )
+    {
+        ADD_FAILURE() << "UIThemeService::Get reached with no theme service";
         return nullptr;
     }
     Font* FontService::Get( uint64_t, float )
