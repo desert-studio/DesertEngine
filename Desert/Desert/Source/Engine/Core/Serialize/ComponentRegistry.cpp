@@ -1340,6 +1340,13 @@ namespace Desert::Core::Serialize
              "UIInputField", "UIInputFieldData", &ECS::UIInputFieldComponent::Data ) );
         Register( MakeReflected<ECS::UIDropdownComponent, ECS::UIDropdownData>(
              "UIDropdown", "UIDropdownData", &ECS::UIDropdownComponent::Data ) );
+        // Overlays (Ю12). An overlay canvas and a trigger are ORDINARY scene data — that is the whole point
+        // of the shape: nothing is spawned at runtime, so a tooltip, a menu, a dialog and a toast stack
+        // survive a save and a reload because they are entities like any other.
+        Register( MakeReflected<ECS::UIOverlayComponent, ECS::UIOverlayData>( "UIOverlay", "UIOverlayData",
+                                                                              &ECS::UIOverlayComponent::Data ) );
+        Register( MakeReflected<ECS::UIOverlayTriggerComponent, ECS::UIOverlayTriggerData>(
+             "UIOverlayTrigger", "UIOverlayTriggerData", &ECS::UIOverlayTriggerComponent::Data ) );
 
         // ---- Marker components (presence is the state) ----
         Register( MakeMarker<ECS::FolderComponent>( "Folder" ) );

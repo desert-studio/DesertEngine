@@ -37,7 +37,16 @@ using Desert::Editor::kUIElements;
 
 namespace
 {
-    constexpr const char* kRenderer = "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp";
+    // THE WALK IS TWO FILES SINCE Ю12, and this census has to read both or it stops being complete.
+    // UIOverlay.cpp is not a second renderer: it is the part of the same frame that decides which overlay
+    // canvases are open and where they are, called by EndUIFrame and by nothing else. A component queried
+    // only there — the overlay trigger is — is handled by the shipping UI exactly as much as one queried
+    // in the draw walk, and reading one file would have called it unhandled.
+    constexpr const char* kRendererFiles[] = {
+         "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
+         "Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
+    };
+    constexpr const char* kRenderer = "the UI walk (UICanvasRenderer2D.cpp + UIOverlay.cpp)";
 
     // Component types the shipping renderer handles that are deliberately NOT offered by the create menus.
     // Each needs a reason, and the reason is the row.
@@ -51,9 +60,15 @@ namespace
          // The named action moved when the UI editor became a document (U7-2): its "Create UI Canvas"
          // button was an empty state INSIDE the window, and a document is opened over a canvas that
          // exists. The two doors that were always there are the ones left.
+         // CORRECTED BY Ю12. The last clause used to read "a second canvas would not be drawn (the
+         // renderer takes the first)", which stopped being true when Ю4 keyed the walk's state by
+         // (canvas x view) and made the drawing hosts iterate CanvasesInDrawOrder. It is the recurring
+         // shape: a comment asserting a guarantee the tree no longer gives, left standing because
+         // nothing reads a reason string. The overlays this file now also excludes are four more
+         // canvases per level, so the stale sentence was about to be read as permission.
          { "UICanvasComponent", "the canvas root itself — created by the viewport toolbar's UI ▸ UI Canvas "
-                                "or Details ▸ Add Component ▸ UI Canvas, and a second canvas would not be "
-                                "drawn (the renderer takes the first)" },
+                                "or Details ▸ Add Component ▸ UI Canvas, and a level may hold several: "
+                                "every one is drawn, in authored Sort Order" },
          { "UILayoutComponent", "the rect. Every element gets one automatically in AddUIChild; on its own "
                                 "it is an invisible box" },
          { "UIScreenComponent", "the screen machine: a screen with no name is skipped by the renderer's "
@@ -69,6 +84,14 @@ namespace
          { "UIDraggableComponent", "modifier — makes an existing element draggable" },
          { "UIDropTargetComponent", "modifier — makes an existing element a drop target" },
          { "UIPointerEventsComponent", "modifier — adds enter/exit/press messages to an existing element" },
+         // Overlays (Ю12). Both belong on something that already exists — an overlay on a CANVAS, a
+         // trigger on an element — so neither is an entry in a menu that creates children of a canvas.
+         // The overlay's own door is the viewport's UI ▸ Overlay submenu, which creates a canvas with the
+         // component and a working example of its chrome (CreateUIOverlay).
+         { "UIOverlayComponent", "belongs on a CANVAS entity, not on a child element — created with its "
+                                 "chrome by the viewport toolbar's UI ▸ Overlay submenu" },
+         { "UIOverlayTriggerComponent", "modifier — makes an existing element open an overlay on hover or "
+                                        "on a click" },
     };
 
     // The repository root, found by walking up from wherever the test binary was started — the same approach
@@ -105,6 +128,17 @@ namespace
          "Editor/Source/Editor/Panels/UI/UIEditorPanel.cpp",
     };
 
+    // Every source file of the UI walk, concatenated. Concatenated rather than scanned one at a time
+    // because the question the census asks — "does the shipping UI ever query this component" — is about
+    // the walk and not about which of its files the query happens to sit in.
+    std::string WalkSource( const std::string& root )
+    {
+        std::string all;
+        for ( const char* file : kRendererFiles )
+            all += ReadFile( root + file ) + "\n";
+        return all;
+    }
+
     // Every UI component type the renderer actually QUERIES: the `has<ECS::UIxxx>` / `view<ECS::UIxxx>` calls
     // in its source. This is the census, read from the dispatch itself rather than from any list.
     std::set<std::string> RendererDispatch( const std::string& source )
@@ -136,7 +170,7 @@ TEST( UIElementCensus, EveryCreatableElementIsDrawnByTheRenderer )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
 
-    const std::string source = ReadFile( root + kRenderer );
+    const std::string source = WalkSource( root );
     ASSERT_FALSE( source.empty() ) << kRenderer << " could not be read";
 
     const std::set<std::string> dispatch = RendererDispatch( source );
@@ -159,7 +193,7 @@ TEST( UIElementCensus, EveryDrawnComponentIsEitherCreatableOrExcludedWithAReason
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string source = ReadFile( root + kRenderer );
+    const std::string source = WalkSource( root );
     ASSERT_FALSE( source.empty() ) << kRenderer << " could not be read";
 
     std::set<std::string> accounted;
@@ -185,7 +219,7 @@ TEST( UIElementCensus, NoCatalogEntryOrExclusionIsAGhost )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::set<std::string> dispatch = RendererDispatch( ReadFile( root + kRenderer ) );
+    const std::set<std::string> dispatch = RendererDispatch( WalkSource( root ) );
 
     for ( const Exclusion& x : kExclusions )
         EXPECT_TRUE( dispatch.count( x.Type ) == 1 )
@@ -226,7 +260,7 @@ TEST( UIElementCensus, EveryUIComponentTheEngineDeclaresIsHandledAndPlaced )
     ASSERT_GE( declared.size(), 20u ) << "found only " << declared.size()
                                       << " UI component declarations — the scan no longer measures anything";
 
-    const std::set<std::string> dispatch = RendererDispatch( ReadFile( root + kRenderer ) );
+    const std::set<std::string> dispatch = RendererDispatch( WalkSource( root ) );
 
     std::set<std::string> accounted;
     for ( std::size_t i = 0; i < kUIElementCount; ++i )

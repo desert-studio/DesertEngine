@@ -24,8 +24,9 @@
 //
 //   1. COVERAGE. This census guarded FOUR of the engine's THIRTY-SEVEN reflected types (sky, fog,
 //      clouds, hero clouds), later five. Twenty-one of the rest are the UI components - the ones with
-//      the most fields and the least GPU, i.e. the ones where a dead setting is invisible. All 37 types
-//      are covered now, and `EveryReflectedTypeIsUnderThisCensus` makes the 38th fail here first.
+//      the most fields and the least GPU, i.e. the ones where a dead setting is invisible. All 39 types
+//      are covered now (Ю12 added the two overlay ones), and `EveryReflectedTypeIsUnderThisCensus` makes
+//      the 40th fail here first.
 //   2. THE ROW SHAPE. A WIRED row used to assert that the named file mentions the field's NAME. `Sprite`
 //      belongs to the canvas, the button, the panel AND the image, so when У3 deleted the canvas's own
 //      background draw from UICanvasRenderer2D.cpp the row stayed green - proven by mutation, not by
@@ -792,8 +793,37 @@ namespace
          { "HighlightColor", kCanvasRenderer },
     };
 
+    // Overlays (Ю12). Most of the policy is read by the state machine; the scrim is read by the walk that
+    // draws it, because the scrim is also the election that makes a modal modal.
+    constexpr const char* kOverlay = "Desert/Desert/Source/Engine/UI/UIOverlay.cpp";
+
+    constexpr Row kOverlayRows[] = {
+         { "Kind", kOverlay },
+         { "Name", kOverlay },
+         // Placement: the gap from the origin, the hover delay before it opens, and whether a tooltip
+         // rides the cursor or is pinned to the element it describes.
+         { "Gap", kOverlay },
+         { "OpenDelay", kOverlay },
+         { "FollowPointer", kOverlay },
+         // Dismissal.
+         { "CloseOnEscape", kOverlay },
+         { "CloseOnClickOutside", kOverlay },
+         // The modal's dim, drawn AND elected by the canvas walk.
+         { "ScrimColor", kCanvasRenderer },
+         { "ScrimOpacity", kCanvasRenderer },
+         // The toast queue's clock and its bound.
+         { "ToastLifetime", kOverlay },
+         { "ToastSlots", kOverlay },
+    };
+
+    constexpr Row kOverlayTriggerRows[] = {
+         { "Overlay", kOverlay },
+         { "On", kOverlay },
+         { "Text", kOverlay },
+    };
+
     // ------------------------------------------------------------------------------------------------
-    // THE CENSUS. Thirty-seven reflected types, thirty-seven entries; adding a thirty-eighth fails
+    // THE CENSUS. Thirty-nine reflected types, thirty-nine entries; adding a fortieth fails
     // `EveryReflectedTypeIsUnderThisCensus` before it can reach a Details panel with no reader.
     // ------------------------------------------------------------------------------------------------
 
@@ -845,6 +875,8 @@ namespace
          { "UIPointerEventsData", "UIPointerEventsComponent", nullptr, CENSUS_ROWS( kPointerEventsRows ) },
          { "UIDraggableData", "UIDraggableComponent", nullptr, CENSUS_ROWS( kDraggableRows ) },
          { "UIDropTargetData", "UIDropTargetComponent", nullptr, CENSUS_ROWS( kDropTargetRows ) },
+         { "UIOverlayData", "UIOverlayComponent", nullptr, CENSUS_ROWS( kOverlayRows ) },
+         { "UIOverlayTriggerData", "UIOverlayTriggerComponent", nullptr, CENSUS_ROWS( kOverlayTriggerRows ) },
     };
 
 #undef CENSUS_ROWS
@@ -977,7 +1009,7 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // The count is pinned as well as the membership, because the two fail differently: a type that loses
     // its REFLECT() drops out of `all` silently, and only the number says so.
     EXPECT_EQ( all.size(), std::size( kCensus ) );
-    EXPECT_EQ( all.size(), 37u );
+    EXPECT_EQ( all.size(), 39u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

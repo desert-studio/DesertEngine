@@ -268,8 +268,8 @@ namespace Desert::UI
             UIViewContext probe        = view;
             probe.DrivesSceneAnimation = false;
             dl.Reset();
-            BeginUIFrame( probe, reg );
-            const bool drawn = RenderCanvas2D( probe, reg, canvas, dl, viewportPx ).IsSuccess();
+            BeginUIFrame( probe, reg, viewportPx );
+            const bool drawn = RenderCanvas2D( probe, reg, canvas, dl ).IsSuccess();
             EndUIFrame( probe, reg, dl, /*input=*/nullptr );
             return drawn;
         };

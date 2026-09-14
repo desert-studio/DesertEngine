@@ -1,12 +1,16 @@
--- The ROUTE a pointer event takes through the element tree, asserted between a parent and a child rather
--- than on either of them. Same seam as the UICanvasContext suite next door -- RenderCanvas2D takes a plain
--- entt::registry, a DrawList2D and a UIInput, so a pointer can be synthesised and the messages the canvas
--- fired read back out of the returned vector -- and the same stubbed resource services, for the same
--- reason: every accessor returns nullptr and every draw helper already handles an absent service.
+-- OVERLAYS (Ю12): a tooltip, a context menu, a modal and a toast are one thing four times -- a canvas
+-- with a higher Sort Order, drawn last, taking the pointer from what it covers. This suite asserts the
+-- RELATIONS that makes true, not the four features one at a time:
 --
--- It is a suite of its own and not more cases in UICanvasContext because the subject is different: that
--- one is about two VIEWS not reaching each other's state, this one is about one view's event reaching the
--- right elements in the right order.
+--   * a press that misses a modal does not reach the element under it, and DOES when the modal is closed;
+--   * a tooltip against the right edge flips to the other side of the pointer instead of leaving the view;
+--   * a toast leaves on its own clock, the stack is bounded and the queue behind it is bounded too;
+--   * a context menu closes on Escape and on a click outside, and a submenu is the same mechanism nested.
+--
+-- Same seam as the two UI suites next door: RenderCanvas2D takes a plain entt::registry, a DrawList2D and
+-- a UIInput, so a pointer and a keystroke are synthesised rather than injected, and the same stubbed
+-- resource services, for the same reason -- every accessor returns nullptr and every draw helper already
+-- handles an absent service.
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
 
@@ -20,7 +24,6 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
-        -- The frame boundary calls the overlay state machine (Ю12), so the walk is these two files.
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/UI/UIDataStore.cpp",

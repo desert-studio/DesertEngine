@@ -81,6 +81,74 @@ namespace Desert::UI
     }
 
     // ---------------------------------------------------------------------------------------------------
+    // OVERLAY PLACEMENT — ONE MECHANISM, NOT FOUR
+    //
+    // A tooltip at the right edge of the view must FLIP to the other side of the pointer, not slide until
+    // it touches the border and not hang off it. So must a context menu, and so must every submenu that
+    // menu opens. Writing that per feature is how three of the four end up subtly different — the defect
+    // shape this project keeps paying for — so it is written once, here, as pure math with no ECS, no view
+    // and no context in it.
+    //
+    // THE ORIGIN IS A RECT AND NOT A POINT, because the two cases are the same case: a tooltip is placed
+    // against the pointer (a zero-size rect) and a submenu against its parent item (a real one). Giving
+    // them one parameter is what makes "flip about the thing I am attached to" mean the same sentence in
+    // both.
+    //
+    // WHAT EACH AXIS DOES. The ADVANCE axis is the one the box moves along to get clear of the origin:
+    // downward for a tooltip and a menu, sideways for a submenu. On that axis the box prefers the FAR side
+    // of the origin and flips to the NEAR side. On the CROSS axis it prefers to line its near edge up with
+    // the origin's near edge and flips to lining the far edges up — which is what makes a menu at the right
+    // border open leftwards instead of being pushed out of alignment with what opened it.
+    //
+    // MODAL AND TOAST DO NOT USE THIS, and that is a decision rather than an omission: neither has an
+    // origin. A modal is centred on the view and a toast stack sits in a corner of it, both stated by the
+    // canvas's own anchors, and handing them a fabricated origin would be a mechanism that moves nothing.
+
+    enum class OverlayAxis
+    {
+        Vertical,  // the box gets clear of the origin downwards (a tooltip, a context menu)
+        Horizontal // ... sideways (a submenu opening beside its parent item)
+    };
+
+    // One axis of the decision. Prefer @p pref; if the box would leave [lo, hi) there, take @p alt; if
+    // neither side fits — the box is wider than the room on both sides of the origin — keep the preferred
+    // side and clamp, because a box that is too big for the view must still be inside it.
+    inline float PlaceOverlayAxis( float pref, float alt, float size, float lo, float hi )
+    {
+        if ( pref >= lo && pref + size <= hi )
+            return pref;
+        if ( alt >= lo && alt + size <= hi )
+            return alt;
+        return std::clamp( pref, lo, std::max( lo, hi - size ) );
+    }
+
+    // Where a box of @p size goes when it is attached to @p origin with @p gap px of air, inside @p bounds.
+    // The result is always inside @p bounds unless the box is larger than it, in which case it is pinned to
+    // the top-left of @p bounds and overflows the far edges only.
+    inline Rect PlaceOverlay( const glm::vec2& size, const Rect& origin, const glm::vec2& gap, const Rect& bounds,
+                              OverlayAxis advance )
+    {
+        const float loX = bounds.X;
+        const float hiX = bounds.X + bounds.W;
+        const float loY = bounds.Y;
+        const float hiY = bounds.Y + bounds.H;
+
+        float x = 0.0f;
+        float y = 0.0f;
+        if ( advance == OverlayAxis::Vertical )
+        {
+            y = PlaceOverlayAxis( origin.Y + origin.H + gap.y, origin.Y - gap.y - size.y, size.y, loY, hiY );
+            x = PlaceOverlayAxis( origin.X + gap.x, origin.X + origin.W - gap.x - size.x, size.x, loX, hiX );
+        }
+        else
+        {
+            x = PlaceOverlayAxis( origin.X + origin.W + gap.x, origin.X - gap.x - size.x, size.x, loX, hiX );
+            y = PlaceOverlayAxis( origin.Y + gap.y, origin.Y + origin.H - gap.y - size.y, size.y, loY, hiY );
+        }
+        return { x, y, size.x, size.y };
+    }
+
+    // ---------------------------------------------------------------------------------------------------
     // Auto-layout groups (VBox / HBox / Grid). A container with a layout group POSITIONS + SIZES its direct
     // children automatically, overriding their own anchors — the Unity/Godot "layout group" model. Pure math
     // (takes the container rect + each child's preferred size) so it is unit-testable and shared by the

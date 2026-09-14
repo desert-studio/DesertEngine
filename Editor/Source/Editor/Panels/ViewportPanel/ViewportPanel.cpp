@@ -1,3 +1,4 @@
+#include <array>
 #include "ViewportPanel.hpp"
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
@@ -476,6 +477,29 @@ namespace Desert::Editor
                                 Core::SelectionManager::SetSelected( reg.get<ECS::UUIDComponent>( h ).UUID );
                         }
                     }
+
+                    // An OVERLAY is not an element and is deliberately not in the element catalog: it is a
+                    // CANVAS of its own, with its own Sort Order, and it is never a child of the canvas the
+                    // rest of this menu adds to. Its own submenu, and each entry builds a working example
+                    // (see CreateUIOverlay) rather than an empty rectangle with a component on it.
+                    ImGui::Separator();
+                    if ( ImGui::BeginMenu( ICON_MDI_LAYERS_OUTLINE "  Overlay" ) )
+                    {
+                        const std::array<std::pair<const char*, ECS::UIOverlayKind>, 4> kinds{ {
+                             { ICON_MDI_TOOLTIP_TEXT_OUTLINE "  Tooltip", ECS::UIOverlayKind::Tooltip },
+                             { ICON_MDI_MENU "  Context Menu", ECS::UIOverlayKind::ContextMenu },
+                             { ICON_MDI_WINDOW_MAXIMIZE "  Modal Dialog", ECS::UIOverlayKind::Modal },
+                             { ICON_MDI_BELL_OUTLINE "  Toast Stack", ECS::UIOverlayKind::Toast },
+                        } };
+                        for ( const auto& [label, kind] : kinds )
+                            if ( ImGui::MenuItem( label ) )
+                            {
+                                const entt::entity h = CreateUIOverlay( *m_Scene, kind );
+                                if ( h != entt::null )
+                                    Core::SelectionManager::SetSelected( reg.get<ECS::UUIDComponent>( h ).UUID );
+                            }
+                        ImGui::EndMenu();
+                    }
                 }
                 ImGui::EndPopup();
             }
@@ -943,6 +967,8 @@ namespace Desert::Editor
                 pv.DisplaySize  = m_ViewportData.Size;
                 pv.Released     = pv.Down && !down; // down->up edge
                 pv.Down         = down;
+                pv.RightDown    = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Right );
+                pv.Escape       = ImGui::IsKeyPressed( ImGuiKey_Escape, false );
                 pv.Scroll       = m_ViewportData.IsHovered ? ImGui::GetIO().MouseWheel : 0.0f;
                 pv.Tab          = ImGui::IsKeyPressed( ImGuiKey_Tab, false );
                 pv.Submit       = ImGui::IsKeyPressed( ImGuiKey_Enter, false );

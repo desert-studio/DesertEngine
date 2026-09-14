@@ -190,9 +190,14 @@ namespace Desert::UI
                                                       const Rect& viewportPx, std::vector<UIElementNode>& out,
                                                       const struct UICanvasContext* ctx = nullptr );
 
-    // Does a UIBinding with target Visible currently say NO for @p e? The runtime walk asks the UI data
-    // store this same question and skips the element's whole sub-tree when the answer is yes.
-    [[nodiscard]] bool BindingHidesElement( entt::registry& reg, entt::entity e );
+    // Does a UIBinding with target Visible currently say NO for @p e? The runtime walk asks the same
+    // question through the same store and skips the element's whole sub-tree when the answer is yes.
+    //
+    // @p ctx is the (canvas x view) cell, because a binding reads that cell's locals before the process-wide
+    // store (UI::BindingStore). Passing nullptr asks the global store alone, which is the honest answer for a
+    // caller that has no view — and the same nullptr that already means "no view" everywhere else here.
+    [[nodiscard]] bool BindingHidesElement( entt::registry& reg, entt::entity e,
+                                            const struct UICanvasContext* ctx = nullptr );
 
     // In-scene UI editing (viewport WYSIWYG). Returns the topmost element of @p canvas whose resolved rect
     // contains `pointPx`, or entt::null. `viewportPx` must be the SAME rect the canvas was drawn into so

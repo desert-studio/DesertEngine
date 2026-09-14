@@ -72,6 +72,7 @@ namespace Desert::Player
         bool                                         m_Backspace     = false; // backspace pressed since present
         bool                                         m_TabPressed    = false; // Tab pressed since present
         bool                                         m_SubmitPressed = false; // Enter pressed since present
+        bool                                         m_EscapePressed = false; // Escape pressed since present
         entt::entity                                 m_FocusedUI     = entt::null; // the focused control (or null)
 
         // The player's one view: hover and tween clocks, the elected hot element, the drag, and one screen

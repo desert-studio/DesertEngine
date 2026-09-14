@@ -28,6 +28,14 @@ namespace Desert::UI
         glm::vec2   MousePx       = { 0.0f, 0.0f };
         bool        MouseDown     = false;
         bool        MouseReleased = false;
+        // The RIGHT button, held. Only its press edge is used — context menus open on press, as every
+        // desktop toolkit does — and that edge is derived inside the frame from UIViewContext::PrevRightDown
+        // exactly as the left one is, because a host that reported the edge itself would be a second place
+        // computing the same fact.
+        bool MouseRightDown = false;
+        // Escape, pressed this frame. It closes the innermost open context menu or modal; nothing else in
+        // the UI reads it, and a host with no keyboard leaves it false.
+        bool        Escape        = false;
         float       ScrollDelta   = 0.0f; // mouse-wheel notches this frame (+ = up); drives ScrollView
         std::string TypedText;            // UTF-8 chars typed this frame (drives the focused InputField)
         bool        Backspace = false;    // backspace pressed this frame
@@ -47,27 +55,36 @@ namespace Desert::UI
     //
     // Hence the boundary:
     //
-    //     BeginUIFrame( view, reg );
+    //     BeginUIFrame( view, reg, viewportPx );
     //     for ( canvas : CanvasesInDrawOrder( reg ) )  RenderCanvas2D( view, reg, canvas, ... );
     //     EndUIFrame( view, reg, dl, input, ... );
+    //
+    // THE VIEWPORT IS A PARAMETER OF THE FRAME AND NOT OF THE CANVAS. It used to be passed to every
+    // RenderCanvas2D call, so a frame could hand two canvases two different rectangles and nothing said
+    // so — and the overlay update, which runs after the walks and has to place a box inside the view,
+    // would have needed a third copy of the same number. A view is one framebuffer; stating that once is
+    // what makes the copies unable to disagree.
     //
     // RenderCanvas2D REFUSES outside that pair rather than drawing a frozen frame — see
     // UICanvasContext::FrameOpen.
 
     // Open a frame of @p view: advance its clock, drop the cells of canvases that no longer exist, and
     // start a fresh hot election. Rebinds the view to @p reg (dropping everything) when it is looking at
-    // another scene, because entity ids are unique only inside a registry.
-    void BeginUIFrame( UIViewContext& view, entt::registry& reg );
+    // another scene, because entity ids are unique only inside a registry. @p viewportPx is where this view
+    // draws, for the whole frame — see above.
+    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx );
 
     // Close it: hand this frame's hot election to the next frame, route the pointer events that election
     // implies (enter/exit, down/up, drop) across EVERY canvas the frame drew, advance keyboard focus on
-    // Tab, and draw the drag ghost on top of all of them. @p outMessages collects every message fired;
+    // Tab, run the overlay state machine on the election just made (UIOverlay.hpp), and draw the drag ghost
+    // on top of all of them. @p outMessages collects every message fired;
     // without it they fall back to @p outClicked while it is still empty.
     void EndUIFrame( UIViewContext& view, entt::registry& reg, Graphic::Render2D::DrawList2D& dl,
                      const UIInput* input, entt::entity* focused = nullptr, std::string* outClicked = nullptr,
                      std::vector<std::string>* outMessages = nullptr );
 
-    // Emit @p canvas into @p dl in pixel coordinates within @p viewportPx. When the canvas is
+    // Emit @p canvas into @p dl in pixel coordinates within the frame's viewport (UIViewContext::ViewportPx,
+    // given to BeginUIFrame). When the canvas is
     // WorldSpace, @p worldViewProj (camera projection*view) billboards + distance-scales it to the screen;
     // pass nullptr for screen-space-only hosts. @p input drives button hover/press; a click on release writes
     // the button's encoded action to @p outClicked (see the runtime dispatcher).
@@ -87,9 +104,9 @@ namespace Desert::UI
     // screen stack to another canvas's walk. See UICanvasContext.hpp for why neither coordinate alone was
     // enough.
     NO_DISCARD Common::BoolResultStr RenderCanvas2D( UIViewContext& view, entt::registry& reg, entt::entity canvas,
-                                                     Graphic::Render2D::DrawList2D& dl, const Rect& viewportPx,
-                                                     const glm::mat4* worldViewProj = nullptr,
-                                                     const UIInput*   input         = nullptr,
-                                                     std::string*     outClicked    = nullptr,
-                                                     entt::entity*    focused       = nullptr );
+                                                     Graphic::Render2D::DrawList2D& dl,
+                                                     const glm::mat4*               worldViewProj = nullptr,
+                                                     const UIInput*                 input         = nullptr,
+                                                     std::string*                   outClicked    = nullptr,
+                                                     entt::entity*                  focused       = nullptr );
 } // namespace Desert::UI

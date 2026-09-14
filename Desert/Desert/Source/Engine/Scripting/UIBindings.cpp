@@ -1,6 +1,7 @@
 #include "Internal/ScriptRuntime.hpp"
 
 #include <Engine/UI/UIDataStore.hpp>
+#include <Engine/UI/UIOverlay.hpp>
 
 namespace Desert::Scripting
 {
@@ -9,6 +10,7 @@ namespace Desert::Scripting
     //   ui.set( "player.hp", 87 )        -- any element bound to that key follows on the next frame
     //   ui.get( "player.hp" )            -- read it back (number / string / bool)
     //   ui.send( "quest.completed" )     -- raise a UI message yourself (same channel as a button)
+    //   ui.toast( "Toasts", "Saved" )    -- queue a notification on a Toast overlay canvas
     //
     // and, in the other direction, a script that defines OnUIMessage( msg ) hears every button action,
     // pointer event and drop the canvas produced. Scripts never look elements up by name: they write
@@ -56,5 +58,11 @@ namespace Desert::Scripting
         // send( msg ) — put a message on the same queue the canvas uses, so a script can drive another
         // script's OnUIMessage (or its own) without a second channel.
         ui.set_function( "send", []( const std::string& message ) { UI::UIMessageQueue::Get().Push( message ); } );
+
+        // toast( overlay, text ) — queue a notification on the named Toast overlay. It is not `ui.set`,
+        // because a notification is an EVENT and a data-store key is a STATE: raising the same message
+        // twice must queue it twice, and writing the same key twice writes it once.
+        ui.set_function( "toast", []( const std::string& overlay, const std::string& text )
+                         { UI::UIOverlayRequests::Get().Raise( overlay, text ); } );
     }
 } // namespace Desert::Scripting

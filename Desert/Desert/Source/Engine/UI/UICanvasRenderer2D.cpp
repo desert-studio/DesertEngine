@@ -1,5 +1,7 @@
 #include "UICanvasRenderer2D.hpp"
 
+#include <Engine/UI/UIOverlay.hpp>
+
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Graphic/Texture.hpp>
@@ -285,7 +287,8 @@ namespace Desert::UI
             std::optional<float>       Value;        // Slider / ProgressBar target
         };
 
-        BindingSample SampleBinding( entt::registry& reg, entt::entity e, TweenSample& tw )
+        BindingSample SampleBinding( entt::registry& reg, entt::entity e, TweenSample& tw,
+                                     const UICanvasContext& cell )
         {
             BindingSample out;
             if ( !reg.has<ECS::UIBindingComponent>( e ) )
@@ -294,7 +297,9 @@ namespace Desert::UI
             if ( b.Key.empty() )
                 return out;
 
-            const UIDataStore& store = UIDataStore::Get();
+            // The cell's locals before the process-wide store — the one question, asked in the one place
+            // the layout walk asks it too, so the two cannot disagree about a frame.
+            const UIDataStore& store = BindingStore( &cell, b.Key );
             switch ( b.Target )
             {
                 case ECS::UIBindTarget::Text:
@@ -1168,7 +1173,7 @@ namespace Desert::UI
             ApplyAnimClip( ctx, reg, e, tween ); // a clip layers on top of the one-shot tween
 
             // A binding can hide the element outright — skip the sub-tree, input included.
-            const BindingSample binding = SampleBinding( reg, e, tween );
+            const BindingSample binding = SampleBinding( reg, e, tween, ctx.Canvas );
             if ( binding.Hide )
                 return;
             rect.X += ( tween.Offset.x + screenSlide.x ) * scale;
@@ -1759,7 +1764,7 @@ namespace Desert::UI
         }
     } // namespace
 
-    void BeginUIFrame( UIViewContext& view, entt::registry& reg )
+    void BeginUIFrame( UIViewContext& view, entt::registry& reg, const Rect& viewportPx )
     {
         // This view is now looking at another scene. Entity ids are unique only inside a registry, so every
         // per-entity clock and every (canvas x view) cell the view holds would answer to ids that mean
@@ -1792,14 +1797,41 @@ namespace Desert::UI
         // the topmost writer wins, which is what lets an overlay canvas take the pointer from the HUD.
         view.HotNext = entt::null;
         view.Focusables.clear();
+
+        // Where this view draws, for the whole frame. Stated once here rather than handed to each canvas,
+        // so the walks, the overlay placement and the drag ghost cannot be looking at different rectangles.
+        view.ViewportPx = viewportPx;
+
+        // Design <-> Preview: the other mode's open set is meaningless here, so it goes. See
+        // UIViewContext::AuthoringLastFrame.
+        if ( view.AuthoringPreview != view.AuthoringLastFrame )
+        {
+            CloseAllOverlays( view, reg );
+            view.AuthoringLastFrame = view.AuthoringPreview;
+        }
+
+        // An authoring view shows every overlay where it was authored. Written into the CELLS rather than
+        // consulted at each draw site, so "is this overlay showing" has one answer that both the drawing
+        // walk and the layout walk read — see UIViewContext::AuthoringPreview.
+        if ( view.AuthoringPreview )
+        {
+            for ( const entt::entity c : reg.view<ECS::UIOverlayComponent>() )
+            {
+                UICanvasContext& cell = view.CanvasState( c );
+                cell.OverlayOpen      = true;
+                cell.OverlayShift     = glm::vec2( 0.0f );
+            }
+        }
         view.FrameOpen = true;
     }
 
     Common::BoolResultStr RenderCanvas2D( UIViewContext& view, entt::registry& reg, entt::entity canvasEntity,
-                                          Graphic::Render2D::DrawList2D& dl, const Rect& viewportPx,
-                                          const glm::mat4* worldViewProj, const UIInput* input,
-                                          std::string* outClicked, entt::entity* focused )
+                                          Graphic::Render2D::DrawList2D& dl, const glm::mat4* worldViewProj,
+                                          const UIInput* input, std::string* outClicked, entt::entity* focused )
     {
+        // The frame's viewport, not this call's: one view is one framebuffer, and BeginUIFrame is where that
+        // is said. The FrameOpen check below is what guarantees it has been said before this is read.
+        const Rect& viewportPx = view.ViewportPx;
         // The canvas is the caller's answer, checked before anything else touches the context. Electing one
         // here — which is what this function did, `*reg.view<UICanvasComponent>().begin()` — meant a scene's
         // second canvas was drawn by nothing and reported by nothing.
@@ -1831,6 +1863,15 @@ namespace Desert::UI
         if ( !canvasData.Visible )
             return Common::MakeSuccess( false ); // a canvas that asked not to be drawn, not a failure
 
+        // --- Overlays (Ю12) -------------------------------------------------------------------------
+        // A closed overlay is a canvas the runtime is not showing YET, which is a different statement from
+        // UICanvasData::Visible being false — that one is the author saying never. Success(false), because
+        // the canvas was named correctly and simply has no pixels this frame, exactly like a WorldSpace
+        // canvas behind the camera.
+        const ECS::UIOverlayData* overlay = OverlayDataOf( reg, canvasEntity );
+        if ( overlay != nullptr && !ctx.Canvas.OverlayOpen )
+            return Common::MakeSuccess( false );
+
         Rect  canvasRect;
         float scale;
         if ( canvasData.RenderMode == ECS::UICanvasRenderMode::WorldSpace && worldViewProj &&
@@ -1857,6 +1898,46 @@ namespace Desert::UI
             const CanvasFit fit = ResolveCanvas( canvasData, viewportPx );
             canvasRect          = fit.Root;
             scale               = fit.Scale;
+        }
+
+        // --- Overlay placement and the modal scrim ---------------------------------------------------
+        if ( overlay != nullptr )
+        {
+            // ONE DISPLACEMENT MOVES THE WHOLE AUTHORED TREE. A tooltip beside the cursor, a submenu beside
+            // its item and a menu at the click point are all the same operation on the canvas root, which is
+            // why there is one placement mechanism rather than four. UICanvasLayout::EnumerateCanvas applies
+            // the identical shift for the identical cell, so where it draws and where it can be clicked stay
+            // one answer.
+            canvasRect.X += ctx.Canvas.OverlayShift.x;
+            canvasRect.Y += ctx.Canvas.OverlayShift.y;
+
+            if ( overlay->Kind == ECS::UIOverlayKind::Modal )
+            {
+                // THE SCRIM IS WHAT MAKES A MODAL MODAL, and it is two things at once.
+                //
+                // It is a rectangle over the WHOLE view, drawn before this canvas's own content so the
+                // dialog sits on top of its own dim. And it is an ELECTION: for every point the dialog does
+                // not cover, the frame's single hot element becomes this canvas itself. A button underneath
+                // compares against that election exactly as it always has and finds it is not the winner, so
+                // "the click does not reach what is below" is a consequence of Ю4's one-election-per-view
+                // rule and not a second rule beside it. There is no `if ( modalOpen )` anywhere in the
+                // controls, because there is nowhere for one to live.
+                //
+                // The election does NOT depend on the scrim being visible. A fully transparent scrim still
+                // captures — a modal that asked for no dim is still a modal — and tying capture to alpha
+                // would make Scrim Opacity two settings wearing one name.
+                const float     a = std::clamp( overlay->ScrimOpacity, 0.0f, 1.0f );
+                const glm::vec4 scrim( overlay->ScrimColor, a );
+                if ( a > 0.0f )
+                    dl.AddRectFilled( { viewportPx.X, viewportPx.Y },
+                                      { viewportPx.X + viewportPx.W, viewportPx.Y + viewportPx.H },
+                                      Tinted( ctx, scrim ) );
+                if ( input && PointIn( viewportPx, input->MousePx ) )
+                {
+                    ctx.View.HotNext     = canvasEntity;
+                    ctx.View.HotNextRect = viewportPx;
+                }
+            }
         }
 
         // The canvas's own Background Sprite: the full-canvas backdrop, drawn under everything and OUTSIDE
@@ -1942,11 +2023,22 @@ namespace Desert::UI
         (void)Graphic::Render2D::IntersectClipRegion(
              rootClip, glm::mat3( 1.0f ), { viewportPx.X, viewportPx.Y },
              { viewportPx.X + viewportPx.W, viewportPx.Y + viewportPx.H } );
+        // A TOOLTIP AND A TOAST ARE INERT TO INPUT, BY CONSTRUCTION AND NOT BY AUTHORING DISCIPLINE.
+        //
+        // Both are drawn above everything, so if they could be elected they would take the pointer from the
+        // very thing they are about: a tooltip that catches the cursor loses the hover that opened it and
+        // closes itself, one frame on and one frame off forever. A toast in a corner would swallow a click
+        // on the HUD beneath it, which is precisely "stealing focus". Neither contributes a focusable
+        // either, so Tab cannot walk into a notification that is about to disappear.
+        //
+        // A context menu and a modal are the opposite: capturing the pointer IS what they are for.
+        const bool inert = overlay != nullptr && ( overlay->Kind == ECS::UIOverlayKind::Tooltip ||
+                                                   overlay->Kind == ECS::UIOverlayKind::Toast );
         if ( reg.has<ECS::RelationshipComponent>( canvasEntity ) )
             for ( auto c : reg.get<ECS::RelationshipComponent>( canvasEntity ).Children )
                 if ( reg.valid( c ) )
                     DrawElement( ctx, reg, c, childRoot, scale, dl, input, outClicked, focused, &popups,
-                                 &ctx.View.Focusables, rootClip, HitScope{} );
+                                 inert ? nullptr : &ctx.View.Focusables, rootClip, HitScope{ !inert } );
 
         // A ShowScreen / BackScreen button fired during the walk: start the hand-over now, so the very
         // next frame already draws both screens mid-transition.
@@ -2209,6 +2301,16 @@ namespace Desert::UI
                 }
                 view.Drag = UIDragState{}; // a plain click on a draggable ends here too
             }
+            // THE OVERLAY MACHINE RUNS ON THIS FRAME'S ELECTION AND ON THIS FRAME'S PRESS EDGE — so it has
+            // to be here, BEFORE PrevDown is overwritten with the current state. Running it after cost an
+            // afternoon: right-click worked (the machine keeps its own PrevRightDown) and every left-button
+            // path silently never fired, because `MouseDown && !PrevDown` is false once PrevDown has been
+            // brought up to date. An authoring view has no machine at all — it shows every overlay as
+            // authored (UIViewContext::AuthoringPreview) — and running a pointer machine over a pointer it
+            // does not have would open menus nobody clicked.
+            if ( !view.AuthoringPreview )
+                UpdateOverlays( view, reg, *input );
+
             view.PrevDown = input->MouseDown;
 
             // The ghost rides on top of everything, drawn after the tree so nothing overlaps it.

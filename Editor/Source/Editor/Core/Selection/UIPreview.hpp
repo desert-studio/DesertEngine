@@ -25,6 +25,12 @@ namespace Desert::Editor::Core
 
         bool        Down      = false; // LMB held (also the previous-frame value, for the release edge)
         bool        Released  = false; // down->up edge this frame (fires button clicks)
+        // RMB HELD, not an edge. The press edge a context menu opens on is derived inside the UI frame from
+        // UIViewContext::PrevRightDown, exactly as the left button's is; reporting the edge here as well
+        // would be a second place computing the same fact, and the two would eventually disagree about
+        // which frame the click was in.
+        bool        RightDown = false;
+        bool        Escape    = false; // closes the innermost open context menu / modal
         float       Scroll    = 0.0f;  // wheel notches (drives ScrollView)
         bool        Tab       = false; // advance keyboard focus
         bool        Submit    = false; // Enter — activate the focused control

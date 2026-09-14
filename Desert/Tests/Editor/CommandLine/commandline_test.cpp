@@ -1,3 +1,5 @@
+#include <sstream>
+
 #include <gtest/gtest.h>
 
 #include <DesertShared/LaunchProtocol.hpp>
@@ -143,6 +145,14 @@ TEST( CommandLine, EveryFlagInTheTableIsAcceptedByTheParser )
         {
             ASSERT_NE( flag.ExampleValue, nullptr ) << flag.Name << " takes a value but offers no example";
             args.emplace_back( flag.ExampleValue );
+        }
+        // A flag that cannot stand alone says so in the table, and the words are a command line. Without
+        // this the test would be red for the one flag behaving correctly — see CommandLineFlag::AlsoNeeds.
+        if ( flag.AlsoNeeds != nullptr )
+        {
+            std::istringstream extra( flag.AlsoNeeds );
+            for ( std::string word; extra >> word; )
+                args.push_back( word );
         }
 
         const auto result = ParseCommandLine( args );

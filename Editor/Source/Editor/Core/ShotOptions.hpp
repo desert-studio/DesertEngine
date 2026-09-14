@@ -166,6 +166,33 @@ namespace Desert::Editor
         // what a plain `--shot` does would invalidate the whole existing corpus at once.
         bool Play = false;
 
+        // --- The pointer a headless capture has, and does not otherwise have (Ю12) -------------------
+        //
+        // WHY THIS EXISTS. `--shot` runs with no human and therefore with no cursor, so everything the UI
+        // does in RESPONSE to a pointer — a tooltip appearing after a hover delay and flipping at the edge
+        // of the view, a context menu opening at the click and stacking a submenu beside it — was
+        // unobservable in a frame. Not "hard to photograph": there was no arrangement of flags that could
+        // produce the picture at all, so the strongest evidence available for the whole overlay state
+        // machine was a unit test, and this project's four most expensive defects all shipped tested.
+        //
+        // The pointer is in FRAMEBUFFER pixels, top-left origin — the same space the canvas walk uses, and
+        // the same numbers the log prints for the trace resolution. It is honoured only during a capture,
+        // for the same reason --play is: a flag that changed what the interactive editor does would be a
+        // second way into a mode the toolbar does not know about.
+        bool      HasUIPointer = false;
+        glm::vec2 UIPointer{ 0.0f, 0.0f }; // --ui-pointer x,y
+
+        // Which button is HELD for the capture. The press edge is derived inside the UI frame exactly as it
+        // is for a real mouse, so the first frame of the capture is the press and the rest are the hold —
+        // which is what opens a context menu and then leaves it open to be photographed.
+        enum class UIButtonHeld
+        {
+            None,
+            Left,
+            Right
+        };
+        UIButtonHeld UIPress = UIButtonHeld::None; // --ui-press left|right
+
         // The gameplay step a `--play` capture advances by PER RENDERED FRAME. Fixed, and a constant rather
         // than a flag, for two separate reasons:
         //
