@@ -86,6 +86,12 @@ namespace Desert::Runtime
         return &cloudLayoutService;
     }
 
+    UIThemeService* ResourceRegistry::GetUIThemeService()
+    {
+        static UIThemeService uiThemeService;
+        return &uiThemeService;
+    }
+
     void ResourceRegistry::ClearAll()
     {
         // Order matters in one place only: the ImageService holds the VkImages that the material, skybox,
@@ -103,6 +109,7 @@ namespace Desert::Runtime
         GetCloudTypeService()->Clear();
         GetCloudModellingService()->Clear();
         GetCloudLayoutService()->Clear();
+        GetUIThemeService()->Clear();
         GetImageService()->Clear();
     }
 

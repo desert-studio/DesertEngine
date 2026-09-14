@@ -11,6 +11,7 @@
 #include <iterator>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // The runtime state of the UI walk, keyed by the PAIR (canvas x view).
@@ -101,6 +102,15 @@ namespace Desert::UI
         // The background sprite this cell last refused to draw, so an unresolvable handle is reported once
         // instead of once per frame. Cleared when the handle changes or resolves.
         Assets::AssetHandle WarnedBackground;
+
+        // Style names this cell has already refused (Ю13): a UIStyleComponent naming a style the canvas's
+        // theme does not declare. Per NAME rather than per ENTITY, because a mistyped style is normally on
+        // the twenty elements that were duplicated from one another and the interesting fact is the name,
+        // said once. Cleared when the canvas's theme handle changes, so the same typo is reported again
+        // against a theme that might have declared it.
+        std::unordered_set<std::string> WarnedStyles;
+        // The theme handle WarnedStyles was accumulated against — see above.
+        Assets::AssetHandle WarnedStylesTheme;
     };
 
     // ONE VIEW — the other coordinate of the key, and the owner of every cell it has drawn.

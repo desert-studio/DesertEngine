@@ -49,6 +49,11 @@ namespace Desert::Assets
         // — decision D-5 stands, and these are tables, not nodes. Read at the BAKE and never in the march,
         // so a painting costs the hottest pass of the frame nothing — see Engine/Assets/CloudLayout.hpp.
         CloudLayout,
+        // A UI THEME (`.detheme`): named colours, metrics and fonts, plus the styles that bind them to
+        // the UI element set's slots. A first-class asset because a theme that is not a file cannot be
+        // made, named, duplicated or dropped into a canvas's slot, and a game that ships two looks would
+        // otherwise need the engine rebuilt to get the second one — see Engine/Assets/UIThemeData.hpp.
+        UITheme,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -98,6 +103,8 @@ namespace Desert::Assets
                 return "CloudModellingVolume";
             case AssetTypeID::CloudLayout:
                 return "CloudLayout";
+            case AssetTypeID::UITheme:
+                return "UITheme";
             case AssetTypeID::Count:
                 return "Count";
         }

@@ -6,6 +6,7 @@
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
+#include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -72,6 +73,7 @@ namespace Desert::Runtime
         PollCloudNoiseVolumes( assetManager );
         PollCloudTypes( assetManager );
         PollCloudModellingVolumes( assetManager );
+        PollUIThemes( assetManager );
         m_FirstScan = false;
     }
 
@@ -203,6 +205,42 @@ namespace Desert::Runtime
             }
 
             LOG_INFO( "[HotReload] Cloud type '{}' reloaded — the next frame rebuilds its profile table.", key );
+        }
+    }
+
+    void AssetHotReload::PollUIThemes( Assets::AssetManager& assetManager )
+    {
+        auto* service = ResourceRegistry::GetUIThemeService();
+
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::UIThemeAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            const auto& path = asset->GetMetadata().Filepath;
+            if ( !TouchWatched( path ) )
+                continue;
+
+            const std::string key = path.generic_string();
+
+            // A FAILED RE-READ LEAVES THE OLD TABLE REGISTERED, for the same reason a cloud type does: an
+            // editor saving the file writes it in one go, so a poll that lands mid-write sees half a
+            // document. Refusing it costs one poll interval; accepting it would strip every themed colour
+            // off the screen while the author is editing and never say why.
+            if ( const auto reloaded = asset->Load(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] UI theme '{}' could not be re-read: {}", key, reloaded.GetError() );
+                continue;
+            }
+
+            if ( const auto registered = service->Register( asset ); !registered )
+            {
+                LOG_ERROR( "[HotReload] UI theme '{}' was re-read but not registered: {}", key,
+                           registered.GetError() );
+                continue;
+            }
+
+            LOG_INFO( "[HotReload] UI theme '{}' reloaded — the next frame draws it.", key );
         }
     }
 

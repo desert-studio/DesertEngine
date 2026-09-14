@@ -73,6 +73,11 @@ namespace Desert::Assets
         // asset and no other asset names it — so its position in the order is free; it is last because a
         // scene without one still has a sky, which is the state every shipped scene is in.
         void PreloadCloudLayouts();
+        // UI themes (`.detheme`). MUST run after the font scan the FontService does on demand is
+        // reachable — it is, because the service registers a font path the moment it is asked — and it is
+        // independent of every cloud stage above. A canvas without a theme still draws, which is the
+        // state every scene authored before themes existed is in.
+        void PreloadUIThemes();
 
     private:
         std::weak_ptr<AssetManager> m_AssetManager;

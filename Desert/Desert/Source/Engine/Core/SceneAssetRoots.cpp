@@ -91,8 +91,15 @@ namespace Desert::Core
         // one loop each; the census in Desert/Tests/Engine/AssetRoots is what keeps the list complete when
         // the eighth element type is added.
         for ( const auto entity : registry.view<ECS::UICanvasComponent>() )
-            roots.Mark( registry.get<ECS::UICanvasComponent>( entity ).Data.Sprite,
-                        "a UI canvas draws it as its background" );
+        {
+            const auto& canvas = registry.get<ECS::UICanvasComponent>( entity ).Data;
+            roots.Mark( canvas.Sprite, "a UI canvas draws it as its background" );
+            // THE THEME IS A ROOT LIKE ANY OTHER SLOT (Ю13). Without this row the evictor would drop a
+            // theme that no OTHER asset names — nothing does; a theme is named only by a canvas — and the
+            // whole interface would silently fall back to the elements' own colours mid-session, which
+            // looks exactly like a theme system that stopped working.
+            roots.Mark( canvas.Theme, "a UI canvas is themed by it" );
+        }
 
         for ( const auto entity : registry.view<ECS::UIPanelComponent>() )
         {

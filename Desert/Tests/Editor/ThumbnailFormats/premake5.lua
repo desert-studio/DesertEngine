@@ -25,6 +25,9 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
+        -- The UI theme format: CloudThumbnail paints a `.detheme` by parsing it, so the parser is part of
+        -- what this suite exercises.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeData.cpp",
         -- STB_IMAGE_WRITE_IMPLEMENTATION lives here; CloudThumbnail::Write streams the PNG through it.
         "%{wks.location}/ThirdParty/stb/stb_image.cpp",
     }

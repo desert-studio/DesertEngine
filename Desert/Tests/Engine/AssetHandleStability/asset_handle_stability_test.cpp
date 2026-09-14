@@ -33,6 +33,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetMetadata.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
+#include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
@@ -101,6 +102,7 @@ namespace
              { AssetTypeID::CloudModellingVolume, "CloudModellingVolumeAsset",
                &HandleOf<Desert::Assets::CloudModellingVolumeAsset> },
              { AssetTypeID::CloudLayout, "CloudLayoutAsset", &HandleOf<Desert::Assets::CloudLayoutAsset> },
+             { AssetTypeID::UITheme, "UIThemeAsset", &HandleOf<Desert::Assets::UIThemeAsset> },
         };
         return kinds;
     }
@@ -1066,6 +1068,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::CloudType,
          AssetTypeID::CloudModellingVolume,
          AssetTypeID::CloudLayout,
+         AssetTypeID::UITheme,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

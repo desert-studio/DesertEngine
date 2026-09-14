@@ -35,6 +35,11 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
+        -- The UI theme: the asset wrapper and the format it parses. Neither reaches the GPU — a theme is a
+        -- table of numbers and its one device-bound referent (a font atlas) is bound by the service, a
+        -- layer up — which is why both compile straight into a suite that links no renderer.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeData.cpp",
         -- SkeletonAsset::Load builds an Animation::Skeleton, whose constructor computes the signature.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }

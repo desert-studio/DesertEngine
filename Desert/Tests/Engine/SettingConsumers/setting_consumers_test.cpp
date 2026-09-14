@@ -381,6 +381,24 @@ namespace
          // because deciding which canvases to walk, and in which order, is a query about the scene rather
          // than a step of a walk.
          { "SortOrder", kCanvasLayout },
+         // THEME AND ACCESSIBILITY (Ю13). All three are read where the canvas's CanvasStyle is built, at
+         // the top of RenderCanvas2D, and from there every element of the canvas resolves through them.
+         // The renderer rather than the layout, for the reason the transform trio above gives: a row names
+         // the consumer whose absence would make the field do nothing, and nothing about where an element
+         // IS depends on which theme it wears.
+         { "Theme", kCanvasRenderer },
+         { "FontScale", kCanvasRenderer },
+         { "HighContrast", kCanvasRenderer },
+    };
+
+    // WHERE AN ELEMENT'S COLOURS COME FROM (Ю13). Two fields and one consumer: UICanvasRenderer2D's
+    // StyleFor, which is the only place an element is paired with a style. `Source` decides whether the
+    // theme is consulted at all and `Style` names which of its styles — a dead row here would be a theme
+    // that silently applies to an element that opted out, or an opt-out that silently applies to one that
+    // did not, and both look like a correctly drawn UI.
+    constexpr Row kStyleRows[] = {
+         { "Source", kCanvasRenderer },
+         { "Style", kCanvasRenderer },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -824,6 +842,7 @@ namespace
          { "AudioSourceData", "AudioSourceComponent", nullptr, CENSUS_ROWS( kAudioRows ) },
 
          { "UICanvasData", "UICanvasComponent", nullptr, CENSUS_ROWS( kCanvasRows ) },
+         { "UIStyleData", "UIStyleComponent", nullptr, CENSUS_ROWS( kStyleRows ) },
          { "UILayoutData", "UILayoutComponent", nullptr, CENSUS_ROWS( kLayoutRows ) },
          { "UILayoutGroupData", "UILayoutGroupComponent", nullptr, CENSUS_ROWS( kLayoutGroupRows ) },
          { "UIPanelData", "UIPanelComponent", nullptr, CENSUS_ROWS( kPanelRows ) },

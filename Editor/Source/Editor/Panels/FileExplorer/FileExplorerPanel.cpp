@@ -179,6 +179,10 @@ namespace Desert::Editor
          { "dcnv", FileType::Cloud },
          { "dcmv", FileType::Cloud },
          { "decloudtype", FileType::Cloud },
+         // The UI theme (Ю13). Typed here so it gets a colour, an icon and a row in the browser's type
+         // filter — and so the census above applies to it: it needs a row in ThumbnailFormats.hpp saying
+         // who makes its picture or why nobody does.
+         { "detheme", FileType::UITheme },
     };
 
     static const std::unordered_map<FileType, ImVec4> s_TypeColors = {
@@ -194,6 +198,7 @@ namespace Desert::Editor
          { FileType::ShaderGraph, { 0.55f, 0.35f, 0.85f, 1.00f } },
          { FileType::Cloud, { 0.62f, 0.78f, 0.95f, 1.00f } },
          { FileType::Ini, { 0.65f, 0.65f, 0.68f, 1.00f } },
+         { FileType::UITheme, { 0.95f, 0.72f, 0.30f, 1.00f } },
     };
 
     static const std::unordered_map<FileType, const char*> s_FileTypesToIcon = {
@@ -212,6 +217,7 @@ namespace Desert::Editor
          // registration), so the browser tile and the window it opens are recognisably the same thing.
          { FileType::Cloud, ICON_MDI_WEATHER_CLOUDY },
          { FileType::Ini, ICON_MDI_FILE_DOCUMENT },
+         { FileType::UITheme, ICON_MDI_PALETTE },
     };
 
     FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,
