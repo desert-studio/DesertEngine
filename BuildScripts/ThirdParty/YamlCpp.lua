@@ -1,5 +1,5 @@
 -- yaml-cpp static library, built from the ThirdParty/yaml-cpp submodule sources.
--- (Previously this file was generated on the fly by scripts/Python/PreBuildScript.py;
+-- (Previously this file was generated on the fly by a Python pre-build step, since deleted;
 -- it is now a committed config so all platforms build the same way.)
 
 local root = _MAIN_SCRIPT_DIR .. "/ThirdParty/yaml-cpp"

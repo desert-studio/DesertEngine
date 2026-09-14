@@ -2,6 +2,7 @@
 
 #include <Common/Utilities/ContentUpdate.hpp>
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,21 @@ namespace Desert::Editor
 
         bool IsReferenced( const std::string& path ) const;
 
+        // The OTHER direction, and the one a packager needs: paths of entries whose Tokens appear in
+        // the text of the entry at @p path (self excluded). ReferencersOf answers "who breaks if I
+        // delete this"; this answers "what must travel with this", and the transitive closure of it
+        // from a scene is exactly the set of files a build has to ship for that scene to open.
+        //
+        // Same caveat as the class: a token match is a search aid, not a proof. It over-approximates
+        // rather than under-approximates — a spurious match ships one file too many, which is the
+        // harmless direction. The harmful direction is a reference no text scan can see, and that is
+        // what Desert/Tests/Tools/AssetClosure pins for the trees this repository actually ships.
+        std::vector<std::string> ReferencedBy( const std::string& path ) const;
+
+        // Every entry reachable from @p path through ReferencedBy, @p path included. Empty when
+        // @p path is not in the index — an unknown root is a caller error, not an empty world.
+        std::vector<std::string> ClosureFrom( const std::string& path ) const;
+
         // Entries with one of @p leafExts that nothing references — cleanup candidates. Roots (scenes,
         // prefabs) are naturally unreferenced, so callers pass only leaf extensions (textures, materials).
         std::vector<std::string> Orphans( const std::vector<std::string>& leafExts ) const;
@@ -52,8 +68,21 @@ namespace Desert::Editor
         std::vector<Entry> m_Entries;
     };
 
-    // Scans the currently-open project's Assets tree and fills @p index (clears it first). No-op
-    // without an open project. Text formats are read for scanning; binaries contribute tokens only.
+    // Scans @p assetsRoot and fills @p index (clears it first). Text formats are read for scanning;
+    // binaries contribute tokens only. @p projectDir is what an asset's project-relative token is
+    // measured against — it is a separate argument rather than assetsRoot's parent because a project
+    // may declare any AssetsRoot it likes.
+    //
+    // KNOWS NOTHING OF ProjectContext, and the separation is load-bearing rather than tidy: the token
+    // rule (one handle, the project-relative spelling, the file name, the self-ids) is what makes two
+    // assets agree that they refer to each other, and a SECOND implementation of that rule in a
+    // packaging tool would be free to drift from this one — the packager would then ship a set that
+    // the editor's own "find references" disagrees with, and the disagreement would show up as a file
+    // missing from a shipped build. One rule, two callers.
+    void BuildAssetReferenceIndex( AssetReferenceIndex& index, const std::filesystem::path& assetsRoot,
+                                   const std::filesystem::path& projectDir );
+
+    // The same scan against the currently-open project. No-op without an open project.
     void BuildProjectAssetReferenceIndex( AssetReferenceIndex& index );
 
     // One withheld removal, with somebody to name. The count is carried alongside the first referencer

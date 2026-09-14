@@ -87,6 +87,49 @@ namespace Desert::Editor
         return !ReferencersOf( path ).empty();
     }
 
+    std::vector<std::string> AssetReferenceIndex::ReferencedBy( const std::string& path ) const
+    {
+        std::vector<std::string> out;
+        const Entry*             source = Find( path );
+        if ( !source || source->Text.empty() )
+            return out; // a binary has no text to scan, so it names nothing — not "it names nothing yet"
+
+        for ( const auto& e : m_Entries )
+        {
+            if ( &e == source )
+                continue;
+            const bool refs = std::any_of( e.Tokens.begin(), e.Tokens.end(), [&]( const std::string& t )
+                                           { return ContainsToken( source->Text, t ); } );
+            if ( refs )
+                out.push_back( e.Path );
+        }
+        std::sort( out.begin(), out.end() );
+        out.erase( std::unique( out.begin(), out.end() ), out.end() );
+        return out;
+    }
+
+    std::vector<std::string> AssetReferenceIndex::ClosureFrom( const std::string& path ) const
+    {
+        std::vector<std::string> reached;
+        if ( !Find( path ) )
+            return reached;
+
+        // Breadth-first over the reference edges. `reached` doubles as the visited set and as the
+        // frontier, which is why the index into it is the loop variable rather than a queue: a cycle
+        // (two prefabs naming each other) then costs one extra membership test instead of hanging.
+        reached.push_back( path );
+        for ( std::size_t i = 0; i < reached.size(); ++i )
+        {
+            for ( const auto& next : ReferencedBy( reached[i] ) )
+            {
+                if ( std::find( reached.begin(), reached.end(), next ) == reached.end() )
+                    reached.push_back( next );
+            }
+        }
+        std::sort( reached.begin(), reached.end() );
+        return reached;
+    }
+
     std::vector<std::string> AssetReferenceIndex::Orphans( const std::vector<std::string>& leafExts ) const
     {
         std::vector<std::string> out;

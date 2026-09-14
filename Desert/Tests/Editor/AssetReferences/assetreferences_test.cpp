@@ -207,6 +207,80 @@ TEST( AssetReferenceIndex, OnlyAPlannedRemovalCanBeWithheld )
     EXPECT_EQ( plan.Steps[0].Action, Common::Utils::ContentAction::Write );
 }
 
+// ── THE FORWARD DIRECTION: what must travel with an asset ───────────────────────────────────────
+//
+// Added with Tools/AssetClosure, which is what decides the contents of a shipped package. The
+// packager needs the opposite question from "find references", and the two must not be able to
+// disagree — they are the same edges read in opposite directions, so they are the same code.
+
+TEST( AssetReferenceIndex, ReferencedByIsTheInverseOfReferencersOf )
+{
+    AssetReferenceIndex idx;
+    idx.Add( Make( "Textures/Albedo.png", ".png", { "555000111" }, "" ) );
+    idx.Add( Make( "Materials/M.demat", ".demat", { "999" }, "{\"Textures\":[555000111]}" ) );
+
+    const auto forward = idx.ReferencedBy( "Materials/M.demat" );
+    ASSERT_EQ( forward.size(), 1u );
+    EXPECT_EQ( forward[0], "Textures/Albedo.png" );
+
+    // The relation, asserted rather than each side: A is in ReferencedBy(B) exactly when B is in
+    // ReferencersOf(A).
+    const auto backward = idx.ReferencersOf( "Textures/Albedo.png" );
+    ASSERT_EQ( backward.size(), 1u );
+    EXPECT_EQ( backward[0], "Materials/M.demat" );
+}
+
+// A binary names nothing, because there is no text to scan — and that must not be reported as
+// "nothing yet". It is the same distinction the class draws for Text on the referencer side.
+TEST( AssetReferenceIndex, ABinaryReferencesNothing )
+{
+    AssetReferenceIndex idx;
+    idx.Add( Make( "Meshes/Rock.dmesh", ".dmesh", { "111" }, "" ) );
+    idx.Add( Make( "Materials/M.demat", ".demat", { "999" }, "" ) );
+    EXPECT_TRUE( idx.ReferencedBy( "Meshes/Rock.dmesh" ).empty() );
+}
+
+// The closure is TRANSITIVE. This is the property a package depends on: a scene naming a material
+// that names a texture must ship the texture, and one hop is not enough.
+TEST( AssetReferenceIndex, ClosureIsTransitive )
+{
+    AssetReferenceIndex idx;
+    idx.Add( Make( "Textures/Albedo.png", ".png", { "555000111" }, "" ) );
+    idx.Add( Make( "Materials/M.demat", ".demat", { "777000222" }, "{\"Textures\":[555000111]}" ) );
+    idx.Add( Make( "Scenes/S.desce", ".desce", { "333000444" }, "{\"Mat\":777000222}" ) );
+    idx.Add( Make( "Textures/Unused.png", ".png", { "888000999" }, "" ) );
+
+    const auto closure = idx.ClosureFrom( "Scenes/S.desce" );
+    ASSERT_EQ( closure.size(), 3u );
+    EXPECT_EQ( closure[0], "Materials/M.demat" );
+    EXPECT_EQ( closure[1], "Scenes/S.desce" );
+    EXPECT_EQ( closure[2], "Textures/Albedo.png" );
+}
+
+// Two assets naming each other must not hang the walk. Prefabs do this in practice.
+TEST( AssetReferenceIndex, ClosureTerminatesOnACycle )
+{
+    AssetReferenceIndex idx;
+    idx.Add( Make( "A.deprefab", ".deprefab", { "111000111" }, "{\"other\":222000222}" ) );
+    idx.Add( Make( "B.deprefab", ".deprefab", { "222000222" }, "{\"other\":111000111}" ) );
+
+    const auto closure = idx.ClosureFrom( "A.deprefab" );
+    ASSERT_EQ( closure.size(), 2u );
+    EXPECT_EQ( closure[0], "A.deprefab" );
+    EXPECT_EQ( closure[1], "B.deprefab" );
+}
+
+// AN UNKNOWN ROOT IS EMPTY, AND EMPTY IS WHY AssetClosure REFUSES ON IT. "this scene needs nothing"
+// and "this scene is not in the index" are the same answer here, so the distinction has to be drawn
+// by the caller — the tool treats an empty closure as a failure rather than as a short file list,
+// because the alternative ships a package that starts and shows an empty world.
+TEST( AssetReferenceIndex, ClosureOfAnUnknownRootIsEmpty )
+{
+    AssetReferenceIndex idx;
+    idx.Add( Make( "Scenes/S.desce", ".desce", { "333000444" }, "{}" ) );
+    EXPECT_TRUE( idx.ClosureFrom( "Scenes/NotHere.desce" ).empty() );
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );

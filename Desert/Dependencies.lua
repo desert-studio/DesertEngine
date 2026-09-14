@@ -73,6 +73,22 @@ end
 
 local vulkan = findVulkanSDK()
 
+-- A REFUSAL, NOT A WARNING, and the difference is the whole point. findVulkanSDK() used to return nil
+-- after a `print("Warning: ...")`, getVulkanLibs() then returned an EMPTY library list, and premake
+-- generated a complete, plausible workspace against no Vulkan at all. The failure surfaced hundreds
+-- of compile errors later as "'vulkan/vulkan.h' file not found" and a wall of undefined symbols,
+-- which reads as a broken checkout rather than as a missing SDK — and the one line that said so had
+-- scrolled past long before. Nothing in this engine builds without Vulkan, so there is no
+-- configuration this silence was serving.
+if not vulkan then
+    error( "Vulkan SDK not found.\n" ..
+           "  macOS:   run scripts/MacOS/Setup.sh (Homebrew vulkan-headers + vulkan-loader + molten-vk +\n" ..
+           "           shaderc + spirv-cross), or install the LunarG SDK into ~/VulkanSDK.\n" ..
+           "  Windows: run scripts\\Windows\\Setup.bat, which installs the pinned LunarG SDK and sets\n" ..
+           "           VULKAN_SDK. A headers-only install is not enough: the engine links shaderc*.lib\n" ..
+           "           and spirv-cross-*.lib out of the SDK's Lib directory." )
+end
+
 -- Shader-toolchain + Vulkan libraries the engine links against.
 local function getVulkanLibs(config)
     local libs = {}
