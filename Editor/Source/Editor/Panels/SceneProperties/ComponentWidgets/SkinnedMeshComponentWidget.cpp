@@ -302,7 +302,9 @@ namespace Desert::Editor
             {
                 const auto& parentBone = bones[i].ParentBoneID;
                 if ( parentBone.has_value() )
+                {
                     children[*parentBone].push_back( i );
+                }
                 else
                     roots.push_back( i );
             }

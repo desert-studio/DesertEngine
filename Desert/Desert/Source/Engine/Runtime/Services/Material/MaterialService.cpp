@@ -134,8 +134,9 @@ namespace Desert::Runtime
                 // resolving to its parent -- the surface then draws with the instance's own (empty)
                 // material rather than the base it overrides.
                 (void)EnsureLoaded( ait->second );
-                auto*      surf     = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
-                const auto parentId = surf ? surf->Data().InstanceParentId() : std::optional<Common::UUID>{};
+                auto*      surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
+                const auto parentId =
+                     ( surf != nullptr ) ? surf->Data().InstanceParentId() : std::optional<Common::UUID>{};
                 if ( parentId.has_value() )
                 {
                     const auto parent = GetAssetHandleByExternal( *parentId );
@@ -223,11 +224,15 @@ namespace Desert::Runtime
             // A released shell has no Data to walk: see MaterialService::EnsureLoaded.
             (void)EnsureLoaded( ait->second );
             auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
-            if ( !surf )
+            if ( surf == nullptr )
+            {
                 break;
+            }
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
+            {
                 break;
+            }
             chain.push_back( surf );
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
@@ -261,11 +266,15 @@ namespace Desert::Runtime
             // A released shell has no Data to walk: see MaterialService::EnsureLoaded.
             (void)EnsureLoaded( ait->second );
             auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
-            if ( !surf )
+            if ( surf == nullptr )
+            {
                 break;
+            }
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
+            {
                 break;
+            }
             chain.push_back( surf );
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
@@ -316,7 +325,9 @@ namespace Desert::Runtime
                 return {};
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
+            {
                 return surf->Data().EffectiveShaderName();
+            }
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
                 return surf->Data().EffectiveShaderName();

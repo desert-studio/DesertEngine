@@ -653,7 +653,9 @@ namespace Desert::Assets
             // already carries a defaulted operator== for exactly this question (CloudTypeShape.hpp), which
             // is also the one the documents' GetDiskState uses, so the two can no longer disagree.
             if ( !( a.Species[slot].Shape == b.Species[slot].Shape ) )
+            {
                 return false;
+            }
         }
 
         return true;

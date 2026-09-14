@@ -62,7 +62,7 @@ namespace Desert::Assets
         /// the question and the answer were about objects nothing said were the same one. They happen to
         /// be today; the shape is what is wrong, and it is the shape a reader has to re-verify at each of
         /// the six. Returning the id itself makes the guard and the value inseparable.
-        std::optional<Common::UUID> InstanceParentId() const
+        [[nodiscard]] std::optional<Common::UUID> InstanceParentId() const
         {
             return IsInstance() ? ParentMaterialId : std::optional<Common::UUID>{};
         }

@@ -235,7 +235,9 @@ namespace Desert::Editor::Tools
                 // fewer dereference to keep in step with its guard.
                 const bool editingThis = editing == uuid;
                 if ( ImGui::Selectable( label.c_str(), editingThis ) )
+                {
                     Core::FoliagePaint::SetEditingType( uuid );
+                }
                 ImGui::PopID();
             }
             ImGui::EndChild();

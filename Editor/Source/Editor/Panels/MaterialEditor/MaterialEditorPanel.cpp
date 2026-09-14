@@ -849,7 +849,9 @@ namespace Desert::Editor
 
         const auto parentId = asset.Data().InstanceParentId();
         if ( !parentId.has_value() )
+        {
             return nullptr;
+        }
 
         const auto parentHandle = materialService->GetAssetHandleByExternal( *parentId );
         if ( parentHandle.IsNull() )

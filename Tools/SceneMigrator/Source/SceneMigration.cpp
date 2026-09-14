@@ -1770,7 +1770,9 @@ namespace Desert::Migration
                 // across a back edge to see it, and the value does not depend on the iteration.
                 std::optional<rfl::Generic> renamed;
                 if ( respelled.has_value() )
+                {
                     renamed = rfl::Generic( *respelled );
+                }
 
                 rfl::Generic::Object kept;
                 for ( const auto& [key, value] : fields.value() )
@@ -1965,10 +1967,14 @@ namespace Desert::Migration
                 report.RemovedNames.push_back( "Terrain." + key + "=" + Describe( value ) );
             }
             if ( haveCarried )
+            {
                 out["GrassMode"] = carriedMode;
+            }
 
             if ( removedHere == 0 && !haveCarried )
+            {
                 continue;
+            }
 
             entity.Components["Terrain"] = rfl::Generic( out );
             ++report.Entities;

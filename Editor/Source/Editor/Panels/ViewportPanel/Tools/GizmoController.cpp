@@ -363,7 +363,9 @@ namespace Desert::Editor::Tools
             glm::mat4       parentGlobal( 1.0f );
             const auto&     parentBone = bones[boneIdx].ParentBoneID;
             if ( parentBone.has_value() && *parentBone < bones.size() )
+            {
                 parentGlobal = resolve( *parentBone );
+            }
             const glm::mat4 newLocal = glm::inverse( parentGlobal ) * newGlobalMesh;
 
             if ( usePose )

@@ -264,7 +264,9 @@ namespace
         long long  value  = 0;
         const auto parsed = std::from_chars( text.data(), text.data() + text.size(), value, base );
         if ( parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() )
+        {
             return negative ? -value : value;
+        }
         for ( const auto& [n, val] : sofar )
             if ( n == e ) return val;
         return running;

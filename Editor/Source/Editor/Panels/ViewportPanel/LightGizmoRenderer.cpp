@@ -586,7 +586,9 @@ namespace Desert::Editor
             parents[i]             = -1;
             const auto& parentBone = bones[i].ParentBoneID;
             if ( parentBone.has_value() )
+            {
                 parents[i] = static_cast<int>( *parentBone );
+            }
             names[i] = bones[i].Name;
         }
 
@@ -612,13 +614,17 @@ namespace Desert::Editor
         {
             const int p = parents[i];
             if ( p < 0 || p >= static_cast<int>( screen.size() ) )
+            {
                 continue;
+            }
             // Each projected point is read ONCE. Subscripting twice — once to test, once to unwrap — makes
             // the guard and the use two different objects to anything reasoning about this loop.
             const auto& parentPoint = screen[static_cast<size_t>( p )];
             const auto& childPoint  = screen[i];
             if ( !parentPoint.has_value() || !childPoint.has_value() )
+            {
                 continue;
+            }
 
             const ImVec2 P  = *parentPoint;
             const ImVec2 C  = *childPoint;
@@ -651,7 +657,9 @@ namespace Desert::Editor
         {
             const auto& point = screen[i];
             if ( !point.has_value() )
+            {
                 continue;
+            }
             const ImVec2 c = *point;
             if ( recordForPick )
                 m_BoneScreenPositions.emplace_back( static_cast<int>( i ), c ); // absolute-screen — for PickBone

@@ -420,7 +420,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
         VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
         const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
-        if ( pcBuffer.Size && pushConstant.has_value() )
+        if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
         {
             const auto& pcInfo = *pushConstant;
             vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
@@ -470,7 +470,7 @@ namespace Desert::Graphic::API::Vulkan
             const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
             VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
             const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
-            if ( pcBuffer.Size && pushConstant.has_value() )
+            if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
             {
                 const auto& pcInfo = *pushConstant;
                 vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
@@ -550,7 +550,7 @@ namespace Desert::Graphic::API::Vulkan
             const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
             VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
             const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
-            if ( pcBuffer.Size && pushConstant.has_value() )
+            if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
             {
                 // The REFLECTED size, not the buffer's. The push buffer is a fixed 128-byte scratch
                 // (MaterialExecutor), so pushing pcBuffer.Size wrote past the range the pipeline layout

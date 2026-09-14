@@ -84,9 +84,28 @@ namespace Desert::Editor
 
     namespace
     {
+        /// The preview body a primitive component is shown as.
+        ///
+        /// A named function and not a chain of ternaries at the call site: the mapping is one row per
+        /// primitive kind, so a new kind lands as a new row rather than as another level of nesting. Not
+        /// a lambda either — a parameter-less multi-line lambda is formatted differently by clang-format
+        /// 18 and 22 (the gate runs 18), and it is the shape bugprone-exception-escape fires on here.
+        PreviewViewport::Shape PreviewShapeFor( Geometry::PrimitiveType primitive )
+        {
+            switch ( primitive )
+            {
+                case Geometry::PrimitiveType::Plane:
+                    return PreviewViewport::Shape::Plane;
+                case Geometry::PrimitiveType::Sphere:
+                    return PreviewViewport::Shape::Sphere;
+                default:
+                    return PreviewViewport::Shape::Cube;
+            }
+        }
+
         // Identity of what the preview shows: entity + mesh/primitive + material slots. A change re-points
-        // (and re-frames) the preview; editing a material's own values does NOT change the key, because the
-        // preview renders the live material instance and updates on its own.
+        // (and re-frames) the preview; editing a material's own values does NOT change the key, because
+        // the preview renders the live material instance and updates on its own.
         uint64_t PreviewKeyOf( const ECS::Entity& entity, uint64_t entityId )
         {
             if ( !entity.HasComponent<ECS::StaticMeshComponent>() )
@@ -238,12 +257,7 @@ namespace Desert::Editor
                 // Primitive is unreachable TODAY — through a relation held in another function, with
                 // nothing at either end stating it. That is the middle-link shape: both ends read
                 // correctly and the property lives in neither.
-                const Geometry::PrimitiveType primitive = *smc.Primitive;
-                const auto                    shape =
-                     primitive == Geometry::PrimitiveType::Plane
-                                             ? PreviewViewport::Shape::Plane
-                                             : ( primitive == Geometry::PrimitiveType::Sphere ? PreviewViewport::Shape::Sphere
-                                                                                              : PreviewViewport::Shape::Cube );
+                const PreviewViewport::Shape shape = PreviewShapeFor( *smc.Primitive );
                 m_Preview->SetMaterial( smc.MaterialSlots.empty()
                                              ? Assets::AssetHandle( static_cast<uint64_t>( 0 ) )
                                              : smc.MaterialSlots.front(),

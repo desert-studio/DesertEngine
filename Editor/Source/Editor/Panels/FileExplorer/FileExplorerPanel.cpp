@@ -2496,7 +2496,9 @@ namespace Desert::Editor
             const auto  typeIt   = s_FileTypesToString.find( entry->Type );
             const char* typeName = typeIt != s_FileTypesToString.end() ? typeIt->second.c_str() : "File";
             if ( entry->FileSize >= std::size_t{ 1024 } * 1024 )
+            {
                 ImGui::TextDisabled( "%s  |  %.1f MB", typeName, entry->FileSize / ( 1024.0f * 1024.0f ) );
+            }
             else
                 ImGui::TextDisabled( "%s  |  %.1f KB", typeName, entry->FileSize / 1024.0f );
         }

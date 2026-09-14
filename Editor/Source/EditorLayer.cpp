@@ -6740,7 +6740,9 @@ namespace Desert::Editor
         {
             m_SaveAndOpenError.clear();
             if ( m_PendingOpenScene.has_value() )
+            {
                 LoadScene( *m_PendingOpenScene );
+            }
             m_PendingOpenScene.reset();
             ImGui::CloseCurrentPopup();
         }

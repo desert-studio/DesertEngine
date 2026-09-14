@@ -38,9 +38,10 @@ TEST( Rounding, PositiveValuesAgreeWithTheFormItReplaces )
     for ( int hundredths = 0; hundredths <= 1000; ++hundredths )
     {
         const double value = hundredths / 100.0;
-        // NOLINTNEXTLINE(bugprone-incorrect-roundings) — the old form is the SUBJECT of this assertion.
-        // The check is right about it everywhere else, which is why the suppression is one line wide and
-        // names the check rather than switching it off for the file.
+        // The old form is the SUBJECT of this assertion, so the check is right and silenced for exactly
+        // one line. NOLINTNEXTLINE must be the LAST comment line before the statement — a comment between
+        // the two makes the suppression apply to the comment and the finding come back.
+        // NOLINTNEXTLINE(bugprone-incorrect-roundings)
         EXPECT_EQ( RoundToNearest( value ), static_cast<long long>( value + 0.5 ) ) << "at " << value;
     }
 }

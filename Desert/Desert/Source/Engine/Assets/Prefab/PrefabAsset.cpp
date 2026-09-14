@@ -79,7 +79,9 @@ namespace Desert::Assets
         {
             const auto& firstId = m_EntityData.front().id;
             if ( firstId.has_value() )
+            {
                 data.Root = *firstId;
+            }
         }
 
         // The one writer: stamps both generation integers, so every file this engine saves is one its

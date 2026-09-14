@@ -597,7 +597,9 @@ namespace Desert::UI
             {
                 v[k] = nib( hex[k] );
                 if ( v[k] < 0 )
+                {
                     return false;
+                }
             }
             out.r = ( v[0] * 16 + v[1] ) / 255.0f;
             out.g = ( v[2] * 16 + v[3] ) / 255.0f;

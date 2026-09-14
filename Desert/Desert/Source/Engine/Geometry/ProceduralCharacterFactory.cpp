@@ -249,7 +249,9 @@ namespace Desert::Geometry
         void BuildOnce()
         {
             if ( s_Built )
+            {
                 return;
+            }
 
             s_Skeleton = std::make_unique<Animation::Skeleton>( BuildBones() );
             s_Skeleton->RecomputeOffsetMatrices(); // signature is name/parent based, so this stays valid
