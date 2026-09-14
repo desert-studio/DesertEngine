@@ -44,6 +44,24 @@ namespace Desert::Localization
      * is exactly what the plural half of this file goes out of its way not to do.
      */
 
+    /**
+     * MEASURED REFUSAL, recorded here because the next person to run the analyser will find the same wall
+     * (Ю15). `scripts/CI/CheckTidy.sh` reports 348 findings on this task's added lines, of which 173 are
+     * `misc-include-cleaner`: it wants an explicit `#include` for every symbol used, `std::move`,
+     * `std::string` and `BOOLSUCCESS` included, and no file in this tree is written that way.
+     *
+     * Its `--fix` was tried and REVERTED, because it makes the files worse rather than longer: on this
+     * file it deleted `<Engine/Localization/LocaleFormat.hpp>`, `<rflcpp/rfl.hpp>` and
+     * `<rflcpp/rfl/json.hpp>` — all three needed — and added `"DesertShared/ResultStr.hpp"`, a spelling
+     * that does not resolve from here at all. A check whose automatic fix breaks the build is a check to
+     * be argued with, not obeyed.
+     *
+     * The other two large groups are the same kind of disagreement: 60 `magic-numbers`, every one of them
+     * the TEXT of a CLDR rule (`i % 100 != 11`), where naming the constant would make the transcription
+     * uncheckable against its source; and 91 `braces-around-statements` on the brace-less single statement
+     * this repository uses everywhere. What WAS fixed is listed in the Ю15-8 commit.
+     */
+
     /// The extension the Content Browser, the preloader and the asset registration all agree on. One
     /// constant, because a second spelling of it is a slot that silently refuses a valid file.
     inline constexpr const char* kStringTableExtension = ".destrings";
