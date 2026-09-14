@@ -216,6 +216,13 @@ namespace
                 const std::string ext = entry.path().extension().string();
                 if ( ext != ".desce" && ext != ".deprefab" )
                     continue;
+                // `Scenes/Autosave/` IS NOT SHIPPED CONTENT. It is gitignored (.gitignore line 165) crash
+                // recovery, written by whatever the developer had open, and it exists on a developer's
+                // machine and on nobody else's. A gate that read it would go red for a file CI has never
+                // seen and that no register could honestly name — which is the false positive this suite
+                // claims not to have, so it is excluded by name rather than by luck.
+                if ( entry.path().string().find( "/Autosave/" ) != std::string::npos )
+                    continue;
                 CollectFromFile( entry.path(), out );
             }
         }
