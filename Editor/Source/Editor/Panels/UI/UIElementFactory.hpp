@@ -138,7 +138,7 @@ namespace Desert::Editor
         B.PressedColor         = { 0.30f, 0.40f, 0.58f };
         B.Disabled             = disabled;
         AddOverlayText( scene, h, "Label", label, { 10.0f, 0.0f }, { 150.0f, 26.0f }, 14.0f );
-        if ( accelerator != nullptr && accelerator[0] != '\0' )
+        if ( accelerator != nullptr && *accelerator != '\0' )
         {
             const entt::entity a = AddOverlayText( scene, h, "Accelerator", accelerator, { 150.0f, 0.0f },
                                                    { 230.0f, 26.0f }, 13.0f );

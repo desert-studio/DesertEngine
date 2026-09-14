@@ -26,6 +26,7 @@
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
+#include <Engine/UI/UIMaterialSource.hpp>
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
@@ -34,6 +35,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -132,10 +134,8 @@ namespace
         entt::entity   Hud       = entt::null;
         entt::entity   HudButton = entt::null;
 
-        World()
+        World() : Hud( MakeCanvas( 0 ) ), HudButton( MakeBox( Hud, { 0.0f, 0.0f }, { 200.0f, 100.0f } ) )
         {
-            Hud       = MakeCanvas( 0 );
-            HudButton = MakeBox( Hud, { 0.0f, 0.0f }, { 200.0f, 100.0f } );
             Registry.emplace<ECS::UIButtonComponent>( HudButton );
             auto& ev         = Registry.emplace<ECS::UIPointerEventsComponent>( HudButton ).Data;
             ev.OnDownMessage = "hud:down";
@@ -773,7 +773,7 @@ TEST( OverlayPersistence, ADuplicateOverlayNameIsRefusedByNameRatherThanResolved
 
     const auto found = DUI::OverlayByName( w.Registry, "Menu" );
     EXPECT_FALSE( found.IsSuccess() );
-    EXPECT_NE( found.GetError().find( "2" ), std::string::npos ) << found.GetError();
+    EXPECT_NE( found.GetError().find( '2' ), std::string::npos ) << found.GetError();
 
     const auto missing = DUI::OverlayByName( w.Registry, "Nope" );
     EXPECT_FALSE( missing.IsSuccess() );
@@ -799,6 +799,42 @@ TEST( OverlayAuthoring, ADesignViewShowsEveryOverlayWhereItWasAuthored )
     EXPECT_TRUE( drawn.GetValue() ) << "the UI Editor and Design mode cannot show the overlay being authored";
     EXPECT_FLOAT_EQ( view.CanvasState( menu ).OverlayShift.x, 0.0f );
     EXPECT_FLOAT_EQ( view.CanvasState( menu ).OverlayShift.y, 0.0f );
+}
+
+// Ю11 put materials on UI elements. An overlay's chrome is ORDINARY UI, so it gets them for nothing —
+// and "for nothing" is a claim about the code having no second path, which is a thing to assert rather
+// than to state. The walk resolves a material from the element's own slot through the view's backend
+// (UICanvasRenderer2D::ResolveUIMaterial) and nothing on that path asks which canvas the element is in.
+namespace
+{
+    class RecordingMaterials final : public DUI::IUIMaterialSource
+    {
+    public:
+        const void* ResolveMaterial( const Desert::Assets::AssetHandle& handle ) override
+        {
+            Asked.push_back( static_cast<std::uint64_t>( handle ) );
+            return &Asked; // any non-null id; the batcher only stores it
+        }
+        std::vector<std::uint64_t> Asked;
+    };
+} // namespace
+
+TEST( OverlayAuthoring, AnElementInsideAnOverlayGetsItsMaterialLikeAnyOtherElement )
+{
+    World              w;
+    const entt::entity menu = w.MakeOverlay( ECS::UIOverlayKind::ContextMenu, "Menu", 300 );
+    const entt::entity item = w.Registry.get<ECS::RelationshipComponent>( menu ).Children.front();
+    w.Registry.get<ECS::UIPanelComponent>( item ).Data.Material = Desert::Assets::AssetHandle( 0xC0FFEEull );
+
+    RecordingMaterials materials;
+    UIViewContext      view;
+    view.Materials        = &materials;
+    view.AuthoringPreview = true; // shown as authored, which is what an author sees while building it
+    w.Frame( view, At( 900.0f, 900.0f ) );
+
+    ASSERT_EQ( materials.Asked.size(), 1u )
+         << "the overlay's own panel never reached the material path, so an overlay is NOT ordinary UI";
+    EXPECT_EQ( materials.Asked.front(), 0xC0FFEEull );
 }
 
 int main( int argc, char** argv )

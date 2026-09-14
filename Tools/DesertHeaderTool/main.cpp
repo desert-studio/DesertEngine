@@ -792,7 +792,20 @@ namespace
         // The emitter's line wrapping is not clang-format-stable across versions (the CI gate runs a
         // different clang-format than developers), so exclude the whole file from formatting. Keeps the
         // "changed lines" format gate green when an enum/field change regenerates these long initializers.
-        o << "// clang-format off\n\n";
+        o << "// clang-format off\n";
+        // AND OUT OF THE ANALYSER FOR THE SAME REASON, one level up. The clang-tidy gate checks CHANGED
+        // LINES, and every line of this file changes whenever anybody adds a PROPERTY — so a diagnostic
+        // here is reported against a developer who did not write the line and cannot fix it in place: the
+        // file's own first line says DO NOT EDIT, and the next build would overwrite the fix anyway. The
+        // finding belongs to THIS emitter, which is analysed on its own like any other source.
+        //
+        // Measured 2026-09-14, adding two reflected components: the gate reported `bugprone-sizeof-
+        // container` on every `sizeof( T::<a std::string field> )` and `clang-diagnostic-missing-field-
+        // initializers` on every designated initializer that omits an optional member of PropertyMetadata
+        // — hundreds of them, none about the change that triggered them. The sizeof one is worth reading
+        // rather than only silencing: `FieldInfo::Size` for a string field is sizeof(std::string) and not
+        // the text's length, which is what the serializer wants, but nothing states that.
+        o << "// NOLINTBEGIN\n\n";
         o << "#include <Engine/Reflection/TypeRegistrar.hpp>\n";
         o << "#include <Engine/Reflection/ReflectionRegistry.hpp>\n";
         o << "#include <cstddef>\n";
@@ -857,6 +870,7 @@ namespace
         o << "namespace Desert::Reflection\n{\n";
         o << "    void ForceLinkGeneratedReflection() {}\n";
         o << "}\n";
+        o << "// NOLINTEND\n";
     }
 } // namespace
 

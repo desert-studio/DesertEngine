@@ -100,7 +100,10 @@ namespace Desert::UI
                 return false;
 
             bool  any  = false;
-            float minX = 0.0f, minY = 0.0f, maxX = 0.0f, maxY = 0.0f;
+            float minX = 0.0f;
+            float minY = 0.0f;
+            float maxX = 0.0f;
+            float maxY = 0.0f;
             for ( const UIElementNode& n : nodes )
             {
                 if ( !n.Drawn || !n.OwnRect )
@@ -260,7 +263,11 @@ namespace Desert::UI
                 for ( std::size_t i = 0; i < view.OverlayStack.size(); ++i )
                     if ( view.OverlayStack[i] == triggerCanvas )
                         owner = static_cast<int>( i );
-                CloseStackDownTo( view, reg, static_cast<std::size_t>( owner + 1 ) );
+                // "everything above the entry that owns the trigger", and -1 (it owns none) means all of
+                // it. Spelled out rather than as owner+1 on an int, because the -1 then reaches an unsigned
+                // conversion and only arrives at 0 by wrapping.
+                const std::size_t keepBelow = owner < 0 ? 0U : static_cast<std::size_t>( owner ) + 1U;
+                CloseStackDownTo( view, reg, keepBelow );
 
                 cell.OverlayOpen     = true; // CloseStackDownTo may have cleared it if it was already up
                 cell.OverlayOpenedBy = trigger;
@@ -489,8 +496,9 @@ namespace Desert::UI
         // --- A press the open stack did not take closes back to whoever owns it ------------------------
         if ( pressedLeft || pressedRight )
         {
-            const int owner = StackEntryUnderPointer( reg, view, hot );
-            for ( std::size_t i = view.OverlayStack.size(); i-- > static_cast<std::size_t>( owner + 1 ); )
+            const int         owner     = StackEntryUnderPointer( reg, view, hot );
+            const std::size_t keepBelow = owner < 0 ? 0U : static_cast<std::size_t>( owner ) + 1U;
+            for ( std::size_t i = view.OverlayStack.size(); i-- > keepBelow; )
             {
                 const ECS::UIOverlayData* d = OverlayDataOf( reg, view.OverlayStack[i] );
                 if ( d == nullptr || !d->CloseOnClickOutside )
