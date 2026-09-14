@@ -12,7 +12,11 @@
 // SdfText.glslh with `msd.r` and MsdfCorner.MedianKeepsTheCornerThatOneChannelRounds fails, because a
 // single channel's bilinear reconstruction cannot hold a corner.
 
+// IWYU pragma: begin_exports
+#include <glm/ext/vector_float2.hpp>
+#include <glm/ext/vector_float3.hpp>
 #include <glm/glm.hpp>
+// IWYU pragma: end_exports
 
 #include <Common/Core/GlslAsCpp.hpp>
 
@@ -29,7 +33,7 @@ namespace Desert::Tests::SdfTextRef
         using glm::min;
 
         DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
-#include <Common/SdfText.glslh>
+#include <Common/SdfText.glslh>  // IWYU pragma: export — this include IS the unit under test
              DESERT_GLSL_AS_CPP_END
 
     } // namespace

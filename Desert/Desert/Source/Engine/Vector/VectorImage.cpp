@@ -703,7 +703,7 @@ namespace Desert::Vector
         // The byte range spans exactly kSdfAtlasDistanceRangeTexels texels — the same band the glyph
         // atlas uses and the number the shader divides by. It used to be derived from `padding` instead,
         // which gave icons a 12-texel band against the glyphs' 10 while a comment claimed they matched.
-        const float pixelDistScale = 255.0f / Core::Formats::kSdfAtlasDistanceRangeTexels;
+        const float pixelDistScale = 255.0F / Core::Formats::kSdfAtlasDistanceRangeTexels;
 
         out.resize( static_cast<size_t>( dim ) * dim );
         for ( uint32_t y = 0; y < dim; ++y )

@@ -50,7 +50,8 @@ namespace Desert::Vector
     // fitted (aspect-preserved) into the inner `size` box, and each texel stores the signed distance to
     // the outline in the ONE encoding the text shader decodes (Core/Formats/SdfAtlasEncoding.hpp) —
     // kSdfAtlasOnEdgeByte at the edge, rising inside, spread over kSdfAtlasDistanceRangeTexels texels.
-    // `padding` must therefore be at least half that band, or the field is clipped before its range ends.
+    // A `padding` below half that band is legal and still encodes correct distances — the field simply
+    // never reaches the ends of its byte range, which costs headroom for outlines and glow, not accuracy.
     // Distances are exact (per-texel nearest segment) rather than a propagated transform — an icon is small and
     // this runs at import time only. Returns an empty vector if the image is invalid.
     //

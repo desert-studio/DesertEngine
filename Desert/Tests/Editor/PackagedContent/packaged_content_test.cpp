@@ -23,6 +23,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
+#include <Engine/Text/FontBaker.hpp>
 #include <Engine/Text/FontCache.hpp>
 #include <Engine/Vector/IconBake.hpp>
 
@@ -37,6 +38,8 @@
 #include <PackagedContent.hpp>
 
 #include <gtest/gtest.h>
+
+#include <cstdint>
 
 #include <algorithm>
 #include <cstdlib>
@@ -559,7 +562,12 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     Desert::Text::BakedFont font;
     font.AtlasWidth        = 2;
     font.AtlasHeight       = 2;
-    font.AtlasRGBA         = { 10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255 };
+    // Four texels of a grey ramp with the opaque alpha the real baker writes; the values themselves
+    // carry no meaning beyond "these exact bytes must come back".
+    constexpr uint8_t          kOpaque = 255;
+    const std::vector<uint8_t> atlas   = { 10, 10, 10, kOpaque, 20, 20, 20, kOpaque,
+                                           30, 30, 30, kOpaque, 40, 40, 40, kOpaque };
+    font.AtlasRGBA                     = atlas;
     font.PixelHeight       = Desert::Text::kDefaultBakePixelHeight;
     // The band the atlas was baked with: TryLoadBakedFont refuses an atlas whose band disagrees with the
     // one this build renders, so a fixture that leaves it at zero is a fixture that gets refused.

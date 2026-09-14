@@ -1,8 +1,14 @@
 #include "Msdf.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <numbers>
+#include <utility>
+#include <vector>
 
 namespace Desert::Text::Msdf
 {
@@ -10,41 +16,83 @@ namespace Desert::Text::Msdf
     {
         constexpr double kEpsilon = 1e-14;
 
-        Vec2 operator+( Vec2 a, Vec2 b )
+        // Channel masks, as values rather than as literals scattered through the generator: a texel's
+        // red channel is fed by every edge whose colour carries this bit.
+        constexpr unsigned char kRedBit   = 1U;
+        constexpr unsigned char kGreenBit = 2U;
+        constexpr unsigned char kBlueBit  = 4U;
+        constexpr unsigned char kAllBits  = 7U;
+
+        constexpr int kLinePoints      = 2;
+        constexpr int kQuadraticPoints = 3;
+
+        // The field is encoded with the outline at 0.5, so half a unit is "on the edge".
+        constexpr double kFieldCentre = 0.5;
+
+        // The small integer factors of Bezier calculus and of Cardano's reduction. They are named for
+        // the role they play in the formula rather than for their value, so the algebra below still
+        // reads as the algebra it is.
+        constexpr double kQuadraticDerivativeFactor = 2.0; // d/dt of a quadratic carries a 2
+        constexpr double kCubicDerivativeFactor     = 3.0; // …and of a cubic, a 3
+        constexpr double kCubicSecondDerivative     = 6.0; // d2/dt2 of a cubic carries a 6
+        constexpr double kQuarticDiscriminant       = 4.0; // b^2 - 4ac
+        constexpr double kCardanoP                  = 9.0;
+        constexpr double kCardanoQ                  = 27.0;
+        constexpr double kCardanoR                  = 54.0;
+        constexpr double kThirdSplit                = 12.0; // de Casteljau at t = 1/3 and 2/3
+        constexpr double kEighthSplit               = 8.0;
+
+        // The error-correction pass needs the same reconstruction the shader performs; it is not exposed,
+        // because the authoritative copy is Common/SdfText.glslh and a second public one would drift.
+        float Median( float first, float second, float third )
         {
-            return { a.X + b.X, a.Y + b.Y };
+            return std::max( std::min( first, second ), std::min( std::max( first, second ), third ) );
         }
-        Vec2 operator-( Vec2 a, Vec2 b )
+
+        Vec2 operator+( Vec2 lhs, Vec2 rhs )
         {
-            return { a.X - b.X, a.Y - b.Y };
+            return { lhs.X + rhs.X, lhs.Y + rhs.Y };
         }
-        Vec2 operator*( double s, Vec2 a )
+        Vec2 operator-( Vec2 lhs, Vec2 rhs )
         {
-            return { s * a.X, s * a.Y };
+            return { lhs.X - rhs.X, lhs.Y - rhs.Y };
         }
-        double Dot( Vec2 a, Vec2 b )
+        Vec2 operator*( double scalar, Vec2 vec )
         {
-            return a.X * b.X + a.Y * b.Y;
+            return { scalar * vec.X, scalar * vec.Y };
         }
-        double Cross( Vec2 a, Vec2 b )
+        double Dot( Vec2 lhs, Vec2 rhs )
         {
-            return a.X * b.Y - a.Y * b.X;
+            return ( lhs.X * rhs.X ) + ( lhs.Y * rhs.Y );
         }
-        double Length( Vec2 a )
+        double Cross( Vec2 lhs, Vec2 rhs )
         {
-            return std::sqrt( Dot( a, a ) );
+            return ( lhs.X * rhs.Y ) - ( lhs.Y * rhs.X );
         }
-        Vec2 Normalize( Vec2 a )
+        double Length( Vec2 vec )
         {
-            const double len = Length( a );
-            return len > 0.0 ? Vec2{ a.X / len, a.Y / len } : Vec2{ 0.0, 0.0 };
+            return std::sqrt( Dot( vec, vec ) );
         }
+        Vec2 Normalize( Vec2 vec )
+        {
+            const double len = Length( vec );
+            if ( len <= 0.0 )
+            {
+                return { 0.0, 0.0 };
+            }
+            return { vec.X / len, vec.Y / len };
+        }
+        Vec2 Lerp( Vec2 from, Vec2 dest, double amount )
+        {
+            return from + ( amount * ( dest - from ) );
+        }
+
         // Zero has no sign, and a zero here means "the query point is exactly ON the edge". Calling that
         // outside (the C sign convention) puts a black texel in the middle of a stroke; calling it inside
         // is the choice the field's own 0.5 encoding already makes.
-        double NonZeroSign( double v )
+        double NonZeroSign( double value )
         {
-            return v >= 0.0 ? 1.0 : -1.0;
+            return value >= 0.0 ? 1.0 : -1.0;
         }
 
         // A candidate distance plus the tie-break that decides WHICH edge a point belongs to when two
@@ -55,211 +103,268 @@ namespace Desert::Text::Msdf
         struct SignedDistance
         {
             double Distance = -std::numeric_limits<double>::max();
-            double Dot      = 1.0;
+            double Cosine   = 1.0;
 
-            bool operator<( const SignedDistance& o ) const
+            bool operator<( const SignedDistance& other ) const
             {
-                return std::fabs( Distance ) < std::fabs( o.Distance ) ||
-                       ( std::fabs( Distance ) == std::fabs( o.Distance ) && Dot < o.Dot );
+                const double mine  = std::fabs( Distance );
+                const double yours = std::fabs( other.Distance );
+                return mine < yours || ( mine == yours && Cosine < other.Cosine );
             }
         };
 
-        int SolveQuadratic( double ( &x )[2], double a, double b, double c )
+        // Roots of `quadratic*x^2 + linear*x + constant`. -1 means "every x is a root" (the equation
+        // vanished entirely), which the callers treat as no candidate, exactly as they treat 0.
+        int SolveQuadratic( std::array<double, 2>& roots, double quadratic, double linear, double constant )
         {
-            if ( std::fabs( a ) < kEpsilon )
+            if ( std::fabs( quadratic ) < kEpsilon )
             {
-                if ( std::fabs( b ) < kEpsilon )
-                    return std::fabs( c ) < kEpsilon ? -1 : 0;
-                x[0] = -c / b;
+                if ( std::fabs( linear ) < kEpsilon )
+                {
+                    return std::fabs( constant ) < kEpsilon ? -1 : 0;
+                }
+                roots[0] = -constant / linear;
                 return 1;
             }
-            double disc = b * b - 4.0 * a * c;
-            if ( disc > 0.0 )
+            double discriminant = ( linear * linear ) - ( kQuarticDiscriminant * quadratic * constant );
+            if ( discriminant > 0.0 )
             {
-                disc = std::sqrt( disc );
-                x[0] = ( -b + disc ) / ( 2.0 * a );
-                x[1] = ( -b - disc ) / ( 2.0 * a );
+                discriminant = std::sqrt( discriminant );
+                roots[0]     = ( -linear + discriminant ) / ( kQuadraticDerivativeFactor * quadratic );
+                roots[1]     = ( -linear - discriminant ) / ( kQuadraticDerivativeFactor * quadratic );
                 return 2;
             }
-            if ( disc == 0.0 )
+            if ( discriminant == 0.0 )
             {
-                x[0] = -b / ( 2.0 * a );
+                roots[0] = -linear / ( kQuadraticDerivativeFactor * quadratic );
                 return 1;
             }
             return 0;
         }
 
-        // Cardano on the depressed cubic. Roots of t^3 + a t^2 + b t + c.
-        int SolveCubicNormed( double ( &x )[3], double a, double b, double c )
+        // Cardano on the monic cubic x^3 + coefA x^2 + coefB x + coefC.
+        int SolveMonicCubic( std::array<double, 3>& roots, double coefA, double coefB, double coefC )
         {
-            const double a2 = a * a;
-            double       q  = ( a2 - 3.0 * b ) / 9.0;
-            const double r  = ( a * ( 2.0 * a2 - 9.0 * b ) + 27.0 * c ) / 54.0;
-            const double r2 = r * r;
-            const double q3 = q * q * q;
-            if ( r2 < q3 )
+            const double squareA = coefA * coefA;
+            const double third   = coefA / kCubicDerivativeFactor;
+            double       reduced = ( squareA - ( kCubicDerivativeFactor * coefB ) ) / kCardanoP;
+            const double shifted =
+                 ( ( coefA * ( ( kQuadraticDerivativeFactor * squareA ) - ( kCardanoP * coefB ) ) ) +
+                   ( kCardanoQ * coefC ) ) /
+                 kCardanoR;
+            const double shiftedSq = shifted * shifted;
+            const double reducedCu = reduced * reduced * reduced;
+
+            if ( shiftedSq < reducedCu )
             {
-                double t = r / std::sqrt( q3 );
-                t        = std::clamp( t, -1.0, 1.0 );
-                t        = std::acos( t );
-                q        = -2.0 * std::sqrt( q );
-                x[0]     = q * std::cos( t / 3.0 ) - a / 3.0;
-                x[1]     = q * std::cos( ( t + 2.0 * 3.14159265358979323846 ) / 3.0 ) - a / 3.0;
-                x[2]     = q * std::cos( ( t - 2.0 * 3.14159265358979323846 ) / 3.0 ) - a / 3.0;
+                // Three real roots: the trigonometric form, which avoids the complex arithmetic the
+                // algebraic one would otherwise need here.
+                double angle      = std::clamp( shifted / std::sqrt( reducedCu ), -1.0, 1.0 );
+                angle             = std::acos( angle );
+                reduced           = -kQuadraticDerivativeFactor * std::sqrt( reduced );
+                const double turn = kQuadraticDerivativeFactor * std::numbers::pi;
+                roots[0]          = ( reduced * std::cos( angle / kCubicDerivativeFactor ) ) - third;
+                roots[1]          = ( reduced * std::cos( ( angle + turn ) / kCubicDerivativeFactor ) ) - third;
+                roots[2]          = ( reduced * std::cos( ( angle - turn ) / kCubicDerivativeFactor ) ) - third;
                 return 3;
             }
-            double A = -std::pow( std::fabs( r ) + std::sqrt( r2 - q3 ), 1.0 / 3.0 );
-            if ( r < 0.0 )
-                A = -A;
-            const double B = A == 0.0 ? 0.0 : q / A;
-            x[0]           = ( A + B ) - a / 3.0;
-            x[1]           = -0.5 * ( A + B ) - a / 3.0;
-            x[2]           = 0.5 * std::sqrt( 3.0 ) * ( A - B );
-            return std::fabs( x[2] ) < kEpsilon ? 2 : 1;
+
+            double cubeRoot = -std::pow( std::fabs( shifted ) + std::sqrt( shiftedSq - reducedCu ),
+                                         1.0 / kCubicDerivativeFactor );
+            if ( shifted < 0.0 )
+            {
+                cubeRoot = -cubeRoot;
+            }
+            const double partner = cubeRoot == 0.0 ? 0.0 : reduced / cubeRoot;
+            roots[0]             = ( cubeRoot + partner ) - third;
+            roots[1]             = ( -kFieldCentre * ( cubeRoot + partner ) ) - third;
+            roots[2]             = kFieldCentre * std::numbers::sqrt3 * ( cubeRoot - partner );
+            return std::fabs( roots[2] ) < kEpsilon ? 2 : 1;
         }
 
-        int SolveCubic( double ( &x )[3], double a, double b, double c, double d )
+        int SolveCubic( std::array<double, 3>& roots, double cubic, double quadratic, double linear,
+                        double constant )
         {
-            if ( std::fabs( a ) < kEpsilon )
+            if ( std::fabs( cubic ) < kEpsilon )
             {
-                double    xx[2];
-                const int n = SolveQuadratic( xx, b, c, d );
-                for ( int i = 0; i < n && i < 2; ++i )
-                    x[i] = xx[i];
-                return n;
+                std::array<double, 2> lower{};
+                const int             found = SolveQuadratic( lower, quadratic, linear, constant );
+                for ( int idx = 0; idx < found && idx < 2; ++idx )
+                {
+                    roots.at( static_cast<size_t>( idx ) ) = lower.at( static_cast<size_t>( idx ) );
+                }
+                return found;
             }
-            return SolveCubicNormed( x, b / a, c / a, d / a );
+            return SolveMonicCubic( roots, quadratic / cubic, linear / cubic, constant / cubic );
+        }
+
+        SignedDistance LineSignedDistance( const EdgeSegment& edge, Vec2 origin, double& param )
+        {
+            const Vec2   toOrigin = origin - edge.Points[0];
+            const Vec2   along    = edge.Points[1] - edge.Points[0];
+            const double lengthSq = Dot( along, along );
+            param                 = lengthSq > 0.0 ? Dot( toOrigin, along ) / lengthSq : 0.0;
+
+            const Vec2   toNearerEnd = ( param > kFieldCentre ? edge.Points[1] : edge.Points[0] ) - origin;
+            const double endDistance = Length( toNearerEnd );
+            if ( param > 0.0 && param < 1.0 )
+            {
+                // Orthogonal distance to the line, signed by which side of it the point is on.
+                const Vec2   normal        = Normalize( { along.Y, -along.X } );
+                const double orthoDistance = Dot( normal, toOrigin );
+                if ( std::fabs( orthoDistance ) < endDistance )
+                {
+                    return { orthoDistance, 0.0 };
+                }
+            }
+            return { NonZeroSign( Cross( toOrigin, along ) ) * endDistance,
+                     std::fabs( Dot( Normalize( along ), Normalize( toNearerEnd ) ) ) };
+        }
+
+        // The cosine tie-break for a point that fell off one END of a curve: which end, and how squarely
+        // the curve leaves it. Shared by the quadratic and the cubic, whose only difference here is which
+        // control point is the last one.
+        SignedDistance CurveResult( const EdgeSegment& edge, Vec2 origin, double minDistance, double param )
+        {
+            if ( param >= 0.0 && param <= 1.0 )
+            {
+                return { minDistance, 0.0 };
+            }
+            if ( param < kFieldCentre )
+            {
+                return { minDistance, std::fabs( Dot( Normalize( edge.Direction( 0.0 ) ),
+                                                      Normalize( edge.Points[0] - origin ) ) ) };
+            }
+            const Vec2 endPoint = edge.PointCount == kQuadraticPoints ? edge.Points[2] : edge.Points[3];
+            return { minDistance,
+                     std::fabs( Dot( Normalize( edge.Direction( 1.0 ) ), Normalize( endPoint - origin ) ) ) };
+        }
+
+        SignedDistance QuadraticSignedDistance( const EdgeSegment& edge, Vec2 origin, double& param )
+        {
+            const Vec2 fromStart = edge.Points[0] - origin;
+            const Vec2 firstLeg  = edge.Points[1] - edge.Points[0];
+            const Vec2 bend      = ( edge.Points[2] - edge.Points[1] ) - firstLeg;
+
+            // d/dt |B(t) - origin|^2 = 0 is a cubic in t; its interior roots are the candidates.
+            std::array<double, 3> roots{};
+            const int             found =
+                 SolveCubic( roots, Dot( bend, bend ), kCubicDerivativeFactor * Dot( firstLeg, bend ),
+                             ( kQuadraticDerivativeFactor * Dot( firstLeg, firstLeg ) ) + Dot( fromStart, bend ),
+                             Dot( fromStart, firstLeg ) );
+
+            Vec2   endDirection = edge.Direction( 0.0 );
+            double minDistance  = NonZeroSign( Cross( endDirection, fromStart ) ) * Length( fromStart );
+            param               = -Dot( fromStart, endDirection ) / Dot( endDirection, endDirection );
+
+            endDirection             = edge.Direction( 1.0 );
+            const Vec2   fromEnd     = edge.Points[2] - origin;
+            const double endDistance = Length( fromEnd );
+            if ( endDistance < std::fabs( minDistance ) )
+            {
+                minDistance = NonZeroSign( Cross( endDirection, fromEnd ) ) * endDistance;
+                param       = Dot( origin - edge.Points[1], endDirection ) / Dot( endDirection, endDirection );
+            }
+
+            for ( int idx = 0; idx < found && idx < 3; ++idx )
+            {
+                const double root = roots.at( static_cast<size_t>( idx ) );
+                if ( root <= 0.0 || root >= 1.0 )
+                {
+                    continue;
+                }
+                const Vec2 toPoint =
+                     fromStart + ( ( kQuadraticDerivativeFactor * root ) * firstLeg ) + ( ( root * root ) * bend );
+                const double distance = Length( toPoint );
+                if ( distance <= std::fabs( minDistance ) )
+                {
+                    minDistance = NonZeroSign( Cross( firstLeg + ( root * bend ), toPoint ) ) * distance;
+                    param       = root;
+                }
+            }
+            return CurveResult( edge, origin, minDistance, param );
+        }
+
+        // A cubic's nearest point has no closed form, so it is a Newton refinement from evenly spaced
+        // starts. Five starts times eight steps converges to well under a thousandth of a texel on real
+        // outlines, and the two endpoints are seeded separately so a start that walks out of [0,1] cannot
+        // lose the true minimum.
+        SignedDistance CubicSignedDistance( const EdgeSegment& edge, Vec2 origin, double& param )
+        {
+            constexpr int kSearchStarts = 4;
+            constexpr int kSearchSteps  = 8;
+
+            const Vec2 fromStart = edge.Points[0] - origin;
+            const Vec2 firstLeg  = edge.Points[1] - edge.Points[0];
+            const Vec2 bend      = ( edge.Points[2] - edge.Points[1] ) - firstLeg;
+            const Vec2 twist = ( edge.Points[3] - edge.Points[2] ) - ( edge.Points[2] - edge.Points[1] ) - bend;
+
+            const auto pointAt = [&]( double walk )
+            {
+                return fromStart + ( ( kCubicDerivativeFactor * walk ) * firstLeg ) +
+                       ( ( kCubicDerivativeFactor * walk * walk ) * bend ) + ( ( walk * walk * walk ) * twist );
+            };
+
+            Vec2   endDirection = edge.Direction( 0.0 );
+            double minDistance  = NonZeroSign( Cross( endDirection, fromStart ) ) * Length( fromStart );
+            param               = -Dot( fromStart, endDirection ) / Dot( endDirection, endDirection );
+
+            endDirection             = edge.Direction( 1.0 );
+            const Vec2   fromEnd     = edge.Points[3] - origin;
+            const double endDistance = Length( fromEnd );
+            if ( endDistance < std::fabs( minDistance ) )
+            {
+                minDistance = NonZeroSign( Cross( endDirection, fromEnd ) ) * endDistance;
+                param       = Dot( endDirection - fromEnd, endDirection ) / Dot( endDirection, endDirection );
+            }
+
+            for ( int start = 0; start <= kSearchStarts; ++start )
+            {
+                double walk    = static_cast<double>( start ) / kSearchStarts;
+                Vec2   toPoint = pointAt( walk );
+                for ( int step = 0; step < kSearchSteps; ++step )
+                {
+                    const Vec2 slope = ( kCubicDerivativeFactor * firstLeg ) +
+                                       ( ( kCubicSecondDerivative * walk ) * bend ) +
+                                       ( ( kCubicDerivativeFactor * walk * walk ) * twist );
+                    const Vec2 curvature =
+                         ( kCubicSecondDerivative * bend ) + ( ( kCubicSecondDerivative * walk ) * twist );
+                    const double denominator = Dot( slope, slope ) + Dot( toPoint, curvature );
+                    if ( std::fabs( denominator ) < kEpsilon )
+                    {
+                        break;
+                    }
+                    walk -= Dot( toPoint, slope ) / denominator;
+                    if ( walk <= 0.0 || walk >= 1.0 )
+                    {
+                        break;
+                    }
+                    toPoint               = pointAt( walk );
+                    const double distance = Length( toPoint );
+                    if ( distance < std::fabs( minDistance ) )
+                    {
+                        minDistance = NonZeroSign( Cross( slope, toPoint ) ) * distance;
+                        param       = walk;
+                    }
+                }
+            }
+            return CurveResult( edge, origin, minDistance, param );
         }
 
         // Signed distance from `origin` to one segment, plus the curve parameter of the closest point.
         // `param` may leave [0,1]: that is what tells the pseudo-distance step below that the point lies
         // off the end of the segment and must be measured against its infinite extension instead.
-        SignedDistance SegmentSignedDistance( const EdgeSegment& e, Vec2 origin, double& param )
+        SignedDistance SegmentSignedDistance( const EdgeSegment& edge, Vec2 origin, double& param )
         {
-            if ( e.PointCount == 2 )
+            if ( edge.PointCount == kLinePoints )
             {
-                const Vec2   aq               = origin - e.P[0];
-                const Vec2   ab               = e.P[1] - e.P[0];
-                const double d2               = Dot( ab, ab );
-                param                         = d2 > 0.0 ? Dot( aq, ab ) / d2 : 0.0;
-                const Vec2   eq               = e.P[param > 0.5 ? 1 : 0] - origin;
-                const double endpointDistance = Length( eq );
-                if ( param > 0.0 && param < 1.0 )
-                {
-                    // Orthogonal distance to the line, signed by which side of it the point is on.
-                    const Vec2   ortho{ ab.Y / Length( ab ), -ab.X / Length( ab ) };
-                    const double orthoDistance = Dot( ortho, aq );
-                    if ( std::fabs( orthoDistance ) < endpointDistance )
-                        return { orthoDistance, 0.0 };
-                }
-                return { NonZeroSign( Cross( aq, ab ) ) * endpointDistance,
-                         std::fabs( Dot( Normalize( ab ), Normalize( eq ) ) ) };
+                return LineSignedDistance( edge, origin, param );
             }
-
-            if ( e.PointCount == 3 )
+            if ( edge.PointCount == kQuadraticPoints )
             {
-                const Vec2 qa = e.P[0] - origin;
-                const Vec2 ab = e.P[1] - e.P[0];
-                const Vec2 br = ( e.P[2] - e.P[1] ) - ab;
-
-                // d/dt |B(t) - origin|^2 = 0 is a cubic in t; its roots are the interior candidates.
-                const double a = Dot( br, br );
-                const double b = 3.0 * Dot( ab, br );
-                const double c = 2.0 * Dot( ab, ab ) + Dot( qa, br );
-                const double d = Dot( qa, ab );
-                double       t[3]{};
-                const int    solutions = SolveCubic( t, a, b, c, d );
-
-                Vec2   epDir       = e.Direction( 0.0 );
-                double minDistance = NonZeroSign( Cross( epDir, qa ) ) * Length( qa );
-                param              = -Dot( qa, epDir ) / Dot( epDir, epDir );
-                {
-                    epDir                 = e.Direction( 1.0 );
-                    const Vec2   bq       = e.P[2] - origin;
-                    const double distance = Length( bq );
-                    if ( distance < std::fabs( minDistance ) )
-                    {
-                        minDistance = NonZeroSign( Cross( epDir, bq ) ) * distance;
-                        param       = Dot( origin - e.P[1], epDir ) / Dot( epDir, epDir );
-                    }
-                }
-                for ( int i = 0; i < solutions; ++i )
-                {
-                    if ( t[i] > 0.0 && t[i] < 1.0 )
-                    {
-                        const Vec2   qe       = qa + ( 2.0 * t[i] ) * ab + ( t[i] * t[i] ) * br;
-                        const double distance = Length( qe );
-                        if ( distance <= std::fabs( minDistance ) )
-                        {
-                            minDistance = NonZeroSign( Cross( ab + t[i] * br, qe ) ) * distance;
-                            param       = t[i];
-                        }
-                    }
-                }
-
-                if ( param >= 0.0 && param <= 1.0 )
-                    return { minDistance, 0.0 };
-                if ( param < 0.5 )
-                    return { minDistance, std::fabs( Dot( Normalize( e.Direction( 0.0 ) ), Normalize( qa ) ) ) };
-                return { minDistance,
-                         std::fabs( Dot( Normalize( e.Direction( 1.0 ) ), Normalize( e.P[2] - origin ) ) ) };
+                return QuadraticSignedDistance( edge, origin, param );
             }
-
-            // Cubic: the same minimisation has no closed form, so it is a Newton refinement from a set of
-            // evenly spaced starts. Four starts x eight steps converges to well under a thousandth of a
-            // texel on real glyph outlines, and the endpoints are seeded separately so a start that walks
-            // out of [0,1] cannot lose the true minimum.
-            const Vec2 qa = e.P[0] - origin;
-            const Vec2 ab = e.P[1] - e.P[0];
-            const Vec2 br = ( e.P[2] - e.P[1] ) - ab;
-            const Vec2 as = ( e.P[3] - e.P[2] ) - ( e.P[2] - e.P[1] ) - br;
-
-            Vec2   epDir       = e.Direction( 0.0 );
-            double minDistance = NonZeroSign( Cross( epDir, qa ) ) * Length( qa );
-            param              = -Dot( qa, epDir ) / Dot( epDir, epDir );
-            {
-                epDir                 = e.Direction( 1.0 );
-                const Vec2   bq       = e.P[3] - origin;
-                const double distance = Length( bq );
-                if ( distance < std::fabs( minDistance ) )
-                {
-                    minDistance = NonZeroSign( Cross( epDir, bq ) ) * distance;
-                    param       = Dot( epDir - bq, epDir ) / Dot( epDir, epDir );
-                }
-            }
-
-            constexpr int kSearchStarts = 4;
-            constexpr int kSearchSteps  = 8;
-            for ( int i = 0; i <= kSearchStarts; ++i )
-            {
-                double t  = static_cast<double>( i ) / kSearchStarts;
-                Vec2   qe = qa + ( 3.0 * t ) * ab + ( 3.0 * t * t ) * br + ( t * t * t ) * as;
-                for ( int step = 0; step < kSearchSteps; ++step )
-                {
-                    const Vec2   d1    = ( 3.0 * ab ) + ( 6.0 * t ) * br + ( 3.0 * t * t ) * as;
-                    const Vec2   d2    = ( 6.0 * br ) + ( 6.0 * t ) * as;
-                    const double denom = Dot( d1, d1 ) + Dot( qe, d2 );
-                    if ( std::fabs( denom ) < kEpsilon )
-                        break;
-                    t -= Dot( qe, d1 ) / denom;
-                    if ( t <= 0.0 || t >= 1.0 )
-                        break;
-                    qe                    = qa + ( 3.0 * t ) * ab + ( 3.0 * t * t ) * br + ( t * t * t ) * as;
-                    const double distance = Length( qe );
-                    if ( distance < std::fabs( minDistance ) )
-                    {
-                        minDistance = NonZeroSign( Cross( d1, qe ) ) * distance;
-                        param       = t;
-                    }
-                }
-            }
-
-            if ( param >= 0.0 && param <= 1.0 )
-                return { minDistance, 0.0 };
-            if ( param < 0.5 )
-                return { minDistance, std::fabs( Dot( Normalize( e.Direction( 0.0 ) ), Normalize( qa ) ) ) };
-            return { minDistance,
-                     std::fabs( Dot( Normalize( e.Direction( 1.0 ) ), Normalize( e.P[3] - origin ) ) ) };
+            return CubicSignedDistance( edge, origin, param );
         }
 
         // Past the end of a segment, the plain distance bends around the endpoint and every channel's
@@ -267,43 +372,35 @@ namespace Desert::Text::Msdf
         // tangent to infinity instead, so a channel that does not own this corner reports a straight
         // half-plane and the median can still find the true intersection. This is the step that makes a
         // corner sharp rather than merely un-rounded.
-        void ToPseudoDistance( SignedDistance& distance, const EdgeSegment& e, Vec2 origin, double param )
+        void ToPseudoDistance( SignedDistance& distance, const EdgeSegment& edge, Vec2 origin, double param )
         {
-            if ( param < 0.0 )
+            const bool beforeStart = param < 0.0;
+            const bool afterEnd    = param > 1.0;
+            if ( !beforeStart && !afterEnd )
             {
-                const Vec2   dir = Normalize( e.Direction( 0.0 ) );
-                const Vec2   aq  = origin - e.Point( 0.0 );
-                const double ts  = Dot( aq, dir );
-                if ( ts < 0.0 )
-                {
-                    const double pseudo = Cross( aq, dir );
-                    if ( std::fabs( pseudo ) <= std::fabs( distance.Distance ) )
-                    {
-                        distance.Distance = pseudo;
-                        distance.Dot      = 0.0;
-                    }
-                }
+                return;
             }
-            else if ( param > 1.0 )
+
+            const double endParam  = beforeStart ? 0.0 : 1.0;
+            const Vec2   direction = Normalize( edge.Direction( endParam ) );
+            const Vec2   fromEnd   = origin - edge.PointAt( endParam );
+            const double along     = Dot( fromEnd, direction );
+            if ( beforeStart ? along >= 0.0 : along <= 0.0 )
             {
-                const Vec2   dir = Normalize( e.Direction( 1.0 ) );
-                const Vec2   bq  = origin - e.Point( 1.0 );
-                const double ts  = Dot( bq, dir );
-                if ( ts > 0.0 )
-                {
-                    const double pseudo = Cross( bq, dir );
-                    if ( std::fabs( pseudo ) <= std::fabs( distance.Distance ) )
-                    {
-                        distance.Distance = pseudo;
-                        distance.Dot      = 0.0;
-                    }
-                }
+                return; // the foot is back inside the segment, and the plain distance already has it
+            }
+
+            const double pseudo = Cross( fromEnd, direction );
+            if ( std::fabs( pseudo ) <= std::fabs( distance.Distance ) )
+            {
+                distance.Distance = pseudo;
+                distance.Cosine   = 0.0;
             }
         }
 
-        bool IsCorner( Vec2 aDir, Vec2 bDir, double crossThreshold )
+        bool IsCorner( Vec2 incoming, Vec2 outgoing, double crossThreshold )
         {
-            return Dot( aDir, bDir ) <= 0.0 || std::fabs( Cross( aDir, bDir ) ) > crossThreshold;
+            return Dot( incoming, outgoing ) <= 0.0 || std::fabs( Cross( incoming, outgoing ) ) > crossThreshold;
         }
 
         // Step to the next colour for a new spline. `banned` is the colour the new spline must not share
@@ -311,79 +408,92 @@ namespace Desert::Text::Msdf
         // silently un-sharpen that one corner).
         void SwitchColor( EdgeColor& color, uint64_t& seed, EdgeColor banned = EdgeColor::Black )
         {
-            const auto          c        = static_cast<unsigned char>( color );
-            const auto          b        = static_cast<unsigned char>( banned );
-            const unsigned char combined = static_cast<unsigned char>( c & b );
-            if ( combined == 1 || combined == 2 || combined == 4 )
+            const auto current   = static_cast<unsigned char>( color );
+            const auto forbidden = static_cast<unsigned char>( banned );
+            const auto shared    = static_cast<unsigned char>( current & forbidden );
+            if ( shared == kRedBit || shared == kGreenBit || shared == kBlueBit )
             {
-                color = static_cast<EdgeColor>( combined ^ 7 );
+                color = static_cast<EdgeColor>( shared ^ kAllBits );
                 return;
             }
             if ( color == EdgeColor::Black || color == EdgeColor::White )
             {
-                static const EdgeColor kStart[3] = { EdgeColor::Cyan, EdgeColor::Magenta, EdgeColor::Yellow };
-                color                            = kStart[seed % 3];
-                seed /= 3;
+                constexpr std::array<EdgeColor, 3> kStart = { EdgeColor::Cyan, EdgeColor::Magenta,
+                                                              EdgeColor::Yellow };
+                color                                     = kStart.at( seed % kStart.size() );
+                seed /= kStart.size();
                 return;
             }
-            const int shifted = c << ( 1 + ( seed & 1 ) );
-            color             = static_cast<EdgeColor>( ( shifted | shifted >> 3 ) & 7 );
-            seed >>= 1;
+            const unsigned shifted = static_cast<unsigned>( current ) << ( 1U + ( seed & 1U ) );
+            color                  = static_cast<EdgeColor>( ( shifted | ( shifted >> 3U ) ) & kAllBits );
+            seed >>= 1U;
         }
 
         // Split one segment into three at t = 1/3, 2/3. Only needed so that a contour with a single
         // corner and fewer than three edges still has three splines to colour; without it a two-edge
         // teardrop (which real fonts do contain) would get two colours and lose its one corner.
-        void SplitInThirds( const EdgeSegment& e, EdgeSegment ( &parts )[3] )
+        void SplitInThirds( const EdgeSegment& edge, std::array<EdgeSegment, 3>& parts )
         {
-            auto lerp = []( Vec2 a, Vec2 b, double t ) { return a + t * ( b - a ); };
-            for ( int i = 0; i < 3; ++i )
+            constexpr double kFirstCut  = 1.0 / 3.0;
+            constexpr double kSecondCut = 2.0 / 3.0;
+
+            for ( EdgeSegment& part : parts )
             {
-                parts[i].PointCount = e.PointCount;
-                parts[i].Color      = e.Color;
+                part.PointCount = edge.PointCount;
+                part.Color      = edge.Color;
             }
-            const double t0 = 1.0 / 3.0, t1 = 2.0 / 3.0;
-            if ( e.PointCount == 2 )
+
+            if ( edge.PointCount == kLinePoints )
             {
-                parts[0].P[0] = e.P[0];
-                parts[0].P[1] = e.Point( t0 );
-                parts[1].P[0] = e.Point( t0 );
-                parts[1].P[1] = e.Point( t1 );
-                parts[2].P[0] = e.Point( t1 );
-                parts[2].P[1] = e.P[1];
+                parts[0].Points[0] = edge.Points[0];
+                parts[0].Points[1] = edge.PointAt( kFirstCut );
+                parts[1].Points[0] = edge.PointAt( kFirstCut );
+                parts[1].Points[1] = edge.PointAt( kSecondCut );
+                parts[2].Points[0] = edge.PointAt( kSecondCut );
+                parts[2].Points[1] = edge.Points[1];
                 return;
             }
-            if ( e.PointCount == 3 )
+            if ( edge.PointCount == kQuadraticPoints )
             {
-                parts[0].P[0] = e.P[0];
-                parts[0].P[1] = lerp( e.P[0], e.P[1], t0 );
-                parts[0].P[2] = e.Point( t0 );
-                parts[1].P[0] = e.Point( t0 );
-                parts[1].P[1] = lerp( lerp( e.P[0], e.P[1], t1 ), lerp( e.P[1], e.P[2], t0 ), 0.5 );
-                parts[1].P[2] = e.Point( t1 );
-                parts[2].P[0] = e.Point( t1 );
-                parts[2].P[1] = lerp( e.P[1], e.P[2], t1 );
-                parts[2].P[2] = e.P[2];
+                parts[0].Points[0] = edge.Points[0];
+                parts[0].Points[1] = Lerp( edge.Points[0], edge.Points[1], kFirstCut );
+                parts[0].Points[2] = edge.PointAt( kFirstCut );
+                parts[1].Points[0] = edge.PointAt( kFirstCut );
+                parts[1].Points[1] = Lerp( Lerp( edge.Points[0], edge.Points[1], kSecondCut ),
+                                           Lerp( edge.Points[1], edge.Points[2], kFirstCut ), kFieldCentre );
+                parts[1].Points[2] = edge.PointAt( kSecondCut );
+                parts[2].Points[0] = edge.PointAt( kSecondCut );
+                parts[2].Points[1] = Lerp( edge.Points[1], edge.Points[2], kSecondCut );
+                parts[2].Points[2] = edge.Points[2];
                 return;
             }
-            // Cubic: de Casteljau at each split point.
-            auto cubicAt = [&]( double a, double b, double c, double d )
+
+            // Cubic: the Bernstein weights of de Casteljau at each cut, written out.
+            const auto blend = [&edge]( double wgt0, double wgt1, double wgt2, double wgt3 ) -> Vec2
             {
-                return Vec2{ a * e.P[0].X + b * e.P[1].X + c * e.P[2].X + d * e.P[3].X,
-                             a * e.P[0].Y + b * e.P[1].Y + c * e.P[2].Y + d * e.P[3].Y };
+                return { ( wgt0 * edge.Points[0].X ) + ( wgt1 * edge.Points[1].X ) + ( wgt2 * edge.Points[2].X ) +
+                              ( wgt3 * edge.Points[3].X ),
+                         ( wgt0 * edge.Points[0].Y ) + ( wgt1 * edge.Points[1].Y ) + ( wgt2 * edge.Points[2].Y ) +
+                              ( wgt3 * edge.Points[3].Y ) };
             };
-            parts[0].P[0] = e.P[0];
-            parts[0].P[1] = cubicAt( 2.0 / 3.0, 1.0 / 3.0, 0.0, 0.0 );
-            parts[0].P[2] = cubicAt( 4.0 / 9.0, 4.0 / 9.0, 1.0 / 9.0, 0.0 );
-            parts[0].P[3] = e.Point( t0 );
-            parts[1].P[0] = e.Point( t0 );
-            parts[1].P[1] = cubicAt( 8.0 / 27.0, 12.0 / 27.0, 6.0 / 27.0, 1.0 / 27.0 );
-            parts[1].P[2] = cubicAt( 1.0 / 27.0, 6.0 / 27.0, 12.0 / 27.0, 8.0 / 27.0 );
-            parts[1].P[3] = e.Point( t1 );
-            parts[2].P[0] = e.Point( t1 );
-            parts[2].P[1] = cubicAt( 0.0, 1.0 / 9.0, 4.0 / 9.0, 4.0 / 9.0 );
-            parts[2].P[2] = cubicAt( 0.0, 0.0, 1.0 / 3.0, 2.0 / 3.0 );
-            parts[2].P[3] = e.P[3];
+            constexpr double kNinth         = 1.0 / kCardanoP;
+            constexpr double kFourNinths    = kQuarticDiscriminant / kCardanoP;
+            constexpr double kTwentySeventh = 1.0 / kCardanoQ;
+
+            parts[0].Points[0] = edge.Points[0];
+            parts[0].Points[1] = blend( kSecondCut, kFirstCut, 0.0, 0.0 );
+            parts[0].Points[2] = blend( kFourNinths, kFourNinths, kNinth, 0.0 );
+            parts[0].Points[3] = edge.PointAt( kFirstCut );
+            parts[1].Points[0] = edge.PointAt( kFirstCut );
+            parts[1].Points[1] = blend( kEighthSplit * kTwentySeventh, kThirdSplit * kTwentySeventh,
+                                        kCubicSecondDerivative * kTwentySeventh, kTwentySeventh );
+            parts[1].Points[2] = blend( kTwentySeventh, kCubicSecondDerivative * kTwentySeventh,
+                                        kThirdSplit * kTwentySeventh, kEighthSplit * kTwentySeventh );
+            parts[1].Points[3] = edge.PointAt( kSecondCut );
+            parts[2].Points[0] = edge.PointAt( kSecondCut );
+            parts[2].Points[1] = blend( 0.0, kNinth, kFourNinths, kFourNinths );
+            parts[2].Points[2] = blend( 0.0, 0.0, kFirstCut, kSecondCut );
+            parts[2].Points[3] = edge.Points[3];
         }
 
         struct EdgePoint
@@ -393,9 +503,48 @@ namespace Desert::Text::Msdf
             double             NearParam = 0.0;
         };
 
-        bool HasChannel( EdgeColor c, unsigned char mask )
+        bool HasChannel( EdgeColor color, unsigned char mask )
         {
-            return ( static_cast<unsigned char>( c ) & mask ) != 0;
+            return ( static_cast<unsigned char>( color ) & mask ) != 0;
+        }
+
+        // The three channels' winning edges for one texel, pseudo-distances already applied. Each
+        // channel sees only the edges whose colour carries its bit — that subset is the whole trick.
+        std::array<EdgePoint, 3> NearestPerChannel( const Shape& shape, Vec2 pixel )
+        {
+            std::array<EdgePoint, 3>               nearest{};
+            constexpr std::array<unsigned char, 3> kBits = { kRedBit, kGreenBit, kBlueBit };
+
+            for ( const Contour& contour : shape.Contours )
+            {
+                for ( const EdgeSegment& edge : contour.Edges )
+                {
+                    double               param    = 0.0;
+                    const SignedDistance distance = SegmentSignedDistance( edge, pixel, param );
+                    for ( size_t idx = 0; idx < kBits.size(); ++idx )
+                    {
+                        if ( HasChannel( edge.Color, kBits.at( idx ) ) &&
+                             distance < nearest.at( idx ).MinDistance )
+                        {
+                            nearest.at( idx ) = { distance, &edge, param };
+                        }
+                    }
+                }
+            }
+
+            for ( EdgePoint& channel : nearest )
+            {
+                if ( channel.NearEdge != nullptr )
+                {
+                    ToPseudoDistance( channel.MinDistance, *channel.NearEdge, pixel, channel.NearParam );
+                }
+            }
+            return nearest;
+        }
+
+        std::array<float, 3> ReadTexel( const std::vector<float>& field, size_t texel )
+        {
+            return { field[( texel * 3 ) + 0], field[( texel * 3 ) + 1], field[( texel * 3 ) + 2] };
         }
 
         // A texel where the three channels disagree ACROSS a neighbour is a "clash": the median flips
@@ -403,269 +552,314 @@ namespace Desert::Text::Msdf
         // MSDF adds over a plain SDF, it happens where a feature is thinner than the sampling grid, and
         // the cure is to make that texel single-channel again (median in all three), which degrades it to
         // the ordinary distance field exactly where the extra channels could not be trusted anyway.
-        bool DetectClash( const float* a, const float* b, double threshold )
+        bool DetectClash( const std::array<float, 3>& here, const std::array<float, 3>& there, double threshold )
         {
-            float a0 = a[0], a1 = a[1], a2 = a[2];
-            float b0 = b[0], b1 = b[1], b2 = b[2];
-            if ( std::fabs( b0 - a0 ) < std::fabs( b1 - a1 ) )
+            std::array<float, 3> mine  = here;
+            std::array<float, 3> yours = there;
+            const auto           gap   = [&mine, &yours]( size_t idx )
+            { return std::fabs( yours.at( idx ) - mine.at( idx ) ); };
+            const auto swap = [&mine, &yours]( size_t lhs, size_t rhs )
             {
-                std::swap( a0, a1 );
-                std::swap( b0, b1 );
+                std::swap( mine.at( lhs ), mine.at( rhs ) );
+                std::swap( yours.at( lhs ), yours.at( rhs ) );
+            };
+
+            // Order the three channels by how much they disagree with the neighbour, largest first.
+            if ( gap( 0 ) < gap( 1 ) )
+            {
+                swap( 0, 1 );
             }
-            if ( std::fabs( b1 - a1 ) < std::fabs( b2 - a2 ) )
+            if ( gap( 1 ) < gap( 2 ) )
             {
-                std::swap( a1, a2 );
-                std::swap( b1, b2 );
-                if ( std::fabs( b0 - a0 ) < std::fabs( b1 - a1 ) )
+                swap( 1, 2 );
+                if ( gap( 0 ) < gap( 1 ) )
                 {
-                    std::swap( a0, a1 );
-                    std::swap( b0, b1 );
-                }
-            }
-            return std::fabs( b1 - a1 ) >= threshold && !( b0 == b1 && b0 == b2 ) &&
-                   std::fabs( a2 - 0.5f ) >= std::fabs( b2 - 0.5f );
-        }
-
-        void CorrectErrors( std::vector<float>& rgb, int w, int h, double threshold )
-        {
-            std::vector<int> clashes;
-            for ( int y = 0; y < h; ++y )
-            {
-                for ( int x = 0; x < w; ++x )
-                {
-                    const float* p = &rgb[( static_cast<size_t>( y ) * w + x ) * 3];
-                    const bool   clash =
-                         ( x > 0 && DetectClash( p, p - 3, threshold ) ) ||
-                         ( x < w - 1 && DetectClash( p, p + 3, threshold ) ) ||
-                         ( y > 0 && DetectClash( p, p - static_cast<size_t>( w ) * 3, threshold ) ) ||
-                         ( y < h - 1 && DetectClash( p, p + static_cast<size_t>( w ) * 3, threshold ) );
-                    if ( clash )
-                        clashes.push_back( y * w + x );
-                }
-            }
-            for ( int idx : clashes )
-            {
-                float*      p   = &rgb[static_cast<size_t>( idx ) * 3];
-                const float med = Median( p[0], p[1], p[2] );
-                p[0] = p[1] = p[2] = med;
-            }
-        }
-    } // namespace
-
-    Vec2 EdgeSegment::Point( double t ) const
-    {
-        if ( PointCount == 2 )
-            return P[0] + t * ( P[1] - P[0] );
-        if ( PointCount == 3 )
-        {
-            const Vec2 a = P[0] + t * ( P[1] - P[0] );
-            const Vec2 b = P[1] + t * ( P[2] - P[1] );
-            return a + t * ( b - a );
-        }
-        const Vec2 a  = P[0] + t * ( P[1] - P[0] );
-        const Vec2 b  = P[1] + t * ( P[2] - P[1] );
-        const Vec2 c  = P[2] + t * ( P[3] - P[2] );
-        const Vec2 ab = a + t * ( b - a );
-        const Vec2 bc = b + t * ( c - b );
-        return ab + t * ( bc - ab );
-    }
-
-    Vec2 EdgeSegment::Direction( double t ) const
-    {
-        if ( PointCount == 2 )
-            return P[1] - P[0];
-        if ( PointCount == 3 )
-        {
-            const Vec2 d = ( P[1] - P[0] ) + t * ( ( P[2] - P[1] ) - ( P[1] - P[0] ) );
-            // A degenerate control point makes the derivative vanish at an end; the chord is the only
-            // direction left, and returning zero instead would make every angle test at that join lie.
-            if ( std::fabs( d.X ) < kEpsilon && std::fabs( d.Y ) < kEpsilon )
-                return P[2] - P[0];
-            return d;
-        }
-        const Vec2 a  = P[1] - P[0];
-        const Vec2 b  = P[2] - P[1];
-        const Vec2 c  = P[3] - P[2];
-        const Vec2 ab = a + t * ( b - a );
-        const Vec2 bc = b + t * ( c - b );
-        const Vec2 d  = ab + t * ( bc - ab );
-        if ( std::fabs( d.X ) < kEpsilon && std::fabs( d.Y ) < kEpsilon )
-        {
-            if ( t == 0.0 )
-                return P[2] - P[0];
-            if ( t == 1.0 )
-                return P[3] - P[1];
-        }
-        return d;
-    }
-
-    float Median( float a, float b, float c )
-    {
-        return std::max( std::min( a, b ), std::min( std::max( a, b ), c ) );
-    }
-
-    void ColorEdges( Shape& shape, double angleThresholdRad, uint64_t seed )
-    {
-        const double     crossThreshold = std::sin( angleThresholdRad );
-        EdgeColor        color          = EdgeColor::White;
-        std::vector<int> corners;
-
-        for ( Contour& contour : shape.Contours )
-        {
-            if ( contour.Edges.empty() )
-                continue;
-
-            corners.clear();
-            {
-                Vec2 prevDirection = contour.Edges.back().Direction( 1.0 );
-                int  index         = 0;
-                for ( const EdgeSegment& e : contour.Edges )
-                {
-                    if ( IsCorner( Normalize( prevDirection ), Normalize( e.Direction( 0.0 ) ), crossThreshold ) )
-                        corners.push_back( index );
-                    prevDirection = e.Direction( 1.0 );
-                    ++index;
+                    swap( 0, 1 );
                 }
             }
 
-            if ( corners.empty() )
-            {
-                // A smooth closed contour ('O', 'o', a bowl) has no corner to preserve, so all three
-                // channels carry the same field and the median degrades to the ordinary distance.
-                for ( EdgeSegment& e : contour.Edges )
-                    e.Color = EdgeColor::White;
-                continue;
-            }
+            const auto centre          = static_cast<float>( kFieldCentre );
+            const bool middleDisagrees = gap( 1 ) >= threshold;
+            const bool neighbourVaries = yours[0] != yours[1] || yours[0] != yours[2];
+            // Of the pair, only flag the texel FARTHER from an edge: the nearer one is where the outline
+            // actually is, and flattening that one would blunt a real feature.
+            const bool weAreTheFarOne = std::fabs( mine[2] - centre ) >= std::fabs( yours[2] - centre );
+            return middleDisagrees && neighbourVaries && weAreTheFarOne;
+        }
 
-            if ( corners.size() == 1 )
-            {
-                // Teardrop: one corner, so the contour needs three splines around it to keep the two
-                // incident edges in different channels.
-                EdgeColor colors[3]{};
-                SwitchColor( color, seed );
-                colors[0] = color;
-                colors[1] = EdgeColor::White;
-                SwitchColor( color, seed );
-                colors[2] = color;
+        // Does this texel clash with any of its four neighbours? Split out of the sweep below so that
+        // neither half is long enough to hide a case, and so the edge conditions are in one place.
+        bool ClashesWithNeighbour( const std::vector<float>& rgb, int width, int height, int row, int col,
+                                   double threshold )
+        {
+            const size_t here = ( static_cast<size_t>( row ) * width ) + col;
+            const auto   mine = ReadTexel( rgb, here );
 
-                int corner = corners[0];
-                int m      = static_cast<int>( contour.Edges.size() );
-                if ( m < 3 )
+            const bool hasLeft  = col > 0;
+            const bool hasRight = col < width - 1;
+            const bool hasAbove = row > 0;
+            const bool hasBelow = row < height - 1;
+
+            return ( hasLeft && DetectClash( mine, ReadTexel( rgb, here - 1 ), threshold ) ) ||
+                   ( hasRight && DetectClash( mine, ReadTexel( rgb, here + 1 ), threshold ) ) ||
+                   ( hasAbove && DetectClash( mine, ReadTexel( rgb, here - width ), threshold ) ) ||
+                   ( hasBelow && DetectClash( mine, ReadTexel( rgb, here + width ), threshold ) );
+        }
+
+        void CorrectErrors( std::vector<float>& rgb, int width, int height, double threshold )
+        {
+            std::vector<size_t> clashes;
+            for ( int row = 0; row < height; ++row )
+            {
+                for ( int col = 0; col < width; ++col )
                 {
-                    // Fewer edges than splines: subdivide, rotating the corner to index 0 as we go, so
-                    // the band assignment below needs no second case.
-                    std::vector<EdgeSegment> split;
-                    split.reserve( static_cast<size_t>( m ) * 3 );
-                    for ( int i = 0; i < m; ++i )
+                    if ( ClashesWithNeighbour( rgb, width, height, row, col, threshold ) )
                     {
-                        EdgeSegment parts[3];
-                        SplitInThirds( contour.Edges[( corner + i ) % m], parts );
-                        split.push_back( parts[0] );
-                        split.push_back( parts[1] );
-                        split.push_back( parts[2] );
+                        clashes.push_back( ( static_cast<size_t>( row ) * width ) + col );
                     }
-                    contour.Edges = std::move( split );
-                    m             = static_cast<int>( contour.Edges.size() );
-                    corner        = 0;
                 }
-                // Three equal bands around the contour starting AT the corner: the first and last bands
-                // are the two edges that meet there, and they are in different channels by construction.
-                for ( int i = 0; i < m; ++i )
-                {
-                    const int band                          = std::clamp( static_cast<int>( 3.0 * i / m ), 0, 2 );
-                    contour.Edges[( corner + i ) % m].Color = colors[band];
-                }
-                continue;
             }
 
-            const int cornerCount = static_cast<int>( corners.size() );
-            const int m           = static_cast<int>( contour.Edges.size() );
-            int       spline      = 0;
-            const int start       = corners[0];
+            for ( const size_t texel : clashes )
+            {
+                const auto  mine       = ReadTexel( rgb, texel );
+                const float med        = Median( mine[0], mine[1], mine[2] );
+                rgb[( texel * 3 ) + 0] = med;
+                rgb[( texel * 3 ) + 1] = med;
+                rgb[( texel * 3 ) + 2] = med;
+            }
+        }
+
+        // Every edge index around one contour, starting at `start` and wrapping — so a spline that
+        // straddles the contour's own seam is one run rather than two.
+        size_t WrapIndex( size_t start, size_t offset, size_t count )
+        {
+            return ( start + offset ) % count;
+        }
+
+        std::vector<size_t> FindCorners( const Contour& contour, double crossThreshold )
+        {
+            std::vector<size_t> corners;
+            Vec2                previous = contour.Edges.back().Direction( 1.0 );
+            size_t              index    = 0;
+            for ( const EdgeSegment& edge : contour.Edges )
+            {
+                if ( IsCorner( Normalize( previous ), Normalize( edge.Direction( 0.0 ) ), crossThreshold ) )
+                {
+                    corners.push_back( index );
+                }
+                previous = edge.Direction( 1.0 );
+                ++index;
+            }
+            return corners;
+        }
+
+        // One corner: the contour needs three splines around it so the two incident edges land in
+        // different channels. Fewer than three edges are subdivided first.
+        void ColorTeardrop( Contour& contour, size_t corner, EdgeColor& color, uint64_t& seed )
+        {
+            constexpr size_t         kSplines = 3;
+            std::array<EdgeColor, 3> colors{};
+            SwitchColor( color, seed );
+            colors[0] = color;
+            colors[1] = EdgeColor::White;
+            SwitchColor( color, seed );
+            colors[2] = color;
+
+            size_t start = corner;
+            size_t count = contour.Edges.size();
+            if ( count < kSplines )
+            {
+                std::vector<EdgeSegment> split;
+                split.reserve( count * kSplines );
+                for ( size_t offset = 0; offset < count; ++offset )
+                {
+                    std::array<EdgeSegment, 3> parts{};
+                    SplitInThirds( contour.Edges[WrapIndex( start, offset, count )], parts );
+                    for ( const EdgeSegment& part : parts )
+                    {
+                        split.push_back( part );
+                    }
+                }
+                contour.Edges = std::move( split );
+                count         = contour.Edges.size();
+                start         = 0;
+            }
+
+            for ( size_t offset = 0; offset < count; ++offset )
+            {
+                const size_t band = std::min( ( kSplines * offset ) / count, kSplines - 1 );
+                contour.Edges[WrapIndex( start, offset, count )].Color = colors.at( band );
+            }
+        }
+
+        void ColorSplines( Contour& contour, const std::vector<size_t>& corners, EdgeColor& color, uint64_t& seed )
+        {
+            const size_t cornerCount = corners.size();
+            const size_t count       = contour.Edges.size();
+            const size_t start       = corners.front();
+            size_t       spline      = 0;
+
             SwitchColor( color, seed );
             const EdgeColor initialColor = color;
-            for ( int i = 0; i < m; ++i )
+            for ( size_t offset = 0; offset < count; ++offset )
             {
-                const int index = ( start + i ) % m;
+                const size_t index = WrapIndex( start, offset, count );
                 if ( spline + 1 < cornerCount && corners[spline + 1] == index )
                 {
                     ++spline;
-                    SwitchColor( color, seed, spline == cornerCount - 1 ? initialColor : EdgeColor::Black );
+                    const bool last = ( spline == cornerCount - 1 );
+                    SwitchColor( color, seed, last ? initialColor : EdgeColor::Black );
                 }
                 contour.Edges[index].Color = color;
             }
         }
+    } // namespace
+
+    Vec2 EdgeSegment::PointAt( double param ) const
+    {
+        if ( PointCount == kLinePoints )
+        {
+            return Lerp( Points[0], Points[1], param );
+        }
+        if ( PointCount == kQuadraticPoints )
+        {
+            return Lerp( Lerp( Points[0], Points[1], param ), Lerp( Points[1], Points[2], param ), param );
+        }
+        const Vec2 firstPair  = Lerp( Points[0], Points[1], param );
+        const Vec2 middlePair = Lerp( Points[1], Points[2], param );
+        const Vec2 lastPair   = Lerp( Points[2], Points[3], param );
+        return Lerp( Lerp( firstPair, middlePair, param ), Lerp( middlePair, lastPair, param ), param );
     }
 
-    void GenerateMSDF( std::vector<float>& outRGB, int w, int h, const Shape& shape, double rangeTexels )
+    Vec2 EdgeSegment::Direction( double param ) const
     {
-        outRGB.assign( static_cast<size_t>( w ) * h * 3, 0.0f );
-        if ( w <= 0 || h <= 0 || rangeTexels <= 0.0 )
-            return;
-
-        for ( int y = 0; y < h; ++y )
+        if ( PointCount == kLinePoints )
         {
-            for ( int x = 0; x < w; ++x )
+            return Points[1] - Points[0];
+        }
+
+        const Vec2 firstLeg  = Points[1] - Points[0];
+        const Vec2 secondLeg = Points[2] - Points[1];
+        if ( PointCount == kQuadraticPoints )
+        {
+            const Vec2 slope = Lerp( firstLeg, secondLeg, param );
+            // A degenerate control point makes the derivative vanish at an end; the chord is the only
+            // direction left, and returning zero instead would make every angle test at that join lie.
+            if ( std::fabs( slope.X ) < kEpsilon && std::fabs( slope.Y ) < kEpsilon )
             {
-                const Vec2 p{ x + 0.5, y + 0.5 };
-                EdgePoint  r, g, b;
+                return Points[2] - Points[0];
+            }
+            return slope;
+        }
 
-                for ( const Contour& contour : shape.Contours )
+        const Vec2 thirdLeg = Points[3] - Points[2];
+        const Vec2 slope = Lerp( Lerp( firstLeg, secondLeg, param ), Lerp( secondLeg, thirdLeg, param ), param );
+        if ( std::fabs( slope.X ) < kEpsilon && std::fabs( slope.Y ) < kEpsilon )
+        {
+            if ( param == 0.0 )
+            {
+                return Points[2] - Points[0];
+            }
+            if ( param == 1.0 )
+            {
+                return Points[3] - Points[1];
+            }
+        }
+        return slope;
+    }
+
+    void ColorEdges( Shape& shape, double angleThresholdRad, uint64_t seed )
+    {
+        const double crossThreshold = std::sin( angleThresholdRad );
+        EdgeColor    color          = EdgeColor::White;
+
+        for ( Contour& contour : shape.Contours )
+        {
+            if ( contour.Edges.empty() )
+            {
+                continue;
+            }
+
+            const std::vector<size_t> corners = FindCorners( contour, crossThreshold );
+            if ( corners.empty() )
+            {
+                // A smooth closed contour ('O', 'o', a bowl) has no corner to preserve, so all three
+                // channels carry the same field and the median degrades to the ordinary distance.
+                for ( EdgeSegment& edge : contour.Edges )
                 {
-                    for ( const EdgeSegment& e : contour.Edges )
-                    {
-                        double               param    = 0.0;
-                        const SignedDistance distance = SegmentSignedDistance( e, p, param );
-                        if ( HasChannel( e.Color, 1 ) && distance < r.MinDistance )
-                            r = { distance, &e, param };
-                        if ( HasChannel( e.Color, 2 ) && distance < g.MinDistance )
-                            g = { distance, &e, param };
-                        if ( HasChannel( e.Color, 4 ) && distance < b.MinDistance )
-                            b = { distance, &e, param };
-                    }
+                    edge.Color = EdgeColor::White;
                 }
+            }
+            else if ( corners.size() == 1 )
+            {
+                ColorTeardrop( contour, corners.front(), color, seed );
+            }
+            else
+            {
+                ColorSplines( contour, corners, color, seed );
+            }
+        }
+    }
 
-                if ( r.NearEdge )
-                    ToPseudoDistance( r.MinDistance, *r.NearEdge, p, r.NearParam );
-                if ( g.NearEdge )
-                    ToPseudoDistance( g.MinDistance, *g.NearEdge, p, g.NearParam );
-                if ( b.NearEdge )
-                    ToPseudoDistance( b.MinDistance, *b.NearEdge, p, b.NearParam );
+    void GenerateMSDF( std::vector<float>& outRGB, int width, int height, const Shape& shape, double rangeTexels )
+    {
+        outRGB.assign( static_cast<size_t>( width ) * height * 3, 0.0F );
+        if ( width <= 0 || height <= 0 || rangeTexels <= 0.0 )
+        {
+            return;
+        }
 
-                float* out = &outRGB[( static_cast<size_t>( y ) * w + x ) * 3];
-                out[0]     = static_cast<float>( r.MinDistance.Distance / rangeTexels + 0.5 );
-                out[1]     = static_cast<float>( g.MinDistance.Distance / rangeTexels + 0.5 );
-                out[2]     = static_cast<float>( b.MinDistance.Distance / rangeTexels + 0.5 );
+        for ( int row = 0; row < height; ++row )
+        {
+            for ( int col = 0; col < width; ++col )
+            {
+                const Vec2   pixel{ col + kFieldCentre, row + kFieldCentre };
+                const auto   channels = NearestPerChannel( shape, pixel );
+                const size_t texel    = ( ( static_cast<size_t>( row ) * width ) + col ) * 3;
+                for ( size_t idx = 0; idx < channels.size(); ++idx )
+                {
+                    outRGB[texel + idx] = static_cast<float>(
+                         ( channels.at( idx ).MinDistance.Distance / rangeTexels ) + kFieldCentre );
+                }
             }
         }
 
         // 1.001 rather than 1: a clash is a disagreement of more than one texel of distance between
         // neighbours, and the slack keeps an exactly-one-texel step (which is the legitimate slope of a
         // distance field) from being flagged on every edge in the glyph.
-        CorrectErrors( outRGB, w, h, 1.001 / rangeTexels );
+        constexpr double kClashSlack = 1.001;
+        CorrectErrors( outRGB, width, height, kClashSlack / rangeTexels );
     }
 
-    void GenerateSDF( std::vector<float>& outR, int w, int h, const Shape& shape, double rangeTexels )
+    void GenerateSDF( std::vector<float>& outR, int width, int height, const Shape& shape, double rangeTexels )
     {
-        outR.assign( static_cast<size_t>( w ) * h, 0.0f );
-        if ( w <= 0 || h <= 0 || rangeTexels <= 0.0 )
-            return;
-
-        for ( int y = 0; y < h; ++y )
+        outR.assign( static_cast<size_t>( width ) * height, 0.0F );
+        if ( width <= 0 || height <= 0 || rangeTexels <= 0.0 )
         {
-            for ( int x = 0; x < w; ++x )
+            return;
+        }
+
+        for ( int row = 0; row < height; ++row )
+        {
+            for ( int col = 0; col < width; ++col )
             {
-                const Vec2     p{ x + 0.5, y + 0.5 };
+                const Vec2     pixel{ col + kFieldCentre, row + kFieldCentre };
                 SignedDistance best;
                 for ( const Contour& contour : shape.Contours )
-                    for ( const EdgeSegment& e : contour.Edges )
+                {
+                    for ( const EdgeSegment& edge : contour.Edges )
                     {
                         double               param    = 0.0;
-                        const SignedDistance distance = SegmentSignedDistance( e, p, param );
+                        const SignedDistance distance = SegmentSignedDistance( edge, pixel, param );
                         if ( distance < best )
+                        {
                             best = distance;
+                        }
                     }
-                outR[static_cast<size_t>( y ) * w + x] = static_cast<float>( best.Distance / rangeTexels + 0.5 );
+                }
+                outR[( static_cast<size_t>( row ) * width ) + col] =
+                     static_cast<float>( ( best.Distance / rangeTexels ) + kFieldCentre );
             }
         }
     }

@@ -32,6 +32,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Text/FontBaker.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Text/Msdf.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Text/FontCache.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Vector/VectorImage.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Vector/IconBake.cpp",

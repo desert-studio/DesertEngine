@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -50,11 +51,14 @@ namespace Desert::Text
         // number agreed by two files. Desert/Tests/Engine/FontBaker pins it against the GLSL constant.
         float DistanceRangeTexels = 0;
 
-        bool Valid() const
+        [[nodiscard]] bool Valid() const
         {
             return AtlasWidth > 0 && AtlasHeight > 0 && !AtlasRGBA.empty();
         }
-        float LineHeight() const { return Ascent - Descent + LineGap; }
+        [[nodiscard]] float LineHeight() const
+        {
+            return Ascent - Descent + LineGap;
+        }
     };
 
     // The bake parameters. They are INPUTS TO THE CACHE KEY (FontCache.hpp), not facts folded into a
@@ -67,7 +71,7 @@ namespace Desert::Text
     // gutter this baker actually rasterizes. The atlas carries NO MIPS — see FontService — so the band is
     // also the only minification headroom there is.
     inline constexpr float kDistanceRangeTexels = Core::Formats::kSdfAtlasDistanceRangeTexels;
-    static_assert( kDistanceRangeTexels <= 2.0f * kGlyphPadding,
+    static_assert( kDistanceRangeTexels <= static_cast<float>( kGlyphPadding + kGlyphPadding ),
                    "the distance band must fit inside the rasterized gutter" );
 
     // The ONE bake size the engine requests at runtime (FontService defaults, the UI canvas text path)

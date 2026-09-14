@@ -161,10 +161,10 @@ namespace Desert::Runtime
         // ALPHA is free, so it gets a sharpened coverage mask: any plain alpha-blended draw — the editor's
         // Details preview — then shows the icon's real silhouette rather than a soft grey blob.
         std::vector<unsigned char> rgba( static_cast<size_t>( dim ) * dim * 4, 0 );
-        const float                edge = static_cast<float>( Core::Formats::kSdfAtlasOnEdgeByte );
+        const auto                 edge = static_cast<float>( Core::Formats::kSdfAtlasOnEdgeByte );
         // Bytes per texel of distance, from the ONE encoding both atlases use — not from this atlas's own
         // padding, which is a packing decision and was never the same number.
-        const float perTexel = 255.0f / Core::Formats::kSdfAtlasDistanceRangeTexels;
+        const float perTexel = 255.0F / Core::Formats::kSdfAtlasDistanceRangeTexels;
 
         for ( size_t i = 0; i < m_Bitmaps.size(); ++i )
         {

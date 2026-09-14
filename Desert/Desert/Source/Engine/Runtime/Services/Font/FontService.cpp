@@ -1,5 +1,6 @@
 #include "FontService.hpp"
 
+#include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
 #include <Engine/Text/FontCache.hpp>
 

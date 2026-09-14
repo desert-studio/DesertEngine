@@ -16,6 +16,8 @@
 // The GPU half — packing layers into the atlas page, uploading, re-addressing UVs — stays in
 // IconService: an atlas is a property of the running set of icons, not of one file.
 
+#include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
+
 #include <cstdint>
 #include <filesystem>
 #include <vector>
@@ -28,6 +30,12 @@ namespace Desert::Vector
     inline constexpr uint32_t kIconSize    = 64;
     inline constexpr int      kIconPadding = 6;
     inline constexpr uint32_t kIconCellDim = kIconSize + 2u * static_cast<uint32_t>( kIconPadding );
+    // The gutter holds the WHOLE distance band, so an icon's field reaches both ends of its byte range
+    // and there is room for an outline or a glow to be read out of it. A relation between two constants
+    // that the compiler can check, rather than a sentence that hopes they stay in step — which is
+    // precisely how the icon and glyph bands drifted apart in the first place.
+    static_assert( 2 * kIconPadding >= static_cast<int>( Core::Formats::kSdfAtlasDistanceRangeTexels ),
+                   "the icon gutter must hold the whole distance band" );
 
     // Bumped when anything about HOW an icon is baked changes (kIconSize/kIconPadding, the distance
     // encoding, the SVG parser's curve tolerance, the colour-run collapse) — every cached bake becomes a

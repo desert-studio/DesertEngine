@@ -1,10 +1,14 @@
 #include "FontCache.hpp"
 
+#include <Engine/Text/FontBaker.hpp>
+
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
 
+#include <cstddef>
+#include <cstdint>
 #include <format>
 #include <fstream>
 
@@ -23,7 +27,10 @@ namespace Desert::Text
         h *= kFnvPrime;
         h ^= static_cast<uint64_t>( kAtlasWidth );
         h *= kFnvPrime;
-        h ^= static_cast<uint64_t>( kDistanceRangeTexels * 256.0f );
+        // The band is a float; hash it at 1/256 of a texel so a change smaller than the quantizer can
+        // still produce a different key.
+        constexpr float kBandHashScale = 256.0F;
+        h ^= static_cast<uint64_t>( kDistanceRangeTexels * kBandHashScale );
         h *= kFnvPrime;
         for ( uint8_t b : ttf )
         {
@@ -115,7 +122,13 @@ namespace Desert::Text
         // through FileSystem::ReadByteFileContent: that primitive logs an error for a missing file,
         // and a cache miss is the normal cold-start case, not an error.
         if ( auto packed = Common::Utils::VFS::ReadFile( path ) )
-            return decode( reinterpret_cast<const uint8_t*>( packed->data() ), packed->size(), "packaged" );
+        {
+            // Copied rather than cast: the archive hands back chars and the decoder wants bytes, and
+            // every way of re-pointing one at the other is either a reinterpret_cast or a trip through
+            // void*. A font atlas is read once per run, so the copy costs nothing worth a cast.
+            const std::vector<uint8_t> bytes( packed->begin(), packed->end() );
+            return decode( bytes.data(), bytes.size(), "packaged" );
+        }
 
         return false;
     }

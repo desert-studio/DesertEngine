@@ -20,6 +20,8 @@
 // control points (stb_truetype for glyphs), the field goes out as floats, and the whole thing is unit
 // testable with no font, no GPU and no engine types.
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -51,12 +53,14 @@ namespace Desert::Text::Msdf
     // here — so both are first-class rather than one being approximated by the other.
     struct EdgeSegment
     {
-        Vec2      P[4]{};
-        int       PointCount = 2;
-        EdgeColor Color      = EdgeColor::White;
+        // A fixed four-slot control polygon rather than a vector: an outline has thousands of these and
+        // none of them ever needs the heap. `PointCount` says how many slots are live.
+        std::array<Vec2, 4> Points{};
+        int                 PointCount = 2;
+        EdgeColor           Color      = EdgeColor::White;
 
-        Vec2 Point( double t ) const;
-        Vec2 Direction( double t ) const; // NOT normalized (it is a derivative, and may be zero)
+        [[nodiscard]] Vec2 PointAt( double param ) const;
+        [[nodiscard]] Vec2 Direction( double param ) const; // NOT normalized (a derivative, and it may be zero)
     };
 
     struct Contour
@@ -69,11 +73,16 @@ namespace Desert::Text::Msdf
         std::vector<Contour> Contours;
     };
 
+    // Beyond this much turn at a join, the join is a CORNER and the two edges must not share all three
+    // channels. Three radians is about 172 degrees of straightness, the value the thesis uses and the
+    // one type designers draw for: below it a "smooth" join is really a very shallow corner.
+    inline constexpr double kDefaultCornerAngleRadians = 3.0;
+
     // Assign channel colours by corner detection. `angleThresholdRad` is the turn beyond which a join
     // counts as a corner (3 rad ~= 172 deg is the value the thesis uses and what fonts are drawn for).
     // `seed` only chooses WHICH of the three two-channel colours a contour starts on; it changes the
     // colouring but not the reconstructed shape, and is kept deterministic so a bake is reproducible.
-    void ColorEdges( Shape& shape, double angleThresholdRad = 3.0, uint64_t seed = 0 );
+    void ColorEdges( Shape& shape, double angleThresholdRad = kDefaultCornerAngleRadians, uint64_t seed = 0 );
 
     // Rasterize the shape into `outRGB` (w*h*3 floats, row-major, Y as given — the caller supplies the
     // transform, so a Y-down atlas is a Y-down transform and not a flip afterwards).
@@ -85,15 +94,14 @@ namespace Desert::Text::Msdf
     //
     // Values are NOT clamped — the caller quantizes, and a test can see how far past the band a texel
     // was. An empty shape leaves the field at the "far outside" value rather than at zero distance.
-    void GenerateMSDF( std::vector<float>& outRGB, int w, int h, const Shape& shape, double rangeTexels );
+    void GenerateMSDF( std::vector<float>& outRGB, int width, int height, const Shape& shape, double rangeTexels );
 
     // The ordinary single-channel field of the same shape, in the same encoding. Not used by the text
     // path — it is the reference the corner tests measure MSDF against, which is the only way to state
     // "the corner survived" as a number rather than as an opinion.
-    void GenerateSDF( std::vector<float>& outR, int w, int h, const Shape& shape, double rangeTexels );
+    void GenerateSDF( std::vector<float>& outR, int width, int height, const Shape& shape, double rangeTexels );
 
-    // The reconstruction the SHADER performs, in C++. One definition of "what the three channels mean"
-    // that the baker's tests can call; Common/SdfText.glslh is the GLSL half and SdfTextReference.hpp
-    // compiles that half as C++ so the two are asserted equal rather than assumed so.
-    float Median( float a, float b, float c );
+    // There is deliberately NO Median() here. The one definition of "what the three channels mean" is
+    // Editor/Resources/Shaders/Common/SdfText.glslh, which the shaders compile as GLSL and the tests
+    // compile as C++ — a second copy in this header would be a copy the GPU never runs.
 } // namespace Desert::Text::Msdf

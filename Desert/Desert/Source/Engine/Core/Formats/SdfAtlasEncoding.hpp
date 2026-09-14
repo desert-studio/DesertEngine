@@ -26,7 +26,7 @@ namespace Desert::Core::Formats
     // above a pixel down to 4.8 px of rendered height — the size a world label reaches near the horizon.
     // Each producer must rasterize at least kSdfAtlasDistanceRangeTexels/2 texels of gutter around its
     // shape, or the band is clipped by the cell before it reaches the ends of its own range.
-    inline constexpr float kSdfAtlasDistanceRangeTexels = 10.0f;
+    inline constexpr float kSdfAtlasDistanceRangeTexels = 10.0F;
 
     // The byte the outline itself lands on. 128 rather than 127 or 127.5 because a uint8 has no half:
     // the shader thresholds at 0.5 and 128/255 is the first byte above it, so a texel exactly on the
