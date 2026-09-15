@@ -136,6 +136,7 @@ namespace Desert::Core::Serialize
                 capture.Overrides.push_back( std::move( *over ) );
             }
             capture.RemovedComponents += report.RemovedComponents;
+            capture.PinnedUnstatedFields += report.UnstatedFields;
         }
 
         return capture;

@@ -34,6 +34,11 @@ namespace Desert::Core::Serialize
         // Components the source record carries that the live entity no longer does (see PrefabDiffReport).
         std::size_t RemovedComponents = 0;
 
+        // Fields the prefab file does not state, which are therefore PINNED on this instance (#148).
+        // Zero for every file this engine wrote — reflection emits all of them — so a non-zero count is
+        // "that `.deprefab` was written by something else, and these fields have stopped following it".
+        std::size_t PinnedUnstatedFields = 0;
+
         // Entities whose record address resolves to no record of the source prefab — an id-less record in
         // a hand-written `.deprefab` (PlanSceneStitch mints those a fresh id per load, so they have no
         // stable address), or a prefab that was re-authored under the instance's feet.

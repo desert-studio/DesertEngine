@@ -2,11 +2,30 @@
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 
 namespace Desert::Runtime::Factory
 {
+    namespace
+    {
+        // ComponentRegistry is a vector keyed by string, and an override names its component by that key.
+        // A linear scan over ~50 entries, run once per overridden component at load, is not worth a second
+        // index that would have to be kept in step with the registry's own.
+        [[nodiscard]] const Core::Serialize::ComponentSerializer* FindComponentSerializer( const std::string& key )
+        {
+            for ( const auto& serializer : Core::Serialize::ComponentRegistry::Get().All() )
+            {
+                if ( serializer.Key == key )
+                {
+                    return &serializer;
+                }
+            }
+            return nullptr;
+        }
+    } // namespace
+
     // A prefab nests prefabs; the depth is the file's nesting, and `stack` is what bounds it (a cycle is
     // refused by name above). NOLINTNEXTLINE must be the LAST comment line before the statement.
     // NOLINTNEXTLINE(misc-no-recursion)
@@ -261,11 +280,45 @@ namespace Desert::Runtime::Factory
                 continue;
             }
 
-            // THE SAME FUNCTION A RECORD IS LOADED WITH. An override is a partial entity record, so
-            // applying one is loading one — writing a second applier here is how the two would come to
-            // disagree about, say, what an absent field means.
-            Core::Serialize::EntitySerializer::DeserializeEntity( Assets::OverrideAsEntityData( over ),
-                                                                  found->second, assetManager );
+            const ECS::Entity entity = found->second;
+
+            // META (tag, transform) THROUGH THE SAME FUNCTION A RECORD IS LOADED WITH. Those fields are
+            // already field-level — the record states each one or does not — so nothing has to be merged.
+            Core::Serialize::EntitySerializer::DeserializeEntity( Assets::OverrideMetaAsEntityData( over ), entity,
+                                                                  assetManager );
+
+            // COMPONENTS ARE MERGED, NOT WRITTEN (Ю20). An override now carries the FIELDS that differ,
+            // and the entity at this moment holds exactly what the prefab said — it was deserialized from
+            // the base record a few lines ago and nothing has touched it since. So the value to merge
+            // onto is the component itself, read back through the same serializer that wrote it, and no
+            // caller has to carry the base records down here to find it.
+            for ( const auto& [key, fields] : over.Components )
+            {
+                const Core::Serialize::ComponentSerializer* serializer = FindComponentSerializer( key );
+                if ( serializer == nullptr )
+                {
+                    // A key no build knows: the file was written by a newer engine, or a component was
+                    // retired. Dropping it silently is how an override comes to mean nothing.
+                    LOG_WARN( "[PrefabFactory] an override names component '{0}', which this build does "
+                              "not register. It was NOT applied.",
+                              key );
+                    ++missed;
+                    continue;
+                }
+
+                if ( serializer->Has( entity ) )
+                {
+                    serializer->Deserialize(
+                         entity, Assets::MergePayload( serializer->Serialize( entity, assetManager ), fields ),
+                         assetManager );
+                }
+                else
+                {
+                    // The instance has a component the prefab does not. There is nothing to merge onto,
+                    // and the diff recorded the whole payload for exactly this case.
+                    serializer->Deserialize( entity, fields, assetManager );
+                }
+            }
         }
         return missed;
     }

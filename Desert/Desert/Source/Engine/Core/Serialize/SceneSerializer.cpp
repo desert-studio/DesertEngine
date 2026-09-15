@@ -130,6 +130,20 @@ namespace Desert::Core
                               *data.PrefabPath, capture.AddedEntities, capture.RemovedComponents,
                               capture.UnaddressableEntities );
                 }
+
+                // A SEPARATE SENTENCE, because it is a different failure: nothing is lost here, something
+                // is PINNED. An override can only follow the source for a field the source actually
+                // states, so a hand-written `.deprefab` that names three fields of twenty freezes the
+                // other seventeen on every instance of it — quietly, until now.
+                if ( capture.PinnedUnstatedFields > 0 )
+                {
+                    LOG_WARN( "[Prefab] instance of '{0}': {1} field(s) are pinned on this instance because "
+                              "the prefab file does not state them. This engine's own writer states every "
+                              "field, so that file was written by something else — re-save it from the "
+                              "editor (Apply Instance Changes to Prefab) and those fields will follow it "
+                              "again.",
+                              *data.PrefabPath, capture.PinnedUnstatedFields );
+                }
             }
 
             scene.Entities.push_back( std::move( data ) );
