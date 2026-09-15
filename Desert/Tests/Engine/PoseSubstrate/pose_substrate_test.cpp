@@ -106,8 +106,12 @@ namespace
     /// The chain walk exactly as it was written, eight times over, before the substrate. Kept here on
     /// purpose: a rewrite claiming to "absorb" duplicates has to be shown to compute the same thing they
     /// did, and quoting the old body is the only way to show it.
-    /// The chain walk's GLOBALS, before the multiply by OffsetMatrix. Compared on its own because the
-    /// product cancels a broken resolver against itself (see TheOneResolverAgreesWithTheEightItReplaced).
+    ///
+    /// It quotes the GLOBALS, before the multiply by OffsetMatrix, and that is the load-bearing detail:
+    /// the product cancels a broken resolver against itself, so comparing the offset-multiplied result
+    /// would pass for a resolver that is wrong (see TheOneResolverAgreesWithTheEightItReplaced). A second
+    /// quotation that DID multiply by the offset used to sit below this one, unused — a dead reference
+    /// implementation beside a live one is an invitation to compare against the wrong one, so it is gone.
     std::vector<glm::mat4> LegacyChainGlobals( const std::vector<BoneInfo>& bones )
     {
         std::vector<glm::mat4>             global( bones.size(), glm::mat4( 1.0F ) );
@@ -128,27 +132,6 @@ namespace
             resolve( i );
         }
         return global;
-    }
-
-    std::vector<glm::mat4> LegacyChainResolve( const std::vector<BoneInfo>& bones )
-    {
-        std::vector<glm::mat4>             global( bones.size(), glm::mat4( 1.0F ) );
-        std::vector<bool>                  done( bones.size(), false );
-        std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
-        {
-            if ( done[i] )
-                return global[i];
-            glm::mat4 m = bones[i].LocalBindTransform;
-            if ( bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < bones.size() )
-                m = resolve( bones[i].ParentBoneID.value() ) * bones[i].LocalBindTransform;
-            global[i] = m;
-            done[i]   = true;
-            return m;
-        };
-        std::vector<glm::mat4> out( bones.size() );
-        for ( size_t i = 0; i < bones.size(); ++i )
-            out[i] = resolve( i ) * bones[i].OffsetMatrix;
-        return out;
     }
 } // namespace
 
