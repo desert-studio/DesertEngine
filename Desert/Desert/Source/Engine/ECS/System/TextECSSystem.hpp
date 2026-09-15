@@ -187,14 +187,15 @@ namespace Desert::ECS
                     const float yBot = yTop - g.Height * worldPerPixel;
 
                     const uint32_t base = static_cast<uint32_t>( verts.size() );
-                    // The quad's local +Z faces the default camera (at +Z looking -Z); that view maps
-                    // world +X to SCREEN-left, so a +X layout reads mirrored. Negate X to lay the text
-                    // out so it reads left-to-right head-on (a flat label is mirrored from behind — as
-                    // expected for any single plane of text).
+                    // The pen advances along +X and so does the quad, because WORLD +X IS SCREEN-RIGHT.
+                    // `MakePerspective` is glm::perspectiveRH_ZO and the view is glm::lookAt, both
+                    // right-handed, and Vulkan's clip-space flip is in Y — so a camera at +Z looking -Z
+                    // puts +X on the right. The comment that stood here claimed the opposite and the
+                    // code obeyed it, so every label in the world was drawn MIRRORED.
                     auto push = [&]( float x, float y, float u, float v )
                     {
                         Vertex vtx{};
-                        vtx.Position = { -x, y, 0.0f };
+                        vtx.Position = { x, y, 0.0F };
                         vtx.Normal   = { 0.0f, 0.0f, 1.0f };
                         vtx.TexCoord = { u, v };
                         verts.push_back( vtx );
