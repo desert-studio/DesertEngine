@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <optional>
 
 // WHERE AN ELEMENT'S COLOUR, FONT AND SPACING COME FROM — one object, asked once per element per frame.
 //
@@ -63,8 +64,15 @@ namespace Desert::UI
             // THE HIGH-CONTRAST OVERLAY IS SPARSE AND THAT IS WHY IT IS CHECKED HERE RATHER THAN BAKED.
             // Baking it at load would need a second copy of the whole palette; a token with no override
             // has to keep its ordinary value, and this is the one place that knows the flag.
-            if ( m_HighContrast && m_Theme->HighContrast[index].has_value() )
-                return *m_Theme->HighContrast[index];
+            // BOUND ONCE, AND NOT ONLY TO SATISFY THE ANALYSER. `HighContrast` is assigned
+            // `Colors.size()` entries at build time (UIThemeData.cpp:244), so the bounds check above
+            // covers this subscript too — but written as two separate `operator[]` calls, the test and
+            // the dereference are two unrelated expressions to a reader and to clang-tidy alike, which
+            // reports `bugprone-unchecked-optional-access` here and reddens every register row that
+            // includes this header. One binding makes the guard and the use the same object.
+            const std::optional<glm::vec3>& contrast = m_Theme->HighContrast[index];
+            if ( m_HighContrast && contrast.has_value() )
+                return *contrast;
 
             return m_Theme->Colors[index];
         }
