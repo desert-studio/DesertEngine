@@ -863,15 +863,12 @@ namespace
             o << "                TypeBuilder( \"" << t.registryName << "\", sizeof( T ) )\n";
             for ( const auto& f : t.fields )
             {
-                o << "                    .Field( FieldInfo{ "
-                  << ".Name = \"" << f.name << "\", "
-                  << ".Type = FieldType::" << f.fieldType << ", "
-                  << ".Offset = offsetof( T, " << f.name
+                o << "                    .Field( FieldInfo{ " << ".Name = \"" << f.name << "\", "
+                  << ".Type = FieldType::" << f.fieldType << ", " << ".Offset = offsetof( T, " << f.name
                   << " ), "
                   // FieldFootprint<decltype(...)>() and not sizeof(...): see the note on the function.
                   << ".Size = ::Desert::Reflection::FieldFootprint<decltype( T::" << f.name << " )>(), "
-                  << ".TypeName = \"" << f.cppType << "\", "
-                  << ".Meta = ";
+                  << ".TypeName = \"" << f.cppType << "\", " << ".Meta = ";
                 EmitMetadata( o, f.meta );
                 if ( f.fieldType == "Enum" && !f.enumValues.empty() )
                 {

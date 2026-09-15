@@ -33,6 +33,27 @@ cd "$(dirname "$0")/../.."
 # calls it. Debian ships them under versioned names (clang-format-18, git-clang-format-18), and there
 # is NO unversioned alias — so `git clang-format` is not a git subcommand at all on a runner, however
 # correctly `--binary` names the formatter. The wrapper is invoked DIRECTLY here for that reason.
+#
+# "PINNED TO 18" IS NOT PINNED ENOUGH, AND THE PATCH VERSION DECIDES. Measured 2026-09-15, one push
+# after the paragraphs above were written: CI runs **Ubuntu clang-format 18.1.3** while every
+# developer here runs **Homebrew 18.1.8**, and the two DISAGREE. `Tools/DesertHeaderTool/main.cpp`
+# passed this gate locally -- twice, run verbatim, against the same base -- and failed it on CI, which
+# reported a violation in code the local formatter had just called clean. 18.1.3 insists on packing
+# adjacent string literals in an `operator<<` chain onto fewer lines; 18.1.8 accepts either form and
+# so has nothing to say about it.
+#
+# That asymmetry is the usable rule: the STRICTER version is the one that gates, and it is not the one
+# anybody here can run. A local pass is therefore NECESSARY AND NOT SUFFICIENT, and the failure it
+# hides is the most expensive kind available -- this job gates Windows and macOS, so both were SKIPPED
+# and the push bought no platform evidence at all.
+#
+# This is the same defect the version pin below was written to close (2026-09-08: an unpinned
+# formatter gave the developer and CI different verdicts on identical code), surviving one digit
+# further down. Closing it properly means pinning the PATCH version on both sides -- a decision about
+# what CI installs, not a line in this script -- so it is recorded here rather than papered over.
+# Until then: when this gate fails on CI and passes locally, believe CI and apply the diff it printed.
+# Both versions accepted the result in the one case measured, so they do not oscillate.
+
 CF=""
 for candidate in clang-format-18 clang-format; do
     if command -v "$candidate" >/dev/null 2>&1; then CF="$candidate"; break; fi
