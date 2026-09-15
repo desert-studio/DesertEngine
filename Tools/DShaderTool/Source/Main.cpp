@@ -9,6 +9,8 @@
 // The parser is the same translation unit the engine/editor uses (compiled in via premake) — this
 // tool can never drift from what the runtime actually accepts.
 
+#include <ToolMain.hpp>
+
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <cstdio>
@@ -50,7 +52,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     if ( argc < 2 )
     {
@@ -105,4 +107,12 @@ int main( int argc, char** argv )
     std::printf( "DShaderTool: %d parsed, %d failed — %zu file(s) total\n", parsed, failed,
                  files.size() );
     return failed == 0 ? 0 : 1;
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "DShaderTool", argc, argv, &RunTool );
 }

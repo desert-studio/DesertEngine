@@ -1,0 +1,109 @@
+# THE FILES THAT HAVE PAID FOR THESE DEFECTS, AND THE CHECKS THEY MAY NEVER SHOW AGAIN.
+#
+# WHY A REGISTER AND NOT "THE WHOLE TREE". The check set in .clang-tidy reports 67 406 distinct source
+# locations over this workspace, so a tree-wide gate would be red on day one and would be switched off
+# within a week — which is the exact state this repository's .clang-tidy was found in. The changed-lines
+# gate covers code as it is written. This register covers the other direction: a file that was cleaned
+# of a defect CLASS stays clean for that class forever, including in the lines nobody is touching.
+#
+# WHY IT IS A LIST OF ROWS AND NOT A COUNT. A gate that pins a NUMBER can be satisfied by editing the
+# number. Each row below is a file, verified clean for every check in CHECKS at the commit that added it.
+# Adding a row is free; removing one is a decision that has to be argued in a commit message.
+#
+# HOW IT RUNS:  scripts/CI/CheckTidy.sh --register      (or as the second half of the default gate)
+# Exit codes are the script's: 0 clean, 1 a finding, 2 the gate could not run.
+#
+# ------------------------------------------------------------------------------------------------------
+# The seven classes Д36 closed. Each is a defect with a mechanism, not a style preference:
+#
+#   unchecked-optional-access ....... dereferencing an empty optional is undefined behaviour, and
+#                                     `.value()` inside a constructor is std::terminate with no handler.
+#   suspicious-memory-comparison .... memcmp over a type with no unique object representation: -0.0f and
+#                                     0.0f are one value and two bit patterns, padding is uninitialised.
+#   exception-escape ................ an exception leaving a destructor or a main is std::terminate.
+#   implicit-widening-of-multiplication-result ... a 32-bit product used as a 64-bit offset has already
+#                                     overflowed by the time the wider type sees it.
+#   incorrect-roundings ............. `(int)( x + 0.5 )` truncates toward zero, so it rounds negatives
+#                                     the wrong way.
+#   assignment-in-if-condition ...... an `=` that reads as an `==` at a glance.
+#   empty-catch ..................... a handler indistinguishable from a forgotten one.
+#   sizeof-container ................ the ONE false positive of the seven, and it is pinned CLOSED rather
+#                                     than suppressed: Reflection.gen.cpp's `sizeof( T::Field )` really did
+#                                     mean the field's footprint inside the struct, beside its offsetof,
+#                                     and it is now spelled Reflection::FieldFootprint<decltype(...)>() —
+#                                     a name a reader and an analyser both understand. The row is here so
+#                                     that a generator reverting to `sizeof` brings the seventeen back.
+#
+# NOT in this list, and each absence is deliberate:
+#   bugprone-branch-clone ........... 14 live findings, all switch arms that legitimately share a body.
+#                                     Not looked at by Д36; a row would be a claim nobody has checked.
+#   concurrency-mt-unsafe ........... 23 live findings after Д36, all getenv/system/exit in
+#                                     single-threaded startup and editor paths. See the task report.
+CHECKS:
+bugprone-unchecked-optional-access
+bugprone-suspicious-memory-comparison
+bugprone-exception-escape
+bugprone-implicit-widening-of-multiplication-result
+bugprone-incorrect-roundings
+bugprone-assignment-in-if-condition
+bugprone-empty-catch
+bugprone-sizeof-container
+
+# ------------------------------------------------------------------------------------------------------
+# One path per line, repository-relative, and every one of them must be a translation unit the compiler
+# database names — a row the gate cannot analyse is reported as an environment failure, not as a pass.
+FILES:
+Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp
+Desert/Common/Source/Common/Core/Profiler.cpp
+Desert/Common/Source/Common/Utilities/PakFile.cpp
+Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp
+Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp
+Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeGenerator.cpp
+Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeSheet.cpp
+Desert/Desert/Source/Engine/Assets/CloudProceduralVolume.cpp
+Desert/Desert/Source/Engine/Assets/Prefab/PrefabAsset.cpp
+Desert/Desert/Source/Engine/Core/ShaderCompiler/Includer/ShaderIncluder.cpp
+Desert/Desert/Source/Engine/Geometry/MeshLOD.cpp
+Desert/Desert/Source/Engine/Geometry/PrimitiveMeshFactory.cpp
+Desert/Desert/Source/Engine/Geometry/ProceduralCharacterFactory.cpp
+Desert/Desert/Source/Engine/Graphic/API/Vulkan/CommandBufferAllocator.cpp
+Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp
+Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanGpuProfiler.cpp
+Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanIndexBuffer.cpp
+Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp
+Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanVertexBuffer.cpp
+Desert/Desert/Source/Engine/Graphic/API/Vulkan/imgui/VulkanImGuiLayer.cpp
+Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.cpp
+Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp
+Desert/Desert/Source/Engine/Project/ProjectContext.cpp
+Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp
+Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp
+Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp
+Desert/Desert/Source/Engine/UI/UIIntrospection.cpp
+Editor/Source/Editor/Core/Control/ControlSocket.cpp
+Editor/Source/Editor/Import/ImportManager.cpp
+Editor/Source/Editor/Packaging/GamePackager.cpp
+Editor/Source/Editor/Panels/Clouds/CloudLayoutPanel.cpp
+Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp
+Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp
+Editor/Source/Editor/Panels/Particles/ParticleEditorPanel.cpp
+Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.cpp
+Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp
+Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp
+Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp
+Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.cpp
+Editor/Source/Editor/Panels/ViewportPanel/Tools/GizmoController.cpp
+Tools/AssetClosure/Source/Main.cpp
+Tools/CloudLayoutBaker/Source/main.cpp
+Tools/CloudVolumeBaker/Source/main.cpp
+Tools/DShaderTool/Source/Main.cpp
+Tools/DesertCtl/Source/Main.cpp
+Tools/DesertHeaderTool/main.cpp
+Tools/DomeSheet/Source/Main.cpp
+Tools/ImageDiff/Source/Main.cpp
+Tools/ImageStat/Source/Main.cpp
+Tools/LatticePeak/Source/main.cpp
+Tools/LineJump/Source/Main.cpp
+Tools/PakTool/Source/Main.cpp
+Tools/SceneMigrator/Source/SceneMigration.cpp
+Tools/SceneMigrator/Source/main.cpp

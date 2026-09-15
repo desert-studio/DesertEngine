@@ -1,0 +1,31 @@
+---
+# THIS DIRECTORY IS WRITTEN BY A PROGRAM, SO A STYLE FINDING HERE HAS NO ADDRESSEE.
+#
+# Reflection.gen.cpp is emitted by Tools/DesertHeaderTool on every build from REFLECT()/PROPERTY()
+# annotations. Nobody can act on "4.0f is a magic number" or "statement should be inside braces" at the
+# line it names: the line does not exist until the next build, and the only edit that could change it is
+# in the generator, where the same character is correct. The file already carries `// clang-format off` in
+# its own header for exactly this reason — the formatter reached the same conclusion first.
+#
+# Measured on the commit that added this file: regenerating the whole field table (372 rows, which is
+# what a change to the emitter does) produced 1256 diagnostics in the changed-lines gate, every one of
+# them about a character the generator chose.
+#
+# WHAT IS KEPT ON IS THE DEFECT SET, NOT NOTHING. `Checks: '-*'` was the first draft and it is WRONG in a
+# way that is worth writing down, because it failed in the shape this repository's gates exist to catch:
+# clang-tidy 18 treats an empty check set as `Error: no checks enabled.` and exits 1, so the whole gate
+# came back non-zero over a file with no findings at all — an environment failure wearing a finding's
+# clothes, and invisible in the output because the error prints among 500 000 lines of "warnings
+# generated". The list below is the same set scripts/CI/TidyRegister.txt names, so the generated file
+# still answers for its DEFECTS and not for its punctuation, and the register's row for it is a live
+# assertion rather than a comment.
+#
+# `-checks=` given on the command line is APPENDED to this value, so --register keeps working unchanged.
+Checks: '-*,bugprone-unchecked-optional-access,bugprone-suspicious-memory-comparison,bugprone-exception-escape,bugprone-implicit-widening-of-multiplication-result,bugprone-incorrect-roundings,bugprone-assignment-in-if-condition,bugprone-empty-catch,bugprone-sizeof-container'
+
+# Same reason as the root config: without it clang-tidy exits 0 over a wall of diagnostics and a gate
+# reading the return value is green no matter what it found. A nested .clang-tidy REPLACES the parent
+# rather than merging with it, so this has to be said again here.
+WarningsAsErrors: '*'
+FormatStyle: none
+...

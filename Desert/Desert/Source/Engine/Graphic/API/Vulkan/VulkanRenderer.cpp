@@ -4,7 +4,6 @@
 #include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
-#include <Engine/Graphic/API/Vulkan/VulkanRenderCommandBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
@@ -342,12 +341,13 @@ namespace Desert::Graphic::API::Vulkan
 
             const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
             VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-            if ( vulkanShader->GetShaderPushConstant().has_value() )
+            const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
+            if ( pushConstant.has_value() )
             {
                 // Push the full reflected range so sub-blocks the caller wrote past the transform
                 // (e.g. per-object PBR material params at offset sizeof(mat4)) are included. The
                 // push buffer is zero-initialized, so any unwritten declared bytes are defined.
-                auto pcInfo = vulkanShader->GetShaderPushConstant().value();
+                const auto& pcInfo = *pushConstant;
                 if ( pcInfo.Size > 0 )
                 {
                     vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
@@ -419,9 +419,10 @@ namespace Desert::Graphic::API::Vulkan
 
         const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
         VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-        if ( pcBuffer.Size && vulkanShader->GetShaderPushConstant().has_value() )
+        const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
+        if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
         {
-            auto pcInfo = vulkanShader->GetShaderPushConstant().value();
+            const auto& pcInfo = *pushConstant;
             vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
                                 (VkShaderStageFlags)pcInfo.ShaderStage, 0, (uint32_t)pcBuffer.Size,
                                 pcBuffer.Data );
@@ -468,9 +469,10 @@ namespace Desert::Graphic::API::Vulkan
 
             const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
             VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-            if ( pcBuffer.Size && vulkanShader->GetShaderPushConstant().has_value() )
+            const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
+            if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
             {
-                auto pcInfo = vulkanShader->GetShaderPushConstant().value();
+                const auto& pcInfo = *pushConstant;
                 vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
                                     (VkShaderStageFlags)pcInfo.ShaderStage, 0, (uint32_t)pcBuffer.Size,
                                     pcBuffer.Data );
@@ -547,14 +549,15 @@ namespace Desert::Graphic::API::Vulkan
 
             const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
             VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-            if ( pcBuffer.Size && vulkanShader->GetShaderPushConstant().has_value() )
+            const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
+            if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
             {
                 // The REFLECTED size, not the buffer's. The push buffer is a fixed 128-byte scratch
                 // (MaterialExecutor), so pushing pcBuffer.Size wrote past the range the pipeline layout
                 // declares — a validation error the moment any vertexless draw gained a push constant,
                 // which the terrain's material row index is the first to do. RenderMesh three hundred
                 // lines up already used pcInfo.Size; this is the same line, and it was the odd one out.
-                auto pcInfo = vulkanShader->GetShaderPushConstant().value();
+                const auto& pcInfo = *pushConstant;
                 if ( pcInfo.Size > 0 )
                 {
                     vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),

@@ -101,9 +101,8 @@ namespace Desert::Graphic::API::Vulkan
                                         ->GetPhysicalDevice()
                                         ->GetVulkanPhysicalDevice();
         init_info.Device        = device;
-        init_info.QueueFamily   = *SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() )
-                                        ->GetPhysicalDevice()
-                                        ->GetGraphicsFamily();
+        init_info.QueueFamily =
+             SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() )->GetPhysicalDevice()->GetGraphicsFamily();
         init_info.Queue         = SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() )->GetGraphicsQueue();
         init_info.PipelineCache = VK_NULL_HANDLE;
         init_info.DescriptorPool = m_ImguiPool;

@@ -1,5 +1,6 @@
 #include "ProjectContext.hpp"
 
+#include <Common/Core/Core.hpp> // DESERT_VERIFY
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Constants.hpp>
@@ -167,6 +168,12 @@ namespace Desert::Project
 
     const ProjectFile& ProjectContext::Current()
     {
+        // SAID OUT LOUD, because the alternative is undefined behaviour that reads as a corrupt project
+        // file. Twenty-one call sites take this reference and HasProject() is a separate question none of
+        // them is obliged to ask; before this line, calling Current() before a project was opened
+        // dereferenced an empty optional and carried on with whatever was in that storage.
+        DESERT_VERIFY( s_Current.has_value(),
+                       "ProjectContext::Current() before a project was opened — ask HasProject() first" );
         return *s_Current;
     }
 

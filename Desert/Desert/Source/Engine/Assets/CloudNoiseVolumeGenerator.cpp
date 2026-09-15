@@ -1,3 +1,4 @@
+#include <Common/Core/Math/Rounding.hpp>
 #include "CloudNoiseVolumeGenerator.hpp"
 
 #include <glm/glm.hpp>
@@ -44,8 +45,7 @@ namespace Desert::Assets
         // over four channels and eight million voxels is a visible darkening of the whole field.
         unsigned char QuantiseUnit( float value )
         {
-            const float clamped = glm::clamp( value, 0.0f, 1.0f );
-            return static_cast<unsigned char>( clamped * 255.0f + 0.5f );
+            return Common::Math::QuantiseUnitToByte( value );
         }
 
         // VOXEL CENTRES, NOT CORNERS. Sampling the corner makes the last voxel of the volume carry the same

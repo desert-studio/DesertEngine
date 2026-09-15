@@ -333,9 +333,12 @@ namespace Desert::Editor
             data.MaterialId = Common::UUID::Generate();
             // Reference the parent by its STABLE in-file id (falls back to the asset handle,
             // which file materials adopt from that id anyway).
-            data.ParentMaterialId = ( parent.Data().MaterialId && !parent.Data().MaterialId->IsNull() )
-                                         ? *parent.Data().MaterialId
-                                         : Common::UUID( static_cast<uint64_t>( parent.GetMetadata().Handle ) );
+            // ONE read of the parent's id. It used to be asked for three times in one expression, so the
+            // guard and the two uses were three separate questions to three separately returned objects.
+            const auto& parentMaterialId = parent.Data().MaterialId;
+            data.ParentMaterialId        = ( parentMaterialId && !parentMaterialId->IsNull() )
+                                                ? *parentMaterialId
+                                                : Common::UUID( static_cast<uint64_t>( parent.GetMetadata().Handle ) );
             if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
                       path.generic_string(), rfl::json::write( data ) );
                  !written ) // same reason as CreateAndRegisterMaterial above
@@ -741,14 +744,14 @@ namespace Desert::Editor
 
                 // Instance parent, resolved BEFORE the header is drawn: the header's swatches must show
                 // the values the slot actually renders with, which for an instance live in the parent.
-                const bool isInstanceAsset = asset && asset->Data().IsInstance();
+                const auto parentId = asset ? asset->Data().InstanceParentId() : std::optional<Common::UUID>{};
+                const bool isInstanceAsset = parentId.has_value();
                 std::shared_ptr<Assets::SurfaceMaterialAsset> parentAsset;
                 std::string                                   parentName;
                 if ( isInstanceAsset && m_AssetManager )
                 {
                     const auto parentHandle =
-                         Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal(
-                              *asset->Data().ParentMaterialId );
+                         Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( *parentId );
                     if ( !parentHandle.IsNull() )
                         parentAsset = m_AssetManager->FindByHandle<Assets::SurfaceMaterialAsset>( parentHandle );
                     parentName =

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -58,7 +59,7 @@ namespace Desert::Graphic
 
         const float last = static_cast<float>( bins - 1 );
         const float t    = ( std::log2( luminance ) - window.MinLogLum ) / window.Range();
-        return static_cast<uint32_t>( std::clamp( t, 0.0f, 1.0f ) * last + 0.5f );
+        return static_cast<uint32_t>( Common::Math::RoundToNearest( std::clamp( t, 0.0f, 1.0f ) * last ) );
     }
 
     // The luminance a bin index stands for when the average is reconstructed — AEAverage's own formula.

@@ -300,8 +300,11 @@ namespace Desert::Editor
             std::vector<size_t>                             roots;
             for ( size_t i = 0; i < bones.size(); ++i )
             {
-                if ( bones[i].ParentBoneID.has_value() )
-                    children[bones[i].ParentBoneID.value()].push_back( i );
+                const auto& parentBone = bones[i].ParentBoneID;
+                if ( parentBone.has_value() )
+                {
+                    children[*parentBone].push_back( i );
+                }
                 else
                     roots.push_back( i );
             }

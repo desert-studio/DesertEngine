@@ -141,7 +141,13 @@ namespace Common
         // plainly"), and the synthetic keys that are not filesystem paths at all — `procedural://` clips,
         // `memory://` sequencer clips — must keep hashing to what they always did rather than acquire a
         // dependency on the process's working directory.
-        static std::string StableKeyForPath( const std::filesystem::path& path ) noexcept
+        // NOT noexcept, AND IT NEVER COULD BE. The three functions below build std::strings and
+        // std::filesystem::paths; every one of those allocates, so each was a signature promising a
+        // guarantee its body does not honour — the same "a comment is not the code" shape, written into the
+        // type system where it is worse, because an allocation failure inside a noexcept function is
+        // std::terminate rather than an exception a caller could see. Nothing depended on the promise:
+        // none of the three is used where a non-throwing operation is required.
+        static std::string StableKeyForPath( const std::filesystem::path& path )
         {
             namespace fs = std::filesystem;
 
@@ -206,7 +212,7 @@ namespace Common
         // with no tag has no machine-independent identity to compare with). It is one sentence of the root
         // table's meaning, so it lives beside the table — the importer used to spell the loop inline, which
         // is how the second asker would have got a second, drifting copy.
-        static bool IsProjectRelativeKey( std::string_view key ) noexcept
+        static bool IsProjectRelativeKey( std::string_view key )
         {
             for ( const PathRoot& candidate : ContentRoots() )
             {
@@ -234,7 +240,7 @@ namespace Common
         // fallback: a plain relative path written before this form existed, an absolute path to a file
         // genuinely outside the project (StableKeyForPath returns those verbatim too), and the synthetic
         // `procedural://` / `memory://` keys that are identities rather than locations.
-        static std::filesystem::path PathForStableKey( std::string_view key ) noexcept
+        static std::filesystem::path PathForStableKey( std::string_view key )
         {
             for ( const PathRoot& candidate : ContentRoots() )
             {

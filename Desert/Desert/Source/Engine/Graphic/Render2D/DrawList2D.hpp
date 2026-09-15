@@ -19,6 +19,13 @@ namespace Desert::Graphic::Render2D
         glm::vec2 Position; // pixel coordinates (top-left origin)
         glm::vec2 UV;
         glm::vec4 Color; // straight (non-premultiplied) RGBA, 0..1
+
+        /// Same vertex? DEFAULTED, so the compiler compares the eight floats and not the 32 bytes. The one
+        /// reader — UIIntrospection, finding the first vertex two draw lists disagree about — used memcmp,
+        /// which answers a different question of any float: -0.0f and 0.0f are one position and two bit
+        /// patterns, so a vertex mirrored to exactly zero read as "changed" and pointed the introspector at
+        /// the wrong element.
+        [[nodiscard]] bool operator==( const Vertex2D& ) const = default;
     };
 
     // A run of indices sharing the same GPU state (bound texture + clip rect). Consecutive primitives with

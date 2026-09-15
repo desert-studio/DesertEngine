@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # clang-tidy gate. Two modes:
-#   scripts/CI/CheckTidy.sh [<base-ref-or-sha>]   changed lines only, against the merge-base
+#   scripts/CI/CheckTidy.sh [<base-ref-or-sha>]   changed lines only, against the merge-base,
+#                                                 AND the register below
 #   scripts/CI/CheckTidy.sh --all                 every translation unit in the workspace
+#   scripts/CI/CheckTidy.sh --register            only scripts/CI/TidyRegister.txt
 #
 # Exit codes, and they are the interface: 0 clean, 1 findings, 2 THE GATE COULD NOT RUN.
 # 2 exists for the same reason it exists in CheckFormat.sh: this project's most frequent defect is an
@@ -84,6 +86,97 @@ esac
 # clang-tidy-diff.py both report the maximum child exit code — so without that setting this gate
 # would be green over a wall of diagnostics. Nothing here re-asserts it: one place decides, and a
 # developer running clang-tidy by hand gets the same verdict CI does.
+
+
+# ------------------------------------------------------------------------------------------------------
+# THE REGISTER: files that were cleaned of a defect CLASS and must stay clean for it, in every line and
+# not only in the ones somebody is touching. scripts/CI/TidyRegister.txt carries the rows and the argument
+# for each check; this is the part that runs them.
+#
+# It exists because the changed-lines gate has one blind spot by construction: a file nobody edits cannot
+# regress into it. Forty-three unchecked optional dereferences, three memcmps over float aggregates and
+# fourteen truncating roundings were all sitting in files that had passed every changed-lines run there
+# has ever been.
+RunRegister() {
+    local register="$ROOT/scripts/CI/TidyRegister.txt"
+    if [ ! -f "$register" ]; then
+        echo "clang-tidy: $register is missing; the register gate cannot run." >&2
+        return 2
+    fi
+
+    local checks files
+    checks=$(awk '/^CHECKS:/{c=1;next} /^FILES:/{c=0} c && /^[a-z]/ {printf "%s%s", sep, $0; sep=","}' "$register")
+    files=$(awk '/^FILES:/{f=1;next} f && /^[A-Za-z]/ {print}' "$register")
+
+    # A REGISTER THAT CAME OUT EMPTY IS AN ENVIRONMENT FAILURE, NOT A PASS. This is the same shape the
+    # exit codes at the top of this file exist for: nothing to analyse reads exactly like nothing wrong.
+    if [ -z "$checks" ] || [ -z "$files" ]; then
+        echo "clang-tidy: the register parsed to $(printf '%s' "$checks" | wc -c) bytes of checks and" >&2
+        echo "  $(printf '%s\n' "$files" | grep -c .) file(s). One of its two sections is missing or" >&2
+        echo "  its format changed. This is an environment failure, NOT a clean register." >&2
+        return 2
+    fi
+
+    local missing=""
+    local absolute=""
+    local row
+    while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        if [ ! -f "$ROOT/$row" ]; then
+            missing="$missing $row"
+            continue
+        fi
+        absolute="$absolute$ROOT/$row"$'\n'
+    done <<< "$files"
+
+    if [ -n "$missing" ]; then
+        echo "clang-tidy: the register names files that do not exist:" >&2
+        printf '    %s\n' $missing >&2
+        echo "A row is a claim about a file. Renaming one means moving its row, not dropping it." >&2
+        return 2
+    fi
+
+    local rows
+    rows=$(printf '%s' "$absolute" | grep -c .)
+    echo "--- register: $rows file(s) x $(printf '%s' "$checks" | tr ',' '\n' | grep -c .) check(s), -j$JOBS"
+
+    local log
+    log=$(mktemp)
+    printf '%s' "$absolute" | tr '\n' '\0' \
+        | xargs -0 -P "$JOBS" -n 1 -I{} "$TIDY" -p "$ROOT" -quiet -checks="-*,$checks" \
+                ${EXTRA[@]+"${EXTRA[@]}"} {} > "$log" 2>&1
+    local rc=$?
+
+    # THE EXIT CODE OF xargs IS NOT ENOUGH: it reports 123 for "some child failed" and 0 otherwise, and a
+    # clang-tidy that could not parse a file exits non-zero for a reason that is not a finding. The
+    # diagnostics themselves are what is read, and their absence is checked against the row count above.
+    if grep -qE ': (error|warning): ' "$log"; then
+        echo ""
+        grep -E ': (error|warning): ' "$log" | sed "s#$ROOT/##" | sort -u
+        echo ""
+        echo "clang-tidy: a file in scripts/CI/TidyRegister.txt shows a defect class it was cleaned of."
+        echo "Reproduce with: scripts/CI/CheckTidy.sh --register"
+        rm -f "$log"
+        return 1
+    fi
+
+    if [ "$rc" -ne 0 ]; then
+        echo "clang-tidy: the register run exited $rc with no diagnostics — the analyser failed to run" >&2
+        echo "  over at least one row. This is an environment failure, NOT a clean register." >&2
+        sed -n '1,20p' "$log" >&2
+        rm -f "$log"
+        return 2
+    fi
+
+    rm -f "$log"
+    echo "clang-tidy: the register's $rows file(s) are clean"
+    return 0
+}
+
+if [ "${1:-}" = "--register" ]; then
+    RunRegister
+    exit $?
+fi
 
 if [ "${1:-}" = "--all" ]; then
     RCT="$(command -v run-clang-tidy-18 || echo "$TIDY_DIR/run-clang-tidy")"
@@ -185,7 +278,10 @@ printf '%s\n' "$OUT"
 case "$RC" in
     0)
         echo "clang-tidy: the lines you changed are clean (vs $BASE)"
-        exit 0
+        # AND THE REGISTER, in the same invocation, so CI picks it up without a second workflow step and
+        # a developer cannot be clean on their diff while having reopened a class somewhere else.
+        RunRegister
+        exit $?
         ;;
     1)
         echo ""

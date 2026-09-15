@@ -21,6 +21,8 @@
 // a shape phase A3 measured becomes a file without forty megabytes of them living in the repository.
 // Without either the shipped example recipe is baked, which is the file the demo scene names.
 
+#include <ToolMain.hpp>
+
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Assets/CloudModellingCatalogue.hpp>
@@ -57,7 +59,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     std::string outPath;
     std::string inPath;
@@ -198,4 +200,12 @@ int main( int argc, char** argv )
                  100.0 * static_cast<double>( occupied ) / voxelCount, static_cast<long long>( elapsed.count() ) );
 
     return 0;
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "CloudVolumeBaker", argc, argv, &RunTool );
 }

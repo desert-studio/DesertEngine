@@ -11,6 +11,10 @@ project "LineJump"
     files {
         "Source/**.cpp",
     }
+    includedirs {
+        "%{wks.location}/Tools/Shared",
+    }
+
 
     externalincludedirs {
         "%{wks.location}/ThirdParty/stb/include",

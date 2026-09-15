@@ -191,7 +191,7 @@ namespace Desert::Editor
                     continue;
 
                 std::vector<float> pos;
-                pos.reserve( sm.VertexCount * 3 );
+                pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
                 for ( uint32_t v = 0; v < sm.VertexCount; ++v )
                 {
                     const auto& p = data.StaticVertices[sm.VertexOffset + v].Position;

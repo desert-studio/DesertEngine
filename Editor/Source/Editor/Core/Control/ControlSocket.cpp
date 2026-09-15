@@ -1,3 +1,4 @@
+#include <Common/Core/ErrnoText.hpp>
 #include "ControlSocket.hpp"
 
 #include <Common/Core/Logger.hpp>
@@ -174,7 +175,7 @@ namespace Desert::Editor::Control
             {
                 return Common::MakeFormattedError<bool>(
                      "--control-socket '{}' is a leftover from a dead editor and could not be removed: {}.", path,
-                     std::strerror( errno ) );
+                     Common::ErrnoText() );
             }
             LOG_INFO( "[Control] cleared a stale socket at '{}' (nothing was listening on it).", path );
         }
@@ -182,14 +183,14 @@ namespace Desert::Editor::Control
         const int fd = ::socket( AF_UNIX, SOCK_STREAM, 0 );
         if ( fd < 0 )
             return Common::MakeFormattedError<bool>( "--control-socket: socket() failed: {}",
-                                                     std::strerror( errno ) );
+                                                     Common::ErrnoText() );
 
         address.sun_family = AF_UNIX;
         std::strncpy( address.sun_path, path.c_str(), sizeof( address.sun_path ) - 1 );
 
         if ( ::bind( fd, reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) ) != 0 )
         {
-            const std::string reason = std::strerror( errno );
+            const std::string reason = Common::ErrnoText();
             ::close( fd );
             return Common::MakeFormattedError<bool>( "--control-socket '{}': bind failed: {}", path, reason );
         }
@@ -198,7 +199,7 @@ namespace Desert::Editor::Control
         // somebody's editor — every command the palette offers, which includes saving over their scene.
         if ( ::chmod( path.c_str(), S_IRUSR | S_IWUSR ) != 0 )
         {
-            const std::string reason = std::strerror( errno );
+            const std::string reason = Common::ErrnoText();
             ::close( fd );
             ::unlink( path.c_str() );
             return Common::MakeFormattedError<bool>(
@@ -209,7 +210,7 @@ namespace Desert::Editor::Control
 
         if ( ::listen( fd, 1 ) != 0 )
         {
-            const std::string reason = std::strerror( errno );
+            const std::string reason = Common::ErrnoText();
             ::close( fd );
             ::unlink( path.c_str() );
             return Common::MakeFormattedError<bool>( "--control-socket '{}': listen failed: {}", path, reason );
@@ -328,7 +329,7 @@ namespace Desert::Editor::Control
             if ( errno == EINTR )
                 continue;
 
-            LOG_WARN( "[Control] read failed ({}); dropping the client.", std::strerror( errno ) );
+            LOG_WARN( "[Control] read failed ({}); dropping the client.", Common::ErrnoText() );
             DropClient();
             return;
         }

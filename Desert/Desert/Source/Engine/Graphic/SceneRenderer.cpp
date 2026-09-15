@@ -1,3 +1,4 @@
+#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -422,6 +423,7 @@ namespace Desert::Graphic
     }
 
     SceneRenderer::~SceneRenderer()
+    try
     {
         if ( !m_SlotLease.IsValid() )
             return;
@@ -431,6 +433,7 @@ namespace Desert::Graphic
         LOG_INFO( "[SceneRenderer] Releasing renderer slot {} ({}/{} in use after release).",
                   m_SlotLease.RecordingSlot(), SlotPool().InUseCount() - 1, EngineContext::kMaxRendererSlots );
     }
+    DESERT_DESTRUCTOR_GUARD( "~SceneRenderer" )
 
     NO_DISCARD Common::BoolResultStr SceneRenderer::BeginScene( const Desert::Core::Scene& scene )
     {
@@ -1486,8 +1489,16 @@ namespace Desert::Graphic
     void SceneRenderer::RegisterExternalPass( ExternalPassSpecification&& spec )
     {
         DESERT_VERIFY( !spec.Name.empty() && spec.Execute );
-        TrackRenderSystem( ExternalSystemKey( spec.Name ),
-                           std::make_shared<ExternalPassSystem>( this, std::move( spec ) ) );
+
+        // THE KEY IS TAKEN BEFORE THE SPEC IS MOVED, AND THAT ORDER MUST BE A STATEMENT RATHER THAN AN
+        // ARGUMENT LIST. Reading `spec.Name` and moving `spec` inside one argument list leaves the order
+        // to the compiler: clang evaluates arguments left to right, MSVC right to left, and both conform.
+        // Under MSVC the move ran first, so every external pass registered itself under the bare prefix
+        // "External:" — one key for all of them, the second registration evicting the first, and
+        // UnregisterExternalPass() looking up "External:<name>" and never finding it. Consecutive
+        // statements ARE sequenced; see Desert/Tests/Engine/ArgumentOrder for the census over the tree.
+        const std::string key = ExternalSystemKey( spec.Name );
+        TrackRenderSystem( key, std::make_shared<ExternalPassSystem>( this, std::move( spec ) ) );
         RebuildRenderGraph();
     }
 

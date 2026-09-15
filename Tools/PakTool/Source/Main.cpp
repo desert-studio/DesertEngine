@@ -22,6 +22,8 @@
 // — not CI, not the Package scripts, not a test — so it is gone rather than kept beside its
 // replacement. See Docs/Architecture/P3_CONTENT_MANIFEST.md.
 
+#include <ToolMain.hpp>
+
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -230,7 +232,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     if ( argc < 3 )
         return Usage();
@@ -260,4 +262,12 @@ int main( int argc, char** argv )
         return Patch( argv[2], argv[3], argv[4] );
 
     return Usage();
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "PakTool", argc, argv, &RunTool );
 }

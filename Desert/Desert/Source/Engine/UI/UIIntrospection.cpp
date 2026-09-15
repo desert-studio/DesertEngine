@@ -332,7 +332,7 @@ namespace Desert::UI
         std::size_t       firstVert = shared;
         for ( std::size_t i = 0; i < shared; ++i )
         {
-            if ( std::memcmp( &withVerts[i], &cutVerts[i], sizeof( Graphic::Render2D::Vertex2D ) ) != 0 )
+            if ( !( withVerts[i] == cutVerts[i] ) )
             {
                 firstVert = i;
                 break;

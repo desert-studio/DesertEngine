@@ -1,5 +1,6 @@
 #include "CloudProceduralVolume.hpp"
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -642,11 +643,19 @@ namespace Desert::Assets
 
             // The SHAPE decides where the lumps go and how tall they are, so a type edited in place — which
             // the renderer's generation counter already catches — and a type whose numbers were reached
-            // some other way both have to re-bake. Compared as bytes because CloudTypeShape is a flat
-            // aggregate of floats with no padding to be left uninitialised.
-            if ( std::memcmp( &a.Species[slot].Shape, &b.Species[slot].Shape,
-                              sizeof( Graphic::CloudTypeShape ) ) != 0 )
+            // some other way both have to re-bake.
+            //
+            // COMPARED AS VALUES, NOT AS BYTES. This was a memcmp under a comment claiming CloudTypeShape
+            // is "a flat aggregate of floats with no padding". Padding was never the argument that mattered:
+            // a FLOAT has no unique object representation whatever the layout, so -0.0f and 0.0f — one
+            // authored number, two bit patterns — compared as DIFFERENT and forced a re-bake of an
+            // unchanged sky, while two distinct NaNs with equal bits compared as the same shape. The type
+            // already carries a defaulted operator== for exactly this question (CloudTypeShape.hpp), which
+            // is also the one the documents' GetDiskState uses, so the two can no longer disagree.
+            if ( !( a.Species[slot].Shape == b.Species[slot].Shape ) )
+            {
                 return false;
+            }
         }
 
         return true;
@@ -1728,8 +1737,7 @@ namespace Desert::Assets
                                  const size_t at = ( ( static_cast<size_t>( z ) * height + y ) * width + x ) *
                                                    kCloudProceduralBytesPerVoxel;
 
-                                 voxels[at + slot] = static_cast<unsigned char>(
-                                      std::clamp( profile, 0.0f, 1.0f ) * 255.0f + 0.5f );
+                                 voxels[at + slot] = Common::Math::QuantiseUnitToByte( profile );
                              }
                          }
                      }

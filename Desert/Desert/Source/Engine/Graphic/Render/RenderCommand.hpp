@@ -13,6 +13,16 @@
 // `Execute` takes SceneRenderer by REFERENCE, so this file never needed the definition. The command
 // headers that CALL something on the renderer include SceneRenderer.hpp themselves — which is where the
 // dependency actually is, and which is what makes the graph acyclic rather than merely ordered.
+// FORWARD-DECLARED, NOT INCLUDED, AND THE CYCLE IS THE REASON.
+//
+// This header's only use of SceneRenderer is a reference parameter, and including it closed a loop:
+// RenderCommand.hpp -> SceneRenderer.hpp -> Core/Scene.hpp -> ECS/System/System.hpp ->
+// Render/RenderCommandBuffer.hpp -> RenderCommand.hpp. The build survived it on `#pragma once` plus the
+// order a .cpp happens to include things in, which is not a property anyone can rely on — and it is
+// observable: with RenderCommandBuffer.hpp as the main file, Scene.hpp does not parse at all
+// ("no member named 'System' in namespace 'Desert::ECS'"), because System.hpp reaches it half-defined.
+// clang-tidy analyses a changed header exactly that way, so the loop also made every edit to that header
+// report six errors about somebody else's file.
 namespace Desert::Graphic
 {
     class SceneRenderer;

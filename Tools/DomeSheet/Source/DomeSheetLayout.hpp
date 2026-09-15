@@ -383,7 +383,11 @@ namespace Desert::DomeSheet
                     continue;
                 std::uint8_t* p = image.At( x, y );
                 for ( int channel = 0; channel < 3; ++channel )
-                    p[channel] = static_cast<std::uint8_t>( static_cast<float>( p[channel] ) * keep + 0.5f );
+                    // std::lround, not `+ 0.5f` truncation: `keep` is a fraction so the product is never
+                    // negative here, but the two forms are indistinguishable at the site and only one of
+                    // them stays right if it ever is. One instruction either way (fcvtas / cvtss2si).
+                    p[channel] =
+                         static_cast<std::uint8_t>( std::lround( static_cast<float>( p[channel] ) * keep ) );
             }
         }
     }

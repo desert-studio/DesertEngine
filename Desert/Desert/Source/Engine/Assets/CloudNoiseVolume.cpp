@@ -215,7 +215,7 @@ namespace Desert::Assets
 
         for ( uint32_t channel = 0; channel < 4u; ++channel )
         {
-            const uint32_t stored = ReadU32( at + 20 + channel * 4u );
+            const uint32_t stored = ReadU32( at + 20u + static_cast<size_t>( channel ) * 4u );
             if ( stored != channel )
                 return Common::MakeFormattedError<CloudNoiseVolumeData>(
                      "channel {} declares meaning {}, but this build reads volumes whose channels are in the "

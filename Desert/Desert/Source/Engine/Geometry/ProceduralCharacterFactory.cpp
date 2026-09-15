@@ -239,13 +239,19 @@ namespace Desert::Geometry
 
         // Owns the humanoid skeleton for the process lifetime (SkinnedMesh only holds a const Skeleton*).
         std::unique_ptr<Animation::Skeleton> s_Skeleton;
-        std::optional<Assets::AssetHandle>   s_Handle;
+        // NOT AN OPTIONAL, AND IT NEVER MEANT ONE. `RegisterProcedural` returns a handle, not a maybe, so
+        // after BuildOnce() there is no state in which this is absent — the optional was doing duty as the
+        // "already built" flag and every reader paid for it with an unguarded dereference.
+        Assets::AssetHandle                  s_Handle{ static_cast<uint64_t>( 0 ) };
+        bool                                 s_Built     = false;
         uint64_t                             s_Signature = 0;
 
         void BuildOnce()
         {
-            if ( s_Handle.has_value() )
+            if ( s_Built )
+            {
                 return;
+            }
 
             s_Skeleton = std::make_unique<Animation::Skeleton>( BuildBones() );
             s_Skeleton->RecomputeOffsetMatrices(); // signature is name/parent based, so this stays valid
@@ -278,13 +284,14 @@ namespace Desert::Geometry
             auto mesh = std::make_shared<SkinnedMesh>( verts, indices, std::vector<Submesh>{ sub },
                                                        s_Skeleton.get() );
             s_Handle = Runtime::ResourceRegistry::GetMeshService()->RegisterProcedural( mesh );
+            s_Built   = true;
         }
     } // namespace
 
     Assets::AssetHandle ProceduralCharacterFactory::GetHumanoidMesh()
     {
         BuildOnce();
-        return *s_Handle;
+        return s_Handle;
     }
 
     uint64_t ProceduralCharacterFactory::GetHumanoidSkeletonSignature()

@@ -1,3 +1,4 @@
+#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
@@ -181,6 +182,7 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanIndexBuffer::~VulkanIndexBuffer()
+    try
     {
         // A destructor has no channel, so the report is the log. Left silent, a index buffer whose
         // VMA de-allocation refused leaked device memory with nothing anywhere to say a leak had begun —
@@ -189,6 +191,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !released.IsSuccess() )
             LOG_ERROR( "[VulkanIndexBuffer] Release failed during destruction: {}", released.GetError() );
     }
+    DESERT_DESTRUCTOR_GUARD( "~VulkanIndexBuffer" )
 
     Common::BoolResultStr VulkanIndexBuffer::Release()
     {

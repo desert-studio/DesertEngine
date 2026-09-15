@@ -55,6 +55,18 @@ namespace Desert::Assets
             return ParentMaterialId.has_value() && !ParentMaterialId->IsNull();
         }
 
+        /// THE PARENT THIS INSTANCE OVERRIDES, or nothing when this asset is not an instance.
+        ///
+        /// ONE call answers both halves. Six call sites used to ask `IsInstance()` and then dereference
+        /// `ParentMaterialId` — through a SECOND call to `Data()`, on a second copy of this struct — so
+        /// the question and the answer were about objects nothing said were the same one. They happen to
+        /// be today; the shape is what is wrong, and it is the shape a reader has to re-verify at each of
+        /// the six. Returning the id itself makes the guard and the value inseparable.
+        [[nodiscard]] std::optional<Common::UUID> InstanceParentId() const
+        {
+            return IsInstance() ? ParentMaterialId : std::optional<Common::UUID>{};
+        }
+
         // ── Queries ────────────────────────────────────────────────────────────────
         std::string EffectiveShaderName() const
         {

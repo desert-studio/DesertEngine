@@ -703,10 +703,18 @@ namespace Desert::UI
             };
             if ( hex.size() != 6 && hex.size() != 8 )
                 return false;
-            int v[8];
+            // The nibble is stored and THEN tested. Written as an assignment inside the condition it reads
+            // as a comparison at a glance, which is the one place a reader must not have to look twice: a
+            // `==` slipped in here would parse, compile, and quietly accept every malformed colour.
+            int v[8] = { 0 };
             for ( size_t k = 0; k < hex.size(); ++k )
-                if ( ( v[k] = nib( hex[k] ) ) < 0 )
+            {
+                v[k] = nib( hex[k] );
+                if ( v[k] < 0 )
+                {
                     return false;
+                }
+            }
             out.r = ( v[0] * 16 + v[1] ) / 255.0f;
             out.g = ( v[2] * 16 + v[3] ) / 255.0f;
             out.b = ( v[4] * 16 + v[5] ) / 255.0f;

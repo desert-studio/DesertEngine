@@ -134,10 +134,12 @@ namespace Desert::Runtime
                 // resolving to its parent -- the surface then draws with the instance's own (empty)
                 // material rather than the base it overrides.
                 (void)EnsureLoaded( ait->second );
-                if ( auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
-                     surf && surf->Data().IsInstance() )
+                auto*      surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
+                const auto parentId =
+                     ( surf != nullptr ) ? surf->Data().InstanceParentId() : std::optional<Common::UUID>{};
+                if ( parentId.has_value() )
                 {
-                    const auto parent = GetAssetHandleByExternal( *surf->Data().ParentMaterialId );
+                    const auto parent = GetAssetHandleByExternal( *parentId );
                     if ( parent.IsNull() || parent == current )
                         return nullptr;
                     current = parent;
@@ -222,10 +224,17 @@ namespace Desert::Runtime
             // A released shell has no Data to walk: see MaterialService::EnsureLoaded.
             (void)EnsureLoaded( ait->second );
             auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
-            if ( !surf || !surf->Data().IsInstance() )
+            if ( surf == nullptr )
+            {
                 break;
+            }
+            const auto parentId = surf->Data().InstanceParentId();
+            if ( !parentId.has_value() )
+            {
+                break;
+            }
             chain.push_back( surf );
-            const auto parent = GetAssetHandleByExternal( *surf->Data().ParentMaterialId );
+            const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
                 break;
             current = parent;
@@ -257,10 +266,17 @@ namespace Desert::Runtime
             // A released shell has no Data to walk: see MaterialService::EnsureLoaded.
             (void)EnsureLoaded( ait->second );
             auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
-            if ( !surf || !surf->Data().IsInstance() )
+            if ( surf == nullptr )
+            {
                 break;
+            }
+            const auto parentId = surf->Data().InstanceParentId();
+            if ( !parentId.has_value() )
+            {
+                break;
+            }
             chain.push_back( surf );
-            const auto parent = GetAssetHandleByExternal( *surf->Data().ParentMaterialId );
+            const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
                 break;
             current = parent;
@@ -307,9 +323,12 @@ namespace Desert::Runtime
             auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( it->second.get() );
             if ( !surf )
                 return {};
-            if ( !surf->Data().IsInstance() )
+            const auto parentId = surf->Data().InstanceParentId();
+            if ( !parentId.has_value() )
+            {
                 return surf->Data().EffectiveShaderName();
-            const auto parent = GetAssetHandleByExternal( *surf->Data().ParentMaterialId );
+            }
+            const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
                 return surf->Data().EffectiveShaderName();
             current = parent;

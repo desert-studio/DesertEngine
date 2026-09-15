@@ -131,7 +131,7 @@ namespace Desert::Geometry
         constexpr float    radius      = 0.5f;
 
         std::vector<Vertex> vertices;
-        vertices.reserve( ( stackCount + 1 ) * ( sectorCount + 1 ) );
+        vertices.reserve( static_cast<size_t>( stackCount + 1 ) * static_cast<size_t>( sectorCount + 1 ) );
 
         for ( uint32_t i = 0; i <= stackCount; ++i )
         {
@@ -157,7 +157,7 @@ namespace Desert::Geometry
         }
 
         std::vector<Index> indices;
-        indices.reserve( stackCount * sectorCount * 2 );
+        indices.reserve( static_cast<size_t>( stackCount ) * static_cast<size_t>( sectorCount ) * 2 );
 
         const uint32_t stride = sectorCount + 1;
         for ( uint32_t i = 0; i < stackCount; ++i )

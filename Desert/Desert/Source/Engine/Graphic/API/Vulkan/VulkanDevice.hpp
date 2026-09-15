@@ -12,12 +12,27 @@ namespace Desert::Graphic::API::Vulkan
         VulkanPhysicalDevice();
         ~VulkanPhysicalDevice() = default;
 
+        /// THE RAW PROBE RESULT, and the only place an absent family may be represented. `PresentFamily`
+        /// used to sit here and was never assigned by anything — a fourth optional that every reader would
+        /// have found empty.
         struct QueueFamilyIndices
         {
-            std::optional<int32_t> GraphicsFamily;
-            std::optional<int32_t> ComputeFamily;
-            std::optional<int32_t> TransferFamily;
-            std::optional<int32_t> PresentFamily;
+            std::optional<uint32_t> GraphicsFamily;
+            std::optional<uint32_t> ComputeFamily;
+            std::optional<uint32_t> TransferFamily;
+        };
+
+        /// WHAT A CREATED DEVICE IS GUARANTEED TO HAVE. Plain indices, because after CreateDevice() there
+        /// is no such thing as a missing one: a physical device whose driver reports no graphics family is
+        /// refused there, by name, with the families it did report. Before that refusal existed, five call
+        /// sites unwrapped the optionals above — three with `.value()`, which throws
+        /// `std::bad_optional_access` out of a constructor that has no handler, and two with `*`, which is
+        /// undefined behaviour — and all five were asking a question device selection had already settled.
+        struct ResolvedQueueFamilies
+        {
+            uint32_t Graphics = 0;
+            uint32_t Compute  = 0;
+            uint32_t Transfer = 0;
         };
 
         const VkPhysicalDevice& GetVulkanPhysicalDevice() const
@@ -29,19 +44,22 @@ namespace Desert::Graphic::API::Vulkan
             return m_SupportedExtensions.find( extensionName ) != m_SupportedExtensions.end();
         }
 
-        std::optional<int32_t> GetGraphicsFamily() const
+        [[nodiscard]] uint32_t GetGraphicsFamily() const
         {
-            return m_QueueFamilyIndices.GraphicsFamily;
+            DESERT_VERIFY( m_QueueFamiliesResolved, "queue families read before CreateDevice() settled them" );
+            return m_ResolvedQueueFamilies.Graphics;
         }
 
-        std::optional<int32_t> GetComputeFamily() const
+        [[nodiscard]] uint32_t GetComputeFamily() const
         {
-            return m_QueueFamilyIndices.ComputeFamily;
+            DESERT_VERIFY( m_QueueFamiliesResolved, "queue families read before CreateDevice() settled them" );
+            return m_ResolvedQueueFamilies.Compute;
         }
 
-        std::optional<int32_t> GetTransferFamily() const
+        [[nodiscard]] uint32_t GetTransferFamily() const
         {
-            return m_QueueFamilyIndices.TransferFamily;
+            DESERT_VERIFY( m_QueueFamiliesResolved, "queue families read before CreateDevice() settled them" );
+            return m_ResolvedQueueFamilies.Transfer;
         }
 
         Common::ResultStr<bool> CreateDevice();
@@ -67,6 +85,8 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VkQueueFamilyProperties> m_QueueFamilyProperties;
         std::vector<VkDeviceQueueCreateInfo> m_QueueCreateInfos;
         QueueFamilyIndices                   m_QueueFamilyIndices;
+        ResolvedQueueFamilies                m_ResolvedQueueFamilies;
+        bool                                 m_QueueFamiliesResolved = false;
 
         VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED;
 

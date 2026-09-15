@@ -12,6 +12,7 @@
 // Use DESERT_PROFILE_FRAME(name) once at the top of the frame loop, and DESERT_PROFILE_SCOPE(name) inside
 // any scope you want timed. Names must be string literals (so Optick can cache its descriptors).
 
+#include <Common/Core/DestructorGuard.hpp>
 #include <optick.h>
 
 #include <chrono>
@@ -167,9 +168,19 @@ namespace Common::Profiling
         }
         ~ScopedTimer()
         {
-            const auto end = std::chrono::high_resolution_clock::now();
-            Profiler::Get().AddSample(
-                 m_Name, std::chrono::duration<double, std::milli>( end - m_Start ).count() );
+            // A BODY-LEVEL try, not a function-try-block, and the difference is not style. A
+            // function-try-block on a destructor also covers the destruction of bases and members, which
+            // is what the other seven guarded destructors want; this one has two members, a `const char*`
+            // and a time_point, neither of which can throw. What the function-try-block DOES do here is
+            // put a `try` between the class body and the brace, and the pointer-ownership census tracks
+            // members by brace depth — measured: it stopped seeing m_Name and m_Start entirely.
+            try
+            {
+                const auto end = std::chrono::high_resolution_clock::now();
+                Profiler::Get().AddSample( m_Name,
+                                           std::chrono::duration<double, std::milli>( end - m_Start ).count() );
+            }
+            DESERT_DESTRUCTOR_GUARD( "~ScopedTimer" )
         }
 
     private:

@@ -1,3 +1,4 @@
+#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
@@ -192,6 +193,7 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanVertexBuffer::~VulkanVertexBuffer()
+    try
     {
         // A destructor has no channel, so the report is the log. Left silent, a vertex buffer whose
         // VMA de-allocation refused leaked device memory with nothing anywhere to say a leak had begun —
@@ -200,5 +202,6 @@ namespace Desert::Graphic::API::Vulkan
         if ( !released.IsSuccess() )
             LOG_ERROR( "[VulkanVertexBuffer] Release failed during destruction: {}", released.GetError() );
     }
+    DESERT_DESTRUCTOR_GUARD( "~VulkanVertexBuffer" )
 
 } // namespace Desert::Graphic::API::Vulkan

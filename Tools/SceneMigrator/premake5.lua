@@ -44,6 +44,7 @@ project "SceneMigrator"
     dependson { "Desert" }
 
     includedirs {
+        "%{wks.location}/Tools/Shared",
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
     }

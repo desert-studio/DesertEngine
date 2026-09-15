@@ -230,7 +230,8 @@ namespace Desert::Runtime
         // axes are closed sets the renderer enumerates — a map would let a cell exist that no draw can ask
         // for. Most cells stay empty for most assets: a scene with no skinned geometry and no deferred path
         // builds exactly one material per `.demat`, because nothing ever asks for the others.
-        static constexpr size_t kVariantCount = Graphic::kMeshVertexPathCount * Graphic::kMeshPassCount;
+        static constexpr size_t kVariantCount =
+             static_cast<size_t>( Graphic::kMeshVertexPathCount ) * Graphic::kMeshPassCount;
         using PathVariants                    = std::array<std::shared_ptr<Graphic::Material>, kVariantCount>;
 
         static constexpr size_t VariantSlot( Graphic::MeshVertexPath path, Graphic::MeshPass pass )

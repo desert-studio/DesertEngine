@@ -361,8 +361,11 @@ namespace Desert::Editor::Tools
             // The new local (parent-relative) transform from the gizmo's world matrix.
             const glm::mat4 newGlobalMesh = glm::inverse( entityWorld ) * gizmoWorld;
             glm::mat4       parentGlobal( 1.0f );
-            if ( bones[boneIdx].ParentBoneID.has_value() && bones[boneIdx].ParentBoneID.value() < bones.size() )
-                parentGlobal = resolve( bones[boneIdx].ParentBoneID.value() );
+            const auto&     parentBone = bones[boneIdx].ParentBoneID;
+            if ( parentBone.has_value() && *parentBone < bones.size() )
+            {
+                parentGlobal = resolve( *parentBone );
+            }
             const glm::mat4 newLocal = glm::inverse( parentGlobal ) * newGlobalMesh;
 
             if ( usePose )

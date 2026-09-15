@@ -29,6 +29,8 @@
 // only a defect once 0.025 from the repaired build is on the line below it.
 
 #define STB_IMAGE_IMPLEMENTATION
+#include <ToolMain.hpp>
+
 #include <stb_image/stb_image.h>
 #include <algorithm>
 #include <cmath>
@@ -77,7 +79,7 @@ namespace
     }
 } // namespace
 
-int main( int argc, char** argv )
+static int RunTool( int argc, char** argv )
 {
     if ( argc < 6 )
     {
@@ -148,4 +150,12 @@ int main( int argc, char** argv )
     }
 
     return failures ? 1 : 0;
+}
+
+// The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
+// instead of reaching std::terminate, which would print the exception's TYPE and nothing else — see
+// Tools/Shared/ToolMain.hpp.
+int main( int argc, char** argv )
+{
+    return Desert::Tools::RunMain( "LineJump", argc, argv, &RunTool );
 }
