@@ -91,18 +91,40 @@ namespace Desert::Animation
             return m_Current.Clip != nullptr;
         }
 
-        [[nodiscard]] float GetCurrentTime() const
+        /// Where the playhead is, ON THE CLIP'S TICK GRID. This is the position; the seconds below are a
+        /// readout derived from it.
+        [[nodiscard]] FrameTime GetCurrentTick() const
         {
             return m_Current.Time;
         }
 
+        /// The playhead in seconds, for the callers whose question is genuinely about seconds — a UI
+        /// readout, the exit-time fraction. Derived, so it cannot disagree with the tick.
+        [[nodiscard]] float GetCurrentTime() const
+        {
+            return m_Current.Clip != nullptr
+                        ? static_cast<float>( FrameTimeToSeconds( m_Current.Time, m_Current.Clip->TickRate ) )
+                        : 0.0F;
+        }
+
+        [[nodiscard]] FrameNumber GetDurationTicks() const
+        {
+            return m_Current.Clip != nullptr ? m_Current.Clip->DurationTicks : FrameNumber{};
+        }
+
         [[nodiscard]] float GetDuration() const
         {
-            return m_Current.Clip ? m_Current.Clip->Duration : 0.0F;
+            return m_Current.Clip != nullptr ? static_cast<float>( m_Current.Clip->DurationSeconds() ) : 0.0F;
         }
 
         [[nodiscard]] bool IsFinished() const;
 
+        /// Move the playhead to a tick. THE PRIMITIVE — `SetTime` below converts and calls this.
+        void SetTick( FrameTime time );
+
+        /// Move the playhead to a number of seconds. Kept because scrubbing arrives as seconds from a UI,
+        /// and it lands on the nearest tick rather than flooring: a user who drags onto a key means that
+        /// key (see TimeModel.hpp's NearestTick).
         void SetTime( float time );
         void SetPlaybackSpeed( float speed )
         {
@@ -122,7 +144,7 @@ namespace Desert::Animation
         [[nodiscard]] glm::mat4 GetBoneLocalPose( uint32_t boneIndex ) const; // identity if out of range
         // Loads `clip`'s sampled LOCAL transforms at `time` into the authoring pose (bind for untracked
         // bones), so the user can edit an existing keyed pose and re-key from it.
-        void SampleClipIntoLocalPose( const AnimationClip& clip, float time );
+        void SampleClipIntoLocalPose( const AnimationClip& clip, FrameTime time );
         // Rebuilds GetPose() from the authoring pose, ignoring any playing clip — call after editing it to
         // show the posed skeleton in the viewport.
         void ApplyLocalPose();
@@ -198,7 +220,10 @@ namespace Desert::Animation
         struct ClipPlayback
         {
             const AnimationClip* Clip = nullptr;
-            float                Time = 0.0F;
+            /// ON THE CLIP'S OWN TICK GRID, carrying the sub-tick. The float seconds this replaces were
+            /// advanced by `Time += dt * tps` and wrapped with `fmod`, so both the addition and the wrap
+            /// lost a little every frame and the loss grew with the number already in the accumulator.
+            FrameTime            Time;
             bool                 Loop = true;
 
             bool IsValid() const
@@ -249,7 +274,7 @@ namespace Desert::Animation
         /// local when the clip has no track for it. Straight from the clip's TRS keys — the matrix this
         /// used to build, only to be decomposed again by the next step, is gone.
         [[nodiscard]] BoneTransform SampleLocalTransform( const AnimationClip* clip, uint32_t boneIndex,
-                                                          float time ) const;
+                                                          FrameTime time ) const;
 
         /// The base pose's local transform for one bone: the current clip, or current -> next blended by
         /// BlendAlpha(). The ONE answer to "what is the base pose right now", shared by the source stage

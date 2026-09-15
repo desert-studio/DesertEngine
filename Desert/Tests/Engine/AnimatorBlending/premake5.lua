@@ -21,6 +21,8 @@ project(test_name)
         -- translation unit that defines it has to be listed here.
         "%{wks.location}/Desert/Common/Source/Common/Core/Timestep.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        -- The tick grid every clip time now lives on (A5).
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 

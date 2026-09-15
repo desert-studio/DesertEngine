@@ -16,6 +16,9 @@ using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
 using Desert::Animation::BoneTrack;
+using Desert::Animation::FrameNumber;
+using Desert::Animation::FrameTime;
+using Desert::Animation::PROJECT_TICK_RATE;
 using Desert::Animation::Skeleton;
 
 namespace
@@ -53,15 +56,16 @@ namespace
     AnimationClip ChildPosClip( const glm::vec3& pos )
     {
         AnimationClip clip;
-        clip.AnimationName  = "test";
-        clip.Duration       = 1.0f;
-        clip.TicksPerSecond = 1.0f;
+        // A5: the clip states a length in TICKS on the project grid. `Duration` + `TicksPerSecond = 1`
+        // used to say "one second" by setting the rate so a tick WAS a second.
+        clip.AnimationName = "test";
+        clip.DurationTicks = FrameNumber{ PROJECT_TICK_RATE.Numerator };
 
         BoneTrack track;
         track.BoneName = "child";
-        track.PositionKeys.push_back( { 0.0f, pos } );
-        track.RotationKeys.push_back( { 0.0f, glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } );
-        track.ScaleKeys.push_back( { 0.0f, glm::vec3( 1.0f ) } );
+        track.PositionKeys.push_back( { FrameNumber{ 0 }, pos } );
+        track.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } );
+        track.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0f ) } );
         clip.Tracks.push_back( track );
         return clip;
     }
@@ -114,7 +118,7 @@ TEST( AnimatorPose, SampleClipIntoLocalPoseLoadsKeys )
     Animator      anim( skel );
     AnimationClip clip = ChildPosClip( glm::vec3( 0.0f, 3.0f, 0.0f ) );
 
-    anim.SampleClipIntoLocalPose( clip, 0.0f );
+    anim.SampleClipIntoLocalPose( clip, FrameTime{} );
 
     const glm::mat4 expectedChild = glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 3.0f, 0.0f ) );
     EXPECT_TRUE( MatNear( anim.GetBoneLocalPose( 1 ), expectedChild ) );
@@ -151,7 +155,7 @@ TEST( AnimatorPose, SamplingAClipIntoTheBufferResetsBonesTheClipDoesNotAnimate )
     AnimationClip clip = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) ); // animates bone 1 only
 
     anim.SetBoneLocalPose( 0, glm::translate( glm::mat4( 1.0f ), glm::vec3( 7.0f, 0.0f, 0.0f ) ) );
-    anim.SampleClipIntoLocalPose( clip, 0.0f );
+    anim.SampleClipIntoLocalPose( clip, FrameTime{} );
 
     EXPECT_TRUE( MatNear( anim.GetBoneLocalPose( 0 ), skel.GetBones()[0].LocalBindTransform ) )
          << "an untracked bone kept an authored value across a clip load, so the buffer and the clip "

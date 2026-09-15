@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/TimeModel.hpp>
 
 #include <glm/glm.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -13,50 +14,52 @@
 
 namespace Desert::Animation
 {
-    // Initialised for the same reason as the serialization mirrors in Assets/Serialization/Animation.hpp:
-    // glm leaves its components indeterminate, and these are the values a clip is sampled from.
+    // A KEY SITS ON A TICK, NOT AT A FLOAT NUMBER OF SECONDS. `float Time` used to live here, and the
+    // ordering predicates below were the whole reason it hurt: `lower_bound` over floats decides which two
+    // keys bracket the playhead, so "the playhead is exactly on this key" depended on two float paths
+    // producing bit-identical values. On the tick grid the comparison is an integer one.
     struct PositionKeyFrame
     {
-        float     Time     = 0.0f;
-        glm::vec3 Position = glm::vec3( 0.0f );
+        FrameNumber Tick;
+        glm::vec3   Position = glm::vec3( 0.0f );
 
         bool operator<( const PositionKeyFrame& other ) const
         {
-            return Time < other.Time;
+            return Tick < other.Tick;
         }
-        bool operator<( float time ) const
+        bool operator<( FrameNumber tick ) const
         {
-            return Time < time;
+            return Tick < tick;
         }
     };
 
     struct RotationKeyFrame
     {
-        float     Time     = 0.0f;
-        glm::quat Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+        FrameNumber Tick;
+        glm::quat   Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
 
         bool operator<( const RotationKeyFrame& other ) const
         {
-            return Time < other.Time;
+            return Tick < other.Tick;
         }
-        bool operator<( float time ) const
+        bool operator<( FrameNumber tick ) const
         {
-            return Time < time;
+            return Tick < tick;
         }
     };
 
     struct ScaleKeyFrame
     {
-        float     Time  = 0.0f;
-        glm::vec3 Scale = glm::vec3( 1.0f );
+        FrameNumber Tick;
+        glm::vec3   Scale = glm::vec3( 1.0f );
 
         bool operator<( const ScaleKeyFrame& other ) const
         {
-            return Time < other.Time;
+            return Tick < other.Tick;
         }
-        bool operator<( float time ) const
+        bool operator<( FrameNumber tick ) const
         {
-            return Time < time;
+            return Tick < tick;
         }
     };
 
@@ -81,12 +84,12 @@ namespace Desert::Animation
          * immediately decomposed again, twice per bone per layer. A round trip with no consumer of the
          * matrix in it, on the hottest path the animation system has.
          */
-        [[nodiscard]] BoneTransform Sample( float animationTime ) const
+        [[nodiscard]] BoneTransform Sample( FrameTime at ) const
         {
             BoneTransform out;
-            out.Translation = GetInterpolatedPosition( animationTime );
-            out.Rotation    = GetInterpolatedRotation( animationTime );
-            out.Scale       = GetInterpolatedScale( animationTime );
+            out.Translation = GetInterpolatedPosition( at );
+            out.Rotation    = GetInterpolatedRotation( at );
+            out.Scale       = GetInterpolatedScale( at );
             return out;
         }
 
@@ -98,74 +101,122 @@ namespace Desert::Animation
             return !PositionKeys.empty() || !RotationKeys.empty() || !ScaleKeys.empty();
         }
 
-        [[nodiscard]] glm::vec3 GetInterpolatedPosition( float animationTime ) const
+        [[nodiscard]] glm::vec3 GetInterpolatedPosition( FrameTime at ) const
         {
             if ( PositionKeys.empty() )
+            {
                 return glm::vec3( 0.0f );
-
+            }
             if ( PositionKeys.size() == 1 )
+            {
                 return PositionKeys[0].Position;
+            }
 
-            auto it = std::lower_bound( PositionKeys.begin(), PositionKeys.end(), animationTime );
+            // The bracketing pair is found by INTEGER comparison on the tick; only the fraction between
+            // them is a float, and it is bounded by one key interval rather than by the clip's length.
+            const auto it = std::lower_bound( PositionKeys.begin(), PositionKeys.end(), at.Frame );
 
             if ( it == PositionKeys.begin() )
+            {
                 return PositionKeys.front().Position;
+            }
             if ( it == PositionKeys.end() )
+            {
                 return PositionKeys.back().Position;
+            }
 
-            auto prev = it - 1;
-            auto next = it;
+            const auto prev = it - 1;
+            const auto next = it;
 
-            float deltaTime = next->Time - prev->Time;
-            float factor    = ( animationTime - prev->Time ) / deltaTime;
+            const auto span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
+            if ( span <= 0.0 )
+            {
+                // Two keys on the same tick. On floats this was a divide by zero producing an infinity or
+                // a NaN that flowed into the pose; on the tick grid it is a state the file can hold and
+                // the answer is the later key, which is what a sampler at that tick means.
+                return next->Position;
+            }
+            const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
 
             return glm::lerp( prev->Position, next->Position, factor );
         }
 
-        [[nodiscard]] glm::quat GetInterpolatedRotation( float animationTime ) const
+        [[nodiscard]] glm::quat GetInterpolatedRotation( FrameTime at ) const
         {
             if ( RotationKeys.empty() )
+            {
                 return glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
-
+            }
             if ( RotationKeys.size() == 1 )
+            {
                 return RotationKeys[0].Rotation;
+            }
 
-            auto it = std::lower_bound( RotationKeys.begin(), RotationKeys.end(), animationTime );
+            // The bracketing pair is found by INTEGER comparison on the tick; only the fraction between
+            // them is a float, and it is bounded by one key interval rather than by the clip's length.
+            const auto it = std::lower_bound( RotationKeys.begin(), RotationKeys.end(), at.Frame );
 
             if ( it == RotationKeys.begin() )
+            {
                 return RotationKeys.front().Rotation;
+            }
             if ( it == RotationKeys.end() )
+            {
                 return RotationKeys.back().Rotation;
+            }
 
-            auto prev = it - 1;
-            auto next = it;
+            const auto prev = it - 1;
+            const auto next = it;
 
-            float deltaTime = next->Time - prev->Time;
-            float factor    = ( animationTime - prev->Time ) / deltaTime;
+            const auto span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
+            if ( span <= 0.0 )
+            {
+                // Two keys on the same tick. On floats this was a divide by zero producing an infinity or
+                // a NaN that flowed into the pose; on the tick grid it is a state the file can hold and
+                // the answer is the later key, which is what a sampler at that tick means.
+                return next->Rotation;
+            }
+            const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
 
             return glm::slerp( prev->Rotation, next->Rotation, factor );
         }
 
-        [[nodiscard]] glm::vec3 GetInterpolatedScale( float animationTime ) const
+        [[nodiscard]] glm::vec3 GetInterpolatedScale( FrameTime at ) const
         {
             if ( ScaleKeys.empty() )
+            {
                 return glm::vec3( 1.0f );
-
+            }
             if ( ScaleKeys.size() == 1 )
+            {
                 return ScaleKeys[0].Scale;
+            }
 
-            auto it = std::lower_bound( ScaleKeys.begin(), ScaleKeys.end(), animationTime );
+            // The bracketing pair is found by INTEGER comparison on the tick; only the fraction between
+            // them is a float, and it is bounded by one key interval rather than by the clip's length.
+            const auto it = std::lower_bound( ScaleKeys.begin(), ScaleKeys.end(), at.Frame );
 
             if ( it == ScaleKeys.begin() )
+            {
                 return ScaleKeys.front().Scale;
+            }
             if ( it == ScaleKeys.end() )
+            {
                 return ScaleKeys.back().Scale;
+            }
 
-            auto prev = it - 1;
-            auto next = it;
+            const auto prev = it - 1;
+            const auto next = it;
 
-            float deltaTime = next->Time - prev->Time;
-            float factor    = ( animationTime - prev->Time ) / deltaTime;
+            const auto span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
+            if ( span <= 0.0 )
+            {
+                // Two keys on the same tick. On floats this was a divide by zero producing an infinity or
+                // a NaN that flowed into the pose; on the tick grid it is a state the file can hold and
+                // the answer is the later key, which is what a sampler at that tick means.
+                return next->Scale;
+            }
+            const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
 
             return glm::lerp( prev->Scale, next->Scale, factor );
         }
@@ -176,15 +227,22 @@ namespace Desert::Animation
     struct AnimationNotify
     {
         std::string Name;
-        float       Time = 0.0f;
+        FrameNumber Tick;
     };
 
     class AnimationClip
     {
     public:
         std::string AnimationName;
-        float       Duration       = 0.0f;
-        float       TicksPerSecond = 25.0f;
+
+        /// Length of the clip, in ticks on `TickRate`'s grid.
+        FrameNumber DurationTicks;
+
+        /// The resolution the keys are counted at, and the grid an artist edits on. TWO numbers, because
+        /// they answer two questions — see TimeModel.hpp. `TicksPerSecond`, a float that every shipped
+        /// clip set to 1.0 so that "tick" meant "second", is what they replace.
+        FrameRate TickRate    = PROJECT_TICK_RATE;
+        FrameRate DisplayRate = DEFAULT_DISPLAY_RATE;
         // 0 = "no rig claimed", and it needed an initialiser: a default-constructed clip read back
         // whatever was on the heap, and this number is what the animation system matches a skeleton on —
         // so an unset one does not fail to match, it matches something arbitrary. Its neighbours all had
@@ -213,6 +271,14 @@ namespace Desert::Animation
          */
         uint32_t TrackRevision = 0;
 
-        std::vector<AnimationNotify> Notifies; // sorted-by-time markers fired during playback
+        std::vector<AnimationNotify> Notifies; // sorted-by-tick markers fired during playback
+
+        /// The clip's length in seconds, for the callers whose question really is about seconds — a
+        /// crossfade duration, a UI readout, the normalized fraction the AnimGraph gates exit time on.
+        /// Derived rather than stored: a second copy of the length is a second answer to it.
+        [[nodiscard]] double DurationSeconds() const
+        {
+            return FrameTimeToSeconds( FrameTime{ DurationTicks, 0.0F }, TickRate );
+        }
     };
 } // namespace Desert::Animation

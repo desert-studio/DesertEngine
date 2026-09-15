@@ -95,7 +95,7 @@ namespace Desert::Animation
         return boneIndex < m_AuthoringPose.Size() ? m_AuthoringPose[boneIndex].ToMatrix() : glm::mat4( 1.0F );
     }
 
-    void Animator::SampleClipIntoLocalPose( const AnimationClip& clip, float time )
+    void Animator::SampleClipIntoLocalPose( const AnimationClip& clip, FrameTime time )
     {
         const size_t n = m_Skeleton.GetBones().size();
         if ( m_AuthoringPose.Size() != n )
@@ -131,7 +131,7 @@ namespace Desert::Animation
 
     void Animator::Play( const AnimationClip& clip, bool loop )
     {
-        m_Current    = { &clip, 0.0F, loop };
+        m_Current    = { &clip, FrameTime{}, loop };
         m_Next       = {};
         m_IsBlending = false;
     }
@@ -143,7 +143,7 @@ namespace Desert::Animation
             return;
         }
 
-        m_Next = { &clip, 0.0F, loop };
+        m_Next = { &clip, FrameTime{}, loop };
 
         m_IsBlending    = true;
         m_BlendTime     = 0.0F;
@@ -334,36 +334,42 @@ namespace Desert::Animation
             return;
         }
 
-        const float tps = playback.Clip->TicksPerSecond > 0.0F ? playback.Clip->TicksPerSecond : 25.0F;
+        const FrameNumber duration = playback.Clip->DurationTicks;
+        const FrameTime   previous = playback.Time;
 
-        const float prev     = playback.Time;
-        const float duration = playback.Clip->Duration;
+        // THE WHOLE TICKS GO INTO AN INTEGER AND ONLY THE FRACTION OF ONE STAYS IN A FLOAT. What this
+        // replaces was `playback.Time += deltaTime * tps` on a float, wrapped with `fmod`: the error grew
+        // with the value already there, and every loop left a residue behind. Measured in
+        // Tests/Engine/AnimationTimeModel: an hour of 1/60 s steps drifts less than one tick here and
+        // hundreds of times further on the float.
+        playback.Time = AdvanceFrameTime( playback.Time, deltaTime, playback.Clip->TickRate );
 
-        playback.Time += deltaTime * tps;
-
-        const bool looped = playback.Loop && duration > 0.0F && playback.Time >= duration;
+        const bool looped = playback.Loop && duration.Value > 0 && playback.Time.Frame.Value >= duration.Value;
 
         if ( playback.Loop )
         {
-            playback.Time = duration > 0.0F ? fmod( playback.Time, duration ) : 0.0F;
+            playback.Time = WrapFrameTime( playback.Time, duration );
         }
-        else
+        else if ( playback.Time.Frame.Value >= duration.Value )
         {
-            playback.Time = glm::min( playback.Time, duration );
+            playback.Time = FrameTime{ duration, 0.0F };
         }
 
-        // Fire the CURRENT clip's notifies whose time was crossed this frame (forward playback only). The
-        // covered interval is (prev, newTime]; on a loop wrap it is (prev, duration) ∪ [0, newTime]. One
-        // frame is assumed not to skip a whole loop (dt*tps < duration), which holds for real playback.
+        // Fire the CURRENT clip's notifies whose TICK was crossed this frame (forward playback only). The
+        // covered interval is (previous, now]; on a loop wrap it is (previous, duration) then [0, now].
+        // One frame is assumed not to skip a whole loop, which holds for real playback.
         if ( &playback == &m_Current && deltaTime > 0.0F && !playback.Clip->Notifies.empty() )
         {
-            const float newTime = playback.Time;
-            for ( const auto& n : playback.Clip->Notifies )
+            const double before = previous.AsTicks();
+            const double after  = playback.Time.AsTicks();
+            for ( const auto& notify : playback.Clip->Notifies )
             {
-                const bool fire =
-                     looped ? ( n.Time > prev || n.Time <= newTime ) : ( n.Time > prev && n.Time <= newTime );
+                const auto at   = static_cast<double>( notify.Tick.Value );
+                const bool fire = looped ? ( at > before || at <= after ) : ( at > before && at <= after );
                 if ( fire )
-                    m_FiredNotifies.push_back( n.Name );
+                {
+                    m_FiredNotifies.push_back( notify.Name );
+                }
             }
         }
     }
@@ -372,7 +378,8 @@ namespace Desert::Animation
     // Sampling
     // ============================================================
 
-    BoneTransform Animator::SampleLocalTransform( const AnimationClip* clip, uint32_t boneIndex, float time ) const
+    BoneTransform Animator::SampleLocalTransform( const AnimationClip* clip, uint32_t boneIndex,
+                                                  FrameTime time ) const
     {
         if ( const BoneTrack* track = ResolveTrack( clip, boneIndex ) )
             if ( track->HasKeys() )
@@ -484,7 +491,27 @@ namespace Desert::Animation
             return false;
         }
 
-        return m_Current.Time >= m_Current.Clip->Duration;
+        return m_Current.Time.Frame.Value >= m_Current.Clip->DurationTicks.Value;
+    }
+
+    void Animator::SetTick( FrameTime time )
+    {
+        if ( !m_Current.IsValid() )
+        {
+            return;
+        }
+
+        const FrameNumber duration = m_Current.Clip->DurationTicks;
+        m_Current.Time             = time;
+        if ( m_Current.Time.Frame.Value < 0 )
+        {
+            m_Current.Time = FrameTime{};
+        }
+        else if ( duration.Value > 0 && m_Current.Time.Frame.Value > duration.Value )
+        {
+            m_Current.Time = FrameTime{ duration, 0.0F };
+        }
+        EvaluatePipeline();
     }
 
     void Animator::SetTime( float time )
@@ -494,8 +521,12 @@ namespace Desert::Animation
             return;
         }
 
-        m_Current.Time = glm::clamp( time, 0.0F, m_Current.Clip->Duration );
-        EvaluatePipeline();
+        // Through the tick, and onto the NEAREST one: a scrub arrives as a real number that has been
+        // through a pixel position and a division, so flooring it would put a user who dragged onto a key
+        // one tick before it. See TimeModel.hpp.
+        const FrameTime   asTicks = SecondsToFrameTime( static_cast<double>( time ), m_Current.Clip->TickRate );
+        const FrameNumber nearest = NearestTick( asTicks );
+        SetTick( FrameTime{ nearest, 0.0F } );
     }
 
     void Animator::SetLoop( bool loop )
@@ -526,7 +557,7 @@ namespace Desert::Animation
     int Animator::AddLayer( const AnimationClip& clip, float weight, bool additive, bool loop )
     {
         AnimationLayer layer;
-        layer.Playback = { &clip, 0.0F, loop };
+        layer.Playback = { &clip, FrameTime{}, loop };
         layer.Weight   = weight;
         layer.Additive = additive;
         m_Layers.push_back( std::move( layer ) );
@@ -541,7 +572,7 @@ namespace Desert::Animation
             return;
         }
         if ( m_Layers[index].Playback.Clip != &clip )
-            m_Layers[index].Playback = { &clip, 0.0F, m_Layers[index].Playback.Loop };
+            m_Layers[index].Playback = { &clip, FrameTime{}, m_Layers[index].Playback.Loop };
     }
 
     void Animator::SetLayerWeight( int index, float weight )

@@ -39,6 +39,8 @@ using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
 using Desert::Animation::BoneTrack;
+using Desert::Animation::FrameNumber;
+using Desert::Animation::PROJECT_TICK_RATE;
 using Desert::Animation::Skeleton;
 
 namespace
@@ -71,21 +73,22 @@ namespace
     AnimationClip ClipWith( float rootY, float childY, bool includeChild )
     {
         AnimationClip clip;
+        // A5: the clip states a length in TICKS on the project grid. `Duration` + `TicksPerSecond = 1`
+        // used to say "one second" by setting the rate so a tick WAS a second.
         clip.AnimationName     = "Probe";
-        clip.Duration          = 1.0f;
-        clip.TicksPerSecond    = 1.0f;
+        clip.DurationTicks     = FrameNumber{ PROJECT_TICK_RATE.Numerator };
         clip.SkeletonSignature = 0;
 
         BoneTrack rootTrack;
         rootTrack.BoneName = "Root";
-        rootTrack.PositionKeys.push_back( { 0.0f, glm::vec3( 0.0f, rootY, 0.0f ) } );
+        rootTrack.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 0.0f, rootY, 0.0f ) } );
         clip.Tracks.push_back( rootTrack );
 
         if ( includeChild )
         {
             BoneTrack childTrack;
             childTrack.BoneName = "Child";
-            childTrack.PositionKeys.push_back( { 0.0f, glm::vec3( 0.0f, childY, 0.0f ) } );
+            childTrack.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 0.0f, childY, 0.0f ) } );
             clip.Tracks.push_back( childTrack );
         }
         return clip;

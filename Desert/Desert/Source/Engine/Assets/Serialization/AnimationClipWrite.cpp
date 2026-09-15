@@ -11,9 +11,14 @@ namespace Desert::Assets::Serialization
     AnimationAssetData BuildAssetDataFromClip( const Animation::AnimationClip& clip )
     {
         AnimationAssetData data;
+        // STAMPED, not inherited. A clip that came from a v0 file cannot reach here — the loader refuses
+        // it — so everything written is at the current generation by construction, and saying so in the
+        // file is what lets the next build tell the two apart.
+        data.Version           = kAnimationVersion;
         data.Name              = clip.AnimationName;
-        data.Duration          = clip.Duration;
-        data.TicksPerSecond    = clip.TicksPerSecond;
+        data.TickRate          = FrameRateData{ clip.TickRate.Numerator, clip.TickRate.Denominator };
+        data.DisplayRate       = FrameRateData{ clip.DisplayRate.Numerator, clip.DisplayRate.Denominator };
+        data.DurationTicks     = clip.DurationTicks.Value;
         data.SkeletonSignature = clip.SkeletonSignature;
 
         data.Channels.reserve( clip.Tracks.size() );
@@ -24,22 +29,22 @@ namespace Desert::Assets::Serialization
 
             channel.Positions.reserve( track.PositionKeys.size() );
             for ( const auto& k : track.PositionKeys )
-                channel.Positions.push_back( KeyPosition{ k.Time, k.Position } );
+                channel.Positions.push_back( KeyPosition{ k.Tick.Value, k.Position } );
 
             channel.Rotations.reserve( track.RotationKeys.size() );
             for ( const auto& k : track.RotationKeys )
-                channel.Rotations.push_back( KeyRotation{ k.Time, k.Rotation } );
+                channel.Rotations.push_back( KeyRotation{ k.Tick.Value, k.Rotation } );
 
             channel.Scales.reserve( track.ScaleKeys.size() );
             for ( const auto& k : track.ScaleKeys )
-                channel.Scales.push_back( KeyScale{ k.Time, k.Scale } );
+                channel.Scales.push_back( KeyScale{ k.Tick.Value, k.Scale } );
 
             data.Channels.push_back( std::move( channel ) );
         }
 
         data.Notifies.reserve( clip.Notifies.size() );
         for ( const auto& notify : clip.Notifies )
-            data.Notifies.push_back( NotifyData{ notify.Name, notify.Time } );
+            data.Notifies.push_back( NotifyData{ notify.Name, notify.Tick.Value } );
 
         return data;
     }

@@ -32,6 +32,7 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
@@ -247,8 +248,10 @@ namespace
     // The animated global transform of every bone at one time, i.e. what the parent chain produces before
     // the offset is applied. A clip track REPLACES the bind local, which is why the corpus authors its
     // keys around the bind values.
+    // `seconds` rather than a tick, because the callers sweep eighths of a second and that is the unit
+    // the witness's own protocol is written in; the conversion onto the clip's grid happens once, here.
     std::vector<glm::mat4> GlobalsAt( const Desert::Animation::Skeleton&      rig,
-                                      const Desert::Animation::AnimationClip& clip, float time )
+                                      const Desert::Animation::AnimationClip& clip, float seconds )
     {
         const auto&            bones = rig.GetBones();
         std::vector<glm::mat4> local( bones.size(), glm::mat4( 1.0f ) );
@@ -263,7 +266,9 @@ namespace
                     // caller decomposed it again immediately, so the matrix was a round trip with no
                     // consumer on the animation system's hottest path. `Sample` returns the three stored
                     // quantities and this test composes them itself, which is what it wanted anyway.
-                    local[i] = track.Sample( time ).ToMatrix();
+                    local[i] = track.Sample( Desert::Animation::SecondsToFrameTime( static_cast<double>( seconds ),
+                                                                                    clip.TickRate ) )
+                                    .ToMatrix();
                 }
             }
         }
@@ -499,10 +504,12 @@ TEST( TwoBoneWitness, TheWitnessClipsMoveTheChainAndMoveItDifferently )
 
     for ( const auto* clip : { &wave, &twist } )
     {
-        EXPECT_FLOAT_EQ( clip->Duration, 2.0f ) << clip->AnimationName
-                                                << " is no longer the 2 s cycle the witness scene's exit "
-                                                   "time and shot frame counts are chosen against.";
-        EXPECT_EQ( clip->TicksPerSecond, 1.0f ) << clip->AnimationName << " does not run in seconds.";
+        EXPECT_EQ( clip->DurationTicks.Value, 2 * Desert::Animation::PROJECT_TICK_RATE.Numerator )
+             << clip->AnimationName
+             << " is no longer the 2 s cycle the witness scene's exit time and shot frame counts are "
+                "chosen against.";
+        EXPECT_EQ( clip->TickRate, Desert::Animation::PROJECT_TICK_RATE )
+             << clip->AnimationName << " is not on the project tick grid.";
         ASSERT_EQ( clip->Tracks.size(), 2u ) << clip->AnimationName << " does not drive both bones.";
     }
 

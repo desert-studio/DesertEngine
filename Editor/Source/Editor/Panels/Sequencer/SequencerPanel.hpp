@@ -179,10 +179,11 @@ namespace Desert::Editor
         [[nodiscard]] Common::ResultStr<std::string> SaveClipToDisk( const Animation::AnimationClip& clip );
 
         // Records the bone's CURRENT local transform (posed in the viewport via Skeleton Edit) as position +
-        // rotation + scale keyframes at `time` in `clip` (upserting any key already at that time). This is the
+        // rotation + scale keyframes at `time` in `clip` (upserting any key ON THAT TICK — an equality now,
+        // where it used to be a 1 ms epsilon over floats). This is the
         // "keyframe by manipulation" path: pose with the gizmo, then key. boneIndex is a Skeleton bone index.
         void KeyBonePose( Animation::AnimationClip* clip, const Animation::Animator& animator, int boneIndex,
-                          float time );
+                          Animation::FrameTime time );
 
         // UI mode: the subject is this element's UIAnimComponent. Draws the clip's property lanes
         // (Offset / Size / Opacity / Color) with draggable keys and a scrubbable playhead.

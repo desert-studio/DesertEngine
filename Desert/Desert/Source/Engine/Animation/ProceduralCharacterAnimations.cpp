@@ -37,10 +37,16 @@ namespace Desert::Animation
             for ( uint32_t i = 0; i < bones.size(); ++i )
                 nameToIdx[bones[i].Name] = i; // the position IS the index; BoneInfo no longer repeats it
 
+            // GENERATED ONTO THE PROJECT TICK GRID, like every clip that comes off disk. These four clips
+            // used to set `TicksPerSecond` to 1 and write key times in seconds — the same fiction the six
+            // shipped `.anim` files carried, and the reason the field's name was never true.
+            const FrameNumber durationTicks =
+                 FrameNumber{ NearestTick( SecondsToFrameTime( duration, PROJECT_TICK_RATE ) ) };
+
             AnimationClip clip;
             clip.AnimationName     = name;
-            clip.Duration          = duration;
-            clip.TicksPerSecond    = 1.0f; // Time advances in seconds -> keyframe times are seconds
+            clip.DurationTicks     = durationTicks;
+            clip.TickRate          = PROJECT_TICK_RATE;
             clip.SkeletonSignature = skel->GetSignature();
             clip.Tracks.resize( bones.size() ); // empty tracks fall back to LocalBindTransform
 
@@ -54,11 +60,14 @@ namespace Desert::Animation
 
                 BoneTrack& t = clip.Tracks[idx];
                 t.BoneName   = boneName;
-                t.PositionKeys.push_back( { 0.0f, bindPos } ); // constant -> keeps the bone at its bind offset
+                // constant -> keeps the bone at its bind offset
+                t.PositionKeys.push_back( { FrameNumber{ 0 }, bindPos } );
                 for ( int i = 0; i <= kSamples; ++i )
                 {
-                    const float u = static_cast<float>( i ) / kSamples;
-                    t.RotationKeys.push_back( { duration * u, glm::angleAxis( fn( u ), kAxisX ) } );
+                    const float       u    = static_cast<float>( i ) / kSamples;
+                    const FrameNumber tick = NearestTick(
+                         SecondsToFrameTime( static_cast<double>( duration ) * u, PROJECT_TICK_RATE ) );
+                    t.RotationKeys.push_back( { tick, glm::angleAxis( fn( u ), kAxisX ) } );
                 }
             }
             return clip;

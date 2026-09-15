@@ -15,6 +15,10 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Tools/SceneMigrator/Source/MigratorMain.cpp",
+        -- A5 gave the tool a fourth file class (`.anim`), so the suite that compiles its main must link
+        -- the conversion it now calls, and the tick model that conversion targets. Both are pure.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{wks.location}/Tools/SceneMigrator/Source/SceneMigration.cpp",
         -- The tool's loop canonicalises the Settings block through the ENGINE'S reflection table, so a
         -- suite that compiles MigratorMain.cpp has to bring the table with it. It is deliberately not in

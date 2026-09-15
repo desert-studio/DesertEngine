@@ -12,6 +12,7 @@
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
+#include <Engine/Assets/Serialization/AnimationClipMigrate.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
@@ -47,7 +48,7 @@ namespace
     {
         Ser::ChannelData ch;
         ch.BoneName = bone;
-        ch.Positions.push_back( { 0.0f, glm::vec3( 1.0f, 2.0f, 3.0f ) } );
+        ch.Positions.push_back( { 0, glm::vec3( 1.0f, 2.0f, 3.0f ) } );
         return ch;
     }
 } // namespace
@@ -65,10 +66,14 @@ TEST( AnimationClipFormat, ChannelFieldCensus )
 
 TEST( AnimationClipFormat, AssetFieldCensus )
 {
+    // A5: `Duration`/`TicksPerSecond` (float seconds under a rate every shipped clip set to 1) are gone;
+    // the file now states its own generation, the grid its ticks are counted on, the grid an artist edits
+    // on, and a length in ticks.
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
-               ( std::vector<std::string>{ "Channels", "Duration", "Name", "Notifies", "SkeletonSignature",
-                                           "TicksPerSecond" } ) );
-    EXPECT_EQ( FieldNames<Ser::NotifyData>(), ( std::vector<std::string>{ "Name", "Time" } ) );
+               ( std::vector<std::string>{ "Channels", "DisplayRate", "DurationTicks", "Name", "Notifies",
+                                           "SkeletonSignature", "TickRate", "Version" } ) );
+    EXPECT_EQ( FieldNames<Ser::NotifyData>(), ( std::vector<std::string>{ "Name", "Tick" } ) );
+    EXPECT_EQ( FieldNames<Ser::FrameRateData>(), ( std::vector<std::string>{ "Denominator", "Numerator" } ) );
 }
 
 TEST( AnimationClipFormat, SkeletonFieldCensus )
@@ -93,9 +98,11 @@ static_assert( !std::is_trivially_default_constructible_v<Ser::KeyScale> );
 TEST( AnimationClipFormat, ChannelOrderIsPreservedAndBoundByName )
 {
     Ser::AnimationAssetData data;
-    data.Name              = "Walk";
-    data.Duration          = 2.0f;
-    data.TicksPerSecond    = 30.0f;
+    data.Version = Desert::Assets::Serialization::kAnimationVersion;
+
+    data.Name = "Walk";
+
+    data.DurationTicks     = 48000;
     data.SkeletonSignature = 1234u;
     data.Channels          = { Channel( "hips" ), Channel( "spine" ), Channel( "head" ) };
 
@@ -108,13 +115,15 @@ TEST( AnimationClipFormat, ChannelOrderIsPreservedAndBoundByName )
     EXPECT_EQ( clip.Tracks[1].BoneName, "spine" );
     EXPECT_EQ( clip.Tracks[2].BoneName, "head" );
     EXPECT_EQ( clip.AnimationName, "Walk" );
-    EXPECT_FLOAT_EQ( clip.TicksPerSecond, 30.0f );
+    EXPECT_EQ( clip.TickRate, Desert::Animation::PROJECT_TICK_RATE );
+    EXPECT_EQ( clip.DurationTicks.Value, 48000 );
     EXPECT_EQ( clip.SkeletonSignature, 1234u );
 }
 
 TEST( AnimationClipFormat, AnUnnamedChannelIsRefusedByName )
 {
     Ser::AnimationAssetData data;
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Broken";
     data.Channels = { Channel( "hips" ), Channel( "" ) };
 
@@ -126,6 +135,7 @@ TEST( AnimationClipFormat, AnUnnamedChannelIsRefusedByName )
 TEST( AnimationClipFormat, TwoChannelsForOneBoneAreRefused )
 {
     Ser::AnimationAssetData data;
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Doubled";
     data.Channels = { Channel( "hips" ), Channel( "hips" ) };
 
@@ -134,11 +144,13 @@ TEST( AnimationClipFormat, TwoChannelsForOneBoneAreRefused )
     EXPECT_NE( built.GetError().find( "hips" ), std::string::npos );
 }
 
-TEST( AnimationClipFormat, NotifiesComeOutSortedByTime )
+TEST( AnimationClipFormat, NotifiesComeOutSortedByTick )
 {
     Ser::AnimationAssetData data;
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Notified";
-    data.Notifies = { { "late", 0.9f }, { "early", 0.1f }, { "middle", 0.5f } };
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
+    data.Notifies = { { "late", 21600 }, { "early", 2400 }, { "middle", 12000 } };
 
     const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
     ASSERT_TRUE( built ) << built.GetError();
@@ -148,36 +160,133 @@ TEST( AnimationClipFormat, NotifiesComeOutSortedByTime )
 }
 
 // ============================================================================
-// The on-disk migration, which is a migration BY OMISSION: reflect-cpp ignores fields the struct no longer
-// declares, so a clip cooked before this change loads unchanged and re-cooks without the index. There is no
-// version branch and no legacy path, which is the only reason that is acceptable — the test is what makes
-// the claim checkable rather than believed.
+// ============================================================================
+// GENERATION 0 IS REFUSED, NOT READ. A `.anim` written before A5 carries `Time` in float seconds under a
+// `TicksPerSecond` every shipped clip set to 1, and no version field at all. Read through DefaultIfMissing
+// that file yields tick 0 for every key and generation 0 — so the loader must refuse it and name the tool,
+// because the alternative is a clip that loads without a word and animates nothing.
 // ============================================================================
 
-TEST( AnimationClipFormat, AClipCookedWithTheOldBoneIndexStillLoads )
+TEST( AnimationClipFormat, AGenerationZeroClipIsRefusedAndNamesTheTool )
 {
     const std::string legacy = R"({"Name":"Legacy","Duration":1.5,"TicksPerSecond":24.0,)"
                                R"("SkeletonSignature":77,"Channels":[)"
-                               R"({"BoneName":"spine","BoneIndex":4,"Positions":[],"Rotations":[],"Scales":[]},)"
-                               R"({"BoneName":"hips","BoneIndex":0,"Positions":[],"Rotations":[],"Scales":[]}])"
+                               R"({"BoneName":"spine","Positions":[{"Time":0.5,"Value":[1.0,2.0,3.0]}],)"
+                               R"("Rotations":[],"Scales":[]}])"
                                R"(,"Notifies":[]})";
 
     const auto read = rfl::json::read<Ser::AnimationAssetData, rfl::DefaultIfMissing>( legacy );
-    ASSERT_TRUE( read.has_value() ) << "the retired field must be IGNORED, not rejected";
+    ASSERT_TRUE( read.has_value() ) << "a v0 file must still PARSE — it is refused on its generation, not "
+                                       "on its shape, because the migrator has to be able to read it too";
+    EXPECT_EQ( read.value().Version, 0 ) << "a missing version field is generation 0, never 'current'";
 
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( read.value() );
+    ASSERT_FALSE( built ) << "a v0 clip was accepted; every one of its keys would sit on tick 0";
+    EXPECT_NE( built.GetError().find( "SceneMigrator" ), std::string::npos ) << built.GetError();
+    EXPECT_NE( built.GetError().find( "generation 0" ), std::string::npos ) << built.GetError();
+}
+
+TEST( AnimationClipFormat, AClipFromANewerGenerationIsRefusedToo )
+{
+    Ser::AnimationAssetData data;
+    data.Version = Desert::Assets::Serialization::kAnimationVersion + 1;
+    data.Name    = "FromTheFuture";
+
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
+    EXPECT_FALSE( built ) << "a file from a newer build may hold fields this one would drop on the next save";
+}
+
+TEST( AnimationClipFormat, AnInvalidRateIsRefusedRatherThanUsed )
+{
+    Ser::AnimationAssetData data;
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
+    data.Name     = "NoRate";
+    data.TickRate = { 0, 1 };
+    EXPECT_FALSE( Desert::Assets::Serialization::BuildClipFromAssetData( data ) );
+
+    Ser::AnimationAssetData display;
+
+    display.Version     = Desert::Assets::Serialization::kAnimationVersion;
+    display.Version     = Desert::Assets::Serialization::kAnimationVersion;
+    display.Name        = "NoDisplay";
+    display.DisplayRate = { 30, 0 };
+    EXPECT_FALSE( Desert::Assets::Serialization::BuildClipFromAssetData( display ) );
+}
+
+// ============================================================================
+// The conversion out of generation 0, which is what makes the refusal above actionable.
+// ============================================================================
+
+TEST( AnimationClipFormat, TheMigrationMovesSecondsOntoTicksAndDerivesTheDisplayGrid )
+{
+    // A clip authored the way all six shipped ones were: `TicksPerSecond` 1, so key times ARE seconds,
+    // at multiples of an eighth of a second.
+    const std::string legacy = R"({"Name":"Corpus","Duration":2.0,"TicksPerSecond":1.0,)"
+                               R"("SkeletonSignature":42,"Channels":[{"BoneName":"Base",)"
+                               R"("Positions":[{"Time":0.0,"Value":[0.0,0.0,0.0]},)"
+                               R"({"Time":0.125,"Value":[1.0,0.0,0.0]},)"
+                               R"({"Time":0.25,"Value":[2.0,0.0,0.0]}],)"
+                               R"("Rotations":[],"Scales":[]}],"Notifies":[{"Name":"step","Time":0.5}]})";
+
+    Desert::Assets::Serialization::AnimationMigrationReport report;
+    const auto migrated = Desert::Assets::Serialization::MigrateAnimationJson( legacy, report );
+    ASSERT_TRUE( migrated ) << migrated.GetError();
+
+    EXPECT_EQ( report.FromVersion, 0 );
+    EXPECT_EQ( report.KeysMoved, 0u ) << "an eighth of a second is a whole number of 24000ths";
+    // THE DISPLAY GRID IS DERIVED FROM THE KEYS, not defaulted: these all lie on eighths, so 8 fps is the
+    // coarsest grid that represents every one of them exactly. Handing them the default 30 would leave
+    // every existing key off the grid the Sequencer snaps to.
+    EXPECT_EQ( report.DisplayRateNumerator, 8 );
+    EXPECT_FALSE( report.DisplayRateIsAFallback );
+
+    const auto read = rfl::json::read<Ser::AnimationAssetData, rfl::DefaultIfMissing>( migrated.GetValue() );
+    ASSERT_TRUE( read.has_value() );
     const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( read.value() );
     ASSERT_TRUE( built ) << built.GetError();
 
     const auto& clip = built.GetValue();
-    ASSERT_EQ( clip.Tracks.size(), 2u )
-         << "the old index said 4 and 0; the file's ORDER is what survives, and nothing is sized from it";
-    EXPECT_EQ( clip.Tracks[0].BoneName, "spine" );
-    EXPECT_EQ( clip.Tracks[1].BoneName, "hips" );
+    EXPECT_EQ( clip.DurationTicks.Value, 48000 );
+    ASSERT_EQ( clip.Tracks.size(), 1u );
+    ASSERT_EQ( clip.Tracks[0].PositionKeys.size(), 3u );
+    EXPECT_EQ( clip.Tracks[0].PositionKeys[0].Tick.Value, 0 );
+    EXPECT_EQ( clip.Tracks[0].PositionKeys[1].Tick.Value, 3000 );
+    EXPECT_EQ( clip.Tracks[0].PositionKeys[2].Tick.Value, 6000 );
+    ASSERT_EQ( clip.Notifies.size(), 1u );
+    EXPECT_EQ( clip.Notifies[0].Tick.Value, 12000 );
+}
+
+TEST( AnimationClipFormat, TheMigrationRefusesToRunTwice )
+{
+    const std::string legacy = R"({"Name":"Once","Duration":1.0,"TicksPerSecond":1.0,)"
+                               R"("SkeletonSignature":1,"Channels":[],"Notifies":[]})";
+
+    Desert::Assets::Serialization::AnimationMigrationReport first;
+    const auto once = Desert::Assets::Serialization::MigrateAnimationJson( legacy, first );
+    ASSERT_TRUE( once ) << once.GetError();
+
+    // A SECOND RUN MUST REFUSE. Not because a re-run is rare, but because this step is not idempotent:
+    // reading integer ticks as seconds would multiply every key by 24000 again. The engine has shipped
+    // exactly that defect once before, when a migration doubled a text sigil (`#menu.play` ->
+    // `##menu.play`), and the guard is the version stamp rather than a hope.
+    Desert::Assets::Serialization::AnimationMigrationReport second;
+    const auto twice = Desert::Assets::Serialization::MigrateAnimationJson( once.GetValue(), second );
+    EXPECT_FALSE( twice );
+    EXPECT_EQ( second.FromVersion, Desert::Assets::Serialization::kAnimationVersion );
+}
+
+TEST( AnimationClipFormat, AMigratedRateOfZeroIsRefusedRatherThanDividedBy )
+{
+    const std::string broken = R"({"Name":"NoRate","Duration":1.0,"TicksPerSecond":0.0,)"
+                               R"("SkeletonSignature":1,"Channels":[],"Notifies":[]})";
+    Desert::Assets::Serialization::AnimationMigrationReport report;
+    EXPECT_FALSE( Desert::Assets::Serialization::MigrateAnimationJson( broken, report ) );
 }
 
 TEST( AnimationClipFormat, ANewlyWrittenClipCarriesNoBoneIndex )
 {
     Ser::AnimationAssetData data;
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Fresh";
     data.Channels = { Channel( "hips" ) };
 
@@ -222,24 +331,26 @@ namespace
     {
         Desert::Animation::AnimationClip clip;
         clip.AnimationName     = "Walk";
-        clip.Duration          = 2.5f;
-        clip.TicksPerSecond    = 30.0f;
+        clip.DurationTicks     = Desert::Animation::FrameNumber{ 60000 }; // 2.5 s at 24000
+        clip.TickRate          = Desert::Animation::PROJECT_TICK_RATE;
+        clip.DisplayRate       = Desert::Animation::FrameRate{ 30, 1 };
         clip.SkeletonSignature = 0x1234'5678'9abc'def0ull;
 
         Desert::Animation::BoneTrack hip;
         hip.BoneName = "Hips";
-        hip.PositionKeys.push_back( { 0.0f, glm::vec3( 1.0f, 2.0f, 3.0f ) } );
-        hip.PositionKeys.push_back( { 1.0f, glm::vec3( 4.0f, 5.0f, 6.0f ) } );
-        hip.RotationKeys.push_back( { 0.5f, glm::quat( 0.7071f, 0.0f, 0.7071f, 0.0f ) } );
-        hip.ScaleKeys.push_back( { 0.0f, glm::vec3( 1.0f, 1.5f, 2.0f ) } );
+        hip.PositionKeys.push_back( { Desert::Animation::FrameNumber{ 0 }, glm::vec3( 1.0f, 2.0f, 3.0f ) } );
+        hip.PositionKeys.push_back( { Desert::Animation::FrameNumber{ 24000 }, glm::vec3( 4.0f, 5.0f, 6.0f ) } );
+        hip.RotationKeys.push_back(
+             { Desert::Animation::FrameNumber{ 12000 }, glm::quat( 0.7071f, 0.0f, 0.7071f, 0.0f ) } );
+        hip.ScaleKeys.push_back( { Desert::Animation::FrameNumber{ 0 }, glm::vec3( 1.0f, 1.5f, 2.0f ) } );
         clip.Tracks.push_back( hip );
 
         Desert::Animation::BoneTrack spine;
         spine.BoneName = "Spine";
-        spine.PositionKeys.push_back( { 0.25f, glm::vec3( -1.0f, 0.0f, 0.5f ) } );
+        spine.PositionKeys.push_back( { Desert::Animation::FrameNumber{ 6000 }, glm::vec3( -1.0f, 0.0f, 0.5f ) } );
         clip.Tracks.push_back( spine );
 
-        clip.Notifies.push_back( { "Footstep", 0.75f } );
+        clip.Notifies.push_back( { "Footstep", Desert::Animation::FrameNumber{ 18000 } } );
         return clip;
     }
 } // namespace
@@ -265,8 +376,9 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClip )
     const auto& back = rebuilt.GetValue();
 
     EXPECT_EQ( back.AnimationName, clip.AnimationName );
-    EXPECT_FLOAT_EQ( back.Duration, clip.Duration );
-    EXPECT_FLOAT_EQ( back.TicksPerSecond, clip.TicksPerSecond );
+    EXPECT_EQ( back.DurationTicks.Value, clip.DurationTicks.Value );
+    EXPECT_EQ( back.TickRate, clip.TickRate );
+    EXPECT_EQ( back.DisplayRate, clip.DisplayRate );
     EXPECT_EQ( back.SkeletonSignature, clip.SkeletonSignature )
          << "the rig the clip claims did not survive the round trip";
 
@@ -277,7 +389,9 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClip )
         ASSERT_EQ( back.Tracks[t].PositionKeys.size(), clip.Tracks[t].PositionKeys.size() ) << "track " << t;
         for ( size_t k = 0; k < clip.Tracks[t].PositionKeys.size(); ++k )
         {
-            EXPECT_FLOAT_EQ( back.Tracks[t].PositionKeys[k].Time, clip.Tracks[t].PositionKeys[k].Time );
+            // AN EQUALITY, not a tolerance. That is the whole of what the tick grid bought: a key time
+            // that survives a write and a read is the SAME NUMBER, not a number within an epsilon.
+            EXPECT_EQ( back.Tracks[t].PositionKeys[k].Tick.Value, clip.Tracks[t].PositionKeys[k].Tick.Value );
             EXPECT_EQ( back.Tracks[t].PositionKeys[k].Position, clip.Tracks[t].PositionKeys[k].Position );
         }
         ASSERT_EQ( back.Tracks[t].RotationKeys.size(), clip.Tracks[t].RotationKeys.size() ) << "track " << t;
@@ -286,7 +400,7 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClip )
 
     ASSERT_EQ( back.Notifies.size(), clip.Notifies.size() );
     EXPECT_EQ( back.Notifies[0].Name, clip.Notifies[0].Name );
-    EXPECT_FLOAT_EQ( back.Notifies[0].Time, clip.Notifies[0].Time );
+    EXPECT_EQ( back.Notifies[0].Tick.Value, clip.Notifies[0].Tick.Value );
 }
 
 // THE MUTATION SITE FOR Д31-D'S WORST ROW. Delete the `if ( !written )` in SaveClipToFile and this test

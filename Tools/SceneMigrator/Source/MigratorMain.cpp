@@ -51,6 +51,10 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <Engine/Animation/TimeModel.hpp>
+#include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Assets/Serialization/AnimationClipMigrate.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
@@ -79,8 +83,17 @@ namespace
     // at the old number, refused by the loader and by their own migrator alike.
     constexpr const char* kPrefabExtension = ".deprefab";
 
+    // CLIPS ARE COLLECTED TOO, since A5, and by THIS tool for the reason the prefabs gave: a second
+    // binary over a second corpus is a command somebody forgets, and forgetting it leaves files the
+    // loader refuses. A `.anim` does NOT share the scene's version integers — it has its own sequence,
+    // because a scene names a clip by NAME and nothing in a `.desce` changes when a clip's time model
+    // does. Its step is gated on its own number and is content-detected the same way: a file with no
+    // version field is generation 0, never "already current".
+    constexpr const char* kClipExtension = ".anim";
+
     void Collect( const std::filesystem::path& root, std::vector<std::filesystem::path>& scenes,
-                  std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs )
+                  std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
+                  std::vector<std::filesystem::path>& clips )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -95,6 +108,10 @@ namespace
                     materials.push_back( entry.path() );
                 else if ( entry.path().extension() == kPrefabExtension )
                     prefabs.push_back( entry.path() );
+                else if ( entry.path().extension() == kClipExtension )
+                {
+                    clips.push_back( entry.path() );
+                }
             }
             return;
         }
@@ -103,6 +120,10 @@ namespace
             materials.push_back( root );
         else if ( root.extension() == kPrefabExtension )
             prefabs.push_back( root );
+        else if ( root.extension() == kClipExtension )
+        {
+            clips.push_back( root );
+        }
         else
             scenes.push_back( root );
     }
@@ -529,20 +550,21 @@ namespace Desert::Migration
         if ( roots.empty() )
         {
             err << "usage: SceneMigrator [--check] <scene.desce | material.demat | prefab.deprefab | "
-                   "directory>...\n";
+                   "clip.anim | directory>...\n";
             return 2;
         }
 
         std::vector<std::filesystem::path> scenes;
         std::vector<std::filesystem::path> materials;
         std::vector<std::filesystem::path> prefabs;
+        std::vector<std::filesystem::path> clips;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs );
+            Collect( root, scenes, materials, prefabs, clips );
 
-        if ( scenes.empty() && materials.empty() && prefabs.empty() )
+        if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() )
         {
-            err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << " or "
-                << kPrefabExtension << " files found\n";
+            err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
+                << kPrefabExtension << " or " << kClipExtension << " files found\n";
             return 2;
         }
 
@@ -652,6 +674,7 @@ namespace Desert::Migration
         // step), so this pass finds nothing to do in them and says so. Running it first would depend on
         // whether the file existed yet, which is an ordering nobody should have to know about.
         int materialsChanged = 0;
+        int clipsChanged     = 0;
         for ( const auto& path : materials )
         {
             const std::string source = ReadAll( path );
@@ -714,6 +737,70 @@ namespace Desert::Migration
             }
             out << "raised " << path.string() << " —" << what.str() << "\n";
             ++materialsChanged;
+        }
+
+        // ---- THE CLIPS ----------------------------------------------------------------------------
+        //
+        // Their own generation sequence, their own gate. A `.anim` with no version field is generation 0
+        // and is converted; one already at the current generation is REFUSED by the migration function
+        // rather than converted again — this step is NOT idempotent, and reading integer ticks as seconds
+        // is exactly the doubling the text-sigil step once shipped (`#menu.play` -> `##menu.play`).
+        for ( const auto& path : clips )
+        {
+            const std::string source = ReadAll( path );
+            if ( source.empty() )
+            {
+                err << "FAIL   " << path.string() << " — unreadable or empty\n";
+                ++failed;
+                continue;
+            }
+
+            Desert::Assets::Serialization::AnimationMigrationReport report;
+            const auto migrated = Desert::Assets::Serialization::MigrateAnimationJson( source, report );
+            if ( !migrated )
+            {
+                // A clip already at the current generation is the ordinary case on a second run, and it is
+                // reported as "ok" rather than as a failure — the refusal is what keeps a second run from
+                // doubling the conversion, not a sign that anything is wrong.
+                if ( report.FromVersion >= Desert::Assets::Serialization::kAnimationVersion )
+                {
+                    out << "ok     " << path.string() << " — already at `.anim` generation " << report.FromVersion
+                        << "\n";
+                    continue;
+                }
+                err << "FAIL   " << path.string() << " — " << migrated.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+
+            std::ostringstream what;
+            what << " key times moved from float seconds onto the "
+                 << Desert::Animation::PROJECT_TICK_RATE.Numerator << "-tick grid; display rate "
+                 << report.DisplayRateNumerator << " fps"
+                 << ( report.DisplayRateIsAFallback ? " (no standard grid fits its keys, defaulted)" : "" ) << "; "
+                 << report.KeysMoved << " key time(s) rounded";
+            if ( report.KeysMoved > 0 )
+            {
+                what << ", worst by " << report.WorstMicro << " millionths of a tick";
+            }
+            what << ";";
+
+            if ( check )
+            {
+                out << "WOULD  " << path.string() << " —" << what.str() << "\n";
+                ++clipsChanged;
+                continue;
+            }
+
+            if ( !Common::Utils::FileSystem::WriteContentToFileAtomic( path, migrated.GetValue() ) )
+            {
+                err << "FAIL   " << path.string() << " — the conversion could not be written; the original "
+                    << "file is untouched. It would have been:" << what.str() << "\n";
+                ++failed;
+                continue;
+            }
+            out << "raised " << path.string() << " —" << what.str() << "\n";
+            ++clipsChanged;
         }
 
         // THE PREFABS, through the SAME chain the scenes went through (И11). They come last for the
@@ -816,6 +903,7 @@ namespace Desert::Migration
         }
 
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
+            << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s) of which " << clipsChanged
             << ( check ? " would change, " : " raised, " ) << materials.size() << " material(s), "
             << materialsChanged << ( check ? " would change, " : " raised, " ) << prefabs.size() << " prefab(s), "
             << prefabsChanged << ( check ? " would change, " : " raised, " ) << failed << " failed\n";

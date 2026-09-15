@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -156,13 +157,19 @@ TEST( AnimationClipCorpus, TheProbeClipsClaimTheRigTheProbeSkeletonHas )
              << stem
              << " claims a different rig from SkinProbe.skeleton. Every frame taken against it would show a "
                 "bind pose and still render, which is broken evidence rather than no evidence.";
-        EXPECT_EQ( clip.TicksPerSecond, 1.0f )
+        // A5 REPLACED THE SENTENCE THAT USED TO STAND HERE, and the old one is worth quoting because it
+        // was the fiction itself: "Key times ARE seconds when TicksPerSecond is 1, and the whole corpus is
+        // authored that way." The field was called ticks-per-second and pinned to 1 so that a tick would
+        // mean a second — and this suite defended that. A clip now states the grid its integer ticks are
+        // counted on, and two seconds is a number of them.
+        EXPECT_EQ( clip.TickRate, Desert::Animation::PROJECT_TICK_RATE )
              << stem
-             << " does not run in seconds. Key times ARE seconds when TicksPerSecond is 1 (see "
-                "ProceduralCharacterAnimations::Build), and the whole corpus is authored that way.";
-        EXPECT_FLOAT_EQ( clip.Duration, 2.0f ) << stem
-                                               << " is no longer the 2 s cycle the probe scene and "
-                                                  "the shot frame counts are chosen against.";
+             << " is not on the project tick grid, so its key times are not comparable with any "
+                "other clip's.";
+        EXPECT_EQ( clip.DurationTicks.Value, 2 * Desert::Animation::PROJECT_TICK_RATE.Numerator )
+             << stem
+             << " is no longer the 2 s cycle the probe scene and the shot frame counts are chosen "
+                "against.";
         ASSERT_NE( TrackFor( clip, kProbeBoneName ), nullptr )
              << stem << " has no track for '" << kProbeBoneName
              << "'. The bone name is the only key playback binds on, so it would animate nothing.";
@@ -250,6 +257,47 @@ TEST( AnimationClipCorpus, TheForeignClipIsRefusedForTheProbeRig )
     for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt" } )
         EXPECT_TRUE( Desert::Animation::ClipDrivesRig( IdentityOf( LoadClip( stem ) ), rig ) )
              << stem << " is not offered to the rig it names.";
+}
+
+// A CENSUS OVER THE WHOLE REPOSITORY, not over the six names this suite knows. The loader refuses a
+// generation-0 `.anim`, which turns a forgotten conversion into a clip that will not load — visible, but
+// only to whoever opens the scene that plays it. This walks every `.anim` in the tree instead, so a file
+// added or restored at the old generation is caught by a test rather than by a character standing still.
+//
+// It is deliberately NOT a count: a count is satisfied by editing the count. Each file is read and its
+// stated generation checked, and the failure names the file and the tool that converts it.
+TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsAtTheCurrentGeneration )
+{
+    ASSERT_FALSE( RepoRoot().empty() );
+
+    std::size_t seen = 0;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( RepoRoot() ) )
+    {
+        if ( !entry.is_regular_file() || entry.path().extension() != ".anim" )
+        {
+            continue;
+        }
+        // Build outputs are copies of the sources above and are not part of the corpus.
+        if ( entry.path().string().find( "/build/" ) != std::string::npos )
+        {
+            continue;
+        }
+
+        ++seen;
+        const auto data =
+             rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>(
+                  ReadFile( entry.path().string() ) );
+        ASSERT_TRUE( data.has_value() ) << entry.path().string() << " does not parse as a `.anim` at all";
+        EXPECT_EQ( data.value().Version, Desert::Assets::Serialization::kAnimationVersion )
+             << entry.path().string() << " is at `.anim` generation " << data.value().Version
+             << " and this build reads " << Desert::Assets::Serialization::kAnimationVersion
+             << ". Run Tools/SceneMigrator over it: the loader refuses it, so whatever plays it stands "
+                "still.";
+    }
+
+    // A sweep that found nothing is not a clean sweep — it is a sweep that ran somewhere else.
+    EXPECT_GE( seen, 6u ) << "only " << seen << " `.anim` file(s) were found from " << RepoRoot()
+                          << "; this census is measuring the wrong tree.";
 }
 
 int main( int argc, char** argv )
