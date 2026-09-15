@@ -68,7 +68,29 @@ if [ -z "$CF" ] || [ -z "$GITCF" ]; then
     echo "This is an environment failure, NOT a formatting violation — do not go looking at the diff." >&2
     exit 2
 fi
-echo "clang-format gate using: $("$CF" --version)  (wrapper: $GITCF)"
+# AND THE VERSION IS VERIFIED, NOT MERELY PRINTED. The loop above falls back to the unversioned
+# `clang-format`, which on a developer machine here resolves to Homebrew's v22 while CI installs 18 —
+# so the gate answered with a DIFFERENT FORMATTER than the one that decides, and said so only in a
+# line nobody reads. That is the exact defect the pin above was introduced to close on 2026-09-08,
+# reopened by its own fallback. `CheckTidy.sh` has refused a wrong version since it was written; this
+# one only announced it. Found 2026-09-16 by an agent whose changed lines passed here and would not
+# have passed CI.
+#
+# A wrong version is an ENVIRONMENT failure (exit 2), never a formatting verdict: the diff it would
+# print is an argument between two tools, not a fact about the code.
+CF_VERSION="$("$CF" --version 2>&1 | tr -d '\n')"
+case "$CF_VERSION" in
+    *"version 18."*) ;;
+    *)
+        echo "clang-format: WRONG VERSION — '$CF_VERSION'." >&2
+        echo "The gate is pinned to 18; CI installs 18.1.3 and other releases disagree with it, so this" >&2
+        echo "verdict would not be comparable with the one that gates Windows and macOS." >&2
+        echo "On macOS: brew install llvm@18, then run with" >&2
+        echo "  PATH=\"/opt/homebrew/opt/llvm@18/bin:\$PATH\" $0 $*" >&2
+        exit 2
+        ;;
+esac
+echo "clang-format gate using: $CF_VERSION  (wrapper: $GITCF)"
 
 BASE_INPUT="${1:-origin/dev}"
 
