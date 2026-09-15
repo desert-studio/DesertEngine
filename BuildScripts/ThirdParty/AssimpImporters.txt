@@ -1,0 +1,23 @@
+# THE IMPORTERS THIS ENGINE SHIPS — one NAMED ROW each, and the count is derived from the rows.
+#
+# WHY A REGISTER AND NOT A NUMBER. A gate that pins "assimp offers N formats" is satisfied by editing N,
+# which is the shape this project has paid for before: the register is the rows, and the count is read off
+# them. Adding an importer means adding a row WITH ITS REASON here; nothing else in the tree names a format.
+#
+# WHO READS THIS FILE, and it is deliberately more than one reader:
+#   * BuildScripts/ThirdParty/Assimp.lua — takes the FULL list of formats from assimp's own
+#     code/CMakeLists.txt (`ADD_ASSIMP_IMPORTER( NAME )`) and defines ASSIMP_BUILD_NO_<NAME>_IMPORTER for
+#     every format that is NOT named below. A format assimp adds in a future version is therefore OFF by
+#     default rather than silently shipped.
+#   * Desert/Tests/Editor/AssimpBoundary — asserts that the extensions the BUILT library reports through
+#     aiGetImportFormatDescription() are exactly the extensions below. That is the half a build file
+#     cannot state: the defines say what we asked for, the library says what we got.
+#
+# Columns: NAME (assimp's own macro name)  |  extensions, space separated, lower case, no dot  |  reason.
+#
+FBX   fbx        The editor's own import path and FbxMeshSplitter both read FBX; base.fbx is the corpus.
+OBJ   obj        FbxMeshSplitter WRITES .obj and the editor reads it back, so dropping it breaks a round trip.
+GLTF  gltf glb vrm   The interchange format the engine is expected to accept from outside tools. The
+#                     `vrm` is NOT a choice of ours: assimp's glTF2 importer claims it alongside gltf/glb,
+#                     and this column records what the BUILT LIBRARY reports, read off a run rather than
+#                     predicted. Removing it here would make the census red without changing what ships.

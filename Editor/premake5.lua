@@ -84,6 +84,9 @@ project "Editor"
         "Optick",
         "MeshOptimizer",
         "ImGuiNodeEditor",
+        -- The PROJECT, not a file: BuildScripts/ThirdParty/Assimp.lua compiles the pinned submodule.
+        -- The name it replaced carried the MSVC toolset in it (`assimp-vc142-mtd`).
+        "Assimp",
     }
 
     -- Optional: real face tracking via dlib (davisking/dlib). Auto-enabled when the sources are present

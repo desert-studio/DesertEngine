@@ -200,8 +200,10 @@ for %%P in (
     "ThirdParty\VulkanAllocator"
     "Editor\ThirdParty\ImGuizmo\ImGuizmo.cpp"
     "Editor\ThirdParty\assimp\include\assimp\Importer.hpp"
-    "Editor\ThirdParty\assimp\bin\Debug\assimp-vc142-mtd.lib"
-    "Editor\ThirdParty\assimp\bin\Release\assimp-vc142-mt.lib"
+    REM assimp is a SUBMODULE COMPILED FROM SOURCE since D40, so what has to be present is its source
+    REM tree, not the two prebuilt import libraries this list used to name. Those files no longer exist
+    REM and this check would have reported MISSING twice on every Windows setup.
+    "Editor\ThirdParty\assimp\code\Common\ImporterRegistry.cpp"
     "Desert.sln"
 ) do (
     if not exist "%ROOT%\%%~P" (

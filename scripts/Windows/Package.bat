@@ -83,9 +83,15 @@ REM THE THREE OPTIONS AND WHY THIS ONE. (a) app-local: copy the CRT DLLs beside 
 REM documents exactly this alongside central deployment — the files are shipped for it in
 REM VC\Redist\MSVC\<ver>\x64\Microsoft.VC143.CRT and are covered by the Visual Studio distributable
 REM code terms. (b) require the Visual C++ Redistributable and check for it: a check cannot fix
-REM anything from inside a ZIP, so it turns a dialog into a different dialog. (c) build /MT: closed,
-REM and not by preference — assimp arrives as a DLL, and a statically-linked CRT in the exe plus a
-REM dynamically-linked one in assimp is two heaps, which is the LNK2038/heap-corruption wall.
+REM anything from inside a ZIP, so it turns a dialog into a different dialog. (c) build /MT: NOT
+REM ATTEMPTED HERE, and the reason that used to be written here is now FALSE and has been replaced
+REM rather than deleted. It said assimp ARRIVED as a DLL, so a static CRT in the exe plus a dynamic
+REM one in assimp would be two heaps (the LNK2038 wall). Since D40 assimp is compiled from a pinned
+REM submodule INTO the exe, so that particular obstacle is gone. What has not been done is the work:
+REM /MT has to agree across every dependency in the link, and shaderc, the Vulkan loader and the
+REM prebuilt gtest are not audited for it. Leaving the old sentence would have been a comment
+REM promising a guarantee the tree no longer gives; leaving no sentence would have invited someone to
+REM read the silence as "nobody tried". This is the third state: measured, named, and not done.
 REM
 REM So (a), and it REFUSES rather than shipping a package that cannot start.
 REM ---------------------------------------------------------------------------

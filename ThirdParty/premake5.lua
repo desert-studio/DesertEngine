@@ -14,6 +14,10 @@ include( buildScripts .. "/Optick.lua" )
 include( buildScripts .. "/MeshOptimizer.lua" )
 include( buildScripts .. "/Dlib.lua" ) -- optional; no-op when ThirdParty/dlib is absent
 
+-- assimp, compiled from the pinned submodule on every platform. It used to be a committed MSVC import
+-- library on Windows and Homebrew's copy on macOS, with no version pinned on either side; see the file.
+include( buildScripts .. "/Assimp.lua" )
+
 -- reflect-cpp is compiled from the vendored v0.19.0 sources on EVERY platform. Windows
 -- used to link a prebuilt reflectcpp.lib instead, of which only the Debug flavour was
 -- ever committed — the Release job died on LNK1181 from the day it existed.

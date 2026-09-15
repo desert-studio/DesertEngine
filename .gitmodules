@@ -40,3 +40,6 @@
 [submodule "ThirdParty/desert-shared"]
 	path = ThirdParty/desert-shared
 	url = https://github.com/desert-studio/desert-shared
+[submodule "Editor/ThirdParty/assimp"]
+	path = Editor/ThirdParty/assimp
+	url = https://github.com/assimp/assimp.git

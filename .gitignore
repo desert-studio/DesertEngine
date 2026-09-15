@@ -15,12 +15,6 @@
 *.so
 *.dylib
 *.dll
-# ...except the prebuilt assimp runtime that FbxMeshSplitter's postbuild copies next to the .lib files
-# committed beside them. The blanket *.dll above is why those DLLs were never in the repository, which
-# is why that copy failed on every Windows build. The .lib halves of the same pair ARE committed.
-!Editor/ThirdParty/assimp/bin/Debug/*.dll
-!Editor/ThirdParty/assimp/bin/Release/*.dll
-
 # Fortran module files
 *.mod
 *.smod
