@@ -4,10 +4,12 @@
 
 #include "Skeleton.hpp"
 #include "AnimationClip.hpp"
+#include "BoneControl.hpp"
 #include "Pose.hpp"
 
 #include <Common/Core/Timestep.hpp>
 
+#include <memory>
 #include <unordered_map>
 
 namespace Desert::Animation
@@ -33,8 +35,9 @@ namespace Desert::Animation
      */
     enum class PoseStage : uint8_t
     {
-        Source, ///< the base clip, or the crossfade of the outgoing and incoming clips
-        Layers, ///< override / additive layers folded over the base, per masked bone
+        Source,   ///< the base clip, or the crossfade of the outgoing and incoming clips
+        Layers,   ///< override / additive layers folded over the base, per masked bone
+        Controls, ///< skeletal controls (IK and friends): sparse component-space overrides, blended locally
     };
 
     [[nodiscard]] const char* ToString( PoseStage stage );
@@ -173,6 +176,24 @@ namespace Desert::Animation
         /// Whether bone `boneIndex` is inside layer `index`'s mask. An empty mask means every bone.
         [[nodiscard]] bool IsBoneInLayerMask( int index, uint32_t boneIndex ) const;
 
+        // --- Skeletal controls (IK and friends) ---------------------------------------------------------
+        // A control is a pose -> pose operator that writes a SPARSE set of bones and leaves the rest of the
+        // pose untouched; see BoneControl.hpp for the contract and why the base class owns the blend. They
+        // run after the layers, in list order, because a control's job is to correct the pose that the
+        // animation produced — running one before the clip that overwrites its bones would be writing into
+        // a buffer that is about to be filled again.
+        //
+        // The stage joins and leaves the pipeline with the list (SyncStages), exactly as Layers does.
+        int                  AddControl( std::unique_ptr<BoneControl> control );
+        void                 RemoveControl( int index );
+        void                 ClearControls();
+        [[nodiscard]] size_t GetControlCount() const
+        {
+            return m_Controls.size();
+        }
+        /// Non-owning, for configuring a control after it has been added. Null for an out-of-range index.
+        [[nodiscard]] BoneControl* GetControl( int index );
+
     private:
         struct ClipPlayback
         {
@@ -206,11 +227,16 @@ namespace Desert::Animation
         /// PoseStage::Layers — folds each active layer over `pose`, in LOCAL space, per masked bone.
         void EvaluateLayers( LocalPose& pose ) const;
 
+        /// PoseStage::Controls — runs each control over `pose`. NOT const: a control reads the pose in
+        /// component space, which is a cache fill on m_Component, and writes back through the blend.
+        void EvaluateControls( LocalPose& pose );
+
         /// m_EvaluatedPose -> m_Skinning (and invalidates the component-space cache behind it).
         void PublishPose();
 
-        /// Adds/removes PoseStage::Layers so the list matches whether there is anything to layer.
-        void SyncLayerStage();
+        /// Rebuilds m_Stages so its MEMBERSHIP matches the lists that feed the optional stages, in the
+        /// pipeline's fixed order. See the definition for why this is a rebuild and not an insert.
+        void SyncStages();
 
         // How far the crossfade has run, 0..1. Derived rather than stored: the alpha and the clock cannot
         // disagree if there is only one of them.
@@ -282,6 +308,10 @@ namespace Desert::Animation
 
         // Active animation layers, folded over the base pose by PoseStage::Layers.
         std::vector<AnimationLayer> m_Layers;
+
+        // Skeletal controls, run by PoseStage::Controls. `unique_ptr` because a control is polymorphic and
+        // holds its own resolved bone indices; the Animator is its one owner and outlives it by definition.
+        std::vector<std::unique_ptr<BoneControl>> m_Controls;
 
         std::vector<PoseStage> m_Stages;
 

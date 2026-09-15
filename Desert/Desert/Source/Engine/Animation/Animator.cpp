@@ -23,6 +23,8 @@ namespace Desert::Animation
                 return "Source";
             case PoseStage::Layers:
                 return "Layers";
+            case PoseStage::Controls:
+                return "Controls";
         }
         return "?";
     }
@@ -59,9 +61,9 @@ namespace Desert::Animation
         m_AuthoringPose = m_BindPose;
         m_EvaluatedPose = m_BindPose;
 
-        // The pipeline. `Source` is unconditional — something has to produce a pose — and `Layers` joins
-        // and leaves with the layer stack (SyncLayerStage).
-        m_Stages = { PoseStage::Source };
+        // The pipeline. `Source` is unconditional — something has to produce a pose — and the optional
+        // stages join and leave with the lists that feed them (SyncStages).
+        SyncStages();
 
         m_Component.Reset( m_EvaluatedPose.Size() );
         PublishPose(); // a valid rest pose before any clip plays; an identity pose would collapse the mesh
@@ -166,7 +168,12 @@ namespace Desert::Animation
     {
         const float deltaTime = step.GetSeconds() * m_PlaybackSpeed;
 
-        if ( !m_Current.IsValid() )
+        // "NO CLIP" IS NOT THE SAME QUESTION AS "NOTHING TO DO", and it used to be. The early return here
+        // tested only the clip, which was correct while every stage read one — but a skeletal control drives
+        // the pose from a GOAL, not from a track, and a rig standing in its bind pose with an IK goal moving
+        // over it is an ordinary thing to want. With no clip the source stage produces the bind pose (an
+        // unresolved track falls back to it, bone by bone) and the controls correct it from there.
+        if ( !m_Current.IsValid() && m_Controls.empty() )
         {
             return;
         }
@@ -212,6 +219,9 @@ namespace Desert::Animation
                     break;
                 case PoseStage::Layers:
                     EvaluateLayers( m_EvaluatedPose );
+                    break;
+                case PoseStage::Controls:
+                    EvaluateControls( m_EvaluatedPose );
                     break;
             }
         }
@@ -266,22 +276,51 @@ namespace Desert::Animation
         }
     }
 
+    void Animator::EvaluateControls( LocalPose& pose )
+    {
+        // The component view is over `pose`, and the stages before this one have just rewritten every bone
+        // of it. Its cached matrices are last frame's; dropping the flags here is what makes the first
+        // `Get` inside a solve read THIS frame's pose. (ApplyBoneOverrides re-invalidates after each write.)
+        m_Component.Invalidate();
+
+        for ( auto& control : m_Controls )
+        {
+            if ( !control )
+            {
+                continue;
+            }
+
+            // DISCARDED DELIBERATELY. The control has already reported its own refusal — once per distinct
+            // message, so a standing condition does not become a log per frame — and a refused control
+            // leaves the pose exactly as the previous stage produced it. The next control still runs: one
+            // solver failing to resolve its bone name is not a reason to throw away another's work.
+            static_cast<void>( control->Evaluate( m_Skeleton, pose, m_Component ) );
+        }
+    }
+
     void Animator::PublishPose()
     {
         m_Component.Invalidate();
         m_Component.WriteSkinningMatrices( m_Skinning.Matrices );
     }
 
-    void Animator::SyncLayerStage()
+    void Animator::SyncStages()
     {
-        const auto found   = std::find( m_Stages.begin(), m_Stages.end(), PoseStage::Layers );
-        const bool present = found != m_Stages.end();
-        const bool wanted  = !m_Layers.empty();
-
-        if ( wanted && !present )
+        // REBUILT IN CANONICAL ORDER, NOT APPENDED TO. The previous shape — "if wanted and not present,
+        // push_back" — was correct while exactly one optional stage existed, and silently wrong the moment a
+        // second one did: adding a control before a layer produced [Source, Controls, Layers], which runs
+        // the IK and then overwrites its bones with the layer's clip. Order is a property of the PIPELINE,
+        // so it is written once, here, and membership stays data.
+        m_Stages.clear();
+        m_Stages.push_back( PoseStage::Source ); // unconditional: something has to produce a pose
+        if ( !m_Layers.empty() )
+        {
             m_Stages.push_back( PoseStage::Layers );
-        else if ( !wanted && present )
-            m_Stages.erase( found );
+        }
+        if ( !m_Controls.empty() )
+        {
+            m_Stages.push_back( PoseStage::Controls );
+        }
     }
 
     // ============================================================
@@ -491,7 +530,7 @@ namespace Desert::Animation
         layer.Weight   = weight;
         layer.Additive = additive;
         m_Layers.push_back( std::move( layer ) );
-        SyncLayerStage();
+        SyncStages();
         return static_cast<int>( m_Layers.size() ) - 1;
     }
 
@@ -576,14 +615,63 @@ namespace Desert::Animation
         if ( index >= 0 && index < static_cast<int>( m_Layers.size() ) )
         {
             m_Layers.erase( m_Layers.begin() + index );
-            SyncLayerStage();
+            SyncStages();
         }
     }
 
     void Animator::ClearLayers()
     {
         m_Layers.clear();
-        SyncLayerStage();
+        SyncStages();
+    }
+
+    // ============================================================
+    // Skeletal controls
+    // ============================================================
+
+    int Animator::AddControl( std::unique_ptr<BoneControl> control )
+    {
+        if ( !control )
+        {
+            LOG_ERROR( "[Animator] refusing to add a null skeletal control to rig (signature {}).",
+                       m_Skeleton.GetSignature() );
+            return -1;
+        }
+
+        // RESOLVED ON THE WAY IN, ONCE. Report 03 §1.4: bone references are cached when the rig changes and
+        // never looked up inside a solve. The Animator's rig is fixed for its lifetime, so "the rig changed"
+        // is "the control joined a rig", and this is that moment. A failure is reported and the control is
+        // still added — it will refuse every solve and say why, which an artist can see and fix, whereas a
+        // silently dropped control is a feature that stopped existing.
+        if ( const auto resolved = control->Resolve( m_Skeleton ); !resolved.IsSuccess() )
+        {
+            LOG_ERROR( "[Animator] skeletal control '{}' on rig (signature {}): {}",
+                       ToString( control->GetKind() ), m_Skeleton.GetSignature(), resolved.GetError() );
+        }
+
+        m_Controls.push_back( std::move( control ) );
+        SyncStages();
+        return static_cast<int>( m_Controls.size() ) - 1;
+    }
+
+    void Animator::RemoveControl( int index )
+    {
+        if ( index >= 0 && index < static_cast<int>( m_Controls.size() ) )
+        {
+            m_Controls.erase( m_Controls.begin() + index );
+            SyncStages();
+        }
+    }
+
+    void Animator::ClearControls()
+    {
+        m_Controls.clear();
+        SyncStages();
+    }
+
+    BoneControl* Animator::GetControl( int index )
+    {
+        return ( index >= 0 && index < static_cast<int>( m_Controls.size() ) ) ? m_Controls[index].get() : nullptr;
     }
 
 } // namespace Desert::Animation
