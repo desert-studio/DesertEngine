@@ -67,7 +67,11 @@ for %%E in (Editor Runtime PakTool DShaderTool) do (
     if exist "%BIN%\%%E.exe" copy /Y "%BIN%\%%E.exe" "%OUT%\" >NUL
 )
 
-REM Assimp is the one third-party dependency that ships as a DLL; everything else links statically.
+REM Any DLL the build produced, copied beside the exes. NOTHING THIRD-PARTY SHIPS AS A DLL ANY MORE —
+REM this line used to say assimp was the one that did, and since D40 assimp is a pinned submodule
+REM compiled into the exe. The loop stays because it is a statement about the BUILD OUTPUT rather than
+REM about assimp: if some future dependency ever ships one, the drop should carry it. It matches nothing
+REM today, and Desert/Tests/Editor/AssimpBoundary asserts that no step names an assimp runtime.
 for %%D in ("%BIN%\*.dll") do copy /Y "%%D" "%OUT%\" >NUL 2>&1
 
 REM ---------------------------------------------------------------------------

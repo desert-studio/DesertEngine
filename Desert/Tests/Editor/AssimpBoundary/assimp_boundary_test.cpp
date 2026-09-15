@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -316,21 +317,137 @@ TEST( AssimpBoundary, NoPackagingOrBuildStepShipsAnAssimpRuntime )
         }
     }
 
-    // П7's own half: the sentence that used to justify a decision with "assimp arrives as a DLL" must
-    // not still be making that claim, because it is now false. A comment promising a guarantee the tree
-    // does not give is a defect class this project has closed twelve times.
-    const std::string packageBat = ReadFile( root / "scripts" / "Windows" / "Package.bat" );
-    ASSERT_FALSE( packageBat.empty() ) << "scripts/Windows/Package.bat is missing; П7 covered nothing.";
-    EXPECT_EQ( packageBat.find( "assimp arrives as a DLL" ), std::string::npos )
-         << "scripts/Windows/Package.bat still explains its CRT choice with \"assimp arrives as a DLL\". "
-            "assimp is statically linked since D40, so that reason is false. Correct the reason or state "
-            "the new one; do not leave the old sentence standing.";
+    // П7's own half: NO COMMENT MAY STILL CLAIM ASSIMP IS A DLL, because it is not one since D40.
+    //
+    // THIS CHECK WAS ONE LITERAL PHRASE AND THAT WAS NOT ENOUGH. It looked for the exact sentence
+    // "assimp arrives as a DLL" in Package.bat, passed, and MISSED A SECOND FALSE SENTENCE IN THE SAME
+    // FILE eleven lines away — "Assimp is the one third-party dependency that ships as a DLL" — sitting
+    // above the loop that copies DLLs into the drop. Pinning a phrase catches the instance; what has to
+    // be caught is the CLAIM. So the rule is: a comment mentioning assimp may not also assert, in the
+    // present tense, that it is a shared library. Past tense is deliberately allowed — the notes
+    // explaining what used to be true are why this change is reviewable, and a rule that forbade them
+    // would force the next person to delete the history instead of reading it.
+    for ( const char* script :
+          { "scripts/Windows/Package.bat", "scripts/Windows/Setup.bat", "scripts/Windows/BuildWindows.bat" } )
+    {
+        const std::string text = ReadFile( root / script );
+        ASSERT_FALSE( text.empty() ) << script << " is missing; this half of П7 covered nothing.";
+
+        std::istringstream lines( text );
+        std::string        line;
+        int                lineNumber = 0;
+        while ( std::getline( lines, line ) )
+        {
+            ++lineNumber;
+            std::string lowered = line;
+            std::transform( lowered.begin(), lowered.end(), lowered.begin(),
+                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+            if ( lowered.find( "assimp" ) == std::string::npos )
+            {
+                continue;
+            }
+            for ( const char* claim :
+                  { "arrives as a dll", "ships as a dll", "comes as a dll", "is a dll", "as a shared library" } )
+            {
+                EXPECT_EQ( lowered.find( claim ), std::string::npos )
+                     << script << ":" << lineNumber << " still claims assimp is a shared library: '" << line
+                     << "'. It is compiled from a pinned submodule INTO the executable since D40. A "
+                        "comment promising a guarantee the tree does not give is a defect class this "
+                        "project has closed twelve times; write what is true, in the present tense, and "
+                        "keep the old sentence only in the past tense if it explains something.";
+            }
+        }
+    }
 }
 
-// THE REGISTER IS ROWS, AND THE ROWS HAVE REASONS. A register whose rows carry no argument decays into a
-// list somebody edits to make a gate pass — which is the failure mode of pinning a COUNT, one level up.
-// The extensions themselves are checked against the built library in AssimpLibraryPin; what is checked
-// here is that the file remains a register rather than becoming a bare list.
+// A `REM` INSIDE A `for ... in ( ... )` LIST IS NOT A COMMENT — IT IS AN ITEM. This is the check that
+// would have caught the defect that made this suite grow.
+//
+// MEASURED, ON CI, BY FAILING. Three `REM` lines were written into the middle of Setup.bat's
+// `for %%P in ( ... )` path list to explain why the entry beside them had changed. The list is DATA, so
+// the loop iterated the words of the comment as if they were paths — the log reads "- REM", "- tree",
+// "- not", "- the", "- two", "- prebuilt" — and Setup.bat exited 1 on BOTH Windows configurations while
+// every macOS job in the same run stayed green.
+//
+// WHY IT IS A CENSUS AND NOT A LESSON. This repository has already paid for this class once: `echo set
+// ERROR=0>> file` lost its digit to cmd's redirection parsing and the Windows test runner could not
+// report a failure AT ALL until 2026-08-15. Both defects are invisible from macOS by construction, so
+// the answer cannot be "be careful with batch files" — it has to be something that fails here, on the
+// platform the developer is standing on.
+//
+// AND THE RULE IS NARROW ON PURPOSE, BECAUSE THE FIRST VERSION OF IT WAS NOT. It flagged any `REM`
+// nested inside any parentheses, and firing it at this repository — not at a mutation — immediately
+// reddened eleven lines of `scripts\Windows\BuildWindows.bat` that are CORRECT: inside a
+// parenthesised COMMAND BLOCK (`if not exist ... ( ... )`) `rem` is an ordinary command and works as a
+// comment, which is why that script has been green on Windows all along. A gate that condemns working
+// code is worse than no gate — someone would have rewritten a correct script to satisfy it. Only the
+// `in ( ... )` LIST of a `for` is data, so only that is refused.
+TEST( AssimpBoundary, NoBatchScriptPutsAcommentInsideAForInList )
+{
+    const auto root = RepositoryRoot();
+
+    const auto batchFiles = FilesUnder( root / "scripts", { ".bat" } );
+    ASSERT_FALSE( batchFiles.empty() ) << "no .bat files were found, so this census covered nothing.";
+
+    int listsInspected = 0;
+    for ( const auto& file : batchFiles )
+    {
+        std::istringstream lines( ReadFile( root / file ) );
+        std::string        line;
+        int                lineNumber = 0;
+        bool               inList     = false;
+
+        while ( std::getline( lines, line ) )
+        {
+            ++lineNumber;
+
+            std::string lowered = line;
+            std::transform( lowered.begin(), lowered.end(), lowered.begin(),
+                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+
+            if ( !inList )
+            {
+                // `for %%X in (` with nothing closing it on the same line opens a multi-line list.
+                const std::size_t forAt = lowered.find( "for " );
+                const std::size_t inAt  = lowered.find( " in (" );
+                if ( forAt != std::string::npos && inAt != std::string::npos && forAt < inAt &&
+                     lowered.find( ')', inAt ) == std::string::npos )
+                {
+                    inList = true;
+                    ++listsInspected;
+                }
+                continue;
+            }
+
+            // Inside the list: every word is an item. `)` ends it (the `) do (` line).
+            const std::size_t firstCharacter = lowered.find_first_not_of( " \t" );
+            if ( firstCharacter != std::string::npos )
+            {
+                const std::string head = lowered.substr( firstCharacter, 4 );
+                EXPECT_FALSE( head == "rem " || head == "rem" )
+                     << file.generic_string() << ":" << lineNumber
+                     << " puts a `REM` inside a `for ... in ( ... )` list: '" << line
+                     << "'. cmd does not strip it — every word becomes an ITEM, so the loop runs over "
+                        "\"REM\", \"tree\", \"not\", \"the\" ... Move the prose above the `for`. "
+                        "Measured: exactly this failed both Windows configurations while macOS stayed "
+                        "green.";
+            }
+            if ( lowered.find( ')' ) != std::string::npos )
+            {
+                inList = false;
+            }
+        }
+    }
+
+    EXPECT_GT( listsInspected, 0 )
+         << "no multi-line `for ... in ( ... )` list was found in any .bat file, so this census examined "
+            "nothing. Setup.bat has one; if it moved, follow it rather than deleting this.";
+}
+
+// THE REGISTER IS ROWS, AND THE ROWS HAVE REASONS. A register whose rows carry no argument decays into
+// a list somebody edits to make a gate pass — which is the failure mode of pinning a COUNT, one level
+// up. The extensions themselves are checked against the built library in AssimpLibraryPin; what is
+// checked here is that the file remains a register rather than becoming a bare list.
 TEST( AssimpBoundary, TheImporterRegisterGivesEveryFormatAReason )
 {
     const auto        root = RepositoryRoot();
