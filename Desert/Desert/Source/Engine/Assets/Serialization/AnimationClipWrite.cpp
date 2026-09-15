@@ -29,15 +29,22 @@ namespace Desert::Assets::Serialization
 
             channel.Positions.reserve( track.PositionKeys.size() );
             for ( const auto& k : track.PositionKeys )
-                channel.Positions.push_back( KeyPosition{ k.Tick.Value, k.Position } );
+                channel.Positions.push_back(
+                     KeyPosition{ k.Tick.Value, k.Position,
+                                  KeyShape{ static_cast<int>( k.Interp ), static_cast<int>( k.Mode ), 0.0f, 0.0f },
+                                  k.ArriveTangent, k.LeaveTangent } );
 
             channel.Rotations.reserve( track.RotationKeys.size() );
             for ( const auto& k : track.RotationKeys )
-                channel.Rotations.push_back( KeyRotation{ k.Tick.Value, k.Rotation } );
+                channel.Rotations.push_back( KeyRotation{
+                     k.Tick.Value, k.Rotation, KeyShape{ static_cast<int>( k.Interp ), 0, 0.0f, 0.0f } } );
 
             channel.Scales.reserve( track.ScaleKeys.size() );
             for ( const auto& k : track.ScaleKeys )
-                channel.Scales.push_back( KeyScale{ k.Tick.Value, k.Scale } );
+                channel.Scales.push_back(
+                     KeyScale{ k.Tick.Value, k.Scale,
+                               KeyShape{ static_cast<int>( k.Interp ), static_cast<int>( k.Mode ), 0.0f, 0.0f },
+                               k.ArriveTangent, k.LeaveTangent } );
 
             data.Channels.push_back( std::move( channel ) );
         }

@@ -15,6 +15,7 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Animation/TrackEditing.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
@@ -132,6 +133,22 @@ namespace Desert::Editor
                 ImGui::EndTooltip();
             }
         }
+
+        /// A lane index (0 = position, 1 = rotation, 2 = scale) as the channel it edits. Written once because
+        /// it was written twice: the per-lane "+" and "Add Key @ Playhead" each spelled out the same mapping,
+        /// and the second copy is how the two buttons came to disagree about what a key at the playhead is.
+        Animation::TrackChannel ChannelOfLane( int lane )
+        {
+            if ( lane == 0 )
+            {
+                return Animation::TrackChannel::Position;
+            }
+            if ( lane == 1 )
+            {
+                return Animation::TrackChannel::Rotation;
+            }
+            return Animation::TrackChannel::Scale;
+        }
     } // namespace
 
     void SequencerPanel::KeyBonePose( Animation::AnimationClip* clip, const Animation::Animator& animator,
@@ -192,6 +209,11 @@ namespace Desert::Editor
         upsertPos( track->PositionKeys, t, []( auto& k, const glm::vec3& v ) { k.Position = v; } );
         upsertPos( track->RotationKeys, r, []( auto& k, const glm::quat& v ) { k.Rotation = v; } );
         upsertPos( track->ScaleKeys, s, []( auto& k, const glm::vec3& v ) { k.Scale = v; } );
+
+        // A KEY WAS ADDED OR MOVED, SO THE CURVE CHANGED ON BOTH SIDES OF IT. Keying is an edit like any
+        // other, and the one path that did not recompute would be the one that leaves an animator
+        // wondering why the shape drifts as they work.
+        Animation::RefreshTangents( *track, clip->TickRate );
     }
 
     // RequestOpen() AND ITS FILE-STATIC INBOX ARE GONE, and the deletion is the change rather than a
@@ -687,28 +709,52 @@ namespace Desert::Editor
                 dl->AddText( ImVec2( contentX0 + gutter - 58.0f, laneY + 1.0f ), chCol[ch], chName[ch] );
 
                 // Per-lane "+" (add a key at the playhead) so empty channels are keyable from scratch.
+                // THE SAME ORIGIN DEFECT §936 NAMES LIVED HERE TOO, eleven lines below the "Add Key @
+                // Playhead" button that was fixed for it: this one pushed `glm::vec3( 0.0f )` / an identity
+                // quaternion / a scale of 1. A populated channel records its CURVE; an empty one has no
+                // curve, so it records the POSE on screen. Neither answer is the origin.
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + gutter - 22.0f, laneY - 1.0f ) );
                 ImGui::PushID( ( ti * 3 + ch ) * 4096 + 3999 );
                 if ( ImGui::SmallButton( "+" ) )
                 {
                     const Animation::FrameNumber t =
                          Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
+                    const Animation::TrackChannel channel = ChannelOfLane( ch );
+                    const auto                    bone    = animator->GetSkeleton().FindBoneIndex( tr.BoneName );
+
+                    bool empty = tr.ScaleKeys.empty();
                     if ( ch == 0 )
-                        tr.PositionKeys.push_back( { t, glm::vec3( 0.0f ) } );
+                    {
+                        empty = tr.PositionKeys.empty();
+                    }
                     else if ( ch == 1 )
-                        tr.RotationKeys.push_back( { t, glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } );
-                    else
-                        tr.ScaleKeys.push_back( { t, glm::vec3( 1.0f ) } );
-                    if ( ch == 0 )
-                        std::sort( tr.PositionKeys.begin(), tr.PositionKeys.end() );
-                    else if ( ch == 1 )
-                        std::sort( tr.RotationKeys.begin(), tr.RotationKeys.end() );
-                    else
-                        std::sort( tr.ScaleKeys.begin(), tr.ScaleKeys.end() );
+                    {
+                        empty = tr.RotationKeys.empty();
+                    }
+
+                    bool added = false;
+                    if ( !empty )
+                    {
+                        added = Animation::InsertKeyFromCurve( tr, channel, t, tickRate );
+                    }
+                    else if ( bone.has_value() )
+                    {
+                        added = Animation::InsertFirstKeyFromPose( tr, channel, t,
+                                                                   animator->GetBoneLocalPose( bone.value() ) );
+                    }
+                    // else: the track names a bone this rig does not have, so there is no pose to record
+                    // and no curve to read. Adding nothing is the answer; adding the origin was not.
+
+                    if ( added )
+                    {
+                        Animation::RefreshTangents( tr, tickRate );
+                    }
                     m_SelTrack   = ti;
                     m_SelChannel = ch;
-                    if ( auto bi = animator->GetSkeleton().FindBoneIndex( tr.BoneName ); bi.has_value() )
-                        Core::SkeletonEditMode::SetSelectedBone( static_cast<int>( bi.value() ) );
+                    if ( bone.has_value() )
+                    {
+                        Core::SkeletonEditMode::SetSelectedBone( static_cast<int>( bone.value() ) );
+                    }
                     animator->SetTime( animator->GetCurrentTime() );
                 }
                 ImGui::PopID();
@@ -817,6 +863,10 @@ namespace Desert::Editor
                            : sortChannel == 1 ? nearestKey( tr.RotationKeys )
                                               : nearestKey( tr.ScaleKeys );
 
+            // A TANGENT IS NOT A PROPERTY OF ITS KEY: it is computed from the neighbours, so a retime
+            // changes the curve on both sides of the key that moved. Recomputing only the edited key is
+            // the version that looks right until the second edit (report 05 §969 item 1).
+            Animation::RefreshTangents( tr, tickRate );
             animator->SetTime( animator->GetCurrentTime() ); // refresh the pose to the edited key
         }
 
@@ -834,6 +884,34 @@ namespace Desert::Editor
 
             ImGui::Text( "%s  /  %s", tr.BoneName.c_str(), chName[m_SelChannel] );
             bool changed = false;
+
+            // THE SHAPE OF THE SEGMENT THIS KEY ENDS. Before A6 a clip had exactly one rule — a straight
+            // line, unconditionally — so holding a pose and then easing out of it could only be faked with
+            // extra keys. A rotation lane offers two of the three: a cubic through quaternions is not a
+            // rotation (see RotationKeyFrame), and offering it here would be a control whose value the
+            // loader refuses.
+            const auto interpCombo = [&]( Animation::KeyInterp& interp, bool allowCubic )
+            {
+                const char* names[3] = { "Constant", "Linear", "Cubic" };
+                int         current  = static_cast<int>( interp );
+                if ( !ImGui::Combo( "Interp", &current, names, allowCubic ? 3 : 2 ) )
+                {
+                    return false;
+                }
+                interp = static_cast<Animation::KeyInterp>( current );
+                return true;
+            };
+            const auto tangentCombo = [&]( Animation::TangentMode& mode )
+            {
+                const char* names[3] = { "Auto", "User", "Break" };
+                int         current  = static_cast<int>( mode );
+                if ( !ImGui::Combo( "Tangents", &current, names, 3 ) )
+                {
+                    return false;
+                }
+                mode = static_cast<Animation::TangentMode>( current );
+                return true;
+            };
             if ( keyOk )
             {
                 if ( m_SelChannel == 0 )
@@ -841,11 +919,19 @@ namespace Desert::Editor
                     auto& key = tr.PositionKeys[m_SelKey];
                     changed |= FrameField( key.Tick, animator->GetDurationTicks(), tickRate, displayRate );
                     changed |= ImGui::DragFloat3( "Position", &key.Position.x, 0.01f );
+                    changed |= interpCombo( key.Interp, true );
+                    changed |= tangentCombo( key.Mode );
+                    if ( key.Mode != Animation::TangentMode::Auto )
+                    {
+                        changed |= ImGui::DragFloat3( "Arrive /s", &key.ArriveTangent.x, 0.1f );
+                        changed |= ImGui::DragFloat3( "Leave /s", &key.LeaveTangent.x, 0.1f );
+                    }
                 }
                 else if ( m_SelChannel == 1 )
                 {
                     auto& key = tr.RotationKeys[m_SelKey];
                     changed |= FrameField( key.Tick, animator->GetDurationTicks(), tickRate, displayRate );
+                    changed |= interpCombo( key.Interp, false );
                     glm::vec3 euler = glm::degrees( glm::eulerAngles( key.Rotation ) );
                     if ( ImGui::DragFloat3( "Euler", &euler.x, 0.5f ) )
                     {
@@ -858,6 +944,13 @@ namespace Desert::Editor
                     auto& key = tr.ScaleKeys[m_SelKey];
                     changed |= FrameField( key.Tick, animator->GetDurationTicks(), tickRate, displayRate );
                     changed |= ImGui::DragFloat3( "Scale", &key.Scale.x, 0.01f );
+                    changed |= interpCombo( key.Interp, true );
+                    changed |= tangentCombo( key.Mode );
+                    if ( key.Mode != Animation::TangentMode::Auto )
+                    {
+                        changed |= ImGui::DragFloat3( "Arrive /s", &key.ArriveTangent.x, 0.1f );
+                        changed |= ImGui::DragFloat3( "Leave /s", &key.LeaveTangent.x, 0.1f );
+                    }
                 }
 
                 if ( ImGui::Button( ICON_MDI_DELETE "  Delete Key" ) )
@@ -876,24 +969,14 @@ namespace Desert::Editor
 
             if ( ImGui::Button( ICON_MDI_PLUS "  Add Key @ Playhead" ) )
             {
+                // RECORDS WHAT THE CURVE SAYS HERE, seeded with its slope — report 05 §936. What this
+                // replaces inserted `glm::vec3( 0.0f )`: a position key AT THE ORIGIN, which yanked the
+                // bone across the scene the moment the button was pressed, and a scale key of 1 that
+                // flattened whatever the animator had built.
                 const Animation::FrameNumber t =
                      Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
-                if ( m_SelChannel == 0 )
-                {
-                    tr.PositionKeys.push_back( { t, glm::vec3( 0.0f ) } );
-                    std::sort( tr.PositionKeys.begin(), tr.PositionKeys.end() );
-                }
-                else if ( m_SelChannel == 1 )
-                {
-                    tr.RotationKeys.push_back( { t, glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } );
-                    std::sort( tr.RotationKeys.begin(), tr.RotationKeys.end() );
-                }
-                else
-                {
-                    tr.ScaleKeys.push_back( { t, glm::vec3( 1.0f ) } );
-                    std::sort( tr.ScaleKeys.begin(), tr.ScaleKeys.end() );
-                }
-                changed = true;
+                const Animation::TrackChannel channel = ChannelOfLane( m_SelChannel );
+                changed                               = Animation::InsertKeyFromCurve( tr, channel, t, tickRate );
             }
 
             if ( changed )

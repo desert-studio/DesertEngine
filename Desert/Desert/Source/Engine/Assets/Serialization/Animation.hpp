@@ -22,22 +22,64 @@ namespace Desert::Assets::Serialization
     // The rename also does the work a version byte cannot do alone: a v0 file has `Time` and no `Tick`, so
     // reading it with DefaultIfMissing yields tick 0 for every key — which is why the loader REFUSES a v0
     // file outright instead of reading one.
+    /**
+     * @brief The shape of the segment a key is the LATER end of, plus the slopes that shape it.
+     *
+     * A6 / generation 2. `Interp` and `Mode` are stored as int for the same reason every enum in this
+     * file is (stable, tolerant serialization); the two weight fields are RESERVED AND ZERO — weighted
+     * tangents are a second evaluator, not a field, and the place for them exists so that adding them
+     * later is a code change and not a migration (report 05 §969).
+     *
+     * EVERY KEY IN EVERY SHIPPED CLIP STATES THESE EXPLICITLY, and that is the condition the version step
+     * was granted on rather than a nicety. `rfl::DefaultIfMissing` would happily invent them, and an
+     * invented default is indistinguishable from an authored one for ever after — so the migration writes
+     * them into the corpus and `Tests/Engine/AnimationClipCorpus` reads the files back to check that it
+     * did. A version that changed only the number a file states about ITSELF, and nothing it says about
+     * its contents, would be versioning for its own sake.
+     */
+    struct KeyShape
+    {
+        int   Interp       = 1; // KeyInterp::Linear — what every clip did before per-key interpolation
+        int   Mode         = 0; // TangentMode::Auto
+        float ArriveWeight = 0.0f;
+        float LeaveWeight  = 0.0f;
+    };
+
     struct KeyPosition
     {
         int32_t   Tick  = 0;
         glm::vec3 Value = glm::vec3( 0.0f );
+        KeyShape  Shape;
+        // Value units per SECOND, one per component — a tangent is a slope and a slope is a scalar. See
+        // Engine/Animation/KeyInterpolation.hpp for why the unit is seconds and not ticks.
+        glm::vec3 ArriveTangent = glm::vec3( 0.0f );
+        glm::vec3 LeaveTangent  = glm::vec3( 0.0f );
     };
 
+    /**
+     * @brief A rotation key. IT CARRIES NO TANGENTS, and the reason is the maths rather than the schedule.
+     *
+     * A cubic through quaternions is not a rotation: the Bezier of four quaternions leaves the unit
+     * sphere, and the curve that does not is `squad`, which builds its own control quaternions from the
+     * neighbours and is a different construction with a different authoring surface. Storing tangent
+     * fields here would be four numbers nothing could read — and the shape enum is still present, because
+     * `Constant` and `Linear` are both meaningful for a rotation and holding a pose is exactly what
+     * `Constant` is for.
+     */
     struct KeyRotation
     {
         int32_t   Tick  = 0;
         glm::quat Value = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+        KeyShape  Shape;
     };
 
     struct KeyScale
     {
         int32_t   Tick  = 0;
         glm::vec3 Value = glm::vec3( 1.0f );
+        KeyShape  Shape;
+        glm::vec3 ArriveTangent = glm::vec3( 0.0f );
+        glm::vec3 LeaveTangent  = glm::vec3( 0.0f );
     };
 
     // NO BONE INDEX. It was here, uninitialised, and the Sequencer wrote whatever the stack held into every
@@ -114,7 +156,14 @@ namespace Desert::Assets::Serialization
         std::vector<NotifyData>  Notifies;
     };
 
-    /// The generation this build writes and the only one it reads. Its own sequence, starting at 1: the
-    /// `.anim` format had no version before this step, and every file that predates it is generation 0.
-    inline constexpr int kAnimationVersion = 1;
+    /// The generation this build writes and the only one it reads.
+    ///
+    ///   0 - no version field at all: key times are float SECONDS under a `TicksPerSecond` every shipped
+    ///       clip set to 1, so the format's own unit was a fiction (A5)
+    ///   1 - key times are integer TICKS on a rate the file states, with a display rate beside it (A5)
+    ///   2 - a key states the SHAPE of the segment it ends and the slopes that shape it (A6)
+    ///
+    /// A number given by the teamlead, as the contract requires, and given on a condition: the step had
+    /// to make the corpus SAY something new, not merely claim a newer number. See KeyShape.
+    inline constexpr int kAnimationVersion = 2;
 } // namespace Desert::Assets::Serialization

@@ -10,17 +10,10 @@ project(test_name)
 
     files {
         test_files,
-        -- Units under test (pure CPU: no Vulkan symbols are referenced, only declaration-only headers).
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
-        -- Animator.cpp runs the Controls stage, so it needs the control base it calls through. The base is
-        -- two functions and no Vulkan; no suite here adds a control, which is what makes "a rig with no
-        -- controls behaves exactly as before" a thing these suites stillmeasure.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
-        -- The tick grid every clip time now lives on (A5).
+        -- ONE engine source, and that is the property the type exists for: a decision about how time is
+        -- STORED must be checkable without a clip, a rig or a GPU.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 
     includedirs {

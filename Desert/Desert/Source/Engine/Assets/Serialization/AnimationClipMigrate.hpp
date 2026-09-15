@@ -20,13 +20,18 @@ namespace Desert::Assets::Serialization
         int         FromVersion            = 0;
         std::size_t KeysMoved              = 0;
         int64_t     WorstMicro             = 0;
+        /// How many keys had their shape WRITTEN OUT. The version step from 1 to 2 was granted on the
+        /// condition that it makes the corpus SAY something new rather than only claim a newer number, and
+        /// this is the number that says whether it did.
+        std::size_t ShapesWritten = 0;
+
         int32_t     DisplayRateNumerator   = 0;
         int32_t     DisplayRateDenominator = 1;
         bool        DisplayRateIsAFallback = false;
     };
 
     /**
-     * @brief `.anim` generation 0 (float seconds under a fictional `TicksPerSecond`) -> generation 1.
+     * @brief `.anim` generation 0 or 1 -> the current generation.
      *
      * PURE: a string in, a string out, no filesystem and no asset system, so the rules below are testable
      * without a file — which is the contract's requirement for a migration step and the reason this is not
@@ -43,6 +48,13 @@ namespace Desert::Assets::Serialization
      * the grid the Sequencer snaps to, so the first drag of any key would move every other key's neighbour
      * onto a different instant than the one the animator authored. When no standard grid fits, the report
      * says so and the default is used.
+     *
+     * GENERATION 1 -> 2 CHANGES NO TIME AT ALL: the ticks and the two rates are carried through
+     * untouched, and what the step adds is the SHAPE every key now states explicitly. `DefaultIfMissing`
+     * would have invented `Linear`/`Auto` for a silent file, and an invented default is indistinguishable
+     * from an authored one for ever after; `Linear` is written because that is what every clip in this
+     * engine did before per-key interpolation existed. A migration states the behaviour a file already
+     * had — it does not choose a new one.
      *
      * NOT IDEMPOTENT, AND IT SAYS SO. A file already at generation 1 is REFUSED rather than converted a
      * second time: running this twice over a v1 file would read integer ticks as if they were seconds. The

@@ -773,17 +773,33 @@ namespace Desert::Migration
                 continue;
             }
 
+            // WHAT ACTUALLY HAPPENED TO THIS FILE, which is not the same sentence for both steps. A
+            // generation-0 file has its key times moved from float seconds onto the tick grid; a
+            // generation-1 one keeps every tick it had and gains the SHAPE each key now states. Printing
+            // the first sentence for both was true of the corpus on the day it was written and false the
+            // day a second step existed.
             std::ostringstream what;
-            what << " key times moved from float seconds onto the "
-                 << Desert::Animation::PROJECT_TICK_RATE.Numerator << "-tick grid; display rate "
-                 << report.DisplayRateNumerator << " fps"
-                 << ( report.DisplayRateIsAFallback ? " (no standard grid fits its keys, defaulted)" : "" ) << "; "
-                 << report.KeysMoved << " key time(s) rounded";
-            if ( report.KeysMoved > 0 )
+            if ( report.FromVersion < 1 )
             {
-                what << ", worst by " << report.WorstMicro << " millionths of a tick";
+                what << " generation " << report.FromVersion << ": key times moved from float seconds onto "
+                     << "the " << Desert::Animation::PROJECT_TICK_RATE.Numerator << "-tick grid; display rate "
+                     << report.DisplayRateNumerator << " fps"
+                     << ( report.DisplayRateIsAFallback ? " (no standard grid fits its keys, defaulted)" : "" )
+                     << "; " << report.KeysMoved << " key time(s) rounded";
+                if ( report.KeysMoved > 0 )
+                {
+                    what << ", worst by " << report.WorstMicro << " millionths of a tick";
+                }
+                what << ";";
             }
-            what << ";";
+            else
+            {
+                what << " generation " << report.FromVersion << ": every tick kept; display rate "
+                     << report.DisplayRateNumerator << " fps carried;";
+            }
+            what << " " << report.ShapesWritten
+                 << " key(s) now STATE their interpolation and tangent mode instead of inheriting a silent "
+                    "default;";
 
             if ( check )
             {

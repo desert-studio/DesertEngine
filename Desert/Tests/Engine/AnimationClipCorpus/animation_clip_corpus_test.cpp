@@ -315,6 +315,65 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsAtTheCurrentGeneration )
                           << "; this census is measuring the wrong tree.";
 }
 
+// THE CONDITION THE GENERATION-2 STEP WAS GRANTED ON, MADE CHECKABLE.
+//
+// A version that changed only the number a file states about ITSELF would be versioning for its own sake.
+// What generation 2 buys is that a key SAYS what shape its segment has, instead of inheriting one from
+// `rfl::DefaultIfMissing` — and an invented default is indistinguishable from an authored one for ever
+// after. So this reads the FILES, not the parsed structs: parsing is exactly the step that would hide a
+// missing field by filling it in.
+//
+// It asserts the PROPERTY over every key of every clip rather than one phrase in one file: the same lie
+// eleven lines further down is the failure mode a single-instance pin has.
+TEST( AnimationClipCorpus, EveryKeyInEveryClipSTATESItsShapeRatherThanInheritingOne )
+{
+    ASSERT_FALSE( RepoRoot().empty() );
+
+    std::size_t clips = 0;
+    std::size_t keys  = 0;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( RepoRoot() ) )
+    {
+        if ( !entry.is_regular_file() || entry.path().extension() != ".anim" )
+        {
+            continue;
+        }
+        if ( entry.path().string().find( "/build/" ) != std::string::npos )
+        {
+            continue;
+        }
+
+        ++clips;
+        const std::string text = ReadFile( entry.path().string() );
+        ASSERT_FALSE( text.empty() ) << entry.path().string();
+
+        // Every key object in the file must carry a "Shape". Counted rather than searched for once,
+        // because one key stating its shape while the other 266 stay silent is exactly the state this
+        // census exists to refuse.
+        std::size_t shapes = 0;
+        for ( std::size_t at = text.find( "\"Shape\"" ); at != std::string::npos;
+              at             = text.find( "\"Shape\"", at + 1 ) )
+        {
+            ++shapes;
+        }
+        std::size_t ticks = 0;
+        for ( std::size_t at = text.find( "\"Tick\"" ); at != std::string::npos;
+              at             = text.find( "\"Tick\"", at + 1 ) )
+        {
+            ++ticks;
+        }
+
+        EXPECT_EQ( shapes, ticks ) << entry.path().string() << " has " << ticks << " key(s) and " << shapes
+                                   << " stated shape(s). A key whose shape is missing from the file gets "
+                                      "one invented by DefaultIfMissing, and an invented default cannot "
+                                      "afterwards be told from an authored one.";
+        keys += ticks;
+    }
+
+    EXPECT_GE( clips, 6u ) << "this census is measuring the wrong tree";
+    EXPECT_GE( keys, 200u ) << "only " << keys << " key(s) were seen across " << clips
+                            << " clip(s); the corpus is 267";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

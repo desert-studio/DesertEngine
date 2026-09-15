@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Animation/KeyInterpolation.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 
@@ -23,6 +24,15 @@ namespace Desert::Animation
         FrameNumber Tick;
         glm::vec3   Position = glm::vec3( 0.0f );
 
+        /// The shape of the segment ENDING at this key, and the slopes that shape it. The convention that
+        /// the later key owns the rule is taken from `UIAnimKey::Easing` rather than invented beside it.
+        KeyInterp   Interp        = KeyInterp::Linear;
+        TangentMode Mode          = TangentMode::Auto;
+        glm::vec3   ArriveTangent = glm::vec3( 0.0f ); // value units per SECOND, one per component
+        glm::vec3   LeaveTangent  = glm::vec3( 0.0f );
+        glm::vec3   ArriveWeight  = glm::vec3( 0.0f ); // RESERVED: unweighted ships first (§969)
+        glm::vec3   LeaveWeight   = glm::vec3( 0.0f );
+
         bool operator<( const PositionKeyFrame& other ) const
         {
             return Tick < other.Tick;
@@ -38,6 +48,11 @@ namespace Desert::Animation
         FrameNumber Tick;
         glm::quat   Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
 
+        /// NO TANGENTS, and the reason is the maths: a cubic through quaternions leaves the unit sphere,
+        /// and the curve that does not is `squad`, which is a different construction. `Constant` and
+        /// `Linear` are both meaningful for a rotation, and holding a pose is what `Constant` is for.
+        KeyInterp Interp = KeyInterp::Linear;
+
         bool operator<( const RotationKeyFrame& other ) const
         {
             return Tick < other.Tick;
@@ -52,6 +67,13 @@ namespace Desert::Animation
     {
         FrameNumber Tick;
         glm::vec3   Scale = glm::vec3( 1.0f );
+
+        KeyInterp   Interp        = KeyInterp::Linear;
+        TangentMode Mode          = TangentMode::Auto;
+        glm::vec3   ArriveTangent = glm::vec3( 0.0f );
+        glm::vec3   LeaveTangent  = glm::vec3( 0.0f );
+        glm::vec3   ArriveWeight  = glm::vec3( 0.0f );
+        glm::vec3   LeaveWeight   = glm::vec3( 0.0f );
 
         bool operator<( const ScaleKeyFrame& other ) const
         {
@@ -84,12 +106,15 @@ namespace Desert::Animation
          * immediately decomposed again, twice per bone per layer. A round trip with no consumer of the
          * matrix in it, on the hottest path the animation system has.
          */
-        [[nodiscard]] BoneTransform Sample( FrameTime at ) const
+        /// THE TICK RATE IS AN ARGUMENT, and it has to be: a tangent is value-per-second, so turning one
+        /// into a position inside a segment needs to know how long that segment is in seconds. The track
+        /// does not own the rate — the clip does — so it is passed rather than duplicated here.
+        [[nodiscard]] BoneTransform Sample( FrameTime at, FrameRate tickRate ) const
         {
             BoneTransform out;
-            out.Translation = GetInterpolatedPosition( at );
+            out.Translation = GetInterpolatedPosition( at, tickRate );
             out.Rotation    = GetInterpolatedRotation( at );
-            out.Scale       = GetInterpolatedScale( at );
+            out.Scale       = GetInterpolatedScale( at, tickRate );
             return out;
         }
 
@@ -101,7 +126,7 @@ namespace Desert::Animation
             return !PositionKeys.empty() || !RotationKeys.empty() || !ScaleKeys.empty();
         }
 
-        [[nodiscard]] glm::vec3 GetInterpolatedPosition( FrameTime at ) const
+        [[nodiscard]] glm::vec3 GetInterpolatedPosition( FrameTime at, FrameRate tickRate ) const
         {
             if ( PositionKeys.empty() )
             {
@@ -138,7 +163,18 @@ namespace Desert::Animation
             }
             const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
 
-            return glm::lerp( prev->Position, next->Position, factor );
+            // ONE CALL PER COMPONENT, and no temporary channel built to make them: a tangent is a slope
+            // and a slope is a scalar, which is also why UE stores a transform control as nine scalar
+            // channels rather than three vector ones.
+            const double spanSeconds =
+                 span * static_cast<double>( tickRate.Denominator ) / static_cast<double>( tickRate.Numerator );
+            glm::vec3 out;
+            for ( int c = 0; c < 3; ++c )
+            {
+                out[c] = EvaluateSegment( prev->Position[c], prev->LeaveTangent[c], next->Position[c],
+                                          next->ArriveTangent[c], next->Interp, spanSeconds, factor );
+            }
+            return out;
         }
 
         [[nodiscard]] glm::quat GetInterpolatedRotation( FrameTime at ) const
@@ -178,10 +214,17 @@ namespace Desert::Animation
             }
             const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
 
+            // CONSTANT OR SLERP, and there is no third branch to add later without adding `squad` with
+            // it. A rotation key states its shape like every other key; `Cubic` is refused where a clip
+            // is BUILT (AnimationClipBuild), so it cannot reach here and be quietly treated as linear.
+            if ( next->Interp == KeyInterp::Constant )
+            {
+                return prev->Rotation;
+            }
             return glm::slerp( prev->Rotation, next->Rotation, factor );
         }
 
-        [[nodiscard]] glm::vec3 GetInterpolatedScale( FrameTime at ) const
+        [[nodiscard]] glm::vec3 GetInterpolatedScale( FrameTime at, FrameRate tickRate ) const
         {
             if ( ScaleKeys.empty() )
             {
@@ -218,7 +261,18 @@ namespace Desert::Animation
             }
             const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
 
-            return glm::lerp( prev->Scale, next->Scale, factor );
+            // ONE CALL PER COMPONENT, and no temporary channel built to make them: a tangent is a slope
+            // and a slope is a scalar, which is also why UE stores a transform control as nine scalar
+            // channels rather than three vector ones.
+            const double spanSeconds =
+                 span * static_cast<double>( tickRate.Denominator ) / static_cast<double>( tickRate.Numerator );
+            glm::vec3 out;
+            for ( int c = 0; c < 3; ++c )
+            {
+                out[c] = EvaluateSegment( prev->Scale[c], prev->LeaveTangent[c], next->Scale[c],
+                                          next->ArriveTangent[c], next->Interp, spanSeconds, factor );
+            }
+            return out;
         }
     };
 

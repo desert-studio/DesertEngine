@@ -82,13 +82,39 @@ namespace Desert::Assets::Serialization
 
             track.PositionKeys.reserve( channel.Positions.size() );
             for ( const auto& p : channel.Positions )
-                track.PositionKeys.push_back(
-                     Animation::PositionKeyFrame{ Animation::FrameNumber{ p.Tick }, p.Value } );
+            {
+                Animation::PositionKeyFrame key;
+                key.Tick          = Animation::FrameNumber{ p.Tick };
+                key.Position      = p.Value;
+                key.Interp        = static_cast<Animation::KeyInterp>( p.Shape.Interp );
+                key.Mode          = static_cast<Animation::TangentMode>( p.Shape.Mode );
+                key.ArriveTangent = p.ArriveTangent;
+                key.LeaveTangent  = p.LeaveTangent;
+                track.PositionKeys.push_back( key );
+            }
 
             track.RotationKeys.reserve( channel.Rotations.size() );
             for ( const auto& r : channel.Rotations )
-                track.RotationKeys.push_back(
-                     Animation::RotationKeyFrame{ Animation::FrameNumber{ r.Tick }, r.Value } );
+            {
+                const auto interp = static_cast<Animation::KeyInterp>( r.Shape.Interp );
+                if ( interp == Animation::KeyInterp::Cubic )
+                {
+                    // REFUSED WHERE THE CLIP IS BUILT, so it cannot reach the sampler and be quietly
+                    // treated as linear. A cubic through quaternions leaves the unit sphere; the curve
+                    // that does not is `squad`, which builds its own control quaternions and is a
+                    // different feature with a different authoring surface.
+                    return Common::MakeFormattedError<Animation::AnimationClip>(
+                         "clip '{}': the rotation channel of bone '{}' states Cubic interpolation at tick "
+                         "{}. A cubic through quaternions is not a rotation — only Constant and Linear are "
+                         "meaningful here until squad exists.",
+                         data.Name, channel.BoneName, r.Tick );
+                }
+                Animation::RotationKeyFrame key;
+                key.Tick     = Animation::FrameNumber{ r.Tick };
+                key.Rotation = r.Value;
+                key.Interp   = interp;
+                track.RotationKeys.push_back( key );
+            }
 
             track.ScaleKeys.reserve( channel.Scales.size() );
             for ( const auto& s : channel.Scales )

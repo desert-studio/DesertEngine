@@ -2,6 +2,7 @@
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
+#include <Engine/Animation/KeyInterpolation.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 
@@ -17,26 +18,34 @@
 
 namespace Desert::Assets::Serialization
 {
-    namespace
+    // A NAMED namespace and not an anonymous one, and reflect-cpp is the reason rather than taste: its
+    // field-counting trick needs the type to have LINKAGE, and a struct with no linkage cannot be the type
+    // of a reflected field ("cannot be defined in any other translation unit because its type does not
+    // have linkage"). `LegacyFrameRate` inside an `optional` is what found it.
+    namespace Legacy
     {
-        // GENERATION 0, SPELLED OUT. These mirror what a pre-tick `.anim` holds, and they live here rather
-        // than in the live schema for the reason SceneFormat.hpp gives for its own steps: the runtime must
-        // know nothing about the old format. The only code in this engine that can read a v0 file is this
-        // file, and it exists to turn v0 files into v1 files and then be unreachable.
+        // GENERATIONS 0 AND 1, SPELLED OUT IN ONE MIRROR. `Time` is generation 0's float seconds and
+        // `Tick` is generation 1's integer; exactly one of them is present in any real file, and which one
+        // is what the version field says. They live here rather than in the live schema for the reason
+        // SceneFormat.hpp gives for its own steps: the runtime must know nothing about the old format, and
+        // the only code in this engine that can read one is the code whose job is to delete it.
         struct LegacyKeyPosition
         {
-            float     Time  = 0.0f;
-            glm::vec3 Value = glm::vec3( 0.0f );
+            std::optional<float>   Time;
+            std::optional<int32_t> Tick;
+            glm::vec3              Value = glm::vec3( 0.0f );
         };
         struct LegacyKeyRotation
         {
-            float     Time  = 0.0f;
-            glm::quat Value = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+            std::optional<float>   Time;
+            std::optional<int32_t> Tick;
+            glm::quat              Value = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
         };
         struct LegacyKeyScale
         {
-            float     Time  = 0.0f;
-            glm::vec3 Value = glm::vec3( 1.0f );
+            std::optional<float>   Time;
+            std::optional<int32_t> Tick;
+            glm::vec3              Value = glm::vec3( 1.0f );
         };
         struct LegacyChannel
         {
@@ -47,22 +56,42 @@ namespace Desert::Assets::Serialization
         };
         struct LegacyNotify
         {
-            std::string Name;
-            float       Time = 0.0f;
+            std::string            Name;
+            std::optional<float>   Time;
+            std::optional<int32_t> Tick;
+        };
+        struct LegacyFrameRate
+        {
+            int32_t Numerator   = 24000;
+            int32_t Denominator = 1;
         };
         struct LegacyAnimation
         {
-            // Present only on a file this migration has already produced; its absence is what says v0.
             std::optional<int> Version;
 
-            std::string                Name;
-            float                      Duration          = 0.0f;
-            float                      TicksPerSecond    = 25.0f;
+            std::string Name;
+
+            // Generation 0 only.
+            std::optional<float> Duration;
+            std::optional<float> TicksPerSecond;
+
+            // Generation 1 onwards.
+            std::optional<LegacyFrameRate> TickRate;
+            std::optional<LegacyFrameRate> DisplayRate;
+            std::optional<int32_t>         DurationTicks;
+
             uint64_t                   SkeletonSignature = 0;
             std::vector<LegacyChannel> Channels;
             std::vector<LegacyNotify>  Notifies;
         };
+    } // namespace Legacy
 
+    namespace
+    {
+    } // namespace
+
+    namespace
+    {
         /// The standard display grids, coarsest LAST — the search below wants the coarsest that fits, and
         /// walking from the end is how it finds one without sorting.
         constexpr std::array<int32_t, 17> STANDARD_DISPLAY_RATES = { 120, 100, 60, 50, 48, 30, 25, 24, 20,
@@ -85,12 +114,12 @@ namespace Desert::Assets::Serialization
     {
         report = AnimationMigrationReport{};
 
-        const auto parsed = rfl::json::read<LegacyAnimation, rfl::DefaultIfMissing>( json );
+        const auto parsed = rfl::json::read<Legacy::LegacyAnimation, rfl::DefaultIfMissing>( json );
         if ( !parsed.has_value() )
         {
             return Common::MakeFormattedError<std::string>( "not a readable `.anim`: {}", parsed.error().what() );
         }
-        const LegacyAnimation& legacy = parsed.value();
+        const Legacy::LegacyAnimation& legacy = parsed.value();
 
         // ABSENT MEANS 0 MEANS PRE-TICK. Never "already current": a file whose version field is missing is
         // exactly the file this function exists for, and treating it as converted would read its float
@@ -99,65 +128,38 @@ namespace Desert::Assets::Serialization
         if ( report.FromVersion >= kAnimationVersion )
         {
             return Common::MakeFormattedError<std::string>(
-                 "clip '{}' is already at `.anim` generation {}. Converting it again would read its integer "
-                 "ticks as though they were seconds; a migration step is not idempotent and this one says "
-                 "so rather than doubling its own work.",
+                 "clip '{}' is already at `.anim` generation {}. A migration step is not idempotent and "
+                 "this one says so rather than doubling its own work.",
                  legacy.Name, report.FromVersion );
         }
 
-        if ( !( legacy.TicksPerSecond > 0.0F ) )
+        // ---- generation 0 -> ticks. Generations 1 and up already have them. ---------------------------
+        const bool fromSeconds = report.FromVersion < 1;
+
+        double sourceRate = 1.0;
+        if ( fromSeconds )
         {
-            return Common::MakeFormattedError<std::string>(
-                 "clip '{}' states {} ticks per second, so none of its key times can be placed in time at "
-                 "all.",
-                 legacy.Name, legacy.TicksPerSecond );
+            sourceRate = static_cast<double>( legacy.TicksPerSecond.value_or( 25.0F ) );
+            if ( !( sourceRate > 0.0 ) )
+            {
+                return Common::MakeFormattedError<std::string>(
+                     "clip '{}' states {} ticks per second, so none of its key times can be placed in time "
+                     "at all.",
+                     legacy.Name, sourceRate );
+            }
         }
 
-        const auto   sourceRate  = static_cast<double>( legacy.TicksPerSecond );
         const double projectRate = Animation::PROJECT_TICK_RATE.AsDouble();
 
-        std::vector<double> everyTimeInSeconds;
-        const auto          collect = [&]( float time ) { everyTimeInSeconds.push_back( time / sourceRate ); };
-        for ( const auto& channel : legacy.Channels )
+        // The one place either generation's spelling of "when" becomes this one's.
+        const auto toTick = [&]( const std::optional<float>&   seconds,
+                                 const std::optional<int32_t>& ticks ) -> int32_t
         {
-            for ( const auto& k : channel.Positions )
+            if ( !fromSeconds )
             {
-                collect( k.Time );
+                return ticks.value_or( 0 );
             }
-            for ( const auto& k : channel.Rotations )
-            {
-                collect( k.Time );
-            }
-            for ( const auto& k : channel.Scales )
-            {
-                collect( k.Time );
-            }
-        }
-        for ( const auto& n : legacy.Notifies )
-        {
-            collect( n.Time );
-        }
-
-        // The coarsest standard grid every key already lies on — see the header for why this is derived
-        // and not defaulted.
-        int32_t displayRate = Animation::DEFAULT_DISPLAY_RATE.Numerator;
-        bool    fellBack    = true;
-        for ( const int32_t candidate : std::ranges::reverse_view( STANDARD_DISPLAY_RATES ) )
-        {
-            if ( EveryTimeLandsOn( everyTimeInSeconds, candidate ) )
-            {
-                displayRate = candidate;
-                fellBack    = false;
-                break;
-            }
-        }
-        report.DisplayRateNumerator   = displayRate;
-        report.DisplayRateDenominator = 1;
-        report.DisplayRateIsAFallback = fellBack;
-
-        const auto toTick = [&]( float time ) -> int32_t
-        {
-            const double exact   = ( static_cast<double>( time ) / sourceRate ) * projectRate;
+            const double exact   = ( static_cast<double>( seconds.value_or( 0.0F ) ) / sourceRate ) * projectRate;
             const double rounded = std::round( exact );
             if ( std::fabs( exact - rounded ) > 1.0e-9 )
             {
@@ -168,12 +170,76 @@ namespace Desert::Assets::Serialization
             return static_cast<int32_t>( rounded );
         };
 
+        // ---- the display grid ------------------------------------------------------------------------
+        //
+        // Derived from the keys for a generation-0 file (see the header); CARRIED for a generation-1 one,
+        // which already states a grid its author chose. Re-deriving it there would overwrite an authored
+        // value with a guess, which is the shape a migration must never have.
+        int32_t displayRate = Animation::DEFAULT_DISPLAY_RATE.Numerator;
+        bool    fellBack    = true;
+        if ( fromSeconds )
+        {
+            std::vector<double> everyTimeInSeconds;
+            const auto          collect = [&]( const std::optional<float>& time )
+            { everyTimeInSeconds.push_back( static_cast<double>( time.value_or( 0.0F ) ) / sourceRate ); };
+            for ( const auto& channel : legacy.Channels )
+            {
+                for ( const auto& k : channel.Positions )
+                {
+                    collect( k.Time );
+                }
+                for ( const auto& k : channel.Rotations )
+                {
+                    collect( k.Time );
+                }
+                for ( const auto& k : channel.Scales )
+                {
+                    collect( k.Time );
+                }
+            }
+            for ( const auto& n : legacy.Notifies )
+            {
+                collect( n.Time );
+            }
+
+            for ( const int32_t candidate : std::ranges::reverse_view( STANDARD_DISPLAY_RATES ) )
+            {
+                if ( EveryTimeLandsOn( everyTimeInSeconds, candidate ) )
+                {
+                    displayRate = candidate;
+                    fellBack    = false;
+                    break;
+                }
+            }
+        }
+        else if ( legacy.DisplayRate.has_value() )
+        {
+            displayRate = legacy.DisplayRate->Numerator;
+            fellBack    = false;
+        }
+        report.DisplayRateNumerator   = displayRate;
+        report.DisplayRateDenominator = 1;
+        report.DisplayRateIsAFallback = fellBack;
+
+        // ---- the shape every key now STATES ----------------------------------------------------------
+        //
+        // THIS IS THE CONDITION THE VERSION STEP WAS GRANTED ON. `rfl::DefaultIfMissing` would invent
+        // `Linear`/`Auto` for a file that says nothing, and an invented default is indistinguishable from
+        // an authored one for ever after — so the conversion WRITES them. `Linear` because that is what
+        // every clip in this engine did before per-key interpolation existed: a migration states the
+        // behaviour a file already had, it does not choose a new one.
+        KeyShape statedShape;
+        statedShape.Interp = static_cast<int>( Animation::KeyInterp::Linear );
+        statedShape.Mode   = static_cast<int>( Animation::TangentMode::Auto );
+
+        constexpr Animation::FrameRate TICKS = Animation::PROJECT_TICK_RATE;
+
         AnimationAssetData out;
-        out.Version       = kAnimationVersion;
-        out.Name          = legacy.Name;
-        out.TickRate      = { Animation::PROJECT_TICK_RATE.Numerator, Animation::PROJECT_TICK_RATE.Denominator };
-        out.DisplayRate   = { displayRate, 1 };
-        out.DurationTicks = toTick( legacy.Duration );
+        out.Version           = kAnimationVersion;
+        out.Name              = legacy.Name;
+        out.TickRate          = { TICKS.Numerator, TICKS.Denominator };
+        out.DisplayRate       = { displayRate, 1 };
+        out.DurationTicks     = toTick( legacy.Duration, legacy.DurationTicks );
         out.SkeletonSignature = legacy.SkeletonSignature;
 
         out.Channels.reserve( legacy.Channels.size() );
@@ -184,17 +250,22 @@ namespace Desert::Assets::Serialization
             converted.Positions.reserve( channel.Positions.size() );
             for ( const auto& k : channel.Positions )
             {
-                converted.Positions.push_back( KeyPosition{ toTick( k.Time ), k.Value } );
+                converted.Positions.push_back( KeyPosition{ toTick( k.Time, k.Tick ), k.Value, statedShape,
+                                                            glm::vec3( 0.0f ), glm::vec3( 0.0f ) } );
+                ++report.ShapesWritten;
             }
             converted.Rotations.reserve( channel.Rotations.size() );
             for ( const auto& k : channel.Rotations )
             {
-                converted.Rotations.push_back( KeyRotation{ toTick( k.Time ), k.Value } );
+                converted.Rotations.push_back( KeyRotation{ toTick( k.Time, k.Tick ), k.Value, statedShape } );
+                ++report.ShapesWritten;
             }
             converted.Scales.reserve( channel.Scales.size() );
             for ( const auto& k : channel.Scales )
             {
-                converted.Scales.push_back( KeyScale{ toTick( k.Time ), k.Value } );
+                converted.Scales.push_back( KeyScale{ toTick( k.Time, k.Tick ), k.Value, statedShape,
+                                                      glm::vec3( 0.0f ), glm::vec3( 0.0f ) } );
+                ++report.ShapesWritten;
             }
             out.Channels.push_back( std::move( converted ) );
         }
@@ -202,7 +273,7 @@ namespace Desert::Assets::Serialization
         out.Notifies.reserve( legacy.Notifies.size() );
         for ( const auto& n : legacy.Notifies )
         {
-            out.Notifies.push_back( NotifyData{ n.Name, toTick( n.Time ) } );
+            out.Notifies.push_back( NotifyData{ n.Name, toTick( n.Time, n.Tick ) } );
         }
 
         return Common::MakeSuccess( rfl::json::write( out ) );
