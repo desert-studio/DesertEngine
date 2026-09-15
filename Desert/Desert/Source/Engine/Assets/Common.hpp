@@ -101,6 +101,15 @@ namespace Desert::Assets
             case AssetTypeID::CloudType:
             case AssetTypeID::CloudModellingVolume:
             case AssetTypeID::CloudLayout:
+            // A THEME IS SCENE-SCOPED, and that is a decision rather than the fallthrough it used to be.
+            // It looks like a sibling of StringTable — both are project-wide authoring concepts — but the
+            // property this switch asks about is not "how does an author think of it", it is "can the
+            // reachability walk SEE it". A string table cannot be seen: a `#key` in a label is a string,
+            // which is the whole point of the sigil. A theme can: `UICanvasData::Theme` is an
+            // `AssetHandle`, and SceneAssetRoots.cpp:101 marks it with "a UI canvas is themed by it". So
+            // the ordinary rule already holds it alive for exactly as long as a live canvas names it, and
+            // exempting it from eviction would keep every theme ever opened resident for nothing.
+            case AssetTypeID::UITheme:
             case AssetTypeID::Count:
                 return false;
         }
