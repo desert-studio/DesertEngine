@@ -2,6 +2,7 @@
 #include "PrefabFormat.hpp"
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
+#include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <functional>
 #include <Engine/Core/Scene.hpp>
@@ -94,14 +95,58 @@ namespace Desert::Assets
         if ( !rootEntity ) return;
 
         m_EntityData.clear();
-        
-        std::function<void( ECS::Entity )> traverse = [&]( ECS::Entity e )
+
+        std::function<void( ECS::Entity, bool )> traverse = [&]( ECS::Entity e, bool isRoot )
         {
             if ( !e )
                 return;
 
-            // Serialize current entity
-            m_EntityData.push_back( Core::Serialize::EntitySerializer::SerializeEntity( e, assetManager ) );
+            EntityData record = Core::Serialize::EntitySerializer::SerializeEntity( e, assetManager );
+
+            // A RECORD ID IS A LINK KEY, AND IT MUST SURVIVE "APPLY INSTANCE CHANGES TO PREFAB".
+            //
+            // EntitySerializer writes the entity's own uuid, and PrefabFactory mints those fresh on every
+            // instantiation — so rewriting a prefab from one of its instances used to renumber every
+            // record in the file. Nothing depended on that before; now every override in every scene is
+            // addressed by these ids, and renumbering them would orphan the lot in one save, silently.
+            // The entity already knows which record it came from, so the file keeps that number.
+            if ( e.HasComponent<ECS::PrefabInstanceComponent>() )
+            {
+                const auto& path = e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
+                if ( path.size() == 1 )
+                {
+                    record.id = path.front();
+                }
+            }
+
+            // A NESTED PREFAB IS A LINK, NOT A COPY OF ITS BODY.
+            //
+            // This walk used to descend into nested instances as well, writing the nested prefab's every
+            // entity into THIS file beside the link to it. Instantiating the result then produced both:
+            // PrefabFactory creates a PrefabPath record in place (CreatedInPlace) AND hangs the nested
+            // file's body underneath it, so every nested entity appeared TWICE — and an edit to the
+            // nested prefab reached only one of the two copies. Stopping here is what makes "nested
+            // prefab" mean a reference at all; what the instance holds of its own travels as overrides
+            // on this record, exactly as it does for a scene.
+            if ( !isRoot && e.HasComponent<ECS::PrefabComponent>() && record.PrefabPath.has_value() )
+            {
+                const auto capture = Core::Serialize::CapturePrefabInstance( e, assetManager );
+                if ( !capture.Overrides.empty() )
+                {
+                    record.PrefabOverrides = capture.Overrides;
+                }
+
+                record.Tag = std::nullopt;
+                record.Translation.reset();
+                record.Rotation.reset();
+                record.Scale.reset();
+                record.Components.clear();
+
+                m_EntityData.push_back( std::move( record ) );
+                return;
+            }
+
+            m_EntityData.push_back( std::move( record ) );
 
             // Traverse children
             if ( e.HasComponent<ECS::RelationshipComponent>() )
@@ -109,12 +154,12 @@ namespace Desert::Assets
                 const auto& rel = e.GetComponent<ECS::RelationshipComponent>();
                 for ( auto childHandle : rel.Children )
                 {
-                    traverse( ECS::Entity{ childHandle, *e.GetRegistry() } );
+                    traverse( ECS::Entity{ childHandle, *e.GetRegistry() }, false );
                 }
             }
         };
 
-        traverse( rootEntity );
+        traverse( rootEntity, true );
 
         // Root entity's own PrefabComponent points to this very file — strip it from the
         // serialized data so that re-instantiating doesn't recurse into itself.

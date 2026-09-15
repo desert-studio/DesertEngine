@@ -1,4 +1,5 @@
 #include "PrefabFactory.hpp"
+#include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
@@ -6,9 +7,13 @@
 
 namespace Desert::Runtime::Factory
 {
+    // A prefab nests prefabs; the depth is the file's nesting, and `stack` is what bounds it (a cycle is
+    // refused by name above). NOLINTNEXTLINE must be the LAST comment line before the statement.
+    // NOLINTNEXTLINE(misc-no-recursion)
     ECS::Entity PrefabFactory::Instantiate( const Assets::PrefabAsset& prefab, Core::Scene& scene,
                                             const Assets::AssetManager&       assetManager,
-                                            std::unordered_set<Common::UUID>& stack )
+                                            std::unordered_set<Common::UUID>& stack,
+                                            const std::vector<Common::UUID>&  pathPrefix )
     {
         if ( prefab.GetEntities().empty() )
             return {};
@@ -57,12 +62,23 @@ namespace Desert::Runtime::Factory
         // 1. Create all entities with FRESH UUIDs to avoid collisions when multiple instances exist. The id
         // the record carries is a LINK KEY inside this file only — PlannedEntity::Id is what resolved the
         // parent links above, and it never reaches the scene.
+        //
+        // IT REACHES THE ENTITY AS AN ADDRESS, THOUGH, and that is not the same thing: PrefabInstanceComponent
+        // records which RECORD this entity came from, so an override written for that record can find it
+        // again after a reload that minted every uuid afresh. Stamped here, for every entity, because here
+        // is the only place the correspondence exists.
         std::vector<ECS::Entity> created;
         created.reserve( plan.Created.size() );
         for ( const auto& plannedEntity : plan.Created )
         {
-            created.push_back( scene.CreateEntityWithUUID(
-                 Common::UUID::Generate(), records[plannedEntity.Record].Tag.value_or( "PrefabEntity" ) ) );
+            const ECS::Entity entity = scene.CreateEntityWithUUID(
+                 Common::UUID::Generate(), records[plannedEntity.Record].Tag.value_or( "PrefabEntity" ) );
+
+            std::vector<Common::UUID> path = pathPrefix;
+            path.push_back( plannedEntity.Id );
+            entity.AddComponent<ECS::PrefabInstanceComponent>().SourcePath = std::move( path );
+
+            created.push_back( entity );
         }
 
         // 2. Nested prefab bodies, hung off the entity the nesting record became.
@@ -74,14 +90,37 @@ namespace Desert::Runtime::Factory
             if ( !nested )
                 continue;
 
-            ECS::Entity nestedRoot = Instantiate( *nested, scene, assetManager, stack );
+            // The nested instance's entities are addressed BELOW the nesting record: its own path is the
+            // prefix for everything inside it, which is what makes two nested copies of one prefab
+            // distinguishable at all.
+            std::vector<Common::UUID> nestedPrefix =
+                 created[plannedPrefab.Slot].GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
+
+            const ECS::Entity nestedRoot = Instantiate( *nested, scene, assetManager, stack, nestedPrefix );
             scene.Attach( created[plannedPrefab.Slot], nestedRoot );
+
+            // A nested instance may itself have been edited when this prefab was captured. Those edits
+            // live on the NESTING RECORD (not in the nested file, which is shared by every other instance
+            // of it), so they are applied here, against the body that was just built.
+            if ( nestedRoot && data.PrefabOverrides.has_value() && !data.PrefabOverrides->empty() )
+            {
+                const auto        indexed = IndexInstance( nestedRoot );
+                const std::size_t missed =
+                     ApplyOverrides( *data.PrefabOverrides, indexed, nestedPrefix, assetManager );
+                if ( missed > 0 )
+                {
+                    LOG_WARN( "[PrefabFactory] '{0}': {1} of {2} override(s) recorded for the nested prefab "
+                              "'{3}' name an entity that prefab no longer contains. They were NOT applied.",
+                              prefab.GetMetadata().Filepath.string(), missed, data.PrefabOverrides->size(),
+                              *data.PrefabPath );
+                }
+            }
         }
 
         // 3. Apply components and set up hierarchy.
         for ( const auto& load : plan.Loads )
         {
-            ECS::Entity entity = created[load.Target];
+            const ECS::Entity entity = created[load.Target];
             Core::Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, assetManager );
 
             if ( load.Parent != Core::Rules::kNoSlot )
@@ -101,6 +140,70 @@ namespace Desert::Runtime::Factory
 
         stack.erase( prefabID );
         return rootEntity;
+    }
+
+    std::unordered_map<std::string, ECS::Entity> PrefabFactory::IndexInstance( ECS::Entity instanceRoot )
+    {
+        std::unordered_map<std::string, ECS::Entity> indexed;
+        if ( !instanceRoot )
+        {
+            return indexed;
+        }
+
+        entt::registry* registry = instanceRoot.GetRegistry();
+
+        // Iterative, with an explicit stack: a prefab of a few thousand entities is a legal thing to save,
+        // and a recursive walk over one is a stack overflow rather than an error message.
+        std::vector<entt::entity> pending{ instanceRoot.GetHandle() };
+        while ( !pending.empty() )
+        {
+            const entt::entity handle = pending.back();
+            pending.pop_back();
+
+            const ECS::Entity entity{ handle, *registry };
+            if ( entity.HasComponent<ECS::PrefabInstanceComponent>() )
+            {
+                indexed.emplace(
+                     Assets::PrefabPathKey( entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath ),
+                     entity );
+            }
+
+            if ( entity.HasComponent<ECS::RelationshipComponent>() )
+            {
+                for ( const entt::entity child : entity.GetComponent<ECS::RelationshipComponent>().Children )
+                {
+                    pending.push_back( child );
+                }
+            }
+        }
+        return indexed;
+    }
+
+    std::size_t PrefabFactory::ApplyOverrides( const std::vector<Assets::PrefabOverrideData>&      overrides,
+                                               const std::unordered_map<std::string, ECS::Entity>& indexed,
+                                               std::span<const Common::UUID>                       prefix,
+                                               const Assets::AssetManager&                         assetManager )
+    {
+        std::size_t missed = 0;
+        for ( const Assets::PrefabOverrideData& over : overrides )
+        {
+            std::vector<Common::UUID> full( prefix.begin(), prefix.end() );
+            full.insert( full.end(), over.Path.begin(), over.Path.end() );
+
+            const auto found = indexed.find( Assets::PrefabPathKey( full ) );
+            if ( found == indexed.end() )
+            {
+                ++missed;
+                continue;
+            }
+
+            // THE SAME FUNCTION A RECORD IS LOADED WITH. An override is a partial entity record, so
+            // applying one is loading one — writing a second applier here is how the two would come to
+            // disagree about, say, what an absent field means.
+            Core::Serialize::EntitySerializer::DeserializeEntity( Assets::OverrideAsEntityData( over ),
+                                                                  found->second, assetManager );
+        }
+        return missed;
     }
 
 } // namespace Desert::Runtime::Factory
