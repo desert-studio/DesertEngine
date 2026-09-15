@@ -78,6 +78,11 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "R
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
 // runs, and they were invisible. See MakeCharacterControllerEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AudioSourceComponent, Data, "AudioSourceData", "Audio Source" )
+// Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
+// piece of behaviour behind them belongs to the Animator's control list rather than to this page. The entry
+// next door — AnimationComponent — is a custom one because it owns an Animator and a graph; that is the line
+// between the two.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::TwoBoneIKComponent, Data, "TwoBoneIKData", "Two-Bone IK" )
 // Particle Emitter is a CUSTOM entry: the reflected fields plus a transport (play / pause / restart),
 // because "is it emitting right now" is a state you drive, not a value you type. See MakeEmitterEntry.
 // UI Canvas is a CUSTOM entry: the reflected fields PLUS "Open in UI Editor", which is what the UI Editor

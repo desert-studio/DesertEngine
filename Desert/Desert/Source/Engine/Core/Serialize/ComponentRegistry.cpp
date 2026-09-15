@@ -1399,6 +1399,8 @@ namespace Desert::Core::Serialize
                                                                               &ECS::SpotLightComponent::Data ) );
         Register( MakeReflected<ECS::TerrainComponent, ECS::TerrainData>( "Terrain", "TerrainData",
                                                                           &ECS::TerrainComponent::Data ) );
+        Register( MakeReflected<ECS::TwoBoneIKComponent, ECS::TwoBoneIKData>( "TwoBoneIK", "TwoBoneIKData",
+                                                                              &ECS::TwoBoneIKComponent::Data ) );
         Register( MakeReflected<ECS::ColliderComponent, ECS::ColliderData>( "Collider", "ColliderData",
                                                                             &ECS::ColliderComponent::Data ) );
         Register( MakeReflected<ECS::RigidBodyComponent, ECS::RigidBodyData>( "RigidBody", "RigidBodyData",

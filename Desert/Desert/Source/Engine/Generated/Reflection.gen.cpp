@@ -186,6 +186,16 @@ namespace
                     .Register();
             }
             {
+                using T = ::Desert::ECS::TwoBoneIKData;
+                TypeBuilder( "TwoBoneIKData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "EndBone", .Type = FieldType::String, .Offset = offsetof( T, EndBone ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::EndBone )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "End Bone", .Category = "Two-Bone IK", .Tooltip = "The hand/foot bone. Its parent and grandparent become the two limbs", } } )
+                    .Field( FieldInfo{ .Name = "Goal", .Type = FieldType::Vec3, .Offset = offsetof( T, Goal ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Goal )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Goal", .Category = "Two-Bone IK", .Tooltip = "Where the end bone should land, in mesh-local centimetres", } } )
+                    .Field( FieldInfo{ .Name = "PoleTarget", .Type = FieldType::Vec3, .Offset = offsetof( T, PoleTarget ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PoleTarget )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Pole Target", .Category = "Two-Bone IK", .Tooltip = "Point the elbow/knee bends towards, in mesh-local centimetres", } } )
+                    .Field( FieldInfo{ .Name = "Alpha", .Type = FieldType::Float, .Offset = offsetof( T, Alpha ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Alpha )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Alpha", .Category = "Two-Bone IK", .Tooltip = "How far from the animated pose towards the solved one", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
                 using T = ::Desert::ECS::DirectionalLightData;
                 TypeBuilder( "DirectionalLightData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Color )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "Light", .Tooltip = "Tint of the illumination arriving at scene surfaces. The sun you SEE in the sky is the Sky Atmosphere component's Sun Color / Sun Intensity.", .IsColor = true, .Temperature = true, } } )

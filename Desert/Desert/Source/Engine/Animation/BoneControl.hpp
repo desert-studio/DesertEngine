@@ -90,9 +90,10 @@ namespace Desert::Animation
                                                             const std::vector<BoneOverride>& overrides,
                                                             float alpha, std::vector<BoneTransform>& scratch );
 
-    /// What a control IS, for the one question a caller legitimately asks of a base pointer: "is the control
-    /// already on this animator the kind I am about to configure?". A checked alternative to `dynamic_cast`
-    /// on a hot path, and the string the Details panel shows.
+    /// What a control IS, for the messages a person reads: the log line a refused control produces and the
+    /// row the Details panel shows. NOT a substitute for a downcast — the one caller that needs the derived
+    /// type uses `dynamic_cast`, because a kind tag plus `static_cast` is an unchecked downcast wearing a
+    /// check, and this project's analyser refuses it for exactly that reason.
     enum class BoneControlKind : uint8_t
     {
         TwoBoneIK,
