@@ -1802,16 +1802,20 @@ namespace Desert::UI
 
                 if ( reg.has<ECS::UITextComponent2D>( e ) )
                 {
-                    // A bound label draws the store's string without the component ever being touched.
-                    ECS::UITextData text = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
-                    if ( binding.Text )
-                        text.Text = *binding.Text;
-                    DrawText2D( dl, text, rect, scale, ctx.View.Tint );
                     // A bound label draws the store's string, and a keyed one draws its translation, both
                     // without the component ever being touched — the authored text is never written back.
-                    ECS::UITextData bound = reg.get<ECS::UITextComponent2D>( e ).Data;
-                    bound.Text            = ResolveLabel( bound.Text, binding );
-                    DrawText2D( dl, bound, rect, scale, ctx.View.Tint );
+                    //
+                    // ONE DRAW, AND IT USED TO BE TWO. The Ю15 merge (bb89ba87) resolved a conflict with
+                    // Ю13's theming by KEEPING BOTH SIDES: a themed draw that read `binding.Text`, and
+                    // directly under it an UNTHEMED draw that read ResolveLabel. Every label in the engine
+                    // was therefore emitted twice — double the glyph geometry in every text batch, SDF
+                    // edges composited over themselves, and the unthemed copy painted LAST, which is what
+                    // made Ю13's theming of text silently do nothing. The two halves compose rather than
+                    // compete: theme first (it decides colour, size and font), then resolve the string
+                    // (ResolveLabel already subsumes `binding.Text` — see its own comment).
+                    ECS::UITextData text = Themed( st, reg.get<ECS::UITextComponent2D>( e ).Data );
+                    text.Text            = ResolveLabel( text.Text, binding );
+                    DrawText2D( dl, text, rect, scale, ctx.View.Tint );
                 }
 
                 if ( reg.has<ECS::UIIconComponent>( e ) )
