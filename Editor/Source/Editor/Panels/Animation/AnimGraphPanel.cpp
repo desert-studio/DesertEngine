@@ -3,6 +3,8 @@
 
 #include <Editor/Core/ImGuiUtilities.hpp>
 
+#include <Common/Core/Logger.hpp>
+
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -11,6 +13,7 @@
 #include <imgui-node-editor/imgui_node_editor.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 
@@ -23,6 +26,18 @@ namespace Desert::Editor
 
     namespace
     {
+        // A live parameter write can now be REFUSED (see Evaluator::SetBool and friends), and a panel that
+        // dropped the result would be the silence those refusals exist to remove. It can only happen when
+        // the parameter was renamed in the same frame the slider moved, so this is a diagnostic and not a
+        // modal — but it is a diagnostic that exists.
+        void ReportParamWrite( const Common::BoolResultStr& result )
+        {
+            if ( !result.IsSuccess() )
+            {
+                LOG_ERROR( "[AnimGraphPanel] {}", result.GetError() );
+            }
+        }
+
         // Disjoint id ranges so nodes / pins / links never collide in the node editor.
         constexpr uint64_t kOutPin = 0x2000'0000ULL;
         constexpr uint64_t kInPin  = 0x4000'0000ULL;
@@ -355,15 +370,32 @@ namespace Desert::Editor
             ImGui::SameLine();
             ImGui::SetNextItemWidth( 70 );
             float live = eval ? eval->GetFloat( p.Name ) : p.Default;
-            if ( static_cast<G::ParamType>( p.Type ) == G::ParamType::Bool )
+
+            // THE CONTROL NOW MATCHES THE DECLARED TYPE, all three of them. An `Int` parameter was drawn
+            // as a float drag and pushed through SetFloat, which the evaluator accepted because its
+            // setters did no checking at all; now it would be refused, and the honest fix is the control
+            // the type always deserved. The live value is still stored as one float — that is the
+            // evaluator's uniform store, not a type.
+            const auto declaredType = static_cast<G::ParamType>( p.Type );
+            if ( declaredType == G::ParamType::Bool )
             {
                 bool b = live != 0.0f;
-                if ( ImGui::Checkbox( "##pv", &b ) && eval )
-                    eval->SetBool( p.Name, b );
+                if ( ImGui::Checkbox( "##pv", &b ) && eval != nullptr )
+                {
+                    ReportParamWrite( eval->SetBool( p.Name, b ) );
+                }
             }
-            else if ( ImGui::DragFloat( "##pv", &live, 0.05f ) && eval )
+            else if ( declaredType == G::ParamType::Int )
             {
-                eval->SetFloat( p.Name, live );
+                auto whole = static_cast<int>( std::lround( live ) );
+                if ( ImGui::DragInt( "##pv", &whole, 1.0f ) && eval != nullptr )
+                {
+                    ReportParamWrite( eval->SetInt( p.Name, whole ) );
+                }
+            }
+            else if ( ImGui::DragFloat( "##pv", &live, 0.05f ) && eval != nullptr )
+            {
+                ReportParamWrite( eval->SetFloat( p.Name, live ) );
             }
             ImGui::SameLine();
             if ( ImGui::SmallButton( "x" ) )

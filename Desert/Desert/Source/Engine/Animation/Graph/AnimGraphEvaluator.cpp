@@ -1,7 +1,34 @@
 #include "AnimGraph.hpp"
 
+#include <algorithm>
+
 namespace Desert::Animation::Graph
 {
+    const char* TypeName( ParamType type )
+    {
+        switch ( type )
+        {
+            case ParamType::Bool:
+                return "Bool";
+            case ParamType::Int:
+                return "Int";
+            case ParamType::Float:
+                return "Float";
+        }
+        return "?";
+    }
+
+    std::string DeclaredParameterList( const AnimGraph& graph )
+    {
+        std::string declared;
+        for ( const auto& p : graph.Parameters )
+        {
+            declared += declared.empty() ? "" : ", ";
+            declared += fmt::format( "'{}' ({})", p.Name, TypeName( static_cast<ParamType>( p.Type ) ) );
+        }
+        return declared.empty() ? std::string( "none at all" ) : declared;
+    }
+
     Evaluator::Evaluator( AnimGraph graph ) : m_Graph( std::move( graph ) )
     {
         Reset();
@@ -15,7 +42,11 @@ namespace Desert::Animation::Graph
 
         m_Current = m_Graph.Entry.empty() ? ( m_Graph.States.empty() ? -1 : 0 ) : FindState( m_Graph.Entry );
         if ( m_Current < 0 && !m_Graph.States.empty() )
+        {
             m_Current = 0; // entry named a missing state -> fall back to the first
+        }
+
+        CheckStructure();
     }
 
     void Evaluator::SyncGraph( AnimGraph graph )
@@ -39,21 +70,111 @@ namespace Desert::Animation::Graph
             if ( savedParams.find( p.Name ) == savedParams.end() )
                 savedParams[p.Name] = p.Default;
         m_Params = std::move( savedParams );
+
+        // The graph was replaced, so the previous verdict describes a graph that is gone.
+        CheckStructure();
     }
 
-    void Evaluator::SetFloat( const std::string& name, float value )
+    const Parameter* Evaluator::FindParameter( const std::string& name ) const
     {
-        m_Params[name] = value;
+        const auto it = std::find_if( m_Graph.Parameters.begin(), m_Graph.Parameters.end(),
+                                      [&name]( const Parameter& p ) { return p.Name == name; } );
+        return it == m_Graph.Parameters.end() ? nullptr : &*it;
     }
 
-    void Evaluator::SetBool( const std::string& name, bool value )
+    Common::BoolResultStr Evaluator::RefuseUnknown( const std::string& name ) const
     {
+        return Common::MakeFormattedError<bool>(
+             "AnimGraph '{}' has no parameter called '{}'. It declares: {}. Setting it would have created a "
+             "parameter that holds the value, is read by no condition, and says nothing -- which is "
+             "indistinguishable from the state machine working.",
+             m_Graph.Name, name, DeclaredParameterList( m_Graph ) );
+    }
+
+    Common::BoolResultStr Evaluator::SetBool( const std::string& name, bool value )
+    {
+        const Parameter* declared = FindParameter( name );
+        if ( declared == nullptr )
+        {
+            return RefuseUnknown( name );
+        }
+        if ( static_cast<ParamType>( declared->Type ) != ParamType::Bool )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "AnimGraph '{}' declares parameter '{}' as {}, and a bool was set on it. The graph is the "
+                 "one place that says what a parameter IS; a caller that could override that would be a "
+                 "second answer to the same question.",
+                 m_Graph.Name, name, TypeName( static_cast<ParamType>( declared->Type ) ) );
+        }
         m_Params[name] = value ? 1.0f : 0.0f;
+        return Common::MakeSuccess( true );
     }
 
-    void Evaluator::SetInt( const std::string& name, int value )
+    Common::BoolResultStr Evaluator::SetInt( const std::string& name, int value )
     {
+        const Parameter* declared = FindParameter( name );
+        if ( declared == nullptr )
+        {
+            return RefuseUnknown( name );
+        }
+        if ( static_cast<ParamType>( declared->Type ) != ParamType::Int )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "AnimGraph '{}' declares parameter '{}' as {}, and an int was set on it.", m_Graph.Name, name,
+                 TypeName( static_cast<ParamType>( declared->Type ) ) );
+        }
         m_Params[name] = static_cast<float>( value );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr Evaluator::SetFloat( const std::string& name, float value )
+    {
+        const Parameter* declared = FindParameter( name );
+        if ( declared == nullptr )
+        {
+            return RefuseUnknown( name );
+        }
+        if ( static_cast<ParamType>( declared->Type ) != ParamType::Float )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "AnimGraph '{}' declares parameter '{}' as {}, and a float was set on it.", m_Graph.Name, name,
+                 TypeName( static_cast<ParamType>( declared->Type ) ) );
+        }
+        m_Params[name] = value;
+        return Common::MakeSuccess( true );
+    }
+
+    void Evaluator::CheckStructure()
+    {
+        // EVERY CONDITION IS CHECKED ONCE, HERE, because the place it is READ cannot refuse: it runs for
+        // every condition of every candidate transition, every frame. See GetStructureError.
+        std::string missing;
+        size_t      count = 0;
+        for ( const auto& state : m_Graph.States )
+        {
+            for ( const auto& transition : state.Transitions )
+            {
+                for ( const auto& condition : transition.Conditions )
+                {
+                    if ( FindParameter( condition.Parameter ) != nullptr )
+                    {
+                        continue;
+                    }
+                    ++count;
+                    missing += missing.empty() ? "" : ", ";
+                    missing += fmt::format( "{} -> {} on '{}'", state.Name, transition.To, condition.Parameter );
+                }
+            }
+        }
+
+        m_StructureError.clear();
+        if ( count > 0 )
+        {
+            m_StructureError =
+                 fmt::format( "{} condition(s) name a parameter this graph does not declare, and each reads 0 and "
+                              "compares against it rather than failing: [{}].",
+                              count, missing );
+        }
     }
 
     float Evaluator::GetFloat( const std::string& name ) const
