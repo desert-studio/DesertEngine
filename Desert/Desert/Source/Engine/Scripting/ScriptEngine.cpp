@@ -25,6 +25,7 @@ namespace Desert::Scripting
         RegisterWorldBindings( *m_Impl );
         RegisterReflectionBindings( *m_Impl ); // after EntityCore: extends the Entity usertype
         RegisterAudioBindings( *m_Impl );
+        RegisterAnimationBindings( *m_Impl ); // after EntityCore: extends the Entity usertype
         RegisterUIBindings( *m_Impl );
         RegisterLocalizationBindings( *m_Impl );
     }

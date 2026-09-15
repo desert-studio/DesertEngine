@@ -363,6 +363,35 @@ namespace Desert::ECS
         // structural edit so the ECS rebuilds the evaluator; parameters are set live on the evaluator.
         std::shared_ptr<Animation::Graph::AnimGraph> Graph;
         std::shared_ptr<Animation::Graph::Evaluator> GraphEvaluator; // transient runtime state
+
+        /**
+         * @brief Parameter writes a script has asked for and the graph has not consumed yet. TRANSIENT.
+         *
+         * WHY AN INTENT AND NOT A DIRECT WRITE INTO THE EVALUATOR. The evaluator does not exist until
+         * AnimationECSSystem has seen this entity WITH a loaded skinned mesh — so a script setting a
+         * parameter in `OnStart`, or on any frame before an async mesh load finishes, would be writing into
+         * a null. Swallowing that is the silent no-op this whole task is about; refusing it would make the
+         * feature depend on asset timing the script author cannot see. The queue makes the write survive
+         * until there is something to apply it to.
+         *
+         * It is also the shape this tree already uses for script intent —
+         * `CharacterControllerComponent::MoveInput` / `JumpRequested` are written by Lua and executed by a
+         * system that runs later — so the ordering argument is made once, in one place, for both.
+         *
+         * THE NAME AND THE TYPE ARE VALIDATED AT THE WRITE, not here: the refusal has to name the script
+         * that made the mistake, and by the time this queue is drained that caller is gone.
+         *
+         * IT CARRIES NO TYPE, and that is deliberate rather than economical. A type field here would be a
+         * SECOND statement about what a parameter is, and the graph already makes the first one
+         * (`Parameter::Type`, chosen by an artist in the panel). The drain reads the declaration it is
+         * about to write into, so the two cannot drift; a copy travelling in the queue could.
+         */
+        struct PendingGraphParam
+        {
+            std::string Name;
+            float       Value = 0.0f; // bool as 0/1, int as a whole number — read through the declaration
+        };
+        std::vector<PendingGraphParam>               PendingGraphParams;
         uint32_t                                     GraphRevision      = 0;
         uint32_t                                     BuiltGraphRevision = 0; // ECS: rev the evaluator was built at
 
