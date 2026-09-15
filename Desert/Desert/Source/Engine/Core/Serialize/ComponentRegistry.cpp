@@ -1452,6 +1452,8 @@ namespace Desert::Core::Serialize
                                                                             &ECS::UISliderComponent::Data ) );
         Register( MakeReflected<ECS::UIScrollViewComponent, ECS::UIScrollViewData>(
              "UIScrollView", "UIScrollViewData", &ECS::UIScrollViewComponent::Data ) );
+        Register( MakeReflected<ECS::UIListViewComponent, ECS::UIListViewData>(
+             "UIListView", "UIListViewData", &ECS::UIListViewComponent::Data ) );
         Register( MakeReflected<ECS::UIInputFieldComponent, ECS::UIInputFieldData>(
              "UIInputField", "UIInputFieldData", &ECS::UIInputFieldComponent::Data ) );
         Register( MakeReflected<ECS::UIDropdownComponent, ECS::UIDropdownData>(

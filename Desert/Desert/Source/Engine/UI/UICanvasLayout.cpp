@@ -323,6 +323,12 @@ namespace Desert::UI
             entt::entity ParentEntity = entt::null;
             bool         Elect        = true;       // may the pointer stop anywhere in here
             entt::entity SkippedBy    = entt::null; // the ancestor that stopped the walk, if one did
+
+            // Set by a UIListView on the rows its window does not cover. It is the ROW's own reason and
+            // not an inherited one, so it lives on the scope the parent builds per child and is never
+            // copied further down: a grandchild of a windowed-out row is AncestorSkipped, which is what
+            // every other self-cause already does one level up.
+            bool OutsideWindow = false;
         };
 
         void EnumRecurse( entt::registry& reg, entt::entity e, const EnumScope& scope, float scale,
@@ -363,6 +369,12 @@ namespace Desert::UI
                         break;
                 }
             }
+            // The list's window, asked BEFORE the element's own visibility, because it is the container
+            // deciding not to walk this row at all — the same precedence an ancestor already has over a
+            // child's own Visibility, one level down.
+            if ( self == UISkipCause::None && scope.OutsideWindow )
+                self = UISkipCause::OutsideWindow;
+
             // The two view-dependent reasons. Without a context they are not asked at all — see the header:
             // an author must be able to pick an element on a screen the game is not showing.
             if ( self == UISkipCause::None && ctx != nullptr && reg.has<ECS::UIScreenComponent>( e ) )
@@ -458,6 +470,24 @@ namespace Desert::UI
                 childParent.Y -= std::clamp( sv.ScrollY, 0.0f, maxDesign ) * scale;
                 clip = true;
             }
+
+            // The virtualized list (Ю17) clips exactly as the scroll view does; its rows are placed from
+            // the window solved below rather than from childParent, so nothing is shifted here.
+            ListWindow listWindow;
+            const bool isList = reg.has<ECS::UIListViewComponent>( e );
+            if ( isList )
+            {
+                // READ-ONLY where the renderer writes, for the reason the scroll view states above: a
+                // query must not edit the scene. SolveListWindow clamps the offset it was given, so the
+                // number used here is the same one for any ScrollY the renderer could have left behind.
+                const auto&       lv = reg.get<ECS::UIListViewComponent>( e ).Data;
+                const std::size_t n  = reg.has<ECS::RelationshipComponent>( e )
+                                            ? reg.get<ECS::RelationshipComponent>( e ).Children.size()
+                                            : 0u;
+                listWindow = SolveListWindow( static_cast<int>( n ), lv.ItemHeight, lv.Spacing, lv.Overscan,
+                                              lv.ScrollY, rect.H, scale );
+                clip       = true;
+            }
             node.ClipsChildren = clip;
 
             // Narrowed by THE SAME FUNCTION UICanvasRenderer2D calls beside DrawList2D::PushClipRect, with
@@ -486,7 +516,25 @@ namespace Desert::UI
             child.SkippedBy = scope.SkippedBy != entt::null ? scope.SkippedBy : node.Drawn ? entt::null : e;
 
             const auto& children = reg.get<ECS::RelationshipComponent>( e ).Children;
-            if ( reg.has<ECS::UILayoutGroupComponent>( e ) )
+            if ( isList )
+            {
+                // EVERY row is enumerated, and only the window's rows are DRAWN. A query that reported the
+                // window alone would lose the other nineteen thousand rows from the outliner and from the
+                // UI Debugger — the answer somebody opened the panel to get is precisely "where is row
+                // 12 000 and why can I not see it". The rect is real for all of them: a row's position is
+                // arithmetic on its index, so an off-screen row can say where it is rather than refusing.
+                for ( std::size_t i = 0; i < children.size(); ++i )
+                {
+                    if ( !reg.valid( children[i] ) )
+                        continue;
+                    const int  index   = static_cast<int>( i );
+                    const Rect rowRect = ListRowRect( rect, listWindow, index );
+                    EnumScope  row     = child;
+                    row.OutsideWindow  = index < listWindow.First || index > listWindow.Last;
+                    EnumRecurse( reg, children[i], row, scale, viewportPx, ctx, out, order, &rowRect );
+                }
+            }
+            else if ( reg.has<ECS::UILayoutGroupComponent>( e ) )
             {
                 std::vector<entt::entity> kids;
                 std::vector<Rect>         rects;
@@ -537,8 +585,12 @@ namespace Desert::UI
                 return "binding says hidden";
             case UISkipCause::ScreenNotCurrent:
                 return "screen not current";
+            case UISkipCause::OutsideWindow:
+                return "outside the list's window";
             case UISkipCause::AncestorSkipped:
                 return "ancestor not drawn";
+            case UISkipCause::Count:
+                break;
         }
         return "?";
     }

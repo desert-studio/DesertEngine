@@ -798,6 +798,13 @@ namespace
          { "ScrollbarColor", kCanvasRenderer },
     };
 
+    constexpr Row kListViewRows[] = {
+         { "ScrollY", kCanvasRenderer },        { "ItemHeight", kCanvasRenderer },
+         { "Spacing", kCanvasRenderer },        { "Overscan", kCanvasRenderer },
+         { "Background", kCanvasRenderer },     { "ShowScrollbar", kCanvasRenderer },
+         { "ScrollbarColor", kCanvasRenderer },
+    };
+
     constexpr Row kInputFieldRows[] = {
          { "Text", kCanvasRenderer },
          { "Placeholder", kCanvasRenderer },
@@ -931,6 +938,7 @@ namespace
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
          { "UIScrollViewData", "UIScrollViewComponent", nullptr, CENSUS_ROWS( kScrollViewRows ) },
+         { "UIListViewData", "UIListViewComponent", nullptr, CENSUS_ROWS( kListViewRows ) },
          { "UIInputFieldData", "UIInputFieldComponent", nullptr, CENSUS_ROWS( kInputFieldRows ) },
          { "UIDropdownData", "UIDropdownComponent", nullptr, CENSUS_ROWS( kDropdownRows ) },
          { "UITweenData", "UITweenComponent", nullptr, CENSUS_ROWS( kTweenRows ) },

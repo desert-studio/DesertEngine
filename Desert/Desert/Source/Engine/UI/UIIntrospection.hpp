@@ -119,8 +119,9 @@ namespace Desert::UI
                                    // the walk does not cull, so these cost geometry and draw nothing
         std::uint32_t MaxDepth = 0;
 
-        // Skipped elements by cause, indexed by UISkipCause.
-        std::array<std::uint32_t, 6> SkipCounts{};
+        // Skipped elements by cause, indexed by UISkipCause. SIZED BY THE ENUM ITSELF: a typed 6 stood
+        // here, and a seventh cause would have written past it rather than failing to compile.
+        std::array<std::uint32_t, static_cast<std::size_t>( UISkipCause::Count )> SkipCounts{};
     };
 
     // Everything one captured frame of one VIEW knows about itself — every canvas the view drew, not one

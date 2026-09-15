@@ -1940,7 +1940,14 @@ namespace Desert::UI
                 bool clip = reg.has<ECS::UILayoutComponent>( e ) &&
                             reg.get<ECS::UILayoutComponent>( e ).Data.ClipContents;
 
-                float scrollMaxPx = 0.0f; // >0 (scroll view overflowing) => draw a scrollbar afterward
+                // The scrolling containers' shared state, stated once so the scrollbar below is written
+                // once. >0 in ScrollMaxPx is also "the content overflows", i.e. "draw a scrollbar".
+                float      contentPx      = 0.0f;
+                float      scrollPx       = 0.0f;
+                float      scrollMaxPx    = 0.0f;
+                bool       showScrollbar  = false;
+                glm::vec3  scrollbarColor = glm::vec3( 0.0f );
+                const bool wheelOver      = input != nullptr && interactive && e == ctx.View.Hot;
                 if ( reg.has<ECS::UIScrollViewComponent>( e ) )
                 {
                     auto& sv = reg.get<ECS::UIScrollViewComponent>( e ).Data;
@@ -1948,16 +1955,50 @@ namespace Desert::UI
                          { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H },
                          glm::vec4( st.Color( StyleSlot::ScrollViewBackground, sv.Background ), 1.0f ) );
 
-                    const float contentPx = sv.ContentHeight * scale;
-                    scrollMaxPx           = std::max( 0.0f, contentPx - rect.H );
-                    const bool hover      = input && interactive && e == ctx.View.Hot;
-                    if ( hover && input->ScrollDelta != 0.0f )
+                    contentPx   = sv.ContentHeight * scale;
+                    scrollMaxPx = std::max( 0.0f, contentPx - rect.H );
+                    if ( wheelOver && input->ScrollDelta != 0.0f )
                         sv.ScrollY -= input->ScrollDelta * 30.0f; // 30 design px per wheel notch
                     const float maxScrollDesign = scale > 0.0f ? scrollMaxPx / scale : 0.0f;
                     sv.ScrollY                  = std::clamp( sv.ScrollY, 0.0f, maxScrollDesign );
 
-                    clip = true;
-                    childParent.Y -= sv.ScrollY * scale; // shift children up by the scroll offset
+                    scrollPx       = sv.ScrollY * scale;
+                    showScrollbar  = sv.ShowScrollbar;
+                    scrollbarColor = st.Color( StyleSlot::ScrollViewScrollbar, sv.ScrollbarColor );
+                    clip           = true;
+                    childParent.Y -= scrollPx; // shift children up by the scroll offset
+                }
+
+                // THE VIRTUALIZED LIST (Ю17). Everything above is the same container seen from one step
+                // back — a background, a wheel, a clip and a scrollbar — and the one difference is below,
+                // in the child loop: this one walks a WINDOW of its children and the scroll view walks all
+                // of them. It reads the same ROW GEOMETRY the enumeration reads, out of one function, so
+                // the row that draws here and the row that is picked in the editor cannot be two rows.
+                const bool isList = reg.has<ECS::UIListViewComponent>( e );
+                ListWindow window;
+                if ( isList )
+                {
+                    auto&             lv       = reg.get<ECS::UIListViewComponent>( e ).Data;
+                    const std::size_t rowCount = reg.get<ECS::RelationshipComponent>( e ).Children.size();
+                    dl.AddRectFilled(
+                         { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H },
+                         glm::vec4( st.Color( StyleSlot::ScrollViewBackground, lv.Background ), 1.0f ) );
+
+                    if ( wheelOver && input->ScrollDelta != 0.0f )
+                        lv.ScrollY -= input->ScrollDelta * 30.0f; // the scroll view's notch, exactly
+
+                    window = SolveListWindow( static_cast<int>( rowCount ), lv.ItemHeight, lv.Spacing, lv.Overscan,
+                                              lv.ScrollY, rect.H, scale );
+                    // Written back CLAMPED, from the one place that knows the content height — which here
+                    // is derived from the child count and not authored, so it cannot be stale.
+                    lv.ScrollY = scale > 0.0f ? window.ScrollPx / scale : 0.0f;
+
+                    contentPx      = window.ContentPx;
+                    scrollPx       = window.ScrollPx;
+                    scrollMaxPx    = window.ScrollMaxPx;
+                    showScrollbar  = lv.ShowScrollbar;
+                    scrollbarColor = st.Color( StyleSlot::ScrollViewScrollbar, lv.ScrollbarColor );
+                    clip           = true;
                 }
 
                 if ( clip )
@@ -1975,7 +2016,23 @@ namespace Desert::UI
                                                                   { rect.X + rect.W, rect.Y + rect.H } );
 
                 const auto& children = reg.get<ECS::RelationshipComponent>( e ).Children;
-                if ( reg.has<ECS::UILayoutGroupComponent>( e ) )
+                if ( isList )
+                {
+                    // THE WHOLE POINT, AND IT IS FOUR LINES. Everything outside [First, Last] is never
+                    // reached, so it costs no rect, no style, no tween, no hit test and no vertex — and,
+                    // because asking is also the demand, a UIRenderTexture row that left the window has
+                    // its capture destroyed and its renderer slot returned with no code at this site.
+                    for ( int i = window.First; i <= window.Last; ++i )
+                    {
+                        const entt::entity c = children[static_cast<std::size_t>( i )];
+                        if ( !reg.valid( c ) )
+                            continue;
+                        const Rect rowRect = ListRowRect( rect, window, i );
+                        DrawElement( ctx, reg, c, rect, scale, dl, input, outClicked, focused, popups, focusables,
+                                     childClip, childScope, &rowRect );
+                    }
+                }
+                else if ( reg.has<ECS::UILayoutGroupComponent>( e ) )
                 {
                     // Auto-layout: the group positions + sizes its children (overriding their anchors). Each
                     // child's preferred size = CustomMinimumSize, else its authored offset size (design px).
@@ -2025,22 +2082,18 @@ namespace Desert::UI
                     dl.PopClipRect();
 
                 // Scroll thumb on the right edge (outside the clip), shown only when the content overflows.
-                if ( reg.has<ECS::UIScrollViewComponent>( e ) )
+                // ONE BLOCK FOR BOTH CONTAINERS: the thumb is a function of (content, viewport, offset) and
+                // nothing else, and a second copy of it for the list would be a second thing to keep in
+                // step with the first.
+                if ( showScrollbar && scrollMaxPx > 0.0f && contentPx > 0.0f )
                 {
-                    const auto& sv = reg.get<ECS::UIScrollViewComponent>( e ).Data;
-                    if ( sv.ShowScrollbar && scrollMaxPx > 0.0f )
-                    {
-                        const float barW      = 6.0f * scale;
-                        const float trackX    = rect.X + rect.W - barW;
-                        const float contentPx = sv.ContentHeight * scale;
-                        const float thumbH    = std::max( barW * 2.0f, rect.H * ( rect.H / contentPx ) );
-                        const float t         = ( sv.ScrollY * scale ) / scrollMaxPx;
-                        const float thumbY    = rect.Y + t * ( rect.H - thumbH );
-                        dl.AddRectFilled(
-                             { trackX, thumbY }, { rect.X + rect.W, thumbY + thumbH },
-                             glm::vec4( st.Color( StyleSlot::ScrollViewScrollbar, sv.ScrollbarColor ), 1.0f ),
-                             barW * 0.5f );
-                    }
+                    const float barW   = 6.0f * scale;
+                    const float trackX = rect.X + rect.W - barW;
+                    const float thumbH = std::max( barW * 2.0f, rect.H * ( rect.H / contentPx ) );
+                    const float t      = scrollPx / scrollMaxPx;
+                    const float thumbY = rect.Y + t * ( rect.H - thumbH );
+                    dl.AddRectFilled( { trackX, thumbY }, { rect.X + rect.W, thumbY + thumbH },
+                                      glm::vec4( scrollbarColor, 1.0f ), barW * 0.5f );
                 }
             }
         }
@@ -2289,22 +2342,50 @@ namespace Desert::UI
             }
             // Seed, or re-seed when the current name doesn't exist here — otherwise a name left over from
             // another scene would hide every screen in this one.
-            std::string firstScreen;
-            bool        currentExists = false;
-            ForEachScreenName( reg, canvasEntity,
-                               [&]( const std::string& n )
-                               {
-                                   if ( firstScreen.empty() )
-                                       firstScreen = n;
-                                   if ( n == ctx.Canvas.Screen )
-                                       currentExists = true;
-                               } );
-            if ( !firstScreen.empty() && !currentExists )
+            //
+            // THE STEADY STATE IS ASKED OF THE SCREENS, NOT OF THE TREE, and that is a measurement and not
+            // a tidy-up. This used to be one ForEachScreenName over the whole canvas sub-tree, EVERY FRAME
+            // — 60 001 entities visited on a canvas holding a 20 000-row list, which is 8.6 ms of a Debug
+            // frame spent deciding that a screen machine nobody is using still has the name it had. It is
+            // also precisely the residue that would have made Ю17's claim false: a container that walks a
+            // window of sixteen rows buys nothing while the frame around it still walks all of them.
+            //
+            // The question "is ctx.Canvas.Screen one of THIS canvas's screens" is answered by the screens
+            // themselves — there are a handful of UIScreenComponents in a scene, and each names its canvas
+            // by walking UP, which is the depth of the tree and not its size. The sub-tree walk survives
+            // for the RE-SEED, where the answer has to be the first screen in DRAW order and a pool's
+            // iteration order is creation order; that path runs once per canvas per view rather than once
+            // per frame.
+            bool currentExists = false;
+            bool anyScreenHere = false;
+            for ( const entt::entity s : reg.view<ECS::UIScreenComponent>() )
             {
-                ctx.Canvas.Screen = firstScreen;
-                ctx.Canvas.ScreenFrom.clear();
-                ctx.Canvas.ScreenStack.clear();
-                ctx.Canvas.ScreenT = 1.0f;
+                const std::string& n = reg.get<ECS::UIScreenComponent>( s ).Data.Name;
+                if ( n.empty() || CanvasOf( reg, s ) != canvasEntity )
+                    continue;
+                anyScreenHere = true;
+                if ( n == ctx.Canvas.Screen )
+                {
+                    currentExists = true;
+                    break;
+                }
+            }
+            if ( anyScreenHere && !currentExists )
+            {
+                std::string firstScreen;
+                ForEachScreenName( reg, canvasEntity,
+                                   [&firstScreen]( const std::string& n )
+                                   {
+                                       if ( firstScreen.empty() )
+                                           firstScreen = n;
+                                   } );
+                if ( !firstScreen.empty() )
+                {
+                    ctx.Canvas.Screen = firstScreen;
+                    ctx.Canvas.ScreenFrom.clear();
+                    ctx.Canvas.ScreenStack.clear();
+                    ctx.Canvas.ScreenT = 1.0f;
+                }
             }
             if ( ctx.Canvas.ScreenT < 1.0f )
             {

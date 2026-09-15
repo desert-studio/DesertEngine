@@ -112,6 +112,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIToggleComponent, Data, "UI
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UISliderComponent, Data, "UISliderData", "UI Slider" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIScrollViewComponent, Data, "UIScrollViewData",
                                      "UI Scroll View" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIListViewComponent, Data, "UIListViewData", "UI List View" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIInputFieldComponent, Data, "UIInputFieldData",
                                      "UI Input Field" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIDropdownComponent, Data, "UIDropdownData", "UI Dropdown" )
@@ -1029,8 +1030,11 @@ namespace Desert::Editor
                     return en.HasComponent<UIToggleComponent>();
                 if ( prefix == "Slider" )
                     return en.HasComponent<UISliderComponent>();
+                // ONE PREFIX, TWO CONTAINERS. The slot names a LOOK — the background and the thumb of a
+                // scrolling container — and a theme has one of those, so UIListView draws through the same
+                // two tokens rather than through a second pair the author would have to keep identical.
                 if ( prefix == "ScrollView" )
-                    return en.HasComponent<UIScrollViewComponent>();
+                    return en.HasComponent<UIScrollViewComponent>() || en.HasComponent<UIListViewComponent>();
                 if ( prefix == "Input" )
                     return en.HasComponent<UIInputFieldComponent>();
                 if ( prefix == "Dropdown" )

@@ -308,6 +308,19 @@ namespace
                     .Register();
             }
             {
+                using T = ::Desert::ECS::UIListViewData;
+                TypeBuilder( "UIListViewData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "ScrollY", .Type = FieldType::Float, .Offset = offsetof( T, ScrollY ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ScrollY )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Scroll Y", .Category = "UI List View", } } )
+                    .Field( FieldInfo{ .Name = "ItemHeight", .Type = FieldType::Float, .Offset = offsetof( T, ItemHeight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ItemHeight )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Item Height", .Category = "UI List View", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 512.0f, } } )
+                    .Field( FieldInfo{ .Name = "Spacing", .Type = FieldType::Float, .Offset = offsetof( T, Spacing ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Spacing )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Spacing", .Category = "UI List View", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 128.0f, } } )
+                    .Field( FieldInfo{ .Name = "Overscan", .Type = FieldType::Int, .Offset = offsetof( T, Overscan ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Overscan )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Overscan Rows", .Category = "UI List View", .HasRange = true, .RangeMin = 0, .RangeMax = 8, } } )
+                    .Field( FieldInfo{ .Name = "Background", .Type = FieldType::Vec3, .Offset = offsetof( T, Background ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Background )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Background", .Category = "UI List View", .IsColor = true, } } )
+                    .Field( FieldInfo{ .Name = "ShowScrollbar", .Type = FieldType::Bool, .Offset = offsetof( T, ShowScrollbar ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ShowScrollbar )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Show Scrollbar", .Category = "UI List View", } } )
+                    .Field( FieldInfo{ .Name = "ScrollbarColor", .Type = FieldType::Vec3, .Offset = offsetof( T, ScrollbarColor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ScrollbarColor )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Scrollbar Color", .Category = "UI List View", .IsColor = true, } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
                 using T = ::Desert::ECS::UIInputFieldData;
                 TypeBuilder( "UIInputFieldData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Text", .Type = FieldType::String, .Offset = offsetof( T, Text ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Text )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Text", .Category = "UI Input Field", } } )
