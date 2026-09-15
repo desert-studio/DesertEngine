@@ -105,22 +105,6 @@ namespace Desert::Assets
 
             EntityData record = Core::Serialize::EntitySerializer::SerializeEntity( e, assetManager );
 
-            // A RECORD ID IS A LINK KEY, AND IT MUST SURVIVE "APPLY INSTANCE CHANGES TO PREFAB".
-            //
-            // EntitySerializer writes the entity's own uuid, and PrefabFactory mints those fresh on every
-            // instantiation — so rewriting a prefab from one of its instances used to renumber every
-            // record in the file. Nothing depended on that before; now every override in every scene is
-            // addressed by these ids, and renumbering them would orphan the lot in one save, silently.
-            // The entity already knows which record it came from, so the file keeps that number.
-            if ( e.HasComponent<ECS::PrefabInstanceComponent>() )
-            {
-                const auto& path = e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
-                if ( path.size() == 1 )
-                {
-                    record.id = path.front();
-                }
-            }
-
             // A NESTED PREFAB IS A LINK, NOT A COPY OF ITS BODY.
             //
             // This walk used to descend into nested instances as well, writing the nested prefab's every
@@ -130,7 +114,37 @@ namespace Desert::Assets
             // nested prefab reached only one of the two copies. Stopping here is what makes "nested
             // prefab" mean a reference at all; what the instance holds of its own travels as overrides
             // on this record, exactly as it does for a scene.
-            if ( !isRoot && e.HasComponent<ECS::PrefabComponent>() && record.PrefabPath.has_value() )
+            const bool stopsHere =
+                 !isRoot && e.HasComponent<ECS::PrefabComponent>() && record.PrefabPath.has_value();
+
+            // A RECORD ID IS A LINK KEY, AND IT MUST SURVIVE "APPLY INSTANCE CHANGES TO PREFAB".
+            //
+            // EntitySerializer writes the entity's own uuid, and PrefabFactory mints those fresh on every
+            // instantiation — so rewriting a prefab from one of its instances used to renumber every
+            // record in the file. Nothing depended on that before; now every override in every scene is
+            // addressed by these ids, and renumbering them would orphan the lot in one save, silently.
+            // The entity already knows which record it came from, so the file keeps that number.
+            //
+            // WHICH ELEMENT OF THE PATH. The last one for an entity this walk descends through — that is
+            // its own record in the prefab it belongs to. The one BEFORE last for an entity the walk
+            // stops at, because the record being written there is not the nested root's: it is the
+            // NESTING record of the file being written, and its id is what the nested body will be
+            // addressed under. Both are unique among the records this walk emits, because everything it
+            // descends through belongs to one prefab.
+            if ( e.HasComponent<ECS::PrefabInstanceComponent>() )
+            {
+                const auto& path = e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
+                if ( stopsHere && path.size() >= 2 )
+                {
+                    record.id = path[path.size() - 2];
+                }
+                else if ( !stopsHere && !path.empty() )
+                {
+                    record.id = path.back();
+                }
+            }
+
+            if ( stopsHere )
             {
                 const auto capture = Core::Serialize::CapturePrefabInstance( e, assetManager );
                 if ( !capture.Overrides.empty() )

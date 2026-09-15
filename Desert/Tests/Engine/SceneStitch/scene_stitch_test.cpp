@@ -223,6 +223,44 @@ TEST( SceneStitch, PrefabRootsAreListedAndNotCreated )
     EXPECT_EQ( plan.Created[1].Record, 2u );
 }
 
+// 5c. WHERE A LISTED PREFAB'S BODY HANGS (Ю19). Under InstantiatedLater the record becomes no entity, so
+// "Slot" cannot say where the instantiated root goes — and before this field existed each caller walked
+// the records again with its own copy of the parent rule. PrefabFactory needed it when a nested prefab
+// stopped being COPIED into the outer file: the nesting record is now a link, and creating an entity for
+// it put a component-less level between the outer prefab and the nested body, one more per capture.
+TEST( SceneStitch, AListedPrefabNamesTheSlotItsBodyHangsOff )
+{
+    const std::vector<EntityData> records = { Plain( 11, "Root" ), Child( 22, 11, "Panel" ), []
+                                              {
+                                                  EntityData d = PrefabRoot( 33, "Prefabs/Stripe.deprefab" );
+                                                  d.parent     = Common::UUID( 22 );
+                                                  return d;
+                                              }() };
+
+    const StitchPlan plan = PlanSceneStitch( records, CountingMint(), PrefabRecordPolicy::InstantiatedLater );
+
+    ASSERT_EQ( plan.PrefabRecords.size(), 1u );
+    EXPECT_EQ( plan.PrefabRecords[0].Slot, kNoSlot );
+    ASSERT_EQ( plan.Created.size(), 2u );
+    EXPECT_EQ( plan.PrefabRecords[0].Parent, 1u ) << "the slot record 22 (\"Panel\") was created in";
+}
+
+// 5d. And a listed prefab whose parent the file does not contain hangs off NOTHING rather than off slot
+// zero. This is the normal shape for a prefab cut from an entity that had a parent: the first record keeps
+// the parent id it had in the scene it came from, and no record here answers to it. It is deliberately NOT
+// counted in UnresolvedParents — doing so would fire on every well-formed prefab in existence.
+TEST( SceneStitch, AListedPrefabWithAForeignParentHangsOffNothing )
+{
+    std::vector<EntityData> records = { Plain( 11, "Root" ), PrefabRoot( 33, "Prefabs/Stripe.deprefab" ) };
+    records[1].parent               = Common::UUID( 9999 );
+
+    const StitchPlan plan = PlanSceneStitch( records, CountingMint(), PrefabRecordPolicy::InstantiatedLater );
+
+    ASSERT_EQ( plan.PrefabRecords.size(), 1u );
+    EXPECT_EQ( plan.PrefabRecords[0].Parent, kNoSlot );
+    EXPECT_EQ( plan.UnresolvedParents, 0u );
+}
+
 // 5b. And it does not answer a plain entity's parent link, because the loader registers prefab roots only
 // AFTER pass 2 has run. Pinned deliberately: it is the engine's behaviour today, so a change to it should
 // break a test rather than quietly re-parent somebody's scene.

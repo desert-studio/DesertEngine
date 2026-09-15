@@ -4,6 +4,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -22,10 +23,19 @@ namespace Desert::Runtime::Factory
         // path when a nested prefab is being built. It is an ARGUMENT and not a member because the nesting
         // is a recursion and the prefix is the only thing that differs between its levels — deriving it
         // from the scene afterwards would mean reading back a fact the recursion already knows.
+        //
+        // @p rootId is the identity the INSTANCE ROOT is created under. Every entity of an instance is
+        // minted a fresh uuid on purpose — two instances of one prefab must not collide — but the root
+        // is the one the SCENE FILE names, and minting it too meant a `.desce` got a different id for
+        // the same instance on every save: measured as the ONLY difference between two consecutive
+        // saves of the witness scene, which is churn in version control and a parent link that means a
+        // different entity each time the file is written. The scene loader passes the id the record
+        // states; a fresh instantiation passes nothing and gets a minted one, as before.
         static ECS::Entity Instantiate( const Assets::PrefabAsset& prefab, Core::Scene& scene,
                                         const Assets::AssetManager&       assetManager,
                                         std::unordered_set<Common::UUID>& stack,
-                                        const std::vector<Common::UUID>&  pathPrefix = {} );
+                                        const std::vector<Common::UUID>&  pathPrefix = {},
+                                        std::optional<Common::UUID>       rootId     = {} );
 
         // Every entity of a finished instance, keyed by PrefabPathKey(SourcePath). This is how an override
         // finds the entity it belongs to, and it is a walk of the LIVE subtree rather than a map handed

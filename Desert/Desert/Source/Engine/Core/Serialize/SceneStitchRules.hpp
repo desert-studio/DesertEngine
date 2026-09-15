@@ -68,11 +68,19 @@ namespace Desert::Core::Rules
         // instantiated root only after pass 2 - pinned deliberately, see the suite.
         InstantiatedLater,
 
-        // A record inside a .deprefab (or an editor snapshot) that carries a nested prefab link. Here the
-        // record IS an entity of this file - one that happens to have another prefab hanging under it, or,
-        // in a snapshot, one whose children were captured alongside it. So it is created and stitched like
-        // every other record, and it is still listed, because whoever wants the nested body instantiated
-        // needs to know which slot to hang it off.
+        // An EDITOR SNAPSHOT record that carries a prefab link. Here the record IS an entity of this
+        // capture - one whose children were captured alongside it, because CaptureSubtree walks the LIVE
+        // subtree - so it is created and stitched like every other record, and it is still listed,
+        // because whoever wants the nested body instantiated needs to know which slot to hang it off.
+        //
+        // A `.deprefab` USED TO USE THIS AND NO LONGER DOES (Ю19). While a nested prefab was COPIED into
+        // the outer file, the nesting record really was an entity of that file. Now that it is a LINK,
+        // creating it produced an extra entity between the outer prefab and the nested body: the record's
+        // entity, with no components on it, and the instantiated root hanging underneath. The tree
+        // therefore gained one level every time a prefab was captured and re-instantiated - unbounded,
+        // one per "Apply Instance Changes to Prefab" - while looking identical on screen, because a UI
+        // element with no UILayout is laid out as its parent. InstantiatedLater is what the scene loader
+        // has always used for the same situation, and it is now what a prefab body uses too.
         CreatedInPlace,
     };
 
@@ -95,10 +103,18 @@ namespace Desert::Core::Rules
     // One record that names a prefab file. Slot is where the stitch put it under CreatedInPlace, and
     // kNoSlot under InstantiatedLater - so the caller reads the answer instead of re-deriving it from the
     // policy it passed in, which is the two-places-that-must-agree shape this whole header exists to kill.
+    //
+    // Parent is what the instantiated body HANGS OFF under InstantiatedLater, where there is no Slot to
+    // hang it off: the created slot this record's `parent` id names, or kNoSlot when the file names none
+    // (a prefab cut from an entity that had a parent keeps that id, and it belongs to no record here -
+    // which is the normal spelling of "this is a root of the instance"). It is resolved HERE, with the
+    // same id map that resolves every other parent link, because the alternative is each caller walking
+    // the records again with its own copy of the rule - and four such copies is what this file replaced.
     struct PlannedPrefab
     {
         size_t Record = 0;
         size_t Slot   = kNoSlot;
+        size_t Parent = kNoSlot;
     };
 
     struct StitchPlan
@@ -168,6 +184,21 @@ namespace Desert::Core::Rules
             const auto inserted = byId.insert( { created.Id, plan.Created.size() } );
             winner.push_back( inserted.first->second );
             plan.Created.push_back( created );
+        }
+
+        // Where each PREFAB record's body hangs. Resolved after pass 1 because byId is only complete
+        // then, and a nested prefab's parent is routinely a record that comes AFTER it in the file.
+        for ( PlannedPrefab& prefab : plan.PrefabRecords )
+        {
+            const Assets::EntityData& data = records[prefab.Record];
+            if ( data.parent.has_value() && !data.parent->IsNull() )
+            {
+                const auto found = byId.find( *data.parent );
+                if ( found != byId.end() )
+                {
+                    prefab.Parent = found->second;
+                }
+            }
         }
 
         // Pass 2 - decide where each payload lands and what it hangs off.

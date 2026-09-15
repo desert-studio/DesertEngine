@@ -362,8 +362,11 @@ namespace Desert::Core
             }
 
             std::unordered_set<Common::UUID> stack;
+            // WITH THE ID THE FILE STATES. The factory mints a fresh uuid for every entity of an instance,
+            // and for the root that meant this scene was written with a different id for the same instance
+            // on every save — the only difference between two consecutive saves of a scene holding one.
             ECS::Entity prefabRoot = Runtime::Factory::PrefabFactory::Instantiate(
-                *prefabAsset, *m_Scene, *m_AssetManager, stack );
+                 *prefabAsset, *m_Scene, *m_AssetManager, stack, {}, entityData->id );
 
             if ( !prefabRoot )
                 continue;
