@@ -282,6 +282,21 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsAtTheCurrentGeneration )
         {
             continue;
         }
+        // NEITHER ARE OTHER BRANCHES' CHECKOUTS, and leaving them in made this census answer a
+        // different question than the one it asks. `.claude/worktrees/` holds a full working tree per
+        // agent, each pinned to whatever commit that agent branched from — so the walk read `.anim`
+        // files belonging to branches this test does not describe, and failed on the ones that predate
+        // the generation field. Measured 2026-09-15 on the merge of А5: the six real corpus files were
+        // all at generation 1, and the suite went red anyway on copies inside two parked worktrees.
+        //
+        // The verdict would then depend on which branches happen to be checked out beside this one,
+        // which is not a property of the repository at all: remove those worktrees and it passes
+        // without anything being fixed. The existing `/build/` line already conceded that not every
+        // `.anim` under the root belongs to the corpus; the list of exclusions was simply short by one.
+        if ( entry.path().string().find( "/.claude/" ) != std::string::npos )
+        {
+            continue;
+        }
 
         ++seen;
         const auto data =
