@@ -53,7 +53,7 @@ namespace Desert::Editor
          *
          * IT ANSWERS, and the answer is not decoration. Every line after the call used to dereference
          * m_Preview unconditionally, correctly, because this function could not fail. Teaching it to
-         * decline when all six slots are taken (Editor/Widgets/PreviewSlotBudget.hpp) put a null back into
+         * decline when all six slots are taken (Engine/Core/RendererSlotBudget.hpp) put a null back into
          * a place three callers assumed could not hold one — and the Update() at the end of OnPreUpdate is
          * driven by a flag raised on the PREVIOUS UI frame, so it outlives the renderer by exactly one
          * frame. Measured: five open material documents plus one click on a mesh entity killed the editor

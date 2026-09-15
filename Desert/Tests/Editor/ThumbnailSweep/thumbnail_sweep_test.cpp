@@ -306,9 +306,9 @@ TEST( ThumbnailSweep, OneScanReportsAtMostItsLimit )
 //
 // The guarantee is STRUCTURAL rather than numeric, so it is asserted structurally: the sweep never builds
 // a renderer, it only appends to ThumbnailService's queues, and that service holds exactly one renderer
-// behind PreviewSlotBudget. Asserted by reading the sources because the alternative — reaching a
+// behind RendererSlotBudget. Asserted by reading the sources because the alternative — reaching a
 // sustained six-of-six — needs several scene views open at once, which no test can arrange (the same
-// argument PreviewSlotBudget's own suite makes for itself).
+// argument RendererSlotBudget's own suite makes for itself).
 // ---------------------------------------------------------------------------------------------------
 TEST( ThumbnailSweep, TheSweepBuildsNoRendererOfItsOwn )
 {
@@ -344,7 +344,7 @@ TEST( ThumbnailSweep, PaintedPicturesClaimNoSlotAndRenderedOnesClaimAtMostOne )
     EXPECT_FALSE( ThumbnailFormats::NeedsRendererSlot( ThumbnailFormats::Producer::Painted ) )
          << "a painted picture is claimed to need a renderer slot. It is a decode and a fill on a "
             "JobSystem worker; saying otherwise would make a project of clouds wait behind "
-            "PreviewSlotBudget for a resource it never touches.";
+            "RendererSlotBudget for a resource it never touches.";
     EXPECT_TRUE( ThumbnailFormats::NeedsRendererSlot( ThumbnailFormats::Producer::RenderedMaterial ) );
     EXPECT_TRUE( ThumbnailFormats::NeedsRendererSlot( ThumbnailFormats::Producer::RenderedMesh ) );
 

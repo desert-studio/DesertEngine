@@ -19,9 +19,15 @@
 //     the sixth slot to render the consolation picture for not having a sixth slot);
 //   * making the Details preview yield the last slot, so clicking an entity stops previewing it while
 //     something nobody asked for keeps a renderer;
-//   * a second copy of the arithmetic appearing at one of the two call sites and drifting from this one.
+//   * a second copy of the arithmetic appearing at one of the THREE call sites and drifting from this one.
+//
+// MOVED IN Ю16, from Editor/Widgets/PreviewSlotBudget.hpp to Engine/Core/RendererSlotBudget.hpp, and the
+// move is the finding rather than tidying: the third caller is a UI element that hosts a world, which
+// RuntimeLayer walks inside the PACKAGED GAME (UI::RenderCanvas2D), where nothing under `Editor/` is
+// linked. A rule that answers only in the editor is a rule plus a silent second copy in the process that
+// ships. The suite moved with it and is device-free for the same reason it always was.
 
-#include <Editor/Widgets/PreviewSlotBudget.hpp>
+#include <Engine/Core/RendererSlotBudget.hpp>
 
 #include <gtest/gtest.h>
 
@@ -29,8 +35,8 @@
 
 namespace
 {
-    using Desert::Editor::PreviewSlotBudget::Demand;
-    using Desert::Editor::PreviewSlotBudget::MayClaim;
+    using Desert::Engine::RendererSlotBudget::Demand;
+    using Desert::Engine::RendererSlotBudget::MayClaim;
 
     // The engine's own number, spelled here so a change to it shows up as a decision rather than as a
     // silently different test. EngineContext::kMaxRendererSlots is not included: it drags in the whole
@@ -40,7 +46,7 @@ namespace
 
 // --- The two entitlements, at the boundary that separates them ------------------------------------
 
-TEST( PreviewSlotBudget, AUserSurfaceMayTakeTheLastSlot )
+TEST( RendererSlotBudget, AUserSurfaceMayTakeTheLastSlot )
 {
     // Nothing open but the viewport, through to one slot left: always yes.
     for ( uint32_t live = 0; live < kSlots; ++live )
@@ -50,7 +56,7 @@ TEST( PreviewSlotBudget, AUserSurfaceMayTakeTheLastSlot )
                 "that was not.";
 }
 
-TEST( PreviewSlotBudget, NobodyMayClaimWhenThereIsNothingLeft )
+TEST( RendererSlotBudget, NobodyMayClaimWhenThereIsNothingLeft )
 {
     // The one case both agree on, and the only case where a claim would silently share slot 0.
     EXPECT_FALSE( MayClaim( Demand::UserSurface, kSlots, kSlots ) );
@@ -61,7 +67,7 @@ TEST( PreviewSlotBudget, NobodyMayClaimWhenThereIsNothingLeft )
     EXPECT_FALSE( MayClaim( Demand::Background, kSlots + 3, kSlots ) );
 }
 
-TEST( PreviewSlotBudget, BackgroundWorkKeepsOneSlotInReserve )
+TEST( RendererSlotBudget, BackgroundWorkKeepsOneSlotInReserve )
 {
     // Room to spare: yes.
     for ( uint32_t live = 0; live + 1 < kSlots; ++live )
@@ -77,7 +83,7 @@ TEST( PreviewSlotBudget, BackgroundWorkKeepsOneSlotInReserve )
 
 // --- The RELATION between them, which is what makes them two rules rather than one copied twice ----
 
-TEST( PreviewSlotBudget, TheTwoEntitlementsDifferAndOnlyInTheDirectionIntended )
+TEST( RendererSlotBudget, TheTwoEntitlementsDifferAndOnlyInTheDirectionIntended )
 {
     // 1. Background is never MORE entitled than a user surface. Assert it over the whole range rather
     //    than at the boundary: an inverted comparison passes a boundary check and fails this.
@@ -109,7 +115,7 @@ TEST( PreviewSlotBudget, TheTwoEntitlementsDifferAndOnlyInTheDirectionIntended )
 
 // --- Degenerate inputs, because the count comes from a live system --------------------------------
 
-TEST( PreviewSlotBudget, AZeroSlotPoolGrantsNothingRatherThanWrappingAround )
+TEST( RendererSlotBudget, AZeroSlotPoolGrantsNothingRatherThanWrappingAround )
 {
     // `live + reserved < max` with unsigned arithmetic: the failure to avoid is an underflow that turns
     // "no slots at all" into "everyone may claim". There is no such pool today, and a rule that is only

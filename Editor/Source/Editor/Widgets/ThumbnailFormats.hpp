@@ -252,7 +252,7 @@ namespace Desert::Editor::ThumbnailFormats
     ///
     /// THE WHOLE POINT OF ASKING IT HERE. The cloud formats are painted on a worker thread and claim
     /// nothing, so a project that is all clouds sweeps at full speed with every slot still free for the
-    /// person; a project that is all meshes drains one capture at a time behind PreviewSlotBudget. Two
+    /// person; a project that is all meshes drains one capture at a time behind RendererSlotBudget. Two
     /// different costs, one table, and the sweep does not have to know which is which.
     [[nodiscard]] constexpr bool NeedsRendererSlot( Producer by ) noexcept
     {
