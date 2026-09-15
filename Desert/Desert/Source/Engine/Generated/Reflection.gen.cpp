@@ -530,6 +530,16 @@ namespace
                     .Register();
             }
             {
+                using T = ::Desert::ECS::UIRenderTextureData;
+                TypeBuilder( "UIRenderTextureData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "ScenePath", .Type = FieldType::String, .Offset = offsetof( T, ScenePath ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ScenePath )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Scene", .Category = "UI Render Texture", .Tooltip = "Path to a .desce rendered live into this element, e.g. Resources/Assets/Scenes/UI_Portrait.desce", } } )
+                    .Field( FieldInfo{ .Name = "Tint", .Type = FieldType::Vec3, .Offset = offsetof( T, Tint ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Tint )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Tint", .Category = "UI Render Texture", .IsColor = true, } } )
+                    .Field( FieldInfo{ .Name = "Opacity", .Type = FieldType::Float, .Offset = offsetof( T, Opacity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Opacity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Opacity", .Category = "UI Render Texture", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
+                    .Field( FieldInfo{ .Name = "ResolutionScale", .Type = FieldType::Float, .Offset = offsetof( T, ResolutionScale ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ResolutionScale )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Resolution Scale", .Category = "UI Render Texture", .HasRange = true, .RangeMin = 0.25f, .RangeMax = 2.0f, } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
                 using T = ::Desert::ECS::UITextData;
                 TypeBuilder( "UITextData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Text", .Type = FieldType::String, .Offset = offsetof( T, Text ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Text )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Text", .Category = "UI Text", .Tooltip = "Shown as typed. A leading hash makes it a string-table key instead", } } )

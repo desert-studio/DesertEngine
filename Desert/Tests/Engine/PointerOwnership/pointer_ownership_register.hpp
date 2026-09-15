@@ -603,6 +603,16 @@ namespace Desert::Tests::PointerCensus
           "while the host that owns both is still walking. Null is a legal value and means the walk has "
           "no GPU backend at all (a unit test), which the walk REPORTS rather than treating as 'no "
           "materials today'" },
+        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+          "UIViewContext", "RenderTextures", Guard::ObservedContainsUs,
+          "where this view's render-texture elements get their worlds from, as an IUIRenderTextureSource. "
+          "Q1: nobody destroys the pointee through this member -- the one implementation, "
+          "Render2D::UIRenderTextureCache, is a BY-VALUE member of the same object that owns this context "
+          "(EditorUIPass in the editor, RuntimeLayer in the game), so the two die together and neither can "
+          "outlive the other. Q2: the host hands this pointer to every RenderCanvas2D call it makes and is "
+          "the thing walking, so the backend cannot be gone while the walk is running. Null is a legal "
+          "value and means the walk has no GPU backend at all (a unit test), which the element REPORTS "
+          "with the magenta error fill rather than drawing nothing"},
         { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
           "UIBatchInfo", "Texture", Guard::IdentityOnly,
           "a COPY of DrawCommand::Texture taken for display: the probe prints it as an address so an "

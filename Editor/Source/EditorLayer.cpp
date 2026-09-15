@@ -108,6 +108,7 @@
 // 4. Misc
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
@@ -1181,6 +1182,30 @@ namespace Desert::Editor
         for ( auto& document : m_OpenDocuments )
             document->OnPreUpdate();
 
+        // THE WORLDS INSIDE UI RENDER-TEXTURE ELEMENTS, advanced HERE and nowhere else (Ю16). Each one is
+        // a whole scene render, and it has to be recorded before ANY pass of this frame opens: the canvas
+        // walk that samples the result runs inside the UI external pass, and Vulkan has no nested render
+        // pass. Same constraint, same position in the frame, as PreviewViewport::Update — which says so in
+        // its own header after the editor was bitten by the descriptor-pool version of it.
+        //
+        // Every open document, not only the focused one, for the same reason UpdateSceneFrame below runs
+        // for every one: a secondary viewport showing a canvas is a live view, and a render-texture
+        // element in it that stopped being advanced would show a frozen world with nothing in the log.
+        if ( m_AssetManager )
+        {
+            if ( m_RenderRegistry )
+            {
+                m_RenderRegistry->TickRenderTextures( *m_AssetManager, frameTs );
+            }
+            for ( auto& doc : m_ExtraScenes )
+            {
+                if ( doc->Registry )
+                {
+                    doc->Registry->TickRenderTextures( *m_AssetManager, frameTs );
+                }
+            }
+        }
+
         // ONE thumbnail capture pump for the whole editor. Panels only request; whether the asset browser
         // is open, hidden or closed no longer changes whether previews progress, and a request made by one
         // panel is finished for all of them.
@@ -2217,19 +2242,12 @@ namespace Desert::Editor
 
     void EditorLayer::BuildSceneSystems( Desert::Core::Scene& scene )
     {
-        scene.AddSystem<ECS::MeshECSSystem>();
-        scene.AddSystem<ECS::TextECSSystem>();
-        // BEFORE the collectors: it writes the atmosphere sun's transform, which the sky collector, the
-        // light collector and the shadow path all read this same frame.
-        scene.AddSystem<ECS::TimeOfDayECSSystem>();
-        scene.AddSystem<ECS::SkyboxECSSystem>();
-        // A pure render-data collector: reads the fog component (and its entity's transform Y, the fog
-        // floor) and emits one command.
-        scene.AddSystem<ECS::HeightFogECSSystem>();
-        scene.AddSystem<ECS::VolumetricCloudECSSystem>();
-        scene.AddSystem<ECS::TerrainECSSystem>();
-        scene.AddSystem<ECS::PointLightECSSystem>();
-        scene.AddSystem<ECS::SpotLightECSSystem>();
+        // The nine collectors that turn components into render data, and their order, live in ONE place
+        // now (Engine/Core/SceneRenderCollectors.hpp). They were copied by hand into five call sites, and
+        // the sixth — Ю16's render-texture cache — omitted them and got a world that rendered a single
+        // flat colour with nothing in the log. The gameplay systems below still belong to the host: each
+        // needs a service only the host owns.
+        Desert::Core::AddSceneRenderCollectors( scene );
         scene.AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get() );
         // AttachmentSystem runs right AFTER animation: weapons-in-hand follow the freshly-posed bone this frame.
         scene.AddSystem<ECS::AttachmentSystem>( &scene );

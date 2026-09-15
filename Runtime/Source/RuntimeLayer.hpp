@@ -18,6 +18,7 @@ namespace Desert::Graphic
 namespace Desert::Graphic::Render2D
 {
     class Render2D;
+    class UIRenderTextureCache;
 }
 
 namespace Desert::Player
@@ -63,6 +64,13 @@ namespace Desert::Player
         // fullscreen quad, then draws the UI + splash with the engine's own Render2D batcher. Lazily created on
         // the first present (the swapchain framebuffer only exists after the first BeginSwapChainRenderPass).
         std::unique_ptr<Graphic::Render2D::Render2D> m_Render2D;
+
+        // The offscreen worlds behind this game's render-texture UI elements (Ю16). HERE and not only in
+        // the editor: this is the process that ships, and an element that works while authoring and draws
+        // magenta in the pak is the worse of the two outcomes. unique_ptr and not by value for the same
+        // reason m_Render2D is — the header forward-declares the Render2D namespace rather than pulling
+        // the batcher in, and this type owns Scenes and SceneRenderers behind it.
+        std::unique_ptr<Graphic::Render2D::UIRenderTextureCache> m_UIRenderTextures;
         std::shared_ptr<Graphic::GraphicsPipeline>   m_BlitPipeline;
         std::unique_ptr<Graphic::MaterialExecutor>   m_BlitExecutor;
         bool                                         m_PresentReady  = false;

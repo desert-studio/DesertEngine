@@ -254,10 +254,20 @@ CI=true premake5 gmake
 TOOLS="|$(ls Tools | tr '\n' '|')"
 make -j8 Editor config=debug   # the four libraries, and the third-party archives the suites link
 ran=0
-for f in *.make; do t="${f%.make}"
+# AND THE SUITE LIST COMES FROM PREMAKE, NOT FROM `*.make`. Globbing the makefiles reports a suite
+# that NO LONGER EXISTS as BUILD-FAIL, forever: `premake5 gmake` writes makefiles but never deletes
+# one whose project is gone, so a renamed or removed suite leaves an orphan behind on every machine
+# and in every worktree. Measured 2026-09-15 — Ю16 moved PreviewSlotBudget to RendererSlotBudget and
+# the very next sweep reported `BUILD-FAIL PreviewSlotBudget`, which reads exactly like the
+# integration defect the sweep is there to catch. The root `Makefile` carries premake's own
+# `PROJECTS :=` line and cannot contain a project premake does not know, so it is the honest source.
+# (Do NOT try to spot orphans by mtime: premake rewrites only the files that changed, so almost every
+# makefile is older than the newest one and the test says nothing. That was tried first.)
+PROJECTS=$(sed -n 's/^PROJECTS := //p' Makefile | tr ' ' '\n')
+for t in $PROJECTS; do
   case "$t" in Desert|Common|Editor|Runtime|GLFW|ImGui*|imgui-node-editor|yaml-cpp|Jolt|Lua|Optick|MeshOptimizer|Dlib|ReflectCpp|BuildAllTests|RunAllTests) continue;; esac
   case "$TOOLS" in *"|$t|"*) continue;; esac
-  if ! make -f "$f" config=debug -j8 >/dev/null 2>&1; then echo "BUILD-FAIL $t"; continue; fi
+  if ! make -f "$t.make" config=debug -j8 >/dev/null 2>&1; then echo "BUILD-FAIL $t"; continue; fi
   if [ ! -x "build/Bin/Tests/Debug/$t" ]; then echo "NO-BINARY $t"; continue; fi
   ran=$((ran+1))
   # Match gtest's OWN bracketed marker, and check the exit code TOO. A bare `grep FAILED` was here

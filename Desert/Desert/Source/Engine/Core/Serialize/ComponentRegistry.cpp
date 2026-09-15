@@ -1421,6 +1421,8 @@ namespace Desert::Core::Serialize
                                                                             &ECS::UIButtonComponent::Data ) );
         Register( MakeReflected<ECS::UIIconComponent, ECS::UIIconData>( "UIIcon", "UIIconData",
                                                                         &ECS::UIIconComponent::Data ) );
+        Register( MakeReflected<ECS::UIRenderTextureComponent, ECS::UIRenderTextureData>(
+             "UIRenderTexture", "UIRenderTextureData", &ECS::UIRenderTextureComponent::Data ) );
 
         Register( MakeReflected<ECS::UIBindingComponent, ECS::UIBindingData>( "UIBinding", "UIBindingData",
                                                                               &ECS::UIBindingComponent::Data ) );

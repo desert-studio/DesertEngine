@@ -4,6 +4,7 @@
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UILayout.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
+#include <Engine/UI/UIRenderTextureSource.hpp>
 
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
@@ -315,6 +316,23 @@ namespace Desert::UI
 
         // The material handle this view last drew without a backend, so that report happens once.
         Assets::AssetHandle WarnedMaterial;
+
+        // --- UI render textures (Ю16) ------------------------------------------------------------------
+        // Where this view's render-texture elements get their worlds from. A VIEW's and not the
+        // process's for a reason one step stronger than the material cache's: the backend behind this
+        // owns renderer SLOTS, six of them for the whole process, and it hands one back by destroying
+        // the capture that held it. It learns which captures are still wanted from the walks of the view
+        // it belongs to — so a source shared between two views would see one view's walk as the other
+        // view's abandonment and destroy a picture that is on screen.
+        //
+        // Null means this walk has no GPU backend behind it — a unit test, or a host that forgot to wire
+        // one. It is NOT a quiet "no worlds today": the element draws the magenta error fill, because an
+        // element whose entire job is a picture and which silently draws nothing looks exactly like an
+        // element nobody finished authoring. Said ONCE per view, naming the element.
+        IUIRenderTextureSource* RenderTextures = nullptr;
+
+        // The element this view last drew without a backend, so that report happens once.
+        entt::entity WarnedRenderTexture = entt::null;
 
         // --- The (canvas x view) table ----------------------------------------------------------------
 

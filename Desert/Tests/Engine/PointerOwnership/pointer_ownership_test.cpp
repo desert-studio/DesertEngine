@@ -291,11 +291,28 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   arithmetic on the two branch values predicted the result: 826 vs 825 -> 827, 319 vs 325 -> 323,
     //   359 vs 352 -> 357, 357 vs 355 -> 358, and now 358 vs 353 -> 357. The five numbers below were
     //   READ OFF A RUN of this merge, which is the only way this file has ever been right.
-    EXPECT_EQ( CountOf( Form::Raw ), 357 );
-    EXPECT_EQ( CountOf( Form::Shared ), 323 );
-    EXPECT_EQ( CountOf( Form::Unique ), 111 );
+    //
+    //   -> +4 with Ю16 (830 -> 834), and every one of the four is named because a count nobody can
+    //   account for is a count somebody will "adjust":
+    //     * Raw +1    UIViewContext::RenderTextures -- registered below as ObservedContainsUs.
+    //     * Shared +1 UIRenderTextureCache::Capture::Scene, the captured world.
+    //     * Unique +2 UIRenderTextureCache::Capture::Renderer (the SceneRenderer holding the renderer
+    //                 slot) and RuntimeLayer::m_UIRenderTextures (the cache itself, held by pointer there
+    //                 because that header forward-declares the Render2D namespace).
+    //   EditorUIPass::m_RenderTextures adds nothing: it is held BY VALUE, which is exactly what makes the
+    //   lifetime argument for the raw row above hold.
+    //
+    //   -> AND AGAIN WITH Ю16, THE SIXTH IN A ROW: dev said 829 / 357, Ю16 said 834 / 359, the merge is
+    //   833 / 358. Ю16 branched before А1 landed, so its absolute count still contains the row А1
+    //   retired. Six merges have now made the same point precisely enough to state it: a branch's
+    //   DELTA survives the merge and its TOTAL does not, so the total is the one thing that cannot be
+    //   carried over — and it is the only thing written in this file. That is why it is read off a run
+    //   every time, and why no arithmetic on the two branch values has ever predicted it.
+    EXPECT_EQ( CountOf( Form::Raw ), 358 );
+    EXPECT_EQ( CountOf( Form::Shared ), 324 );
+    EXPECT_EQ( CountOf( Form::Unique ), 113 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 829 )
+    EXPECT_EQ( (int)Members().size(), 833 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -518,7 +535,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // the deferred twins of the forward instanced four that were already on this side.
     // NEITHER BRANCH'S TOTAL SURVIVES THE MERGE: Ю13 alone says 319, Г26 alone says 325, and the tree
     // says 323. Read off a run; see the arithmetic at TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 323 );
+    // 323 -> 324 with Ю16: UIRenderTextureCache::Capture::Scene, the world one UI element shows.
+    EXPECT_EQ( CountOf( Form::Shared ), 324 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

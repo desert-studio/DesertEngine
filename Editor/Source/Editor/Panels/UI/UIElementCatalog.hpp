@@ -44,6 +44,7 @@
     X( UIButtonComponent, "UI Button", ICON_MDI_BUTTON_POINTER, "Button" )                                        \
     X( UIImageComponent, "UI Image", ICON_MDI_IMAGE, "Image" )                                                    \
     X( UIIconComponent, "UI Icon", ICON_MDI_STAR_OUTLINE, "Icon" )                                                \
+    X( UIRenderTextureComponent, "UI Render Texture", ICON_MDI_VIDEO_BOX, "Render Texture" )                      \
     X( UILayoutGroupComponent, "UI Layout Group", ICON_MDI_VIEW_GRID, "Layout Group" )                            \
     X( UIProgressBarComponent, "UI Progress Bar", ICON_MDI_PROGRESS_HELPER, "Progress Bar" )                      \
     X( UIToggleComponent, "UI Toggle", ICON_MDI_CHECKBOX_MARKED_OUTLINE, "Toggle" )                               \

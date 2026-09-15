@@ -26,6 +26,17 @@ namespace Desert::Editor::Render
         }
     }
 
+    void RenderRegistry::TickRenderTextures( Assets::AssetManager& assetManager, const Common::Timestep& ts )
+    {
+        // A document whose UI pass failed to install has no render-texture cache and therefore no
+        // captures and no slots — nothing to advance, and nothing to say about it that Install did not
+        // already say.
+        if ( m_UIPass )
+        {
+            m_UIPass->TickRenderTextures( assetManager, ts );
+        }
+    }
+
     void RenderRegistry::Render()
     {
         // Per-frame editor draws that DON'T go through the render graph would go here. The graph-injected

@@ -1,7 +1,7 @@
 #include "ThumbnailService.hpp"
 
 #include <Editor/Widgets/CloudThumbnail.hpp>
-#include <Editor/Widgets/PreviewSlotBudget.hpp>
+#include <Engine/Core/RendererSlotBudget.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
@@ -189,10 +189,10 @@ namespace Desert::Editor
         // Background, and that is the whole entitlement: a capture is work nobody asked for by name, and
         // the picture it makes is what the Details row shows precisely when the live preview could not be
         // had. Taking the last slot would starve the surface the person is about to open AND would be
-        // taking it to produce the consolation prize for not having it (Editor/Widgets/PreviewSlotBudget.hpp).
+        // taking it to produce the consolation prize for not having it (Engine/Core/RendererSlotBudget.hpp).
         const uint32_t live = Graphic::SceneRenderer::GetLiveRendererCount();
-        if ( !PreviewSlotBudget::MayClaim( PreviewSlotBudget::Demand::Background, live,
-                                           EngineContext::kMaxRendererSlots ) )
+        if ( !Engine::RendererSlotBudget::MayClaim( Engine::RendererSlotBudget::Demand::Background, live,
+                                                    EngineContext::kMaxRendererSlots ) )
         {
             // IT SAYS SO. A queue that quietly stops draining is indistinguishable from a queue that has
             // nothing in it, and "nothing to do" is the reading a person will reach for — the same empty
