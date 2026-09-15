@@ -250,6 +250,40 @@ namespace
         return drawn;
     }
 
+    // The bytes a draw list holds, folded into ONE NUMBER: geometry and batch structure together. Two
+    // walks that agree here produced the same frame.
+    //
+    // A HASH AND NOT THE BYTES, and that is a lesson from breaking this file on purpose. The first
+    // version compared two binary std::strings with EXPECT_EQ; a mutation that made the list draw all
+    // two thousand rows did fail it, and then gtest tried to render two 800 KB binary strings into a
+    // failure message and the process was killed at 62 GB. A test whose failure cannot be PRINTED is a
+    // test that reports a crash instead of a diagnosis.
+    std::uint64_t Fingerprint( const R2D::DrawList2D& dl )
+    {
+        std::uint64_t h   = 1469598103934665603ULL; // FNV-1a
+        const auto    eat = [&h]( const void* p, std::size_t n )
+        {
+            const auto* b = static_cast<const unsigned char*>( p );
+            for ( std::size_t i = 0; i < n; ++i )
+            {
+                h = ( h ^ b[i] ) * 1099511628211ULL;
+            }
+        };
+        for ( const R2D::Vertex2D& v : dl.GetVertices() )
+        {
+            eat( &v, sizeof( v ) );
+        }
+        for ( const R2D::DrawCommand& c : dl.GetCommands() )
+        {
+            eat( &c.Texture, sizeof( c.Texture ) );
+            eat( &c.ClipRect, sizeof( c.ClipRect ) );
+            eat( &c.IndexCount, sizeof( c.IndexCount ) );
+            eat( &c.Text, sizeof( c.Text ) );
+            eat( &c.Glass, sizeof( c.Glass ) );
+        }
+        return h;
+    }
+
     // How many elements this frame DREW, counted by the enumeration rather than by the draw list, so the
     // number means "the walk reached it" and not "it happened to emit geometry".
     std::vector<UIElementNode> Enumerate( ListScene& scene, UIViewContext& ctx )
@@ -269,11 +303,20 @@ namespace
     }
 
     // Median of an odd-length sample, which is what a shared machine's timings want: one agent's build
-    // kicking off mid-run moves the mean and leaves the median alone.
-    double MedianMicros( std::vector<double>& samples )
+    // kicking off mid-run moves the mean and leaves the median alone. The SPREAD comes back too, because
+    // a number without its own floor is not a measurement: `lo` is the fastest walk seen and `hi` the
+    // slowest, and a difference smaller than (hi - lo) is not a difference.
+    struct Timing
+    {
+        double Median = 0.0;
+        double Lo     = 0.0;
+        double Hi     = 0.0;
+    };
+
+    Timing Summarise( std::vector<double>& samples )
     {
         std::sort( samples.begin(), samples.end() );
-        return samples[samples.size() / 2];
+        return Timing{ samples[samples.size() / 2], samples.front(), samples.back() };
     }
 } // namespace
 
@@ -376,6 +419,29 @@ TEST( ListViewWindow, TheWholeTreeIsStillEnumerated )
 
     const auto nodes = Enumerate( scene, ctx );
     EXPECT_EQ( nodes.size(), 2000u * 3u + 1u );
+}
+
+TEST( ListViewWindow, HidingARowOutsideTheWindowChangesNothingInTheFrame )
+{
+    // The relation, written the way this project's defect taxonomy says to write one: assert the
+    // AGREEMENT between what the enumeration calls not-drawn and what the real walk does, rather than
+    // either side alone. It is the drift detector for the day somebody changes how the window is
+    // computed in one of the two walks and not in the other.
+    ListScene       scene = MakeListView( 2000 );
+    R2D::DrawList2D dl;
+    UIViewContext   ctx;
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    const std::uint64_t before = Fingerprint( dl );
+
+    scene.Registry.get<ECS::UILayoutComponent>( scene.Rows[1500] ).Data.Visibility = ECS::UIVisibility::Hidden;
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    EXPECT_EQ( Fingerprint( dl ), before );
+
+    // The negative control, and it is not optional: without it this passes on a walk that draws nothing
+    // at all. A row INSIDE the window must move the bytes.
+    scene.Registry.get<ECS::UILayoutComponent>( scene.Rows[3] ).Data.Visibility = ECS::UIVisibility::Hidden;
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    EXPECT_NE( Fingerprint( dl ), before );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -527,8 +593,10 @@ TEST( ListViewContract, AnEmptyListDrawsItsBackgroundAndNoThumb )
 
 TEST( ListViewCost, WalkTimeAgainstRowCount )
 {
-    std::printf( "\n  rows | scroll view (us) | list view (us) | of which the walk (us) | drawn sv | drawn lv\n" );
-    std::printf( "  -----+------------------+----------------+------------------------+----------+---------\n" );
+    std::printf( "\n  Debug build. Median of the repeats, with [fastest..slowest] beside it -- a difference\n" );
+    std::printf( "  smaller than that bracket is not a difference.\n\n" );
+    std::printf( "  rows |     scroll view (us)      |       list view (us)      | drawn sv | drawn lv\n" );
+    std::printf( "  -----+---------------------------+---------------------------+----------+---------\n" );
 
     for ( const int rows : { 20, 100, 500, 1000, 5000, 20000 } )
     {
@@ -537,9 +605,9 @@ TEST( ListViewCost, WalkTimeAgainstRowCount )
         // minute for a number that is printed rather than gated.
         const int kReps = rows >= 5000 ? 5 : 21;
 
-        double svUs       = 0.0;
-        double lvUs       = 0.0;
-        double lvCanvasUs = 0.0;
+        Timing svUs;
+        Timing lvUs;
+        Timing lvCanvasUs;
 
         std::size_t svDrawn = 0;
         std::size_t lvDrawn = 0;
@@ -556,7 +624,7 @@ TEST( ListViewCost, WalkTimeAgainstRowCount )
                 const auto t1 = std::chrono::steady_clock::now();
                 samples.push_back( std::chrono::duration<double, std::micro>( t1 - t0 ).count() );
             }
-            svUs    = MedianMicros( samples );
+            svUs    = Summarise( samples );
             svDrawn = DrawnCount( scene, ctx );
         }
         {
@@ -578,13 +646,15 @@ TEST( ListViewCost, WalkTimeAgainstRowCount )
                 samples.push_back( std::chrono::duration<double, std::micro>( t3 - t0 ).count() );
                 canvasOnly.push_back( std::chrono::duration<double, std::micro>( t2 - t1 ).count() );
             }
-            lvUs       = MedianMicros( samples );
-            lvCanvasUs = MedianMicros( canvasOnly );
+            lvUs       = Summarise( samples );
+            lvCanvasUs = Summarise( canvasOnly );
             lvDrawn    = DrawnCount( scene, ctx );
         }
 
-        std::printf( "  %5d | %16.1f | %14.1f | %22.1f | %8zu | %8zu\n", rows, svUs, lvUs, lvCanvasUs, svDrawn,
-                     lvDrawn );
+        std::printf( "  %5d | %8.1f [%7.1f..%8.1f] | %8.1f [%7.1f..%8.1f] | %8zu | %8zu\n", rows, svUs.Median,
+                     svUs.Lo, svUs.Hi, lvUs.Median, lvUs.Lo, lvUs.Hi, svDrawn, lvDrawn );
+        std::printf( "        (of the list view's median, %.1f us is RenderCanvas2D itself)\n",
+                     lvCanvasUs.Median );
     }
     std::printf( "\n" );
 }

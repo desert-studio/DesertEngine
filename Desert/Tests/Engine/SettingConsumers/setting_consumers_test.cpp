@@ -1088,7 +1088,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // 38 and 39 are each correct against dev and both are wrong here, which is what the register is for.
     // -> 41 with Ю16's UIRenderTextureData. Its four fields are WIRED, all four to the canvas walk:
     // ScenePath and ResolutionScale in ResolveRenderTexture, Tint and Opacity at the draw site.
-    EXPECT_EQ( all.size(), 41u );
+    // -> 42 with Ю17's UIListViewData. Its seven fields are WIRED, all seven to the canvas walk:
+    // ItemHeight/Spacing/Overscan/ScrollY solve the window, Background and ScrollbarColor are drawn
+    // through the ScrollView style slots, ShowScrollbar gates the thumb.
+    EXPECT_EQ( all.size(), 42u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

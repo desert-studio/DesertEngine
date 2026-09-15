@@ -2358,12 +2358,35 @@ namespace Desert::UI
             // for the RE-SEED, where the answer has to be the first screen in DRAW order and a pool's
             // iteration order is creation order; that path runs once per canvas per view rather than once
             // per frame.
+            //
+            // MEMBERSHIP IS ASKED THE SAME WAY THE SUB-TREE WALK ANSWERED IT — "is canvasEntity an
+            // ancestor of this screen", not "is it the screen's NEAREST canvas". The two differ for a
+            // canvas nested under another canvas, which nothing authors today; using CanvasOf here would
+            // have been a second, unrelated behaviour change smuggled into a cost fix.
+            const auto underCanvas = [&reg, canvasEntity]( entt::entity e )
+            {
+                // Bounded rather than trusting the tree to be acyclic, for the reason CanvasOf states.
+                const std::size_t limit = reg.size() + 1;
+                std::size_t       steps = 0;
+                for ( entt::entity cur = e; cur != entt::null && reg.valid( cur ) && steps < limit; ++steps )
+                {
+                    if ( cur == canvasEntity )
+                    {
+                        return true;
+                    }
+                    cur = reg.has<ECS::RelationshipComponent>( cur )
+                               ? reg.get<ECS::RelationshipComponent>( cur ).Parent
+                               : entt::null;
+                }
+                return false;
+            };
+
             bool currentExists = false;
             bool anyScreenHere = false;
             for ( const entt::entity s : reg.view<ECS::UIScreenComponent>() )
             {
                 const std::string& n = reg.get<ECS::UIScreenComponent>( s ).Data.Name;
-                if ( n.empty() || CanvasOf( reg, s ) != canvasEntity )
+                if ( n.empty() || !underCanvas( s ) )
                 {
                     continue;
                 }
