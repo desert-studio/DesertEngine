@@ -308,11 +308,13 @@ namespace Desert::UI
     {
         ListWindow w;
         if ( itemCount <= 0 || scale <= 0.0f )
+        {
             return w;
+        }
 
         w.RowHeightPx = std::max( 1.0f, itemHeight ) * scale;
         w.PitchPx     = w.RowHeightPx + std::max( 0.0f, spacing ) * scale;
-        w.ContentPx   = itemCount * w.PitchPx - std::max( 0.0f, spacing ) * scale;
+        w.ContentPx   = static_cast<float>( itemCount ) * w.PitchPx - std::max( 0.0f, spacing ) * scale;
         w.ScrollMaxPx = std::max( 0.0f, w.ContentPx - viewportH );
         w.ScrollPx    = std::clamp( scrollY * scale, 0.0f, w.ScrollMaxPx );
 
@@ -333,6 +335,7 @@ namespace Desert::UI
     // and the scrollbar is drawn over it, exactly as UIScrollView draws its own.
     inline Rect ListRowRect( const Rect& container, const ListWindow& w, int index )
     {
-        return Rect{ container.X, container.Y + index * w.PitchPx - w.ScrollPx, container.W, w.RowHeightPx };
+        return Rect{ container.X, container.Y + static_cast<float>( index ) * w.PitchPx - w.ScrollPx, container.W,
+                     w.RowHeightPx };
     }
 } // namespace Desert::UI

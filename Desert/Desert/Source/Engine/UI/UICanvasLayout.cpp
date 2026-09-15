@@ -331,6 +331,9 @@ namespace Desert::UI
             bool OutsideWindow = false;
         };
 
+        // NOLINTNEXTLINE(misc-no-recursion) — a canvas IS a tree and this walk IS its traversal; the
+        // depth is the authored nesting, which the editor bounds, and the one unbounded case (a Parent
+        // cycle) is refused by the step-limited walks that answer "which canvas is this".
         void EnumRecurse( entt::registry& reg, entt::entity e, const EnumScope& scope, float scale,
                           const Rect& viewportPx, const UICanvasContext* ctx, std::vector<UIElementNode>& out,
                           int& order, const Rect* forcedRect )
@@ -373,7 +376,9 @@ namespace Desert::UI
             // deciding not to walk this row at all — the same precedence an ancestor already has over a
             // child's own Visibility, one level down.
             if ( self == UISkipCause::None && scope.OutsideWindow )
+            {
                 self = UISkipCause::OutsideWindow;
+            }
 
             // The two view-dependent reasons. Without a context they are not asked at all — see the header:
             // an author must be able to pick an element on a screen the game is not showing.
@@ -526,7 +531,9 @@ namespace Desert::UI
                 for ( std::size_t i = 0; i < children.size(); ++i )
                 {
                     if ( !reg.valid( children[i] ) )
+                    {
                         continue;
+                    }
                     const int  index   = static_cast<int>( i );
                     const Rect rowRect = ListRowRect( rect, listWindow, index );
                     EnumScope  row     = child;

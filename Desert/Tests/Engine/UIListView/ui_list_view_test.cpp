@@ -42,6 +42,9 @@
 // walk wants, so the suite supplies the accessors itself and returns nothing.
 namespace Desert::Runtime
 {
+    // NOLINTBEGIN(readability-convert-member-functions-to-static) — these are DEFINITIONS of the engine's
+    // own member functions, supplied here instead of linking the services. Their signatures belong to
+    // Engine/Runtime/ResourceRegistry.hpp and cannot be changed from a test.
     TextureService* ResourceRegistry::GetTextureService()
     {
         return nullptr;
@@ -119,6 +122,7 @@ namespace Desert::Runtime
         ADD_FAILURE() << "IconService::Get reached with no icon service";
         return nullptr;
     }
+    // NOLINTEND(readability-convert-member-functions-to-static)
 } // namespace Desert::Runtime
 
 using Desert::UI::Rect;
@@ -208,7 +212,9 @@ namespace
         auto& sv         = s.Registry.emplace<ECS::UIScrollViewComponent>( s.Container ).Data;
         sv.ContentHeight = static_cast<float>( rows ) * kRowHeight;
         for ( int i = 0; i < rows; ++i )
+        {
             s.AddRow( static_cast<float>( i ) * kRowHeight );
+        }
         return s;
     }
 
@@ -222,7 +228,9 @@ namespace
         lv.ItemHeight = kRowHeight;
         lv.Overscan   = overscan;
         for ( int i = 0; i < rows; ++i )
+        {
             s.AddRow( static_cast<float>( i ) * kRowHeight ); // y ignored: the list assigns the row rect
+        }
         return s;
     }
 
@@ -275,7 +283,7 @@ namespace
         }
         for ( const R2D::DrawCommand& c : dl.GetCommands() )
         {
-            eat( &c.Texture, sizeof( c.Texture ) );
+            eat( static_cast<const void*>( &c.Texture ), sizeof( c.Texture ) );
             eat( &c.ClipRect, sizeof( c.ClipRect ) );
             eat( &c.IndexCount, sizeof( c.IndexCount ) );
             eat( &c.Text, sizeof( c.Text ) );
@@ -350,7 +358,7 @@ TEST( ListViewWindow, DrawnElementsFollowTheWindowAndNotTheRowCount )
     // And the window is the one the geometry implies: the rows that fit, plus the overscan row below.
     // Three elements per row, plus the canvas and the list itself.
     // The canvas itself is not one of them: EnumerateCanvas reports a canvas's CHILDREN.
-    const std::size_t windowRows = static_cast<std::size_t>( kRowsOnView + 1 );
+    const auto windowRows = static_cast<std::size_t>( kRowsOnView ) + 1u;
     EXPECT_EQ( drawn[0], windowRows * 3u + 1u );
 }
 
@@ -391,8 +399,12 @@ TEST( ListViewWindow, ScrollingMovesTheWindowAndTheClampedEdgeIsOneRowSmaller )
     const auto rowNode = [&]( entt::entity e ) -> const UIElementNode*
     {
         for ( const UIElementNode& n : nodes )
+        {
             if ( n.Entity == e )
+            {
                 return &n;
+            }
+        }
         return nullptr;
     };
     ASSERT_NE( rowNode( scene.Rows[1000] ), nullptr );
@@ -456,7 +468,9 @@ TEST( ListViewRenderTexture, OnlyTheWindowsRowsAreAsked )
     // asking", and this drives a counting stand-in for the backend to read the answer off directly.
     ListScene scene = MakeListView( 2000 );
     for ( const entt::entity row : scene.Rows )
+    {
         scene.Registry.emplace<ECS::UIRenderTextureComponent>( row ).Data.ScenePath = "Any.desce";
+    }
 
     CountingRenderTextures source;
     R2D::DrawList2D        dl;
@@ -487,7 +501,9 @@ TEST( ListViewRenderTexture, TheScrollViewAsksAboutEveryRow )
     // is 2000 demands against six slots -- 1994 magenta fills and a log line naming the budget.
     ListScene scene = MakeScrollViewList( 2000 );
     for ( const entt::entity row : scene.Rows )
+    {
         scene.Registry.emplace<ECS::UIRenderTextureComponent>( row ).Data.ScenePath = "Any.desce";
+    }
 
     CountingRenderTextures source;
     R2D::DrawList2D        dl;
@@ -527,8 +543,12 @@ TEST( ListViewContract, AHiddenRowLeavesItsSlotEmptyRatherThanClosingTheGap )
     const auto rectOf = [&]( entt::entity e )
     {
         for ( const UIElementNode& n : Enumerate( scene, ctx ) )
+        {
             if ( n.Entity == e )
+            {
                 return n.RectPx;
+            }
+        }
         ADD_FAILURE() << "row not enumerated";
         return Rect{};
     };
@@ -639,7 +659,7 @@ TEST( ListViewCost, WalkTimeAgainstRowCount )
                 dl.Reset();
                 UI::BeginUIFrame( ctx, scene.Registry, kViewport );
                 const auto t1 = std::chrono::steady_clock::now();
-                UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl );
+                (void)UI::RenderCanvas2D( ctx, scene.Registry, scene.Canvas, dl );
                 const auto t2 = std::chrono::steady_clock::now();
                 UI::EndUIFrame( ctx, scene.Registry, dl, /*input=*/nullptr );
                 const auto t3 = std::chrono::steady_clock::now();

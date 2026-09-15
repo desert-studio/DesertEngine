@@ -1271,6 +1271,10 @@ namespace Desert::UI
 
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
         // group — it overrides the element's own anchors for position + size.
+        //
+        // NOLINTNEXTLINE(misc-no-recursion) — a canvas IS a tree and this walk IS its traversal. The depth
+        // is the authored nesting, and every container below either recurses over a Relationship child
+        // list or over a window of it, so nothing here can revisit an element it has already drawn.
         void DrawElement( WalkCtx& ctx, entt::registry& reg, entt::entity e, const Rect& parent, float scale,
                           Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
                           entt::entity* focused, std::vector<PopupInfo>* popups,
@@ -1942,12 +1946,12 @@ namespace Desert::UI
 
                 // The scrolling containers' shared state, stated once so the scrollbar below is written
                 // once. >0 in ScrollMaxPx is also "the content overflows", i.e. "draw a scrollbar".
-                float      contentPx      = 0.0f;
-                float      scrollPx       = 0.0f;
-                float      scrollMaxPx    = 0.0f;
-                bool       showScrollbar  = false;
-                glm::vec3  scrollbarColor = glm::vec3( 0.0f );
-                const bool wheelOver      = input != nullptr && interactive && e == ctx.View.Hot;
+                float      contentPx     = 0.0f;
+                float      scrollPx      = 0.0f;
+                float      scrollMaxPx   = 0.0f;
+                bool       showScrollbar = false;
+                glm::vec3  scrollbarColor( 0.0f );
+                const bool wheelOver = input != nullptr && interactive && e == ctx.View.Hot;
                 if ( reg.has<ECS::UIScrollViewComponent>( e ) )
                 {
                     auto& sv = reg.get<ECS::UIScrollViewComponent>( e ).Data;
@@ -1958,7 +1962,9 @@ namespace Desert::UI
                     contentPx   = sv.ContentHeight * scale;
                     scrollMaxPx = std::max( 0.0f, contentPx - rect.H );
                     if ( wheelOver && input->ScrollDelta != 0.0f )
+                    {
                         sv.ScrollY -= input->ScrollDelta * 30.0f; // 30 design px per wheel notch
+                    }
                     const float maxScrollDesign = scale > 0.0f ? scrollMaxPx / scale : 0.0f;
                     sv.ScrollY                  = std::clamp( sv.ScrollY, 0.0f, maxScrollDesign );
 
@@ -1985,7 +1991,9 @@ namespace Desert::UI
                          glm::vec4( st.Color( StyleSlot::ScrollViewBackground, lv.Background ), 1.0f ) );
 
                     if ( wheelOver && input->ScrollDelta != 0.0f )
+                    {
                         lv.ScrollY -= input->ScrollDelta * 30.0f; // the scroll view's notch, exactly
+                    }
 
                     window = SolveListWindow( static_cast<int>( rowCount ), lv.ItemHeight, lv.Spacing, lv.Overscan,
                                               lv.ScrollY, rect.H, scale );
