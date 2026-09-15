@@ -32,6 +32,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -268,26 +269,35 @@ namespace
     // test that reports a crash instead of a diagnosis.
     std::uint64_t Fingerprint( const R2D::DrawList2D& dl )
     {
-        std::uint64_t h   = 1469598103934665603ULL; // FNV-1a
-        const auto    eat = [&h]( const void* p, std::size_t n )
+        std::uint64_t h = 1469598103934665603ULL; // FNV-1a
+
+        const auto mix = [&h]( std::uint64_t v ) { h = ( h ^ v ) * 1099511628211ULL; };
+
+        // NO reinterpret_cast, AND THAT IS THE ANALYSER'S DOING RATHER THAN TASTE. A `const void* const*`
+        // handed to a `const void*` parameter is a multilevel pointer conversion and a reinterpret_cast
+        // is refused outright, so the opaque texture id is folded through std::hash — which takes the
+        // POINTER and needs no cast — and everything with a real layout is folded byte-wise.
+        const auto mixBytes = [&mix]( const void* p, std::size_t n )
         {
             const auto* b = static_cast<const unsigned char*>( p );
             for ( std::size_t i = 0; i < n; ++i )
             {
-                h = ( h ^ b[i] ) * 1099511628211ULL;
+                mix( b[i] );
             }
         };
+
         for ( const R2D::Vertex2D& v : dl.GetVertices() )
         {
-            eat( &v, sizeof( v ) );
+            mixBytes( &v, sizeof( v ) );
         }
         for ( const R2D::DrawCommand& c : dl.GetCommands() )
         {
-            eat( static_cast<const void*>( &c.Texture ), sizeof( c.Texture ) );
-            eat( &c.ClipRect, sizeof( c.ClipRect ) );
-            eat( &c.IndexCount, sizeof( c.IndexCount ) );
-            eat( &c.Text, sizeof( c.Text ) );
-            eat( &c.Glass, sizeof( c.Glass ) );
+            mix( std::hash<const void*>{}( c.Texture ) );
+            mix( std::hash<const void*>{}( c.Material ) );
+            mixBytes( &c.ClipRect, sizeof( c.ClipRect ) );
+            mix( c.IndexCount );
+            mix( static_cast<std::uint64_t>( c.Text ) );
+            mix( static_cast<std::uint64_t>( c.Glass ) );
         }
         return h;
     }

@@ -1272,9 +1272,10 @@ namespace Desert::UI
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
         // group — it overrides the element's own anchors for position + size.
         //
-        // NOLINTNEXTLINE(misc-no-recursion) — a canvas IS a tree and this walk IS its traversal. The depth
-        // is the authored nesting, and every container below either recurses over a Relationship child
-        // list or over a window of it, so nothing here can revisit an element it has already drawn.
+        // A CANVAS IS A TREE AND THIS WALK IS ITS TRAVERSAL. The depth is the authored nesting, and every
+        // container below recurses over a Relationship child list or over a window of one, so nothing
+        // here can revisit an element it has already drawn.
+        // NOLINTNEXTLINE(misc-no-recursion)
         void DrawElement( WalkCtx& ctx, entt::registry& reg, entt::entity e, const Rect& parent, float scale,
                           Graphic::Render2D::DrawList2D& dl, const UIInput* input, std::string* outClicked,
                           entt::entity* focused, std::vector<PopupInfo>* popups,

@@ -331,9 +331,10 @@ namespace Desert::UI
             bool OutsideWindow = false;
         };
 
-        // NOLINTNEXTLINE(misc-no-recursion) — a canvas IS a tree and this walk IS its traversal; the
-        // depth is the authored nesting, which the editor bounds, and the one unbounded case (a Parent
-        // cycle) is refused by the step-limited walks that answer "which canvas is this".
+        // A CANVAS IS A TREE AND THIS WALK IS ITS TRAVERSAL; the depth is the authored nesting, and the
+        // one unbounded case — a Parent cycle — is refused by the step-limited walks that answer "which
+        // canvas is this" rather than by this one.
+        // NOLINTNEXTLINE(misc-no-recursion)
         void EnumRecurse( entt::registry& reg, entt::entity e, const EnumScope& scope, float scale,
                           const Rect& viewportPx, const UICanvasContext* ctx, std::vector<UIElementNode>& out,
                           int& order, const Rect* forcedRect )
