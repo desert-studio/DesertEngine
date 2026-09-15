@@ -123,6 +123,14 @@ namespace
              { "UI_ListViewSlots_ScrollView", "",
                "probe fixture: the same 40 rows in a scroll view — the "
                "renderer-slot negative control" },
+
+             // Ю18's pair. These two are the only scenes in the project that put a canvas over LIT
+             // GEOMETRY, and their labels are what a human reads off the frame to see WHICH property is
+             // being witnessed; the witness itself keys off a panel's colour and not off any text.
+             { "UI_OverScene", "", "probe fixture: canvas over lit geometry, the A of the A->B->A witness" },
+             { "UI_OverScene_Hidden", "",
+               "probe fixture: the same scene with the canvas not Visible — "
+               "the negative control of the one above" },
         };
         return rules;
     }
