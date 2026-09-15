@@ -27,10 +27,20 @@
 // always one", and a submesh at a NON-ZERO VertexOffset/IndexOffset is the only kind whose ranges can be
 // wrong — the first submesh of any mesh starts at 0 and looks correct however the offsets are computed.
 //
-// WHAT THIS SUITE CANNOT REACH. `MeshService` links the renderer, so the service-level half of the relation
-// (a BUILT mesh carries its asset's submeshes, asserted in MeshService::BuildAndCache) is proved by a frame
-// on the scene above and not from here. This suite covers the asset-level half, which is where the numbers
-// K and N live.
+// THE SERVICE-LEVEL HALF, AND WHY IT IS A CENSUS OVER SOURCE TEXT. `MeshService::BuildAndCache` is the one
+// place a runtime mesh is built from an asset, and it is where both guards against the defect above live:
+// parse before build, then compare what was built against what the asset holds. It is also structurally
+// UNTESTABLE by this project's sweep — `MeshService.cpp` is compiled by exactly ONE makefile, `Desert.make`,
+// and no test suite links `libDesert.a`, because that pulls in Vulkan and the whole renderer. Measured on
+// 2026-09-15 by restoring the pre-fix body of that function in the live tree: `M10_MeshSlot.desce` went
+// from the two probe boxes to a FLAT GREY frame (75 807 of 560 560 pixels, contrast 0.675 -> 0.004), not one
+// line appeared in the log, and all THIRTEEN suites this task was told to run stayed green — including this
+// one. A property no runtime test on this machine can observe is gated over the source text instead; that is
+// the same instrument the shader-graph argument-order defect needed, and for the same reason.
+//
+// So the two tests at the bottom of this file pin the ORDER of that function's steps and the fact that there
+// is only one of it. Everything above them covers the asset-level half, which is where the numbers K and N
+// live and which the suite can execute directly.
 
 #include <gtest/gtest.h>
 
@@ -353,6 +363,105 @@ TEST( StaticMeshCooked, TheShippedProbeKeepsTheIdentityTheSceneNamesItBy )
     EXPECT_EQ( static_cast<std::uint64_t>( Common::AssetHandle::FromCookedPath( kProbeCookedPath ) ),
                kProbeMeshHandle )
          << "the probe mesh's path-derived handle changed; M10_MeshSlot.desce would resolve to no mesh.";
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// THE SERVICE-LEVEL GUARDS, READ OUT OF THE SOURCE. See the note at the top of this file for why these two
+// are censuses and not executions, and for the frame that measured what their removal costs.
+
+namespace
+{
+    // The body of one function definition in `MeshService.cpp`. Every function in that file is spelled
+    // `<return type> MeshService::<name>(`, so the next occurrence of `MeshService::` after the opening one
+    // is the start of the next definition — which makes the slice between them this function and nothing
+    // else. Returned empty if the function is gone, which the caller reports as its own failure rather than
+    // passing vacuously on an empty string.
+    std::string MeshServiceFunctionBody( const std::string& name )
+    {
+        const std::string source = ReadFile( RepositoryRoot() / "Desert" / "Desert" / "Source" / "Engine" /
+                                             "Runtime" / "Services" / "Mesh" / "MeshService.cpp" );
+        const auto        start  = source.find( "MeshService::" + name + "(" );
+        if ( start == std::string::npos )
+        {
+            return {};
+        }
+        const auto next = source.find( "MeshService::", start + 1 );
+        return source.substr( start, next == std::string::npos ? std::string::npos : next - start );
+    }
+} // namespace
+
+// PARSE BEFORE BUILD, THEN COMPARE — as an ORDERING, because each step on its own is present in the broken
+// version too. The defect was not a missing call; it was `MeshFactory::Create` running against an asset
+// nobody had parsed yet, and the empty mesh that produced being cached under a live handle for the rest of
+// the process. Order is the property, so order is what is asserted.
+TEST( StaticMeshCooked, TheServiceParsesBeforeItBuildsAndComparesBeforeItCaches )
+{
+    const std::string body = MeshServiceFunctionBody( "BuildAndCache" );
+    ASSERT_FALSE( body.empty() ) << "MeshService::BuildAndCache is gone from MeshService.cpp. It is the one "
+                                    "place a runtime mesh is built from an asset; if the build moved, move "
+                                    "this census with it rather than deleting it.";
+
+    const auto ensureLoaded = body.find( "EnsureLoaded(" );
+    const auto create       = body.find( "MeshFactory::Create(" );
+    const auto compare      = body.find( "GetSubmeshes().size() != " );
+    const auto cache        = body.find( "m_Meshes[handle] = " );
+
+    ASSERT_NE( create, std::string::npos ) << "BuildAndCache no longer builds anything.";
+    ASSERT_NE( cache, std::string::npos ) << "BuildAndCache no longer caches anything.";
+
+    EXPECT_NE( ensureLoaded, std::string::npos )
+         << "BuildAndCache does not parse the asset at all. Building from an UNPARSED shell is the defect "
+            "itself: MeshFactory copies whatever the asset holds at that instant, so the runtime mesh gets "
+            "zero vertices and zero submeshes, and gets cached under the handle for the life of the "
+            "process. `Cooked/Meshes/base.stmesh` carried 1 submesh, 105 317 vertices and 120 000 "
+            "triangles; `Get` answered 0 submeshes ninety-one times in one 90-frame run.";
+    EXPECT_LT( ensureLoaded, create )
+         << "BuildAndCache builds the runtime mesh BEFORE it parses the asset. That is the original defect "
+            "verbatim, and nothing else in this repository can see it: no test suite compiles "
+            "MeshService.cpp.";
+
+    EXPECT_NE( compare, std::string::npos )
+         << "BuildAndCache no longer compares the submesh count of the mesh it built against the asset it "
+            "built it from. Both sides are individually well-formed — that is exactly why the comparison "
+            "has to exist: an empty mesh is a perfectly constructible mesh, and caching one is "
+            "irreversible because `Get` never asks the asset again.";
+    EXPECT_LT( create, compare ) << "the comparison happens before the build, so it compares nothing.";
+    EXPECT_LT( compare, cache )
+         << "the mesh is cached BEFORE the comparison, so a mismatch is detected after the damage is "
+            "permanent. The whole value of the check is that a failed build caches NOTHING.";
+}
+
+// ONE BUILD SITE, WHICH IS WHAT MAKES THE ORDERING ABOVE SUFFICIENT. The eager route (`Register`) and the
+// lazy route (`Get`) disagreed once already; they are one function now, and a second `MeshFactory::Create`
+// anywhere in this file would be a route past both guards that still looks like a built mesh.
+TEST( StaticMeshCooked, TheServiceHasExactlyOnePlaceThatBuildsAMeshFromAnAsset )
+{
+    const std::string source = ReadFile( RepositoryRoot() / "Desert" / "Desert" / "Source" / "Engine" / "Runtime" /
+                                         "Services" / "Mesh" / "MeshService.cpp" );
+    ASSERT_FALSE( source.empty() ) << "could not read MeshService.cpp";
+
+    std::size_t builds = 0;
+    for ( std::size_t at = source.find( "MeshFactory::Create(" ); at != std::string::npos;
+          at             = source.find( "MeshFactory::Create(", at + 1 ) )
+    {
+        ++builds;
+    }
+    EXPECT_EQ( builds, 1u ) << "MeshService.cpp builds a mesh from an asset in " << builds
+                            << " places. Every one of them owes the asset a parse first and the result a "
+                               "comparison afterwards; the reason there is one is so that neither can be "
+                               "forgotten in the other.";
+
+    // And both routes must reach it through the same door, or the eager and lazy paths can drift apart
+    // again — which is how the defect reached a shipped scene in the first place.
+    std::size_t routes = 0;
+    for ( std::size_t at = source.find( "BuildAndCache(" ); at != std::string::npos;
+          at             = source.find( "BuildAndCache(", at + 1 ) )
+    {
+        ++routes;
+    }
+    EXPECT_GE( routes, 3u ) << "BuildAndCache is named " << routes
+                            << " times (its definition plus one call from Register and one from Get). Fewer "
+                               "means a route builds its mesh some other way.";
 }
 
 int main( int argc, char** argv )
