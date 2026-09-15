@@ -59,13 +59,13 @@ TEST( AnimGraph, TransitionsWhenConditionMet )
     Evaluator eval( LocomotionGraph() );
 
     // Speed below threshold: no transition.
-    eval.SetFloat( "Speed", 0.0f );
+    ASSERT_TRUE( eval.SetFloat( "Speed", 0.0f ).IsSuccess() );
     auto r0 = eval.Update( 0.0f );
     EXPECT_FALSE( r0.Changed );
     EXPECT_EQ( r0.Current->Name, "Idle" );
 
     // Speed above threshold: Idle -> Run, with the transition's blend duration.
-    eval.SetFloat( "Speed", 1.0f );
+    ASSERT_TRUE( eval.SetFloat( "Speed", 1.0f ).IsSuccess() );
     auto r1 = eval.Update( 0.0f );
     EXPECT_TRUE( r1.Changed );
     ASSERT_NE( r1.Current, nullptr );
@@ -73,7 +73,7 @@ TEST( AnimGraph, TransitionsWhenConditionMet )
     EXPECT_FLOAT_EQ( r1.Blend, 0.25f );
 
     // Back to idle when speed drops.
-    eval.SetFloat( "Speed", 0.0f );
+    ASSERT_TRUE( eval.SetFloat( "Speed", 0.0f ).IsSuccess() );
     auto r2 = eval.Update( 0.0f );
     EXPECT_TRUE( r2.Changed );
     EXPECT_EQ( r2.Current->Name, "Idle" );
@@ -120,7 +120,7 @@ TEST( AnimGraph, DanglingAndSelfTargetsIgnored )
 TEST( AnimGraph, SyncGraphPreservesStateAndParams )
 {
     Evaluator eval( LocomotionGraph() );
-    eval.SetFloat( "Speed", 1.0f );
+    ASSERT_TRUE( eval.SetFloat( "Speed", 1.0f ).IsSuccess() );
     ASSERT_EQ( eval.Update( 0.0f ).Current->Name, "Run" ); // now in Run, Speed = 1
 
     // Edit the graph (bump a blend duration) and re-sync: the active state + live param must survive.

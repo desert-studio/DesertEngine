@@ -18,9 +18,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <string>
-#include <unordered_set>
+#include <unordered_map>
 
 namespace Desert::ECS
 {
@@ -93,6 +94,26 @@ namespace Desert::ECS
                         anim.GraphEvaluator->SyncGraph( *anim.Graph );
                         anim.BuiltGraphRevision = anim.GraphRevision;
                     }
+
+                    ReportGraphStructure( *anim.GraphEvaluator );
+
+                    // THE ORDER, DECIDED. Script writes are applied HERE — after the evaluator exists and
+                    // BEFORE Update() below reads the conditions — so a queued parameter always acts on the
+                    // very next graph tick and never on the one after it.
+                    //
+                    // That next tick is the NEXT FRAME, and this is the decision rather than the accident:
+                    // ScriptSystem is registered AFTER AnimationECSSystem (EditorLayer::BuildSceneSystems,
+                    // RuntimeLayer), so a value set in OnUpdate on frame N is drained at the top of frame
+                    // N+1. ONE frame of latency, and the alternative was moving a system: the registration
+                    // order that produces it is load-bearing twice over — AttachmentSystem must run right
+                    // after animation to follow a freshly-posed bone THIS frame, and ScriptSystem must run
+                    // before physics so move intent executes THIS frame. Putting animation after scripts
+                    // would buy same-frame parameters and hand the notify dispatch the one-frame lag
+                    // instead, because notifies travel the other way (Animator -> PendingNotifies ->
+                    // ScriptSystem). One frame on a state change is 16 ms and invisible; one frame on a
+                    // footstep is an audible desync. Asserted by Tests/Engine/AnimGraphScript so it stays a
+                    // decision and not a habit.
+                    DrainGraphParams( anim );
 
                     if ( anim.Playing )
                     {
@@ -203,6 +224,90 @@ namespace Desert::ECS
 
     private:
         /**
+         * @brief Applies the parameter writes a script queued, then clears the queue.
+         *
+         * The name and the type were validated where the script called (AnimationBindings), so a refusal
+         * here means the graph changed under a queued write — a real event with a different cause, and it
+         * is reported with the same once-per-distinct-message rule the clip failures next door use.
+         */
+        void DrainGraphParams( ECS::AnimationComponent& anim )
+        {
+            if ( anim.PendingGraphParams.empty() )
+            {
+                return;
+            }
+
+            for ( const auto& pending : anim.PendingGraphParams )
+            {
+                // THE DECLARATION IS READ HERE, not carried in the queue: one statement about what a
+                // parameter is, made by the graph, read by whoever is about to write into it.
+                const auto& parameters = anim.GraphEvaluator->Graph().Parameters;
+                const auto  declared   = std::find_if( parameters.begin(), parameters.end(),
+                                                       [&pending]( const Animation::Graph::Parameter& p )
+                                                       { return p.Name == pending.Name; } );
+
+                Common::BoolResultStr applied =
+                     declared == parameters.end()
+                          ? anim.GraphEvaluator->SetFloat( pending.Name, pending.Value ) // refuses, by name
+                          : Common::MakeSuccess( true );
+
+                if ( declared != parameters.end() )
+                {
+                    switch ( static_cast<Animation::Graph::ParamType>( declared->Type ) )
+                    {
+                        case Animation::Graph::ParamType::Bool:
+                            applied = anim.GraphEvaluator->SetBool( pending.Name, pending.Value != 0.0f );
+                            break;
+                        case Animation::Graph::ParamType::Int:
+                            applied = anim.GraphEvaluator->SetInt(
+                                 pending.Name, static_cast<int>( std::lround( pending.Value ) ) );
+                            break;
+                        case Animation::Graph::ParamType::Float:
+                            applied = anim.GraphEvaluator->SetFloat( pending.Name, pending.Value );
+                            break;
+                    }
+                }
+
+                if ( !applied.IsSuccess() )
+                {
+                    ReportOnce( fmt::format( "param:{}:{}", anim.GraphEvaluator->Graph().Name, pending.Name ),
+                                applied.GetError() );
+                }
+            }
+
+            // CLEARED WHETHER OR NOT EACH ONE LANDED. A queue that kept a refused write would re-report it
+            // every frame and, worse, would apply a stale value the moment the graph grew the parameter.
+            anim.PendingGraphParams.clear();
+        }
+
+        /**
+         * @brief Says so, once, when a graph's conditions name parameters it does not declare.
+         *
+         * The read side cannot refuse (Evaluator::GetFloat is called per condition per frame), so the
+         * report lives here — at the one place per frame that holds the evaluator and a logger.
+         */
+        void ReportGraphStructure( const Animation::Graph::Evaluator& evaluator )
+        {
+            const std::string& error = evaluator.GetStructureError();
+            if ( !error.empty() )
+            {
+                ReportOnce( fmt::format( "structure:{}", evaluator.Graph().Name ), error );
+            }
+        }
+
+        /// One line per distinct (key, message), because this runs at 60 Hz over every animated entity.
+        void ReportOnce( const std::string& key, const std::string& message ) const
+        {
+            const auto it = m_Reported.find( key );
+            if ( it != m_Reported.end() && it->second == message )
+            {
+                return;
+            }
+            m_Reported[key] = message;
+            LOG_ERROR( "[Animation] {}", message );
+        }
+
+        /**
          * @brief AUTHORED DATA IN, LIVE SOLVER OUT — once per frame, per entity.
          *
          * THE COMPONENT IS NOT THE CONTROL, and keeping them apart is the point. The component is four
@@ -272,13 +377,11 @@ namespace Desert::ECS
         void ReportUnplayableState( const Animation::Skeleton& skeleton, const std::string& stateName,
                                     const std::string& clipName, const std::string& reason ) const
         {
-            const std::string key = std::to_string( skeleton.GetSignature() ) + '|' + stateName + '|' + clipName;
-            if ( !m_ReportedUnplayable.insert( key ).second )
-                return;
-
-            LOG_ERROR( "[Animation] state '{}' asks for clip '{}' and nothing will play: {} The rig has {} "
-                       "bone(s), signature {}.",
-                       stateName, clipName, reason, skeleton.GetBones().size(), skeleton.GetSignature() );
+            ReportOnce( std::to_string( skeleton.GetSignature() ) + '|' + stateName + '|' + clipName,
+                        fmt::format( "state '{}' asks for clip '{}' and nothing will play: {} The rig has {} "
+                                     "bone(s), signature {}.",
+                                     stateName, clipName, reason, skeleton.GetBones().size(),
+                                     skeleton.GetSignature() ) );
         }
 
     private:
@@ -286,8 +389,10 @@ namespace Desert::ECS
         std::chrono::steady_clock::time_point m_LastTime;
         bool                                  m_HasLast = false;
 
-        // Mutable because reporting is a property of the log, not of the world being simulated; Update is
-        // non-const anyway, but the reporter is called from a const context in the state-machine branch.
-        mutable std::unordered_set<std::string> m_ReportedUnplayable;
+        // ONE dedupe store for every complaint this system makes, and it remembers the MESSAGE rather than
+        // just the key. The set it replaces could only say "already complained about this state", so a
+        // state whose clip failed for one reason and then for another stayed silent about the second.
+        // Mutable because reporting is a property of the log, not of the world being simulated.
+        mutable std::unordered_map<std::string, std::string> m_Reported;
     };
 } // namespace Desert::ECS

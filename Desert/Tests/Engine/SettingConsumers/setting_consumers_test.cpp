@@ -1113,6 +1113,19 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     //   could see the other. This census now joins PointerOwnership as a register whose TOTAL cannot be
     //   carried across a merge while its DELTA can, which is the rule six consecutive integrations
     //   established and this is the seventh.
+    //
+    //   AND THE PARAGRAPH ABOVE WAS ONCE WRITTEN WHILE THE LINE BELOW IT STILL SAID 42. The А3 merge
+    //   reasoned its way to 43 in prose and left the literal alone, because the number was read off a
+    //   run AFTER the file had already been staged — and a merge commits the INDEX. So the commit
+    //   carried 42 while the working tree carried 43, and the full sweep passed because a sweep runs
+    //   the WORKING TREE, not the commit: a green sweep certified a tree that was not in history.
+    //   Caught before the push, by a later merge refusing to run on a dirty tree, and repaired by
+    //   amending. А4 then reported it independently from its own base, which still had the old value.
+    //
+    //   Two lessons, both paid for: the prose gets corrected and the copy-pasted line beneath it does
+    //   not (the shape the verify skill names), and AMENDING A COMMIT AN AGENT HAS ALREADY BRANCHED
+    //   FROM destroys that agent's base — a follow-up commit would have cost nothing and confused
+    //   nobody. Read this number off a run; never off the sentence explaining it.
     EXPECT_EQ( all.size(), 43u );
 }
 
