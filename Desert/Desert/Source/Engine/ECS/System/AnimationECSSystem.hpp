@@ -3,13 +3,22 @@
 #include "System.hpp"
 
 #include <Engine/ECS/Components.hpp>
+// SELF-CONTAINED, AND IT WAS NOT. `Animation::AnimationLibrary` is used through a pointer and CALLED, and
+// `Mesh`/`SkinnedMesh` are cast between — all three arrived transitively, so this header only compiled
+// because of who happened to include it first. The analyser compiles a header on its own and said so the
+// moment this file was edited at all: "no type named 'AnimationLibrary'", and two static_casts between
+// classes "not related by inheritance" because only the forward declarations were visible.
+#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/TwoBoneIKControl.hpp>
+#include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
 #include <string>
 #include <unordered_set>
 
@@ -64,6 +73,10 @@ namespace Desert::ECS
                 }
 
                 const Animation::Skeleton& skeleton = skinnedMeshPtr->GetSkeleton();
+
+                // Before either playback path, because a control is a stage of the same pipeline and the
+                // pipeline runs inside Animator::Update below.
+                SyncSkeletalControls( registry, entity, *anim.Animator, skeleton );
 
                 // AnimGraph path: the state machine PICKS the clip; the Animator just plays it. Falls back to
                 // the CurrentClip path below when no graph is attached.
@@ -189,6 +202,62 @@ namespace Desert::ECS
         }
 
     private:
+        /**
+         * @brief AUTHORED DATA IN, LIVE SOLVER OUT — once per frame, per entity.
+         *
+         * THE COMPONENT IS NOT THE CONTROL, and keeping them apart is the point. The component is four
+         * values that undo rewrites, duplicate copies and the prefab path rebuilds; the control is a live
+         * object holding bone indices resolved against THIS entity's rig. Putting the control in the
+         * component would have handed a duplicated entity its source's resolved indices, which are correct
+         * exactly until the two entities have different meshes.
+         *
+         * The reverse direction matters as much: an entity that LOSES the component must lose the control,
+         * or the last authored goal would go on being solved forever with nothing in the editor showing it.
+         */
+        static void SyncSkeletalControls( entt::registry& registry, entt::entity entity,
+                                          Animation::Animator& animator, const Animation::Skeleton& skeleton )
+        {
+            if ( !registry.has<ECS::TwoBoneIKComponent>( entity ) )
+            {
+                if ( animator.GetControlCount() > 0 )
+                {
+                    animator.ClearControls();
+                }
+                return;
+            }
+
+            const auto& ikData = registry.get<ECS::TwoBoneIKComponent>( entity ).Data;
+
+            if ( animator.GetControlCount() == 0 )
+            {
+                // Named BEFORE it is added, so AddControl resolves the chain the artist authored rather
+                // than resolving an empty name and reporting a failure that is one frame stale.
+                auto created = std::make_unique<Animation::TwoBoneIKControl>();
+                created->SetEndBone( ikData.EndBone );
+                animator.AddControl( std::move( created ) );
+            }
+
+            auto* twoBonePtr = dynamic_cast<Animation::TwoBoneIKControl*>( animator.GetControl( 0 ) );
+            if ( twoBonePtr == nullptr )
+            {
+                return;
+            }
+
+            auto& twoBone = *twoBonePtr;
+            if ( twoBone.GetEndBoneName() != ikData.EndBone )
+            {
+                // RE-RESOLVED ON CHANGE, NOT ON READ (report 03 §1.4). A name the rig does not have leaves
+                // the control refusing every solve and saying so once — which is what the artist needs to
+                // see — so the result is not re-reported here.
+                twoBone.SetEndBone( ikData.EndBone );
+                static_cast<void>( twoBone.Resolve( skeleton ) );
+            }
+
+            twoBone.SetGoal( ikData.Goal );
+            twoBone.SetPoleTarget( ikData.PoleTarget );
+            twoBone.SetAlpha( ikData.Alpha );
+        }
+
         /**
          * @brief SAYS SO WHEN A STATE CANNOT PLAY. A state whose clip does not resolve used to be a `nullptr`
          *        that the caller stepped over: the character stood still, no log line, nothing for an artist

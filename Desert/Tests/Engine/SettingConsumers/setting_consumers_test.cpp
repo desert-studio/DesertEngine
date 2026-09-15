@@ -382,6 +382,7 @@ namespace
     // ------------------------------------------------------------------------------------------------
 
     constexpr const char* kCanvasRenderer = "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp";
+    constexpr const char* kAnimationSystem = "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp";
     constexpr const char* kCanvasLayout   = "Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp";
 
     constexpr Row kCanvasRows[] = {
@@ -766,6 +767,18 @@ namespace
     // Ю16. All four are read in the canvas walk: ScenePath and ResolutionScale by ResolveRenderTexture,
     // which is the only place that knows how many texels the quad shows, and Tint/Opacity at the draw
     // site. The BACKEND then reads the path again out of the request — one value, passed, not copied.
+    // Every field is copied into the entity's live TwoBoneIKControl by SyncSkeletalControls, which is the
+    // ONE place the authored data crosses into the solver. There is no Frame anchor here and the reason is
+    // worth stating: the value's destination is a bone transform in a pose, not a shader uniform — the
+    // frame end of this chain is pinned by `Tests/Engine/BoneControlContract` (the skinning matrices the
+    // GPU sees carry the solve) and by the shots in Docs/Animation/Shots/A3.
+    constexpr Row kTwoBoneIKRows[] = {
+         { "EndBone", kAnimationSystem },
+         { "Goal", kAnimationSystem },
+         { "PoleTarget", kAnimationSystem },
+         { "Alpha", kAnimationSystem },
+    };
+
     constexpr Row kRenderTextureRows[] = {
          { "ScenePath", kCanvasRenderer },
          { "Tint", kCanvasRenderer },
@@ -934,6 +947,7 @@ namespace
          { "UIImageData", "UIImageComponent", nullptr, CENSUS_ROWS( kImageRows ) },
          { "UIIconData", "UIIconComponent", nullptr, CENSUS_ROWS( kIconRows ) },
          { "UIRenderTextureData", "UIRenderTextureComponent", nullptr, CENSUS_ROWS( kRenderTextureRows ) },
+         { "TwoBoneIKData", "TwoBoneIKComponent", nullptr, CENSUS_ROWS( kTwoBoneIKRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
@@ -1091,7 +1105,15 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 42 with Ю17's UIListViewData. Its seven fields are WIRED, all seven to the canvas walk:
     // ItemHeight/Spacing/Overscan/ScrollY solve the window, Background and ScrollbarColor are drawn
     // through the ScrollView style slots, ShowScrollbar gates the thumb.
-    EXPECT_EQ( all.size(), 42u );
+    // -> 42 with A3's TwoBoneIKData. Its four fields are WIRED to AnimationECSSystem::SyncSkeletalControls,
+    // which is the only place authored IK data becomes a live solver's input.
+    //
+    //   BOTH SIDES SAID 42 AND BOTH WERE RIGHT ABOUT THEIR OWN HEAD, so the merge is 43 — read off a
+    //   run, never added up. Ю17 and А3 each added ONE reflected type to a tree that had 41; neither
+    //   could see the other. This census now joins PointerOwnership as a register whose TOTAL cannot be
+    //   carried across a merge while its DELTA can, which is the rule six consecutive integrations
+    //   established and this is the seventh.
+    EXPECT_EQ( all.size(), 43u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

@@ -308,11 +308,18 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   DELTA survives the merge and its TOTAL does not, so the total is the one thing that cannot be
     //   carried over — and it is the only thing written in this file. That is why it is read off a run
     //   every time, and why no arithmetic on the two branch values has ever predicted it.
+    //
+    //   -> +1 with A3 (833 -> 834), and it is named for the same reason: Unique +1 for
+    //   `Animator::m_Controls`, the vector of skeletal controls the pose pipeline runs. `unique_ptr`
+    //   because a control is polymorphic and holds bone indices resolved against THIS rig, and the
+    //   Animator is its one owner — so it answers both questions in its type and owes no row below.
+    //   The number is READ OFF THIS BRANCH'S RUN; per the six merges above, it will not survive the
+    //   merge and must be re-read there.
     EXPECT_EQ( CountOf( Form::Raw ), 358 );
     EXPECT_EQ( CountOf( Form::Shared ), 324 );
-    EXPECT_EQ( CountOf( Form::Unique ), 113 );
+    EXPECT_EQ( CountOf( Form::Unique ), 114 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 833 )
+    EXPECT_EQ( (int)Members().size(), 834 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

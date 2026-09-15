@@ -12,6 +12,10 @@ project(test_name)
         test_files,
         -- Units under test (pure CPU: no Vulkan symbols are referenced, only declaration-only headers).
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        -- Animator.cpp runs the Controls stage, so it needs the control base it calls through. The base is
+        -- two functions and no Vulkan; no suite here adds a control, which is what makes "a rig with no
+        -- controls behaves exactly as before" a thing these suites stillmeasure.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         -- Timestep's constructor lives in a .cpp, and Animator::Update takes one. libCommon is not among
         -- the libraries a test suite links (only gtest and the reflect-cpp/optick shims are), so the one
         -- translation unit that defines it has to be listed here.

@@ -8,20 +8,22 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- The subject is the animator's bone->track binding cache and the clip storage it points into: pure
-    -- CPU, no asset system and no GPU. Listed as sources rather than linked against libDesert for the same
-    -- reason as SkinnedMeshDependency -- libDesert pulls in Vulkan and the whole renderer, and that the
-    -- animation layer still compiles free of GPU types is worth keeping true.
+    -- The subject is the SHIPPED IK rig, mesh, clip and the two scenes under Editor/, read through the
+    -- engine's own reader — plus, unlike TwoBoneWitness next door, the ANIMATOR AND THE CONTROL. That is a
+    -- deliberate difference: TwoBoneWitness asserts a property of its rig and must keep meaning that while
+    -- the substrate is rewritten, whereas the question here is whether the shipped scene's authored goal is
+    -- actually reached by the shipped solver from the shipped bytes. Nothing in this list pulls in Vulkan.
     files {
         test_files,
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
-        -- Animator.cpp runs the Controls stage, so it needs the control base it calls through. The base is
-        -- two functions and no Vulkan; no suite here adds a control, which is what makes "a rig with no
-        -- controls behaves exactly as before" a thing these suites stillmeasure.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/AnimationClip.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
+        "%{wks.location}/Desert/Common/Source/Common/Core/Timestep.cpp",
     }
 
     includedirs {
@@ -53,13 +55,17 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
-    -- Common: the Timestep the animator advances on, the logger and the Result type. Optick: Common's
-    -- JobSystem registers its worker threads with the profiler.
+    -- Common: the Result type, the logger and UUID. Optick: Common's JobSystem registers its worker
+    -- threads with the profiler.
     links { "Common", "Optick" }
 
     -- Common contains Objective-C (MacOSFileSystem's file dialog), so the ObjC runtime + AppKit link too.
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
+
+    filter "system:not windows"
+        links { "ReflectCpp" }
     filter {}
 
     filter "configurations:Debug"

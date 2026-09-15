@@ -12,12 +12,14 @@ project(test_name)
         test_files,
         -- Units under test (pure CPU: no Vulkan symbols are referenced, only declaration-only headers).
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
-        -- Animator.cpp runs the Controls stage, so it needs the control base it calls through. The base is
-        -- two functions and no Vulkan; no suite here adds a control, which is what makes "a rig with no
-        -- controls behaves exactly as before" a thing these suites stillmeasure.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
+        -- Timestep's constructor lives in a .cpp and Animator::Update takes one; libCommon is not among
+        -- the libraries a test suite links.
+        "%{wks.location}/Desert/Common/Source/Common/Core/Timestep.cpp",
     }
 
     includedirs {

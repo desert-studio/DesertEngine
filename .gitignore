@@ -148,6 +148,20 @@ Editor/Cooked/Textures/*
 # the one-bone corpus or the Foreign_Hips negative control. Hand-authored like everything above, and
 # Desert/Tests/Engine/TwoBoneWitness rebuilds the whole construction in C++ and compares it to these bytes.
 # Editor/Resources/Assets/Scenes/ANIM_TwoBoneWitness.desce places it, blind control beside witness.
+# THE SIXTH: the IK PROBE, and it exists because the fifth one cannot carry the chain. A two-bone IK chain
+# is THREE joints — the end bone, its parent and its grandparent — so TwoBoneProbe's two bones give ONE
+# segment, which is a look-at and not IK. IKProbe is four bones: IK_Shoulder (root) -> IK_Elbow -> IK_Hand is
+# the 80 cm / 60 cm chain, and IK_Post is a SECOND ROOT standing exactly at the goal position, never animated
+# and never touched by the solver — the negative control inside the same picture, so "the bones the solver
+# does not name did not move" is a rectangle of a frame rather than an argument. Every bind transform carries
+# a rotation as well as a translation, for the reason the fifth entry gives. The names avoid Root/Hips/Base/
+# Arm for the reason the fifth entry gives too. IKProbe_Swing swings the shoulder +-35 degrees about Z and the
+# elbow +-20 about X over 2 s at 1 tick/s, so under `--play` frame 90 is t = 1.5 s by construction; with IK on,
+# the hand stays on the post while the animation tries to swing it away, which is the whole demonstration.
+# Hand-authored, no importer produces these bytes, and Desert/Tests/Engine/IKProbeRig rebuilds the entire
+# construction in C++ and compares it to them. Editor/Resources/Assets/Scenes/ANIM_IKWitness.desce places five
+# copies: no IK, alpha 1, alpha 0.5, alpha 0, and a second no-IK copy that measures whether two identical
+# entities at different world positions render identically at all.
 !Editor/Cooked/Meshes/
 Editor/Cooked/Meshes/*
 !Editor/Cooked/Meshes/SkinProbe.skeleton
@@ -160,6 +174,9 @@ Editor/Cooked/Meshes/*
 !Editor/Cooked/Meshes/TwoBoneProbe.skmesh
 !Editor/Cooked/Meshes/TwoBoneProbe_Wave.anim
 !Editor/Cooked/Meshes/TwoBoneProbe_Twist.anim
+!Editor/Cooked/Meshes/IKProbe.skeleton
+!Editor/Cooked/Meshes/IKProbe.skmesh
+!Editor/Cooked/Meshes/IKProbe_Swing.anim
 
 # Fetched by scripts/MacOS/Setup.sh (not a submodule)
 ThirdParty/meshoptimizer/
