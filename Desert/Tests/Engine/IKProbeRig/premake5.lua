@@ -22,6 +22,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         -- The tick grid every clip time now lives on (A5).
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",

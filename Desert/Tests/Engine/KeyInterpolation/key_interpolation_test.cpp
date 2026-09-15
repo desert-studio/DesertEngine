@@ -153,12 +153,30 @@ TEST( KeyInterpolation, TheFirstAndLastKeyAreFlat )
     EXPECT_FLOAT_EQ( keys.back().ArriveTangent, 0.0F );
     // ...and the middle key is NOT flat, or this test would pass on a function that zeroes everything.
     EXPECT_GT( keys[1].LeaveTangent, 0.0F );
+
+    // AND THE PROPERTY, not just the number: a first key that left with the adjacent secant would bulge
+    // the opening segment above its own two keys. Pinning the consequence is what survives a refactor of
+    // how the tangent is computed.
+    float peakOfFirstSegment = keys.front().Value;
+    for ( int step = 0; step <= 1000; ++step )
+    {
+        peakOfFirstSegment =
+             std::max( peakOfFirstSegment, SampleAt( keys, 12000.0 * ( step / 1000.0 ), PROJECT_TICK_RATE ) );
+    }
+    EXPECT_LE( peakOfFirstSegment, keys[1].Value + 1.0e-3F )
+         << "the opening segment reached " << peakOfFirstSegment << ", above its own later key of "
+         << keys[1].Value;
 }
 
 TEST( KeyInterpolation, APeakIsFlatSoTheCurveNeverSailsPastTheKeyTheAnimatorAuthored )
 {
     // The single most reported curve-editor bug: a key at the top of an arc, and the curve going higher.
-    std::vector<ScalarKey> keys{ Key( 0, 0.0F ), Key( 12000, 100.0F ), Key( 24000, 0.0F ) };
+    //
+    // THE PEAK IS ASYMMETRIC ON PURPOSE, and the first version of this test was not — which is a hole a
+    // mutation found rather than a reviewer. On a symmetric peak the two secants are +X and -X, so the
+    // average of them is ZERO and a build with the extremum rule DELETED produces the same tangent by
+    // arithmetic accident. The test passed against code that did not contain the rule it was named after.
+    std::vector<ScalarKey> keys{ Key( 0, 0.0F ), Key( 12000, 100.0F ), Key( 24000, 40.0F ) };
     AutoSetTangents( keys, PROJECT_TICK_RATE );
 
     EXPECT_FLOAT_EQ( keys[1].ArriveTangent, 0.0F ) << "the extremum is not flat";

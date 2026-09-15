@@ -148,6 +148,16 @@ Editor/Cooked/Textures/*
 # the one-bone corpus or the Foreign_Hips negative control. Hand-authored like everything above, and
 # Desert/Tests/Engine/TwoBoneWitness rebuilds the whole construction in C++ and compares it to these bytes.
 # Editor/Resources/Assets/Scenes/ANIM_TwoBoneWitness.desce places it, blind control beside witness.
+# THE SEVENTH: a PAIR of clips that differ in ONE field. A6Curve_Linear and A6Curve_Cubic carry the same
+# three position keys on IKProbe's chain root — up to a peak and back — and differ only in each key's
+# `Shape.Interp`. That is what makes the frame a statement about interpolation rather than about anything
+# else: the two scenes that play them differ in one string, the keys are identical, and the pose at a frame
+# sitting exactly ON a key must therefore be pixel-identical while a frame BETWEEN keys must not. The middle
+# key is a peak on purpose — the auto pass makes an extremum flat, which is where a cubic and a straight
+# line disagree most and where a curve editor's worst bug (sailing past the highest key) would show.
+# Hand-authored; no importer produces them. Desert/Tests/Engine/KeyInterpolationWitness rebuilds both from
+# their construction and checks the pair differs in exactly that one field.
+
 # THE SIXTH: the IK PROBE, and it exists because the fifth one cannot carry the chain. A two-bone IK chain
 # is THREE joints — the end bone, its parent and its grandparent — so TwoBoneProbe's two bones give ONE
 # segment, which is a look-at and not IK. IKProbe is four bones: IK_Shoulder (root) -> IK_Elbow -> IK_Hand is
@@ -177,6 +187,8 @@ Editor/Cooked/Meshes/*
 !Editor/Cooked/Meshes/IKProbe.skeleton
 !Editor/Cooked/Meshes/IKProbe.skmesh
 !Editor/Cooked/Meshes/IKProbe_Swing.anim
+!Editor/Cooked/Meshes/A6Curve_Linear.anim
+!Editor/Cooked/Meshes/A6Curve_Cubic.anim
 
 # Fetched by scripts/MacOS/Setup.sh (not a submodule)
 ThirdParty/meshoptimizer/

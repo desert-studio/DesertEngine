@@ -23,6 +23,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         -- The tick grid every clip time now lives on (A5).
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         -- Pose.cpp arrived with the merge of А1, which moved BoneTransform's P/R/S <-> mat4 conversion
         -- out of the header. This suite composes a bone's matrix itself, so it needs the definition of

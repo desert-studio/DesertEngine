@@ -384,7 +384,7 @@ namespace Desert::Animation
         if ( const BoneTrack* track = ResolveTrack( clip, boneIndex ) )
             if ( track->HasKeys() )
             {
-                return track->Sample( time );
+                return track->Sample( time, clip->TickRate );
             }
         return m_BindPose[boneIndex];
     }

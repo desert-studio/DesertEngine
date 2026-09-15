@@ -14,11 +14,10 @@ project(test_name)
         -- its mirror -- runtime clip -> .anim, plus the file write that used to live inside an ImGui
         -- panel and therefore could not be compiled into any test binary at all.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         -- The conversion OUT of generation 0, and the tick grid it converts into (A5). Both are pure, so
         -- the suite that owns the format also owns its migration without gaining a dependency.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TrackEditing.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
     }
 
