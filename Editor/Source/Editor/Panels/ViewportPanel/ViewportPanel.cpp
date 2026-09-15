@@ -5,6 +5,7 @@
 #include <Editor/Core/EditorPreferences.hpp>
 
 #include <Editor/Core/Selection/SelectionManager.hpp>
+#include <Engine/Assets/Prefab/PrefabPlacement.hpp>
 #include <Editor/Core/Selection/UIPreview.hpp>
 #include <Editor/Core/Selection/SkeletonEditMode.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
@@ -427,17 +428,16 @@ namespace Desert::Editor
                 // answer without it. With two canvases and nothing selected there is genuinely no answer,
                 // and the menu says so rather than dropping the element into the first canvas, which is
                 // what this did before and where it would then be invisible to the author who asked.
+                // ONE derivation, shared with the prefab drop below (UIElementFactory.hpp).
                 entt::entity canvas = entt::null;
                 std::string  canvasRefusal;
-                if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
-                    if ( auto ref = m_Scene->FindEntityByID( *sel ) )
-                        canvas = ::Desert::UI::CanvasOf( reg, ref->get().GetHandle() );
-                if ( canvas == entt::null )
+                if ( const auto chosen = UICanvasForCreate( *m_Scene ) )
                 {
-                    if ( const auto sole = ::Desert::UI::SoleCanvas( reg ) )
-                        canvas = sole.GetValue();
-                    else
-                        canvasRefusal = sole.GetError();
+                    canvas = chosen.GetValue();
+                }
+                else
+                {
+                    canvasRefusal = chosen.GetError();
                 }
 
                 if ( canvas == entt::null && ::Desert::UI::CanvasCount( reg ) == 0 )
@@ -458,14 +458,7 @@ namespace Desert::Editor
                 }
                 else
                 {
-                    entt::entity parent = canvas;
-                    if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
-                        if ( auto ref = m_Scene->FindEntityByID( *sel ) )
-                        {
-                            const entt::entity h = ref->get().GetHandle();
-                            if ( h == canvas || reg.has<ECS::UILayoutComponent>( h ) )
-                                parent = h; // nest under the selected element
-                        }
+                    const entt::entity parent = UIParentForCreate( *m_Scene, canvas );
                     for ( std::size_t i = 0; i < kUIElementCount; ++i )
                     {
                         const UIElementEntry& entry = kUIElements[i];
@@ -1000,9 +993,35 @@ namespace Desert::Editor
                 {
                     if ( !prefab->IsReadyForUse() )
                         prefab->Load();
-                    auto root = prefab->Instantiate( m_Scene.get(), *m_AssetManager, nullptr );
-                    if ( root )
+
+                    // WHERE IT LANDS DEPENDS ON WHAT IT IS. A world prefab goes to the scene root, as it
+                    // always did. A UI prefab dropped into the viewport must land inside the canvas the
+                    // author is looking at — at the scene root it would be a correct, selectable,
+                    // serialized tree covering zero pixels, which is the silent success PrefabPlacement
+                    // exists to refuse. Same answer the "UI" create menu above uses, from the same two
+                    // functions, so the drop and the menu cannot put things in different canvases.
+                    ECS::Entity parentEntity;
+                    if ( !prefab->GetEntities().empty() &&
+                         Assets::ClassifyPrefabRoot( prefab->GetEntities().front() ) ==
+                              Assets::PrefabRootKind::UIElement )
+                    {
+                        if ( const auto canvas = UICanvasForCreate( *m_Scene ) )
+                        {
+                            parentEntity = ECS::Entity{ UIParentForCreate( *m_Scene, canvas.GetValue() ),
+                                                        m_Scene->GetRegistry() };
+                        }
+                    }
+
+                    const auto placed =
+                         prefab->Instantiate( m_Scene.get(), *m_AssetManager, parentEntity, nullptr );
+                    if ( !placed )
+                    {
+                        LOG_ERROR( "{}", placed.GetError() );
+                    }
+                    else if ( const ECS::Entity root = placed.GetValue() )
+                    {
                         Commands::NotifyCreated( { root.GetComponent<ECS::UUIDComponent>().UUID } );
+                    }
                 }
             }
 

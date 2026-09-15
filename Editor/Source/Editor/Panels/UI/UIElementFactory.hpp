@@ -8,6 +8,11 @@
 #include <Engine/ECS/Entity.hpp>
 
 #include <Engine/UI/UIOverlay.hpp>
+#include <Engine/UI/UICanvasLayout.hpp>
+
+#include <Editor/Core/Selection/SelectionManager.hpp>
+
+#include <Common/Core/ResultStr.hpp>
 
 #include <entt/entt.hpp>
 
@@ -32,6 +37,54 @@ namespace Desert::Editor
     // the coincidence as a rule. It is gone: ask ::Desert::UI::CanvasOf for the canvas an element belongs to,
     // or ::Desert::UI::SoleCanvas when there is genuinely nothing else to go on, and get a named refusal
     // instead of a winner when the scene has more than one.
+
+    // WHERE THE NEXT UI THING GOES, asked once.
+    //
+    // The viewport's create menu worked this out inline, and then the prefab drop needed the same answer:
+    // two derivations of "which canvas, and which element inside it" would have differed the first time
+    // either was touched, and the symptom would be an element created in a canvas the author is not
+    // looking at. The refusal is a value rather than a log line because the menu shows it as a tooltip
+    // and the drop logs it — one sentence, two presentations.
+    //
+    // The selection answers it EXACTLY when there is one (an element names its own canvas); only a scene
+    // with a single canvas has an answer without it. Two canvases and nothing selected is genuinely no
+    // answer, and saying so is not the same as picking the first.
+    inline Common::ResultStr<entt::entity> UICanvasForCreate( ::Desert::Core::Scene& scene )
+    {
+        auto& reg = scene.GetRegistry();
+        if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
+        {
+            if ( auto ref = scene.FindEntityByID( *sel ) )
+            {
+                const entt::entity canvas = ::Desert::UI::CanvasOf( reg, ref->get().GetHandle() );
+                if ( canvas != entt::null )
+                {
+                    return Common::MakeSuccess( canvas );
+                }
+            }
+        }
+        return ::Desert::UI::SoleCanvas( reg );
+    }
+
+    // The parent INSIDE @p canvas: the selected element when the selection is one, the canvas otherwise.
+    // Nesting under what the author has selected is what makes "add a button to this panel" mean what it
+    // reads as.
+    inline entt::entity UIParentForCreate( ::Desert::Core::Scene& scene, entt::entity canvas )
+    {
+        auto& reg = scene.GetRegistry();
+        if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
+        {
+            if ( auto ref = scene.FindEntityByID( *sel ) )
+            {
+                const entt::entity h = ref->get().GetHandle();
+                if ( h == canvas || reg.has<ECS::UILayoutComponent>( h ) )
+                {
+                    return h;
+                }
+            }
+        }
+        return canvas;
+    }
 
     // Create a UI child entity (a UILayout plus @p ElementComponent) parented to @p parent, and return its
     // handle so the caller can select it. The UILayout is not optional: it is the rect the renderer resolves

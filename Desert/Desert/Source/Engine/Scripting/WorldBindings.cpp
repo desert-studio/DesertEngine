@@ -87,8 +87,16 @@ namespace Desert::Scripting
                 return impl->MakeEntity( entt::null );
             }
             const glm::vec3 pos( x, y, z );
-            ECS::Entity     root = prefab->Instantiate( impl->Scene, *impl->Assets, &pos );
-            return impl->MakeEntity( root ? root.GetHandle() : entt::null );
+            // At the scene root: a script spawns into the world, and a UI prefab has no canvas to name
+            // from here. That case is REFUSED BY NAME now rather than spawning an invisible tree -- the
+            // script gets a null entity and the log says which prefab and why.
+            const auto placed = prefab->Instantiate( impl->Scene, *impl->Assets, {}, &pos );
+            if ( !placed )
+            {
+                LOG_ERROR( "[Lua] World.spawn: {}", placed.GetError() );
+                return impl->MakeEntity( entt::null );
+            }
+            return impl->MakeEntity( placed.GetValue() ? placed.GetValue().GetHandle() : entt::null );
         };
 
         // Spawn a small solid-colour marker sphere at a world position (e.g. a bullet-impact "red spot").

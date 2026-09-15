@@ -47,6 +47,15 @@ namespace Desert::Editor
              ( Common::Constants::Path::PREFAB_PATH / "MyPrefab.deprefab" ).string();
         bool m_OpenInstantiatePrefab = false; // deferred OpenPopup
 
+        // WHICH ENTITY THE INSTANCE WILL HANG UNDER, remembered when the popup is opened.
+        //
+        // The popup is reachable from two places — an entity's context menu and the blank-area menu —
+        // and by the time it draws, the entity that opened it is no longer in scope. Before Ю19 that did
+        // not matter because the instance always went to the scene root; it matters now, because for a
+        // UI prefab the parent decides whether anything is drawn at all, and "Instantiate Prefab" on a
+        // canvas that puts the tree beside the canvas is the silent failure this task is about.
+        std::optional<Common::UUID> m_InstantiatePrefabParent;
+
         // "Save as Prefab..." (context menu -> modal at panel scope, same deferred pattern).
         bool                        m_OpenSavePrefab = false;
         std::optional<Common::UUID> m_SavePrefabTarget;

@@ -902,17 +902,27 @@ namespace Desert::Editor::Commands
         composite->Add( std::make_unique<DeleteCommand>( std::move( snapshot ) ) );
 
         // 2) Fresh instantiation from the source file.
-        ECS::Entity fresh = asset->Instantiate( s_Scene, *s_AssetManager, &translation );
-        if ( !fresh )
+        // The parent goes IN, and is no longer attached afterwards: the placement rule has to see where
+        // the instance will hang, or a UI element reverted under its canvas would be judged as if it were
+        // going to the scene root and refused.
+        ECS::Entity parentEntity;
+        if ( !parentId.IsNull() )
+        {
+            if ( auto parent = FindEntity( parentId ) )
+            {
+                parentEntity = *parent;
+            }
+        }
+
+        const auto placed = asset->Instantiate( s_Scene, *s_AssetManager, parentEntity, &translation );
+        if ( !placed )
         {
             // Roll the delete back and report failure — better a live (modified) instance than nothing.
             composite->Undo();
-            LOG_ERROR( "[Prefab] Revert failed to instantiate {}", asset->GetMetadata().Filepath.string() );
+            LOG_ERROR( "[Prefab] Revert failed: {}", placed.GetError() );
             return Common::UUID::Null();
         }
-        if ( !parentId.IsNull() )
-            if ( auto parent = FindEntity( parentId ) )
-                s_Scene->Attach( *parent, fresh );
+        const ECS::Entity fresh = placed.GetValue();
 
         const Common::UUID freshId = UUIDOf( fresh );
         composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ freshId } ) );

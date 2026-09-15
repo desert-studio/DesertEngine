@@ -482,7 +482,13 @@ namespace Desert::Editor
                 m_OpenSavePrefab = true; // deferred: OpenPopup at panel scope (see OnUIRender)
             }
             if ( ImGui::Selectable( ICON_MDI_PACKAGE_VARIANT " Instantiate Prefab..." ) )
-                m_OpenInstantiatePrefab = true; // deferred: OpenPopup at panel scope (see OnUIRender)
+            {
+                // UNDER THIS ENTITY. Asked from an entity's own context menu, "instantiate" means "in
+                // here" — and for a UI prefab it is the difference between an element the canvas walk
+                // reaches and one it does not.
+                m_InstantiatePrefabParent = UUID;
+                m_OpenInstantiatePrefab   = true; // deferred: OpenPopup at panel scope (see OnUIRender)
+            }
 
             if ( isPrefab )
             {
@@ -739,7 +745,10 @@ namespace Desert::Editor
             AddEntity( m_Scene, m_AssetManager );
             ImGui::Separator();
             if ( ImGui::MenuItem( ICON_MDI_PACKAGE_VARIANT " Instantiate Prefab..." ) )
-                m_OpenInstantiatePrefab = true; // deferred: OpenPopup at panel scope below
+            {
+                m_InstantiatePrefabParent.reset(); // the blank area IS the scene root
+                m_OpenInstantiatePrefab = true;    // deferred: OpenPopup at panel scope below
+            }
             ImGui::EndPopup();
         }
 
@@ -949,9 +958,18 @@ namespace Desert::Editor
                         {
                             if ( !prefabAsset->IsReadyForUse() )
                                 prefabAsset->Load();
-                            auto root = prefabAsset->Instantiate( m_Scene.get(), *m_AssetManager, nullptr );
-                            if ( root )
+                            // Dropped on the EMPTY area of the outliner, which is the scene root — the
+                            // same thing this drop target means for an entity dragged onto it.
+                            const auto placed =
+                                 prefabAsset->Instantiate( m_Scene.get(), *m_AssetManager, {}, nullptr );
+                            if ( !placed )
+                            {
+                                LOG_ERROR( "{}", placed.GetError() );
+                            }
+                            else if ( const ECS::Entity root = placed.GetValue() )
+                            {
                                 Commands::NotifyCreated( { root.GetComponent<ECS::UUIDComponent>().UUID } );
+                            }
                         }
                     }
                 }
@@ -1142,10 +1160,35 @@ namespace Desert::Editor
                     {
                         if ( !prefabAsset->IsReadyForUse() )
                             prefabAsset->Load();
-                        auto root = prefabAsset->Instantiate( m_Scene.get(), *m_AssetManager, nullptr );
-                        if ( root )
-                            Commands::NotifyCreated( { root.GetComponent<ECS::UUIDComponent>().UUID } );
-                        ImGui::CloseCurrentPopup();
+
+                        ECS::Entity parentEntity;
+                        if ( m_InstantiatePrefabParent.has_value() )
+                        {
+                            if ( auto ref = m_Scene->FindEntityByID( *m_InstantiatePrefabParent ) )
+                            {
+                                parentEntity = ref->get();
+                            }
+                        }
+
+                        const auto placed =
+                             prefabAsset->Instantiate( m_Scene.get(), *m_AssetManager, parentEntity, nullptr );
+                        if ( !placed )
+                        {
+                            // THE POPUP STAYS OPEN ON A REFUSAL, and says why. Closing it would leave the
+                            // author looking at an outliner that did not change, which is precisely the
+                            // report "Instantiate Prefab does nothing" that this whole path has produced
+                            // before.
+                            s_prefabError = placed.GetError();
+                            LOG_ERROR( "{}", placed.GetError() );
+                        }
+                        else
+                        {
+                            if ( const ECS::Entity root = placed.GetValue() )
+                            {
+                                Commands::NotifyCreated( { root.GetComponent<ECS::UUIDComponent>().UUID } );
+                            }
+                            ImGui::CloseCurrentPopup();
+                        }
                     }
                     else
                     {

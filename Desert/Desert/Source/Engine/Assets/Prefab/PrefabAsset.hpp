@@ -49,8 +49,23 @@ namespace Desert::Assets
         }
 
         void CreateFromEntity( ECS::Entity rootEntity, const AssetManager& assetManager );
-        
-        ECS::Entity Instantiate( Core::Scene* scene, const AssetManager& assetManager, const glm::vec3* position = nullptr ) const;
+
+        // Place one instance of this prefab in @p scene, under @p parent (a null entity means the scene
+        // root), optionally moving its root to @p position.
+        //
+        // IT ANSWERS WITH A REASON WHEN IT REFUSES, and that is what the bare `ECS::Entity` it used to
+        // return could not do. Two of its failures are silent by nature: a null entity looks like "no
+        // prefab" whatever went wrong, and a UI prefab placed outside a canvas SUCCEEDS while covering no
+        // pixels (see PrefabPlacement.hpp). Both now come back as text naming the file, the target and
+        // what to do instead.
+        //
+        // @p parent IS THE ARGUMENT THAT WAS MISSING. Every caller before Ю19 created the instance at the
+        // scene root and, in one case out of six, attached it afterwards — which is fine for a mesh and
+        // is the whole defect for a UI element, whose parent decides both whether it is drawn and where.
+        [[nodiscard]] Common::ResultStr<ECS::Entity> Instantiate( Core::Scene*        scene,
+                                                                  const AssetManager& assetManager,
+                                                                  ECS::Entity         parent   = {},
+                                                                  const glm::vec3*    position = nullptr ) const;
 
     private:
         std::vector<EntityData> m_EntityData;

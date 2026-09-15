@@ -1,11 +1,13 @@
 #include "PrefabAsset.hpp"
 #include "PrefabFormat.hpp"
+#include "PrefabPlacement.hpp"
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <functional>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <unordered_set>
 
@@ -181,19 +183,66 @@ namespace Desert::Assets
     // while leaving its entities in the scene — the editor's "Instantiate Prefab" appeared to do nothing.
     // The factory takes the first record, which is the entity the prefab was cut from by construction.
     //
-    // Everything this adds over the factory is the placement: the position argument the Lua binding and the
-    // editor's drag-and-drop use.
-    ECS::Entity PrefabAsset::Instantiate( Core::Scene* scene, const AssetManager& assetManager,
-                                          const glm::vec3* position ) const
+    // Everything this adds over the factory is the PLACEMENT: where the instance hangs, whether it may
+    // hang there, and the position the Lua binding and the editor's drag-and-drop pass in.
+    Common::ResultStr<ECS::Entity> PrefabAsset::Instantiate( Core::Scene* scene, const AssetManager& assetManager,
+                                                             ECS::Entity parent, const glm::vec3* position ) const
     {
-        if ( !scene || m_EntityData.empty() )
-            return {};
+        if ( scene == nullptr )
+        {
+            return Common::MakeFormattedError<ECS::Entity>(
+                 "[Prefab] '{}' was not instantiated: no scene was given.", m_Metadata.Filepath.string() );
+        }
+        if ( m_EntityData.empty() )
+        {
+            return Common::MakeFormattedError<ECS::Entity>(
+                 "[Prefab] '{}' holds no entities; nothing was created. Load it first, or re-save it from "
+                 "an entity.",
+                 m_Metadata.Filepath.string() );
+        }
+
+        // THE VERDICT IS TAKEN BEFORE ANYTHING EXISTS. Asking after the entities are in the scene would
+        // mean deleting them again on refusal, and a half-built instance that is then torn down is the
+        // state every "Instantiate appeared to do nothing" report has come from.
+        entt::registry& registry = scene->GetRegistry();
+
+        bool        targetUnderCanvas = false;
+        std::string targetName        = "the scene root";
+        if ( parent )
+        {
+            targetUnderCanvas = UI::CanvasOf( registry, parent.GetHandle() ) != entt::null;
+            if ( parent.HasComponent<ECS::TagComponent>() )
+            {
+                targetName = "'" + parent.GetComponent<ECS::TagComponent>().Tag + "'";
+            }
+        }
+
+        const PrefabPlacementVerdict verdict =
+             CheckPrefabPlacement( ClassifyPrefabRoot( m_EntityData.front() ), targetUnderCanvas,
+                                   m_Metadata.Filepath.string(), targetName );
+        if ( !verdict.Allowed )
+        {
+            return Common::MakeError<ECS::Entity>( verdict.Refusal );
+        }
 
         std::unordered_set<Common::UUID> stack;
-        ECS::Entity                      rootEntity =
+        const ECS::Entity                rootEntity =
              Runtime::Factory::PrefabFactory::Instantiate( *this, *scene, assetManager, stack );
 
-        if ( position && rootEntity )
+        if ( !rootEntity )
+        {
+            return Common::MakeFormattedError<ECS::Entity>(
+                 "[Prefab] '{}' produced no root entity. Its records were read but none could be created — "
+                 "see the [PrefabFactory] lines above for which.",
+                 m_Metadata.Filepath.string() );
+        }
+
+        if ( parent )
+        {
+            scene->Attach( parent, rootEntity );
+        }
+
+        if ( position != nullptr )
         {
             if ( rootEntity.HasComponent<ECS::TransformComponent>() )
             {
@@ -206,7 +255,7 @@ namespace Desert::Assets
             }
         }
 
-        return rootEntity;
+        return Common::MakeSuccess( rootEntity );
     }
 
 } // namespace Desert::Assets
