@@ -117,6 +117,15 @@ namespace Desert::Animation
             m_StructureError += fmt::format( "{} bone(s) form a parent cycle and are resolved as roots: [{}].",
                                              cyclicCount, cyclic );
         }
+
+        // The inverse of the order, built here because this is the one place that knows the order is total:
+        // every bone reaches m_ResolveOrder exactly once — through Kahn from the roots, or through the
+        // cycle-cutting pass above that makes the leftovers roots. See GetResolveRank for what needs it.
+        m_ResolveRank.assign( count, 0 );
+        for ( uint32_t rank = 0; rank < m_ResolveOrder.size(); ++rank )
+        {
+            m_ResolveRank[m_ResolveOrder[rank]] = rank;
+        }
     }
 
     bool Skeleton::SetLocalBindTransform( uint32_t bone, const glm::mat4& localBind )

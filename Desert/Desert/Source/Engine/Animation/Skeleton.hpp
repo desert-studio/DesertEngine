@@ -69,6 +69,22 @@ namespace Desert::Animation
         }
 
         /**
+         * @brief Where `bone` sits in the resolve order — the inverse of `GetResolveOrder()`.
+         *
+         * "PARENTS BEFORE CHILDREN" IS NOT EXPRESSIBLE AS "BY BONE INDEX", and the skeletal-control contract
+         * needs to express it. A bone's parent is guaranteed to have a SMALLER RANK; it is NOT guaranteed to
+         * have a smaller index, because the bone array's order is whatever the exporter wrote and this class
+         * deliberately does not reorder it (bone indices are on disk in every `.skmesh`). Sorting a sparse
+         * override list by index would therefore be a rule that happens to hold on the rigs we have and
+         * fails on the first one exported child-first. Returns the bone count for an out-of-range index, so
+         * an invalid bone sorts last rather than aliasing a real rank.
+         */
+        [[nodiscard]] uint32_t GetResolveRank( uint32_t bone ) const
+        {
+            return bone < m_ResolveRank.size() ? m_ResolveRank[bone] : static_cast<uint32_t>( m_Bones.size() );
+        }
+
+        /**
          * @brief THE ONE PARENT-CHAIN WALK. `localOf(i)` supplies bone i's parent-relative matrix.
          *
          * Eight copies of this existed — `Skeleton::RecomputeOffsetMatrices`, three inside `Animator`,
@@ -172,6 +188,7 @@ namespace Desert::Animation
         std::unordered_map<std::string, uint32_t> m_NameToIndex;
         std::vector<uint32_t>                     m_Parents;      ///< resolvable parent, or NO_PARENT
         std::vector<uint32_t>                     m_ResolveOrder; ///< parent-before-child
+        std::vector<uint32_t>                     m_ResolveRank;  ///< bone -> its position in m_ResolveOrder
         std::string                               m_StructureError;
     };
 

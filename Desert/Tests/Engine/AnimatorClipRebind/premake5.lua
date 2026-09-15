@@ -15,6 +15,10 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        -- Animator.cpp runs the Controls stage, so it needs the control base it calls through. The base is
+        -- two functions and no Vulkan; no suite here adds a control, which is what makes "a rig with no
+        -- controls behaves exactly as before" a thing these suites stillmeasure.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/AnimationClip.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
