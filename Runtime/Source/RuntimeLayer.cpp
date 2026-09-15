@@ -14,6 +14,7 @@
 #include <Engine/Assets/AssetPreloader.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
@@ -41,6 +42,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
+#include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
@@ -107,20 +109,10 @@ namespace Desert::Player
         // everything else, so the player sees the language the build boots in with no extra plumbing.
         m_AssetPreloader->PreloadStringTables();
 
-        // Same system set + order as the editor's Play mode.
-        m_Scene->AddSystem<ECS::MeshECSSystem>();
-        m_Scene->AddSystem<ECS::TextECSSystem>();
-        // BEFORE the collectors: it writes the atmosphere sun's transform, which the sky collector, the
-        // light collector and the shadow path all read this same frame.
-        m_Scene->AddSystem<ECS::TimeOfDayECSSystem>();
-        m_Scene->AddSystem<ECS::SkyboxECSSystem>();
-        // A pure render-data collector: reads the fog component (and its entity's transform Y, the fog
-        // floor) and emits one command.
-        m_Scene->AddSystem<ECS::HeightFogECSSystem>();
-        m_Scene->AddSystem<ECS::VolumetricCloudECSSystem>();
-        m_Scene->AddSystem<ECS::TerrainECSSystem>();
-        m_Scene->AddSystem<ECS::PointLightECSSystem>();
-        m_Scene->AddSystem<ECS::SpotLightECSSystem>();
+        // Same system set + order as the editor's Play mode — and it is the SAME LIST, not a copy of it
+        // (Engine/Core/SceneRenderCollectors.hpp). "Same as the editor" was a comment above a hand-copied
+        // block, which is the arrangement that let a sixth caller omit the whole thing silently (Ю16).
+        Desert::Core::AddSceneRenderCollectors( *m_Scene );
         m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get() );
         m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
@@ -169,6 +161,7 @@ namespace Desert::Player
     {
         // Release the present GPU resources while the device is still alive (before engine teardown).
         m_Render2D.reset();
+        m_UIRenderTextures.reset(); // destroying the captures is what returns their renderer slots
         m_BlitExecutor.reset();
         m_BlitPipeline.reset();
         m_PresentReady = false;
@@ -210,6 +203,16 @@ namespace Desert::Player
         // new level does not have and log a refusal for something nobody did. The view's own overlay state
         // needs no help here — BeginUIFrame rebinds and resets it when the registry changes.
         UI::UIOverlayRequests::Get().Clear();
+
+        // AND EVERY RENDER-TEXTURE CAPTURE, for the reason the line above does not cover: a capture is
+        // keyed by the ELEMENT ENTITY, and an entity id is unique only inside its registry. Carrying one
+        // across a scene switch would hand the new level's entity 7 the world the old level's entity 7 was
+        // showing — the same false identity UICanvasContext::Registry warns about, with a whole scene
+        // behind it. Destroying them is also what returns their renderer slots to the level being loaded.
+        if ( m_UIRenderTextures )
+        {
+            m_UIRenderTextures->Reset();
+        }
 
         Core::SceneSerializer serializer( m_Scene.get(), m_AssetManager.get() );
         if ( const auto loaded = serializer.DeserializeFromJson( json, path ); !loaded )
@@ -289,6 +292,15 @@ namespace Desert::Player
         // (Runtime/Source/Main.cpp), and this is the line that makes the dial reach the renderer.
         m_SceneRenderer->SetQuality( Common::Settings::MachineSettings::Get() );
 
+        // THE WORLDS INSIDE UI RENDER-TEXTURE ELEMENTS (Ю16), advanced before the game world opens its
+        // pass. A capture records a whole scene render and Vulkan has no nested render pass — and the walk
+        // that samples the result runs later still, inside the swapchain pass at present time. Same
+        // constraint the editor obeys at the same point in its own frame.
+        if ( m_UIRenderTextures && m_AssetManager )
+        {
+            m_UIRenderTextures->Tick( *m_AssetManager, ts );
+        }
+
         if ( const auto begin = m_Scene->BeginScene(); !begin )
             return Common::MakeError( begin.GetError() );
 
@@ -323,6 +335,7 @@ namespace Desert::Player
         m_BlitPipeline = blitPipeline.GetValue();
         m_BlitExecutor = Graphic::MaterialExecutor::Create( "SwapchainBlit", blitShader );
 
+        m_UIRenderTextures = std::make_unique<Graphic::Render2D::UIRenderTextureCache>();
         m_Render2D = std::make_unique<Graphic::Render2D::Render2D>();
         if ( const auto r = m_Render2D->Init( swapFb ); !r )
             return r;
@@ -416,6 +429,7 @@ namespace Desert::Player
                 // two canvases and both are drawn. A level with none draws nothing and says nothing — a
                 // game without UI is legitimate, and it was only ever a refusal because of the limit.
                 m_UIView.Materials = &m_Render2D->Materials();
+                m_UIView.RenderTextures = m_UIRenderTextures.get();
                 UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
                 for ( const entt::entity canvas : UI::CanvasesInDrawOrder( m_Scene->GetRegistry() ) )
                     if ( const auto drawn = UI::RenderCanvas2D( m_UIView, m_Scene->GetRegistry(), canvas, dl,
