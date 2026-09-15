@@ -17,6 +17,8 @@ project(test_name)
         -- controls behaves exactly as before" a thing these suites stillmeasure.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        -- The tick grid every clip time now lives on (A5).
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 

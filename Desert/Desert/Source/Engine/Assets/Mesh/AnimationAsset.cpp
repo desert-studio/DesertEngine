@@ -70,8 +70,7 @@ namespace Desert::Assets
         m_Clip.Notifies.clear();
         m_Clip.Notifies.shrink_to_fit();
         m_Clip.AnimationName.clear();
-        m_Clip.Duration       = 0.0F;
-        m_Clip.TicksPerSecond = 0.0F;
+        m_Clip.DurationTicks = Animation::FrameNumber{};
         // The signature is what ResolveDependencies matches a rig on, so an unloaded clip must not keep
         // answering with one — the same reason the skeleton's readiness is now the skeleton itself.
         m_Clip.SkeletonSignature = 0;

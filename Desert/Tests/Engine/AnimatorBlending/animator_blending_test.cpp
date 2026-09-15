@@ -26,6 +26,11 @@
 
 using Common::Timestep;
 using Desert::Animation::AnimationClip;
+using Desert::Animation::FrameNumber;
+using Desert::Animation::FrameTime;
+using Desert::Animation::NearestTick;
+using Desert::Animation::PROJECT_TICK_RATE;
+using Desert::Animation::SecondsToFrameTime;
 using Desert::Animation::AnimationNotify;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
@@ -101,15 +106,16 @@ namespace
                               float            duration = 2.0F )
     {
         AnimationClip clip;
-        clip.AnimationName  = name;
-        clip.Duration       = duration;
-        clip.TicksPerSecond = 1.0F;
+        // A5: the clip states a length in TICKS on the project grid. `Duration` + `TicksPerSecond = 1`
+        // used to say "one second" by setting the rate so a tick WAS a second.
+        clip.AnimationName = name;
+        clip.DurationTicks = NearestTick( SecondsToFrameTime( duration, PROJECT_TICK_RATE ) );
 
         BoneTrack track;
         track.BoneName = bone;
-        track.PositionKeys.push_back( { 0.0F, position } );
-        track.RotationKeys.push_back( { 0.0F, rotation } );
-        track.ScaleKeys.push_back( { 0.0F, glm::vec3( 1.0F ) } );
+        track.PositionKeys.push_back( { FrameNumber{ 0 }, position } );
+        track.RotationKeys.push_back( { FrameNumber{ 0 }, rotation } );
+        track.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
         clip.Tracks.push_back( std::move( track ) );
         return clip;
     }
@@ -494,7 +500,8 @@ TEST( AnimatorBlending, ANotifyFiresExactlyOncePerPassOverItsTime )
 
     AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back( AnimationNotify{ "Footstep", 0.5F } );
+    clip.Notifies.push_back(
+         AnimationNotify{ "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
 
     animator.Play( clip, /*loop=*/false );
 
@@ -514,12 +521,12 @@ TEST( AnimatorBlending, ALoopingClipFiresItsNotifyOncePerLap )
 
     AnimationClip clip = StaticClip( "Run", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back( AnimationNotify{ "MidStep", 0.5F } );
+    clip.Notifies.push_back( AnimationNotify{ "MidStep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
     // A MARKER INSIDE THE WRAP STEP, and without it this test proved nothing. With 0.1 s steps over a 1 s
     // clip, the frame that wraps covers (0.9, 1.0] u [0, 0.0] — a marker at 0.5 is nowhere near it, so
     // deleting the whole wrap-around branch left the suite green. A marker at 0.95 is reachable ONLY
     // through `n.Time > prev` on the wrapping frame, which is the half that was untested.
-    clip.Notifies.push_back( AnimationNotify{ "LateStep", 0.95F } );
+    clip.Notifies.push_back( AnimationNotify{ "LateStep", NearestTick( SecondsToFrameTime( 0.95, PROJECT_TICK_RATE ) ) } );
 
     animator.Play( clip, /*loop=*/true );
 
@@ -548,7 +555,7 @@ TEST( AnimatorBlending, ScrubbingDoesNotFireNotifies )
 
     AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back( AnimationNotify{ "Footstep", 0.5F } );
+    clip.Notifies.push_back( AnimationNotify{ "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
 
     animator.Play( clip, false );
     animator.SetTime( 0.9F ); // the Sequencer dragging the playhead past the marker

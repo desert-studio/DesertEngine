@@ -18,6 +18,9 @@
 #include <Common/Core/Constants.hpp>
 
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/TimeModel.hpp>
+
+#include <cmath>
 
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportManager.hpp>
@@ -36,6 +39,47 @@ namespace Assimp
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        /**
+         * @brief An exporter's `mTicksPerSecond` (a double) as the exact rational the time model wants.
+         *
+         * WHY A SEARCH AND NOT A CAST. Every rate a real exporter states is either a whole number (24, 25,
+         * 30, 60, 1000 for glTF milliseconds) or one of the two broadcast rationals, and both of those are
+         * IRRATIONAL as decimals: 30000/1001 is 29.97002997..., so `{ 2997, 100 }` is a different rate that
+         * drifts one frame every sixteen minutes. Recognising them by name is the difference between
+         * storing the rate and storing a rounding of it.
+         *
+         * Anything else falls back to a millionths approximation — which is reported, because a rate this
+         * function had to approximate is exactly the case whose keys will not land on the project grid.
+         */
+        [[nodiscard]] Animation::FrameRate RationalFromRate( double rate )
+        {
+            if ( !( rate > 0.0 ) || !std::isfinite( rate ) )
+            {
+                return Animation::FrameRate{ 25, 1 };
+            }
+
+            const double rounded = std::round( rate );
+            if ( std::fabs( rate - rounded ) < 1.0e-9 && rounded < 2.0e9 )
+            {
+                return Animation::FrameRate{ static_cast<int32_t>( rounded ), 1 };
+            }
+
+            for ( const Animation::FrameRate broadcast :
+                  { Animation::FrameRate{ 30000, 1001 }, Animation::FrameRate{ 24000, 1001 },
+                    Animation::FrameRate{ 60000, 1001 }, Animation::FrameRate{ 48000, 1001 } } )
+            {
+                if ( std::fabs( rate - broadcast.AsDouble() ) < 1.0e-6 )
+                {
+                    return broadcast;
+                }
+            }
+
+            return Animation::FrameRate{ static_cast<int32_t>( std::llround( rate * 1000000.0 ) ), 1000000 };
+        }
+    } // namespace
+
     class ScopedAssimpLogger
     {
     public:
@@ -720,9 +764,44 @@ namespace Desert::Editor
             AnimationAssetData animData;
             animData.Name = anim->mName.length > 0 ? anim->mName.C_Str() : "Animation_" + std::to_string( i );
 
-            animData.Duration       = anim->mDuration;
-            animData.TicksPerSecond = anim->mTicksPerSecond != 0.0 ? anim->mTicksPerSecond : 25.0f;
+            // ---- the tick grid, and what crossing it costs ------------------------------------------
+            //
+            // assimp already counts time in TICKS — `aiAnimation::mTicksPerSecond` is the exporter's own
+            // rate — so this boundary is a change of tick GRID and not a change of unit. What it used to
+            // be was `(float)mTime` per key: exact for every integral tick below 2^24 (which is what an
+            // FBX frame index or a glTF millisecond is), and silently inexact for anything else. Rounding
+            // is not the problem; an unreported rounding is.
+            //
+            // PROJECT_TICK_RATE is 24000 precisely so this is an integer multiply for every rate an
+            // exporter realistically states: 30 -> x800, 25 -> x960, 24 -> x1000, 1000 (glTF ms) -> x24.
+            const double sourceRateValue = anim->mTicksPerSecond != 0.0 ? anim->mTicksPerSecond : 25.0;
+            const Animation::FrameRate sourceRate = RationalFromRate( sourceRateValue );
 
+            animData.Version     = Assets::Serialization::kAnimationVersion;
+            animData.TickRate    = { Animation::PROJECT_TICK_RATE.Numerator,
+                                     Animation::PROJECT_TICK_RATE.Denominator };
+            // The file's own rate becomes the DISPLAY grid: it is the cadence the animation was authored
+            // on, which is exactly what an artist should see on the ruler and snap to.
+            animData.DisplayRate = { sourceRate.Numerator, sourceRate.Denominator };
+
+            std::size_t roundedKeys = 0;
+            int64_t     worstMicro  = 0;
+            const auto  toProjectTick = [&]( double sourceTick ) -> int32_t
+            {
+                const auto converted =
+                     Animation::ConvertTick( Animation::FrameNumber{ static_cast<int32_t>( llround( sourceTick ) ) },
+                                             sourceRate, Animation::PROJECT_TICK_RATE );
+                if ( !converted.Exact )
+                {
+                    ++roundedKeys;
+                    worstMicro = std::max( worstMicro, converted.RoundedAwayMicro < 0
+                                                            ? -converted.RoundedAwayMicro
+                                                            : converted.RoundedAwayMicro );
+                }
+                return converted.Ticks.Value;
+            };
+
+            animData.DurationTicks     = toProjectTick( anim->mDuration );
             animData.SkeletonSignature = skeletonData.Signature;
 
             for ( uint32_t c = 0; c < anim->mNumChannels; ++c )
@@ -739,7 +818,7 @@ namespace Desert::Editor
                 for ( uint32_t p = 0; p < channel->mNumPositionKeys; ++p )
                 {
                     ch.Positions.push_back(
-                         { (float)channel->mPositionKeys[p].mTime,
+                         { toProjectTick( channel->mPositionKeys[p].mTime ),
                            { channel->mPositionKeys[p].mValue.x, channel->mPositionKeys[p].mValue.y,
                              channel->mPositionKeys[p].mValue.z } } );
                 }
@@ -749,17 +828,30 @@ namespace Desert::Editor
                     auto& q = channel->mRotationKeys[r].mValue;
 
                     ch.Rotations.push_back(
-                         { (float)channel->mRotationKeys[r].mTime, glm::quat( q.w, q.x, q.y, q.z ) } );
+                         { toProjectTick( channel->mRotationKeys[r].mTime ), glm::quat( q.w, q.x, q.y, q.z ) } );
                 }
 
                 for ( uint32_t s = 0; s < channel->mNumScalingKeys; ++s )
                 {
-                    ch.Scales.push_back( { (float)channel->mScalingKeys[s].mTime,
+                    ch.Scales.push_back( { toProjectTick( channel->mScalingKeys[s].mTime ),
                                            { channel->mScalingKeys[s].mValue.x, channel->mScalingKeys[s].mValue.y,
                                              channel->mScalingKeys[s].mValue.z } } );
                 }
 
                 animData.Channels.push_back( ch );
+            }
+
+            // SAID OUT LOUD OR NOT SAID AT ALL. A clip whose rate divides 24000 reports nothing; one that
+            // does not gets one line naming how many keys moved and by how much, so the cost is a number
+            // in the log rather than a difference somebody finds in a frame months later.
+            if ( roundedKeys > 0 )
+            {
+                LOG_WARN( "[Import] clip '{}' is authored at {}/{} ticks per second, which does not divide "
+                          "the project's {} — {} key time(s) were rounded onto the project grid, the worst "
+                          "by {} millionths of a tick ({} ns).",
+                          animData.Name, sourceRate.Numerator, sourceRate.Denominator,
+                          Animation::PROJECT_TICK_RATE.Numerator, roundedKeys, worstMicro,
+                          worstMicro * 1000 / 24 / 1000 );
             }
 
             result.Animations.push_back( animData );

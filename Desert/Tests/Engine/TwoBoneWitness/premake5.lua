@@ -22,6 +22,8 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        -- The tick grid every clip time now lives on (A5).
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         -- Pose.cpp arrived with the merge of А1, which moved BoneTransform's P/R/S <-> mat4 conversion
         -- out of the header. This suite composes a bone's matrix itself, so it needs the definition of
         -- BoneTransform::ToMatrix; without this line the suite COMPILES and fails at LINK, naming a

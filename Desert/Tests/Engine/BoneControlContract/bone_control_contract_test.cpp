@@ -437,9 +437,8 @@ TEST( BoneControlContract, TheControlStageJoinsAndLeavesWithTheListAndAlwaysRuns
     // run BEFORE it: a control corrects the pose the animation produced, so a layer that ran afterwards
     // would overwrite exactly the bones the control just solved.
     Desert::Animation::AnimationClip clip;
-    clip.AnimationName  = "layer";
-    clip.Duration       = 1.0F;
-    clip.TicksPerSecond = 1.0F;
+    clip.AnimationName = "layer";
+    clip.DurationTicks = Desert::Animation::FrameNumber{ Desert::Animation::PROJECT_TICK_RATE.Numerator };
     animator.AddLayer( clip, 1.0F );
 
     ASSERT_EQ( animator.GetStages().size(), 3U );

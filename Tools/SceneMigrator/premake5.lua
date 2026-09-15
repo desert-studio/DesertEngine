@@ -39,6 +39,12 @@ project "SceneMigrator"
         -- restating either. Pure over the parsed tree, like everything else in this project: no GPU, no
         -- asset manager.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
+
+        -- THE CLIP STEP AND THE TIME MODEL IT CONVERTS INTO, since A5. Both are pure — a string in, a
+        -- string out, and arithmetic over integers — so the tool gains a file class without gaining a
+        -- dependency on the asset system or on anything with a GPU in it.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
     }
 
     dependson { "Desert" }

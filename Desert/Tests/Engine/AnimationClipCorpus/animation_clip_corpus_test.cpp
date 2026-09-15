@@ -156,13 +156,17 @@ TEST( AnimationClipCorpus, TheProbeClipsClaimTheRigTheProbeSkeletonHas )
              << stem
              << " claims a different rig from SkinProbe.skeleton. Every frame taken against it would show a "
                 "bind pose and still render, which is broken evidence rather than no evidence.";
-        EXPECT_EQ( clip.TicksPerSecond, 1.0f )
-             << stem
-             << " does not run in seconds. Key times ARE seconds when TicksPerSecond is 1 (see "
-                "ProceduralCharacterAnimations::Build), and the whole corpus is authored that way.";
-        EXPECT_FLOAT_EQ( clip.Duration, 2.0f ) << stem
-                                               << " is no longer the 2 s cycle the probe scene and "
-                                                  "the shot frame counts are chosen against.";
+        // A5 REPLACED THE SENTENCE THAT USED TO STAND HERE, and the old one is worth quoting because it
+        // was the fiction itself: "Key times ARE seconds when TicksPerSecond is 1, and the whole corpus is
+        // authored that way." The field was called ticks-per-second and pinned to 1 so that a tick would
+        // mean a second — and this suite defended that. A clip now states the grid its integer ticks are
+        // counted on, and two seconds is a number of them.
+        EXPECT_EQ( clip.TickRate, Desert::Animation::PROJECT_TICK_RATE )
+             << stem << " is not on the project tick grid, so its key times are not comparable with any "
+                        "other clip's.";
+        EXPECT_EQ( clip.DurationTicks.Value, 2 * Desert::Animation::PROJECT_TICK_RATE.Numerator )
+             << stem << " is no longer the 2 s cycle the probe scene and the shot frame counts are chosen "
+                        "against.";
         ASSERT_NE( TrackFor( clip, kProbeBoneName ), nullptr )
              << stem << " has no track for '" << kProbeBoneName
              << "'. The bone name is the only key playback binds on, so it would animate nothing.";
