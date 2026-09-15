@@ -104,8 +104,8 @@ TEST( AnimatorPose, ApplyLocalPoseRendersPosedSkeleton )
     const glm::mat4 childGlobal = rootGlobal * posedChildLocal;
     const glm::mat4 expected    = childGlobal * bones[1].OffsetMatrix;
 
-    ASSERT_GE( anim.GetPose().BoneMatrices.size(), 2u );
-    EXPECT_TRUE( MatNear( anim.GetPose().BoneMatrices[1], expected ) );
+    ASSERT_GE( anim.GetPose().Matrices.size(), 2u );
+    EXPECT_TRUE( MatNear( anim.GetPose().Matrices[1], expected ) );
 }
 
 TEST( AnimatorPose, SampleClipIntoLocalPoseLoadsKeys )
@@ -130,23 +130,32 @@ TEST( AnimatorPose, PlaybackIgnoresLocalPoseBuffer )
 
     anim.Play( clip );
     anim.SetTime( 0.0f );
-    const glm::mat4 p1 = anim.GetPose().BoneMatrices[1];
+    const glm::mat4 p1 = anim.GetPose().Matrices[1];
 
     // Editing the pose buffer must NOT change what SetTime/playback produces (additive-only guarantee).
     anim.SetBoneLocalPose( 1, glm::translate( glm::mat4( 1.0f ), glm::vec3( 99.0f, 0.0f, 0.0f ) ) );
     anim.SetTime( 0.0f );
-    const glm::mat4 p2 = anim.GetPose().BoneMatrices[1];
+    const glm::mat4 p2 = anim.GetPose().Matrices[1];
 
     EXPECT_TRUE( MatNear( p1, p2 ) );
 }
 
-TEST( AnimatorPose, ResetLocalPoseToBindRestores )
+// `ResetLocalPoseToBind` was deleted with the test that used to stand here: it had no caller outside this
+// file, and an entry point exercised only by its own test is not a feature, it is a claim. What the buffer
+// IS reset by has a production caller, and that is what is pinned instead: sampling a clip into it
+// overwrites every bone, so a bone the clip does not animate goes back to bind.
+TEST( AnimatorPose, SamplingAClipIntoTheBufferResetsBonesTheClipDoesNotAnimate )
 {
-    Skeleton skel = MakeChain();
-    Animator anim( skel );
-    anim.SetBoneLocalPose( 1, glm::translate( glm::mat4( 1.0f ), glm::vec3( 7.0f, 0.0f, 0.0f ) ) );
-    anim.ResetLocalPoseToBind();
-    EXPECT_TRUE( MatNear( anim.GetBoneLocalPose( 1 ), skel.GetBones()[1].LocalBindTransform ) );
+    Skeleton      skel = MakeChain();
+    Animator      anim( skel );
+    AnimationClip clip = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) ); // animates bone 1 only
+
+    anim.SetBoneLocalPose( 0, glm::translate( glm::mat4( 1.0f ), glm::vec3( 7.0f, 0.0f, 0.0f ) ) );
+    anim.SampleClipIntoLocalPose( clip, 0.0f );
+
+    EXPECT_TRUE( MatNear( anim.GetBoneLocalPose( 0 ), skel.GetBones()[0].LocalBindTransform ) )
+         << "an untracked bone kept an authored value across a clip load, so the buffer and the clip "
+            "disagree about what the pose at this time is";
 }
 
 int main( int argc, char** argv )

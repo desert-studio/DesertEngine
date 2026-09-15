@@ -52,30 +52,6 @@ namespace Desert::Core
             return nullptr;
         }
 
-        // Bind-pose skinning matrices (skin[i] = chainGlobal_i * OffsetMatrix_i) — identical to the render
-        // path's bind branch in MeshECSSystem, so the picked bounds line up with the drawn bind-pose mesh.
-        std::vector<glm::mat4> BindSkinningMatrices( const Animation::Skeleton& skeleton )
-        {
-            const auto&                        bones = skeleton.GetBones();
-            std::vector<glm::mat4>             g( bones.size(), glm::mat4( 1.0f ) );
-            std::vector<bool>                  done( bones.size(), false );
-            std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
-            {
-                if ( done[i] )
-                    return g[i];
-                glm::mat4 m = bones[i].LocalBindTransform;
-                if ( bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < bones.size() )
-                    m = resolve( bones[i].ParentBoneID.value() ) * bones[i].LocalBindTransform;
-                g[i]    = m;
-                done[i] = true;
-                return m;
-            };
-            std::vector<glm::mat4> out( bones.size() );
-            for ( size_t i = 0; i < bones.size(); ++i )
-                out[i] = resolve( i ) * bones[i].OffsetMatrix;
-            return out;
-        }
-
         // Mesh-local AABB of a skinned mesh deformed by `skin` (linear blend). A skinned submesh's stored
         // BoundingBox is in RAW-vertex space (which only matches the rendered mesh when bind == identity), so
         // picking must deform the retained CPU vertices by the current pose instead of using that box.
@@ -163,10 +139,10 @@ namespace Desert::Core
                 {
                     const auto& anim = entity.GetComponent<ECS::AnimationComponent>();
                     if ( anim.Animator )
-                        skin = anim.Animator->GetPose().BoneMatrices;
+                        skin = anim.Animator->GetPose().Matrices;
                 }
                 if ( skin.empty() )
-                    skin = BindSkinningMatrices( sk->GetSkeleton() );
+                    sk->GetSkeleton().WriteBindSkinningMatrices( skin );
 
                 const Common::Math::AABB bounds = SkinnedLocalBounds( *sk, skin );
                 float                    t      = 0.0f;

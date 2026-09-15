@@ -4,7 +4,13 @@ namespace Desert::Editor::Core
 {
     // Blender-style "Skeleton Edit" mode toggle. When active, the viewport draws the selected skinned mesh's
     // skeleton (bone heads + parent->child links) as an overlay, and the bone tree drives a selected-bone
-    // highlight. Object/Scene mode = inactive. Phase 1 is view-only; gizmo editing comes later.
+    // highlight. Object/Scene mode = inactive.
+    //
+    // IT IS NOT VIEW-ONLY, and this comment said it was long after that stopped being true. The bone gizmo
+    // edits through GizmoController::DrawBoneGizmo -> Skeleton::GetBonesMutable (rig editing) or
+    // Animator::SetBoneLocalPose (pose authoring, see PoseMode below), and the Sequencer keys the result.
+    // A stale guarantee in a comment is read as a fact about the code, so it is worth more than the line
+    // it costs to keep it honest.
     class SkeletonEditMode final
     {
     public:

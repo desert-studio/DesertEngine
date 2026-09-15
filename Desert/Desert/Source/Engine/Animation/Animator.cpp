@@ -1,129 +1,126 @@
 #include "Animator.hpp"
+
+#include <Common/Core/Logger.hpp>
+#include <Common/Core/Timestep.hpp>
+
+#include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/Skeleton.hpp>
+
+#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 
+#include <algorithm>
+
 namespace Desert::Animation
 {
-    struct TRS
+    const char* ToString( PoseStage stage )
     {
-        glm::vec3 Translation;
-        glm::quat Rotation;
-        glm::vec3 Scale;
-    };
-
-    TRS Decompose( const glm::mat4& m )
-    {
-        TRS result;
-
-        result.Translation = glm::vec3( m[3] );
-
-        result.Scale.x = glm::length( glm::vec3( m[0] ) );
-        result.Scale.y = glm::length( glm::vec3( m[1] ) );
-        result.Scale.z = glm::length( glm::vec3( m[2] ) );
-
-        glm::mat3 rotationMatrix;
-        rotationMatrix[0] = glm::vec3( m[0] ) / result.Scale.x;
-        rotationMatrix[1] = glm::vec3( m[1] ) / result.Scale.y;
-        rotationMatrix[2] = glm::vec3( m[2] ) / result.Scale.z;
-
-        result.Rotation = glm::quat_cast( rotationMatrix );
-
-        return result;
+        switch ( stage )
+        {
+            case PoseStage::Source:
+                return "Source";
+            case PoseStage::Layers:
+                return "Layers";
+        }
+        return "?";
     }
 
-    glm::mat4 Compose( const TRS& trs )
+    Animator::Animator( const Skeleton& skeleton )
+         : m_Skeleton( skeleton ), m_Component( skeleton, m_EvaluatedPose )
     {
-        glm::mat4 T = glm::translate( glm::mat4( 1.0f ), trs.Translation );
-        glm::mat4 R = glm::toMat4( trs.Rotation );
-        glm::mat4 S = glm::scale( glm::mat4( 1.0f ), trs.Scale );
+        // THE BIND POSE IS DECOMPOSED ONCE, HERE. Every untracked bone of every clip and every additive
+        // layer's reference reads it; it used to be recovered from `LocalBindTransform` on each access, and
+        // in the additive path that was a full Decompose per bone per layer per frame.
+        auto bind = LocalPose::FromBindPose( skeleton );
+        if ( bind.IsSuccess() )
+        {
+            m_BindPose = std::move( bind.GetValue() );
+        }
+        else
+        {
+            // Not a silent fallback: the rig is named, the reason is named, and the pose it renders is the
+            // identity rest rather than a quietly straightened mirror. Refusing to construct the Animator
+            // was the alternative and it is worse — an entity would lose its animation with the same
+            // silence this engine spent a whole task removing from the clip lookup.
+            LOG_ERROR( "[Animator] rig (signature {}) has a bind pose that cannot be decomposed: {} Bones "
+                       "fall back to an identity rest transform.",
+                       skeleton.GetSignature(), bind.GetError() );
+            m_BindPose.Resize( skeleton.GetBones().size() );
+        }
 
-        return T * R * S;
+        if ( !skeleton.GetStructureError().empty() )
+        {
+            LOG_ERROR( "[Animator] rig (signature {}) has a malformed parent structure: {}",
+                       skeleton.GetSignature(), skeleton.GetStructureError() );
+        }
+
+        m_AuthoringPose = m_BindPose;
+        m_EvaluatedPose = m_BindPose;
+
+        // The pipeline. `Source` is unconditional — something has to produce a pose — and `Layers` joins
+        // and leaves with the layer stack (SyncLayerStage).
+        m_Stages = { PoseStage::Source };
+
+        m_Component.Reset( m_EvaluatedPose.Size() );
+        PublishPose(); // a valid rest pose before any clip plays; an identity pose would collapse the mesh
     }
 
-    Animator::Animator( const Skeleton& skeleton ) : m_Skeleton( skeleton )
-    {
-        InitLocalPose();   // editable pose buffer starts at bind
-        ComputeBindPose(); // valid rest pose before any clip plays (identity would collapse the mesh)
-    }
-
-    void Animator::InitLocalPose()
-    {
-        const auto& bones = m_Skeleton.GetBones();
-        m_LocalPose.resize( bones.size() );
-        for ( size_t i = 0; i < bones.size(); ++i )
-            m_LocalPose[i] = bones[i].LocalBindTransform;
-    }
-
-    void Animator::ResetLocalPoseToBind()
-    {
-        InitLocalPose();
-    }
+    // ============================================================
+    // Pose authoring
+    // ============================================================
 
     void Animator::SetBoneLocalPose( uint32_t boneIndex, const glm::mat4& localTransform )
     {
-        if ( boneIndex < m_LocalPose.size() )
-            m_LocalPose[boneIndex] = localTransform;
+        if ( boneIndex >= m_AuthoringPose.Size() )
+        {
+            return;
+        }
+
+        auto decomposed = BoneTransform::FromMatrix( localTransform );
+        if ( !decomposed.IsSuccess() )
+        {
+            LOG_ERROR( "[Animator] refusing to pose bone {} ('{}'): {}", boneIndex,
+                       m_Skeleton.GetBones()[boneIndex].Name, decomposed.GetError() );
+            return;
+        }
+        m_AuthoringPose[boneIndex] = decomposed.GetValue();
     }
 
     glm::mat4 Animator::GetBoneLocalPose( uint32_t boneIndex ) const
     {
-        return boneIndex < m_LocalPose.size() ? m_LocalPose[boneIndex] : glm::mat4( 1.0f );
+        return boneIndex < m_AuthoringPose.Size() ? m_AuthoringPose[boneIndex].ToMatrix() : glm::mat4( 1.0F );
     }
 
     void Animator::SampleClipIntoLocalPose( const AnimationClip& clip, float time )
     {
-        const auto& bones = m_Skeleton.GetBones();
-        if ( m_LocalPose.size() != bones.size() )
-            InitLocalPose();
-        for ( uint32_t i = 0; i < bones.size(); ++i )
-            m_LocalPose[i] = SampleLocalTransform( &clip, i, time );
+        const size_t n = m_Skeleton.GetBones().size();
+        if ( m_AuthoringPose.Size() != n )
+            m_AuthoringPose = m_BindPose;
+        for ( uint32_t i = 0; i < n; ++i )
+            m_AuthoringPose[i] = SampleLocalTransform( &clip, i, time );
     }
 
     void Animator::ApplyLocalPose()
     {
-        const auto& bones = m_Skeleton.GetBones();
-        if ( m_LocalPose.size() != bones.size() )
-            InitLocalPose();
+        const size_t n = m_Skeleton.GetBones().size();
+        if ( m_AuthoringPose.Size() != n )
+            m_AuthoringPose = m_BindPose;
 
-        m_CurrentPose.BoneMatrices.assign( bones.size(), glm::mat4( 1.0f ) );
-
-        std::vector<glm::mat4>             global( bones.size(), glm::mat4( 1.0f ) );
-        std::vector<bool>                  done( bones.size(), false );
-        std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
-        {
-            if ( done[i] )
-                return global[i];
-            glm::mat4 m = m_LocalPose[i];
-            if ( bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < bones.size() )
-                m = resolve( bones[i].ParentBoneID.value() ) * m_LocalPose[i];
-            global[i] = m;
-            done[i]   = true;
-            return m;
-        };
-        for ( size_t i = 0; i < bones.size(); ++i )
-            m_CurrentPose.BoneMatrices[i] = resolve( i ) * bones[i].OffsetMatrix;
-    }
-
-    void Animator::ComputeBindPose()
-    {
-        const auto& bones = m_Skeleton.GetBones();
-        m_CurrentPose.BoneMatrices.assign( bones.size(), glm::mat4( 1.0f ) );
-
-        std::vector<glm::mat4>             global( bones.size(), glm::mat4( 1.0f ) );
-        std::vector<bool>                  done( bones.size(), false );
-        std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
-        {
-            if ( done[i] )
-                return global[i];
-            glm::mat4 m = bones[i].LocalBindTransform;
-            if ( bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < bones.size() )
-                m = resolve( bones[i].ParentBoneID.value() ) * bones[i].LocalBindTransform;
-            global[i] = m;
-            done[i]   = true;
-            return m;
-        };
-        for ( size_t i = 0; i < bones.size(); ++i )
-            m_CurrentPose.BoneMatrices[i] = resolve( i ) * bones[i].OffsetMatrix;
+        // The authoring pose is a DIFFERENT SOURCE, not a pipeline stage. It is engaged only with playback
+        // stopped (the Sequencer clears `Playing` before it keys), so a stage would carry a membership bit
+        // no frame could ever distinguish — the honest shape is "render this pose instead", which is what
+        // this is.
+        //
+        // IT WRITES THROUGH THE EVALUATED POSE rather than resolving the authoring buffer on the side. The
+        // Animator has to have ONE answer to "what is being rendered right now": `GetPose()` and
+        // `GetBoneModelMatrix()` are two views of it, and a socket reading a bone while the artist poses it
+        // must see the posed bone. A private resolve here would have made the two views disagree for
+        // exactly as long as posing lasts — the middle-link shape, introduced by the very change meant to
+        // remove it.
+        m_EvaluatedPose = m_AuthoringPose;
+        PublishPose();
     }
 
     // ============================================================
@@ -132,7 +129,7 @@ namespace Desert::Animation
 
     void Animator::Play( const AnimationClip& clip, bool loop )
     {
-        m_Current    = { &clip, 0.0f, loop };
+        m_Current    = { &clip, 0.0F, loop };
         m_Next       = {};
         m_IsBlending = false;
     }
@@ -140,13 +137,18 @@ namespace Desert::Animation
     void Animator::CrossFade( const AnimationClip& clip, float duration, bool loop )
     {
         if ( m_Current.Clip == &clip )
+        {
             return;
+        }
 
-        m_Next = { &clip, 0.0f, loop };
+        m_Next = { &clip, 0.0F, loop };
 
         m_IsBlending    = true;
-        m_BlendTime     = 0.0f;
-        m_BlendDuration = glm::max( duration, 0.0001f );
+        m_BlendTime     = 0.0F;
+        // A crossfade of zero would divide by zero in BlendAlpha; the floor is small enough that the
+        // first Update already reaches alpha 1, so a zero-length blend behaves as an instant cut.
+        constexpr float MIN_BLEND_SECONDS = 0.0001F;
+        m_BlendDuration                   = glm::max( duration, MIN_BLEND_SECONDS );
     }
 
     void Animator::Stop()
@@ -157,79 +159,164 @@ namespace Desert::Animation
     }
 
     // ============================================================
-    // Update
+    // Update — the pipeline
     // ============================================================
 
-    void Animator::Update( const Common::Timestep& ts )
+    void Animator::Update( const Common::Timestep& step )
     {
-        float deltaTime = ts.GetSeconds() * m_PlaybackSpeed;
+        const float deltaTime = step.GetSeconds() * m_PlaybackSpeed;
 
         if ( !m_Current.IsValid() )
+        {
             return;
+        }
 
         UpdatePlayback( m_Current, deltaTime );
 
         if ( m_IsBlending && m_Next.IsValid() )
         {
             UpdatePlayback( m_Next, deltaTime );
-
             m_BlendTime += deltaTime;
-            float alpha = glm::clamp( m_BlendTime / m_BlendDuration, 0.0f, 1.0f );
+        }
 
-            CalculateBlendedPose( alpha );
+        for ( auto& layer : m_Layers )
+            if ( layer.Playback.IsValid() )
+                UpdatePlayback( layer.Playback, deltaTime );
 
-            if ( alpha >= 1.0f )
+        EvaluatePipeline();
+
+        // Retire the blend AFTER evaluating, so the frame that reaches alpha 1 renders the target clip
+        // rather than a pose built from a blend that has already been thrown away.
+        if ( m_IsBlending && m_Next.IsValid() && BlendAlpha() >= 1.0F )
+        {
+            m_Current    = m_Next;
+            m_Next       = {};
+            m_IsBlending = false;
+        }
+    }
+
+    void Animator::EvaluatePipeline()
+    {
+        if ( m_EvaluatedPose.Size() != m_Skeleton.GetBones().size() )
+        {
+            m_EvaluatedPose = m_BindPose;
+            m_Component.Reset( m_EvaluatedPose.Size() );
+        }
+
+        for ( const PoseStage stage : m_Stages )
+        {
+            switch ( stage )
             {
-                m_Current    = m_Next;
-                m_Next       = {};
-                m_IsBlending = false;
+                case PoseStage::Source:
+                    EvaluateSource( m_EvaluatedPose );
+                    break;
+                case PoseStage::Layers:
+                    EvaluateLayers( m_EvaluatedPose );
+                    break;
             }
         }
-        else
-        {
-            CalculatePose( m_Current );
-        }
 
-        // Overlay the animation layers on the base pose. Layer clocks advance every frame; the pose is only
-        // rebuilt when NOT crossfading (that brief frame plays the base blend alone). No-layer path untouched.
-        if ( !m_Layers.empty() )
-        {
-            for ( auto& layer : m_Layers )
-                if ( layer.Playback.IsValid() )
-                    UpdatePlayback( layer.Playback, deltaTime );
+        PublishPose();
+    }
 
-            if ( !m_IsBlending )
-                ApplyLayers();
+    void Animator::EvaluateSource( LocalPose& pose ) const
+    {
+        for ( uint32_t i = 0; i < pose.Size(); ++i )
+            pose[i] = BlendedBaseLocal( i );
+    }
+
+    void Animator::EvaluateLayers( LocalPose& pose ) const
+    {
+        const auto&    bones = m_Skeleton.GetBones();
+        const uint32_t n     = static_cast<uint32_t>( bones.size() );
+
+        for ( const auto& layer : m_Layers )
+        {
+            if ( !layer.Playback.IsValid() || layer.Weight <= 0.0F )
+                continue;
+            const float w = glm::clamp( layer.Weight, 0.0F, 1.0F );
+
+            for ( uint32_t i = 0; i < n; ++i )
+            {
+                if ( !layer.BoneMask.empty() && ( i >= layer.BoneMask.size() || layer.BoneMask[i] == 0 ) )
+                    continue;
+
+                const BoneTransform layerLocal =
+                     SampleLocalTransform( layer.Playback.Clip, i, layer.Playback.Time );
+                const BoneTransform& base = pose[i];
+
+                if ( layer.Additive )
+                {
+                    // Additive: apply the layer's delta from the BIND pose, scaled by weight, on top of base.
+                    const BoneTransform& bind = m_BindPose[i];
+                    BoneTransform        out;
+                    out.Translation    = base.Translation + w * ( layerLocal.Translation - bind.Translation );
+                    const glm::quat dR = layerLocal.Rotation * glm::inverse( bind.Rotation );
+                    out.Rotation       = glm::slerp( glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), dR, w ) * base.Rotation;
+                    const glm::vec3 dS = layerLocal.Scale / glm::max( bind.Scale, glm::vec3( 1e-6F ) );
+                    out.Scale          = base.Scale * glm::mix( glm::vec3( 1.0F ), dS, w );
+                    pose[i]            = out;
+                }
+                else
+                {
+                    // Override: blend base -> layer by weight.
+                    pose[i] = Blend( base, layerLocal, w );
+                }
+            }
         }
+    }
+
+    void Animator::PublishPose()
+    {
+        m_Component.Invalidate();
+        m_Component.WriteSkinningMatrices( m_Skinning.Matrices );
+    }
+
+    void Animator::SyncLayerStage()
+    {
+        const auto found   = std::find( m_Stages.begin(), m_Stages.end(), PoseStage::Layers );
+        const bool present = found != m_Stages.end();
+        const bool wanted  = !m_Layers.empty();
+
+        if ( wanted && !present )
+            m_Stages.push_back( PoseStage::Layers );
+        else if ( !wanted && present )
+            m_Stages.erase( found );
     }
 
     // ============================================================
     // Playback Update
     // ============================================================
 
-    void Animator::UpdatePlayback( ClipPlayback& playback, float dt )
+    void Animator::UpdatePlayback( ClipPlayback& playback, float deltaTime )
     {
         if ( !playback.IsValid() )
+        {
             return;
+        }
 
-        float tps = playback.Clip->TicksPerSecond > 0.0f ? playback.Clip->TicksPerSecond : 25.0f;
+        const float tps = playback.Clip->TicksPerSecond > 0.0F ? playback.Clip->TicksPerSecond : 25.0F;
 
         const float prev     = playback.Time;
         const float duration = playback.Clip->Duration;
 
-        playback.Time += dt * tps;
+        playback.Time += deltaTime * tps;
 
-        const bool looped = playback.Loop && duration > 0.0f && playback.Time >= duration;
+        const bool looped = playback.Loop && duration > 0.0F && playback.Time >= duration;
 
         if ( playback.Loop )
-            playback.Time = duration > 0.0f ? fmod( playback.Time, duration ) : 0.0f;
+        {
+            playback.Time = duration > 0.0F ? fmod( playback.Time, duration ) : 0.0F;
+        }
         else
+        {
             playback.Time = glm::min( playback.Time, duration );
+        }
 
         // Fire the CURRENT clip's notifies whose time was crossed this frame (forward playback only). The
         // covered interval is (prev, newTime]; on a loop wrap it is (prev, duration) ∪ [0, newTime]. One
         // frame is assumed not to skip a whole loop (dt*tps < duration), which holds for real playback.
-        if ( &playback == &m_Current && dt > 0.0f && !playback.Clip->Notifies.empty() )
+        if ( &playback == &m_Current && deltaTime > 0.0F && !playback.Clip->Notifies.empty() )
         {
             const float newTime = playback.Time;
             for ( const auto& n : playback.Clip->Notifies )
@@ -243,61 +330,52 @@ namespace Desert::Animation
     }
 
     // ============================================================
-    // Pose Calculation
+    // Sampling
     // ============================================================
 
-    void Animator::CalculatePose( const ClipPlayback& playback )
+    BoneTransform Animator::SampleLocalTransform( const AnimationClip* clip, uint32_t boneIndex, float time ) const
     {
-        const auto& bones = m_Skeleton.GetBones();
-
-        for ( uint32_t i = 0; i < bones.size(); ++i )
-        {
-            if ( bones[i].IsRoot() )
+        if ( const BoneTrack* track = ResolveTrack( clip, boneIndex ) )
+            if ( track->HasKeys() )
             {
-                CalculateBoneTransform( playback, i, glm::mat4( 1.0f ) );
+                return track->Sample( time );
             }
-        }
+        return m_BindPose[boneIndex];
     }
 
-    void Animator::CalculateBlendedPose( float alpha )
+    BoneTransform Animator::BlendedBaseLocal( uint32_t boneIndex ) const
     {
-        const auto& bones = m_Skeleton.GetBones();
-
-        for ( uint32_t i = 0; i < bones.size(); ++i )
+        const BoneTransform a = SampleLocalTransform( m_Current.Clip, boneIndex, m_Current.Time );
+        if ( !m_IsBlending || !m_Next.IsValid() )
         {
-            if ( !bones[i].IsRoot() )
-                continue;
-
-            ClipPlayback a = m_Current;
-            ClipPlayback b = m_Next;
-
-            CalculateBoneTransform( a, i, glm::mat4( 1.0f ) );
-
-            std::vector<glm::mat4> poseA = m_CurrentPose.BoneMatrices;
-
-            CalculateBoneTransform( b, i, glm::mat4( 1.0f ) );
-
-            std::vector<glm::mat4> poseB = m_CurrentPose.BoneMatrices;
-
-            for ( size_t j = 0; j < poseA.size(); ++j )
-            {
-                TRS a = Decompose( poseA[j] );
-                TRS b = Decompose( poseB[j] );
-
-                TRS blended;
-                blended.Translation = glm::mix( a.Translation, b.Translation, alpha );
-                blended.Rotation    = glm::slerp( a.Rotation, b.Rotation, alpha );
-                blended.Scale       = glm::mix( a.Scale, b.Scale, alpha );
-
-                m_CurrentPose.BoneMatrices[j] = Compose( blended );
-            }
+            return a;
         }
+
+        const float alpha = BlendAlpha();
+
+        // Exactly the endpoints at the endpoints. `Blend` slerps, and slerp at alpha 0 is not bit-identical
+        // to its input for every quaternion; short-circuiting is what makes "a crossfade at 0 is the source
+        // clip, bit for bit" a property that can be asserted rather than approximated.
+        if ( alpha <= 0.0F )
+        {
+            return a;
+        }
+
+        const BoneTransform b = SampleLocalTransform( m_Next.Clip, boneIndex, m_Next.Time );
+        if ( alpha >= 1.0F )
+        {
+            return b;
+        }
+
+        return Blend( a, b, alpha );
     }
 
     const BoneTrack* Animator::ResolveTrack( const AnimationClip* clip, uint32_t boneIndex ) const
     {
         if ( !clip )
+        {
             return nullptr;
+        }
 
         auto& binding = m_TrackBinding[clip];
 
@@ -306,74 +384,66 @@ namespace Desert::Animation
         // allocated Tracks vector, so a cache keyed on the address alone hands back pointers into memory
         // that has been returned to the allocator. See Animator::TrackBinding for the crash this caused.
         if ( binding.ByBone.empty() || binding.TracksData != clip->Tracks.data() ||
-             binding.TrackCount != clip->Tracks.size() )
+             binding.TrackCount != clip->Tracks.size() || binding.Revision != clip->TrackRevision )
         {
             const auto& bones = m_Skeleton.GetBones();
-            binding.ByBone.assign( bones.size(), nullptr );
+            binding.ByBone.assign( bones.size(), TrackBinding::NO_TRACK );
             binding.TracksData = clip->Tracks.data();
             binding.TrackCount = clip->Tracks.size();
+            binding.Revision   = clip->TrackRevision;
 
-            std::unordered_map<std::string, const BoneTrack*> byName;
-            for ( const auto& track : clip->Tracks )
-                if ( !track.BoneName.empty() )
-                    byName[track.BoneName] = &track;
-
-            for ( size_t i = 0; i < bones.size(); ++i )
+            // The skeleton's own name -> index map, rather than a second one built here per clip. One
+            // answer to "which bone is called this", and it is the one `FindBoneIndex` gives.
+            for ( uint32_t t = 0; t < clip->Tracks.size(); ++t )
             {
-                auto it = byName.find( bones[i].Name );
-                if ( it != byName.end() )
-                    binding.ByBone[i] = it->second;
+                const auto& track = clip->Tracks[t];
+                if ( track.BoneName.empty() )
+                {
+                    continue;
+                }
+                if ( const auto bone = m_Skeleton.FindBoneIndex( track.BoneName ) )
+                {
+                    binding.ByBone[*bone] = t;
+                }
             }
         }
 
-        return ( boneIndex < binding.ByBone.size() ) ? binding.ByBone[boneIndex] : nullptr;
-    }
-
-    void Animator::CalculateBoneTransform( const ClipPlayback& playback, uint32_t boneIndex,
-                                           const glm::mat4& parentTransform )
-    {
-        const auto& bones = m_Skeleton.GetBones();
-        const auto& bone  = bones[boneIndex];
-
-        glm::mat4 localTransform = bone.LocalBindTransform;
-
-        if ( const BoneTrack* track = ResolveTrack( playback.Clip, boneIndex ) )
+        if ( boneIndex >= binding.ByBone.size() )
         {
-            if ( !track->PositionKeys.empty() || !track->RotationKeys.empty() || !track->ScaleKeys.empty() )
-            {
-                localTransform = track->GetTransform( playback.Time );
-            }
+            return nullptr;
         }
-
-        glm::mat4 globalTransform = parentTransform * localTransform;
-
-        m_CurrentPose.BoneMatrices[boneIndex] = globalTransform * bone.OffsetMatrix;
-
-        for ( uint32_t i = 0; i < bones.size(); ++i )
-        {
-            if ( bones[i].ParentBoneID == boneIndex )
-            {
-                CalculateBoneTransform( playback, i, globalTransform );
-            }
-        }
+        const uint32_t track = binding.ByBone[boneIndex];
+        return track == TrackBinding::NO_TRACK ? nullptr : &clip->Tracks[track];
     }
 
     // ============================================================
     // Utilities
     // ============================================================
 
-    const Pose& Animator::GetPose() const
+    const SkinningMatrices& Animator::GetPose() const
     {
-        return m_CurrentPose;
+        return m_Skinning;
+    }
+
+    glm::mat4 Animator::GetBoneModelMatrix( uint32_t boneIndex ) const
+    {
+        // const_cast because the conversion is a CACHE FILL, not a change of state: the pose this view is
+        // over is fixed between Updates, so Get() is idempotent and observationally const. The alternative
+        // is `mutable` on both of ComponentPose's vectors, which would spread the exception further.
+        return const_cast<ComponentPose&>( m_Component ).Get( boneIndex );
     }
 
     bool Animator::IsFinished() const
     {
         if ( !m_Current.IsValid() )
+        {
             return true;
+        }
 
         if ( m_Current.Loop )
+        {
             return false;
+        }
 
         return m_Current.Time >= m_Current.Clip->Duration;
     }
@@ -381,19 +451,25 @@ namespace Desert::Animation
     void Animator::SetTime( float time )
     {
         if ( !m_Current.IsValid() )
+        {
             return;
+        }
 
-        m_Current.Time = glm::clamp( time, 0.0f, m_Current.Clip->Duration );
-        CalculatePose( m_Current );
+        m_Current.Time = glm::clamp( time, 0.0F, m_Current.Clip->Duration );
+        EvaluatePipeline();
     }
 
     void Animator::SetLoop( bool loop )
     {
         if ( m_Current.IsValid() )
+        {
             m_Current.Loop = loop;
+        }
 
         if ( m_IsBlending && m_Next.IsValid() )
+        {
             m_Next.Loop = loop;
+        }
     }
 
     const AnimationClip* Animator::GetCurrentClip() const
@@ -408,102 +484,25 @@ namespace Desert::Animation
     // Layers
     // ============================================================
 
-    glm::mat4 Animator::SampleLocalTransform( const AnimationClip* clip, uint32_t boneIndex, float time ) const
-    {
-        const auto& bones = m_Skeleton.GetBones();
-        glm::mat4   local = bones[boneIndex].LocalBindTransform;
-        if ( const BoneTrack* track = ResolveTrack( clip, boneIndex ) )
-            if ( !track->PositionKeys.empty() || !track->RotationKeys.empty() || !track->ScaleKeys.empty() )
-                local = track->GetTransform( time );
-        return local;
-    }
-
-    void Animator::ApplyLayers()
-    {
-        const auto&  bones = m_Skeleton.GetBones();
-        const size_t n     = bones.size();
-
-        // 1) Base local transforms from the current clip (bind pose where it has no track).
-        std::vector<glm::mat4> local( n );
-        for ( size_t i = 0; i < n; ++i )
-            local[i] = SampleLocalTransform( m_Current.Clip, static_cast<uint32_t>( i ), m_Current.Time );
-
-        // 2) Fold each active layer over its masked bones, in local space.
-        for ( const auto& layer : m_Layers )
-        {
-            if ( !layer.Playback.IsValid() || layer.Weight <= 0.0f )
-                continue;
-            const float w = glm::clamp( layer.Weight, 0.0f, 1.0f );
-
-            for ( size_t i = 0; i < n; ++i )
-            {
-                if ( !layer.BoneMask.empty() && ( i >= layer.BoneMask.size() || layer.BoneMask[i] == 0 ) )
-                    continue;
-
-                const glm::mat4 layerLocal =
-                     SampleLocalTransform( layer.Playback.Clip, static_cast<uint32_t>( i ), layer.Playback.Time );
-                const TRS baseT = Decompose( local[i] );
-                const TRS layT  = Decompose( layerLocal );
-
-                TRS outT;
-                if ( layer.Additive )
-                {
-                    // Additive: apply the layer's delta from the BIND pose, scaled by weight, on top of base.
-                    const TRS bindT    = Decompose( bones[i].LocalBindTransform );
-                    outT.Translation   = baseT.Translation + w * ( layT.Translation - bindT.Translation );
-                    const glm::quat dR = layT.Rotation * glm::inverse( bindT.Rotation );
-                    outT.Rotation      = glm::slerp( glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ), dR, w ) * baseT.Rotation;
-                    const glm::vec3 dS = layT.Scale / glm::max( bindT.Scale, glm::vec3( 1e-6f ) );
-                    outT.Scale         = baseT.Scale * glm::mix( glm::vec3( 1.0f ), dS, w );
-                }
-                else
-                {
-                    // Override: blend base -> layer by weight.
-                    outT.Translation = glm::mix( baseT.Translation, layT.Translation, w );
-                    outT.Rotation    = glm::slerp( baseT.Rotation, layT.Rotation, w );
-                    outT.Scale       = glm::mix( baseT.Scale, layT.Scale, w );
-                }
-                local[i] = Compose( outT );
-            }
-        }
-
-        // 3) Rebuild the global chain + skinning matrices from the combined local transforms.
-        std::vector<glm::mat4>             global( n, glm::mat4( 1.0f ) );
-        std::vector<bool>                  done( n, false );
-        std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
-        {
-            if ( done[i] )
-                return global[i];
-            glm::mat4 g = local[i];
-            if ( bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < n )
-                g = resolve( bones[i].ParentBoneID.value() ) * local[i];
-            global[i] = g;
-            done[i]   = true;
-            return g;
-        };
-
-        if ( m_CurrentPose.BoneMatrices.size() != n )
-            m_CurrentPose.BoneMatrices.assign( n, glm::mat4( 1.0f ) );
-        for ( size_t i = 0; i < n; ++i )
-            m_CurrentPose.BoneMatrices[i] = resolve( i ) * bones[i].OffsetMatrix;
-    }
-
     int Animator::AddLayer( const AnimationClip& clip, float weight, bool additive, bool loop )
     {
         AnimationLayer layer;
-        layer.Playback = { &clip, 0.0f, loop };
+        layer.Playback = { &clip, 0.0F, loop };
         layer.Weight   = weight;
         layer.Additive = additive;
         m_Layers.push_back( std::move( layer ) );
+        SyncLayerStage();
         return static_cast<int>( m_Layers.size() ) - 1;
     }
 
     void Animator::SetLayerClip( int index, const AnimationClip& clip )
     {
         if ( index < 0 || index >= static_cast<int>( m_Layers.size() ) )
+        {
             return;
+        }
         if ( m_Layers[index].Playback.Clip != &clip )
-            m_Layers[index].Playback = { &clip, 0.0f, m_Layers[index].Playback.Loop };
+            m_Layers[index].Playback = { &clip, 0.0F, m_Layers[index].Playback.Loop };
     }
 
     void Animator::SetLayerWeight( int index, float weight )
@@ -522,35 +521,31 @@ namespace Desert::Animation
                                         bool includeChildren )
     {
         if ( index < 0 || index >= static_cast<int>( m_Layers.size() ) )
+        {
             return;
+        }
 
         const auto&          bones = m_Skeleton.GetBones();
         std::vector<uint8_t> mask( bones.size(), 0 );
+
+        // A hash lookup per NAME. This was a nested loop over (names x bones) comparing std::strings, which
+        // is the linear scan T1.2 is about, spelled out again by hand instead of calling FindBoneIndex.
         for ( const auto& name : boneNames )
-            for ( size_t i = 0; i < bones.size(); ++i )
-                if ( bones[i].Name == name )
-                {
-                    mask[i] = 1;
-                    break;
-                }
+            if ( const auto bone = m_Skeleton.FindBoneIndex( name ) )
+                mask[*bone] = 1;
 
         if ( includeChildren )
         {
             // A bone is affected if it OR any ancestor was named — masking a shoulder masks the whole arm.
-            std::vector<bool>                done( bones.size(), false );
-            std::function<uint8_t( size_t )> resolve = [&]( size_t i ) -> uint8_t
+            // Parent-before-child order makes this a single flat pass: by the time a bone is reached its
+            // parent's answer is final. The memoised recursion this replaces had the same stack-overflow
+            // hazard on a parent cycle as the seven chain walks did.
+            for ( const uint32_t i : m_Skeleton.GetResolveOrder() )
             {
-                if ( done[i] )
-                    return mask[i];
-                uint8_t m = mask[i];
-                if ( !m && bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < bones.size() )
-                    m = resolve( bones[i].ParentBoneID.value() );
-                mask[i] = m;
-                done[i] = true;
-                return m;
-            };
-            for ( size_t i = 0; i < bones.size(); ++i )
-                resolve( i );
+                const uint32_t parent = m_Skeleton.ResolveParent( i );
+                if ( !mask[i] && parent != Skeleton::NO_PARENT )
+                    mask[i] = mask[parent];
+            }
         }
 
         m_Layers[index].BoneMask = std::move( mask );
@@ -562,15 +557,33 @@ namespace Desert::Animation
             m_Layers[index].BoneMask.clear();
     }
 
+    bool Animator::IsBoneInLayerMask( int index, uint32_t boneIndex ) const
+    {
+        if ( index < 0 || index >= static_cast<int>( m_Layers.size() ) )
+        {
+            return false;
+        }
+        const auto& mask = m_Layers[index].BoneMask;
+        if ( mask.empty() )
+        {
+            return boneIndex < m_Skeleton.GetBones().size();
+        }
+        return boneIndex < mask.size() && mask[boneIndex] != 0;
+    }
+
     void Animator::RemoveLayer( int index )
     {
         if ( index >= 0 && index < static_cast<int>( m_Layers.size() ) )
+        {
             m_Layers.erase( m_Layers.begin() + index );
+            SyncLayerStage();
+        }
     }
 
     void Animator::ClearLayers()
     {
         m_Layers.clear();
+        SyncLayerStage();
     }
 
 } // namespace Desert::Animation

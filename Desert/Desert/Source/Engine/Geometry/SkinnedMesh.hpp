@@ -45,8 +45,11 @@ namespace Desert
         }
 
     private:
-        const Animation::Skeleton*                m_Skeleton;
-        std::unordered_map<std::string, uint32_t> m_BoneNameToIndex;
-        std::vector<SkinnedVertex>                m_Vertices;
+        // `std::unordered_map<std::string, uint32_t> m_BoneNameToIndex;` used to sit here. It was never
+        // populated and never read — dead state, and on the wrong object besides: a rig is SHARED between
+        // meshes, so the name -> index map belongs to the Skeleton (which now has one) and not to each mesh
+        // that references it.
+        const Animation::Skeleton* m_Skeleton;
+        std::vector<SkinnedVertex> m_Vertices;
     };
 } // namespace Desert

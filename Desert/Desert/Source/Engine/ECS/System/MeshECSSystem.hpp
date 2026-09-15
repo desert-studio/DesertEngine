@@ -534,32 +534,17 @@ namespace Desert::ECS
                          {
                              const auto& anim = registry.get<AnimationComponent>( entity );
                              if ( anim.Animator )
-                                 boneMatrices = anim.Animator->GetPose().BoneMatrices;
+                                 boneMatrices = anim.Animator->GetPose().Matrices;
                          }
                          if ( boneMatrices.empty() )
                          {
                              // Proper BIND pose: bind matrix = chainGlobal * OffsetMatrix (NOT identity).
                              // Identity would render the RAW (unscaled, thousands-of-units) vertices; the
                              // chainGlobal*OffsetMatrix bind renders the mesh at its authored size and makes
-                             // it line up with the bone overlay (which is drawn at chainGlobal).
-                             const auto& bones = skinnedMesh->GetSkeleton().GetBones();
-                             std::vector<glm::mat4>             g( bones.size(), glm::mat4( 1.0f ) );
-                             std::vector<bool>                  done( bones.size(), false );
-                             std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
-                             {
-                                 if ( done[i] )
-                                     return g[i];
-                                 glm::mat4 m = bones[i].LocalBindTransform;
-                                 if ( bones[i].ParentBoneID.has_value() &&
-                                      bones[i].ParentBoneID.value() < bones.size() )
-                                     m = resolve( bones[i].ParentBoneID.value() ) * bones[i].LocalBindTransform;
-                                 g[i]    = m;
-                                 done[i] = true;
-                                 return m;
-                             };
-                             boneMatrices.resize( bones.size() );
-                             for ( size_t i = 0; i < bones.size(); ++i )
-                                 boneMatrices[i] = resolve( i ) * bones[i].OffsetMatrix;
+                             // it line up with the bone overlay (which is drawn at chainGlobal). This used to
+                             // be a hand-written copy of the same chain walk that Scene::Raycast and the
+                             // bone overlay each had their own copy of.
+                             skinnedMesh->GetSkeleton().WriteBindSkinningMatrices( boneMatrices );
                          }
 
                          bool isSelected =

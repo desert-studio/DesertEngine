@@ -521,7 +521,8 @@ namespace Desert::Editor
                                              : Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
         if ( !mesh || !mesh->IsSkinned() )
             return;
-        const auto& bones = static_cast<SkinnedMesh*>( mesh )->GetSkeleton().GetBones();
+        const Animation::Skeleton& skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeleton();
+        const auto&                bones    = skeleton.GetBones();
         if ( bones.empty() )
             return;
 
@@ -533,42 +534,26 @@ namespace Desert::Editor
         const int selectedBone = Core::SkeletonEditMode::GetSelectedBone();
 
         // Bone head (world) = entityWorld * chainGlobal[3], where chainGlobal = the parent chain of
-        // LocalBindTransform (= the Animator's bind global). This MATCHES the rendered mesh, which is skinned
-        // with bind bone matrices = chainGlobal * OffsetMatrix (NOT identity). Using inverse(OffsetMatrix)
-        // instead put the bones at the raw-vertex scale (thousands of units) while the mesh renders at the
-        // chain scale — hence "bones much bigger than the mesh". Memoized so bone array order doesn't matter.
-        std::vector<glm::mat4>             chainGlobal( bones.size(), glm::mat4( 1.0f ) );
-        std::vector<bool>                  done( bones.size(), false );
-        std::function<glm::mat4( size_t )> resolve = [&]( size_t i ) -> glm::mat4
-        {
-            if ( done[i] )
-                return chainGlobal[i];
-            glm::mat4 g = bones[i].LocalBindTransform;
-            if ( bones[i].ParentBoneID.has_value() && bones[i].ParentBoneID.value() < bones.size() )
-                g = resolve( bones[i].ParentBoneID.value() ) * bones[i].LocalBindTransform;
-            chainGlobal[i] = g;
-            done[i]        = true;
-            return g;
-        };
-        // Use the SAME pose the mesh is RENDERED with, so bones overlay the actual (possibly animated) mesh
-        // — not the static bind pose. The render skins with BoneMatrices[i] = globalPosed_i * OffsetMatrix_i,
-        // so the bone's posed global = BoneMatrices[i] * inverse(OffsetMatrix_i) and its head = that [3]. When
-        // there is no Animator, fall back to the bind chain (== what MeshECSSystem feeds as the bind pose).
-        // Skeleton Edit renders the mesh in BIND pose (SelectionContext bind-preview), so overlay the bones
-        // in bind pose too — an animated overlay would sit off the (bind) mesh and the gizmo. Kept nullptr so
-        // the head resolve below uses the bind chain.
-        const std::vector<glm::mat4>* poseMatrices = nullptr;
+        // LocalBindTransform. This MATCHES the rendered mesh, which is skinned with bind bone matrices =
+        // chainGlobal * OffsetMatrix (NOT identity). Using inverse(OffsetMatrix) instead put the bones at the
+        // raw-vertex scale (thousands of units) while the mesh renders at the chain scale — hence "bones much
+        // bigger than the mesh".
+        //
+        // THE OVERLAY IS DRAWN IN BIND POSE, ALWAYS, and that is deliberate — it used to be six lines of
+        // comment promising "the SAME pose the mesh is RENDERED with" above a `const std::vector<glm::mat4>*
+        // poseMatrices = nullptr;` that was never assigned, so the branch reading it was unreachable and the
+        // overlay had never once followed an animated pose. The reason the bind chain is the right answer
+        // here: Skeleton Edit renders the mesh itself in BIND pose (SelectionContext's bind-pose preview), so
+        // an animated overlay would sit off both the mesh and the gizmo. When that preview goes away, this is
+        // the line that has to change with it, and it should change by reading the animator — not by
+        // reviving a pointer nothing sets.
+        std::vector<glm::mat4> chainGlobal;
+        skeleton.ResolveComponentSpace( [&bones]( uint32_t i ) { return bones[i].LocalBindTransform; },
+                                        chainGlobal );
 
         std::vector<glm::vec3> heads( bones.size() );
         for ( size_t i = 0; i < bones.size(); ++i )
-        {
-            glm::mat4 global;
-            if ( poseMatrices && i < poseMatrices->size() )
-                global = ( *poseMatrices )[i] * glm::inverse( bones[i].OffsetMatrix );
-            else
-                global = resolve( i ); // bind pose (no animator)
-            heads[i] = glm::vec3( entityWorld * glm::vec4( glm::vec3( global[3] ), 1.0f ) );
-        }
+            heads[i] = glm::vec3( entityWorld * glm::vec4( glm::vec3( chainGlobal[i][3] ), 1.0f ) );
 
         // Project every bone head to absolute-screen once (nullopt when behind the camera).
         std::vector<std::optional<ImVec2>> screen( bones.size() );

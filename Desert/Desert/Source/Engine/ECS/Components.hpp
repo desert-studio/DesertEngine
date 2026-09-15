@@ -337,8 +337,14 @@ namespace Desert::ECS
 
         float PlaybackSpeed = 1.0f;
 
-        // Root motion
-        bool EnableRootMotion = false;
+        // NO ROOT-MOTION FLAG. `bool EnableRootMotion` sat here, was written to every scene and prefab and
+        // drawn as a checkbox in Details, and NOTHING in the engine ever read it: there was no root-delta
+        // extraction in Animator, in AnimationECSSystem or in LocomotionSystem. A knob that cannot move a
+        // pixel is a TODO wearing a feature's clothes (contract §1.3), and the honest removal is cheaper
+        // than a half-implementation. Reopening it is a feature with a design question attached — whether
+        // the delta drives the TransformComponent or the character controller, and what a crossfade between
+        // two clips with different root motion means — and that question belongs with the locomotion work,
+        // not with a checkbox nobody wired.
 
         // Notify names fired by the Animator THIS frame (crossed clip markers). Filled by AnimationECSSystem,
         // drained + dispatched to the entity's scripts (OnAnimationNotify) by ScriptSystem. Transient.
@@ -346,8 +352,15 @@ namespace Desert::ECS
 
         // AnimGraph (Phase 4): a data-driven state machine that PICKS the clip to play from live parameters.
         // When Graph is set, AnimationECSSystem drives the Animator from the evaluator instead of CurrentClip.
-        // In-memory only for now (not serialized with the scene). GraphRevision is bumped by the editor on any
-        // structural edit so the ECS rebuilds the transient evaluator; parameters are set live on the evaluator.
+        //
+        // IT IS SERIALIZED. This comment claimed "in-memory only (not serialized with the scene)" while
+        // ComponentRegistry's "Animation" serializer wrote `Animation::Graph::Serialize(*Graph)` into the
+        // .desce and rebuilt the graph from it on load. The save path is live, which is the whole reason the
+        // graph's identity (per-entity blob vs shared asset) has to be settled before anyone saves a scene
+        // with a graph in it: today the repository has zero such scenes and the window is open.
+        //
+        // GraphEvaluator/BuiltGraphRevision ARE transient: GraphRevision is bumped by the editor on any
+        // structural edit so the ECS rebuilds the evaluator; parameters are set live on the evaluator.
         std::shared_ptr<Animation::Graph::AnimGraph> Graph;
         std::shared_ptr<Animation::Graph::Evaluator> GraphEvaluator; // transient runtime state
         uint32_t                                     GraphRevision      = 0;

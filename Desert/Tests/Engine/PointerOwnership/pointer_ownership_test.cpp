@@ -273,11 +273,29 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //
     //   FOUR BRANCHES PREDICTED THIS NUMBER TODAY AND EACH WAS RIGHT ONLY AGAINST ITS OWN HEAD. The value
     //   below was read off a run of the merged tree, as it must be.
-    EXPECT_EQ( CountOf( Form::Raw ), 358 );
+    //   824 -> 823 with A1 (the pose substrate), and it goes DOWN by one RAW. Animator::TrackBinding::ByBone
+    //   was a vector of BoneTrack pointers into the clip's own storage, held safe by a rebind discipline; it
+    //   is now a vector of track INDICES. Both questions are answered by the type rather than by a rule
+    //   somebody has to keep: an index cannot point at freed memory, and the generation stamp the clip now
+    //   carries (AnimationClip::TrackRevision) closes the case the address comparison could not see — an
+    //   unload and reload of the same size, which the allocator satisfies from the very block it just freed,
+    //   leaving data() and size() both unchanged across a complete replacement of the list.
+    //
+    //   AND THE SUM IS NEITHER SIDE'S ARITHMETIC. dev said 830 members / 358 raw and A1 said 823 / 353;
+    //   each was correct about its own head and both are wrong here. The merged tree is 829 / 357 —
+    //   dev's 830 minus the single raw member A1 retired (TrackBinding::ByBone), because A1's own 823
+    //   was measured against a head that predated Ю14, Г26 and Ю15 entirely. Subtracting seven from
+    //   830, or adding six to 823, would each have produced a plausible wrong number.
+    //
+    //   THIS IS THE FIFTH CONSECUTIVE MERGE IN WHICH THIS CENSUS CONFLICTED, and the fifth in which no
+    //   arithmetic on the two branch values predicted the result: 826 vs 825 -> 827, 319 vs 325 -> 323,
+    //   359 vs 352 -> 357, 357 vs 355 -> 358, and now 358 vs 353 -> 357. The five numbers below were
+    //   READ OFF A RUN of this merge, which is the only way this file has ever been right.
+    EXPECT_EQ( CountOf( Form::Raw ), 357 );
     EXPECT_EQ( CountOf( Form::Shared ), 323 );
     EXPECT_EQ( CountOf( Form::Unique ), 111 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 830 )
+    EXPECT_EQ( (int)Members().size(), 829 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

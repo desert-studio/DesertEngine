@@ -1359,7 +1359,6 @@ namespace Desert::Core::Serialize
                 ser.Playing          = ac.Playing;
                 ser.Loop             = ac.Loop;
                 ser.PlaybackSpeed    = ac.PlaybackSpeed;
-                ser.EnableRootMotion = ac.EnableRootMotion;
                 if ( ac.Graph )
                     ser.GraphJson = Animation::Graph::Serialize( *ac.Graph );
                 return WriteBlock( ser, key );
@@ -1372,11 +1371,10 @@ namespace Desert::Core::Serialize
                 const auto& d = parsed.value();
                 auto& ac = e.HasComponent<ECS::AnimationComponent>() ? e.GetComponent<ECS::AnimationComponent>()
                                                                      : e.AddComponent<ECS::AnimationComponent>();
-                ac.CurrentClip      = d.CurrentClip;
-                ac.Playing          = d.Playing;
-                ac.Loop             = d.Loop;
-                ac.PlaybackSpeed    = d.PlaybackSpeed;
-                ac.EnableRootMotion = d.EnableRootMotion;
+                ac.CurrentClip = d.CurrentClip;
+                ac.Playing     = d.Playing;
+                ac.Loop        = d.Loop;
+                ac.PlaybackSpeed = d.PlaybackSpeed;
                 if ( !d.GraphJson.empty() )
                 {
                     auto graph = Animation::Graph::Deserialize( d.GraphJson );

@@ -70,6 +70,18 @@ namespace Desert::Editor
         for ( const auto& c : clips )
             clipNames.push_back( c->GetClip().AnimationName.c_str() );
 
+        // ---- The pipeline, in the order it runs ----
+        // Worth showing because it is now a LIST rather than three branches inside Update(): what an artist
+        // sees on screen is the product of these stages in this order, and "my layer does nothing" has a
+        // different answer depending on whether the stage is in the list at all.
+        std::string pipeline;
+        for ( const Animation::PoseStage stage : animator->GetStages() )
+        {
+            pipeline += pipeline.empty() ? "" : "  ->  ";
+            pipeline += Animation::ToString( stage );
+        }
+        ImGui::TextDisabled( "Pipeline:  %s  ->  skinning", pipeline.c_str() );
+
         // ---- Active layers ----
         ImGui::TextDisabled( "%zu active layer(s) over the base clip.", animator->GetLayerCount() );
         ImGui::Separator();

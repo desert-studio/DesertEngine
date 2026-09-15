@@ -31,9 +31,10 @@ namespace Desert::Assets
         // call this so it shows up in the AnimationLibrary / editor clip selector like a cooked clip.
         void SetInMemoryClip( const Animation::AnimationClip& clip )
         {
-            m_Clip              = clip;
-            m_SkeletonSignature = clip.SkeletonSignature;
-            m_HasClip           = true;
+            m_Clip               = clip;
+            m_Clip.TrackRevision = ++m_TrackRevision;
+            m_SkeletonSignature  = clip.SkeletonSignature;
+            m_HasClip            = true;
             // NO FILE EVER PRODUCED THIS ONE, so nothing can produce it again. See
             // AssetBase::IsReloadableFromFile.
             m_FromMemory = true;
@@ -61,6 +62,17 @@ namespace Desert::Assets
 
     private:
         Animation::AnimationClip m_Clip;
+
+        /**
+         * @brief THIS ASSET OWNS THE TRACK-LIST STAMP, because this asset is what replaces the list.
+         *
+         * `AnimationClip::TrackRevision` needs exactly one writer, and it has to be the object whose
+         * lifecycle does the replacing: `Load()` builds a new track list into the SAME `AnimationClip`
+         * (same address), and `Unload()` frees it. Everything downstream — `Animator::TrackBinding` above
+         * all — has no other way to tell one generation of the list from the next, because `Tracks.data()`
+         * and `Tracks.size()` are both free to come back identical when the allocator reuses the block.
+         */
+        uint32_t m_TrackRevision = 0;
         // WAS UNINITIALISED. `GetSkeletonSignature()` on a shell that had not been loaded returned whatever
         // was on the heap, and the animation system matches rigs on that number.
         uint64_t m_SkeletonSignature = 0;

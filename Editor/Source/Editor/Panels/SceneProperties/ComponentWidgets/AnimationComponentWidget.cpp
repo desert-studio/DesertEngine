@@ -60,14 +60,6 @@ namespace Desert::Editor
         ImGui::DragFloat( "##speed", &animation.PlaybackSpeed, 0.01f, 0.0f, 3.0f, "%.2fx" );
         Utils::ImGuiUtilities::EndPropertyRow();
 
-        // Root motion: the clip's hips displacement drives the ENTITY instead of sliding under it. The
-        // component has carried this flag all along with nothing in the editor able to set it.
-        Utils::ImGuiUtilities::BeginPropertyRow(
-             "Root Motion", "Apply the clip's root/hips displacement to the entity's transform instead of "
-                            "animating in place" );
-        ImGui::Checkbox( "##rootmotion", &animation.EnableRootMotion );
-        Utils::ImGuiUtilities::EndPropertyRow();
-
         // ============================================================
         // CLIP SELECTION
         // ============================================================

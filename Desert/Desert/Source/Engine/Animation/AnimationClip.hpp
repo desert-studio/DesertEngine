@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Animation/Pose.hpp>
+
 #include <glm/glm.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
@@ -71,14 +73,29 @@ namespace Desert::Animation
         std::vector<RotationKeyFrame> RotationKeys;
         std::vector<ScaleKeyFrame>    ScaleKeys;
 
-        [[nodiscard]] glm::mat4 GetTransform( float animationTime ) const
+        /**
+         * @brief The track's value at `animationTime`, in the three quantities it is stored in.
+         *
+         * THE MATRIX IS GONE FROM THE MIDDLE. This used to be `GetTransform`, composing the interpolated
+         * P/R/S into a mat4 — which `Animator::SampleLocalTransform` handed on and layer composition
+         * immediately decomposed again, twice per bone per layer. A round trip with no consumer of the
+         * matrix in it, on the hottest path the animation system has.
+         */
+        [[nodiscard]] BoneTransform Sample( float animationTime ) const
         {
-            glm::vec3 position = GetInterpolatedPosition( animationTime );
-            glm::quat rotation = GetInterpolatedRotation( animationTime );
-            glm::vec3 scale    = GetInterpolatedScale( animationTime );
+            BoneTransform out;
+            out.Translation = GetInterpolatedPosition( animationTime );
+            out.Rotation    = GetInterpolatedRotation( animationTime );
+            out.Scale       = GetInterpolatedScale( animationTime );
+            return out;
+        }
 
-            return glm::translate( glm::mat4( 1.0f ), position ) * glm::toMat4( rotation ) *
-                   glm::scale( glm::mat4( 1.0f ), scale );
+        /// True when the track carries anything at all. A track with three empty channels is a name with no
+        /// animation behind it, and the pose it would produce is the bind pose — which the caller already
+        /// has, and which is why every sampler checked this before reading.
+        [[nodiscard]] bool HasKeys() const
+        {
+            return !PositionKeys.empty() || !RotationKeys.empty() || !ScaleKeys.empty();
         }
 
         [[nodiscard]] glm::vec3 GetInterpolatedPosition( float animationTime ) const
@@ -179,6 +196,22 @@ namespace Desert::Animation
         // and made the vector's length a property of the exporter. Playback resolves by name
         // (Animator::ResolveTrack), so position here means nothing and is not allowed to pretend otherwise.
         std::vector<BoneTrack> Tracks;
+
+        /**
+         * @brief Bumped whenever `Tracks` is REPLACED. The only honest key for a per-clip track cache.
+         *
+         * The address of the vector's storage is not one, and believing it was left a real hole in
+         * `Animator::TrackBinding`: an unload frees a one-element track list and the reload allocates
+         * another of the same size, so malloc hands back the identical block and BOTH `Tracks.data()` and
+         * `Tracks.size()` come out unchanged across a complete replacement. The cache then kept a binding
+         * built against the OLD list — bone names mapped to the wrong tracks, and a bone the new list
+         * animates mapped to nothing at all. It is not a crash (the binding now stores indices, so it
+         * cannot dangle) and that is exactly why it would have gone unnoticed: a character that plays the
+         * wrong track after an eviction looks like bad animation data.
+         *
+         * NOT SERIALIZED: it describes this process's copy of the list, not the file.
+         */
+        uint32_t TrackRevision = 0;
 
         std::vector<AnimationNotify> Notifies; // sorted-by-time markers fired during playback
     };

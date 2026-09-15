@@ -160,7 +160,6 @@ namespace Desert::Assets
         bool        Playing          = true;
         bool        Loop             = true;
         float       PlaybackSpeed    = 1.0f;
-        bool        EnableRootMotion = false;
         std::string GraphJson;
     };
 

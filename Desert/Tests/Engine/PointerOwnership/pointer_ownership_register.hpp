@@ -1230,6 +1230,12 @@ namespace Desert::Tests::PointerCensus
           "is the SAME clip address whose Tracks vector has been freed and reallocated under it by an asset "
           "unload + reload (D34, a segfault in lower_bound). The value type now carries the storage it was "
           "built from and is rebuilt when that storage moves; see TrackBinding::TracksData below" },
+        // TrackBinding::ByBone HAS NO ROW ANY MORE, and its removal is the point. It was a
+        // `std::vector<const BoneTrack*>` guarded by ReboundBeforeEveryUse — a discipline, and disciplines
+        // are what the two questions at the top of this file exist to be suspicious of. It now holds track
+        // INDICES, so there is no pointer to dangle and nothing to rebind: the worst a stale entry can do
+        // is name the wrong track, which the revision check turns into a rebuild. A raw pointer deleted is
+        // worth more than a raw pointer argued for.
         { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
           "TrackBinding", "TracksData", Guard::IdentityOnly,
           "NOT DEREFERENCED, EVER. It is clip->Tracks.data() as it stood when the binding was built, kept only "
@@ -1237,13 +1243,6 @@ namespace Desert::Tests::PointerCensus
           "comparison is what makes the ByBone pointers below safe, and it is the whole fix: the clip keeps one "
           "address for its asset's life while AnimationAsset::Unload frees its Tracks and Load allocates a new "
           "vector, so an address-only key handed back pointers into returned memory" },
-        { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
-          "TrackBinding", "ByBone", Guard::ReboundBeforeEveryUse,
-          "BoneTracks inside the clip's own Tracks vector, and the caller's discipline that closes Q2 is "
-          "stated in code rather than in prose: ResolveTrack compares TracksData/TrackCount against the clip's "
-          "current vector before returning any of these and rebuilds them when they disagree. What would break "
-          "it is dropping that comparison -- Desert/Tests/Engine/AnimatorClipRebind is the test that would go "
-          "red, by replacing a clip's tracks in place and requiring the pose to follow" },
         { "Desert/Desert/Source/Engine/Animation/Graph/AnimGraph.hpp",
           "Result", "Current", Guard::HostOutlivesUs,
           "a State inside the AnimGraph asset the result was produced from; the graph outlives one evaluation" },
