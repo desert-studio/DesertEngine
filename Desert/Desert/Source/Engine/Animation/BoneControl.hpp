@@ -11,11 +11,13 @@
  *      which is why a half-applied IK is guaranteed to be a sane pose rather than twenty solvers' worth of
  *      slightly different opinions about what "half" means.
  *   2. ORDERING IS A CONTRACT, NOT A CONVENTION. Overrides arrive parents-before-children and `Evaluate`
- *      REFUSES a list that is not, naming the two bones. UE spells the same requirement as a `check()` in
- *      `LocalBlendCSBoneTransforms` (`BonePose.h:777-788`).
+ *      REFUSES a list that is not, naming the bone and both resolve ranks. UE spells the same requirement
+ *      as a `check()` in `LocalBlendCSBoneTransforms` (`BonePose.h:777-788`).
  *   3. COST IS PROPORTIONAL TO BONES TOUCHED. A two-bone solver on a hundred-bone rig writes three
- *      transforms and reads three parent chains. The other ninety-seven bones are not visited, not copied
- *      and not converted — and `Tests/Engine/BoneControlContract` asserts that rather than assuming it.
+ *      transforms and reads three parent chains; no loop here runs over the rig. What
+ *      `Tests/Engine/BoneControlContract` asserts is the OBSERVABLE half of that — every bone outside the
+ *      chain comes out of the stage bit-for-bit as it went in — because "was not visited" is a statement
+ *      about the machine and "did not change" is a statement a later reader can still check.
  *   4. A CONTROL CANNOT TAKE OVER THE FRAME. UE marks `EvaluateComponentSpace_AnyThread` and
  *      `Update_AnyThread` `final`; here `Evaluate` is simply not virtual, which is the same statement with
  *      no vtable slot to get wrong. The extension points are the three protected virtuals and nothing else.

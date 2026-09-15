@@ -143,7 +143,13 @@ namespace Desert::Animation
         }
 
         m_Overrides.clear();
-        auto solved = Solve( skeleton, component, m_Overrides );
+        // `this->` IS DELIBERATE AND IT IS NOT DECORATION. An unqualified call to a virtual on self is a
+        // call nobody can find: `PureVirtualCensus` scans the tree for `.Name(` and `->Name(`, and with
+        // the implicit receiver it reported `BoneControl::Solve` as a pure virtual that every implementer
+        // overrides and NO translation unit ever calls — which is the exact shape of the dead-virtual
+        // defect that census exists to catch, and it would have gone into a register as a lie. Spelling
+        // the receiver makes the dispatch visible to the reader and to the gate at the same time.
+        auto solved = this->Solve( skeleton, component, m_Overrides );
         if ( !solved.IsSuccess() )
         {
             m_LastError = solved.GetError();

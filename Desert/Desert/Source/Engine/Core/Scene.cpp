@@ -497,6 +497,11 @@ namespace Desert::Core
         r.prepare<ECS::InstancedStaticMeshComponent>();
         r.prepare<ECS::MaterialComponent>();
         r.prepare<ECS::AnimationComponent>();
+        // Skeletal controls. AnimationECSSystem asks `has<TwoBoneIKComponent>` for every animated entity,
+        // and the ask itself is a first touch — so a rig with no IK on it would have created this pool from
+        // inside the parallel phase. Found by Tests/Engine/ComponentPools, which is the census that reads
+        // the system headers rather than trusting this list.
+        r.prepare<ECS::TwoBoneIKComponent>();
         r.prepare<ECS::TextComponent>();
         r.prepare<ECS::TerrainComponent>();
 
