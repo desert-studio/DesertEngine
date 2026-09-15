@@ -63,8 +63,21 @@ namespace Desert::UI
             // THE HIGH-CONTRAST OVERLAY IS SPARSE AND THAT IS WHY IT IS CHECKED HERE RATHER THAN BAKED.
             // Baking it at load would need a second copy of the whole palette; a token with no override
             // has to keep its ordinary value, and this is the one place that knows the flag.
-            if ( m_HighContrast && m_Theme->HighContrast[index].has_value() )
-                return *m_Theme->HighContrast[index];
+            //
+            // THE SUBSCRIPT IS EVALUATED ONCE, and that is a fix and not a tidy-up. It used to be
+            // `m_HighContrast && m_Theme->HighContrast[index].has_value()` guarding
+            // `*m_Theme->HighContrast[index]` — two separate subscript expressions, so the guard on the
+            // first says nothing about the second to anyone who is not the author. scripts/CI/CheckTidy's
+            // REGISTER half reports it as bugprone-unchecked-optional-access on this line, and that half
+            // is the one that covers the lines nobody is editing. Binding the element to a reference makes
+            // the checked thing and the dereferenced thing the same object, for the reader as well.
+            if ( m_HighContrast )
+            {
+                if ( const auto& highContrast = m_Theme->HighContrast[index]; highContrast.has_value() )
+                {
+                    return *highContrast;
+                }
+            }
 
             return m_Theme->Colors[index];
         }
