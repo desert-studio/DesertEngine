@@ -99,6 +99,16 @@ namespace
              { "UI_ThemeProbe_Light", "", "probe fixture (theme resolution, light)" },
              { "UI_ThemeProbe_None", "", "probe fixture (no theme: every slot falls back to authored)" },
              { "UI_ThemeProbe_A11y", "", "probe fixture (font scale and high contrast)" },
+
+             // Ю16's three, on the same terms. UI_RenderTextureProbe and its _Hidden twin are one A/B:
+             // every label in them must be byte-identical between the two shots, because the pixels that
+             // are ALLOWED to differ are exactly the three render-texture rects. Keying any of them would
+             // put a translation between the two frames and destroy the control.
+             { "UI_RenderTextureProbe", "", "probe fixture (render-texture element: live, and two refusals)" },
+             { "UI_RenderTextureProbe_Hidden", "",
+               "probe fixture: the same scene with the elements hidden — "
+               "the negative control of the one above" },
+             { "UI_RenderTextureBudget", "", "probe fixture (six elements against six renderer slots)" },
         };
         return rules;
     }
