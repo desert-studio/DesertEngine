@@ -39,6 +39,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <iostream>
 #include <vector>
 
 using Desert::Assets::EntityData;
@@ -544,9 +545,17 @@ TEST( SceneStitchCorpus, EverySceneStitchesWithNothingShadowedMintedOrUnresolved
     }
 }
 
-// 9c. And the plan is the IDENTITY stitch on every one of them: record i becomes entity i and its payload
-// lands on itself. This is the round trip the change had to leave untouched, stated over the real files -
-// if any decision taken in SceneStitchRules.hpp moved a scene, it would move it here.
+// 9c. And the plan is the IDENTITY stitch on every one of them: the records that ARE created become
+// entities in file order and each payload lands on itself. This is the round trip the change had to leave
+// untouched, stated over the real files - if any decision taken in SceneStitchRules.hpp moved a scene, it
+// would move it here.
+//
+// "RECORD i BECOMES ENTITY i" WAS THE OLD WORDING AND IT ONLY HELD WHILE NO SCENE NAMED A PREFAB. A
+// prefab record is LISTED, not created, so it takes no slot and everything after it shifts by one. Until
+// Ю19 the corpus had no such record and the stronger sentence was true by accident; the first scene to
+// carry one would have broken this by luck of ordering alone (the witness scene passed it, because its
+// canvas happens to be the first record). The relation that is actually true is stated instead: the
+// created entities are the NON-prefab records, in file order.
 TEST( SceneStitchCorpus, EverySceneRecordBecomesItsOwnEntityInFileOrder )
 {
     for ( const auto& path : RepositoryScenes() )
@@ -557,20 +566,42 @@ TEST( SceneStitchCorpus, EverySceneRecordBecomesItsOwnEntityInFileOrder )
         const StitchPlan plan =
              PlanSceneStitch( parsed->Entities, CountingMint(), PrefabRecordPolicy::InstantiatedLater );
 
+        std::vector<size_t> nonPrefab;
+        for ( size_t record = 0; record < parsed->Entities.size(); ++record )
+        {
+            if ( !parsed->Entities[record].PrefabPath.has_value() )
+            {
+                nonPrefab.push_back( record );
+            }
+        }
+        ASSERT_EQ( plan.Created.size(), nonPrefab.size() ) << path.string();
+
         for ( size_t slot = 0; slot < plan.Created.size(); ++slot )
         {
-            EXPECT_EQ( plan.Created[slot].Record, slot ) << path.string();
+            EXPECT_EQ( plan.Created[slot].Record, nonPrefab[slot] ) << path.string();
             EXPECT_EQ( plan.Loads[slot].Target, slot ) << path.string();
             EXPECT_FALSE( plan.Created[slot].IdMinted ) << path.string();
         }
     }
 }
 
-// 9d. And no scene on disk can tell the two policies apart, because no scene names a prefab. Measured
-// rather than remembered: the day one does, the loader's pass 3 starts mattering to this corpus and
-// somebody should have to look at it.
-TEST( SceneStitchCorpus, NoSceneOnDiskCanTellTheTwoPoliciesApart )
+// 9d. THE DAY A SCENE NAMES A PREFAB HAS ARRIVED, and this test said in writing that somebody would have
+// to look at it when it did.
+//
+// It used to assert that NO scene on disk can tell the two policies apart, which was true because the
+// corpus held no prefab record at all - zero `.deprefab` files and zero scenes naming one, for the whole
+// life of the prefab subsystem. Ю19 added the first two (UI_PrefabWitness and its control), and the
+// policies now differ on them by construction, which is the POINT of the policy rather than a regression:
+// a `.desce` record naming a prefab file becomes an entity out of THAT file, so the loader must not
+// create it here.
+//
+// So the assertion is the partition, and it keeps both halves honest: a scene without a prefab record
+// must still be policy-blind (that is the round trip nothing was allowed to move), and a scene with one
+// must differ in exactly the documented way and no other.
+TEST( SceneStitchCorpus, ThePoliciesDifferExactlyOnTheScenesThatNameAPrefab )
 {
+    std::size_t scenesNamingAPrefab = 0;
+
     for ( const auto& path : RepositoryScenes() )
     {
         const auto parsed = rfl::json::read<Desert::Core::SceneSerialized>( ReadAll( path ) );
@@ -581,13 +612,45 @@ TEST( SceneStitchCorpus, NoSceneOnDiskCanTellTheTwoPoliciesApart )
         const StitchPlan inPlace =
              PlanSceneStitch( parsed->Entities, CountingMint(), PrefabRecordPolicy::CreatedInPlace );
 
-        ASSERT_EQ( listed.Created.size(), inPlace.Created.size() ) << path.string();
-        for ( size_t slot = 0; slot < listed.Created.size(); ++slot )
+        if ( listed.PrefabRecords.empty() )
         {
-            EXPECT_EQ( listed.Loads[slot].Target, inPlace.Loads[slot].Target ) << path.string();
-            EXPECT_EQ( listed.Loads[slot].Parent, inPlace.Loads[slot].Parent ) << path.string();
+            ASSERT_EQ( listed.Created.size(), inPlace.Created.size() ) << path.string();
+            for ( size_t slot = 0; slot < listed.Created.size(); ++slot )
+            {
+                EXPECT_EQ( listed.Loads[slot].Target, inPlace.Loads[slot].Target ) << path.string();
+                EXPECT_EQ( listed.Loads[slot].Parent, inPlace.Loads[slot].Parent ) << path.string();
+            }
+            continue;
+        }
+
+        ++scenesNamingAPrefab;
+
+        // The difference is exactly the prefab records: CreatedInPlace makes an entity for each of them,
+        // InstantiatedLater does not, and nothing else moves.
+        EXPECT_EQ( inPlace.Created.size(), listed.Created.size() + listed.PrefabRecords.size() ) << path.string();
+
+        for ( const auto& prefab : listed.PrefabRecords )
+        {
+            EXPECT_EQ( prefab.Slot, kNoSlot ) << path.string() << ": a listed prefab takes no slot";
+            EXPECT_TRUE( parsed->Entities[prefab.Record].PrefabPath.has_value() ) << path.string();
+            // And it knows where its body hangs, which is what the loader and PrefabFactory read.
+            if ( parsed->Entities[prefab.Record].parent.has_value() )
+            {
+                EXPECT_LT( prefab.Parent, listed.Created.size() )
+                     << path.string()
+                     << ": the prefab record names a parent the file contains, so the "
+                        "plan has to resolve it to a created slot";
+            }
         }
     }
+
+    // Printed rather than pinned: the number is the corpus's, and it was ZERO for the whole life of the
+    // prefab subsystem - which is why nothing below a prefab instance's root was ever known to be lost.
+    std::cout << "[corpus] scenes naming a prefab: " << scenesNamingAPrefab << std::endl;
+    EXPECT_GT( scenesNamingAPrefab, 0u )
+         << "no scene on disk names a prefab any more. If the witness scenes were removed, this suite has "
+            "stopped covering the loader's pass 3 and the prefab subsystem is untested by the corpus "
+            "again — say so deliberately rather than deleting this line.";
 }
 
 // 9e. And the records everything above is planned over are the records the FILE has - checked against the
