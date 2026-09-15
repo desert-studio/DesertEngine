@@ -40,8 +40,13 @@ RunTests         the unit-test suites (RunTests.sh on macOS, RunTests.ps1 on Win
 Package          [Release|Debug] — the downloadable engine drop into dist/
 ```
 
-Windows also has `scripts\Windows\RebuildAssimp.bat`, which rebuilds the one third-party dependency
-this repository commits as a prebuilt binary. It is not part of setting a machine up.
+This repository commits **no prebuilt third-party binary**. assimp was the last one — two MSVC import
+libraries whose toolset was typed into the link line and whose DLL half was never committed at all — and
+since D40 it is a pinned submodule (`Editor/ThirdParty/assimp`, v6.0.5) compiled from source by
+`BuildScripts/ThirdParty/Assimp.lua` on every platform, like the eight dependencies beside it. The
+formats it is built with are one named row each in `BuildScripts/ThirdParty/AssimpImporters.txt`, and
+`Desert/Tests/Editor/{AssimpBoundary,AssimpLibraryPin}` assert that the register, the build and the
+linked library still agree.
 
 Formatting is gated on **clang-format 18** and nothing else; `Setup.sh` installs it and prints the
 one command that runs the gate the way CI does.
