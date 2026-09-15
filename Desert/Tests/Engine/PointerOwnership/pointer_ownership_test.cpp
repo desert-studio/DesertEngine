@@ -273,11 +273,21 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //
     //   FOUR BRANCHES PREDICTED THIS NUMBER TODAY AND EACH WAS RIGHT ONLY AGAINST ITS OWN HEAD. The value
     //   below was read off a run of the merged tree, as it must be.
-    EXPECT_EQ( CountOf( Form::Raw ), 358 );
-    EXPECT_EQ( CountOf( Form::Shared ), 323 );
-    EXPECT_EQ( CountOf( Form::Unique ), 111 );
+    //
+    //   -> +4 with Ю16 (830 -> 834), and every one of the four is named because a count nobody can
+    //   account for is a count somebody will "adjust":
+    //     * Raw +1    UIViewContext::RenderTextures -- registered below as ObservedContainsUs.
+    //     * Shared +1 UIRenderTextureCache::Capture::Scene, the captured world.
+    //     * Unique +2 UIRenderTextureCache::Capture::Renderer (the SceneRenderer holding the renderer
+    //                 slot) and RuntimeLayer::m_UIRenderTextures (the cache itself, held by pointer there
+    //                 because that header forward-declares the Render2D namespace).
+    //   EditorUIPass::m_RenderTextures adds nothing: it is held BY VALUE, which is exactly what makes the
+    //   lifetime argument for the raw row above hold.
+    EXPECT_EQ( CountOf( Form::Raw ), 359 );
+    EXPECT_EQ( CountOf( Form::Shared ), 324 );
+    EXPECT_EQ( CountOf( Form::Unique ), 113 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 830 )
+    EXPECT_EQ( (int)Members().size(), 834 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -500,7 +510,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // the deferred twins of the forward instanced four that were already on this side.
     // NEITHER BRANCH'S TOTAL SURVIVES THE MERGE: Ю13 alone says 319, Г26 alone says 325, and the tree
     // says 323. Read off a run; see the arithmetic at TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 323 );
+    // 323 -> 324 with Ю16: UIRenderTextureCache::Capture::Scene, the world one UI element shows.
+    EXPECT_EQ( CountOf( Form::Shared ), 324 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

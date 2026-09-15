@@ -601,6 +601,46 @@ namespace Desert::UI
             return ctx.View.Materials->ResolveMaterial( handle );
         }
 
+        // The offscreen world a render-texture element shows this frame, or nullptr when there is none.
+        //
+        // THE SIZE IS COMPUTED HERE AND NOWHERE ELSE. `rect` is the element in canvas pixels — anchors,
+        // canvas scale and every layout group already applied — so this is the only place that knows how
+        // many texels the quad will actually show. The backend asking for it would be a second layout
+        // engine. Clamped at both ends because a target is a real allocation: an element mid-tween can
+        // pass through zero width, and an author can put ResolutionScale 2 on a full-screen element.
+        //
+        // THE ONE CASE THAT IS NOT A BACKEND ERROR AND IS STILL REPORTED: a walk with no backend behind it
+        // (`ctx.View.RenderTextures == nullptr`) — a unit test, or a host that never wired one. Reported
+        // once per view, because a per-frame line buries the log and gets the whole message ignored; the
+        // magenta is what keeps saying it, every frame.
+        const void* ResolveRenderTexture( WalkCtx& ctx, entt::entity e, const ECS::UIRenderTextureData& data,
+                                          const Rect& rect )
+        {
+            if ( ctx.View.RenderTextures == nullptr )
+            {
+                if ( ctx.View.WarnedRenderTexture != e )
+                {
+                    ctx.View.WarnedRenderTexture = e;
+                    LOG_WARN( "[UI] render-texture element {} names scene '{}' but this view has no 2D "
+                              "backend, so it draws the magenta error fill instead",
+                              static_cast<uint32_t>( e ), data.ScenePath );
+                }
+                return nullptr;
+            }
+
+            // 16 px is the floor and 4096 the ceiling: below the first a world is not a picture, and above
+            // the second one element would cost more memory than the whole editor's viewport.
+            constexpr float kMinPx = 16.0f;
+            constexpr float kMaxPx = 4096.0f;
+            const float     w      = std::clamp( rect.W * data.ResolutionScale, kMinPx, kMaxPx );
+            const float     h      = std::clamp( rect.H * data.ResolutionScale, kMinPx, kMaxPx );
+
+            const UIRenderTextureRequest request{ .ScenePath = data.ScenePath,
+                                                  .WidthPx   = static_cast<uint32_t>( w ),
+                                                  .HeightPx  = static_cast<uint32_t>( h ) };
+            return ctx.View.RenderTextures->ResolveRenderTexture( e, request );
+        }
+
         // An animated (GIF) sprite's current frame — a pure function of wall-clock time. Non-GIF handles
         // resolve to nullptr here, so ordinary textures fall through to ResolveSpriteImage.
         Graphic::Image2D* ResolveAnimatedFrame( const Assets::AssetHandle& handle )
@@ -1834,6 +1874,45 @@ namespace Desert::UI
                         DrawBox( dl, mn, mx,
                                  Tinted( ctx, glm::vec4( st.Color( StyleSlot::ImageTint, im.Tint ), im.Opacity ) ),
                                  im.Sprite, im.SpriteBorder, scale, 0.0f );
+                }
+
+                if ( reg.has<ECS::UIRenderTextureComponent>( e ) )
+                {
+                    // A LIVE WORLD IN THE RECT (Ю16). The backend rendered it offscreen before this frame's
+                    // render pass opened — a nested one is illegal, which is why the producer runs in the
+                    // host's pre-update and this site only samples what it left.
+                    //
+                    // ASKING IS ALSO THE DEMAND. Reaching this line is how the backend learns the element
+                    // is on screen; an element the walk skipped — not Visible, scrolled out of a clipped
+                    // list, on a screen that is not current — is never asked about, and the backend
+                    // destroys its capture and gives the renderer slot back. That is the whole answer to
+                    // "what happens on the seventh one", and it is an answer no flag could have given:
+                    // a slot comes back by DESTRUCTION and by nothing else.
+                    const auto& rt = reg.get<ECS::UIRenderTextureComponent>( e ).Data;
+
+                    // NOT THEMED, and that is a decision. Every other element here resolves its colour
+                    // through a StyleSlot, but a theme's Image.Tint belongs to UIImageComponent — the
+                    // Details panel shows the Image slots only for an element that HAS one, and
+                    // Desert/Tests/Engine/UIStyle pins that pairing. Borrowing the slot would give this
+                    // element a themed value the author cannot see or edit. Tint here is a straight
+                    // multiply on a live picture, so it is the element's own field and nothing else's.
+                    const glm::vec4 tint = Tinted( ctx, glm::vec4( rt.Tint, rt.Opacity ) );
+
+                    if ( rect.W > 0.0f && rect.H > 0.0f )
+                    {
+                        if ( const void* world = ResolveRenderTexture( ctx, e, rt, rect ); world != nullptr )
+                        {
+                            dl.AddImage( world, mn, mx, { 0.0f, 0.0f }, { 1.0f, 1.0f }, tint );
+                        }
+                        else
+                        {
+                            // MAGENTA, NOT NOTHING, and it is the same rule IUIMaterialSource states: an
+                            // element that renders nothing is indistinguishable from an element that was
+                            // meant to render nothing. The reason is already in the log with its numbers
+                            // — who refused knows why, this site only knows that somebody did.
+                            dl.AddRectFilled( mn, mx, Tinted( ctx, glm::vec4( 1.0f, 0.0f, 1.0f, 1.0f ) ), 0.0f );
+                        }
+                    }
                 }
 
                 // Keyboard focus: record this control for Tab-cycling, and draw a focus ring when it holds

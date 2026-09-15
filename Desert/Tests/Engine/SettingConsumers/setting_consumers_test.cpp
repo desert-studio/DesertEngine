@@ -763,6 +763,16 @@ namespace
          { "Scale", kCanvasRenderer },
     };
 
+    // Ю16. All four are read in the canvas walk: ScenePath and ResolutionScale by ResolveRenderTexture,
+    // which is the only place that knows how many texels the quad shows, and Tint/Opacity at the draw
+    // site. The BACKEND then reads the path again out of the request — one value, passed, not copied.
+    constexpr Row kRenderTextureRows[] = {
+         { "ScenePath", kCanvasRenderer },
+         { "Tint", kCanvasRenderer },
+         { "Opacity", kCanvasRenderer },
+         { "ResolutionScale", kCanvasRenderer },
+    };
+
     constexpr Row kProgressBarRows[] = {
          { "Value", kCanvasRenderer },
          { "Background", kCanvasRenderer },
@@ -916,6 +926,7 @@ namespace
          { "UITextData", "UITextComponent2D", nullptr, CENSUS_ROWS( kTextRows ) },
          { "UIImageData", "UIImageComponent", nullptr, CENSUS_ROWS( kImageRows ) },
          { "UIIconData", "UIIconComponent", nullptr, CENSUS_ROWS( kIconRows ) },
+         { "UIRenderTextureData", "UIRenderTextureComponent", nullptr, CENSUS_ROWS( kRenderTextureRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
@@ -1067,7 +1078,9 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // is in kCensus above and every field of each is WIRED, so the number moved because the register did,
     // which is the only reason this literal may ever be edited. NEITHER BRANCH'S NUMBER IS RIGHT ALONE:
     // 38 and 39 are each correct against dev and both are wrong here, which is what the register is for.
-    EXPECT_EQ( all.size(), 40u );
+    // -> 41 with Ю16's UIRenderTextureData. Its four fields are WIRED, all four to the canvas walk:
+    // ScenePath and ResolutionScale in ResolveRenderTexture, Tint and Opacity at the draw site.
+    EXPECT_EQ( all.size(), 41u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

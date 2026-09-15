@@ -1816,6 +1816,56 @@ namespace Desert::ECS
         UIImageData Data;
     };
 
+    // A LIVE WORLD INSIDE A UI ELEMENT (Ю16). The element's rect is filled with another scene — named by
+    // its .desce path — rendered offscreen every frame through that scene's own camera, then sampled as a
+    // texture. UE calls the family "render target": a character portrait in a menu, an inventory item you
+    // can turn, a security-camera feed, a minimap.
+    //
+    // WHY A SCENE FILE AND NOT A MESH SLOT. A mesh slot would need this component to carry a camera, a
+    // light rig and a background as well, and every one of those is a thing the scene editor already
+    // authors better than a Details page can. The author builds the little world as a normal scene, puts
+    // its camera where the shot should be, saves, and names it here — so what the element shows is
+    // WYSIWYG in the tool that already exists, and this component stays four fields.
+    //
+    // WHY IT IS NOT FREE, said here because the price is the design. Each of these elements that is
+    // actually on screen owns a Graphic::SceneRenderer, and therefore one of the six renderer slots
+    // (Engine/Core/RendererSlotPool.hpp). The seventh is REFUSED, by name and with numbers, and draws the
+    // magenta error fill rather than nothing — see Engine/UI/UIRenderTextureSource.hpp for who decides
+    // and Engine/Graphic/Render2D/UIRenderTextureCache.hpp for the accounting. An element the walk did
+    // not draw this frame — scrolled away, or not Visible — is not on screen, and its slot goes back.
+    struct UIRenderTextureData
+    {
+        REFLECT()
+
+        // The scene to render, as a path a host can open ("Resources/Assets/Scenes/UI_Portrait.desce").
+        // A PATH and not an AssetHandle because scenes are not assets in this engine: there is no
+        // SceneAsset type, no service that hands one out, and the only other place that names a scene
+        // from a component — UIButtonData::Action, "scene:<path>" — names it exactly this way. Inventing
+        // a handle type for one field would be a second identity for a file the project already
+        // identifies by path.
+        PROPERTY( DisplayName( "Scene" ), Category( "UI Render Texture" ),
+                  Tooltip( "Path to a .desce rendered live into this element, e.g. "
+                           "Resources/Assets/Scenes/UI_Portrait.desce" ) )
+        std::string ScenePath;
+
+        PROPERTY( DisplayName( "Tint" ), Category( "UI Render Texture" ), Color )
+        glm::vec3 Tint = glm::vec3( 1.0f );
+
+        PROPERTY( DisplayName( "Opacity" ), Category( "UI Render Texture" ), Range( 0.0f, 1.0f ) )
+        float Opacity = 1.0f;
+
+        // Offscreen pixels per element pixel. 1 renders the world at the size it is shown; below that it
+        // is cheaper and softer, above it supersamples. It is a knob on the PICTURE and on the cost at
+        // once, which is why it is the only performance control here — the rest of the world's quality is
+        // the scene's own business.
+        PROPERTY( DisplayName( "Resolution Scale" ), Category( "UI Render Texture" ), Range( 0.25f, 2.0f ) )
+        float ResolutionScale = 1.0f;
+    };
+    struct UIRenderTextureComponent
+    {
+        UIRenderTextureData Data;
+    };
+
     // Screen-space text label (distinct from the 3D world-space TextComponent).
     struct UITextData
     {
