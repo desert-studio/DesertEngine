@@ -328,14 +328,25 @@ namespace
     // NOT PERSISTED, ON PURPOSE. Each line is the reason, and a name here that is no longer a component
     // fails this suite too — a stale exemption is how a list like this stops meaning anything.
     //
-    // IT IS EMPTY, AND THAT IS THE CURRENT STATE OF THE TREE, NOT AN OVERSIGHT. Its one entry was
-    // `ProjectileComponent`, exempted as "spawned by a script during Play, so there is no authored
-    // projectile to save". U13 measured that claim against the editor and it was false: the Details
-    // panel offers `Add Component > Projectile` and then four editable fields, and a bullet is normally
-    // authored exactly that way and saved as a prefab for the firing script to spawn. It is registered
-    // now. The bucket stays because a genuinely transient component is a real thing; a name entering it
-    // has to bring a reason that survives being checked, which that one did not.
-    const std::map<std::string, std::string> kTransient = {};
+    // It was EMPTY until Ю19, and that was the state of the tree rather than an oversight. Its previous
+    // entry was `ProjectileComponent`, exempted as "spawned by a script during Play, so there is no
+    // authored projectile to save". U13 measured that claim against the editor and it was false: the
+    // Details panel offers `Add Component > Projectile` and then four editable fields, and a bullet is
+    // normally authored exactly that way and saved as a prefab for the firing script to spawn. It is
+    // registered now. The bucket stays because a genuinely transient component is a real thing; a name
+    // entering it has to bring a reason that survives being checked, which that one did not.
+    const std::map<std::string, std::string> kTransient = {
+         { "PrefabInstanceComponent",
+           "DERIVED, and the only copy would be the stale one. It records which RECORD of which prefab "
+           "file an entity was instantiated from, and PrefabFactory stamps it on every entity it creates, "
+           "at every nesting depth, on every instantiation — so it is rebuilt in full whenever the "
+           "instance is. Writing it into a `.desce` would put a second copy of a fact the `.deprefab` "
+           "already states, and the two would part company the first time the prefab was re-authored: a "
+           "scene's copy would then address records that no longer exist and the overrides keyed by it "
+           "would silently stop applying. CHECKED AGAINST THE EDITOR, which is what this bucket demands: "
+           "the Details panel cannot add it (it is not in the Add Component menu and carries no PROPERTY "
+           "field), and nothing a user can set lives on it — it holds one vector of record ids." },
+    };
 } // namespace
 
 // ── THE CENSUS ─────────────────────────────────────────────────────────────────────────────────────

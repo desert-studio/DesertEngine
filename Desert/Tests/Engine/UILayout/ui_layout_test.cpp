@@ -132,6 +132,61 @@ TEST( UILayoutGroup, GridWrapsByColumns )
     EXPECT_TRUE( RectNear( out[2], { 0, 60, 50, 50 } ) ); // r1 c0 (wrapped)
 }
 
+// --- WHAT HAPPENS TO A UI PREFAB'S ANCHORS WHEN IT IS PUT UNDER A DIFFERENT PARENT (Ю19) -------------
+//
+// The question has one honest answer and this is it: NOTHING HAPPENS TO THEM. Anchors and offsets are
+// AUTHORED DATA — the prefab file states them and instantiation does not rewrite them — so the instance
+// resolves against whatever parent it was placed under, exactly as the same element would if an author
+// dragged it there by hand.
+//
+// THE ALTERNATIVE WAS CONSIDERED AND REFUSED. "Preserve the pixels": rewrite the offsets at instantiation
+// so the instance lands looking as it did in the prefab. That makes the prefab's authored values a
+// function of where it was dropped (two sources of truth for one rect, and the file's copy the one that
+// is wrong), and it DESTROYS the stretch case outright — an element anchored (0,0)-(1,1) exists in order
+// to follow its parent's size, and freezing it to the pixels of the parent it was authored against is
+// the opposite of what it says. The three tests below are that argument as assertions.
+
+TEST( UILayout, InstanceKeepsAuthoredAnchorsUnderANewParent )
+{
+    // A fixed-size element: anchored to the parent's centre, 200x80.
+    const auto resolve = []( const Rect& parent )
+    { return ResolveRect( { 0.5f, 0.5f }, { 0.5f, 0.5f }, { -100, -40 }, { 100, 40 }, { 0, 0 }, parent ); };
+
+    const Rect inSmall = resolve( { 0, 0, 400, 300 } );
+    const Rect inLarge = resolve( { 0, 0, 1280, 720 } );
+
+    // The SIZE is the authored size in both — that is what "the offsets were not rewritten" means.
+    EXPECT_TRUE( RectNear( inSmall, { 100, 110, 200, 80 } ) );
+    EXPECT_TRUE( RectNear( inLarge, { 540, 320, 200, 80 } ) );
+}
+
+TEST( UILayout, AStretchedInstanceFollowsTheNewParentsSize )
+{
+    // The case a "preserve the pixels" instantiation would silently break: a full-bleed background.
+    const auto resolve = []( const Rect& parent )
+    { return ResolveRect( { 0, 0 }, { 1, 1 }, { 16, 16 }, { -16, -16 }, { 0, 0 }, parent ); };
+
+    EXPECT_TRUE( RectNear( resolve( { 0, 0, 400, 300 } ), { 16, 16, 368, 268 } ) );
+    EXPECT_TRUE( RectNear( resolve( { 0, 0, 1280, 720 } ), { 16, 16, 1248, 688 } ) );
+}
+
+TEST( UILayout, TwoInstancesUnderIdenticalParentsResolveIdentically )
+{
+    // The arithmetic half of the frame claim "a prefab inserted twice looks the same": identical
+    // authored values against identical parent rects give the same rect to the last bit. If this could
+    // fail, no pixel comparison of two instances would mean anything.
+    const Rect parentA{ 0, 0, 640, 480 };
+    const Rect parentB{ 0, 0, 640, 480 };
+
+    const Rect a = ResolveRect( { 0, 0 }, { 0, 0 }, { 12, 34 }, { 212, 114 }, { 0, 0 }, parentA );
+    const Rect b = ResolveRect( { 0, 0 }, { 0, 0 }, { 12, 34 }, { 212, 114 }, { 0, 0 }, parentB );
+
+    EXPECT_EQ( a.X, b.X );
+    EXPECT_EQ( a.Y, b.Y );
+    EXPECT_EQ( a.W, b.W );
+    EXPECT_EQ( a.H, b.H );
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );

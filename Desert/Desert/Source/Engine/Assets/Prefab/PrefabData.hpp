@@ -167,6 +167,42 @@ namespace Desert::Assets
     // the reflection registry (ComponentRegistry + ReflectionSerializer + AssetResolver). Only the mesh
     // mirrors above remain (derived geometry isn't reflectable).
 
+    // ONE ENTITY'S DEVIATION FROM THE PREFAB IT CAME FROM — the thing that makes an instance an
+    // instance rather than a copy.
+    //
+    // WHY IT EXISTS AT ALL. Before this, a prefab instance survived a `.desce` round trip as its ROOT'S
+    // TRANSFORM AND NOTHING ELSE: SceneSerializer skips every entity under a PrefabComponent when it
+    // writes (so no child was ever recorded), and on load it applied only Translation/Rotation/Scale to
+    // the instantiated root (so even the root's own component payloads, which WERE written, were
+    // discarded). Recolour a button inside an instance, save, reload, and the colour is gone with no
+    // error anywhere. That is the exact failure the prefab concept exists to prevent, and it was silent.
+    //
+    // WHY A DIFF AND NOT A COPY OF THE INSTANCE. A copy would pin every field, so a later edit to the
+    // source prefab would reach no instance that had ever been touched — which is copy-paste wearing a
+    // prefab's name. Only the keys that DIFFER are recorded, so everything else keeps following the
+    // source. That is the whole difference, and it is why the capture is a comparison rather than a
+    // serialization.
+    //
+    // ADDRESSING: `Path` is the chain of RECORD ids from the outermost prefab file down to this entity's
+    // own record — one id for an entity of the instance itself, two for an entity inside a prefab nested
+    // one level down, and so on. Record ids live in the `.deprefab` and do not change when an instance is
+    // created, which is what makes an override survive a reload; the entity UUIDs cannot be used because
+    // PrefabFactory mints fresh ones on every instantiation by design.
+    struct PrefabOverrideData
+    {
+        std::vector<Common::UUID> Path;
+
+        std::optional<std::string> Tag;
+
+        std::optional<glm::vec3> Translation;
+        std::optional<glm::vec3> Rotation;
+        std::optional<glm::vec3> Scale;
+
+        // Only the component keys whose payload differs from the base record's. Spread at this record's
+        // top level by ExtraFields, exactly as EntityData spreads its own components.
+        rfl::ExtraFields<rfl::Generic> Components;
+    };
+
     struct EntityData
     {
         std::optional<Common::UUID> id;
@@ -187,6 +223,14 @@ namespace Desert::Assets
         // compatibility). Reflected blocks are filled by ReflectionSerializer; asset-bearing ones by
         // custom handlers in ComponentRegistry.
         rfl::ExtraFields<rfl::Generic> Components;
+
+        // Set ONLY on a record that carries a PrefabPath: how this instance differs from the file it
+        // names. Absent means "identical to the source", which is what every instance is at birth.
+        //
+        // It is a NAMED field and not another component key so that the diff is addressable as data —
+        // and because ExtraFields would otherwise hand it to ComponentRegistry, which has no such key
+        // and would drop it.
+        std::optional<std::vector<PrefabOverrideData>> PrefabOverrides;
     };
 
     struct PrefabData

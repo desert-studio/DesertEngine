@@ -7,6 +7,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
+#include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
@@ -85,7 +86,53 @@ namespace Desert::Core
             {
                 continue;
             }
-            scene.Entities.push_back( Serialize::EntitySerializer::SerializeEntity( entity, *m_AssetManager ) );
+            Assets::EntityData data = Serialize::EntitySerializer::SerializeEntity( entity, *m_AssetManager );
+
+            // A PREFAB INSTANCE IS A LINK PLUS ITS DIFFERENCES, AND NOTHING ELSE.
+            //
+            // The loop above skips every entity under an instance root, so before Ю19 a `.desce` recorded
+            // an instance as its root's payload alone — and the loader applied only the root's
+            // translation, rotation and scale from it. Everything else a user had touched inside an
+            // instance, including the root's own components, was written or not written and then
+            // discarded on load without a word. That is the difference between a prefab and a copy,
+            // deleted silently.
+            //
+            // So the root's own values are STRIPPED here and re-stated as override records covering the
+            // whole instance, root included. One value lives in one place: either the prefab file says
+            // it, or the override does. Leaving the record's copy in place as well would be the same
+            // value written twice with a reader that prefers one of them — the shape §4.2 of the contract
+            // forbids, and the reason the material mirror lost its `Path` field.
+            if ( entity.HasComponent<ECS::PrefabComponent>() && data.PrefabPath.has_value() )
+            {
+                const Serialize::PrefabInstanceCapture capture =
+                     Serialize::CapturePrefabInstance( entity, *m_AssetManager );
+
+                data.Tag = std::nullopt;
+                data.Translation.reset();
+                data.Rotation.reset();
+                data.Scale.reset();
+                data.Components.clear();
+
+                if ( !capture.Overrides.empty() )
+                {
+                    data.PrefabOverrides = capture.Overrides;
+                }
+
+                // The three things an override cannot express, said out loud with the instance's name and
+                // the counts. They used to be indistinguishable from "nothing was changed here".
+                if ( capture.AddedEntities > 0 || capture.RemovedComponents > 0 ||
+                     capture.UnaddressableEntities > 0 )
+                {
+                    LOG_WARN( "[Prefab] instance of '{0}': {1} entity(ies) added inside it, {2} component(s) "
+                              "removed from its entities and {3} entity(ies) with no addressable source "
+                              "record are NOT saved with the scene. Unpack the prefab to keep them, or "
+                              "apply them to the source file.",
+                              *data.PrefabPath, capture.AddedEntities, capture.RemovedComponents,
+                              capture.UnaddressableEntities );
+                }
+            }
+
+            scene.Entities.push_back( std::move( data ) );
         }
 
         // Scene-wide settings via the generic reflection serializer (no hand-written mirror struct).
@@ -315,21 +362,29 @@ namespace Desert::Core
             }
 
             std::unordered_set<Common::UUID> stack;
+            // WITH THE ID THE FILE STATES. The factory mints a fresh uuid for every entity of an instance,
+            // and for the root that meant this scene was written with a different id for the same instance
+            // on every save — the only difference between two consecutive saves of a scene holding one.
             ECS::Entity prefabRoot = Runtime::Factory::PrefabFactory::Instantiate(
-                *prefabAsset, *m_Scene, *m_AssetManager, stack );
+                 *prefabAsset, *m_Scene, *m_AssetManager, stack, {}, entityData->id );
 
             if ( !prefabRoot )
                 continue;
 
-            // Apply the transform that was saved in the scene for this prefab root
-            if ( entityData->Translation || entityData->Rotation || entityData->Scale )
+            // WHAT THIS INSTANCE HOLDS OF ITS OWN, put back. This used to be three transform fields and
+            // nothing else, which is why every other edit inside an instance disappeared on reload; the
+            // root's transform is now one override among the rest and takes the same path as they do.
+            if ( entityData->PrefabOverrides.has_value() && !entityData->PrefabOverrides->empty() )
             {
-                auto& tc = prefabRoot.HasComponent<ECS::TransformComponent>()
-                    ? prefabRoot.GetComponent<ECS::TransformComponent>()
-                    : prefabRoot.AddComponent<ECS::TransformComponent>();
-                if ( entityData->Translation ) tc.Translation = *entityData->Translation;
-                if ( entityData->Rotation )    tc.Rotation    = *entityData->Rotation;
-                if ( entityData->Scale )       tc.Scale       = *entityData->Scale;
+                const auto        indexed = Runtime::Factory::PrefabFactory::IndexInstance( prefabRoot );
+                const std::size_t missed  = Runtime::Factory::PrefabFactory::ApplyOverrides(
+                     *entityData->PrefabOverrides, indexed, {}, *m_AssetManager );
+                if ( missed > 0 )
+                {
+                    LOG_WARN( "SceneSerializer: {0} of {1} override(s) saved for the instance of '{2}' name "
+                              "an entity that prefab no longer contains. They were NOT applied.",
+                              missed, entityData->PrefabOverrides->size(), *entityData->PrefabPath );
+                }
             }
 
             // Register in map under the original saved UUID so parent links resolve. A prefab root saved

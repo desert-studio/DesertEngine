@@ -468,8 +468,25 @@ namespace Desert::Editor
         if ( !prefab->IsReadyForUse() )
             prefab->Load();
 
-        // Same instantiate path the viewport-drop uses (undoable, selects the new root).
-        ECS::Entity root = prefab->Instantiate( scene.get(), *m_AssetManager, nullptr );
+        // Same instantiate path the viewport-drop uses (undoable, selects the new root). Under the
+        // SELECTED entity when there is one, so a UI prefab inserted from here lands inside the canvas
+        // the author is working in rather than at the scene root, where it would draw nothing.
+        ECS::Entity parentEntity;
+        if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
+        {
+            if ( auto ref = scene->FindEntityByID( *sel ) )
+            {
+                parentEntity = ref->get();
+            }
+        }
+
+        const auto placed = prefab->Instantiate( scene.get(), *m_AssetManager, parentEntity, nullptr );
+        if ( !placed )
+        {
+            LOG_ERROR( "{}", placed.GetError() );
+            return;
+        }
+        const ECS::Entity root = placed.GetValue();
         if ( root )
         {
             const auto uuid = root.GetComponent<ECS::UUIDComponent>().UUID;

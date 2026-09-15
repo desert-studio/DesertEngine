@@ -431,9 +431,27 @@ namespace Desert::Editor
                         if ( selectedEntity.HasComponent<ECS::TransformComponent>() )
                             savedPos = selectedEntity.GetComponent<ECS::TransformComponent>().Translation;
 
+                        ECS::Entity parentEntity;
+                        if ( selectedEntity.HasComponent<ECS::RelationshipComponent>() )
+                        {
+                            const entt::entity ph =
+                                 selectedEntity.GetComponent<ECS::RelationshipComponent>().Parent;
+                            if ( ph != entt::null )
+                            {
+                                parentEntity = ECS::Entity{ ph, m_Scene->GetRegistry() };
+                            }
+                        }
+
                         m_Scene->DestroyEntity( const_cast<ECS::Entity&>( selectedEntity ) );
                         Core::SelectionManager::ClearSelection();
-                        prefabAsset->Instantiate( m_Scene.get(), *m_AssetManager, savedPos ? &*savedPos : nullptr );
+                        // The parent is kept, because a UI element reverted to the scene root would be
+                        // legal, invisible and silent — the case PrefabPlacement refuses by name.
+                        if ( const auto placed = prefabAsset->Instantiate(
+                                  m_Scene.get(), *m_AssetManager, parentEntity, savedPos ? &*savedPos : nullptr );
+                             !placed )
+                        {
+                            LOG_ERROR( "{}", placed.GetError() );
+                        }
                     }
                 }
                 ImGui::CloseCurrentPopup();
