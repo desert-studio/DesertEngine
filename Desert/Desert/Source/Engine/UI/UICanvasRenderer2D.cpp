@@ -2026,7 +2026,9 @@ namespace Desert::UI
                     {
                         const entt::entity c = children[static_cast<std::size_t>( i )];
                         if ( !reg.valid( c ) )
+                        {
                             continue;
+                        }
                         const Rect rowRect = ListRowRect( rect, window, i );
                         DrawElement( ctx, reg, c, rect, scale, dl, input, outClicked, focused, popups, focusables,
                                      childClip, childScope, &rowRect );
@@ -2362,7 +2364,9 @@ namespace Desert::UI
             {
                 const std::string& n = reg.get<ECS::UIScreenComponent>( s ).Data.Name;
                 if ( n.empty() || CanvasOf( reg, s ) != canvasEntity )
+                {
                     continue;
+                }
                 anyScreenHere = true;
                 if ( n == ctx.Canvas.Screen )
                 {
@@ -2377,7 +2381,9 @@ namespace Desert::UI
                                    [&firstScreen]( const std::string& n )
                                    {
                                        if ( firstScreen.empty() )
+                                       {
                                            firstScreen = n;
+                                       }
                                    } );
                 if ( !firstScreen.empty() )
                 {
