@@ -2,6 +2,7 @@
 
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
+#include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 
 namespace Desert::Editor::Render
@@ -20,6 +21,16 @@ namespace Desert::Editor::Render
         // the pass. Call after every Scene::Init — the framebuffers are recreated there.
         Common::BoolResultStr Install( const std::shared_ptr<Core::Scene>& scene );
 
+        // ADVANCE THE WORLDS THIS VIEW'S RENDER-TEXTURE ELEMENTS SHOW (Ю16). MUST be called from the
+        // editor's pre-update, before any scene of this frame opens a pass: a capture records a whole
+        // scene render, and Vulkan has no nested render pass — the pass below runs INSIDE one. It is a
+        // method on the pass rather than work the pass does itself for exactly that reason; the two
+        // halves are described in UIRenderTextureCache.hpp.
+        void TickRenderTextures( Assets::AssetManager& assetManager, const Common::Timestep& ts )
+        {
+            m_RenderTextures.Tick( assetManager, ts );
+        }
+
     private:
         std::weak_ptr<Core::Scene>  m_Scene;
         Graphic::Render2D::Render2D m_Render2D;
@@ -34,5 +45,11 @@ namespace Desert::Editor::Render
         // LIFETIME: by value in the pass, and the pass is owned by the document's RenderRegistry. Closing
         // the document destroys the pass and with it every cell — there is nothing to release by hand.
         ::Desert::UI::UIViewContext m_UIView;
+
+        // The offscreen worlds behind this view's render-texture elements. By value in the pass for the
+        // same reason m_UIView is: closing the document destroys the pass, and destroying this is what
+        // hands its renderer slots back — there is nothing to release by hand, and nothing that can be
+        // forgotten at a close site.
+        Graphic::Render2D::UIRenderTextureCache m_RenderTextures;
     };
 } // namespace Desert::Editor::Render

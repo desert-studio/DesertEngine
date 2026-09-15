@@ -125,6 +125,11 @@ namespace Desert::Editor::Render
             // UIViewContext::Materials.
             m_UIView.Materials = &m_Render2D.Materials();
 
+            // And the worlds. Same rule and a stronger one: this source owns renderer SLOTS, and it
+            // learns which of its captures are still wanted from the walks below — so it must be THIS
+            // view's, never shared with another (UIViewContext::RenderTextures).
+            m_UIView.RenderTextures = &m_RenderTextures;
+
             // DESIGN MODE IS AN AUTHORING VIEW, AND PREVIEW IS NOT. With Play-in-editor off the overlays of
             // the level — tooltips, menus, dialogs, the toast stack — are drawn where they were authored, so
             // they can be selected, moved and edited in the viewport like any other canvas. Turning Preview

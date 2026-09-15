@@ -18,6 +18,11 @@ namespace Desert::Editor::Render
 
         void Render();
 
+        // Advance the worlds this document's render-texture UI elements show. Forwarded to the UI pass,
+        // and called from EditorLayer's pre-update — see EditorUIPass::TickRenderTextures for why it
+        // cannot happen inside the pass.
+        void TickRenderTextures( Assets::AssetManager& assetManager, const Common::Timestep& ts );
+
     private:
         std::weak_ptr<Core::Scene> m_Scene;
 
