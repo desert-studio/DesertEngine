@@ -1575,9 +1575,14 @@ namespace Desert::Graphic
             // AFTER the deferred lighting composite so they aren't painted over by lit geometry, and as LOAD
             // overlays so a CLEAR begin here never wipes the depth later overlays test against (the particle
             // top-down bug / grid-through-meshes).
-            if ( pass.Phase == RenderPhase::Debug || pass.Phase == RenderPhase::Transparency ||
-                 pass.Phase == RenderPhase::UI )
+            //
+            // THE SET IS NAMED ONCE, in RenderPhase.hpp. It used to be this disjunction plus one equality
+            // in each of the three Execute* functions below — four expressions of one policy, and nothing
+            // forced them to agree.
+            if ( RenderPhase::IsDeferredOverlay( pass.Phase ) )
+            {
                 continue;
+            }
 
             const auto passFb = pass.CachedRenderPass->GetSpecification().TargetFramebuffer;
 
@@ -1604,6 +1609,12 @@ namespace Desert::Graphic
 
     void SceneRenderer::ExecuteDebugOverlay()
     {
+        // The main graph loop skipped this phase for this function to draw it; if the register
+        // in RenderPhase.hpp ever stops naming it, the loop would draw it BEFORE the composite
+        // and this function would find nothing. That is a compile error rather than a frame.
+        static_assert( RenderPhase::IsDeferredOverlay( RenderPhase::Debug ),
+                       "ExecuteDebugOverlay draws RenderPhase::Debug, so the main loop must skip it" );
+
         const auto& sortedPasses = m_RenderGraphBuilder.GetSortedPasses();
 
         auto& renderer = Renderer::GetInstance();
@@ -1699,6 +1710,12 @@ namespace Desert::Graphic
 
     void SceneRenderer::ExecuteTransparency()
     {
+        // The main graph loop skipped this phase for this function to draw it; if the register
+        // in RenderPhase.hpp ever stops naming it, the loop would draw it BEFORE the composite
+        // and this function would find nothing. That is a compile error rather than a frame.
+        static_assert( RenderPhase::IsDeferredOverlay( RenderPhase::Transparency ),
+                       "ExecuteTransparency draws RenderPhase::Transparency, so the main loop must skip it" );
+
         const auto& sortedPasses = m_RenderGraphBuilder.GetSortedPasses();
 
         auto& renderer = Renderer::GetInstance();
@@ -1751,6 +1768,12 @@ namespace Desert::Graphic
 
     void SceneRenderer::ExecuteUI()
     {
+        // The main graph loop skipped this phase for this function to draw it; if the register
+        // in RenderPhase.hpp ever stops naming it, the loop would draw it BEFORE the composite
+        // and this function would find nothing. That is a compile error rather than a frame.
+        static_assert( RenderPhase::IsDeferredOverlay( RenderPhase::UI ),
+                       "ExecuteUI draws RenderPhase::UI, so the main loop must skip it" );
+
         const auto& sortedPasses = m_RenderGraphBuilder.GetSortedPasses();
 
         auto& renderer = Renderer::GetInstance();
