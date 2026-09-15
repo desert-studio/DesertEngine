@@ -134,6 +134,20 @@ Editor/Cooked/Textures/*
 # bone name SkinProbe does not have, so a library that offers it to this rig is wrong in a way a passing
 # frame would otherwise hide. Editor/Resources/Assets/Scenes/ANIM_ClipProbe.desce plays the first two;
 # Desert/Tests/Engine/AnimationClipCorpus parses all three and pins what they carry.
+# THE FIFTH: the TWO-BONE WITNESS, and it exists because of what the four above CANNOT see. Every rig in
+# this repository until now was ONE bone with an IDENTITY OffsetMatrix and no parent chain, so a whole class
+# of animation defect — anything that confuses a bone's own space with skinning space — produced EXACTLY the
+# same frame as the correct code and was therefore unobservable here by any means. One such defect is live in
+# `dev` as this lands: Animator::CalculateBlendedPose decomposes `global * OffsetMatrix` and slerps the
+# rotation of THAT PRODUCT, i.e. of a quantity with the inverse bind pose baked into it. Measured over the
+# two corpora: on the one-bone probe the wrong blend and the right one differ by 0.000 cm at every key pair
+# and every alpha; on this rig they differ by up to 254.96 cm. TwoBoneProbe is two bones, "Base" (root) and
+# "Arm" (its child), both with a non-identity OffsetMatrix and a non-identity parent transform; its mesh is
+# two boxes, one per bone, so the chain is visible rather than inferred. Neither bone is named "Root" or
+# "Hips" on purpose — ClipSkeletonMatch falls back to bone-name overlap, so either name would hand this rig
+# the one-bone corpus or the Foreign_Hips negative control. Hand-authored like everything above, and
+# Desert/Tests/Engine/TwoBoneWitness rebuilds the whole construction in C++ and compares it to these bytes.
+# Editor/Resources/Assets/Scenes/ANIM_TwoBoneWitness.desce places it, blind control beside witness.
 !Editor/Cooked/Meshes/
 Editor/Cooked/Meshes/*
 !Editor/Cooked/Meshes/SkinProbe.skeleton
@@ -142,6 +156,10 @@ Editor/Cooked/Meshes/*
 !Editor/Cooked/Meshes/SkinProbe_Hover.anim
 !Editor/Cooked/Meshes/SkinProbe_Tilt.anim
 !Editor/Cooked/Meshes/Foreign_Hips.anim
+!Editor/Cooked/Meshes/TwoBoneProbe.skeleton
+!Editor/Cooked/Meshes/TwoBoneProbe.skmesh
+!Editor/Cooked/Meshes/TwoBoneProbe_Wave.anim
+!Editor/Cooked/Meshes/TwoBoneProbe_Twist.anim
 
 # Fetched by scripts/MacOS/Setup.sh (not a submodule)
 ThirdParty/meshoptimizer/
