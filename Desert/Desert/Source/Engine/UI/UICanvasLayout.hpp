@@ -116,7 +116,11 @@ namespace Desert::UI
         SelfCollapsed,    // UIVisibility::Collapsed on this element (drops its slot in a layout group)
         BindingHidden,    // a UIBinding with target Visible resolved to false in the UI data store
         ScreenNotCurrent, // a UIScreen sub-tree that is neither the current screen nor the one leaving
-        AncestorSkipped   // an ancestor stopped for one of the reasons above
+        OutsideWindow,    // a row of a UIListView outside the window this frame walks (Ю17)
+        AncestorSkipped,  // an ancestor stopped for one of the reasons above
+
+        // The register's own end, so nothing that is sized by it can be sized by a typed number instead.
+        Count
     };
 
     [[nodiscard]] const char* UISkipCauseName( UISkipCause cause );

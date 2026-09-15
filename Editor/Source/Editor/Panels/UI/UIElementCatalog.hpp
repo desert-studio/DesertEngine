@@ -50,6 +50,7 @@
     X( UIToggleComponent, "UI Toggle", ICON_MDI_CHECKBOX_MARKED_OUTLINE, "Toggle" )                               \
     X( UISliderComponent, "UI Slider", ICON_MDI_TUNE_VARIANT, "Slider" )                                          \
     X( UIScrollViewComponent, "UI Scroll View", ICON_MDI_VIEW_LIST, "Scroll View" )                               \
+    X( UIListViewComponent, "UI List View", ICON_MDI_FORMAT_LIST_BULLETED, "List View" )                          \
     X( UIInputFieldComponent, "UI Input Field", ICON_MDI_FORM_TEXTBOX, "Input Field" )                            \
     X( UIDropdownComponent, "UI Dropdown", ICON_MDI_MENU_DOWN, "Dropdown" )
 

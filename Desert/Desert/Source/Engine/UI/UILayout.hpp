@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 // Godot-Control-style UI layout resolution — pure math, decoupled from ECS (takes raw anchor/offset/size
@@ -270,5 +271,71 @@ namespace Desert::UI
             }
         }
         return out;
+    }
+
+    // --- The virtualized list's window (Ю17) --------------------------------------------------------
+    //
+    // WHICH ROWS A FRAME MUST WALK, computed here and nowhere else. Two walks read it — the renderer's
+    // DrawElement and UICanvasLayout's EnumerateCanvas — and a list whose rows are drawn at one place and
+    // enumerated at another is this project's recurring defect in its purest form: the click would land
+    // where the row is not. So it is one function returning one answer, the same shape SolveLayoutGroup
+    // already has for the auto-layout containers.
+
+    struct ListWindow
+    {
+        // Inclusive row indices. Last < First is a legitimate answer and means "no row is on screen" —
+        // an empty list, or one scrolled past its own content.
+        int First = 0;
+        int Last  = -1;
+
+        float PitchPx     = 0.0f; // row height + spacing, in pixels
+        float RowHeightPx = 0.0f;
+        float ContentPx   = 0.0f; // every row plus the gaps between them
+        float ScrollPx    = 0.0f; // the CLAMPED offset, which is what both walks must shift rows by
+        float ScrollMaxPx = 0.0f; // 0 when the content fits, so >0 is also "show the scrollbar"
+    };
+
+    // @p itemHeight and @p spacing are DESIGN px; @p viewportH is the container's own height in PIXELS,
+    // and @p scale converts between them. @p scrollY is design px as authored, and comes back clamped in
+    // ScrollPx (pixels) — the caller writes ScrollPx/scale back into the component, so the clamp lives
+    // here too rather than being re-derived by each walk.
+    //
+    // ITEM HEIGHT IS FLOORED AT ONE DESIGN PIXEL. A pitch of zero makes the window unbounded — every row
+    // of the list, which is the whole-list walk this container exists to delete — so the one input that
+    // could quietly turn virtualization off is not allowed to.
+    inline ListWindow SolveListWindow( int itemCount, float itemHeight, float spacing, int overscan, float scrollY,
+                                       float viewportH, float scale )
+    {
+        ListWindow w;
+        if ( itemCount <= 0 || scale <= 0.0f )
+        {
+            return w;
+        }
+
+        w.RowHeightPx = std::max( 1.0f, itemHeight ) * scale;
+        w.PitchPx     = w.RowHeightPx + std::max( 0.0f, spacing ) * scale;
+        w.ContentPx   = static_cast<float>( itemCount ) * w.PitchPx - std::max( 0.0f, spacing ) * scale;
+        w.ScrollMaxPx = std::max( 0.0f, w.ContentPx - viewportH );
+        w.ScrollPx    = std::clamp( scrollY * scale, 0.0f, w.ScrollMaxPx );
+
+        const int over = std::max( 0, overscan );
+        // The last row is the one whose TOP is still above the bottom edge: ceil of the edge in pitches,
+        // minus one. Taking floor here instead would keep a row that starts exactly at the bottom edge and
+        // covers no pixel, which is a whole row of walk for nothing at every scroll position that lands on
+        // a multiple of the pitch.
+        const int first = static_cast<int>( std::floor( w.ScrollPx / w.PitchPx ) ) - over;
+        const int last  = static_cast<int>( std::ceil( ( w.ScrollPx + viewportH ) / w.PitchPx ) ) - 1 + over;
+
+        w.First = std::clamp( first, 0, itemCount - 1 );
+        w.Last  = std::clamp( last, 0, itemCount - 1 );
+        return w;
+    }
+
+    // Where row @p index lands inside @p container, in pixels. Full width: a list row spans the container
+    // and the scrollbar is drawn over it, exactly as UIScrollView draws its own.
+    inline Rect ListRowRect( const Rect& container, const ListWindow& w, int index )
+    {
+        return Rect{ container.X, container.Y + static_cast<float>( index ) * w.PitchPx - w.ScrollPx, container.W,
+                     w.RowHeightPx };
     }
 } // namespace Desert::UI

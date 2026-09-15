@@ -798,6 +798,13 @@ namespace
          { "ScrollbarColor", kCanvasRenderer },
     };
 
+    constexpr Row kListViewRows[] = {
+         { "ScrollY", kCanvasRenderer },        { "ItemHeight", kCanvasRenderer },
+         { "Spacing", kCanvasRenderer },        { "Overscan", kCanvasRenderer },
+         { "Background", kCanvasRenderer },     { "ShowScrollbar", kCanvasRenderer },
+         { "ScrollbarColor", kCanvasRenderer },
+    };
+
     constexpr Row kInputFieldRows[] = {
          { "Text", kCanvasRenderer },
          { "Placeholder", kCanvasRenderer },
@@ -931,6 +938,7 @@ namespace
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
          { "UIScrollViewData", "UIScrollViewComponent", nullptr, CENSUS_ROWS( kScrollViewRows ) },
+         { "UIListViewData", "UIListViewComponent", nullptr, CENSUS_ROWS( kListViewRows ) },
          { "UIInputFieldData", "UIInputFieldComponent", nullptr, CENSUS_ROWS( kInputFieldRows ) },
          { "UIDropdownData", "UIDropdownComponent", nullptr, CENSUS_ROWS( kDropdownRows ) },
          { "UITweenData", "UITweenComponent", nullptr, CENSUS_ROWS( kTweenRows ) },
@@ -1080,7 +1088,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // 38 and 39 are each correct against dev and both are wrong here, which is what the register is for.
     // -> 41 with Ю16's UIRenderTextureData. Its four fields are WIRED, all four to the canvas walk:
     // ScenePath and ResolutionScale in ResolveRenderTexture, Tint and Opacity at the draw site.
-    EXPECT_EQ( all.size(), 41u );
+    // -> 42 with Ю17's UIListViewData. Its seven fields are WIRED, all seven to the canvas walk:
+    // ItemHeight/Spacing/Overscan/ScrollY solve the window, Background and ScrollbarColor are drawn
+    // through the ScrollView style slots, ShowScrollbar gates the thumb.
+    EXPECT_EQ( all.size(), 42u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

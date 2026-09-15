@@ -109,6 +109,20 @@ namespace
                "probe fixture: the same scene with the elements hidden — "
                "the negative control of the one above" },
              { "UI_RenderTextureBudget", "", "probe fixture (six elements against six renderer slots)" },
+
+             // Ю17's four, same terms. The list probes are an A/B whose whole content is ROW NUMBERS:
+             // "Row 0000" is the coordinate that says WHICH rows the window covered, and the two shots
+             // are compared on exactly that. A translation between them would delete the measurement.
+             // The slot pair's titles name the CONTAINER under test, which is what the log lines beside
+             // them are matched against.
+             { "UI_ListViewProbe", "", "probe fixture: the labels ARE the row indices being measured" },
+             { "UI_ListViewProbe_Scrolled", "",
+               "probe fixture: the same list scrolled — the negative "
+               "control of the one above" },
+             { "UI_ListViewSlots", "", "probe fixture (40 render-texture rows in a virtualized list)" },
+             { "UI_ListViewSlots_ScrollView", "",
+               "probe fixture: the same 40 rows in a scroll view — the "
+               "renderer-slot negative control" },
         };
         return rules;
     }

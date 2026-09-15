@@ -201,6 +201,35 @@ TEST( UIComponentRoundTrip, TheElementStyleSurvivesTheTrip )
     EXPECT_EQ( read.Style, written.Style );
 }
 
+// Ю17. EVERY field of the new container, because a list whose Item Height comes back at zero is a list
+// that renders one row of one design pixel — and the only way to see that is to author it, save, and
+// reopen. It is also the component with an INT field, which no other UI round trip here covers.
+TEST( UIComponentRoundTrip, EveryListViewFieldComesBack )
+{
+    ECS::UIListViewData written;
+    written.ScrollY        = 1234.5f;
+    written.ItemHeight     = 73.0f;
+    written.Spacing        = 6.0f;
+    written.Overscan       = 4;
+    written.Background     = glm::vec3( 0.21f, 0.22f, 0.23f );
+    written.ShowScrollbar  = false;
+    written.ScrollbarColor = glm::vec3( 0.71f, 0.72f, 0.73f );
+
+    const AssetResolver resolver = KeyResolver();
+    const auto          object   = SerializeReflected( Type( "UIListViewData" ), &written, &resolver );
+
+    ECS::UIListViewData read;
+    DeserializeReflected( Type( "UIListViewData" ), &read, ThroughJsonText( object ), &resolver );
+
+    EXPECT_FLOAT_EQ( read.ScrollY, written.ScrollY );
+    EXPECT_FLOAT_EQ( read.ItemHeight, written.ItemHeight );
+    EXPECT_FLOAT_EQ( read.Spacing, written.Spacing );
+    EXPECT_EQ( read.Overscan, written.Overscan );
+    EXPECT_EQ( read.Background, written.Background );
+    EXPECT_EQ( read.ShowScrollbar, written.ShowScrollbar );
+    EXPECT_EQ( read.ScrollbarColor, written.ScrollbarColor );
+}
+
 // --- (3) The other two UI slots that carry an asset ----------------------------------------------
 //
 // UIImage's Sprite and UIPanel's Sprite go down the same branch. Asserting them here is not repetition:
