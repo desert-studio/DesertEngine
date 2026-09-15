@@ -252,3 +252,8 @@ Docs/Clouds/UEReference/Source/
 # the build, machine-specific (absolute paths, the local SDK), and regenerated in two seconds.
 compile_commands.json
 compile_commands.json.partial.*
+
+# Scanner output is not engine source. Two nuclei reports for a domain this repository does not own
+# were committed by a `git add` in the root on 2026-09-06 and found on 2026-09-15; nothing referenced
+# them. The pattern is here so that the next stray report is not committed the same way.
+nuclei-*.txt
