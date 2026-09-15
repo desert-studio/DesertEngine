@@ -53,8 +53,28 @@ if [ ! -f "$ROOT/Makefile" ]; then
     echo "GenCompileCommands: no Makefile in $ROOT — run 'CI=true premake5 gmake2' first." >&2
     exit 2
 fi
-shopt -s nullglob
-MAKEFILES=( "$ROOT"/*.make )
+# THE LIST COMES FROM PREMAKE, NOT FROM A GLOB, and the difference is an exit 2 rather than a warning.
+# `premake5 gmake` writes makefiles and never deletes one whose project is gone, so a renamed or removed
+# suite leaves an orphan behind in every tree and every worktree. `make -n -f <orphan>.make` fails, and
+# because this script feeds every makefile to `make -n`, ONE orphan kills the whole compiler database —
+# which surfaces downstream as "clang-tidy: the gate could not run", a failure with nothing in it that
+# points here. Measured 2026-09-15: Ю16 renamed PreviewSlotBudget to RendererSlotBudget and the next
+# CheckTidy.sh in a worktree returned 2 for that reason alone. (The sweep in the verify skill had the
+# same glob and the same defect; it was corrected the same day, where one orphan cost one BUILD-FAIL
+# instead of the whole run.)
+#
+# The root `Makefile` carries premake's own `PROJECTS :=` line and cannot name a project premake does
+# not know, so it is the honest source. Do NOT try to spot orphans by timestamp: premake rewrites only
+# the files that changed, so almost every makefile is older than the newest one.
+PROJECTS_LINE=$(sed -n 's/^PROJECTS := //p' "$ROOT/Makefile")
+if [ -z "$PROJECTS_LINE" ]; then
+    echo "GenCompileCommands: $ROOT/Makefile has no 'PROJECTS :=' line — regenerate with premake." >&2
+    exit 2
+fi
+MAKEFILES=()
+for proj in $PROJECTS_LINE; do
+    [ -f "$ROOT/$proj.make" ] && MAKEFILES+=( "$ROOT/$proj.make" )
+done
 if [ ${#MAKEFILES[@]} -eq 0 ]; then
     echo "GenCompileCommands: no *.make in $ROOT — run 'CI=true premake5 gmake2' first." >&2
     exit 2
