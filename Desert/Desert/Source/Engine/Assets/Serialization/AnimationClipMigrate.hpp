@@ -17,9 +17,9 @@ namespace Desert::Assets::Serialization
      */
     struct AnimationMigrationReport
     {
-        int         FromVersion = 0;
-        std::size_t KeysMoved   = 0;
-        int64_t     WorstMicro  = 0;
+        int         FromVersion            = 0;
+        std::size_t KeysMoved              = 0;
+        int64_t     WorstMicro             = 0;
         int32_t     DisplayRateNumerator   = 0;
         int32_t     DisplayRateDenominator = 1;
         bool        DisplayRateIsAFallback = false;
@@ -49,6 +49,6 @@ namespace Desert::Assets::Serialization
      * migrator's own re-run guard is the version stamp, which is the lesson the sigil-doubling bug taught
      * (`#menu.play` -> `##menu.play`).
      */
-    [[nodiscard]] Common::ResultStr<std::string> MigrateAnimationJson( const std::string& json,
+    [[nodiscard]] Common::ResultStr<std::string> MigrateAnimationJson( const std::string&        json,
                                                                        AnimationMigrationReport& report );
 } // namespace Desert::Assets::Serialization

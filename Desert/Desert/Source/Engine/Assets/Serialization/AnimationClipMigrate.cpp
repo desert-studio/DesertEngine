@@ -9,6 +9,7 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
+#include <ranges>
 #include <array>
 #include <cmath>
 #include <optional>
@@ -70,15 +71,12 @@ namespace Desert::Assets::Serialization
         /// Whether every time in `seconds` lands exactly on a grid of `rate` frames per second.
         [[nodiscard]] bool EveryTimeLandsOn( const std::vector<double>& seconds, int32_t rate )
         {
-            for ( const double t : seconds )
-            {
-                const double frames = t * static_cast<double>( rate );
-                if ( std::fabs( frames - std::round( frames ) ) > 1.0e-6 )
-                {
-                    return false;
-                }
-            }
-            return true;
+            return std::ranges::all_of( seconds,
+                                        [rate]( const double t )
+                                        {
+                                            const double frames = t * static_cast<double>( rate );
+                                            return std::fabs( frames - std::round( frames ) ) <= 1.0e-6;
+                                        } );
         }
     } // namespace
 
@@ -90,8 +88,7 @@ namespace Desert::Assets::Serialization
         const auto parsed = rfl::json::read<LegacyAnimation, rfl::DefaultIfMissing>( json );
         if ( !parsed.has_value() )
         {
-            return Common::MakeFormattedError<std::string>( "not a readable `.anim`: {}",
-                                                            parsed.error().what() );
+            return Common::MakeFormattedError<std::string>( "not a readable `.anim`: {}", parsed.error().what() );
         }
         const LegacyAnimation& legacy = parsed.value();
 
@@ -116,7 +113,7 @@ namespace Desert::Assets::Serialization
                  legacy.Name, legacy.TicksPerSecond );
         }
 
-        const double sourceRate = static_cast<double>( legacy.TicksPerSecond );
+        const auto   sourceRate  = static_cast<double>( legacy.TicksPerSecond );
         const double projectRate = Animation::PROJECT_TICK_RATE.AsDouble();
 
         std::vector<double> everyTimeInSeconds;
@@ -145,11 +142,11 @@ namespace Desert::Assets::Serialization
         // and not defaulted.
         int32_t displayRate = Animation::DEFAULT_DISPLAY_RATE.Numerator;
         bool    fellBack    = true;
-        for ( auto it = STANDARD_DISPLAY_RATES.rbegin(); it != STANDARD_DISPLAY_RATES.rend(); ++it )
+        for ( const int32_t candidate : std::ranges::reverse_view( STANDARD_DISPLAY_RATES ) )
         {
-            if ( EveryTimeLandsOn( everyTimeInSeconds, *it ) )
+            if ( EveryTimeLandsOn( everyTimeInSeconds, candidate ) )
             {
-                displayRate = *it;
+                displayRate = candidate;
                 fellBack    = false;
                 break;
             }
@@ -165,19 +162,18 @@ namespace Desert::Assets::Serialization
             if ( std::fabs( exact - rounded ) > 1.0e-9 )
             {
                 ++report.KeysMoved;
-                const int64_t micro = static_cast<int64_t>( std::llround( ( rounded - exact ) * 1.0e6 ) );
-                report.WorstMicro   = std::max( report.WorstMicro, micro < 0 ? -micro : micro );
+                const auto micro  = static_cast<int64_t>( std::llround( ( rounded - exact ) * 1.0e6 ) );
+                report.WorstMicro = std::max( report.WorstMicro, micro < 0 ? -micro : micro );
             }
             return static_cast<int32_t>( rounded );
         };
 
         AnimationAssetData out;
-        out.Version           = kAnimationVersion;
-        out.Name              = legacy.Name;
-        out.TickRate          = { Animation::PROJECT_TICK_RATE.Numerator,
-                                  Animation::PROJECT_TICK_RATE.Denominator };
-        out.DisplayRate       = { displayRate, 1 };
-        out.DurationTicks     = toTick( legacy.Duration );
+        out.Version       = kAnimationVersion;
+        out.Name          = legacy.Name;
+        out.TickRate      = { Animation::PROJECT_TICK_RATE.Numerator, Animation::PROJECT_TICK_RATE.Denominator };
+        out.DisplayRate   = { displayRate, 1 };
+        out.DurationTicks = toTick( legacy.Duration );
         out.SkeletonSignature = legacy.SkeletonSignature;
 
         out.Channels.reserve( legacy.Channels.size() );

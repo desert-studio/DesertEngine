@@ -98,11 +98,11 @@ static_assert( !std::is_trivially_default_constructible_v<Ser::KeyScale> );
 TEST( AnimationClipFormat, ChannelOrderIsPreservedAndBoundByName )
 {
     Ser::AnimationAssetData data;
-    data.Version                     = Desert::Assets::Serialization::kAnimationVersion;
+    data.Version = Desert::Assets::Serialization::kAnimationVersion;
 
-    data.Name                        = "Walk";
+    data.Name = "Walk";
 
-    data.DurationTicks               = 48000;
+    data.DurationTicks     = 48000;
     data.SkeletonSignature = 1234u;
     data.Channels          = { Channel( "hips" ), Channel( "spine" ), Channel( "head" ) };
 
@@ -123,7 +123,7 @@ TEST( AnimationClipFormat, ChannelOrderIsPreservedAndBoundByName )
 TEST( AnimationClipFormat, AnUnnamedChannelIsRefusedByName )
 {
     Ser::AnimationAssetData data;
-    data.Version = Desert::Assets::Serialization::kAnimationVersion;
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Broken";
     data.Channels = { Channel( "hips" ), Channel( "" ) };
 
@@ -135,7 +135,7 @@ TEST( AnimationClipFormat, AnUnnamedChannelIsRefusedByName )
 TEST( AnimationClipFormat, TwoChannelsForOneBoneAreRefused )
 {
     Ser::AnimationAssetData data;
-    data.Version = Desert::Assets::Serialization::kAnimationVersion;
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Doubled";
     data.Channels = { Channel( "hips" ), Channel( "hips" ) };
 
@@ -147,7 +147,7 @@ TEST( AnimationClipFormat, TwoChannelsForOneBoneAreRefused )
 TEST( AnimationClipFormat, NotifiesComeOutSortedByTick )
 {
     Ser::AnimationAssetData data;
-    data.Version = Desert::Assets::Serialization::kAnimationVersion;
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Notified";
     data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Notifies = { { "late", 21600 }, { "early", 2400 }, { "middle", 12000 } };
@@ -206,7 +206,7 @@ TEST( AnimationClipFormat, AnInvalidRateIsRefusedRatherThanUsed )
 
     Ser::AnimationAssetData display;
 
-    display.Version = Desert::Assets::Serialization::kAnimationVersion;
+    display.Version     = Desert::Assets::Serialization::kAnimationVersion;
     display.Version     = Desert::Assets::Serialization::kAnimationVersion;
     display.Name        = "NoDisplay";
     display.DisplayRate = { 30, 0 };
@@ -286,7 +286,7 @@ TEST( AnimationClipFormat, AMigratedRateOfZeroIsRefusedRatherThanDividedBy )
 TEST( AnimationClipFormat, ANewlyWrittenClipCarriesNoBoneIndex )
 {
     Ser::AnimationAssetData data;
-    data.Version = Desert::Assets::Serialization::kAnimationVersion;
+    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Fresh";
     data.Channels = { Channel( "hips" ) };
 
@@ -339,8 +339,7 @@ namespace
         Desert::Animation::BoneTrack hip;
         hip.BoneName = "Hips";
         hip.PositionKeys.push_back( { Desert::Animation::FrameNumber{ 0 }, glm::vec3( 1.0f, 2.0f, 3.0f ) } );
-        hip.PositionKeys.push_back(
-             { Desert::Animation::FrameNumber{ 24000 }, glm::vec3( 4.0f, 5.0f, 6.0f ) } );
+        hip.PositionKeys.push_back( { Desert::Animation::FrameNumber{ 24000 }, glm::vec3( 4.0f, 5.0f, 6.0f ) } );
         hip.RotationKeys.push_back(
              { Desert::Animation::FrameNumber{ 12000 }, glm::quat( 0.7071f, 0.0f, 0.7071f, 0.0f ) } );
         hip.ScaleKeys.push_back( { Desert::Animation::FrameNumber{ 0 }, glm::vec3( 1.0f, 1.5f, 2.0f ) } );
@@ -348,8 +347,7 @@ namespace
 
         Desert::Animation::BoneTrack spine;
         spine.BoneName = "Spine";
-        spine.PositionKeys.push_back(
-             { Desert::Animation::FrameNumber{ 6000 }, glm::vec3( -1.0f, 0.0f, 0.5f ) } );
+        spine.PositionKeys.push_back( { Desert::Animation::FrameNumber{ 6000 }, glm::vec3( -1.0f, 0.0f, 0.5f ) } );
         clip.Tracks.push_back( spine );
 
         clip.Notifies.push_back( { "Footstep", Desert::Animation::FrameNumber{ 18000 } } );
@@ -393,8 +391,7 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClip )
         {
             // AN EQUALITY, not a tolerance. That is the whole of what the tick grid bought: a key time
             // that survives a write and a read is the SAME NUMBER, not a number within an epsilon.
-            EXPECT_EQ( back.Tracks[t].PositionKeys[k].Tick.Value,
-                       clip.Tracks[t].PositionKeys[k].Tick.Value );
+            EXPECT_EQ( back.Tracks[t].PositionKeys[k].Tick.Value, clip.Tracks[t].PositionKeys[k].Tick.Value );
             EXPECT_EQ( back.Tracks[t].PositionKeys[k].Position, clip.Tracks[t].PositionKeys[k].Position );
         }
         ASSERT_EQ( back.Tracks[t].RotationKeys.size(), clip.Tracks[t].RotationKeys.size() ) << "track " << t;

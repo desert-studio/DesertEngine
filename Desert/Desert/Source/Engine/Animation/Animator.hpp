@@ -102,19 +102,19 @@ namespace Desert::Animation
         /// readout, the exit-time fraction. Derived, so it cannot disagree with the tick.
         [[nodiscard]] float GetCurrentTime() const
         {
-            return m_Current.Clip ? static_cast<float>( FrameTimeToSeconds( m_Current.Time,
-                                                                            m_Current.Clip->TickRate ) )
-                                  : 0.0F;
+            return m_Current.Clip != nullptr
+                        ? static_cast<float>( FrameTimeToSeconds( m_Current.Time, m_Current.Clip->TickRate ) )
+                        : 0.0F;
         }
 
         [[nodiscard]] FrameNumber GetDurationTicks() const
         {
-            return m_Current.Clip ? m_Current.Clip->DurationTicks : FrameNumber{};
+            return m_Current.Clip != nullptr ? m_Current.Clip->DurationTicks : FrameNumber{};
         }
 
         [[nodiscard]] float GetDuration() const
         {
-            return m_Current.Clip ? static_cast<float>( m_Current.Clip->DurationSeconds() ) : 0.0F;
+            return m_Current.Clip != nullptr ? static_cast<float>( m_Current.Clip->DurationSeconds() ) : 0.0F;
         }
 
         [[nodiscard]] bool IsFinished() const;

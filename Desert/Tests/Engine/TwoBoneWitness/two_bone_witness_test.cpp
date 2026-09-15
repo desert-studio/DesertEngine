@@ -266,9 +266,8 @@ namespace
                     // caller decomposed it again immediately, so the matrix was a round trip with no
                     // consumer on the animation system's hottest path. `Sample` returns the three stored
                     // quantities and this test composes them itself, which is what it wanted anyway.
-                    local[i] = track
-                                    .Sample( Desert::Animation::SecondsToFrameTime(
-                                         static_cast<double>( seconds ), clip.TickRate ) )
+                    local[i] = track.Sample( Desert::Animation::SecondsToFrameTime( static_cast<double>( seconds ),
+                                                                                    clip.TickRate ) )
                                     .ToMatrix();
                 }
             }

@@ -36,11 +36,11 @@
 #include <vector>
 
 using Desert::Animation::AnimationClip;
-using Desert::Animation::FrameNumber;
-using Desert::Animation::PROJECT_TICK_RATE;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
 using Desert::Animation::BoneTrack;
+using Desert::Animation::FrameNumber;
+using Desert::Animation::PROJECT_TICK_RATE;
 using Desert::Animation::Skeleton;
 
 namespace

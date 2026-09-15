@@ -344,8 +344,7 @@ namespace Desert::Animation
         // hundreds of times further on the float.
         playback.Time = AdvanceFrameTime( playback.Time, deltaTime, playback.Clip->TickRate );
 
-        const bool looped =
-             playback.Loop && duration.Value > 0 && playback.Time.Frame.Value >= duration.Value;
+        const bool looped = playback.Loop && duration.Value > 0 && playback.Time.Frame.Value >= duration.Value;
 
         if ( playback.Loop )
         {
@@ -365,8 +364,8 @@ namespace Desert::Animation
             const double after  = playback.Time.AsTicks();
             for ( const auto& notify : playback.Clip->Notifies )
             {
-                const double at = static_cast<double>( notify.Tick.Value );
-                const bool   fire = looped ? ( at > before || at <= after ) : ( at > before && at <= after );
+                const auto at   = static_cast<double>( notify.Tick.Value );
+                const bool fire = looped ? ( at > before || at <= after ) : ( at > before && at <= after );
                 if ( fire )
                 {
                     m_FiredNotifies.push_back( notify.Name );

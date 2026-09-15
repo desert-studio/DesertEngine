@@ -774,29 +774,29 @@ namespace Desert::Editor
             //
             // PROJECT_TICK_RATE is 24000 precisely so this is an integer multiply for every rate an
             // exporter realistically states: 30 -> x800, 25 -> x960, 24 -> x1000, 1000 (glTF ms) -> x24.
-            const double sourceRateValue = anim->mTicksPerSecond != 0.0 ? anim->mTicksPerSecond : 25.0;
+            const double sourceRateValue          = anim->mTicksPerSecond != 0.0 ? anim->mTicksPerSecond : 25.0;
             const Animation::FrameRate sourceRate = RationalFromRate( sourceRateValue );
 
-            animData.Version     = Assets::Serialization::kAnimationVersion;
-            animData.TickRate    = { Animation::PROJECT_TICK_RATE.Numerator,
-                                     Animation::PROJECT_TICK_RATE.Denominator };
+            animData.Version  = Assets::Serialization::kAnimationVersion;
+            animData.TickRate = { Animation::PROJECT_TICK_RATE.Numerator,
+                                  Animation::PROJECT_TICK_RATE.Denominator };
             // The file's own rate becomes the DISPLAY grid: it is the cadence the animation was authored
             // on, which is exactly what an artist should see on the ruler and snap to.
             animData.DisplayRate = { sourceRate.Numerator, sourceRate.Denominator };
 
-            std::size_t roundedKeys = 0;
-            int64_t     worstMicro  = 0;
+            std::size_t roundedKeys   = 0;
+            int64_t     worstMicro    = 0;
             const auto  toProjectTick = [&]( double sourceTick ) -> int32_t
             {
-                const auto converted =
-                     Animation::ConvertTick( Animation::FrameNumber{ static_cast<int32_t>( llround( sourceTick ) ) },
-                                             sourceRate, Animation::PROJECT_TICK_RATE );
+                const auto converted = Animation::ConvertTick(
+                     Animation::FrameNumber{ static_cast<int32_t>( llround( sourceTick ) ) }, sourceRate,
+                     Animation::PROJECT_TICK_RATE );
                 if ( !converted.Exact )
                 {
                     ++roundedKeys;
-                    worstMicro = std::max( worstMicro, converted.RoundedAwayMicro < 0
-                                                            ? -converted.RoundedAwayMicro
-                                                            : converted.RoundedAwayMicro );
+                    worstMicro =
+                         std::max( worstMicro, converted.RoundedAwayMicro < 0 ? -converted.RoundedAwayMicro
+                                                                              : converted.RoundedAwayMicro );
                 }
                 return converted.Ticks.Value;
             };

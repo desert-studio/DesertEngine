@@ -41,13 +41,15 @@ TEST( AnimationTimeModel, TheProjectTickRateDividesEveryDisplayRateThisEngineCan
 {
     // The reason 24000 and not 1000, 10000 or "whatever float gives". Each of these is a rate a clip can
     // arrive at from an exporter or be authored at in the Sequencer.
-    for ( const int32_t rate : { 1, 2, 4, 5, 8, 10, 12, 15, 20, 24, 25, 30, 40, 48, 50, 60, 75, 80, 100, 120,
-                                 125, 150, 200, 240, 250, 300, 375, 400, 480, 500, 600, 750, 800, 1000, 1200,
-                                 1500, 2000, 2400, 3000, 4000, 4800, 6000, 8000, 12000, 24000 } )
+    for ( const int32_t rate :
+          { 1,   2,   4,   5,    8,    10,   12,   15,   20,   24,   25,   30,   40,   48,    50,
+            60,  75,  80,  100,  120,  125,  150,  200,  240,  250,  300,  375,  400,  480,   500,
+            600, 750, 800, 1000, 1200, 1500, 2000, 2400, 3000, 4000, 4800, 6000, 8000, 12000, 24000 } )
     {
         EXPECT_EQ( PROJECT_TICK_RATE.Numerator % rate, 0 )
-             << rate << " fps does not divide the project tick rate, so a key authored on that grid cannot "
-                        "be stored exactly and every conversion through it would round.";
+             << rate
+             << " fps does not divide the project tick rate, so a key authored on that grid cannot "
+                "be stored exactly and every conversion through it would round.";
     }
 
     // assimp's two common synthetic rates: FBX ticks and glTF milliseconds.
@@ -82,16 +84,15 @@ TEST( AnimationTimeModel, EveryCommonExporterRateConvertsIntoProjectTicksWithNoR
     struct Case
     {
         FrameRate Source;
-        int32_t   Tick;
-        int32_t   Expected;
+        int32_t   Tick     = 0;
+        int32_t   Expected = 0;
     };
 
     const Case cases[] = {
-        { FrameRate{ 30, 1 }, 0, 0 },          { FrameRate{ 30, 1 }, 1, 800 },
-        { FrameRate{ 30, 1 }, 1800, 1440000 }, { FrameRate{ 24, 1 }, 1, 1000 },
-        { FrameRate{ 25, 1 }, 1, 960 },        { FrameRate{ 60, 1 }, 1, 400 },
-        { FrameRate{ 1000, 1 }, 1, 24 },       { FrameRate{ 1000, 1 }, 16, 384 },
-        { FrameRate{ 48, 1 }, 7, 3500 },       { FrameRate{ 120, 1 }, 3, 600 },
+         { FrameRate{ 30, 1 }, 0, 0 },    { FrameRate{ 30, 1 }, 1, 800 },    { FrameRate{ 30, 1 }, 1800, 1440000 },
+         { FrameRate{ 24, 1 }, 1, 1000 }, { FrameRate{ 25, 1 }, 1, 960 },    { FrameRate{ 60, 1 }, 1, 400 },
+         { FrameRate{ 1000, 1 }, 1, 24 }, { FrameRate{ 1000, 1 }, 16, 384 }, { FrameRate{ 48, 1 }, 7, 3500 },
+         { FrameRate{ 120, 1 }, 3, 600 },
     };
 
     for ( const Case& c : cases )
@@ -186,8 +187,7 @@ TEST( AnimationTimeModel, AnHourOfFixedStepPlaybackDoesNotDrift )
 
     // One tick is 1/24000 s. The integer clock's error is bounded by the sub-tick it carries; the float
     // one's grows with the value already in it.
-    EXPECT_LT( integerError, 1.0 / 24000.0 )
-         << "integer clock drifted " << integerError << " s over an hour";
+    EXPECT_LT( integerError, 1.0 / 24000.0 ) << "integer clock drifted " << integerError << " s over an hour";
     EXPECT_GT( floatError, integerError * 100.0 )
          << "the float accumulator drifted " << floatError << " s and the integer clock " << integerError
          << " s — if these are close, this rig no longer measures the thing the change was made for";
@@ -224,19 +224,16 @@ TEST( AnimationTimeModel, TheLoopWrapIsExactAndNeverLeavesTheClip )
 TEST( AnimationTimeModel, TheDisplayRateIsASecondGridAndSnappingLandsOnIt )
 {
     // 30 fps on a 24000 tick grid is one display frame every 800 ticks.
-    EXPECT_EQ( SnapToDisplayRate( FrameTime{ FrameNumber{ 0 }, 0.0F }, PROJECT_TICK_RATE, DEFAULT_DISPLAY_RATE )
-                    .Value,
-               0 );
-    EXPECT_EQ( SnapToDisplayRate( FrameTime{ FrameNumber{ 399 }, 0.0F }, PROJECT_TICK_RATE,
-                                  DEFAULT_DISPLAY_RATE )
-                    .Value,
-               0 );
-    EXPECT_EQ( SnapToDisplayRate( FrameTime{ FrameNumber{ 401 }, 0.0F }, PROJECT_TICK_RATE,
-                                  DEFAULT_DISPLAY_RATE )
-                    .Value,
-               800 );
-    EXPECT_EQ( SnapToDisplayRate( FrameTime{ FrameNumber{ 2399 }, 0.9F }, PROJECT_TICK_RATE,
-                                  DEFAULT_DISPLAY_RATE )
+    EXPECT_EQ(
+         SnapToDisplayRate( FrameTime{ FrameNumber{ 0 }, 0.0F }, PROJECT_TICK_RATE, DEFAULT_DISPLAY_RATE ).Value,
+         0 );
+    EXPECT_EQ(
+         SnapToDisplayRate( FrameTime{ FrameNumber{ 399 }, 0.0F }, PROJECT_TICK_RATE, DEFAULT_DISPLAY_RATE ).Value,
+         0 );
+    EXPECT_EQ(
+         SnapToDisplayRate( FrameTime{ FrameNumber{ 401 }, 0.0F }, PROJECT_TICK_RATE, DEFAULT_DISPLAY_RATE ).Value,
+         800 );
+    EXPECT_EQ( SnapToDisplayRate( FrameTime{ FrameNumber{ 2399 }, 0.9F }, PROJECT_TICK_RATE, DEFAULT_DISPLAY_RATE )
                     .Value,
                2400 );
 
@@ -247,10 +244,9 @@ TEST( AnimationTimeModel, TheDisplayRateIsASecondGridAndSnappingLandsOnIt )
          1000 );
 
     // Same grid: nothing moves, and no rounding is invented.
-    EXPECT_EQ( SnapToDisplayRate( FrameTime{ FrameNumber{ 12345 }, 0.5F }, PROJECT_TICK_RATE,
-                                  PROJECT_TICK_RATE )
-                    .Value,
-               12345 );
+    EXPECT_EQ(
+         SnapToDisplayRate( FrameTime{ FrameNumber{ 12345 }, 0.5F }, PROJECT_TICK_RATE, PROJECT_TICK_RATE ).Value,
+         12345 );
 
     // The ruler's frame numbers.
     EXPECT_EQ( DisplayFrameIndex( FrameNumber{ 0 }, PROJECT_TICK_RATE, DEFAULT_DISPLAY_RATE ), 0 );
@@ -271,7 +267,7 @@ TEST( AnimationTimeModel, NothingHereProducesANonFiniteOrRunawayTick )
     EXPECT_FLOAT_EQ( SecondsToFrameTime( infinity, PROJECT_TICK_RATE ).Subframe, 0.0F );
     EXPECT_EQ( SecondsToFrameTime( 1.0, FrameRate{ 0, 0 } ).Frame.Value, 0 );
 
-    FrameTime clock{ FrameNumber{ 5 }, 0.0F };
+    const FrameTime clock{ FrameNumber{ 5 }, 0.0F };
     EXPECT_EQ( AdvanceFrameTime( clock, nan, PROJECT_TICK_RATE ).Frame.Value, 5 );
     EXPECT_EQ( AdvanceFrameTime( clock, 1.0, FrameRate{ 0, 1 } ).Frame.Value, 5 );
     EXPECT_EQ( FrameTimeToSeconds( clock, FrameRate{ 0, 1 } ), 0.0 );

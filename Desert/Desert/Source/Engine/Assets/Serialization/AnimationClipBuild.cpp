@@ -92,8 +92,7 @@ namespace Desert::Assets::Serialization
 
             track.ScaleKeys.reserve( channel.Scales.size() );
             for ( const auto& s : channel.Scales )
-                track.ScaleKeys.push_back(
-                     Animation::ScaleKeyFrame{ Animation::FrameNumber{ s.Tick }, s.Value } );
+                track.ScaleKeys.push_back( Animation::ScaleKeyFrame{ Animation::FrameNumber{ s.Tick }, s.Value } );
 
             clip.Tracks.push_back( std::move( track ) );
         }

@@ -26,15 +26,15 @@
 
 using Common::Timestep;
 using Desert::Animation::AnimationClip;
+using Desert::Animation::AnimationNotify;
+using Desert::Animation::Animator;
+using Desert::Animation::BoneInfo;
+using Desert::Animation::BoneTrack;
 using Desert::Animation::FrameNumber;
 using Desert::Animation::FrameTime;
 using Desert::Animation::NearestTick;
 using Desert::Animation::PROJECT_TICK_RATE;
 using Desert::Animation::SecondsToFrameTime;
-using Desert::Animation::AnimationNotify;
-using Desert::Animation::Animator;
-using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 namespace Animation = Desert::Animation;
 using Desert::Animation::PoseStage;
 using Desert::Animation::Skeleton;
@@ -521,12 +521,14 @@ TEST( AnimatorBlending, ALoopingClipFiresItsNotifyOncePerLap )
 
     AnimationClip clip = StaticClip( "Run", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back( AnimationNotify{ "MidStep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
+    clip.Notifies.push_back(
+         AnimationNotify{ "MidStep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
     // A MARKER INSIDE THE WRAP STEP, and without it this test proved nothing. With 0.1 s steps over a 1 s
     // clip, the frame that wraps covers (0.9, 1.0] u [0, 0.0] — a marker at 0.5 is nowhere near it, so
     // deleting the whole wrap-around branch left the suite green. A marker at 0.95 is reachable ONLY
     // through `n.Time > prev` on the wrapping frame, which is the half that was untested.
-    clip.Notifies.push_back( AnimationNotify{ "LateStep", NearestTick( SecondsToFrameTime( 0.95, PROJECT_TICK_RATE ) ) } );
+    clip.Notifies.push_back(
+         AnimationNotify{ "LateStep", NearestTick( SecondsToFrameTime( 0.95, PROJECT_TICK_RATE ) ) } );
 
     animator.Play( clip, /*loop=*/true );
 
@@ -555,7 +557,8 @@ TEST( AnimatorBlending, ScrubbingDoesNotFireNotifies )
 
     AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back( AnimationNotify{ "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
+    clip.Notifies.push_back(
+         AnimationNotify{ "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
 
     animator.Play( clip, false );
     animator.SetTime( 0.9F ); // the Sequencer dragging the playhead past the marker

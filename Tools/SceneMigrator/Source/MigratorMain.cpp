@@ -109,7 +109,9 @@ namespace
                 else if ( entry.path().extension() == kPrefabExtension )
                     prefabs.push_back( entry.path() );
                 else if ( entry.path().extension() == kClipExtension )
+                {
                     clips.push_back( entry.path() );
+                }
             }
             return;
         }
@@ -119,7 +121,9 @@ namespace
         else if ( root.extension() == kPrefabExtension )
             prefabs.push_back( root );
         else if ( root.extension() == kClipExtension )
+        {
             clips.push_back( root );
+        }
         else
             scenes.push_back( root );
     }
@@ -760,8 +764,8 @@ namespace Desert::Migration
                 // doubling the conversion, not a sign that anything is wrong.
                 if ( report.FromVersion >= Desert::Assets::Serialization::kAnimationVersion )
                 {
-                    out << "ok     " << path.string() << " — already at `.anim` generation "
-                        << report.FromVersion << "\n";
+                    out << "ok     " << path.string() << " — already at `.anim` generation " << report.FromVersion
+                        << "\n";
                     continue;
                 }
                 err << "FAIL   " << path.string() << " — " << migrated.GetError() << "\n";
@@ -770,10 +774,11 @@ namespace Desert::Migration
             }
 
             std::ostringstream what;
-            what << " key times moved from float seconds onto the " << Desert::Animation::PROJECT_TICK_RATE.Numerator
-                 << "-tick grid; display rate " << report.DisplayRateNumerator << " fps"
-                 << ( report.DisplayRateIsAFallback ? " (no standard grid fits its keys, defaulted)" : "" )
-                 << "; " << report.KeysMoved << " key time(s) rounded";
+            what << " key times moved from float seconds onto the "
+                 << Desert::Animation::PROJECT_TICK_RATE.Numerator << "-tick grid; display rate "
+                 << report.DisplayRateNumerator << " fps"
+                 << ( report.DisplayRateIsAFallback ? " (no standard grid fits its keys, defaulted)" : "" ) << "; "
+                 << report.KeysMoved << " key time(s) rounded";
             if ( report.KeysMoved > 0 )
             {
                 what << ", worst by " << report.WorstMicro << " millionths of a tick";
@@ -898,8 +903,8 @@ namespace Desert::Migration
         }
 
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
-            << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s) of which "
-            << clipsChanged << ( check ? " would change, " : " raised, " ) << materials.size() << " material(s), "
+            << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s) of which " << clipsChanged
+            << ( check ? " would change, " : " raised, " ) << materials.size() << " material(s), "
             << materialsChanged << ( check ? " would change, " : " raised, " ) << prefabs.size() << " prefab(s), "
             << prefabsChanged << ( check ? " would change, " : " raised, " ) << failed << " failed\n";
 

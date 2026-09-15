@@ -128,7 +128,7 @@ namespace Desert::Animation
             const auto prev = it - 1;
             const auto next = it;
 
-            const double span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
+            const auto span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
             if ( span <= 0.0 )
             {
                 // Two keys on the same tick. On floats this was a divide by zero producing an infinity or
@@ -136,7 +136,7 @@ namespace Desert::Animation
                 // the answer is the later key, which is what a sampler at that tick means.
                 return next->Position;
             }
-            const float factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
+            const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
 
             return glm::lerp( prev->Position, next->Position, factor );
         }
@@ -168,7 +168,7 @@ namespace Desert::Animation
             const auto prev = it - 1;
             const auto next = it;
 
-            const double span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
+            const auto span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
             if ( span <= 0.0 )
             {
                 // Two keys on the same tick. On floats this was a divide by zero producing an infinity or
@@ -176,7 +176,7 @@ namespace Desert::Animation
                 // the answer is the later key, which is what a sampler at that tick means.
                 return next->Rotation;
             }
-            const float factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
+            const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
 
             return glm::slerp( prev->Rotation, next->Rotation, factor );
         }
@@ -208,7 +208,7 @@ namespace Desert::Animation
             const auto prev = it - 1;
             const auto next = it;
 
-            const double span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
+            const auto span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
             if ( span <= 0.0 )
             {
                 // Two keys on the same tick. On floats this was a divide by zero producing an infinity or
@@ -216,7 +216,7 @@ namespace Desert::Animation
                 // the answer is the later key, which is what a sampler at that tick means.
                 return next->Scale;
             }
-            const float factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
+            const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
 
             return glm::lerp( prev->Scale, next->Scale, factor );
         }

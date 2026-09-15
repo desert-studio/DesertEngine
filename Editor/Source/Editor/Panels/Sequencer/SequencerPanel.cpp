@@ -55,8 +55,7 @@ namespace Desert::Editor
         /// Seconds from a pixel, landing on the DISPLAY grid — the reason that grid is a field and not a
         /// number in a file. A retime that follows the mouse exactly puts a key at 0.4173 s, which no
         /// other key and no playhead position will ever equal again.
-        [[nodiscard]] Animation::FrameNumber SecondsToSnappedTick( float seconds,
-                                                                   Animation::FrameRate tickRate,
+        [[nodiscard]] Animation::FrameNumber SecondsToSnappedTick( float seconds, Animation::FrameRate tickRate,
                                                                    Animation::FrameRate displayRate )
         {
             return Animation::SnapToDisplayRate(
@@ -72,13 +71,13 @@ namespace Desert::Editor
         {
             int frame = Animation::DisplayFrameIndex( tick, tickRate, displayRate );
             if ( !::ImGui::DragInt( "Frame", &frame, 1.0f, 0,
-                                  Animation::DisplayFrameIndex( duration, tickRate, displayRate ) ) )
+                                    Animation::DisplayFrameIndex( duration, tickRate, displayRate ) ) )
             {
                 return false;
             }
             const double ticksPerFrame = tickRate.AsDouble() / displayRate.AsDouble();
-            tick                       = Animation::FrameNumber{ static_cast<int32_t>(
-                 std::llround( static_cast<double>( frame ) * ticksPerFrame ) ) };
+            tick                       = Animation::FrameNumber{
+                 static_cast<int32_t>( std::llround( static_cast<double>( frame ) * ticksPerFrame ) ) };
             return true;
         }
     } // namespace
@@ -229,9 +228,9 @@ namespace Desert::Editor
         // One second on the project grid, shown on the default display rate. `Duration = 1.0f` with
         // `TicksPerSecond = 25.0f` used to say "25 ticks" and mean "one second", which is the confusion
         // the tick grid exists to end.
-        clip.DurationTicks = Animation::FrameNumber{ Animation::PROJECT_TICK_RATE.Numerator };
-        clip.TickRate      = Animation::PROJECT_TICK_RATE;
-        clip.DisplayRate   = Animation::DEFAULT_DISPLAY_RATE;
+        clip.DurationTicks     = Animation::FrameNumber{ Animation::PROJECT_TICK_RATE.Numerator };
+        clip.TickRate          = Animation::PROJECT_TICK_RATE;
+        clip.DisplayRate       = Animation::DEFAULT_DISPLAY_RATE;
         clip.SkeletonSignature = skeleton.GetSignature();
         clip.Tracks.reserve( skeleton.GetBones().size() );
         for ( const auto& bone : skeleton.GetBones() )
@@ -403,14 +402,6 @@ namespace Desert::Editor
 
         const float duration = animator ? animator->GetDuration() : 0.0f;
 
-        // THE CLIP'S TWO GRIDS, read once for the whole panel. Hoisted to this scope rather than to the
-        // timeline block below because four separate scopes — the ruler, the lanes, the key drag and the
-        // inspector — all convert between pixels and time, and a grid visible to only the first of them
-        // is how four converters come to disagree.
-        const Animation::AnimationClip* gridClip = animator ? animator->GetCurrentClip() : nullptr;
-        const Animation::FrameRate tickRate = gridClip ? gridClip->TickRate : Animation::PROJECT_TICK_RATE;
-        const Animation::FrameRate displayRate =
-             gridClip ? gridClip->DisplayRate : Animation::DEFAULT_DISPLAY_RATE;
         const float playTime = animator ? animator->GetCurrentTime() : 0.0f;
 
         // ---- Transport toolbar (icon buttons with tooltips) ----
@@ -547,7 +538,6 @@ namespace Desert::Editor
 
             const auto timeToX = [&]( float t ) { return laneX0 + ( t / duration ) * laneW; };
 
-
             dl->AddRectFilled( ImVec2( laneX0, origin.y ), ImVec2( laneX0 + laneW, origin.y + rulerH ),
                                IM_COL32( 24, 24, 28, 255 ) );
             dl->AddText( ImVec2( origin.x + 6.0f, origin.y + 8.0f ), IM_COL32( 170, 170, 180, 255 ), "TIMELINE" );
@@ -568,8 +558,8 @@ namespace Desert::Editor
             {
                 for ( const auto& n : clip->Notifies )
                 {
-                    const float x = timeToX( static_cast<float>( Animation::FrameTimeToSeconds(
-                         Animation::FrameTime{ n.Tick, 0.0F }, clip->TickRate ) ) );
+                    const float  x = timeToX( static_cast<float>(
+                         Animation::FrameTimeToSeconds( Animation::FrameTime{ n.Tick, 0.0F }, clip->TickRate ) ) );
                     const ImVec2 d0( x, origin.y + rulerH - 11.0f );
                     dl->AddTriangleFilled( ImVec2( d0.x - 5.0f, d0.y ), ImVec2( d0.x + 5.0f, d0.y ),
                                            ImVec2( d0.x, d0.y + 9.0f ), IM_COL32( 240, 200, 90, 255 ) );
@@ -701,8 +691,8 @@ namespace Desert::Editor
                 ImGui::PushID( ( ti * 3 + ch ) * 4096 + 3999 );
                 if ( ImGui::SmallButton( "+" ) )
                 {
-                    const Animation::FrameNumber t = Animation::SnapToDisplayRate(
-                         animator->GetCurrentTick(), tickRate, displayRate );
+                    const Animation::FrameNumber t =
+                         Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
                     if ( ch == 0 )
                         tr.PositionKeys.push_back( { t, glm::vec3( 0.0f ) } );
                     else if ( ch == 1 )
@@ -731,10 +721,17 @@ namespace Desert::Editor
                                                    : tr.ScaleKeys.size();
                 for ( int k = 0; k < static_cast<int>( nKeys ); ++k )
                 {
-                    Animation::FrameNumber& kt = ( ch == 0 )   ? tr.PositionKeys[k].Tick
-                                                 : ( ch == 1 ) ? tr.RotationKeys[k].Tick
-                                                               : tr.ScaleKeys[k].Tick;
-                    const float kx = timeToX( TickToSeconds( kt, tickRate ) );
+                    Animation::FrameNumber* ktp = &tr.ScaleKeys[k].Tick;
+                    if ( ch == 0 )
+                    {
+                        ktp = &tr.PositionKeys[k].Tick;
+                    }
+                    else if ( ch == 1 )
+                    {
+                        ktp = &tr.RotationKeys[k].Tick;
+                    }
+                    Animation::FrameNumber& kt  = *ktp;
+                    const float             kx  = timeToX( TickToSeconds( kt, tickRate ) );
                     const bool  isS = ( m_SelTrack == ti && m_SelChannel == ch && m_SelKey == k );
 
                     ImGui::SetCursorScreenPos( ImVec2( kx - 6.0f, laneY ) );
@@ -760,8 +757,8 @@ namespace Desert::Editor
                         // playhead position will ever equal again.
                         const float draggedSeconds =
                              std::clamp( ( ImGui::GetMousePos().x - laneX0 ) / laneW, 0.0f, 1.0f ) * duration;
-                        kt         = SecondsToSnappedTick( draggedSeconds, tickRate, displayRate );
-                        m_DragTime = TickToSeconds( kt, tickRate );
+                        kt          = SecondsToSnappedTick( draggedSeconds, tickRate, displayRate );
+                        m_DragTime  = TickToSeconds( kt, tickRate );
                         liveRefresh = true;
                     }
                     if ( ImGui::IsItemDeactivated() )
