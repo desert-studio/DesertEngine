@@ -88,7 +88,7 @@ namespace Desert::Assets::Serialization
 
     namespace
     {
-    } // namespace Legacy
+    } // namespace
 
     namespace
     {
@@ -152,7 +152,7 @@ namespace Desert::Assets::Serialization
         const double projectRate = Animation::PROJECT_TICK_RATE.AsDouble();
 
         // The one place either generation's spelling of "when" becomes this one's.
-        const auto toTick = [&]( const std::optional<float>& seconds,
+        const auto toTick = [&]( const std::optional<float>&   seconds,
                                  const std::optional<int32_t>& ticks ) -> int32_t
         {
             if ( !fromSeconds )
@@ -164,7 +164,7 @@ namespace Desert::Assets::Serialization
             if ( std::fabs( exact - rounded ) > 1.0e-9 )
             {
                 ++report.KeysMoved;
-                const auto micro = static_cast<int64_t>( std::llround( ( rounded - exact ) * 1.0e6 ) );
+                const auto micro  = static_cast<int64_t>( std::llround( ( rounded - exact ) * 1.0e6 ) );
                 report.WorstMicro = std::max( report.WorstMicro, micro < 0 ? -micro : micro );
             }
             return static_cast<int32_t>( rounded );
@@ -180,7 +180,7 @@ namespace Desert::Assets::Serialization
         if ( fromSeconds )
         {
             std::vector<double> everyTimeInSeconds;
-            const auto collect = [&]( const std::optional<float>& time )
+            const auto          collect = [&]( const std::optional<float>& time )
             { everyTimeInSeconds.push_back( static_cast<double>( time.value_or( 0.0F ) ) / sourceRate ); };
             for ( const auto& channel : legacy.Channels )
             {
@@ -228,14 +228,18 @@ namespace Desert::Assets::Serialization
         // an authored one for ever after — so the conversion WRITES them. `Linear` because that is what
         // every clip in this engine did before per-key interpolation existed: a migration states the
         // behaviour a file already had, it does not choose a new one.
-        const KeyShape statedShape{ static_cast<int>( Animation::KeyInterp::Linear ),
-                                    static_cast<int>( Animation::TangentMode::Auto ), 0.0f, 0.0f };
+        KeyShape statedShape;
+        statedShape.Interp = static_cast<int>( Animation::KeyInterp::Linear );
+        statedShape.Mode   = static_cast<int>( Animation::TangentMode::Auto );
+
+        constexpr Animation::FrameRate TICKS = Animation::PROJECT_TICK_RATE;
+
         AnimationAssetData out;
-        out.Version  = kAnimationVersion;
-        out.Name     = legacy.Name;
-        out.TickRate = { Animation::PROJECT_TICK_RATE.Numerator, Animation::PROJECT_TICK_RATE.Denominator };
-        out.DisplayRate   = { displayRate, 1 };
-        out.DurationTicks = toTick( legacy.Duration, legacy.DurationTicks );
+        out.Version           = kAnimationVersion;
+        out.Name              = legacy.Name;
+        out.TickRate          = { TICKS.Numerator, TICKS.Denominator };
+        out.DisplayRate       = { displayRate, 1 };
+        out.DurationTicks     = toTick( legacy.Duration, legacy.DurationTicks );
         out.SkeletonSignature = legacy.SkeletonSignature;
 
         out.Channels.reserve( legacy.Channels.size() );

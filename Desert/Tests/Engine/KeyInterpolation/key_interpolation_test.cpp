@@ -67,7 +67,7 @@ namespace
             {
                 continue;
             }
-            const double span = static_cast<double>( keys[i].Tick.Value - keys[i - 1].Tick.Value );
+            const auto   span = static_cast<double>( keys[i].Tick.Value - keys[i - 1].Tick.Value );
             const auto   t    = static_cast<float>( ( tick - keys[i - 1].Tick.Value ) / span );
             const double seconds =
                  span * static_cast<double>( rate.Denominator ) / static_cast<double>( rate.Numerator );
@@ -87,6 +87,7 @@ namespace
         {
             const double tick = keys.front().Tick.Value +
                                 ( keys.back().Tick.Value - keys.front().Tick.Value ) * ( step / 2000.0 );
+
             peak = std::max( peak, SampleAt( keys, tick, rate ) );
         }
         return peak;
@@ -126,11 +127,11 @@ TEST( KeyInterpolation, CubicPassesThroughBothKeysAndLeavesThemAtTheStatedSlope 
     // A difference quotient, over a step small enough that the segment's own curvature does not show up
     // in it: at 1/1000 of this span the second-order term is already 0.14, which is a measurement of the
     // curve rather than of the tangent.
-    constexpr double EPS      = 1.0e-5;
-    const float      at0      = EvaluateSegment( 0.0F, SLOPE, 100.0F, 0.0F, KeyInterp::Cubic, SPAN, 0.0F );
-    const float      atEps    = EvaluateSegment( 0.0F, SLOPE, 100.0F, 0.0F, KeyInterp::Cubic, SPAN,
-                                                 static_cast<float>( EPS ) );
-    const double     measured = ( atEps - at0 ) / ( EPS * SPAN );
+    constexpr double EPS = 1.0e-5;
+    const float      at0 = EvaluateSegment( 0.0F, SLOPE, 100.0F, 0.0F, KeyInterp::Cubic, SPAN, 0.0F );
+    const float      atEps =
+         EvaluateSegment( 0.0F, SLOPE, 100.0F, 0.0F, KeyInterp::Cubic, SPAN, static_cast<float>( EPS ) );
+    const double measured = ( atEps - at0 ) / ( EPS * SPAN );
     EXPECT_NEAR( measured, SLOPE, 0.01 ) << "the leave tangent is not value-per-second";
 }
 
@@ -181,16 +182,14 @@ TEST( KeyInterpolation, APeakIsFlatSoTheCurveNeverSailsPastTheKeyTheAnimatorAuth
 
     EXPECT_FLOAT_EQ( keys[1].ArriveTangent, 0.0F ) << "the extremum is not flat";
     EXPECT_FLOAT_EQ( keys[1].LeaveTangent, 0.0F );
-    EXPECT_NEAR( PeakOf( keys, PROJECT_TICK_RATE ), 100.0F, 1.0e-3F )
-         << "the curve went above the highest key";
+    EXPECT_NEAR( PeakOf( keys, PROJECT_TICK_RATE ), 100.0F, 1.0e-3F ) << "the curve went above the highest key";
 }
 
 TEST( KeyInterpolation, TheMonotoneClampStopsASteepNeighbourFromOvershootingAGentleSegment )
 {
     // A long flat approach into a sudden rise. Without the clamp the middle key's tangent is the average
     // of a tiny secant and a huge one, and the gentle segment before it dips BELOW its own two keys.
-    std::vector<ScalarKey> keys{ Key( 0, 0.0F ), Key( 12000, 1.0F ), Key( 13000, 100.0F ),
-                                 Key( 24000, 101.0F ) };
+    std::vector<ScalarKey> keys{ Key( 0, 0.0F ), Key( 12000, 1.0F ), Key( 13000, 100.0F ), Key( 24000, 101.0F ) };
     AutoSetTangents( keys, PROJECT_TICK_RATE );
 
     float trough = keys.front().Value;
@@ -255,15 +254,15 @@ TEST( KeyInterpolation, AKeySeededFromTheCurrentSlopeDoesNotMoveThePoseWhereTheA
 
     const auto sampleWith = [&]( float arrive, float leave )
     {
-        std::vector<ScalarKey> edited = keys;
-        ScalarKey inserted            = Key( 6000, original, KeyInterp::Cubic, TangentMode::User );
-        inserted.ArriveTangent        = arrive;
-        inserted.LeaveTangent         = leave;
+        std::vector<ScalarKey> edited   = keys;
+        ScalarKey              inserted = Key( 6000, original, KeyInterp::Cubic, TangentMode::User );
+        inserted.ArriveTangent          = arrive;
+        inserted.LeaveTangent           = leave;
         edited.insert( edited.begin() + 1, inserted );
         return edited;
     };
 
-    const std::vector<ScalarKey> seeded   = sampleWith( slope, slope );
+    const std::vector<ScalarKey> seeded    = sampleWith( slope, slope );
     const std::vector<ScalarKey> flattened = sampleWith( 0.0F, 0.0F );
 
     // EXACT where the key went in: the value was read off the curve, so it cannot have moved.
@@ -277,8 +276,10 @@ TEST( KeyInterpolation, AKeySeededFromTheCurrentSlopeDoesNotMoveThePoseWhereTheA
     for ( const double probe : { 1500.0, 3000.0, 4500.0, 7500.0, 9000.0, 10500.0 } )
     {
         const float reference = SampleAt( keys, probe, PROJECT_TICK_RATE );
-        worstSeeded = std::max( worstSeeded, std::fabs( SampleAt( seeded, probe, PROJECT_TICK_RATE ) - reference ) );
-        worstFlat = std::max( worstFlat, std::fabs( SampleAt( flattened, probe, PROJECT_TICK_RATE ) - reference ) );
+        worstSeeded =
+             std::max( worstSeeded, std::fabs( SampleAt( seeded, probe, PROJECT_TICK_RATE ) - reference ) );
+        worstFlat =
+             std::max( worstFlat, std::fabs( SampleAt( flattened, probe, PROJECT_TICK_RATE ) - reference ) );
     }
 
     EXPECT_LT( worstSeeded, 3.0F ) << "seeding drifted by " << worstSeeded << " over a 100-unit curve";
@@ -338,8 +339,8 @@ TEST( KeyInterpolation, TheSAMECurveOnADifferentTickRateIsTheSameCurve )
 
     for ( const double u : { 0.1, 0.25, 0.5, 0.75, 0.9 } )
     {
-        EXPECT_NEAR( SampleAt( fine, 24000.0 * u, PROJECT_TICK_RATE ),
-                     SampleAt( rough, 240.0 * u, coarse ), 1.0e-3F )
+        EXPECT_NEAR( SampleAt( fine, 24000.0 * u, PROJECT_TICK_RATE ), SampleAt( rough, 240.0 * u, coarse ),
+                     1.0e-3F )
              << "the two grids disagree at u = " << u;
     }
 }

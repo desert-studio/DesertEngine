@@ -51,4 +51,23 @@ namespace Desert::Animation
      */
     [[nodiscard]] bool InsertKeyFromCurve( BoneTrack& track, TrackChannel channel, FrameNumber tick,
                                            FrameRate tickRate );
+
+    /**
+     * @brief The FIRST key of an EMPTY channel: record the pose the animator is already looking at.
+     *
+     * `InsertKeyFromCurve` refuses an empty channel deliberately — there is no curve to read there — but
+     * a lane's "+" button exists precisely to key a channel from scratch, and the answer it gave was
+     * `glm::vec3( 0.0f )` / an identity quaternion / a scale of 1. That is the SAME defect §936 names,
+     * eleven lines below the call site that was fixed for it: the first press of "+" on an untouched
+     * channel teleported the bone to the origin and called it a keyframe.
+     *
+     * The honest first key is the bone's CURRENT LOCAL POSE — what the animator sees on screen, so
+     * recording it moves nothing. Its tangents are flat because one key has no neighbours to imply a
+     * slope, which is also what `AutoSetTangents` gives an endpoint.
+     *
+     * Returns false when the channel is NOT empty: then the operation is `InsertKeyFromCurve`, and this
+     * function silently overwriting authored keys with a decomposed matrix is exactly what it must not do.
+     */
+    [[nodiscard]] bool InsertFirstKeyFromPose( BoneTrack& track, TrackChannel channel, FrameNumber tick,
+                                               const glm::mat4& localPose );
 } // namespace Desert::Animation

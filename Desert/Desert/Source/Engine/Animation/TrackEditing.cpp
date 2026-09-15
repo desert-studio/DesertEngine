@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include <glm/gtx/matrix_decompose.hpp>
+
 namespace Desert::Animation
 {
     namespace
@@ -89,7 +91,7 @@ namespace Desert::Animation
                 {
                     const std::vector<ScalarKey> scalars =
                          LiftComponent( track.PositionKeys, &PositionKeyFrame::Position, component );
-                    const float slope             = SlopeAt( scalars, tick, tickRate );
+                    const float slope            = SlopeAt( scalars, tick, tickRate );
                     key.ArriveTangent[component] = slope;
                     key.LeaveTangent[component]  = slope;
                 }
@@ -136,6 +138,71 @@ namespace Desert::Animation
                 }
                 track.ScaleKeys.push_back( key );
                 std::sort( track.ScaleKeys.begin(), track.ScaleKeys.end() );
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool InsertFirstKeyFromPose( BoneTrack& track, TrackChannel channel, FrameNumber tick,
+                                 const glm::mat4& localPose )
+    {
+        glm::vec3 scale;
+        glm::quat rotation;
+        glm::vec3 translation;
+        glm::vec3 skew;
+        glm::vec4 perspective;
+        // A TRS round trip is not the identity on a matrix carrying shear (`Skeleton` says so about
+        // OffsetMatrix), and that is fine HERE: a keyframe channel can only express T, R and S, so the
+        // shear is not being lost by this decompose — it was never expressible in a key to begin with.
+        if ( !glm::decompose( localPose, scale, rotation, translation, skew, perspective ) )
+        {
+            return false;
+        }
+
+        switch ( channel )
+        {
+            case TrackChannel::Position:
+            {
+                if ( !track.PositionKeys.empty() )
+                {
+                    return false;
+                }
+                PositionKeyFrame key;
+                key.Tick     = tick;
+                key.Position = translation;
+                key.Interp   = KeyInterp::Cubic;
+                key.Mode     = TangentMode::Auto;
+                track.PositionKeys.push_back( key );
+                return true;
+            }
+
+            case TrackChannel::Rotation:
+            {
+                if ( !track.RotationKeys.empty() )
+                {
+                    return false;
+                }
+                RotationKeyFrame key;
+                key.Tick     = tick;
+                key.Rotation = rotation;
+                key.Interp   = KeyInterp::Linear;
+                track.RotationKeys.push_back( key );
+                return true;
+            }
+
+            case TrackChannel::Scale:
+            {
+                if ( !track.ScaleKeys.empty() )
+                {
+                    return false;
+                }
+                ScaleKeyFrame key;
+                key.Tick   = tick;
+                key.Scale  = scale;
+                key.Interp = KeyInterp::Cubic;
+                key.Mode   = TangentMode::Auto;
+                track.ScaleKeys.push_back( key );
                 return true;
             }
         }

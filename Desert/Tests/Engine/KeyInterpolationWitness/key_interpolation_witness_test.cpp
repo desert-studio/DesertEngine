@@ -16,6 +16,7 @@
 //   3. BETWEEN keys they differ, and the cubic never leaves the interval its keys bound.
 
 #include <Engine/Animation/AnimationClip.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
@@ -27,6 +28,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -74,9 +76,8 @@ namespace
     {
         EXPECT_EQ( clip.Tracks.size(), 1u );
         return clip.Tracks[0]
-             .GetInterpolatedPosition( Desert::Animation::FrameTime{ Desert::Animation::FrameNumber{ tick },
-                                                                     0.0F },
-                                       clip.TickRate )
+             .GetInterpolatedPosition(
+                  Desert::Animation::FrameTime{ Desert::Animation::FrameNumber{ tick }, 0.0F }, clip.TickRate )
              .y;
     }
 } // namespace
@@ -151,8 +152,8 @@ TEST( KeyInterpolationWitness, BetweenKeysTheyDifferAndTheCubicStaysInsideItsKey
     const float straight = HeightAtTick( linear, 30000 );
     const float curved   = HeightAtTick( cubic, 30000 );
     EXPECT_NEAR( straight, 232.5F, 0.1F );
-    EXPECT_GT( curved - straight, 5.0F ) << "the cubic is only " << ( curved - straight )
-                                         << " cm from the straight line here";
+    EXPECT_GT( curved - straight, 5.0F )
+         << "the cubic is only " << ( curved - straight ) << " cm from the straight line here";
 
     // AND IT NEVER SAILS PAST THE PEAK. The auto pass flattens an extremum precisely so that this holds,
     // and it is the property an animator notices before any other.
@@ -200,10 +201,8 @@ TEST( KeyInterpolationWitness, InsertingAKeyAtThePlayheadRecordsTheCurveAndNotTh
     const float       expected = HeightAtTick( clip, AT );
     EXPECT_GT( expected, 200.0F ) << "the probe point is not on the interesting part of the curve";
 
-    ASSERT_TRUE( Desert::Animation::InsertKeyFromCurve( clip.Tracks[0],
-                                                        Desert::Animation::TrackChannel::Position,
-                                                        Desert::Animation::FrameNumber{ AT },
-                                                        clip.TickRate ) );
+    ASSERT_TRUE( Desert::Animation::InsertKeyFromCurve( clip.Tracks[0], Desert::Animation::TrackChannel::Position,
+                                                        Desert::Animation::FrameNumber{ AT }, clip.TickRate ) );
 
     ASSERT_EQ( clip.Tracks[0].PositionKeys.size(), 4u );
     EXPECT_FLOAT_EQ( HeightAtTick( clip, AT ), expected )
@@ -218,10 +217,46 @@ TEST( KeyInterpolationWitness, InsertingAKeyAtThePlayheadRecordsTheCurveAndNotTh
 
     // Inserting again on the same tick is refused: silently overwriting the key an animator is standing on
     // is not what a button called "add" does.
-    EXPECT_FALSE( Desert::Animation::InsertKeyFromCurve( clip.Tracks[0],
-                                                         Desert::Animation::TrackChannel::Position,
-                                                         Desert::Animation::FrameNumber{ AT },
-                                                         clip.TickRate ) );
+    EXPECT_FALSE( Desert::Animation::InsertKeyFromCurve( clip.Tracks[0], Desert::Animation::TrackChannel::Position,
+                                                         Desert::Animation::FrameNumber{ AT }, clip.TickRate ) );
+}
+
+// ------------------------------------------------- 5. the OTHER button, the one on the lane
+
+TEST( KeyInterpolationWitness, TheFirstKeyOfAnEmptyChannelRecordsThePoseAndNotTheOrigin )
+{
+    // THE SAME DEFECT, ELEVEN LINES BELOW THE ONE THAT WAS FIXED. "Add Key @ Playhead" in the inspector
+    // was corrected to record the curve; the per-lane "+" beside every channel still pushed
+    // `glm::vec3( 0.0f )`, an identity quaternion and a scale of 1. A populated channel has a curve to
+    // read, but the lane button's stated purpose is an EMPTY channel — and there the honest answer is the
+    // pose on screen, which is the one thing neither `InsertKeyFromCurve` nor the old code could give.
+    Desert::Animation::BoneTrack track;
+    track.BoneName = "IK_Shoulder";
+
+    glm::mat4 pose = glm::translate( glm::mat4( 1.0F ), glm::vec3( 11.0F, 222.0F, -33.0F ) );
+    pose           = glm::rotate( pose, glm::radians( 40.0F ), glm::vec3( 0.0F, 1.0F, 0.0F ) );
+    pose           = glm::scale( pose, glm::vec3( 2.0F, 2.0F, 2.0F ) );
+
+    // Empty channels: all three record the pose.
+    ASSERT_TRUE( Desert::Animation::InsertFirstKeyFromPose( track, Desert::Animation::TrackChannel::Position,
+                                                            Desert::Animation::FrameNumber{ 0 }, pose ) );
+    ASSERT_TRUE( Desert::Animation::InsertFirstKeyFromPose( track, Desert::Animation::TrackChannel::Scale,
+                                                            Desert::Animation::FrameNumber{ 0 }, pose ) );
+    ASSERT_TRUE( Desert::Animation::InsertFirstKeyFromPose( track, Desert::Animation::TrackChannel::Rotation,
+                                                            Desert::Animation::FrameNumber{ 0 }, pose ) );
+
+    ASSERT_EQ( track.PositionKeys.size(), 1u );
+    EXPECT_NEAR( track.PositionKeys[0].Position.y, 222.0F, 1e-3F )
+         << "the first key of an empty channel is at the origin again";
+    EXPECT_NEAR( track.ScaleKeys[0].Scale.x, 2.0F, 1e-3F ) << "the first scale key flattened the pose to 1";
+    EXPECT_GT( std::abs( track.RotationKeys[0].Rotation.y ), 0.1F )
+         << "the first rotation key is the identity and the bone snapped upright";
+
+    // A POPULATED channel is refused: this function decomposes a matrix, and letting it run over authored
+    // keys would overwrite them with one pose. That channel's operation is InsertKeyFromCurve.
+    EXPECT_FALSE( Desert::Animation::InsertFirstKeyFromPose( track, Desert::Animation::TrackChannel::Position,
+                                                             Desert::Animation::FrameNumber{ 24000 }, pose ) );
+    EXPECT_EQ( track.PositionKeys.size(), 1u );
 }
 
 int main( int argc, char** argv )

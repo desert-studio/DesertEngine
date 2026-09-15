@@ -133,6 +133,22 @@ namespace Desert::Editor
                 ImGui::EndTooltip();
             }
         }
+
+        /// A lane index (0 = position, 1 = rotation, 2 = scale) as the channel it edits. Written once because
+        /// it was written twice: the per-lane "+" and "Add Key @ Playhead" each spelled out the same mapping,
+        /// and the second copy is how the two buttons came to disagree about what a key at the playhead is.
+        Animation::TrackChannel ChannelOfLane( int lane )
+        {
+            if ( lane == 0 )
+            {
+                return Animation::TrackChannel::Position;
+            }
+            if ( lane == 1 )
+            {
+                return Animation::TrackChannel::Rotation;
+            }
+            return Animation::TrackChannel::Scale;
+        }
     } // namespace
 
     void SequencerPanel::KeyBonePose( Animation::AnimationClip* clip, const Animation::Animator& animator,
@@ -693,28 +709,52 @@ namespace Desert::Editor
                 dl->AddText( ImVec2( contentX0 + gutter - 58.0f, laneY + 1.0f ), chCol[ch], chName[ch] );
 
                 // Per-lane "+" (add a key at the playhead) so empty channels are keyable from scratch.
+                // THE SAME ORIGIN DEFECT §936 NAMES LIVED HERE TOO, eleven lines below the "Add Key @
+                // Playhead" button that was fixed for it: this one pushed `glm::vec3( 0.0f )` / an identity
+                // quaternion / a scale of 1. A populated channel records its CURVE; an empty one has no
+                // curve, so it records the POSE on screen. Neither answer is the origin.
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + gutter - 22.0f, laneY - 1.0f ) );
                 ImGui::PushID( ( ti * 3 + ch ) * 4096 + 3999 );
                 if ( ImGui::SmallButton( "+" ) )
                 {
                     const Animation::FrameNumber t =
                          Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
+                    const Animation::TrackChannel channel = ChannelOfLane( ch );
+                    const auto                    bone    = animator->GetSkeleton().FindBoneIndex( tr.BoneName );
+
+                    bool empty = tr.ScaleKeys.empty();
                     if ( ch == 0 )
-                        tr.PositionKeys.push_back( { t, glm::vec3( 0.0f ) } );
+                    {
+                        empty = tr.PositionKeys.empty();
+                    }
                     else if ( ch == 1 )
-                        tr.RotationKeys.push_back( { t, glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } );
-                    else
-                        tr.ScaleKeys.push_back( { t, glm::vec3( 1.0f ) } );
-                    if ( ch == 0 )
-                        std::sort( tr.PositionKeys.begin(), tr.PositionKeys.end() );
-                    else if ( ch == 1 )
-                        std::sort( tr.RotationKeys.begin(), tr.RotationKeys.end() );
-                    else
-                        std::sort( tr.ScaleKeys.begin(), tr.ScaleKeys.end() );
+                    {
+                        empty = tr.RotationKeys.empty();
+                    }
+
+                    bool added = false;
+                    if ( !empty )
+                    {
+                        added = Animation::InsertKeyFromCurve( tr, channel, t, tickRate );
+                    }
+                    else if ( bone.has_value() )
+                    {
+                        added = Animation::InsertFirstKeyFromPose( tr, channel, t,
+                                                                   animator->GetBoneLocalPose( bone.value() ) );
+                    }
+                    // else: the track names a bone this rig does not have, so there is no pose to record
+                    // and no curve to read. Adding nothing is the answer; adding the origin was not.
+
+                    if ( added )
+                    {
+                        Animation::RefreshTangents( tr, tickRate );
+                    }
                     m_SelTrack   = ti;
                     m_SelChannel = ch;
-                    if ( auto bi = animator->GetSkeleton().FindBoneIndex( tr.BoneName ); bi.has_value() )
-                        Core::SkeletonEditMode::SetSelectedBone( static_cast<int>( bi.value() ) );
+                    if ( bone.has_value() )
+                    {
+                        Core::SkeletonEditMode::SetSelectedBone( static_cast<int>( bone.value() ) );
+                    }
                     animator->SetTime( animator->GetCurrentTime() );
                 }
                 ImGui::PopID();
@@ -935,10 +975,8 @@ namespace Desert::Editor
                 // flattened whatever the animator had built.
                 const Animation::FrameNumber t =
                      Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
-                const auto channel = m_SelChannel == 0   ? Animation::TrackChannel::Position
-                                     : m_SelChannel == 1 ? Animation::TrackChannel::Rotation
-                                                         : Animation::TrackChannel::Scale;
-                changed = Animation::InsertKeyFromCurve( tr, channel, t, tickRate );
+                const Animation::TrackChannel channel = ChannelOfLane( m_SelChannel );
+                changed                               = Animation::InsertKeyFromCurve( tr, channel, t, tickRate );
             }
 
             if ( changed )

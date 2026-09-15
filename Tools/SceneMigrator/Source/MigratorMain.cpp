@@ -794,8 +794,8 @@ namespace Desert::Migration
             }
             else
             {
-                what << " generation " << report.FromVersion
-                     << ": every tick kept; display rate " << report.DisplayRateNumerator << " fps carried;";
+                what << " generation " << report.FromVersion << ": every tick kept; display rate "
+                     << report.DisplayRateNumerator << " fps carried;";
             }
             what << " " << report.ShapesWritten
                  << " key(s) now STATE their interpolation and tangent mode instead of inheriting a silent "

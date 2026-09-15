@@ -39,16 +39,16 @@ namespace Desert::Assets::Serialization
      */
     struct KeyShape
     {
-        int   Interp        = 1; // KeyInterp::Linear — what every clip did before per-key interpolation
-        int   Mode          = 0; // TangentMode::Auto
-        float ArriveWeight  = 0.0f;
-        float LeaveWeight   = 0.0f;
+        int   Interp       = 1; // KeyInterp::Linear — what every clip did before per-key interpolation
+        int   Mode         = 0; // TangentMode::Auto
+        float ArriveWeight = 0.0f;
+        float LeaveWeight  = 0.0f;
     };
 
     struct KeyPosition
     {
-        int32_t   Tick          = 0;
-        glm::vec3 Value         = glm::vec3( 0.0f );
+        int32_t   Tick  = 0;
+        glm::vec3 Value = glm::vec3( 0.0f );
         KeyShape  Shape;
         // Value units per SECOND, one per component — a tangent is a slope and a slope is a scalar. See
         // Engine/Animation/KeyInterpolation.hpp for why the unit is seconds and not ticks.
@@ -75,8 +75,8 @@ namespace Desert::Assets::Serialization
 
     struct KeyScale
     {
-        int32_t   Tick          = 0;
-        glm::vec3 Value         = glm::vec3( 1.0f );
+        int32_t   Tick  = 0;
+        glm::vec3 Value = glm::vec3( 1.0f );
         KeyShape  Shape;
         glm::vec3 ArriveTangent = glm::vec3( 0.0f );
         glm::vec3 LeaveTangent  = glm::vec3( 0.0f );

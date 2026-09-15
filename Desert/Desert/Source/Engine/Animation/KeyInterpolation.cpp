@@ -178,9 +178,9 @@ namespace Desert::Animation
             return 0.0F;
         }
 
-        const auto after = std::lower_bound( keys.begin(), keys.end(), tick,
-                                             []( const ScalarKey& key, FrameNumber at )
-                                             { return key.Tick < at; } );
+        const auto after =
+             std::lower_bound( keys.begin(), keys.end(), tick,
+                               []( const ScalarKey& key, FrameNumber at ) { return key.Tick < at; } );
         if ( after == keys.begin() || after == keys.end() )
         {
             return 0.0F;
@@ -228,12 +228,11 @@ namespace Desert::Animation
         const float p3    = after->Value;
 
         const auto  t = static_cast<float>( static_cast<double>( tick.Value - before->Tick.Value ) /
-                                           static_cast<double>( after->Tick.Value - before->Tick.Value ) );
+                                            static_cast<double>( after->Tick.Value - before->Tick.Value ) );
         const float u = 1.0F - t;
 
         // dB/dt of a cubic Bezier, then dt -> seconds. The 3x is the Bezier derivative's own factor.
-        const float derivative =
-             3.0F * ( u * u * ( p1 - p0 ) + 2.0F * u * t * ( p2 - p1 ) + t * t * ( p3 - p2 ) );
+        const float derivative = 3.0F * ( u * u * ( p1 - p0 ) + 2.0F * u * t * ( p2 - p1 ) + t * t * ( p3 - p2 ) );
         return static_cast<float>( static_cast<double>( derivative ) / span );
     }
 } // namespace Desert::Animation

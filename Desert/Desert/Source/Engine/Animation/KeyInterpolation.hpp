@@ -104,8 +104,7 @@ namespace Desert::Animation
      * at this key"), and matching it is deliberate — see the report in Docs/Animation/Shots/A6.
      */
     [[nodiscard]] float EvaluateSegment( float startValue, float startLeaveTangent, float endValue,
-                                         float endArriveTangent, KeyInterp interp, double spanSeconds,
-                                         float t );
+                                         float endArriveTangent, KeyInterp interp, double spanSeconds, float t );
 
     /**
      * @brief Recompute the tangents of every `Auto` key in the channel. Authoring-time, whole-channel.
