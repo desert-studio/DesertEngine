@@ -1113,7 +1113,14 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     //   could see the other. This census now joins PointerOwnership as a register whose TOTAL cannot be
     //   carried across a merge while its DELTA can, which is the rule six consecutive integrations
     //   established and this is the seventh.
-    EXPECT_EQ( all.size(), 42u );
+    //
+    //   AND THE PARAGRAPH ABOVE WAS WRITTEN WHILE THE LINE BELOW IT STILL SAID 42. The merge commit
+    //   `6eeb47db` reasoned its way to 43 in prose and left the literal alone, so `dev` shipped red on
+    //   this suite: `kCensus` already had all 43 rows (the assertion above it passed), and only this
+    //   number was stale. That is the exact shape the verify skill warns about — the prose is corrected
+    //   and the copy-pasted line beneath it is not — and it is why A4 read this off a run rather than
+    //   trusting either the number or the sentence explaining it. A4 adds no reflected type of its own.
+    EXPECT_EQ( all.size(), 43u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

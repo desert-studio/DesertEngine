@@ -62,8 +62,8 @@ namespace Desert::Scripting
         // self:setAnimParam(name, value) -> bool. Returns false AND logs on every refusal: the boolean is
         // for the script that wants to branch, the log is for the developer who does not know yet that
         // there is something to branch on.
-        entity["setAnimParam"] =
-             []( ScriptEntity& self, const std::string& name, const sol::object& value ) -> bool
+        entity["setAnimParam"] = []( ScriptEntity& self, const std::string& name,
+                                     const sol::object& value ) -> bool
         {
             if ( !self.Valid() )
             {
