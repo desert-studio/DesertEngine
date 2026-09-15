@@ -247,14 +247,14 @@ namespace Desert::Graphic::Render2D
             if ( capture == nullptr )
             {
                 continue; // refused, and already named in the log with its numbers
+            }
 
-                // Follow the element's rect. On an ACTUAL change only: Resize recreates framebuffers behind a
-                // device idle, which is the most expensive thing this loop can do, and calling it every frame
-                // with the same numbers would pay for it on every frame of every element.
-                if ( capture->Width != demand.Width || capture->Height != demand.Height )
-                {
-                    capture->Scene->Resize( demand.Width, demand.Height );
-                }
+            // Follow the element's rect. On an ACTUAL change only: Resize recreates framebuffers behind a
+            // device idle, which is the most expensive thing this loop can do, and calling it every frame
+            // with the same numbers would pay for it on every frame of every element.
+            if ( capture->Width != demand.Width || capture->Height != demand.Height )
+            {
+                capture->Scene->Resize( demand.Width, demand.Height );
                 capture->Width  = demand.Width;
                 capture->Height = demand.Height;
             }
@@ -295,6 +295,7 @@ namespace Desert::Graphic::Render2D
         // element that stopped being demanded would never be retried, so a shortage that ended — a scene
         // view closed, another element hidden — would leave the magenta up forever with nothing in the log
         // to say why it did not come back.
+        //
         // Appended in the order the walk reaches the elements, which is the order the frame draws them.
         // A repeat within one frame cannot happen — the walk visits an element once — but a host that
         // walked twice without a Tick between would otherwise grow this without bound, so the row is
