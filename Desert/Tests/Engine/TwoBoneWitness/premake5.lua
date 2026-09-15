@@ -22,6 +22,12 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        -- Pose.cpp arrived with the merge of А1, which moved BoneTransform's P/R/S <-> mat4 conversion
+        -- out of the header. This suite composes a bone's matrix itself, so it needs the definition of
+        -- BoneTransform::ToMatrix; without this line the suite COMPILES and fails at LINK, naming a
+        -- symbol whose source is sitting in the tree. Adding it does not weaken the note above —
+        -- Animator.cpp is still absent, so what is asserted is still a property of the rig.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 
     includedirs {

@@ -259,7 +259,11 @@ namespace
             {
                 if ( track.BoneName == bones[i].Name )
                 {
-                    local[i] = track.GetTransform( time );
+                    // `BoneTrack::GetTransform` composed P/R/S into a mat4 and was removed by А1: every
+                    // caller decomposed it again immediately, so the matrix was a round trip with no
+                    // consumer on the animation system's hottest path. `Sample` returns the three stored
+                    // quantities and this test composes them itself, which is what it wanted anyway.
+                    local[i] = track.Sample( time ).ToMatrix();
                 }
             }
         }
