@@ -121,6 +121,11 @@ namespace Desert::Editor
         // snapshot going stale.
         [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
 
+        // Runs one action a document published (ISubjectDocument::Actions), addressed by subject + label.
+        // Named rather than a lambda in the list above — see the definition for both reasons.
+        [[nodiscard]] Common::BoolResultStr RunDocumentAction( const SubjectId&   subject,
+                                                               const std::string& label );
+
         // Ctrl+P "go to anything": draws the overlay over the dictionary above. No-op unless open.
         void DrawCommandPalette();
         // The palette asked for BY NAME, from its own dictionary — the only way an unattended run can put

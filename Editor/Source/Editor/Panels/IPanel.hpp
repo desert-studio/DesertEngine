@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -193,6 +194,30 @@ namespace Desert::Editor
         // from the manager and an entity destroyed in any of the open scenes, and a subscription that
         // covered one of the two would be worse than none: the uncovered half would look handled.
         [[nodiscard]] virtual bool IsSubjectAlive() const = 0;
+
+        // ── WHAT THIS WINDOW CAN BE ASKED TO DO, BY SOMETHING WITHOUT A MOUSE ─────────────────────────
+        //
+        // A document's own view modes — "show these keys as curves", "show the graph's parameters" — live
+        // on buttons inside it, and a button is the one gesture an unattended run cannot make. Every claim
+        // about such a mode was therefore unphotographable: `--shot` draws no interface at all, and the
+        // control channel could reach the command palette but the palette knew nothing a document could do.
+        //
+        // A LABEL AND A CLOSURE, and deliberately nothing more. Not a registry, not an id namespace: this
+        // exists so that a window's modes are reachable, and an id scheme would be a second name for each
+        // of them to drift from. The palette prefixes the document's own name, so two Sequencers do not
+        // offer two identical entries.
+        //
+        // Empty by default: a document with no modes has nothing to say here, and that is not a stub.
+        struct DocumentAction
+        {
+            std::string           Label;
+            std::function<void()> Run;
+        };
+
+        [[nodiscard]] virtual std::vector<DocumentAction> Actions()
+        {
+            return {};
+        }
 
         // Is this document holding one of the six renderer slots RIGHT NOW?
         //

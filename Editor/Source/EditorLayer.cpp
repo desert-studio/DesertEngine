@@ -2,6 +2,8 @@
 
 #include "EditorLayer.hpp"
 
+#include <functional>
+
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -3254,6 +3256,48 @@ namespace Desert::Editor
     // names for one thing, and the channel would then have a name the UI never shows.
     static std::string SceneLabel( const Common::Filepath& path );
 
+    // ONE OF A DOCUMENT'S OWN ACTIONS, RUN BY NAME. A named function rather than the lambda body it was:
+    // a parameter-less multi-line lambda is the shape `bugprone-exception-escape` fires on in this tree
+    // (ScenePropertiesPanel.cpp:92 records the same finding), and it is also the shape clang-format 18 and
+    // 22 disagree about. The palette entry is now one line and this is where the work is.
+    //
+    // THE DOCUMENT IS RE-RESOLVED FROM THE SUBJECT, not captured: a window can be closed between the
+    // moment this dictionary was built and the moment an entry runs, and every other document command here
+    // re-resolves for that reason. A label that no longer exists is a REFUSAL — a view mode's label changes
+    // with the mode it is in, so "show the curves" is gone the moment the curves are showing.
+    Common::BoolResultStr EditorLayer::RunDocumentAction( const SubjectId& subject, const std::string& label )
+    {
+        for ( const auto& open : m_OpenDocuments )
+        {
+            if ( !( open->Subject() == subject ) )
+            {
+                continue;
+            }
+            for ( auto& current : open->Actions() )
+            {
+                if ( current.Label != label )
+                {
+                    continue;
+                }
+                // AN ACTION WITH NO CLOSURE IS NOT A NO-OP: calling an empty std::function throws, and a
+                // document that published a label with nothing behind it has a defect worth naming.
+                if ( !current.Run )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "the document offers '{}' with nothing behind it — the label was published without "
+                         "an action",
+                         label );
+                }
+                current.Run();
+                return PaletteCommandDone();
+            }
+        }
+        return Common::MakeFormattedError<bool>(
+             "the document that offered '{}' is gone, or no longer offers it (a view mode's label changes "
+             "with the mode it is in)",
+             label );
+    }
+
     std::vector<PaletteCommand> EditorLayer::BuildPaletteCommands()
     {
         std::vector<PaletteCommand> commands;
@@ -3325,6 +3369,32 @@ namespace Desert::Editor
                                   } } );
         }
 
+        // AND WHAT AN OPEN DOCUMENT CAN DO, which until now was nothing the palette knew about. A view mode
+        // inside a window lives on a button, and a button is the gesture an unattended run cannot make —
+        // so "the Sequencer can show its keys as curves" was a claim with no way to photograph it.
+        //
+        // The document's own name prefixes the label, because two Sequencers over two rigs would otherwise
+        // offer two identical entries and the palette matches on the label exactly.
+        for ( const auto& document : m_OpenDocuments )
+        {
+            const SubjectId   subject = document->Subject();
+            const std::string name    = DocumentDisplayName( document->GetName() );
+            for ( auto& action : document->Actions() )
+            {
+                // The LABEL is captured, not the action: a document can be destroyed between building this
+                // list and running an entry, and re-resolving by subject is what every other document
+                // command here does for the same reason.
+                const std::string label = action.Label;
+                // NOT A LAMBDA, and that is a finding rather than a style: `bugprone-exception-escape`
+                // fires on a parameter-less lambda in this tree (ScenePropertiesPanel.cpp:92 records the
+                // same one), and `PaletteCommand::Run` takes no parameters, so there is no version of a
+                // lambda here that the check accepts. `bind_front` binds the member function directly and
+                // there is nothing for it to analyse.
+                commands.push_back( { "Document", name + ": " + label,
+                                      std::bind_front( &EditorLayer::RunDocumentAction, this, subject, label ) } );
+            }
+        }
+
         // Closing one, by name. Never offered before, because a person closes a window with the x on it —
         // which is exactly the gesture no unattended run can make, and therefore the reason "close a
         // document and show what the well offers back" was a claim nobody could photograph. It goes
@@ -3383,6 +3453,35 @@ namespace Desert::Editor
                                           Core::SelectionManager::SetSelected( uuid );
                                           return PaletteCommandDone();
                                       } } );
+
+                // AND ITS EDITORS, because until now there was NO WAY TO OPEN ONE without a mouse. A
+                // subject document — the Sequencer, the AnimGraph — is opened by a button in the Details
+                // panel, and a button is the one gesture an unattended run cannot make. So every claim
+                // about those windows was unphotographable, including the one this task exists to make.
+                //
+                // Generated from the registry rather than listed, so an editor registered tomorrow is
+                // offered here the moment it exists. The two filters are the registry's own: the digest of
+                // the registered type name has to BE the key it is registered under (which is what excludes
+                // the asset editors, whose subject is a file and not a component), and `Exists` has to say
+                // there is something on this entity to open — the same predicate the Details button asks.
+                for ( const SubjectTypeKey type : m_SubjectEditors.RegisteredTypes() )
+                {
+                    const std::string typeName = m_SubjectEditors.TypeName( type );
+                    if ( ComponentSubjectType( typeName ) != type )
+                    {
+                        continue;
+                    }
+                    const SubjectId subject = ComponentSubject( uuid, typeName );
+                    if ( !m_SubjectEditors.Exists( subject ) )
+                    {
+                        continue;
+                    }
+                    commands.push_back( { "Open", "Editor: " + typeName + " on " + name, [subject]
+                                          {
+                                              Core::SubjectOpenRequests::Request( subject );
+                                              return PaletteCommandDone();
+                                          } } );
+                }
 
                 // DELETING ONE IS ALSO SOMETHING A PERSON DOES, and until now the palette could only
                 // SELECT. The Outliner's context menu and the Delete key both reach

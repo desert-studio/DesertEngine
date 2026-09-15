@@ -1,5 +1,7 @@
 #include "SequencerPanel.hpp"
 
+#include "CurveView.hpp"
+
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/ToastManager.hpp>
@@ -80,6 +82,53 @@ namespace Desert::Editor
             tick                       = Animation::FrameNumber{
                  static_cast<int32_t>( std::llround( static_cast<double>( frame ) * ticksPerFrame ) ) };
             return true;
+        }
+
+        /// The time axis of a lane area, as the ONE mapping the ruler, the dope sheet and the curve view all
+        /// read. Three copies of `laneX0 + (t/duration)*laneW` is how a playhead and the key under it end up
+        /// two pixels apart at some zoom and nobody can say which of the three is lying.
+        [[nodiscard]] Sequencer::CurveViewport TimeAxis( float laneX0, float laneW, float durationSeconds )
+        {
+            Sequencer::CurveViewport axis;
+            axis.X0        = laneX0;
+            axis.X1        = laneX0 + laneW;
+            axis.TimeStart = 0.0;
+            axis.TimeEnd   = durationSeconds > 0.0f ? static_cast<double>( durationSeconds ) : 1.0;
+            return axis;
+        }
+
+        /// The DISPLAY-RATE frame grid. ONE FUNCTION, TWO CONSUMERS — the ruler and the curve view.
+        ///
+        /// What it replaces in the ruler was `for (int u = 0; u <= duration; ++u)`: one line per whole
+        /// SECOND, labelled with an integer second. So the grid an animator SAW and the grid their dragged
+        /// key LANDED ON were different grids, and the display rate — a field A5 added and a number every
+        /// `.anim` now states — was visible nowhere in the window that owns it. Report 07 §9.5 asks for this
+        /// in as many words ("линейка в КАДРАХ, не в секундах").
+        void DrawFrameGrid( ImDrawList* dl, const Sequencer::CurveViewport& axis, float yTop, float yBottom,
+                            Animation::FrameNumber durationTicks, Animation::FrameRate tickRate,
+                            Animation::FrameRate displayRate, bool labels, ImU32 lineColour )
+        {
+            const double fps = displayRate.AsDouble();
+            if ( !( fps > 0.0 ) )
+            {
+                return;
+            }
+            const double  secondsPerFrame = 1.0 / fps;
+            const int32_t step =
+                 Sequencer::ChooseFrameStep( axis.PixelsPerSecond() * secondsPerFrame, labels ? 44.0f : 9.0f );
+            const int32_t last = Animation::DisplayFrameIndex( durationTicks, tickRate, displayRate );
+
+            for ( int32_t frame = 0; frame <= last; frame += step )
+            {
+                const float x = axis.TimeToX( static_cast<double>( frame ) * secondsPerFrame );
+                dl->AddLine( ImVec2( x, yTop ), ImVec2( x, yBottom ), lineColour );
+                if ( labels )
+                {
+                    char buf[16];
+                    std::snprintf( buf, sizeof( buf ), "%d", frame );
+                    dl->AddText( ImVec2( x + 3.0f, yTop + 3.0f ), IM_COL32( 190, 190, 190, 160 ), buf );
+                }
+            }
         }
     } // namespace
 
@@ -460,14 +509,26 @@ namespace Desert::Editor
         ImGui::SetNextItemWidth( 110.0f );
         ImGui::SliderFloat( "Speed", &anim.PlaybackSpeed, 0.0f, 3.0f, "%.2fx" );
         ImGui::SameLine( 0.0f, 16.0f );
-        ImGui::SetNextItemWidth( 120.0f );
-        ImGui::SliderFloat( "Zoom", &m_PxPerSec, 20.0f, 240.0f, "%.0f px/u" );
+        // THE "Zoom" SLIDER THAT USED TO BE HERE MOVED NOTHING, and it is gone rather than kept for later.
+        // `m_PxPerSec` was written by it and read by no one (report 07 §3.1 counts it among three such
+        // knobs): both lane areas map the whole clip onto their width, so there is no pixels-per-second
+        // anywhere to scale. A real zoom is a scroll model — a visible time WINDOW, horizontal panning, and
+        // a ruler that follows it — which is a change to the dope sheet, not a line in the curve view. What
+        // is here instead is the control that now has a referent.
+        if ( ImGui::Button( m_CurveView ? "Dope Sheet" : "Curves" ) )
+        {
+            m_CurveView       = !m_CurveView;
+            m_CurveFitPending = true;
+        }
+        Utils::ImGuiUtilities::Tooltip( m_CurveView ? "Show the keys as a dope sheet"
+                                                    : "Show the selected channel as curves (T4.3)" );
         ImGui::SameLine( 0.0f, 16.0f );
         ImGui::TextColored( ImVec4( 0.80f, 0.86f, 0.98f, 1.0f ), "%.2f / %.2f s", playTime, duration );
 
         // ---- Keyframe toolbar: author BY MANIPULATION (pose a bone in Skeleton Edit, then key/record) ----
         if ( animator )
         {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — see the note at the other cast below
             auto*      editClip = const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() );
             const int  selBone  = Core::SkeletonEditMode::GetSelectedBone();
             const bool canKey   = editClip && Core::SkeletonEditMode::IsActive() && selBone >= 0;
@@ -558,21 +619,19 @@ namespace Desert::Editor
             const float  laneX0 = origin.x + gutter;
             ImDrawList*  dl     = ImGui::GetWindowDrawList();
 
-            const auto timeToX = [&]( float t ) { return laneX0 + ( t / duration ) * laneW; };
+            const Sequencer::CurveViewport axis    = TimeAxis( laneX0, laneW, duration );
+            const auto                     timeToX = [&]( float t ) { return axis.TimeToX( t ); };
 
             dl->AddRectFilled( ImVec2( laneX0, origin.y ), ImVec2( laneX0 + laneW, origin.y + rulerH ),
                                IM_COL32( 24, 24, 28, 255 ) );
             dl->AddText( ImVec2( origin.x + 6.0f, origin.y + 8.0f ), IM_COL32( 170, 170, 180, 255 ), "TIMELINE" );
 
-            // Whole-unit tick lines + labels.
-            for ( int u = 0; u <= static_cast<int>( duration ); ++u )
+            // THE RULER IS IN FRAMES NOW, and they are the display rate's frames — the same grid a dragged
+            // key snaps to. See DrawFrameGrid for what the seconds it replaces were hiding.
+            if ( const Animation::AnimationClip* ruled = animator->GetCurrentClip() )
             {
-                const float x = timeToX( static_cast<float>( u ) );
-                dl->AddLine( ImVec2( x, origin.y ), ImVec2( x, origin.y + rulerH ),
-                             IM_COL32( 255, 255, 255, 25 ) );
-                char buf[16];
-                std::snprintf( buf, sizeof( buf ), "%d", u );
-                dl->AddText( ImVec2( x + 3.0f, origin.y + 3.0f ), IM_COL32( 190, 190, 190, 160 ), buf );
+                DrawFrameGrid( dl, axis, origin.y, origin.y + rulerH, animator->GetDurationTicks(),
+                               ruled->TickRate, ruled->DisplayRate, true, IM_COL32( 255, 255, 255, 25 ) );
             }
 
             // Notify markers (from the current clip).
@@ -607,9 +666,26 @@ namespace Desert::Editor
             }
             ImGui::SetCursorScreenPos( ImVec2( origin.x, origin.y + rulerH + 3.0f ) );
 
-            // ---- Keyframe tracks ----
-            DrawClipTracks( const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() ), animator,
-                            origin.x, gutter, laneW, duration );
+            // ---- Keyframe tracks (dope sheet) or the same keys as curves ----
+            //
+            // ONE CAST, NOT ONE PER BRANCH — and the cast itself is a seam this task did not open and
+            // deliberately did not paper over. `Animator` holds the clip as `const AnimationClip*`
+            // (`Play` takes a const reference), because PLAYING a clip does not change it; the Sequencer
+            // EDITS the clip the library owns. Adding an "editing" accessor to Animator would have been a
+            // second lie about ownership — the animator has no mutable clip to hand out. The real fix is
+            // for the panel to take its clip from the library asset it opened rather than from the thing
+            // that is playing it, which is a change to how the clip picker works and is not T4.3.
+            //
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+            auto* editable = const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() );
+            if ( m_CurveView )
+            {
+                DrawCurveView( editable, animator, origin.x, gutter, laneW, duration );
+            }
+            else
+            {
+                DrawClipTracks( editable, animator, origin.x, gutter, laneW, duration );
+            }
         }
         else
         {
@@ -678,7 +754,8 @@ namespace Desert::Editor
         const char* chName[3] = { "Pos", "Rot", "Scl" };
         const ImU32 chCol[3]  = { IM_COL32( 120, 205, 120, 255 ), IM_COL32( 120, 165, 240, 255 ),
                                   IM_COL32( 235, 185, 110, 255 ) };
-        const auto  timeToX   = [&]( float t ) { return laneX0 + ( t / duration ) * laneW; };
+        const Sequencer::CurveViewport axis      = TimeAxis( laneX0, laneW, duration );
+        const auto                     timeToX   = [&]( float t ) { return axis.TimeToX( t ); };
 
         const float childH = std::min( 260.0f, 8.0f + clip->Tracks.size() * 3.0f * laneH );
         ImGui::BeginChild( "##seqTracks", ImVec2( gutter + laneW, childH ), false,
@@ -992,6 +1069,387 @@ namespace Desert::Editor
     // The skeletal editor above keys bones; this keys a UI element's Offset / Size / Opacity / Color.
     // It edits UIAnimComponent directly: lanes with draggable key diamonds, a scrubbable ruler, and a
     // transport. The playhead is a runtime-only field, so scrubbing never dirties the scene.
+    std::vector<SequencerPanel::DocumentAction> SequencerPanel::Actions()
+    {
+        if ( m_Timeline != Timeline::Skeletal )
+        {
+            return {};
+        }
+        return { DocumentAction{ m_CurveView ? "Show the dope sheet" : "Show the curves", [this]
+                                 {
+                                     m_CurveView       = !m_CurveView;
+                                     m_CurveFitPending = true;
+                                 } } };
+    }
+
+    void SequencerPanel::DrawCurveView( Animation::AnimationClip* clip, Animation::Animator* animator,
+                                        float contentX0, float gutter, float laneW, float duration )
+    {
+        if ( clip == nullptr || clip->Tracks.empty() )
+        {
+            ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
+            ImGui::TextDisabled( "This clip has no bone tracks." );
+            return;
+        }
+
+        // WITH NOTHING SELECTED IT SHOWS THE FIRST CHANNEL THAT HAS KEYS, rather than an instruction to go
+        // and select something. A curve view whose empty state is "select a key in the other view" makes the
+        // animator do the tool's work, and it also makes the panel unreachable from the control channel,
+        // which is the only way anything about this window gets verified (`--shot` draws no interface).
+        //
+        // The fallback is LOCAL and does not write the selection: the dope sheet's own highlight is the
+        // animator's, and a view that silently moved it would change what the next key edit applies to.
+        int viewTrack   = m_SelTrack;
+        int viewChannel = m_SelChannel;
+        if ( viewTrack < 0 || viewTrack >= static_cast<int>( clip->Tracks.size() ) || viewChannel < 0 )
+        {
+            viewTrack   = -1;
+            viewChannel = 0;
+            for ( int ti = 0; ti < static_cast<int>( clip->Tracks.size() ) && viewTrack < 0; ++ti )
+            {
+                if ( !clip->Tracks[ti].PositionKeys.empty() )
+                {
+                    viewTrack   = ti;
+                    viewChannel = 0;
+                }
+                else if ( !clip->Tracks[ti].ScaleKeys.empty() )
+                {
+                    viewTrack   = ti;
+                    viewChannel = 2;
+                }
+            }
+            if ( viewTrack < 0 )
+            {
+                ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
+                ImGui::TextDisabled( "No position or scale keys in this clip yet." );
+                return;
+            }
+        }
+
+        Animation::BoneTrack& track = clip->Tracks[viewTrack];
+
+        // ROTATION IS REFUSED BY NAME rather than drawn as four meaningless lines. The same argument A6 used
+        // to refuse a cubic rotation key: the four components of a quaternion are not four curves, and the
+        // channels that would be readable (Euler) do not exist in the format. Inventing them inside a view
+        // would be a format decision taken where nobody would look for it.
+        if ( viewChannel == 1 )
+        {
+            ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
+            ImGui::TextColored( ImVec4( 0.95f, 0.75f, 0.40f, 1.0f ),
+                                "Rotation has no curve view: a rotation key is a quaternion, and its four "
+                                "components are not four curves an animator can read." );
+            ImGui::TextDisabled( "Euler channels would be — and they would be a change to the .anim format, "
+                                 "not a change to this panel." );
+            return;
+        }
+
+        const Animation::TrackChannel channel =
+             ( viewChannel == 0 ) ? Animation::TrackChannel::Position : Animation::TrackChannel::Scale;
+        const Animation::FrameRate tickRate    = clip->TickRate;
+        const Animation::FrameRate displayRate = clip->DisplayRate;
+
+        // THE SAME SCALARS THE TANGENT RULES USE — see TrackEditing::LiftChannel. A view that built its own
+        // would be a second statement of what a channel is.
+        std::vector<Animation::ScalarKey> lifted[3];
+        for ( int component = 0; component < 3; ++component )
+        {
+            lifted[component] = Animation::LiftChannel( track, channel, component );
+        }
+        if ( lifted[0].empty() )
+        {
+            ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
+            ImGui::TextDisabled( "This channel has no keys yet — add one from the dope sheet's + button." );
+            return;
+        }
+
+        // The value window is refitted when the SELECTION changes, not every frame: a box that rescales
+        // itself while a key is dragged moves the key out from under the mouse.
+        if ( m_CurveFitPending || m_CurveFitTrack != viewTrack || m_CurveFitChannel != viewChannel )
+        {
+            glm::vec2 range( 0.0f, 0.0f );
+            bool      first = true;
+            for ( const auto& scalars : lifted )
+            {
+                const glm::vec2 one = Sequencer::FitValueRange( scalars, 0.15f );
+                range = first ? one : glm::vec2( std::min( range.x, one.x ), std::max( range.y, one.y ) );
+                first = false;
+            }
+            m_CurveRange      = range;
+            m_CurveFitPending = false;
+            m_CurveFitTrack   = viewTrack;
+            m_CurveFitChannel = viewChannel;
+        }
+
+        const float  plotH  = 220.0f;
+        const float  laneX0 = contentX0 + gutter;
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+
+        Sequencer::CurveViewport vp = TimeAxis( laneX0, laneW, duration );
+        vp.Y0                       = origin.y;
+        vp.Y1                       = origin.y + plotH;
+        vp.ValueMin                 = m_CurveRange.x;
+        vp.ValueMax                 = m_CurveRange.y;
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled( ImVec2( laneX0, vp.Y0 ), ImVec2( vp.X1, vp.Y1 ), IM_COL32( 22, 22, 26, 255 ) );
+
+        // The SAME grid the ruler above draws, from the SAME function.
+        DrawFrameGrid( dl, vp, vp.Y0, vp.Y1, animator->GetDurationTicks(), tickRate, displayRate, false,
+                       IM_COL32( 255, 255, 255, 18 ) );
+
+        // Zero line and the two range labels, so a curve is readable as numbers and not only as a shape.
+        if ( m_CurveRange.x < 0.0f && m_CurveRange.y > 0.0f )
+        {
+            const float zeroY = vp.ValueToY( 0.0f );
+            dl->AddLine( ImVec2( laneX0, zeroY ), ImVec2( vp.X1, zeroY ), IM_COL32( 255, 255, 255, 45 ) );
+        }
+        char label[32];
+        std::snprintf( label, sizeof( label ), "%.2f", m_CurveRange.y );
+        dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y0 + 2.0f ), IM_COL32( 170, 170, 180, 200 ), label );
+        std::snprintf( label, sizeof( label ), "%.2f", m_CurveRange.x );
+        dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y1 - 16.0f ), IM_COL32( 170, 170, 180, 200 ), label );
+        dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y0 + plotH * 0.5f - 8.0f ), IM_COL32( 200, 200, 210, 220 ),
+                     track.BoneName.c_str() );
+
+        // ---- the three component curves, sampled through the evaluator playback calls -------------------
+        const ImU32   compCol[3] = { IM_COL32( 235, 110, 110, 255 ), IM_COL32( 130, 225, 130, 255 ),
+                                     IM_COL32( 120, 170, 245, 255 ) };
+        constexpr int kSamples   = 160;
+
+        // SAMPLED THROUGH THE CLIP'S OWN SAMPLER — the function playback calls, not a second one written
+        // beside it. A curve view with its own evaluator draws a picture of what the tool believes instead
+        // of a picture of what the animation does, and the two would part company at the first fix to
+        // either. It costs a vec3 per sample where a scalar would do, and that is the right trade.
+        ImVec2 previous[3] = {};
+        for ( int sample = 0; sample <= kSamples; ++sample )
+        {
+            const double seconds = static_cast<double>( duration ) * static_cast<double>( sample ) / kSamples;
+            const Animation::FrameTime at    = Animation::SecondsToFrameTime( seconds, tickRate );
+            const glm::vec3            value = ( channel == Animation::TrackChannel::Position )
+                                                    ? track.GetInterpolatedPosition( at, tickRate )
+                                                    : track.GetInterpolatedScale( at, tickRate );
+            const float                x     = vp.TimeToX( seconds );
+
+            for ( int component = 0; component < 3; ++component )
+            {
+                const ImVec2 point( x, vp.ValueToY( value[component] ) );
+                if ( sample > 0 && lifted[component].size() >= 2 )
+                {
+                    dl->AddLine( previous[component], point, compCol[component], 1.6f );
+                }
+                previous[component] = point;
+            }
+        }
+
+        // ---- keys, and the handles of the selected one --------------------------------------------------
+        const auto keyAt = [&]( const Animation::ScalarKey& key )
+        {
+            return ImVec2(
+                 vp.TimeToX( Animation::FrameTimeToSeconds( Animation::FrameTime{ key.Tick, 0.0f }, tickRate ) ),
+                 vp.ValueToY( key.Value ) );
+        };
+
+        constexpr float kHandlePixels = 46.0f;
+        constexpr float kGrab         = 6.0f;
+        const ImVec2    mouse         = ImGui::GetIO().MousePos;
+
+        ImGui::SetCursorScreenPos( ImVec2( laneX0, vp.Y0 ) );
+        ImGui::InvisibleButton( "##curvePlot", ImVec2( std::max( 1.0f, laneW ), plotH ) );
+        const bool hovered = ImGui::IsItemHovered();
+        const bool active  = ImGui::IsItemActive();
+
+        bool                   edited = false;
+        Animation::FrameNumber retimeTo{ 0 };
+        int                    retimeKey = -1;
+
+        for ( int component = 0; component < 3; ++component )
+        {
+            const auto& keys = lifted[component];
+            for ( int k = 0; k < static_cast<int>( keys.size() ); ++k )
+            {
+                const ImVec2 p        = keyAt( keys[k] );
+                const bool   selected = ( k == m_SelKey );
+                dl->AddCircleFilled( p, selected ? 4.5f : 3.0f,
+                                     selected ? IM_COL32( 255, 235, 160, 255 ) : compCol[component] );
+
+                if ( !selected || keys[k].Mode == Animation::TangentMode::Auto )
+                {
+                    continue;
+                }
+
+                // HANDLES ONLY ON A KEY WHOSE TANGENTS ARE THE ANIMATOR'S. An `Auto` key's handles are
+                // recomputed from its neighbours on the next edit, so a handle drawn on one is something
+                // that can be grabbed, moved, and then silently overwritten.
+                for ( int side = 0; side < 2; ++side )
+                {
+                    const bool      leaving = ( side == 1 );
+                    const float     slope   = leaving ? keys[k].LeaveTangent : keys[k].ArriveTangent;
+                    const glm::vec2 off     = vp.HandleOffset( slope, kHandlePixels, leaving );
+                    const ImVec2    h( p.x + off.x, p.y + off.y );
+                    dl->AddLine( p, h, IM_COL32( 255, 235, 160, 160 ), 1.2f );
+                    dl->AddRectFilled( ImVec2( h.x - 3.0f, h.y - 3.0f ), ImVec2( h.x + 3.0f, h.y + 3.0f ),
+                                       IM_COL32( 255, 235, 160, 255 ) );
+
+                    if ( hovered && ImGui::IsMouseClicked( ImGuiMouseButton_Left ) &&
+                         std::abs( mouse.x - h.x ) < kGrab && std::abs( mouse.y - h.y ) < kGrab )
+                    {
+                        m_CurveDragKey       = k;
+                        m_CurveDragComponent = component;
+                        m_CurveDragHandle    = leaving ? 2 : 1;
+                    }
+                }
+            }
+        }
+
+        // Grabbing a KEY (after the handles, so a handle sitting over a key still wins its own click).
+        if ( hovered && ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && m_CurveDragHandle == 0 &&
+             m_CurveDragKey < 0 )
+        {
+            for ( int component = 0; component < 3; ++component )
+            {
+                for ( int k = 0; k < static_cast<int>( lifted[component].size() ); ++k )
+                {
+                    const ImVec2 p = keyAt( lifted[component][k] );
+                    if ( std::abs( mouse.x - p.x ) < kGrab && std::abs( mouse.y - p.y ) < kGrab )
+                    {
+                        m_SelKey             = k;
+                        m_CurveDragKey       = k;
+                        m_CurveDragComponent = component;
+                        m_CurveDragHandle    = 0;
+                    }
+                }
+            }
+        }
+
+        if ( m_CurveDragKey >= 0 && active )
+        {
+            const int component = m_CurveDragComponent;
+            auto&     keys      = lifted[component];
+            if ( m_CurveDragKey < static_cast<int>( keys.size() ) )
+            {
+                Animation::ScalarKey& key = keys[m_CurveDragKey];
+                if ( m_CurveDragHandle == 0 )
+                {
+                    // THE VALUE FOLLOWS THE MOUSE; THE TIME LANDS ON THE DISPLAY GRID. Both halves matter:
+                    // a value is continuous and a time is not, and a key dropped between two frames is one
+                    // the playhead can never stand on again (A5).
+                    //
+                    // THE TICK IS NOT WRITTEN INTO THE LIFTED COPY, and finding out why is the reason
+                    // `ApplyChannel` checks ticks at all: a lift-edit-apply that moved a key in TIME would
+                    // be writing values against a different key than the one they came from. Retiming is a
+                    // separate operation on the track, applied below — my own first version changed the
+                    // tick here and `ApplyChannel` refused the whole write, so a dragged key silently did
+                    // not move. The guard caught it; without it the values would have landed on the
+                    // neighbours.
+                    key.Value = vp.YToValue( mouse.y );
+                    retimeTo  = SecondsToSnappedTick( static_cast<float>( vp.XToTime( mouse.x ) ), tickRate,
+                                                      displayRate );
+                    retimeKey = m_CurveDragKey;
+                }
+                else
+                {
+                    const bool      leaving = ( m_CurveDragHandle == 2 );
+                    const ImVec2    p       = keyAt( key );
+                    const glm::vec2 offset( mouse.x - p.x, mouse.y - p.y );
+                    if ( const auto slope = vp.SlopeFromHandle( offset, leaving ); slope.has_value() )
+                    {
+                        // Dragging a handle makes the tangents the ANIMATOR'S — an auto pass that then
+                        // overwrote them would undo the drag on the next unrelated edit anywhere in the
+                        // channel. `Break` stays `Break`: it already means "the two sides are independent".
+                        if ( key.Mode != Animation::TangentMode::Break )
+                        {
+                            key.Mode = Animation::TangentMode::User;
+                        }
+                        if ( leaving || key.Mode != Animation::TangentMode::Break )
+                        {
+                            key.LeaveTangent = slope.value();
+                        }
+                        if ( !leaving || key.Mode != Animation::TangentMode::Break )
+                        {
+                            key.ArriveTangent = slope.value();
+                        }
+                    }
+                }
+                edited = true;
+            }
+        }
+
+        if ( !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+        {
+            m_CurveDragKey       = -1;
+            m_CurveDragComponent = -1;
+            m_CurveDragHandle    = 0;
+        }
+
+        if ( edited )
+        {
+            const int  component = m_CurveDragComponent;
+            const bool written   = Animation::ApplyChannel( track, channel, component, lifted[component] );
+            if ( written )
+            {
+                // The retime, if the drag was a retime: on the TRACK, where a key's tick lives, and after
+                // the values are in — so the two halves of one drag cannot half-apply.
+                if ( retimeKey >= 0 )
+                {
+                    if ( channel == Animation::TrackChannel::Position &&
+                         retimeKey < static_cast<int>( track.PositionKeys.size() ) )
+                    {
+                        track.PositionKeys[retimeKey].Tick = retimeTo;
+                    }
+                    else if ( channel == Animation::TrackChannel::Scale &&
+                              retimeKey < static_cast<int>( track.ScaleKeys.size() ) )
+                    {
+                        track.ScaleKeys[retimeKey].Tick = retimeTo;
+                    }
+                }
+                // A key may have crossed a neighbour: the channel is re-sorted and the whole channel's auto
+                // tangents recomputed, exactly as every other edit path does (§969 item 1).
+                if ( channel == Animation::TrackChannel::Position )
+                {
+                    std::sort( track.PositionKeys.begin(), track.PositionKeys.end() );
+                }
+                else
+                {
+                    std::sort( track.ScaleKeys.begin(), track.ScaleKeys.end() );
+                }
+                // THE SORT INVALIDATES THE INDEX THE MOUSE IS HOLDING. A key dragged past its neighbour
+                // changes place in the vector, and a drag that kept the old index would carry on moving
+                // whatever landed there instead — the key the animator is dragging would swap under the
+                // cursor. The dope sheet re-finds its key after a sort for the same reason; this one can
+                // do it by TICK exactly, because A5 put every key on one.
+                if ( retimeKey >= 0 )
+                {
+                    const auto& sorted = ( channel == Animation::TrackChannel::Position )
+                                              ? track.PositionKeys.size()
+                                              : track.ScaleKeys.size();
+                    for ( std::size_t i = 0; i < sorted; ++i )
+                    {
+                        const Animation::FrameNumber tick = ( channel == Animation::TrackChannel::Position )
+                                                                 ? track.PositionKeys[i].Tick
+                                                                 : track.ScaleKeys[i].Tick;
+                        if ( tick == retimeTo )
+                        {
+                            m_CurveDragKey = static_cast<int>( i );
+                            m_SelKey       = static_cast<int>( i );
+                            break;
+                        }
+                    }
+                }
+
+                Animation::RefreshTangents( track, tickRate );
+                animator->SetTime( animator->GetCurrentTime() );
+            }
+        }
+
+        // The playhead, over everything.
+        const float playX = vp.TimeToX( animator->GetCurrentTime() );
+        dl->AddLine( ImVec2( playX, vp.Y0 ), ImVec2( playX, vp.Y1 ), IM_COL32( 255, 90, 90, 190 ), 1.5f );
+
+        ImGui::SetCursorScreenPos( ImVec2( contentX0, vp.Y1 + 6.0f ) );
+        ImGui::TextDisabled( "Drag a key to retime (snapped to the display grid) and revalue it; drag a "
+                             "handle on a User/Break key to set its tangent." );
+    }
+
     void SequencerPanel::DrawUITracks( ECS::Entity& entity )
     {
         namespace ImGui = ::ImGui;

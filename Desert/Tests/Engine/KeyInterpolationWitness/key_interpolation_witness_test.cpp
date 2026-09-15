@@ -259,6 +259,82 @@ TEST( KeyInterpolationWitness, TheFirstKeyOfAnEmptyChannelRecordsThePoseAndNotTh
     EXPECT_EQ( track.PositionKeys.size(), 1u );
 }
 
+// ------------------------------------------- 6. the seam the curve view edits through
+
+TEST( KeyInterpolationWitness, LiftAndApplyAreOneStatementOfWhatAChannelIs )
+{
+    Desert::Animation::BoneTrack track;
+    track.BoneName = "IK_Shoulder";
+    for ( int i = 0; i < 3; ++i )
+    {
+        Desert::Animation::PositionKeyFrame k;
+        k.Tick     = Desert::Animation::FrameNumber{ i * 24000 };
+        k.Position = glm::vec3( static_cast<float>( i ), 100.0F * static_cast<float>( i ), -3.0F );
+        k.Interp   = Desert::Animation::KeyInterp::Cubic;
+        track.PositionKeys.push_back( k );
+    }
+    Desert::Animation::RefreshTangents( track, Desert::Animation::PROJECT_TICK_RATE );
+
+    // The lift is the SAME one the auto pass uses, so the tangents it reports are the ones in the keys.
+    const auto lifted = Desert::Animation::LiftChannel( track, Desert::Animation::TrackChannel::Position, 1 );
+    ASSERT_EQ( lifted.size(), track.PositionKeys.size() );
+    for ( std::size_t i = 0; i < lifted.size(); ++i )
+    {
+        EXPECT_FLOAT_EQ( lifted[i].Value, track.PositionKeys[i].Position.y );
+        EXPECT_FLOAT_EQ( lifted[i].LeaveTangent, track.PositionKeys[i].LeaveTangent.y );
+        EXPECT_EQ( lifted[i].Tick.Value, track.PositionKeys[i].Tick.Value );
+    }
+
+    // Round trip: apply what was lifted and nothing moves.
+    const auto before = track.PositionKeys;
+    ASSERT_TRUE( Desert::Animation::ApplyChannel( track, Desert::Animation::TrackChannel::Position, 1, lifted ) );
+    for ( std::size_t i = 0; i < before.size(); ++i )
+    {
+        EXPECT_FLOAT_EQ( track.PositionKeys[i].Position.y, before[i].Position.y );
+        EXPECT_FLOAT_EQ( track.PositionKeys[i].Position.x, before[i].Position.x ) << "another component moved";
+    }
+
+    // An edited value lands on the key it came from, and ONLY on that component.
+    auto edited     = lifted;
+    edited[1].Value = 777.0F;
+    ASSERT_TRUE( Desert::Animation::ApplyChannel( track, Desert::Animation::TrackChannel::Position, 1, edited ) );
+    EXPECT_FLOAT_EQ( track.PositionKeys[1].Position.y, 777.0F );
+    EXPECT_FLOAT_EQ( track.PositionKeys[1].Position.x, 1.0F );
+    EXPECT_FLOAT_EQ( track.PositionKeys[1].Position.z, -3.0F );
+}
+
+TEST( KeyInterpolationWitness, ApplyChannelRefusesAShapeItDoesNotMatchInsteadOfWritingWhatFits )
+{
+    Desert::Animation::BoneTrack track;
+    for ( int i = 0; i < 3; ++i )
+    {
+        Desert::Animation::PositionKeyFrame k;
+        k.Tick     = Desert::Animation::FrameNumber{ i * 24000 };
+        k.Position = glm::vec3( 5.0F );
+        track.PositionKeys.push_back( k );
+    }
+
+    // THE MIDDLE LINK OF A CHAIN IS WHERE THIS PROJECT KEEPS LOSING THINGS. A curve view that inserted a
+    // key into its working copy and wrote it back would otherwise overwrite N keys with N+1 values, and both
+    // ends of the chain would still look right.
+    auto shorter = Desert::Animation::LiftChannel( track, Desert::Animation::TrackChannel::Position, 0 );
+    shorter.pop_back();
+    EXPECT_FALSE(
+         Desert::Animation::ApplyChannel( track, Desert::Animation::TrackChannel::Position, 0, shorter ) );
+
+    auto retimed     = Desert::Animation::LiftChannel( track, Desert::Animation::TrackChannel::Position, 0 );
+    retimed[2].Tick  = Desert::Animation::FrameNumber{ 999 };
+    retimed[2].Value = 42.0F;
+    EXPECT_FALSE( Desert::Animation::ApplyChannel( track, Desert::Animation::TrackChannel::Position, 0, retimed ) )
+         << "a retime went through an operation that only moves values";
+    EXPECT_FLOAT_EQ( track.PositionKeys[2].Position.x, 5.0F ) << "the refusal still wrote something";
+
+    // Rotation has no curve view and no scalar lift — the refusal is the answer, not an empty gap.
+    EXPECT_TRUE( Desert::Animation::LiftChannel( track, Desert::Animation::TrackChannel::Rotation, 0 ).empty() );
+    EXPECT_FALSE( Desert::Animation::ApplyChannel( track, Desert::Animation::TrackChannel::Rotation, 0, {} ) );
+    EXPECT_TRUE( Desert::Animation::LiftChannel( track, Desert::Animation::TrackChannel::Position, 3 ).empty() );
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
