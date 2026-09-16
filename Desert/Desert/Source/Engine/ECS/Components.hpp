@@ -395,6 +395,33 @@ namespace Desert::ECS
         uint32_t                                     GraphRevision      = 0;
         uint32_t                                     BuiltGraphRevision = 0; // ECS: rev the evaluator was built at
 
+        /**
+         * @brief What the Animator's CURRENT control-rig stage was built from. TRANSIENT, and the same
+         *        shape as BuiltGraphRevision above.
+         *
+         * A `ControlRigStage` holds bone INDICES resolved against one skeleton, out of a file whose every
+         * reference is a NAME. Rebuilding it per frame would throw away the animator's live control poses
+         * sixty times a second — the manipulator would be undraggable — and resolving nothing would leave a
+         * hot-reloaded rig, a re-pointed slot or a swapped mesh silently running the old rig.
+         *
+         * So the three things a build depends on are remembered, and a rebuild happens when any of them
+         * moves: the handle (the author picked another rig), the asset's revision (the file was edited on
+         * disk) and the skeleton's signature (this entity's mesh changed under it).
+         *
+         * It lives HERE and not beside the handle in ControlRigComponent because it describes the live
+         * Animator, which is this component's own property: `ControlRigComponent` is authored data that
+         * undo rewrites, duplicate copies and the prefab path rebuilds, and a copied stamp would tell a
+         * duplicated entity that a stage it does not have is up to date.
+         */
+        // A PLAIN INTEGER AND NOT AN `AssetHandle`, and the type is the statement: this is an IDENTITY
+        // STAMP, not a reference. Nothing dereferences it, and nothing must keep the rig resident on its
+        // account — the component's own `ControlRigData::Rig` is the reference, and SceneAssetRoots marks
+        // that one. Spelt as a handle it was indistinguishable from a second, unmarked reference, and
+        // Tests/Engine/AssetRoots said so by name on the first sweep.
+        uint64_t BuiltRigSource    = 0;
+        uint32_t BuiltRigRevision  = 0;
+        uint64_t BuiltRigSignature = 0;
+
         AnimationComponent() = default;
 
         explicit AnimationComponent( std::unique_ptr<Animation::Animator>&& animator )
@@ -459,6 +486,44 @@ namespace Desert::ECS
     struct TwoBoneIKComponent
     {
         TwoBoneIKData Data;
+    };
+
+    /**
+     * @brief THE CONTROL RIG THIS ENTITY IS POSED BY. The thing that makes tier T5 reachable from a scene.
+     *
+     * T5 shipped a control hierarchy, a manipulator, keying and a pipeline stage, all proven by suites, and
+     * NOT ONE SCENE COULD HAVE A RIG: `Animator::AttachRig` takes a `ControlRigStage` somebody has to build
+     * in C++, and nobody did. This component is the "somebody" — one authored value, an asset handle, from
+     * which `AnimationECSSystem` builds the stage against this entity's own skeleton every time the handle
+     * or the file behind it changes.
+     *
+     * THE COMPONENT IS THE AUTHORED DATA; THE ANIMATOR OWNS THE STAGE, exactly as `TwoBoneIKData` next door
+     * splits them and for the identical reason: a `ControlRigStage` holds bone indices resolved against one
+     * skeleton, and this struct is copied by duplicate, rewritten by undo and rebuilt by the prefab path.
+     * A duplicated entity with a different mesh would inherit indices into a skeleton it does not have.
+     *
+     * THERE IS DELIBERATELY NO ALPHA. `ControlRigStage::Evaluate` applies its overrides at 1.0 and says
+     * why: the rig IS the authored override, and a weight nothing sets is a knob for a knob's sake. An
+     * empty handle is "no rig", which is the off switch, and it is the same one bit the stage membership
+     * test reads.
+     *
+     * It follows `AnimationComponent::Playing` for `TwoBoneIKData`'s reason: with playback stopped the
+     * Animator is not updated at all and no stage runs, this one included.
+     */
+    struct ControlRigData
+    {
+        REFLECT()
+
+        // THE ONLY AUTHORED VALUE. Empty = this entity has no rig, which is how the stage is turned off
+        // without a second flag that could disagree with it.
+        PROPERTY( DisplayName( "Rig" ), Category( "Control Rig" ), Asset<ControlRigAsset>,
+                  Tooltip( "The .derig whose controls pose this entity's skeleton" ) )
+        Assets::AssetHandle Rig;
+    };
+
+    struct ControlRigComponent
+    {
+        ControlRigData Data;
     };
 
     // Data-driven state -> clip mapping for LocomotionSystem, so the SYSTEM holds NO clip knowledge (no clip

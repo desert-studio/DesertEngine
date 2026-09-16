@@ -41,6 +41,16 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeData.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/StringTableAsset.cpp",
+        -- The control rig: the asset wrapper and the format it parses, plus the two Animation units the
+        -- format converts to and from. None of them reaches the GPU — a rig is names and transforms —
+        -- which is why they compile straight into a suite that links no renderer.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/ControlRigAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizedText.cpp",

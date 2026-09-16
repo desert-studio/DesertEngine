@@ -1289,6 +1289,12 @@ namespace Desert::Tests::PointerCensus
           "Entity", "m_Registry", Guard::HostOutlivesUs,
           "ECS::Entity is a HANDLE, copied by value everywhere, and the registry it names is a member of the Scene. Every entity in the tree is obtained from a scene and used within that scene's life; a stored Entity outliving its scene would be the defect, and the register cannot see that from here -- it is why ScriptEntity below carries a validity check instead of trusting the handle" },
         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
+          "AnimationECSSystem", "m_AssetManager", Guard::HostOutlivesUs,
+          "the same host that owns m_AnimationLibrary next door owns this: both layers hold the manager as a "
+          "shared_ptr member declared BEFORE the scene that carries the systems, so the scene and its systems "
+          "are destroyed first. It is also allowed to be NULL -- a host that builds no manager simply has no "
+          "control rigs, and SyncControlRig says so once instead of dereferencing" },
+        { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
           "AnimationECSSystem", "m_AnimationLibrary", Guard::HostOutlivesUs,
           "EditorLayer owns the library and hands it in; the systems are torn down with their scene before the layer releases it" },
         { "Desert/Desert/Source/Engine/ECS/System/AttachmentSystem.hpp",

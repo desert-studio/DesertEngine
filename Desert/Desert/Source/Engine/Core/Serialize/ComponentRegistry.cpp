@@ -22,6 +22,7 @@
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
+#include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
@@ -408,6 +409,29 @@ namespace Desert::Core::Serialize
                     return a->GetMetadata().Filepath.string(); // outside the project — say so plainly
                 return relStr;
             }
+            if ( type == "ControlRigAsset" )
+            {
+                auto a = mgr.FindByHandle<Assets::ControlRigAsset>( Common::UUID( handle ) );
+                if ( !a )
+                {
+                    return "";
+                }
+
+                // RELATIVE, on exactly the terms the theme below is relative: a rig is content that ships
+                // WITH the project, and an absolute path would carry one developer's home directory into
+                // every scene that names one.
+                std::error_code ec;
+                const auto      rel = std::filesystem::relative( a->GetMetadata().Filepath,
+                                                                 Common::Constants::Path::ASSETS_PATH, ec );
+                // generic_string() rather than native(): native() is a WIDE string on Windows and a
+                // narrow one here, so a narrow ".." literal only compiles on this platform.
+                auto relStr = rel.generic_string();
+                if ( ec || rel.empty() || relStr.starts_with( ".." ) )
+                {
+                    return a->GetMetadata().Filepath.string(); // outside the project — say so plainly
+                }
+                return relStr;
+            }
             if ( type == "UIThemeAsset" )
             {
                 auto a = mgr.FindByHandle<Assets::UIThemeAsset>( Common::UUID( handle ) );
@@ -577,6 +601,39 @@ namespace Desert::Core::Serialize
                     LOG_ERROR( "[Clouds] Cloud modelling volume '{}' named by the scene could not be "
                                "uploaded: {}",
                                full.string(), registered.GetError() );
+                return static_cast<uint64_t>( a->GetMetadata().Handle );
+            }
+            if ( type == "ControlRigAsset" )
+            {
+                // Both forms accepted, for the reason the branches above give.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+
+                auto a = mgr.FindByPath<Assets::ControlRigAsset>( full );
+                if ( !a )
+                {
+                    a = m.CreateAsset<Assets::ControlRigAsset>( Assets::AssetPriority::Medium, full );
+                }
+                if ( !a )
+                {
+                    return 0;
+                }
+                // LOADED HERE AND NOT LEFT TO THE FIRST FRAME. A rig that is not ready is a rig
+                // AnimationECSSystem cannot build a stage from, and the entity would pose from its clip
+                // alone while the scene file plainly names a rig — the silent shape this whole task exists
+                // to avoid. There is no service registry for rigs: the stage is per entity and per
+                // skeleton, so it is built by the ECS system rather than registered globally.
+                if ( !a->IsReadyForUse() )
+                {
+                    if ( const auto loaded = a->Load(); !loaded )
+                    {
+                        LOG_ERROR( "[Animation] Control rig '{}' named by the scene could not be loaded: {}",
+                                   full.string(), loaded.GetError() );
+                        return 0;
+                    }
+                }
                 return static_cast<uint64_t>( a->GetMetadata().Handle );
             }
             if ( type == "UIThemeAsset" )
@@ -1401,6 +1458,8 @@ namespace Desert::Core::Serialize
                                                                           &ECS::TerrainComponent::Data ) );
         Register( MakeReflected<ECS::TwoBoneIKComponent, ECS::TwoBoneIKData>( "TwoBoneIK", "TwoBoneIKData",
                                                                               &ECS::TwoBoneIKComponent::Data ) );
+        Register( MakeReflected<ECS::ControlRigComponent, ECS::ControlRigData>(
+             "ControlRig", "ControlRigData", &ECS::ControlRigComponent::Data ) );
         Register( MakeReflected<ECS::ColliderComponent, ECS::ColliderData>( "Collider", "ColliderData",
                                                                             &ECS::ColliderComponent::Data ) );
         Register( MakeReflected<ECS::RigidBodyComponent, ECS::RigidBodyData>( "RigidBody", "RigidBodyData",

@@ -85,6 +85,16 @@ namespace Desert::Core
             roots.Mark( registry.get<ECS::TextComponent>( entity ).Font,
                         "a world-space TextComponent is set in it" );
 
+        // THE RIG IS A ROOT LIKE ANY OTHER SLOT. Nothing else names a `.derig` — a rig is named only by
+        // an entity's ControlRigComponent — so without this row the first eviction sweep after a scene
+        // load drops it, AnimationECSSystem finds a handle the manager has never heard of, and the
+        // character silently poses from its clip alone. That is the shape the UI theme hit (Ю13) and the
+        // one the string tables hit; it is cheaper to write the row than to debug the symptom.
+        for ( const auto entity : registry.view<ECS::ControlRigComponent>() )
+        {
+            roots.Mark( registry.get<ECS::ControlRigComponent>( entity ).Data.Rig, "an entity is posed by it" );
+        }
+
         // ── THE INTERFACE ─────────────────────────────────────────────────────────────────────────────
         //
         // Every UI element that names an asset. They are separate components rather than one, so this is

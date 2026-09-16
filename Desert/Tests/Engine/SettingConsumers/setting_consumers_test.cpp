@@ -779,6 +779,13 @@ namespace
          { "Alpha", kAnimationSystem },
     };
 
+    // The rig slot is ONE authored value, and the consumer is the per-frame sync that turns the handle
+    // into the Animator's Rig stage. Deliberately no Alpha beside it: ControlRigStage applies its
+    // overrides at 1.0 and says why, so a weight here would be a field with no reader.
+    constexpr Row kControlRigRows[] = {
+         { "Rig", kAnimationSystem },
+    };
+
     constexpr Row kRenderTextureRows[] = {
          { "ScenePath", kCanvasRenderer },
          { "Tint", kCanvasRenderer },
@@ -948,6 +955,7 @@ namespace
          { "UIIconData", "UIIconComponent", nullptr, CENSUS_ROWS( kIconRows ) },
          { "UIRenderTextureData", "UIRenderTextureComponent", nullptr, CENSUS_ROWS( kRenderTextureRows ) },
          { "TwoBoneIKData", "TwoBoneIKComponent", nullptr, CENSUS_ROWS( kTwoBoneIKRows ) },
+         { "ControlRigData", "ControlRigComponent", nullptr, CENSUS_ROWS( kControlRigRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
@@ -1126,7 +1134,12 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     //   not (the shape the verify skill names), and AMENDING A COMMIT AN AGENT HAS ALREADY BRANCHED
     //   FROM destroys that agent's base — a follow-up commit would have cost nothing and confused
     //   nobody. Read this number off a run; never off the sentence explaining it.
-    EXPECT_EQ( all.size(), 43u );
+    //
+    // -> 44 with A12's ControlRigData. Its one field is WIRED to AnimationECSSystem::SyncControlRig, which
+    // is the only place an authored rig handle becomes a pipeline stage — and before A12 there was no such
+    // place at all, which is the whole of what that task was. Read off THIS branch's run; per the rule
+    // above the TOTAL does not survive a merge, the DELTA does.
+    EXPECT_EQ( all.size(), 44u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

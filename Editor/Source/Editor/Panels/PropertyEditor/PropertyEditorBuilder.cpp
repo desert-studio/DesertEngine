@@ -9,6 +9,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
+#include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
@@ -941,6 +942,103 @@ namespace Desert::Editor
                         ImGui::SetTooltip( "Pick a theme or drag a .detheme here. \"None\" means every "
                                            "element of this canvas draws its own authored colours — which "
                                            "is not a failure, it is how a canvas behaves with no theme." );
+                    break;
+                }
+
+                if ( field.Meta.AssetType == "ControlRigAsset" )
+                {
+                    auto* rigHandle = static_cast<uint64_t*>( p );
+
+                    // "None" IS A MEANINGFUL STATE AND SAYS SO, on the theme slot's terms: an entity with
+                    // no rig is posed by its clips alone, which is what every character authored before
+                    // rigs existed does. "(missing)" is the other state — a handle whose file the asset
+                    // scan did not find — and the two look identical on screen unless they are named apart.
+                    std::string preview = "None (posed by clips alone)";
+                    if ( *rigHandle != 0 )
+                    {
+                        preview = "(missing)";
+                        if ( assetMgr != nullptr )
+                        {
+                            if ( auto rig = assetMgr->FindByHandle<Assets::ControlRigAsset>(
+                                      Common::UUID( *rigHandle ) ) )
+                            {
+                                preview = rig->GetDisplayName();
+                            }
+                        }
+                    }
+
+                    ImGui::SetNextItemWidth( -1.0f );
+                    if ( ImGui::BeginCombo( "##controlrig", preview.c_str() ) )
+                    {
+                        if ( ImGui::Selectable( "None (posed by clips alone)", *rigHandle == 0 ) )
+                        {
+                            *rigHandle = 0;
+                            changed    = true;
+                        }
+                        if ( assetMgr != nullptr )
+                        {
+                            for ( const auto& [h, rig] : assetMgr->FindAllByType<Assets::ControlRigAsset>() )
+                            {
+                                const bool selected = ( static_cast<uint64_t>( h ) == *rigHandle );
+                                if ( ImGui::Selectable( rig->GetDisplayName().c_str(), selected ) )
+                                {
+                                    *rigHandle = static_cast<uint64_t>( h );
+                                    changed    = true;
+                                }
+                                if ( selected )
+                                {
+                                    ImGui::SetItemDefaultFocus();
+                                }
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    if ( ImGui::BeginDragDropTarget() )
+                    {
+                        if ( const ImGuiPayload* payload =
+                                  ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                        {
+                            const std::string path( static_cast<const char*>( payload->Data ),
+                                                    payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
+                            // The extension is checked HERE for the theme slot's reason: the Content
+                            // Browser emits one generic AssetFile payload for every type it has no icon
+                            // for, so without it this slot would bind a handle to a `.demat`.
+                            if ( assetMgr != nullptr && !path.empty() &&
+                                 std::filesystem::path( path ).extension() ==
+                                      Assets::Serialization::kControlRigExtension )
+                            {
+                                // ONLY A RIG THE PROJECT HAS ALREADY SCANNED. The theme slot next door
+                                // const_casts the manager to create one on the spot; that is a hole this
+                                // slot does not need, because AssetPreloader::PreloadControlRigs walks the
+                                // project's Rigs/ folder at startup and a rig dropped from the Content
+                                // Browser is by definition inside the project. A `.derig` from anywhere
+                                // else is REFUSED BY NAME rather than bound to a handle nothing can
+                                // resolve after a restart.
+                                auto rig = assetMgr->FindByPath<Assets::ControlRigAsset>( path );
+                                if ( rig && rig->IsReadyForUse() )
+                                {
+                                    *rigHandle = static_cast<uint64_t>( rig->GetMetadata().Handle );
+                                    changed    = true;
+                                }
+                                else
+                                {
+                                    LOG_WARN( "[Animation] '{}' is not a control rig this project has "
+                                              "loaded; put it under the project's Rigs/ folder and restart, "
+                                              "or pick a rig from the list.",
+                                              path );
+                                }
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if ( ImGui::IsItemHovered() )
+                    {
+                        ImGui::SetTooltip( "Pick a control rig or drop a .derig from the project here. "
+                                           "\"None\" means this entity is posed by its animation clips "
+                                           "alone — which is not a failure, it is how a character behaves "
+                                           "with no rig." );
+                    }
                     break;
                 }
 
