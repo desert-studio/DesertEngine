@@ -297,6 +297,62 @@ TEST( SkinnedMeshDependency, TheDeferredLoadIsNotRepeatedOnEveryAsk )
     EXPECT_TRUE( mesh->GetSkeletonDependency().IsValid() );
 }
 
+// A RIG'S RESIDENCY IS NOT A RIG'S IDENTITY — the relation asset eviction broke.
+//
+// MEASURED IN THE EDITOR, 2026-09-16. Open ANIM_RigWitness.desce as the FIRST scene: zero errors, the
+// character is there. Open any other scene first and ANIM_RigWitness second: 410 x "MeshFactory: Skeleton
+// dependency invalid" in a twelve-second session (A13 counted 3 059 in a longer one), one
+// "skeleton sig ... not found among 4 skeletons", and no character. Nothing about the scene changed
+// between the two runs — only whether a sweep had run first.
+//
+// The mechanism, and it is ONE LINE: the first scene's eviction sweep releases every skeleton, because no
+// skinned mesh is reachable from a world that has none. `SkeletonAsset::GetSignature()` answered
+// `m_Skeleton ? m_Skeleton->GetSignature() : 0`, so a released rig answered 0 — the same 0 an unread one
+// answers — and the loop below matched no rig at all. The binding then stayed empty for ever: the evictor
+// reaches a rig only through `GetSkeletonDependency().Handle`, which is exactly the thing that failed to
+// be filled in, so no later sweep could bring it back either.
+//
+// The relation this test states is therefore NOT "that scene stops logging". It is that a rig is found by
+// WHICH RIG IT IS and not by whether its bones happen to be in memory right now.
+TEST( SkinnedMeshDependency, AMeshBindsItsRigWhetherOrNotTheRigsPayloadIsResident )
+{
+    const ProbeFiles files( "evicted" );
+    AssetManager     manager;
+
+    auto skeleton = manager.CreateAsset<SkeletonAsset>( AssetPriority::Low, files.WriteSkeleton() );
+    ASSERT_TRUE( skeleton );
+
+    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( AssetPriority::Low, files.WriteMesh( kProbeSignature ),
+                                                       /*loadAfterCreate=*/false );
+    ASSERT_TRUE( mesh );
+    ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
+    ASSERT_TRUE( mesh->GetSkeletonDependency().IsValid() ) << "the precondition failed: the binding was "
+                                                              "never made, so this test cannot be about "
+                                                              "losing it";
+
+    // WHAT A SCENE CHANGE DOES, spelled as the two calls the sweep makes. Records, handles and registry
+    // entries all stay — AssetBase::Unload's contract — so this is exactly the state the editor is in at
+    // the moment the witness scene is opened second.
+    ASSERT_TRUE( mesh->Unload().IsSuccess() );
+    ASSERT_TRUE( skeleton->Unload().IsSuccess() );
+    ASSERT_EQ( skeleton->GetSkeleton(), nullptr ) << "the rig's payload was not released, so the state "
+                                                     "under test was never reached";
+
+    // The scene comes back and the mesh is asked for again — MeshService::Get's build-on-miss path.
+    ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
+
+    EXPECT_TRUE( mesh->GetSkeletonDependency().IsValid() )
+         << "the mesh could not find a rig that is registered, unchanged and named by the very signature "
+            "it carries — only its bones were not resident. This is the defect: after one scene change "
+            "every skinned mesh in the project is unbuildable for the rest of the session.";
+
+    ASSERT_NE( mesh->GetSkeletonDependency().Get(), nullptr );
+    EXPECT_NE( mesh->GetSkeletonDependency().Get()->GetSkeleton(), nullptr )
+         << "the binding is back but the bones are not. This is the line MeshFactory::CreateSkinned reads "
+            "to build a SkinnedMesh, and a null here is 'Skeleton runtime object is null' once per frame "
+            "— the same defect wearing the next message along.";
+}
+
 // THE SHIPPED PROBE'S IDENTITY. Two numbers live in files no compiler reads — the rig signature inside
 // SkinProbe.skeleton/.skmesh, and the mesh handle inside the scene that places it. Both are derived, so
 // both can be re-derived here and compared against what was written down.

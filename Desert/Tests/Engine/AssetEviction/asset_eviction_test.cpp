@@ -36,7 +36,16 @@
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 
+#include <Engine/Assets/Serialization/Mesh.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Animation/Skeleton.hpp>
+
+#include <Common/Core/Serialization/GlmReflection.hpp>
+
 #include <Engine/Graphic/ResourceLedger.hpp>
+
+#include <rflcpp/rfl.hpp>
+#include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -150,6 +159,64 @@ namespace
         auto asset = manager.CreateAsset<ProbeAsset>( AssetPriority::Medium, Common::Filepath( path ), load );
         EXPECT_TRUE( asset ) << "the registry refused " << path;
         return asset;
+    }
+
+    // ── A RIG AND A MESH CUT AGAINST IT, ON DISK ─────────────────────────────────────────────────────
+    //
+    // Real files, for the reason the probe `.demat` above is a real file: the edge under test is the one
+    // the LOADER produces. A one-bone rig and a one-triangle mesh, because the relation has nothing to do
+    // with either of their sizes.
+    std::string WriteProbeRig( const std::filesystem::path& path )
+    {
+        Desert::Animation::BoneInfo root;
+        root.Name               = "Root";
+        root.OffsetMatrix       = glm::mat4( 1.0f );
+        root.LocalBindTransform = glm::mat4( 1.0f );
+        root.ParentBoneID       = std::nullopt;
+
+        Desert::Assets::Serialization::SkeletonAssetData data;
+        data.Bones     = { root };
+        data.Signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
+
+        std::ofstream out( path, std::ios::binary | std::ios::trunc );
+        out << rfl::json::write( data );
+        return path.generic_string();
+    }
+
+    std::string WriteProbeSkinnedMesh( const std::filesystem::path& path, const std::uint64_t signature )
+    {
+        Desert::Assets::Serialization::MeshAssetData data;
+        data.IsSkinned         = true;
+        data.SkeletonSignature = signature;
+
+        for ( int i = 0; i < 3; ++i )
+        {
+            Desert::Assets::Serialization::SkinnedVertexData v;
+            v.Position    = glm::vec3( static_cast<float>( i ), 0.0f, 0.0f );
+            v.Normal      = glm::vec3( 0.0f, 1.0f, 0.0f );
+            v.Tangent     = glm::vec3( 1.0f, 0.0f, 0.0f );
+            v.Bitangent   = glm::vec3( 0.0f, 0.0f, 1.0f );
+            v.TexCoord    = glm::vec2( 0.0f, 0.0f );
+            v.BoneIDs     = { 0u, 0u, 0u, 0u };
+            v.BoneWeights = { 1.0f, 0.0f, 0.0f, 0.0f };
+            data.SkinnedVertices.push_back( v );
+        }
+        data.Indices.push_back( { 0u, 1u, 2u } );
+
+        Desert::Assets::Serialization::SubmeshData submesh;
+        submesh.Name            = "RigProbe";
+        submesh.VertexOffset    = 0;
+        submesh.VertexCount     = 3;
+        submesh.IndexOffset     = 0;
+        submesh.IndexCount      = 3;
+        submesh.Transform       = glm::mat4( 1.0f );
+        submesh.BoundingBox.Min = glm::vec3( 0.0f );
+        submesh.BoundingBox.Max = glm::vec3( 2.0f, 0.0f, 0.0f );
+        data.Submeshes.push_back( submesh );
+
+        std::ofstream out( path, std::ios::binary | std::ios::trunc );
+        out << rfl::json::write( data );
+        return path.generic_string();
     }
 } // namespace
 
@@ -423,6 +490,75 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
          << "the ROOT set was mutated; the closure must be a copy so the caller's roots stay its own";
 
     std::filesystem::remove( materialPath );
+}
+
+// THE SWEEP MUST BE SURVIVABLE, NOT MERELY CORRECT — the half this suite did not state.
+//
+// Every other test here asks what the sweep RELEASES. This one asks what happens NEXT, which is the half
+// the whole design rests on: "eviction drops the payload and keeps the shell, so the next Get rebuilds it"
+// (AssetEviction.hpp). For a skinned mesh that promise was false, and it was false for a whole class of
+// scene rather than for one file — measured in the editor 2026-09-16, ANIM_RigWitness.desce opened second
+// logged 410 x "MeshFactory: Skeleton dependency invalid" in twelve seconds and drew no character, while
+// the same scene opened FIRST logged none.
+//
+// The rebuild went through `SkinnedMeshAsset::ResolveDependencies`, which matched a rig by
+// `SkeletonAsset::GetSignature()` — and that answered 0 for a rig whose bones this sweep had just
+// released, which is the same 0 that means "never read". So the mesh bound no rig, and because the
+// evictor reaches a rig ONLY through `GetSkeletonDependency().Handle`, no later sweep could mark it
+// either: the graph edge stayed cut for the rest of the session.
+TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction_rig";
+    std::filesystem::create_directories( dir );
+
+    AssetManager manager;
+
+    auto skeleton = manager.CreateAsset<SkeletonAsset>( AssetPriority::Medium,
+                                                        Common::Filepath( WriteProbeRig( dir / "probe.skeleton" ) ) );
+    ASSERT_TRUE( skeleton );
+    const std::uint64_t signature = skeleton->GetSignature();
+    ASSERT_NE( signature, 0U ) << "the probe rig did not load; the relation cannot be tested";
+
+    auto mesh = manager.CreateAsset<SkinnedMeshAsset>(
+         AssetPriority::Medium, Common::Filepath( WriteProbeSkinnedMesh( dir / "probe.skmesh", signature ) ),
+         /*loadAfterCreate=*/false );
+    ASSERT_TRUE( mesh );
+    ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
+    ASSERT_TRUE( mesh->GetSkeletonDependency().IsValid() ) << "the precondition failed: nothing was bound "
+                                                              "before the sweep, so nothing could be lost";
+
+    // A SCENE THAT NAMES NEITHER — the ordinary case, since most scenes hold no skinned mesh at all.
+    RecordingSink sink;
+    const auto    swept = AssetEviction::Run( manager, AssetRootSet{}, sink );
+    ASSERT_EQ( swept.Released, 2U ) << "the sweep did not release both; the state under test was not reached";
+    ASSERT_EQ( skeleton->GetSkeleton(), nullptr );
+
+    // THE SCENE COMES BACK. This is MeshService::Get's build-on-miss, and everything it needs is in the
+    // registry: the same two files, the same two handles, the same signature inside the mesh.
+    ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
+
+    EXPECT_TRUE( mesh->GetSkeletonDependency().IsValid() )
+         << "a rig that the sweep RELEASED could not be found again, so the sweep is not survivable: the "
+            "mesh is unbuildable for the rest of the session and every frame says so once.";
+    ASSERT_NE( mesh->GetSkeletonDependency().Get(), nullptr );
+    EXPECT_NE( mesh->GetSkeletonDependency().Get()->GetSkeleton(), nullptr )
+         << "the binding came back without the bones behind it — MeshFactory::CreateSkinned reads exactly "
+            "this pointer.";
+
+    // AND THE EDGE IS WHOLE AGAIN, which is the half that makes the recovery stick. `Expand` reaches a rig
+    // only through the mesh's dependency HANDLE, so a mesh that rebound to a rig it cannot name would be
+    // swept into the same hole by the very next scene change.
+    AssetRootSet roots;
+    roots.Mark( mesh->GetMetadata().Handle, "the test says a SkinnedMeshComponent draws it" );
+    const auto second = AssetEviction::Run( manager, roots, sink );
+    EXPECT_EQ( second.Reachable, 2U ) << "the mesh -> rig edge was not followed after the rebind: the trace "
+                                         "reached " << second.Reachable << " asset(s) where the mesh alone "
+                                         "names one more";
+    EXPECT_NE( skeleton->GetSkeleton(), nullptr )
+         << "the rig was released again while the mesh that is drawing with it is reachable";
+
+    std::error_code ec;
+    std::filesystem::remove_all( dir, ec );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
