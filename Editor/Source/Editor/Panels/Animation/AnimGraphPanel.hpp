@@ -196,7 +196,7 @@ namespace Desert::Editor
         // IT IS CONSERVATIVE IN ONE DIRECTION, said out loud: `AnimGraphAsset::Load` bumps the revision
         // too, so re-loading the file from disk under an open window shows the dot until the next Save.
         // That errs towards asking for a write that is not needed, never towards hiding one that is.
-        std::optional<uint32_t> m_SavedRevision;
+        std::optional<uint32_t>              m_SavedRevision;
         ax::NodeEditor::EditorContext*       m_Context = nullptr;
 
         // CANVAS IDENTITY, AND IT IS NOT AN INDEX. `NodeId( i ) = i + 1` meant that deleting a state

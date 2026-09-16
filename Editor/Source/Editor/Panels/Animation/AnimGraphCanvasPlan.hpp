@@ -123,7 +123,7 @@ namespace Desert::Editor::Graph
 
     /// The grid `NextStatePosition` places on. Named here because the test asserts separation in terms
     /// of them, and a test that spelled its own numbers would pass while the panel drifted.
-    inline constexpr float kStateGridStepX  = 240.0f;
-    inline constexpr float kStateGridStepY  = 130.0f;
+    inline constexpr float kStateGridStepX   = 240.0f;
+    inline constexpr float kStateGridStepY   = 130.0f;
     inline constexpr int   kStateGridColumns = 5;
 } // namespace Desert::Editor::Graph

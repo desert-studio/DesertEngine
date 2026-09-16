@@ -353,7 +353,7 @@ namespace Desert::Editor
         // over as "Known" only when there was an Animator to ask: an entity whose skeleton has not been
         // resolved yet would otherwise have every one of its states reported as naming a missing clip,
         // for the frames before it is true.
-        const G::ClipSet clips{ anim->Animator != nullptr && m_Library != nullptr, clipNames };
+        const G::ClipSet                   clips{ anim->Animator != nullptr && m_Library != nullptr, clipNames };
         const std::vector<G::GraphWarning> warnings = G::Validate( *anim->Graph, clips );
 
         const float stripH  = WarningStripHeight( warnings.size() );

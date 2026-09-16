@@ -30,9 +30,9 @@ namespace Desert::Animation::Graph
 {
     enum class WarningKind : int
     {
-        StateHasNoClip          = 0, // W1a
-        StateClipNotAvailable   = 1, // W1b
-        TransitionNeverFires    = 2, // W2
+        StateHasNoClip           = 0, // W1a
+        StateClipNotAvailable    = 1, // W1b
+        TransitionNeverFires     = 2, // W2
         UndeclaredConditionParam = 3, // W3
     };
 

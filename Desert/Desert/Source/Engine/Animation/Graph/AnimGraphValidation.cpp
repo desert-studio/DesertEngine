@@ -242,17 +242,17 @@ namespace Desert::Animation::Graph
             // ── W1 ────────────────────────────────────────────────────────────────────────────────────
             if ( state.Clip.empty() )
             {
-                warnings.push_back( { WarningKind::StateHasNoClip, state.Name, -1,
-                                      fmt::format( "'{}' names no clip - entering it plays nothing.",
-                                                   state.Name ) } );
+                warnings.push_back(
+                     { WarningKind::StateHasNoClip, state.Name, -1,
+                       fmt::format( "'{}' names no clip - entering it plays nothing.", state.Name ) } );
             }
             else if ( clips.Known &&
                       std::find( clips.Names.begin(), clips.Names.end(), state.Clip ) == clips.Names.end() )
             {
                 warnings.push_back(
                      { WarningKind::StateClipNotAvailable, state.Name, -1,
-                       fmt::format( "'{}' names clip '{}', which this skeleton has no animation for.",
-                                    state.Name, state.Clip ) } );
+                       fmt::format( "'{}' names clip '{}', which this skeleton has no animation for.", state.Name,
+                                    state.Clip ) } );
             }
 
             // ── W2 ────────────────────────────────────────────────────────────────────────────────────

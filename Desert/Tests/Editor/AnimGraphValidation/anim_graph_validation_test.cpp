@@ -91,9 +91,9 @@ namespace
 
     [[nodiscard]] size_t CountOf( const std::vector<G::GraphWarning>& warnings, G::WarningKind kind )
     {
-        return static_cast<size_t>(
-             std::count_if( warnings.begin(), warnings.end(),
-                            [kind]( const G::GraphWarning& warning ) { return warning.Kind == kind; } ) );
+        return static_cast<size_t>( std::count_if( warnings.begin(), warnings.end(),
+                                                   [kind]( const G::GraphWarning& warning )
+                                                   { return warning.Kind == kind; } ) );
     }
 
     [[nodiscard]] std::string Joined( const std::vector<G::GraphWarning>& warnings )
@@ -176,7 +176,7 @@ TEST( AnimGraphValidation, W1_AnUnknownClipListIsNotAnEmptyClipList )
     EXPECT_EQ( CountOf( unknown, G::WarningKind::StateClipNotAvailable ), 0u ) << Joined( unknown );
 
     const std::vector<std::string> none;
-    const auto knownEmpty = G::Validate( graph, G::ClipSet{ true, none } );
+    const auto                     knownEmpty = G::Validate( graph, G::ClipSet{ true, none } );
     EXPECT_EQ( CountOf( knownEmpty, G::WarningKind::StateClipNotAvailable ), 2u )
          << "a skeleton that really has no clips must still be reported: " << Joined( knownEmpty );
 }
@@ -296,7 +296,7 @@ TEST( AnimGraphValidation, W2_ATransitionToAMissingStateShadowsNothing )
 
 TEST( AnimGraphValidation, W3_AConditionOnAnUndeclaredParameterIsNamed )
 {
-    G::AnimGraph graph                             = HealthyGraph();
+    G::AnimGraph graph                                     = HealthyGraph();
     graph.States[0].Transitions[0].Conditions[0].Parameter = "Sped";
 
     const auto warnings = G::Validate( graph, Known() );
@@ -310,7 +310,7 @@ TEST( AnimGraphValidation, W3_IsOneRuleAndNotTwo )
     // at construction because the place the conditions are read cannot refuse; the panel checks the same
     // graph every frame because that is where a person is looking. If those two ever answered
     // differently about one graph, the strip and the log would disagree and both would be doubted.
-    G::AnimGraph graph                                    = HealthyGraph();
+    G::AnimGraph graph                                     = HealthyGraph();
     graph.States[0].Transitions[0].Conditions[0].Parameter = "Sped";
 
     const G::Evaluator evaluator{ graph };
@@ -376,7 +376,7 @@ TEST( AnimGraphValidation, TheDefaultSurvivesTheFileAndSeedsTheEvaluator )
 {
     // The other end of the same chain: a value the control can now write has to arrive somewhere. This
     // is the READER the §8.3 table names for that row.
-    G::AnimGraph graph = HealthyGraph();
+    G::AnimGraph graph          = HealthyGraph();
     graph.Parameters[0].Default = 4.5f;
 
     const G::Evaluator evaluator{ graph };
@@ -409,8 +409,8 @@ TEST( AnimGraphValidation, NewStatesNeverLandOnTopOfEachOther )
         {
             const bool apart = std::abs( graph.States[a].X - graph.States[b].X ) >= EG::kStateGridStepX ||
                                std::abs( graph.States[a].Y - graph.States[b].Y ) >= EG::kStateGridStepY;
-            EXPECT_TRUE( apart ) << "states " << a << " and " << b << " overlap at (" << graph.States[a].X
-                                 << ", " << graph.States[a].Y << ")";
+            EXPECT_TRUE( apart ) << "states " << a << " and " << b << " overlap at (" << graph.States[a].X << ", "
+                                 << graph.States[a].Y << ")";
         }
     }
 }
@@ -474,7 +474,8 @@ TEST( AnimGraphValidation, TheButtonAndTheDocumentActionAddTheSameState )
         ++calls;
     }
     EXPECT_EQ( calls, 2u ) << "the toolbar button and the 'Add State' document action are not the same "
-                              "call any more (found " << calls << ")";
+                              "call any more (found "
+                           << calls << ")";
 }
 
 // ═══ PART 4 — RENAMING A PARAMETER, WHICH IS THE DEFECT W3 EXISTS TO REPORT ══════════════════════════
@@ -556,7 +557,7 @@ TEST( AnimGraphValidation, RenamingALaterDuplicateDoesNotStealTheFirstOnesCondit
 
 TEST( AnimGraphValidation, ANewParameterIsNamedFreeOfTheOnesAlreadyThere )
 {
-    G::AnimGraph graph;
+    G::AnimGraph      graph;
     const std::string first = EG::MakeUniqueParameterName( graph, "Param", -1 );
     EXPECT_EQ( first, "Param" );
     graph.Parameters.push_back( { first, static_cast<int>( G::ParamType::Float ), 0.0f } );
@@ -601,8 +602,7 @@ TEST( AnimGraphValidation, ThePanelRenamesThroughTheRuleRatherThanWritingTheName
          << "the parameter rename does not go through the rule, so conditions are left behind again";
     EXPECT_EQ( source.find( "InputText( p.Name" ), std::string::npos )
          << "the panel edits Parameter::Name in place, which is the defect itself";
-    EXPECT_NE( source.find( "Graph::MakeUniqueParameterName( *anim->Graph, \"Param\", -1 )" ),
-               std::string::npos )
+    EXPECT_NE( source.find( "Graph::MakeUniqueParameterName( *anim->Graph, \"Param\", -1 )" ), std::string::npos )
          << "'+ Parameter' pushes a fixed name again, so two presses produce two indistinguishable "
             "parameters";
 }

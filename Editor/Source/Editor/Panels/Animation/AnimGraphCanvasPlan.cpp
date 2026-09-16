@@ -210,8 +210,8 @@ namespace Desert::Editor::Graph
         if ( index < 0 || index >= static_cast<int>( graph.Parameters.size() ) )
             return {};
 
-        const std::string previous = graph.Parameters[static_cast<size_t>( index )].Name;
-        const std::string renamed  = MakeUniqueParameterName( graph, desired, index );
+        const std::string previous                          = graph.Parameters[static_cast<size_t>( index )].Name;
+        const std::string renamed                           = MakeUniqueParameterName( graph, desired, index );
         graph.Parameters[static_cast<size_t>( index )].Name = renamed;
 
         if ( renamed == previous )
