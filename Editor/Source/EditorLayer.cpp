@@ -368,6 +368,10 @@ namespace Desert::Editor
         // rigs, and only a scene that already named one would ever load it.
         m_StartupStages.push_back(
              { "Preloading control rigs...", [this] { m_AssetPreloader->PreloadControlRigs(); } } );
+        // And the graphs, for the same reason one line up: an entity's graph slot has to be able to offer
+        // the project's `.danimgraph` files, and it does that by asking the manager for every one of them.
+        m_StartupStages.push_back(
+             { "Preloading anim graphs...", [this] { m_AssetPreloader->PreloadAnimGraphs(); } } );
         // Order-free, and early among the optional stages on purpose: a missing translation shows up on
         // the very first frame drawn, and its log line is far easier to read before the rest of the
         // content's lines arrive.
@@ -829,7 +833,7 @@ namespace Desert::Editor
                            {
                                return std::make_unique<Editor::AnimGraphPanel>(
                                     subject, SubjectEntityName( subject, "Anim Graph" ), m_MainScene,
-                                    m_AnimationLibrary.get() );
+                                    m_AnimationLibrary.get(), m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::AnimationComponent>( subject.Owner ); } } );

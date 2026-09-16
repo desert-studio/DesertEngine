@@ -268,13 +268,22 @@ TEST( SceneTextKeySigilMigration, TheRetiredBindingFormatIsGoneFromTheComponentA
     }
 }
 
-TEST( SceneTextKeySigilMigration, TheStepIsTheHeadTheEngineRequires )
+TEST( SceneTextKeySigilMigration, ThisStepsNumberIsFixedAndTheHeadIsAtOrAboveIt )
 {
     // A step added without raising Core::kSceneVersion stamps files at a version the loader refuses, and
     // every scene in the repository stops opening at once. The header asserts it at compile time; this is
     // the readable failure if somebody ever deletes that static_assert.
-    EXPECT_EQ( Migration::kSceneVersionTextKeySigil, Core::kSceneVersion );
-    EXPECT_EQ( Core::kSceneVersion, 20 );
+    // THIS STEP IS NO LONGER THE HEAD, and that is the normal end of a step's life rather than a
+    // regression: schema 21 moved the anim graph out of the entity into a `.danimgraph`, so the head is
+    // 21 and this step is 20 for ever. What is pinned now is the part that must NEVER move — a number
+    // already shipped is a POSITION IN A SEQUENCE, and changing it would re-point every v19 file in
+    // existence at a different conversion. Two steps sharing one number is the collision that cost this
+    // project a merge; see kSceneVersionTextKeySigil's own note in SceneMigration.hpp.
+    EXPECT_EQ( Migration::kSceneVersionTextKeySigil, 20 );
+
+    // And the head is never BELOW a step the tool still carries: a tool that stamps files at a version
+    // lower than a conversion it runs would write a number the loader refuses.
+    EXPECT_GE( Core::kSceneVersion, Migration::kSceneVersionTextKeySigil );
 }
 
 int main( int argc, char** argv )

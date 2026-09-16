@@ -110,6 +110,7 @@ namespace Desert::Player
         // in the packaged game is worse than no rig — the scene names it, one line goes to the log, and the
         // character poses from its clips.
         m_AssetPreloader->PreloadControlRigs();
+        m_AssetPreloader->PreloadAnimGraphs();
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
         // everything else, so the player sees the language the build boots in with no extra plumbing.
         m_AssetPreloader->PreloadStringTables();

@@ -14,6 +14,7 @@
 #include <Engine/Animation/TwoBoneIKControl.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/Serialization/ControlRig.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -93,6 +94,10 @@ namespace Desert::ECS
                 // below. Attaching after the update would put the rig one frame behind the pose it operates on.
                 SyncControlRig( registry, entity, anim, *anim.Animator, skeleton );
 
+                // BEFORE the graph path, because it is what puts a graph there: the entity names a
+                // `.danimgraph` and this is where that handle becomes the object below.
+                const uint32_t graphRevision = SyncAnimGraph( anim );
+
                 // AnimGraph path: the state machine PICKS the clip; the Animator just plays it. Falls back to
                 // the CurrentClip path below when no graph is attached.
                 if ( anim.Graph && !anim.Graph->States.empty() )
@@ -100,13 +105,13 @@ namespace Desert::ECS
                     if ( !anim.GraphEvaluator )
                     {
                         anim.GraphEvaluator     = std::make_shared<Animation::Graph::Evaluator>( *anim.Graph );
-                        anim.BuiltGraphRevision = anim.GraphRevision;
+                        anim.BuiltGraphRevision = graphRevision;
                     }
-                    else if ( anim.BuiltGraphRevision != anim.GraphRevision )
+                    else if ( anim.BuiltGraphRevision != graphRevision )
                     {
                         // Re-sync after an editor edit WITHOUT resetting the active state / live parameters.
                         anim.GraphEvaluator->SyncGraph( *anim.Graph );
-                        anim.BuiltGraphRevision = anim.GraphRevision;
+                        anim.BuiltGraphRevision = graphRevision;
                     }
 
                     ReportGraphStructure( *anim.GraphEvaluator );
@@ -375,6 +380,67 @@ namespace Desert::ECS
             twoBone.SetGoal( ikData.Goal );
             twoBone.SetPoleTarget( ikData.PoleTarget );
             twoBone.SetAlpha( ikData.Alpha );
+        }
+
+        /**
+         * @brief Hand the entity the graph OBJECT its handle names, and report which revision that is.
+         *
+         * THE OBJECT IS THE ASSET'S OWN AND IS NOT COPIED. Every entity naming one `.danimgraph` ends up
+         * with the same `shared_ptr`, so an edit in the Anim Graph window is the graph all of them
+         * evaluate on the next frame. The EVALUATORS stay per entity — each holds its own copy of the
+         * graph and its own live parameter values — which is what lets two characters share a graph and
+         * still stand in different states.
+         *
+         * THE RETURNED REVISION IS THE ASSET'S. It used to be `AnimationComponent::GraphRevision`, bumped
+         * by whoever edited — which could only ever be the one component in front of the editor, so a
+         * shared graph would have re-synced ONE of its entities and left the rest evaluating the previous
+         * shape with nothing to show that they were stale. One counter on the thing that changes.
+         *
+         * AN ENTITY WITH NO HANDLE KEEPS WHATEVER GRAPH IT HAS, and that is deliberate rather than an
+         * omission: a graph built in C++ or by a test (`anim.Graph = make_shared<AnimGraph>()`) has no
+         * file and no handle, and clearing it here would make "no asset" mean "no graph" — which would
+         * break every in-memory user of the state machine to enforce a rule about files. Revision 0 is
+         * what such a graph reports, and 0 never re-syncs, which is correct: nothing can have edited it.
+         */
+        NO_DISCARD uint32_t SyncAnimGraph( ECS::AnimationComponent& anim )
+        {
+            const Assets::AssetHandle wanted = anim.GraphAsset;
+            if ( static_cast<uint64_t>( wanted ) == 0 )
+            {
+                return 0;
+            }
+
+            if ( m_AssetManager == nullptr )
+            {
+                ReportOnce( "graph-no-manager",
+                            "an entity names an anim graph, but this host has no asset manager to resolve "
+                            "it through; the entity plays its single clip instead" );
+                return 0;
+            }
+
+            auto asset = m_AssetManager->FindByHandle<Assets::AnimGraphAsset>( Common::UUID( wanted ) );
+            if ( !asset || !asset->IsReadyForUse() )
+            {
+                // SAID, NOT SWALLOWED, for SyncControlRig's reason: the silent version is a character
+                // playing one clip while its scene file plainly names a state machine, which reads as a
+                // graph system that does not work.
+                ReportOnce( fmt::format( "graph-missing:{}", static_cast<uint64_t>( wanted ) ),
+                            fmt::format( "anim graph handle {} is not loaded; the entity naming it plays "
+                                         "its single clip instead",
+                                         static_cast<uint64_t>( wanted ) ) );
+                return 0;
+            }
+
+            // Re-pointed rather than compared field by field: the asset replaces its graph object on a
+            // hot reload (AnimGraphAsset::Load), so the pointer is the identity of "which graph" and the
+            // revision is the identity of "which version of it".
+            if ( anim.Graph != asset->GetGraph() )
+            {
+                anim.Graph = asset->GetGraph();
+                // The evaluator was built from the OLD object; the revision compare below rebuilds it.
+                anim.BuiltGraphSource = static_cast<uint64_t>( wanted );
+            }
+            return asset->GetRevision();
         }
 
         /**

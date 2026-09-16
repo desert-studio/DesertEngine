@@ -75,6 +75,13 @@ namespace Desert::Assets
         // refusal U7-2, and this enumerator is what spends it. See Engine/Assets/ShaderGraphAsset.hpp.
         ShaderGraph,
 
+        // AN ANIMATION STATE MACHINE (`.danimgraph`): states, transitions, conditions and the parameters
+        // they compare. A first-class asset because the graph used to be a JSON STRING INSIDE THE ENTITY,
+        // so two characters could not share one walk graph and copying it meant copying a blob — the
+        // mirror of the shader graph's defect one line above, and cured by the same thing. See
+        // Engine/Assets/AnimGraphAsset.hpp.
+        AnimGraph,
+
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
         // That red is the only reason this enumerator exists: an asset type whose handle stability nobody
@@ -139,6 +146,11 @@ namespace Desert::Assets
             // and exempting graphs would keep every graph ever opened resident to protect a reader that
             // does not exist.
             case AssetTypeID::ShaderGraph:
+            // AN ANIM GRAPH IS SCENE-SCOPED, and unlike the shader graph above it is so for the ORDINARY
+            // reason rather than by argument: `AnimationComponent::GraphAsset` is an `AssetHandle`, so
+            // the reachability walk can see it (SceneAssetRoots.cpp marks it with "an entity is animated
+            // by it") and the ordinary rule holds it alive for exactly as long as a live entity names it.
+            case AssetTypeID::AnimGraph:
             case AssetTypeID::Count:
                 return false;
         }
@@ -195,6 +207,8 @@ namespace Desert::Assets
                 return "ControlRig";
             case AssetTypeID::ShaderGraph:
                 return "ShaderGraph";
+            case AssetTypeID::AnimGraph:
+                return "AnimGraph";
             case AssetTypeID::Count:
                 return "Count";
         }

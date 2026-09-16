@@ -221,11 +221,25 @@ namespace Desert::Migration
     // one number means a file at 19 cannot say which of the two it has had.
     inline constexpr int kSceneVersionTextKeySigil = 20;
 
+    //  21             - the anim graph is an ASSET. The whole state machine used to travel as a JSON STRING
+    //                   inside the entity ("Animation" -> GraphJson), which is why two characters could not
+    //                   share one walk graph and why copying one copied a blob. Each non-empty blob becomes
+    //                   an `AnimGraphs/<name>.danimgraph` file and the entity names it by a path relative to
+    //                   the assets root, exactly as ControlRigData::Rig already did.
+    //
+    //                   THE WINDOW THIS STEP CLOSES WAS ALREADY SHUT. `Components.hpp` said the identity
+    //                   question could wait because "today the repository has zero such scenes"; measured
+    //                   on 2026-09-16 there were 10 scenes carrying an "Animation" block and 6 non-empty
+    //                   GraphJson blobs across three of them, and all three are witness scenes a suite
+    //                   reads. A comment asserting a guarantee the tree does not hold is a defect class
+    //                   this project has named nine times; this step is what made that one true again.
+    inline constexpr int kSceneVersionAnimGraphAsset = 21;
+
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionTextKeySigil == kSceneVersion,
+    static_assert( kSceneVersionAnimGraphAsset == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1193,6 +1207,52 @@ namespace Desert::Migration
     // SHELF LIFE: this raises v18 to v19 and nothing else. It is deleted once no v18 file remains.
     TextKeySigilMigrationReport MigrateTextKeySigilV18ToV19( std::vector<Assets::EntityData>& entities );
 
+    // A `.danimgraph` this migration produced and the TOOL must write: the step is pure, so the bytes and
+    // the assets-root-relative path come back to the caller, and main.cpp is the one place that touches the
+    // filesystem — the same division `CloudMaterialFile` keeps and for the same reason.
+    struct AnimGraphFile
+    {
+        std::string RelativePath; // e.g. "AnimGraphs/ScriptDriven.danimgraph", relative to the assets root
+        std::string Json;         // the graph's own serialization, ready to write verbatim
+    };
+
+    // What MigrateAnimGraphV20ToV21 did, returned rather than logged, like every report above.
+    struct AnimGraphMigrationReport
+    {
+        int Entities = 0; // entities whose "Animation" payload carried a non-empty GraphJson
+        int Empty    = 0; // entities whose GraphJson was present but empty — the key is dropped, no file
+        int Rejected = 0; // present, non-empty and NOT parseable as a graph — named below, nothing dropped
+
+        // Named, not counted: a rejected blob is an authored state machine that did NOT reach a file, and
+        // the operator has to see which entity (§1.4 — nothing is dropped silently). The blob is LEFT IN
+        // PLACE in that case, so the work is still in the file and a fixed tool can have another go.
+        std::vector<std::string> RejectedNames;
+
+        std::vector<AnimGraphFile> Graphs; // files for the tool to write; empty when nothing moved
+    };
+
+    // Raises a scene from schema v20 to v21: the state machine leaves the entity's "Animation" payload for
+    // a `.danimgraph` of its own, and the payload names it under "Graph".
+    //
+    // PURE — no GPU, no filesystem, no global state. The graph file's BYTES are part of the return value
+    // rather than a side effect.
+    //
+    // THE FILE IS NAMED AFTER THE GRAPH, NOT AFTER THE ENTITY OR THE SCENE, and that is the decision the
+    // whole step exists to make possible: two entities that carried byte-identical blobs (which is exactly
+    // what copying a character produced) converge on ONE file and genuinely share it afterwards. The caller
+    // is what notices a name claimed twice with DIFFERENT content — `Graphs` may legitimately contain the
+    // same RelativePath twice with equal Json, and main.cpp's map is where that is collapsed, on the terms
+    // it already collapses cloud materials.
+    //
+    // A graph with an empty `Name` is named after the ENTITY instead, because "" is not a filename and
+    // silently inventing "Graph.danimgraph" for every such blob would collide them into one.
+    //
+    // Idempotent: a payload with no "GraphJson" key is not touched, so a second pass over a converted file
+    // does nothing at all.
+    //
+    // SHELF LIFE: this raises v20 to v21 and nothing else. It is deleted once no v20 file remains.
+    AnimGraphMigrationReport MigrateAnimGraphV20ToV21( std::vector<Assets::EntityData>& entities );
+
     // Everything that ran, so the caller can say which FILE moved and how far.
     //
     // `File` and not `Scene` since И11: the same report comes back from MigratePrefab, because a
@@ -1259,6 +1319,9 @@ namespace Desert::Migration
         // the schema was below kSceneVersionTextKeySigil
         bool                        TextKeySigilRaised = false;
         TextKeySigilMigrationReport TextKeySigil;
+        // the schema was below kSceneVersionAnimGraphAsset
+        bool                     AnimGraphRaised = false;
+        AnimGraphMigrationReport AnimGraph;
         // the schema was below kSceneVersionRetiredKeys
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
@@ -1269,7 +1332,7 @@ namespace Desert::Migration
                    CloudTypeRaised || CloudSetRaised || TerrainMaterialRaised || MaterialPathRaised ||
                    GravityUnitsRaised || UIVisibilityRaised || SSRUnitsRaised || CloudMaterialRaised ||
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
-                   TextKeySigilRaised || RetiredKeysRaised;
+                   TextKeySigilRaised || AnimGraphRaised || RetiredKeysRaised;
         }
     };
 

@@ -43,8 +43,13 @@ namespace
 
 // ── THE DEFECT ─────────────────────────────────────────────────────────────────────────────────────
 //
-// The exact block an older build wrote: `GraphJson` was added after it. Before the fix this returned
+// The exact block an older build wrote: a field was added after it. Before the fix this returned
 // nothing and the caller dropped AnimationComponent off the entity.
+//
+// The field in question WAS `GraphJson`, which schema step 21 retired — the graph is a `.danimgraph`
+// named by `Graph` now. The fixtures keep the retired spelling on purpose: a key this build does not
+// declare is exactly what the second test below is about, and the case is only real if something in
+// this file still writes one.
 TEST( GenericBlockRead, AnAnimationBlockMissingTwoFieldsKeepsTheComponentAndDefaultsThem )
 {
     const auto older = FromJsonText( R"({"CurrentClip":"Run","Playing":true,"Loop":false,"PlaybackSpeed":2.5})" );
@@ -58,7 +63,9 @@ TEST( GenericBlockRead, AnAnimationBlockMissingTwoFieldsKeepsTheComponentAndDefa
     EXPECT_FLOAT_EQ( parsed.value().PlaybackSpeed, 2.5f );
     EXPECT_FALSE( parsed.value().Loop );
     // The absent one takes the struct's own default, which is what every call site already believed.
-    EXPECT_TRUE( parsed.value().GraphJson.empty() );
+    EXPECT_FALSE( parsed.value().Graph.has_value() )
+         << "an absent graph key came back as something other than 'no graph' — absence is how this "
+            "format says an entity has no state machine";
 }
 
 TEST( GenericBlockRead, ATextBlockMissingEverythingButItsTextIsStillAText )
@@ -130,7 +137,7 @@ TEST( GenericBlockRead, WhatWriteBlockWritesIsWhatReadBlockReads )
     written.Playing       = false;
     written.Loop          = false;
     written.PlaybackSpeed = 0.25f;
-    written.GraphJson     = R"({"nodes":[]})";
+    written.Graph         = "AnimGraphs/Probe.danimgraph";
 
     const auto parsed =
          ReadBlock<Assets::AnimationComponentSer>( WriteBlock( written, "Animation" ), "Animation" );
@@ -140,7 +147,7 @@ TEST( GenericBlockRead, WhatWriteBlockWritesIsWhatReadBlockReads )
     EXPECT_EQ( parsed.value().Playing, written.Playing );
     EXPECT_EQ( parsed.value().Loop, written.Loop );
     EXPECT_FLOAT_EQ( parsed.value().PlaybackSpeed, written.PlaybackSpeed );
-    EXPECT_EQ( parsed.value().GraphJson, written.GraphJson );
+    EXPECT_EQ( parsed.value().Graph, written.Graph );
 }
 
 // ── THE INSTANCED STATIC MESH, END TO END THROUGH THE BLOCK A .desce CARRIES ───────────────────────

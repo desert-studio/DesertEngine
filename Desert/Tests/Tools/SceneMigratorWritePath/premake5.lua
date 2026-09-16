@@ -20,6 +20,9 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{wks.location}/Tools/SceneMigrator/Source/SceneMigration.cpp",
+        -- The anim graph's JSON round trip: schema step 21 moves the state machine out of the entity and
+        -- reads it with the engine's own parser, so every suite that compiles the migration links it too.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
         -- The tool's loop canonicalises the Settings block through the ENGINE'S reflection table, so a
         -- suite that compiles MigratorMain.cpp has to bring the table with it. It is deliberately not in
         -- SceneMigration.cpp: the fifteen suites that test one schema step each must stay free of it.

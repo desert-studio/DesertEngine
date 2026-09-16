@@ -88,6 +88,10 @@ namespace Desert::Assets
         // names is a picker that can never be used to pick a different rig.
         void PreloadControlRigs();
 
+        // Anim graphs (`.danimgraph`). Independent of every other preload: a graph names no asset and is
+        // named by a component slot, so nothing orders it against the rigs or the clips.
+        void PreloadAnimGraphs();
+
     private:
         std::weak_ptr<AssetManager> m_AssetManager;
 

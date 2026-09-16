@@ -191,6 +191,62 @@ namespace
         return true;
     }
 
+    // Writes the `.danimgraph` files the v20 -> v21 step produced, BEFORE the source file that names
+    // them, on exactly the terms WriteCloudMaterials states. Returns false on failure, having named it.
+    //
+    // THE COLLISION RULE IS THE OPPOSITE OF THE MATERIAL ONE, AND THAT IS THE WHOLE POINT OF THE STEP.
+    // A cloud material is named after its SCENE, so two scenes landing on one path means one sky is about
+    // to be lost and the run must stop. A graph is named after ITSELF, so two entities — in one scene or
+    // in twenty — landing on one path is the migration doing its job: a walk graph that was copied into
+    // four characters as four identical blobs becomes ONE file that all four share, which is the defect
+    // §5.1 named. So a repeated path is fine WHEN THE BYTES AGREE, and fatal when they do not: two
+    // different state machines that happen to carry one Name would otherwise silently become whichever of
+    // them was written last, with every character on the loser pointing at the winner's graph.
+    //
+    // The map therefore holds the CONTENT, not the source file name: "who claimed it first" cannot answer
+    // "is it the same graph", and this is the one place in the run that can see both.
+    bool WriteAnimGraphs( const std::vector<Desert::Migration::AnimGraphFile>& produced,
+                          const std::filesystem::path& assetsRoot, const std::filesystem::path& source,
+                          std::map<std::string, std::string>& claimed, std::ostream& out, std::ostream& err )
+    {
+        for ( const auto& graph : produced )
+        {
+            // Under the SAME root the migration was measured against, for WriteCloudMaterials' reason:
+            // the relative path inside the file and the file on disk must agree about one root, and that
+            // root is the SOURCE FILE'S rather than the process's working directory.
+            const std::filesystem::path graphPath = ( assetsRoot / graph.RelativePath ).lexically_normal();
+
+            const auto entry = claimed.emplace( graphPath.generic_string(), graph.Json );
+            if ( !entry.second )
+            {
+                if ( entry.first->second == graph.Json )
+                {
+                    // The same graph, reached a second time. Written once, shared from here on — say so,
+                    // because "one file, four characters" is the outcome an operator is checking for.
+                    out << "        shares " << graphPath.string() << "\n";
+                    continue;
+                }
+                err << "FAIL   " << source.string() << " — its anim graph would be written to "
+                    << graphPath.string()
+                    << ", which a different graph already claimed in this run: two state machines state "
+                    << "the same Name and are not the same graph. Rename one and re-run; no file is "
+                    << "modified.\n";
+                return false;
+            }
+
+            std::error_code ec;
+            std::filesystem::create_directories( graphPath.parent_path(), ec );
+            if ( !Common::Utils::FileSystem::WriteContentToFileAtomic( graphPath, graph.Json ) )
+            {
+                err << "FAIL   " << graphPath.string() << " — the anim graph could not be written; "
+                    << source.string() << " is left at its old version\n";
+                return false;
+            }
+            out << "        wrote " << graphPath.string() << "\n";
+        }
+        return true;
+    }
+
     // WHAT THE CHAIN DID, in one line, for a scene OR a prefab: the same report comes back from
     // both entry points, so the same function prints it and no step can be reported in one file class
     // and silently omitted in the other. §4.7 - a migration that says nothing is a migration nobody can
@@ -375,6 +431,24 @@ namespace
             // an authored one that will now read as the default, and the operator has to see which.
             for ( const auto& name : report.CloudMaterial.RejectedNames )
                 out << "; NOT carried, schema default stands: " << name;
+            out << ")";
+        }
+        if ( report.AnimGraphRaised )
+        {
+            out << " scene v" << Desert::Migration::kSceneVersionTextKeySigil << "->v"
+                << Desert::Migration::kSceneVersionAnimGraphAsset << " (";
+            if ( report.AnimGraph.Entities > 0 || report.AnimGraph.Empty > 0 )
+            {
+                out << report.AnimGraph.Entities << " state machine(s) moved into "
+                    << report.AnimGraph.Graphs.size() << " file(s), " << report.AnimGraph.Empty
+                    << " empty GraphJson key(s) dropped";
+            }
+            else
+                out << "stamp only - no Animation payload in this file states a graph";
+            // Named, not counted, like every step above that can refuse a value: a rejected blob is an
+            // authored state machine that did NOT move, and it is still in the file.
+            for ( const auto& name : report.AnimGraph.RejectedNames )
+                out << "; LEFT IN PLACE, not moved: " << name;
             out << ")";
         }
         if ( report.DebugViewRaised )
@@ -578,6 +652,12 @@ namespace Desert::Migration
         // repeated key here.
         std::map<std::string, std::string> writtenMaterials;
 
+        // The same guard for the graphs, and it holds CONTENT rather than the claiming file — see
+        // WriteAnimGraphs for why a repeated path is the intended outcome there and a fatal one here.
+        // Shared by the scene pass and the prefab pass, for the reason `writtenMaterials` is: two files of
+        // different classes minting one graph name have to be seen through ONE map.
+        std::map<std::string, std::string> writtenGraphs;
+
         for ( const auto& path : scenes )
         {
             const std::string source = ReadAll( path );
@@ -646,6 +726,12 @@ namespace Desert::Migration
 
             if ( !WriteCloudMaterials( report.CloudMaterial.Materials, assetsRoot, path, writtenMaterials, out,
                                        err ) )
+            {
+                ++failed;
+                continue;
+            }
+
+            if ( !WriteAnimGraphs( report.AnimGraph.Graphs, assetsRoot, path, writtenGraphs, out, err ) )
             {
                 ++failed;
                 continue;
@@ -889,6 +975,12 @@ namespace Desert::Migration
 
             if ( !WriteCloudMaterials( outcome.Steps.CloudMaterial.Materials, assetsRoot, path, writtenMaterials,
                                        out, err ) )
+            {
+                ++failed;
+                continue;
+            }
+
+            if ( !WriteAnimGraphs( outcome.Steps.AnimGraph.Graphs, assetsRoot, path, writtenGraphs, out, err ) )
             {
                 ++failed;
                 continue;

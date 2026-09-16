@@ -22,6 +22,7 @@
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
+#include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
@@ -432,6 +433,27 @@ namespace Desert::Core::Serialize
                 }
                 return relStr;
             }
+            if ( type == "AnimGraphAsset" )
+            {
+                auto a = mgr.FindByHandle<Assets::AnimGraphAsset>( Common::UUID( handle ) );
+                if ( !a )
+                {
+                    return "";
+                }
+
+                // RELATIVE, on exactly the terms the rig above is relative.
+                std::error_code ec;
+                const auto      rel = std::filesystem::relative( a->GetMetadata().Filepath,
+                                                                 Common::Constants::Path::ASSETS_PATH, ec );
+                // generic_string() rather than native(): native() is a WIDE string on Windows and a
+                // narrow one here, so a narrow ".." literal only compiles on this platform.
+                auto relStr = rel.generic_string();
+                if ( ec || rel.empty() || relStr.starts_with( ".." ) )
+                {
+                    return a->GetMetadata().Filepath.string(); // outside the project — say so plainly
+                }
+                return relStr;
+            }
             if ( type == "UIThemeAsset" )
             {
                 auto a = mgr.FindByHandle<Assets::UIThemeAsset>( Common::UUID( handle ) );
@@ -630,6 +652,38 @@ namespace Desert::Core::Serialize
                     if ( const auto loaded = a->Load(); !loaded )
                     {
                         LOG_ERROR( "[Animation] Control rig '{}' named by the scene could not be loaded: {}",
+                                   full.string(), loaded.GetError() );
+                        return 0;
+                    }
+                }
+                return static_cast<uint64_t>( a->GetMetadata().Handle );
+            }
+            if ( type == "AnimGraphAsset" )
+            {
+                // Both forms accepted, for the reason the branches above give.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+
+                auto a = mgr.FindByPath<Assets::AnimGraphAsset>( full );
+                if ( !a )
+                {
+                    a = m.CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, full );
+                }
+                if ( !a )
+                {
+                    return 0;
+                }
+                // LOADED HERE AND NOT LEFT TO THE FIRST FRAME, for the rig's reason one branch up: a graph
+                // that is not ready is a graph AnimationECSSystem cannot hand to the entity, and the
+                // character would fall back to its single `CurrentClip` while the scene file plainly names
+                // a state machine — the silent shape §5.1 exists to end.
+                if ( !a->IsReadyForUse() )
+                {
+                    if ( const auto loaded = a->Load(); !loaded )
+                    {
+                        LOG_ERROR( "[Animation] Anim graph '{}' named by the scene could not be loaded: {}",
                                    full.string(), loaded.GetError() );
                         return 0;
                     }
@@ -1403,24 +1457,37 @@ namespace Desert::Core::Serialize
             Register( std::move( s ) );
         }
 
-        // ---- Animation (manual: playback settings + the AnimGraph state machine as JSON) ----
+        // ---- Animation (manual: playback settings + the `.danimgraph` this entity plays) ----
         {
             ComponentSerializer s;
             s.Key       = "Animation";
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::AnimationComponent>(); };
-            s.Serialize = [key = s.Key]( ECS::Entity e, const Assets::AssetManager& ) -> rfl::Generic
+            s.Serialize = [key = s.Key]( ECS::Entity e, const Assets::AssetManager& assetManager ) -> rfl::Generic
             {
                 const auto&                   ac = e.GetComponent<ECS::AnimationComponent>();
                 Assets::AnimationComponentSer ser;
-                ser.CurrentClip      = ac.CurrentClip;
-                ser.Playing          = ac.Playing;
-                ser.Loop             = ac.Loop;
-                ser.PlaybackSpeed    = ac.PlaybackSpeed;
-                if ( ac.Graph )
-                    ser.GraphJson = Animation::Graph::Serialize( *ac.Graph );
+                ser.CurrentClip   = ac.CurrentClip;
+                ser.Playing       = ac.Playing;
+                ser.Loop          = ac.Loop;
+                ser.PlaybackSpeed = ac.PlaybackSpeed;
+
+                // THE HANDLE, NOT THE GRAPH. `Animation::Graph::Serialize(*ac.Graph)` stood here and put
+                // the whole state machine inside the entity; the file is the graph's identity now and the
+                // scene only names it. A handle the resolver cannot place writes NOTHING rather than an
+                // empty string: absence is how this format says "no state machine".
+                if ( ac.GraphAsset )
+                {
+                    auto resolver = MakeAssetResolver( assetManager );
+                    if ( auto path = resolver.ToPath( static_cast<uint64_t>( ac.GraphAsset ), "AnimGraphAsset" );
+                         !path.empty() )
+                    {
+                        ser.Graph = std::move( path );
+                    }
+                }
                 return WriteBlock( ser, key );
             };
-            s.Deserialize = [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& )
+            s.Deserialize =
+                 [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& assetManager )
             {
                 auto parsed = ReadBlock<Assets::AnimationComponentSer>( g, key );
                 if ( !parsed.has_value() )
@@ -1432,14 +1499,16 @@ namespace Desert::Core::Serialize
                 ac.Playing     = d.Playing;
                 ac.Loop        = d.Loop;
                 ac.PlaybackSpeed = d.PlaybackSpeed;
-                if ( !d.GraphJson.empty() )
+
+                // ONLY THE HANDLE IS SET HERE. The graph OBJECT is AnimationECSSystem's to hand over
+                // (SyncAnimGraph), from the asset, so that every entity naming one file ends up pointing
+                // at one object — parsing it here would give each entity a copy and put us back where
+                // GraphJson was. FromPath loads the asset, so a graph the scene names and the project
+                // cannot produce is reported by the resolver rather than becoming a silently empty slot.
+                if ( d.Graph.has_value() && !d.Graph->empty() )
                 {
-                    auto graph = Animation::Graph::Deserialize( d.GraphJson );
-                    if ( graph.IsSuccess() )
-                    {
-                        ac.Graph = std::make_shared<Animation::Graph::AnimGraph>( graph.GetValue() );
-                        ac.GraphRevision++;
-                    }
+                    auto resolver = MakeAssetResolver( assetManager );
+                    ac.GraphAsset = Assets::AssetHandle( resolver.FromPath( *d.Graph, "AnimGraphAsset" ) );
                 }
             };
             Register( std::move( s ) );

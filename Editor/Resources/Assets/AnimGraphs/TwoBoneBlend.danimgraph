@@ -1,0 +1,1 @@
+{"Name":"TwoBoneBlend","Entry":"Wave","Parameters":[],"States":[{"Name":"Wave","Clip":"TwoBoneProbe_Wave","Loop":true,"Speed":1.0,"X":0.0,"Y":0.0,"Transitions":[{"To":"Twist","Blend":2.0,"HasExitTime":true,"ExitTime":0.25,"Conditions":[]}]},{"Name":"Twist","Clip":"TwoBoneProbe_Twist","Loop":true,"Speed":1.0,"X":260.0,"Y":0.0,"Transitions":[]}]}
