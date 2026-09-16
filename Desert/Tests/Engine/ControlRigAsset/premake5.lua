@@ -22,17 +22,22 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
-        -- The atomic write primitive SaveControlRigFile goes through, so the file half is exercised by the
-        -- same call the editor makes rather than by a local ofstream the suite invents.
-        "%{wks.location}/Desert/Common/Source/Common/Utilities/FileSystem.cpp",
-        "%{wks.location}/Desert/Common/Source/Common/Utilities/VFS.cpp",
-        "%{wks.location}/Desert/Common/Source/Common/Core/Logger.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
     }
+
+    -- LINKED, not compiled in: SaveControlRigFile goes through Common's atomic write primitive, so the
+    -- file half of the format is exercised by the same call the editor makes rather than by a local
+    -- ofstream this suite invents. Common carries Objective-C (the macOS file dialog), which is why the
+    -- two frameworks come with it — FileSystemWrite's premake makes the same pair for the same reason.
+    links { "Common", "Optick" }
+
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
 
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
