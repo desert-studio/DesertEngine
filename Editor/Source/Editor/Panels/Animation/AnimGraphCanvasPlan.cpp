@@ -147,6 +147,37 @@ namespace Desert::Editor::Graph
         return {};
     }
 
+    WarningTarget WarningTargetOf( const AnimGraphCanvas& canvas, const G::AnimGraph& graph,
+                                   const G::GraphWarning& warning )
+    {
+        const int si = FindStateByName( graph, warning.State );
+        if ( si < 0 || si >= static_cast<int>( canvas.StateNodes.size() ) )
+            return {}; // a warning about a state this plan does not contain
+
+        WarningTarget target;
+
+        if ( warning.Transition >= 0 )
+        {
+            // THE LINK IS LOOKED UP THROUGH `LinkRefs` AND NOT COMPUTED. The pair (state, transition) is
+            // exactly the index arithmetic this unit exists to have deleted: transitions to a name no
+            // state carries are skipped by `PlanAnimGraph`, so the nth transition of a state is NOT the
+            // nth link out of it, and anything that assumed it was would select a link belonging to a
+            // different transition than the warning is about.
+            for ( size_t i = 0; i < canvas.LinkRefs.size(); ++i )
+            {
+                const TransitionRef& ref = canvas.LinkRefs[i];
+                if ( ref.State == si && ref.Index == warning.Transition )
+                {
+                    target.Link = canvas.Plan.Links[i].Id;
+                    return target;
+                }
+            }
+        }
+
+        target.Node = canvas.StateNodes[static_cast<size_t>( si )];
+        return target;
+    }
+
     std::string MakeUniqueStateName( const G::AnimGraph& graph, const std::string& desired, int selfIndex )
     {
         const auto taken = [&]( const std::string& candidate )

@@ -3,6 +3,7 @@
 #include <Editor/Core/GraphCanvas/GraphCanvas.hpp>
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
+#include <Engine/Animation/Graph/AnimGraphValidation.hpp>
 
 #include <string>
 #include <vector>
@@ -60,6 +61,45 @@ namespace Desert::Editor::Graph
 
     /// The transition a link id names. Invalid when the id is not one of this frame's links.
     [[nodiscard]] TransitionRef TransitionOfLink( const AnimGraphCanvas& canvas, ElementId link );
+
+    /// Where on the canvas one finding of `Animation::Graph::Validate` points.
+    ///
+    /// AT MOST ONE OF THE TWO IS SET, and they are two fields rather than an id plus a kind on purpose:
+    /// the caller has to select a node and a link through different entry points of the node editor, so
+    /// a single id it would then have to decode is a decode that can go wrong. An all-`Invalid` target
+    /// is a warning about a state this plan does not contain, which one frame cannot produce.
+    struct WarningTarget
+    {
+        ElementId Node = ElementId::Invalid;
+        ElementId Link = ElementId::Invalid;
+
+        [[nodiscard]] bool Valid() const
+        {
+            return Node != ElementId::Invalid || Link != ElementId::Invalid;
+        }
+    };
+
+    /// The element @p warning is about, looked up in @p canvas.
+    ///
+    /// `GraphWarning::State` AND `::Transition` HAD NO READER AT ALL until this existed. Every finding
+    /// carried them, the strip drew only `Text`, and a reader who wanted to act on "'Run' names no clip"
+    /// had to find `Run` by eye — which at the thirty states 07 §8 exists to make readable is the same
+    /// as not being told. A field computed and never read is the data-side of a dead knob, and it is the
+    /// half that no frame can show is missing.
+    ///
+    /// A WARNING ABOUT A TRANSITION POINTS AT ITS LINK, not at its state: the link is what the side panel
+    /// turns into the transition inspector, so selecting it puts the Blend/Exit-time/Conditions the
+    /// warning is about under the reader's hand in the same frame. It falls back to the state's node when
+    /// the transition names a target no state carries — `PlanAnimGraph` draws no link for one, and W3
+    /// fires on it — because the state is then the only thing there is to go to.
+    ///
+    /// THE STATE IS FOUND BY NAME, FIRST MATCH — the rule `Evaluator::FindState` and this unit's own link
+    /// planner already follow. A `.danimgraph` edited by hand can carry two states of one name; the
+    /// second is unreachable to the runtime, so sending its reader to the first is sending them to the
+    /// one that actually runs.
+    [[nodiscard]] WarningTarget WarningTargetOf( const AnimGraphCanvas&                 canvas,
+                                                 const Animation::Graph::AnimGraph&     graph,
+                                                 const Animation::Graph::GraphWarning&  warning );
 
     /// @p desired, or @p desired with a numeric suffix, such that no OTHER state of @p graph carries it.
     /// @p selfIndex is the state being named (-1 when the state does not exist yet), so renaming a state

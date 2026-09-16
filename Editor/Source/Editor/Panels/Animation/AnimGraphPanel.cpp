@@ -378,7 +378,7 @@ namespace Desert::Editor
         DrawSidePanel( *anim, clipNames, canvasH );
         ImGui::EndGroup();
 
-        DrawWarningStrip( warnings );
+        DrawWarningStrip( *anim->Graph, warnings );
     }
 
     float AnimGraphPanel::WarningStripHeight( size_t count )
@@ -395,7 +395,8 @@ namespace Desert::Editor
         return ImGui::GetTextLineHeightWithSpacing() * lines + ImGui::GetStyle().ItemSpacing.y * 2.0f;
     }
 
-    void AnimGraphPanel::DrawWarningStrip( const std::vector<G::GraphWarning>& warnings )
+    void AnimGraphPanel::DrawWarningStrip( const G::AnimGraph&                 graph,
+                                          const std::vector<G::GraphWarning>& warnings )
     {
         if ( warnings.empty() )
         {
@@ -405,16 +406,82 @@ namespace Desert::Editor
         ImGui::Separator();
         ImGui::BeginChild( "##agWarnings", ImVec2( 0.0f, WarningStripHeight( warnings.size() ) ), false );
         ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 1.0f, 0.78f, 0.25f, 1.0f ) );
-        for ( const auto& warning : warnings )
+        for ( int i = 0; i < static_cast<int>( warnings.size() ); ++i )
         {
-            // WRAPPED, NOT CLIPPED. Un-wrapped the sentence ran off the document's right edge and the
-            // half that names the clip or the parameter -- the only actionable half -- was cut, which is
-            // a warning that reports a problem without saying which one. Measured from the editor: the
-            // first frame taken of this strip showed exactly that.
+            const auto& warning = warnings[static_cast<size_t>( i )];
+            ImGui::PushID( i );
+
+            // ── THE LINE IS A CONTROL, AND UNTIL IT WAS, HALF OF EVERY FINDING WAS UNREADABLE ──────────
+            //
+            // `GraphWarning` has carried `State` and `Transition` since the validator landed and NOTHING
+            // read them: the strip drew `Text` and stopped. So a reader told that «Run» names no clip
+            // still had to find `Run` by eye on a canvas the whole of §8 exists to make readable at
+            // thirty states -- which is the same as not being told, and it is the shape no frame can
+            // show is missing, because what is missing is a reader for a field.
+            //
+            // Clicking selects the element on the canvas and moves the view to it, which ALSO puts it in
+            // the side panel's inspector on the same frame: the state's clip picker, or the transition's
+            // conditions. The distance from "what is wrong" to "the control that fixes it" is one click
+            // rather than a search.
+            const float  avail    = ImGui::GetContentRegionAvail().x;
+            const ImVec2 textSize = ImGui::CalcTextSize( warning.Text.c_str(), nullptr, false, avail );
+            const ImVec2 before   = ImGui::GetCursorPos();
+
+            // SELECTABLE UNDER THE TEXT RATHER THAN AROUND IT, because `Selectable` does not wrap and
+            // `TextWrapped` is not a control. Un-wrapped the sentence ran off the document's right edge
+            // and the half that names the clip or the parameter -- the only actionable half -- was cut,
+            // which is a warning that reports a problem without saying which one. Measured from the
+            // editor: the first frame ever taken of this strip showed exactly that. So the hit box is
+            // sized to the WRAPPED text and the text is drawn back over it.
+            const bool clicked = ImGui::Selectable( "##agw", false, ImGuiSelectableFlags_None,
+                                                    ImVec2( 0.0f, textSize.y ) );
+            Utils::ImGuiUtilities::Tooltip( "Select this on the canvas" );
+
+            const ImVec2 after = ImGui::GetCursorPos();
+            ImGui::SetCursorPos( before );
             ImGui::TextWrapped( ICON_MDI_ALERT "  %s", warning.Text.c_str() );
+            // Back to where the Selectable left it, so a sentence that wrapped to two lines and a hit box
+            // that was sized for two lines cannot advance the cursor by different amounts.
+            ImGui::SetCursorPos( after );
+
+            if ( clicked )
+            {
+                RevealWarning( graph, warning );
+            }
+            ImGui::PopID();
         }
         ImGui::PopStyleColor();
         ImGui::EndChild();
+    }
+
+    void AnimGraphPanel::RevealWarning( const G::AnimGraph& graph, const G::GraphWarning& warning )
+    {
+        // WHICH ELEMENT, ASKED OF THE PLAN — the same seam every other "which thing is this" question in
+        // this window goes through, and for the same reason: the nth transition of a state is not the nth
+        // link out of it, because a transition to a name no state carries is drawn as no link at all.
+        const Graph::WarningTarget target = Graph::WarningTargetOf( m_Canvas, graph, warning );
+        if ( !target.Valid() )
+        {
+            return;
+        }
+
+        ed::SetCurrentEditor( m_Context );
+        ed::ClearSelection();
+        if ( target.Link != Graph::ElementId::Invalid )
+        {
+            ed::SelectLink( ed::LinkId( Graph::Raw( target.Link ) ) );
+        }
+        else
+        {
+            ed::SelectNode( ed::NodeId( Graph::Raw( target.Node ) ) );
+        }
+        ed::SetCurrentEditor( nullptr );
+
+        // The SAME navigation the `Frame Sel` button runs, and not a second spelling of it: two ways to
+        // move this view would be two behaviours to keep in step, and the button's own rule (an empty
+        // selection frames everything) is the right one here too -- a selection this function failed to
+        // make must not leave the reader staring at an empty rectangle.
+        Graph::FrameSelection( m_Context );
     }
 
     void AnimGraphPanel::DrawCanvas( ECS::AnimationComponent& anim, float width, float height )
