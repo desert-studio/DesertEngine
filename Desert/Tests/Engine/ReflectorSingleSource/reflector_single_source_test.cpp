@@ -141,6 +141,12 @@ TEST( ReflectorSingleSourceTest, ExactlyOneHeaderOfThisTreeSpecialisesRflReflect
             std::string relative = entry.path().string();
             if ( relative.rfind( root, 0 ) == 0 )
                 relative = relative.substr( root.size() );
+            // WINDOWS. `fs::path::string()` hands back this platform's separator, so the rows below —
+            // and every message this census prints — would be `\`-spelled there and would match
+            // nothing. Normalised to `/` so the expected set is ONE literal for both platforms rather
+            // than a second one nobody on this machine can test. (Seven defects of the
+            // "compiles here, not there" class have reached `dev`; this is the cheap end of it.)
+            std::replace( relative.begin(), relative.end(), '\\', '/' );
             owners.push_back( relative );
         }
     }
