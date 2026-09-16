@@ -342,9 +342,14 @@ TEST( AnimGraphValidation, ThePanelIsTheOneThatAsksAndTheOneThatDraws )
          << "the panel computes warnings and never draws them -- a rule with no reader";
 
     // ...and the strip puts the sentence on screen. `warning.Text` is what carries the state name and
-    // the clip name; a strip that drew only an icon and a count would be unactionable.
-    EXPECT_NE( source.find( "warning.Text.c_str()" ), std::string::npos )
+    // the clip name; a strip that drew only an icon and a count would be unactionable. The line is
+    // composed before it is drawn, because the hit box under it has to be measured as what is DRAWN and
+    // not as the sentence alone -- see the panel.
+    EXPECT_NE( source.find( "+ warning.Text;" ), std::string::npos )
          << "the strip does not draw the warning's own sentence";
+    EXPECT_NE( source.find( "ImGui::TextWrapped( \"%s\", line.c_str() )" ), std::string::npos )
+         << "the strip's sentence is not wrapped any more: un-wrapped it runs off the document's right "
+            "edge and the half that names the clip or the parameter is cut";
 }
 
 TEST( AnimGraphValidation, DraggingAStateIsAnEditToTheFile )

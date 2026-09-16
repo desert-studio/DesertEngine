@@ -423,8 +423,13 @@ namespace Desert::Editor
             // the side panel's inspector on the same frame: the state's clip picker, or the transition's
             // conditions. The distance from "what is wrong" to "the control that fixes it" is one click
             // rather than a search.
-            const float  avail    = ImGui::GetContentRegionAvail().x;
-            const ImVec2 textSize = ImGui::CalcTextSize( warning.Text.c_str(), nullptr, false, avail );
+            // THE LINE IS COMPOSED ONCE AND MEASURED AS WHAT IS DRAWN. Measuring `warning.Text` while
+            // drawing the icon plus two spaces in front of it is how a hit box ends up one line shorter
+            // than its sentence: the icon is what pushes a borderline sentence onto a second line, and
+            // the bottom line would then not be clickable while looking exactly as if it were.
+            const std::string line   = std::string( ICON_MDI_ALERT "  " ) + warning.Text;
+            const float       avail  = ImGui::GetContentRegionAvail().x;
+            const ImVec2 textSize = ImGui::CalcTextSize( line.c_str(), nullptr, false, avail );
             const ImVec2 before   = ImGui::GetCursorPos();
 
             // SELECTABLE UNDER THE TEXT RATHER THAN AROUND IT, because `Selectable` does not wrap and
@@ -439,7 +444,7 @@ namespace Desert::Editor
 
             const ImVec2 after = ImGui::GetCursorPos();
             ImGui::SetCursorPos( before );
-            ImGui::TextWrapped( ICON_MDI_ALERT "  %s", warning.Text.c_str() );
+            ImGui::TextWrapped( "%s", line.c_str() );
             // Back to where the Selectable left it, so a sentence that wrapped to two lines and a hit box
             // that was sized for two lines cannot advance the cursor by different amounts.
             ImGui::SetCursorPos( after );
