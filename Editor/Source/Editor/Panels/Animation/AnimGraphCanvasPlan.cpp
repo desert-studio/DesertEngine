@@ -183,16 +183,22 @@ namespace Desert::Editor::Graph
             for ( int i = 0; i < static_cast<int>( graph.Parameters.size() ); ++i )
             {
                 if ( i == selfIndex )
+                {
                     continue;
+                }
                 if ( graph.Parameters[static_cast<size_t>( i )].Name == candidate )
+                {
                     return true;
+                }
             }
             return false;
         };
 
         const std::string base = desired.empty() ? std::string( "Param" ) : desired;
         if ( !taken( base ) )
+        {
             return base;
+        }
 
         // Bounded by the number of parameters plus one, so the loop cannot fail to find a free name and
         // has no unbounded arm to reason about. The same argument `MakeUniqueStateName` runs.
@@ -200,7 +206,9 @@ namespace Desert::Editor::Graph
         {
             std::string candidate = base + "_" + std::to_string( suffix );
             if ( !taken( candidate ) )
+            {
                 return candidate;
+            }
         }
         return base; // unreachable: N + 1 candidates against at most N occupied names
     }
@@ -208,14 +216,18 @@ namespace Desert::Editor::Graph
     std::string RenameParameter( G::AnimGraph& graph, int index, const std::string& desired )
     {
         if ( index < 0 || index >= static_cast<int>( graph.Parameters.size() ) )
+        {
             return {};
+        }
 
         const std::string previous                          = graph.Parameters[static_cast<size_t>( index )].Name;
         const std::string renamed                           = MakeUniqueParameterName( graph, desired, index );
         graph.Parameters[static_cast<size_t>( index )].Name = renamed;
 
         if ( renamed == previous )
+        {
             return renamed;
+        }
 
         // WHICH PARAMETER THE CONDITIONS WERE ACTUALLY READING. `Evaluator::FindParameter` takes the first
         // declaration carrying the name, so conditions on `previous` belong to the first parameter of that
@@ -224,7 +236,9 @@ namespace Desert::Editor::Graph
         for ( int i = 0; i < index; ++i )
         {
             if ( graph.Parameters[static_cast<size_t>( i )].Name == previous )
+            {
                 return renamed;
+            }
         }
 
         for ( auto& state : graph.States )
@@ -234,7 +248,9 @@ namespace Desert::Editor::Graph
                 for ( auto& condition : transition.Conditions )
                 {
                     if ( condition.Parameter == previous )
+                    {
                         condition.Parameter = renamed;
+                    }
                 }
             }
         }
@@ -267,7 +283,9 @@ namespace Desert::Editor::Graph
             const StatePosition candidate{ static_cast<float>( cell % kStateGridColumns ) * kStateGridStepX,
                                            static_cast<float>( cell / kStateGridColumns ) * kStateGridStepY };
             if ( !occupied( candidate ) )
+            {
                 return candidate;
+            }
         }
         return {}; // unreachable, by the bound above
     }

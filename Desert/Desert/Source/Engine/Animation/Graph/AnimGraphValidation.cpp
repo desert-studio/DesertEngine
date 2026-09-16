@@ -98,18 +98,26 @@ namespace Desert::Animation::Graph
         [[nodiscard]] bool Admits( const Domain& domain, float value )
         {
             if ( value < domain.Lo || ( value == domain.Lo && domain.LoOpen ) )
+            {
                 return false;
+            }
             if ( value > domain.Hi || ( value == domain.Hi && domain.HiOpen ) )
+            {
                 return false;
+            }
             return std::find( domain.Excluded.begin(), domain.Excluded.end(), value ) == domain.Excluded.end();
         }
 
         [[nodiscard]] bool Satisfiable( const Domain& domain )
         {
             if ( domain.Lo > domain.Hi )
+            {
                 return false;
+            }
             if ( domain.Lo == domain.Hi )
+            {
                 return !domain.LoOpen && !domain.HiOpen && Admits( domain, domain.Lo );
+            }
             // A non-degenerate interval holds uncountably many values and `Excluded` is finite, so it can
             // never be emptied by exclusions. (An interval narrower than one float step would be the
             // exception; there is no way to author one, because both ends come from literals the user
@@ -121,19 +129,29 @@ namespace Desert::Animation::Graph
         [[nodiscard]] bool Contains( const Domain& outer, const Domain& inner )
         {
             if ( outer.Lo > inner.Lo )
+            {
                 return false;
+            }
             if ( outer.Lo == inner.Lo && outer.LoOpen && !inner.LoOpen )
+            {
                 return false;
+            }
             if ( outer.Hi < inner.Hi )
+            {
                 return false;
+            }
             if ( outer.Hi == inner.Hi && outer.HiOpen && !inner.HiOpen )
+            {
                 return false;
+            }
             // A point `outer` forbids but `inner` allows is a case where `inner` fires and `outer` does
             // not, which is exactly what containment denies.
             for ( const float point : outer.Excluded )
             {
                 if ( Admits( inner, point ) )
+                {
                     return false;
+                }
             }
             return true;
         }
@@ -144,7 +162,9 @@ namespace Desert::Animation::Graph
         {
             DomainMap domains;
             for ( const auto& condition : transition.Conditions )
+            {
                 Narrow( domains[condition.Parameter], condition );
+            }
             return domains;
         }
 
@@ -165,7 +185,9 @@ namespace Desert::Animation::Graph
                 const auto  found = later.find( name );
                 const auto& inner = found == later.end() ? unconstrained : found->second;
                 if ( !Contains( outer, inner ) )
+                {
                     return false;
+                }
             }
             return true;
         }
@@ -176,7 +198,9 @@ namespace Desert::Animation::Graph
         [[nodiscard]] bool ExitGateIsNoStricter( const Transition& earlier, const Transition& later )
         {
             if ( !earlier.HasExitTime )
+            {
                 return true;
+            }
             return later.HasExitTime && later.ExitTime >= earlier.ExitTime;
         }
 
@@ -186,7 +210,9 @@ namespace Desert::Animation::Graph
         [[nodiscard]] bool CanBeTaken( const AnimGraph& graph, const State& from, const Transition& transition )
         {
             if ( transition.To == from.Name )
+            {
                 return false;
+            }
             return std::any_of( graph.States.begin(), graph.States.end(),
                                 [&]( const State& state ) { return state.Name == transition.To; } );
         }
@@ -267,13 +293,17 @@ namespace Desert::Animation::Graph
             std::vector<DomainMap> domains;
             domains.reserve( state.Transitions.size() );
             for ( const auto& transition : state.Transitions )
+            {
                 domains.push_back( DomainsOf( transition ) );
+            }
 
             for ( std::size_t ti = 0; ti < state.Transitions.size(); ++ti )
             {
                 const Transition& later = state.Transitions[ti];
                 if ( !CanBeTaken( graph, state, later ) )
+                {
                     continue;
+                }
 
                 if ( !AllSatisfiable( domains[ti] ) )
                 {
@@ -288,11 +318,17 @@ namespace Desert::Animation::Graph
                 {
                     const Transition& earlier = state.Transitions[ei];
                     if ( !CanBeTaken( graph, state, earlier ) || !AllSatisfiable( domains[ei] ) )
+                    {
                         continue;
+                    }
                     if ( !ExitGateIsNoStricter( earlier, later ) )
+                    {
                         continue;
+                    }
                     if ( !Shadows( domains[ei], domains[ti] ) )
+                    {
                         continue;
+                    }
 
                     warnings.push_back(
                          { WarningKind::TransitionNeverFires, state.Name, static_cast<int>( ti ),
@@ -309,7 +345,9 @@ namespace Desert::Animation::Graph
                 for ( const auto& condition : state.Transitions[ti].Conditions )
                 {
                     if ( FindParameter( graph, condition.Parameter ) != nullptr )
+                    {
                         continue;
+                    }
                     warnings.push_back(
                          { WarningKind::UndeclaredConditionParam, state.Name, static_cast<int>( ti ),
                            fmt::format( "'{}' -> '{}' tests '{}', which this graph does not declare; it reads "

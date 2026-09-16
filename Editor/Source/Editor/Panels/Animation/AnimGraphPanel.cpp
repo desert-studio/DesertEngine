@@ -84,7 +84,9 @@ namespace Desert::Editor
             {
                 bool flag = value != 0.0f;
                 if ( !ImGui::Checkbox( id, &flag ) )
+                {
                     return false;
+                }
                 value = flag ? 1.0f : 0.0f;
                 return true;
             }
@@ -92,7 +94,9 @@ namespace Desert::Editor
             {
                 auto whole = static_cast<int>( std::lround( value ) );
                 if ( !ImGui::DragInt( id, &whole, 1.0f ) )
+                {
                     return false;
+                }
                 value = static_cast<float>( whole );
                 return true;
             }
@@ -307,7 +311,9 @@ namespace Desert::Editor
         // written yet.
         const auto asset = ResolveAsset();
         if ( asset && !m_SavedRevision )
+        {
             m_SavedRevision = asset->GetRevision();
+        }
         const bool unsaved = asset && m_SavedRevision && asset->GetRevision() != *m_SavedRevision;
 
         // Toolbar.
@@ -327,7 +333,9 @@ namespace Desert::Editor
         }
         ImGui::SameLine();
         if ( ImGui::Button( "+ State" ) )
+        {
             AddState();
+        }
         ImGui::SameLine();
         Graph::DrawViewButtons( m_Context );
         if ( const auto* cur = anim->GraphEvaluator ? anim->GraphEvaluator->CurrentState() : nullptr )
@@ -376,7 +384,9 @@ namespace Desert::Editor
     float AnimGraphPanel::WarningStripHeight( size_t count )
     {
         if ( count == 0 )
+        {
             return 0.0f;
+        }
         // Every finding is reachable — the strip SCROLLS rather than truncating. A strip that showed
         // "and 7 more" would be a control that hides a defect, which is the one thing a validator may
         // not do; a strip that grew to thirty lines would eat the canvas it is about.
@@ -388,7 +398,9 @@ namespace Desert::Editor
     void AnimGraphPanel::DrawWarningStrip( const std::vector<G::GraphWarning>& warnings )
     {
         if ( warnings.empty() )
+        {
             return; // a graph with nothing wrong with it gets no strip at all, not an empty one
+        }
 
         ImGui::Separator();
         ImGui::BeginChild( "##agWarnings", ImVec2( 0.0f, WarningStripHeight( warnings.size() ) ), false );

@@ -100,7 +100,9 @@ namespace
     {
         std::string all;
         for ( const auto& warning : warnings )
+        {
             all += warning.Text + "\n";
+        }
         return all;
     }
 
@@ -112,7 +114,9 @@ namespace
         for ( int up = 0; up < 6; ++up )
         {
             if ( std::filesystem::exists( prefix / "Desert/Desert/Source/Engine/Core/SceneSettings.hpp" ) )
+            {
                 return prefix;
+            }
             prefix /= "..";
         }
         return {};
