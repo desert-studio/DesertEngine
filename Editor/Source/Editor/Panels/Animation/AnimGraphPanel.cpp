@@ -245,8 +245,13 @@ namespace Desert::Editor
         // no ImGui in it. `NodeId( i ) = i + 1` used to live here.
         m_Canvas = Graph::PlanAnimGraph( graph, m_Ids );
 
+        // The size the canvas is actually drawn at, which is also what `DeferredFrameAll` waits to see
+        // stop changing. Height 0 means "the rest of the window" to the node editor, so it is resolved
+        // here rather than guessed at.
+        const ImVec2 canvasSize( width, ImGui::GetContentRegionAvail().y );
+
         ed::SetCurrentEditor( m_Context );
-        ed::Begin( "##animGraph", ImVec2( width, 0.0f ) );
+        ed::Begin( "##animGraph", canvasSize );
 
         int activeIndex = -1;
         if ( anim.GraphEvaluator && anim.GraphEvaluator->CurrentState() )
@@ -392,7 +397,7 @@ namespace Desert::Editor
         ed::End();
         ed::SetCurrentEditor( nullptr );
 
-        if ( m_FrameAll.Tick() )
+        if ( m_FrameAll.Tick( canvasSize.x, canvasSize.y ) )
             Graph::FrameAll( m_Context );
 
         if ( dirty )

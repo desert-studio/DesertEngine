@@ -178,7 +178,7 @@ namespace Desert::Editor::Graph
         std::vector<PlannedLink> Links;
     };
 
-    // ── WHY FRAMING IS DEFERRED, AND WHY IT IS NOT A MAGIC NUMBER ─────────────────────────────────────
+    // ── WHY FRAMING IS DEFERRED, AND WHAT IT WAITS FOR ───────────────────────────────────────────────
     //
     // A canvas cannot be navigated before it exists, and on its FIRST frame it may not exist.
     // `imgui-node-editor` initialises lazily inside the first `ed::Begin`: it runs a THROWAWAY
@@ -186,35 +186,40 @@ namespace Desert::Editor::Graph
     // (imgui_node_editor.cpp:1136-1145), and `Canvas::End` finishes by emitting a dummy widget the size
     // of the canvas (imgui_canvas.cpp:188-190). The ImGui cursor therefore moves DOWN BY A WHOLE CANVAS,
     // and the real `Canvas::Begin` of that same first frame starts below it. `Canvas::Begin` refuses a
-    // widget rect that does not overlap the enclosing window's clip rect (imgui_canvas.cpp:111-117) —
-    // and a refused canvas draws nothing, `NavigateToContent` included.
+    // widget rect that does not overlap the enclosing window's clip rect (imgui_canvas.cpp:111-117), and
+    // a refused canvas draws nothing — `NavigateToContent` included.
     //
     // MEASURED ON THIS TREE, not reasoned about. With the anim graph's canvas inside a child window sized
     // exactly to it, the first Begin landed at y = 965 against a clip rect ending at y = 962 and was
     // refused; the shader graph's, drawn straight into the document window whose clip rect runs 7 px
     // further down, landed at the same y = 965 against 969 and survived BY FOUR PIXELS. The anim graph
-    // then called `NavigateToContent` on a canvas that was not there, and — having no `Frame All` — never
+    // then called `NavigateToContent` on a canvas that was not there and — having no `Frame All` — never
     // got its view back: a docked Anim Graph drew an empty rectangle for its whole life.
     //
-    // So framing waits for the second drawn frame, which is the first frame whose canvas is certainly
-    // initialised. The number is 2 because the vendor's lazy init costs exactly one frame, and both
-    // halves of that sentence are checked by `GraphCanvasIdentity`.
+    // WAITING A FIXED NUMBER OF FRAMES IS NOT ENOUGH, and that was measured too. `EditorContext::Begin`
+    // CANCELS any navigation in flight whenever the canvas has changed size since the last frame
+    // (imgui_node_editor.cpp:1199-1233: `FinishNavigation()` then `NavigateTo(previousVisibleRect)`), and
+    // a document that has just been opened resizes for several frames. Framing on frame two was watched
+    // doing exactly nothing. So the wait is for the CONDITION rather than for a count: the first frame
+    // whose canvas is the same size as the frame before it.
     class DeferredFrameAll
     {
     public:
-        /// Ask for the content to be framed as soon as the canvas can be navigated. Called when a
+        /// Ask for the content to be framed as soon as the canvas can hold a navigation. Called when a
         /// document opens and whenever what it shows is replaced wholesale.
         void Request();
 
-        /// Call once per frame, AFTER `ed::End()`. True on the frame the content should be framed, and
-        /// on no other. It returns a bool rather than navigating itself so that the rule can be tested
-        /// where there is no `ed::EditorContext` to navigate — which is every build machine.
-        [[nodiscard]] bool Tick();
+        /// Call once per frame, AFTER `ed::End()`, with the size the canvas was drawn at. True on the
+        /// frame the content should be framed, and on no other. It returns a bool rather than navigating
+        /// itself so that the rule can be tested where there is no `ed::EditorContext` to navigate —
+        /// which is every build machine.
+        [[nodiscard]] bool Tick( float canvasWidth, float canvasHeight );
 
     private:
-        static constexpr int kFramesUntilCanvasExists = 2;
-
-        int m_FramesLeft = kFramesUntilCanvasExists;
+        bool  m_Pending      = true;
+        bool  m_HaveLastSize = false;
+        float m_LastWidth    = 0.0f;
+        float m_LastHeight   = 0.0f;
     };
 
     /// FNV-1a over everything a frame would submit. Positions are hashed as their exact bit pattern, so

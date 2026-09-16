@@ -188,15 +188,22 @@ namespace Desert::Editor::Graph
 
     void DeferredFrameAll::Request()
     {
-        m_FramesLeft = kFramesUntilCanvasExists;
+        m_Pending = true;
     }
 
-    bool DeferredFrameAll::Tick()
+    bool DeferredFrameAll::Tick( float canvasWidth, float canvasHeight )
     {
-        if ( m_FramesLeft <= 0 )
+        const bool settled = m_HaveLastSize && canvasWidth == m_LastWidth && canvasHeight == m_LastHeight;
+
+        m_LastWidth    = canvasWidth;
+        m_LastHeight   = canvasHeight;
+        m_HaveLastSize = true;
+
+        if ( !m_Pending || !settled )
             return false;
-        --m_FramesLeft;
-        return m_FramesLeft == 0;
+
+        m_Pending = false;
+        return true;
     }
 
     // ── The plan's fingerprint ────────────────────────────────────────────────────────────────────────

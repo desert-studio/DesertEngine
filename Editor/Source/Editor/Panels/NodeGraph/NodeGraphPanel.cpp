@@ -638,8 +638,12 @@ namespace Desert::Editor
         // layer, in a unit with no ImGui in it, so both graph documents answer it the same way.
         m_Plan = Graph::PlanShaderGraph( m_Doc, m_Ledger );
 
+        // Resolved rather than left as (0,0): the node editor would take the available region anyway,
+        // and `DeferredFrameAll` has to be told what size the canvas came out at.
+        const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
+
         ed::SetCurrentEditor( m_Context );
-        ed::Begin( "##shaderGraph", ImVec2( 0.0f, 0.0f ) );
+        ed::Begin( "##shaderGraph", canvasSize );
 
         // --- Nodes ---
         for ( size_t index = 0; index < m_Doc.Nodes.size(); ++index )
@@ -837,7 +841,7 @@ namespace Desert::Editor
         ed::End();
         ed::SetCurrentEditor( nullptr );
 
-        if ( m_FrameAll.Tick() )
+        if ( m_FrameAll.Tick( canvasSize.x, canvasSize.y ) )
             Graph::FrameAll( m_Context );
     }
 

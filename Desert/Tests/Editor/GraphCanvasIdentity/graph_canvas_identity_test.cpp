@@ -541,21 +541,28 @@ TEST( GraphCanvasIdentity, TheFingerprintNoticesWhatItIsFor )
     }
 }
 
-TEST( GraphCanvasIdentity, FramingWaitsForTheFrameAfterTheFirst )
+TEST( GraphCanvasIdentity, FramingWaitsForACanvasThatHasStoppedResizing )
 {
-    // The canvas does not exist on the first `ed::Begin` — see `DeferredFrameAll`'s declaration for the
-    // measurement. Framing on the frame it is asked for is exactly what the anim graph did, and it is
-    // why its view was unrecoverable.
+    // Two things are being waited for, and the second is the one a frame counter cannot express. The
+    // canvas does not exist on the first `ed::Begin`; and `EditorContext::Begin` CANCELS a navigation in
+    // flight whenever the canvas changed size since the previous frame, which a freshly opened document
+    // does for several frames running. Both are cited at `DeferredFrameAll`'s declaration.
     GC::DeferredFrameAll deferred;
-    EXPECT_FALSE( deferred.Tick() ) << "the first drawn frame's canvas may not be there at all";
-    EXPECT_TRUE( deferred.Tick() );
-    EXPECT_FALSE( deferred.Tick() ) << "framing every frame would fight the user's own panning";
-    EXPECT_FALSE( deferred.Tick() );
+
+    EXPECT_FALSE( deferred.Tick( 400.0f, 300.0f ) ) << "nothing to compare the first frame against";
+    EXPECT_FALSE( deferred.Tick( 420.0f, 300.0f ) ) << "still resizing: a navigation here is thrown away";
+    EXPECT_FALSE( deferred.Tick( 420.0f, 310.0f ) );
+    EXPECT_TRUE( deferred.Tick( 420.0f, 310.0f ) ) << "the same size twice: the view will survive";
+    EXPECT_FALSE( deferred.Tick( 420.0f, 310.0f ) ) << "framing every frame would fight the user's panning";
+
+    // And a document that is asked again — a domain change, a reload — waits for the same condition.
+    deferred.Request();
+    EXPECT_TRUE( deferred.Tick( 420.0f, 310.0f ) );
+    EXPECT_FALSE( deferred.Tick( 420.0f, 310.0f ) );
 
     deferred.Request();
-    EXPECT_FALSE( deferred.Tick() );
-    EXPECT_TRUE( deferred.Tick() );
-    EXPECT_FALSE( deferred.Tick() );
+    EXPECT_FALSE( deferred.Tick( 900.0f, 310.0f ) ) << "resized on the very frame it was asked";
+    EXPECT_TRUE( deferred.Tick( 900.0f, 310.0f ) );
 }
 
 // ── 7. THE CENSUS: WHAT MUST NOT COME BACK ───────────────────────────────────────────────────────────
