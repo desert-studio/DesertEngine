@@ -176,6 +176,19 @@ REM Three submodules are deliberately absent: ThirdParty/NVRHI, ThirdParty/light
 REM Editor/ThirdParty/ImGuiColorTextEdit. No premake file and no source refers to them. They are still
 REM initialised above and a failure to initialise one is still reported — but the build does not read
 REM them, so their absence must not be reported as a missing build input.
+REM
+REM assimp is a SUBMODULE COMPILED FROM SOURCE since D40, so what the list below verifies is its
+REM SOURCE TREE (code\Common\ImporterRegistry.cpp — the file the build derives its importer set from),
+REM not the two prebuilt import libraries it used to name. Those are deleted; naming them here would
+REM have reported MISSING twice on every Windows setup.
+REM
+REM AND THIS PARAGRAPH BELONGS HERE RATHER THAN BESIDE THE ENTRY IT EXPLAINS, WHICH IS NOT A STYLE
+REM CHOICE. It was first written as three `REM` lines INSIDE the `for %%P in ( ... )` list below, and
+REM cmd does not treat `REM` inside parentheses as a comment — it is DATA. The loop iterated the words
+REM of the comment as if they were paths ("- REM", "- tree", "- not", "- the", ...) and Setup.bat
+REM exited 1 on both Windows configurations while every macOS job stayed green. Same family as the
+REM `set ERROR=0>>` that lost its digit and left the Windows test runner unable to fail at all before
+REM 2026-08-15: cmd's parsing inside `( )` is invisible from this repository's other platform.
 REM ---------------------------------------------------------------------------
 echo --- Verifying the paths the build reads
 set "MISSCOUNT=0"
@@ -200,8 +213,7 @@ for %%P in (
     "ThirdParty\VulkanAllocator"
     "Editor\ThirdParty\ImGuizmo\ImGuizmo.cpp"
     "Editor\ThirdParty\assimp\include\assimp\Importer.hpp"
-    "Editor\ThirdParty\assimp\bin\Debug\assimp-vc142-mtd.lib"
-    "Editor\ThirdParty\assimp\bin\Release\assimp-vc142-mt.lib"
+    "Editor\ThirdParty\assimp\code\Common\ImporterRegistry.cpp"
     "Desert.sln"
 ) do (
     if not exist "%ROOT%\%%~P" (
