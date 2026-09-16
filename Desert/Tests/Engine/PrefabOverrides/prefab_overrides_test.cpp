@@ -27,10 +27,12 @@
 #include <vector>
 
 using Common::UUID;
+using Desert::Assets::DiffPayload;
 using Desert::Assets::DiffPrefabEntity;
 using Desert::Assets::EntityData;
 using Desert::Assets::LayerOverrideOntoRecord;
-using Desert::Assets::OverrideAsEntityData;
+using Desert::Assets::MergePayload;
+using Desert::Assets::OverrideMetaAsEntityData;
 using Desert::Assets::PrefabDiffReport;
 using Desert::Assets::PrefabOverrideData;
 using Desert::Assets::PrefabPathKey;
@@ -44,6 +46,33 @@ namespace
         rfl::Generic::Object object;
         object[key] = rfl::Generic( value );
         return { object };
+    }
+
+    // A component payload with MORE THAN ONE FIELD. Ю20 is entirely about what happens to the other
+    // fields when one of them is overridden, and a one-field fixture cannot tell the two granularities
+    // apart — which is why the suite could be green through the whole of Ю19 while the defect was there.
+    rfl::Generic Payload2( const std::string& a, double av, const std::string& b, double bv )
+    {
+        rfl::Generic::Object object;
+        object[a] = rfl::Generic( av );
+        object[b] = rfl::Generic( bv );
+        return { object };
+    }
+
+    // One field of a payload, as text, so a test can say which field moved and which did not.
+    std::string FieldOf( const rfl::Generic& payload, const std::string& field )
+    {
+        const auto object = payload.to_object();
+        if ( !object )
+        {
+            return "<not an object>";
+        }
+        const auto value = object.value().get( field );
+        if ( !value )
+        {
+            return "<absent>";
+        }
+        return rfl::json::write( value.value() );
     }
 
     std::string Text( const rfl::Generic& g )
@@ -60,7 +89,7 @@ namespace
         data.Translation            = glm::vec3( 0.0f, 0.0f, 0.0f );
         data.Rotation               = glm::vec3( 0.0f );
         data.Scale                  = glm::vec3( 1.0f );
-        data.Components["UIPanel"]  = Payload( "Color", 0.25 );
+        data.Components["UIPanel"]  = Payload2( "Color", 0.25, "CornerRadius", 8.0 );
         data.Components["UILayout"] = Payload( "OffsetMinX", 10.0 );
         return data;
     }
@@ -83,22 +112,31 @@ TEST( PrefabOverrides, UntouchedInstanceRecordsNothing )
     EXPECT_FALSE( DiffPrefabEntity( base, live, { UUID( 7001 ) } ).has_value() );
 }
 
-TEST( PrefabOverrides, OnlyTheEditedKeyIsRecorded )
+TEST( PrefabOverrides, OnlyTheEditedFieldIsRecorded )
 {
-    const EntityData base      = BaseRecord();
-    EntityData       live      = BaseRecord();
-    live.Components["UIPanel"] = Payload( "Color", 0.90 ); // the user recoloured the panel
+    const EntityData base = BaseRecord();
+    EntityData       live = BaseRecord();
+    // The user recoloured the panel and touched nothing else — not its corner radius, not its layout.
+    live.Components["UIPanel"] = Payload2( "Color", 0.90, "CornerRadius", 8.0 );
 
     const auto over = DiffPrefabEntity( base, live, { UUID( 7001 ) } );
     ASSERT_TRUE( over.has_value() );
 
     EXPECT_EQ( over->Components.size(), 1u );
     ASSERT_TRUE( over->Components.get( "UIPanel" ).has_value() );
-    EXPECT_EQ( Text( over->Components.get( "UIPanel" ).value() ), Text( Payload( "Color", 0.90 ) ) );
 
-    // THE ASSERTION THAT MAKES IT A PREFAB: the layout was not touched, so the override must not mention
-    // it. If it did, a later edit to the prefab's layout would reach no instance that had ever been
-    // recoloured — which is copy-paste with extra steps.
+    // Ю20: the unit is the FIELD. Recording the whole UIPanel payload here is what made an overridden
+    // instance stop following its prefab for every other field of that component — the same silent loss
+    // of the link that Ю19 fixed one level up, and the reason #146 was filed.
+    // BY VALUE. `Result::value()` hands back the temporary Result's contents, so binding a reference to
+    // it dangles the moment the full expression ends — which is a crash inside the variant, not a test
+    // failure, and it cost a debugging round here.
+    const rfl::Generic panel = over->Components.get( "UIPanel" ).value();
+    EXPECT_EQ( FieldOf( panel, "Color" ), "0.9" );
+    EXPECT_EQ( FieldOf( panel, "CornerRadius" ), "<absent>" )
+         << "the corner radius was not touched, so the override must not state it";
+
+    // And the untouched COMPONENT is still not mentioned at all — the Ю19 property, unchanged.
     EXPECT_FALSE( over->Components.get( "UILayout" ).has_value() );
     EXPECT_FALSE( over->Tag.has_value() );
     EXPECT_FALSE( over->Translation.has_value() );
@@ -108,28 +146,35 @@ TEST( PrefabOverrides, OnlyTheEditedKeyIsRecorded )
 
 TEST( PrefabOverrides, SourceEditsReachAnOverriddenInstance )
 {
-    // 1. An instance is recoloured.
+    // 1. An instance is recoloured, and nothing else about it is touched.
     const EntityData base      = BaseRecord();
     EntityData       live      = BaseRecord();
-    live.Components["UIPanel"] = Payload( "Color", 0.90 );
+    live.Components["UIPanel"] = Payload2( "Color", 0.90, "CornerRadius", 8.0 );
     const auto over            = DiffPrefabEntity( base, live, { UUID( 7001 ) } );
     ASSERT_TRUE( over.has_value() );
 
-    // 2. The PREFAB is then edited — somewhere else: its layout moves, and its own colour changes too.
+    // 2. The PREFAB is then edited in three places: another component, this component's OTHER FIELD, and
+    //    the very field the instance overrode.
     EntityData newBase             = BaseRecord();
     newBase.Components["UILayout"] = Payload( "OffsetMinX", 64.0 );
-    newBase.Components["UIPanel"]  = Payload( "Color", 0.10 );
+    newBase.Components["UIPanel"]  = Payload2( "Color", 0.10, "CornerRadius", 24.0 );
     newBase.Tag                    = "Primary Button";
 
     // 3. The instance is rebuilt from the new source with its override on top.
     EntityData result = newBase;
     LayerOverrideOntoRecord( result, *over );
 
-    // The untouched key followed the source...
+    // The untouched COMPONENT followed the source — true since Ю19.
     EXPECT_EQ( Text( result.Components.get( "UILayout" ).value() ), Text( Payload( "OffsetMinX", 64.0 ) ) );
     EXPECT_EQ( result.Tag, "Primary Button" );
-    // ... and the edited one did not.
-    EXPECT_EQ( Text( result.Components.get( "UIPanel" ).value() ), Text( Payload( "Color", 0.90 ) ) );
+
+    const rfl::Generic panel = result.Components.get( "UIPanel" ).value();
+    // THE SIBLING FIELD FOLLOWED THE SOURCE TOO — this is Ю20, and under component-sized overrides this
+    // line read 8 instead of 24: the author who recoloured one button stopped receiving every later edit
+    // to that button's shape, silently.
+    EXPECT_EQ( FieldOf( panel, "CornerRadius" ), "24.0" );
+    // ... and the field that was actually overridden did not.
+    EXPECT_EQ( FieldOf( panel, "Color" ), "0.9" );
 }
 
 // --- The transform is three fields, not one ---------------------------------------------------------
@@ -152,29 +197,119 @@ TEST( PrefabOverrides, MovingAnInstanceDoesNotPinItsScale )
 
 // --- The two appliers must agree --------------------------------------------------------------------
 
-TEST( PrefabOverrides, RecordApplierAndEntityApplierCarryTheSameValues )
+TEST( PrefabOverrides, RecordApplierAndLiveApplierCarryTheSameValues )
 {
     const EntityData base      = BaseRecord();
     EntityData       live      = BaseRecord();
     live.Tag                   = "Quit Button";
-    live.Components["UIPanel"] = Payload( "Color", 0.5 );
+    live.Components["UIPanel"] = Payload2( "Color", 0.5, "CornerRadius", 8.0 );
     const auto over            = DiffPrefabEntity( base, live, { UUID( 7001 ) } );
     ASSERT_TRUE( over.has_value() );
 
-    // One applier writes a record (the capture's base), the other builds the EntityData the live-entity
-    // deserializer consumes. They are two functions and one meaning; a suite is the only thing that can
-    // keep them that way.
+    // TWO APPLIERS, ONE MEANING. One lays the override over a RECORD (the base a nested prefab's next
+    // diff is taken against); the other lays it over what a LIVE component currently holds, which
+    // PrefabFactory reads back through the component's own serializer. Both go through MergePayload, and
+    // this is the assertion that keeps them there — two ways to apply one thing is the defect shape this
+    // project pays for most often.
     EntityData layered = BaseRecord();
     LayerOverrideOntoRecord( layered, *over );
-    const EntityData asEntityData = OverrideAsEntityData( *over );
 
-    EXPECT_EQ( layered.Tag, asEntityData.Tag );
-    EXPECT_EQ( Text( layered.Components.get( "UIPanel" ).value() ),
-               Text( asEntityData.Components.get( "UIPanel" ).value() ) );
-    // What the override does not state, the entity form does not state either — that is what makes
-    // "apply on top of the instantiated base" mean the same thing on both paths.
-    EXPECT_FALSE( asEntityData.Components.get( "UILayout" ).has_value() );
-    EXPECT_FALSE( asEntityData.Translation.has_value() );
+    const rfl::Generic liveSide = MergePayload( BaseRecord().Components.get( "UIPanel" ).value(),
+                                                over->Components.get( "UIPanel" ).value() );
+
+    EXPECT_EQ( Text( layered.Components.get( "UIPanel" ).value() ), Text( liveSide ) );
+
+    // The META form carries the tag and no components at all: a partial payload handed to the entity
+    // deserializer would reset every field it does not mention, which is the whole reason components
+    // take the merge path instead.
+    const EntityData meta = OverrideMetaAsEntityData( *over );
+    EXPECT_EQ( meta.Tag, over->Tag );
+    EXPECT_EQ( meta.Components.size(), 0u );
+    EXPECT_FALSE( meta.Translation.has_value() );
+}
+
+// --- The merge, on its own --------------------------------------------------------------------------
+
+TEST( PrefabOverrides, MergeKeepsEveryFieldThePartialDoesNotMention )
+{
+    const rfl::Generic current = Payload2( "Color", 0.25, "CornerRadius", 8.0 );
+    const rfl::Generic partial = Payload( "Color", 0.90 );
+
+    const rfl::Generic merged = MergePayload( current, partial );
+    EXPECT_EQ( FieldOf( merged, "Color" ), "0.9" );
+    EXPECT_EQ( FieldOf( merged, "CornerRadius" ), "8.0" )
+         << "a field the override does not mention must keep the value it had — without this a "
+            "field-level override would reset the rest of the component to whatever the caller passed in";
+}
+
+TEST( PrefabOverrides, AComponentTheInstanceAddedIsRecordedWhole )
+{
+    const EntityData base = BaseRecord();
+    EntityData       live = BaseRecord();
+    // The prefab has no UITween at all; the instance grew one.
+    live.Components["UITween"] = Payload2( "Duration", 0.4, "Loop", 1.0 );
+
+    const auto over = DiffPrefabEntity( base, live, { UUID( 7001 ) } );
+    ASSERT_TRUE( over.has_value() );
+    ASSERT_TRUE( over->Components.get( "UITween" ).has_value() );
+
+    // There is nothing to merge onto, so the whole payload IS the difference — the one case where a
+    // component-sized override remains the right answer. Recording only "the fields that differ from
+    // nothing" would leave the rest at the component's defaults on the next load.
+    EXPECT_EQ( Text( over->Components.get( "UITween" ).value() ),
+               Text( Payload2( "Duration", 0.4, "Loop", 1.0 ) ) );
+}
+
+TEST( PrefabOverrides, APayloadThatIsNotAnObjectIsComparedAndMergedWhole )
+{
+    // Not every component payload is an object — one serialized as an array or a scalar has no fields to
+    // take apart, and inventing sub-structure there would be a second definition of "field".
+    const rfl::Generic before( rfl::Generic::Array{ rfl::Generic( 1.0 ), rfl::Generic( 2.0 ) } );
+    const rfl::Generic after( rfl::Generic::Array{ rfl::Generic( 1.0 ), rfl::Generic( 9.0 ) } );
+
+    EXPECT_FALSE( DiffPayload( before, before ).has_value() );
+    const auto diff = DiffPayload( before, after );
+    ASSERT_TRUE( diff.has_value() );
+    EXPECT_EQ( Text( *diff ), Text( after ) );
+    EXPECT_EQ( Text( MergePayload( before, *diff ) ), Text( after ) );
+}
+
+// --- #148: a field the FILE does not state ----------------------------------------------------------
+
+TEST( PrefabOverrides, AFieldThePrefabDoesNotStateIsPinnedAndCounted )
+{
+    // A hand-edited `.deprefab` naming one field of two. The engine's own writer never produces this —
+    // reflection emits every field — so it means the file was written by something else.
+    EntityData base            = BaseRecord();
+    base.Components["UIPanel"] = Payload( "Color", 0.25 );
+
+    EntityData live            = BaseRecord();
+    live.Components["UIPanel"] = Payload2( "Color", 0.25, "CornerRadius", 8.0 );
+
+    PrefabDiffReport report;
+    const auto       over = DiffPrefabEntity( base, live, { UUID( 7001 ) }, &report );
+
+    // RECORDED, not skipped: the file cannot say whether 8.0 is the default the instance was born with
+    // or a value its author chose, and dropping it would lose a real edit. Pinning it costs the link to
+    // the source for that one field, which is the lesser loss — and it is COUNTED, so the caller can
+    // name it instead of leaving it silent. (#148: normalising the base would remove the choice.)
+    ASSERT_TRUE( over.has_value() );
+    const rfl::Generic pinned = over->Components.get( "UIPanel" ).value();
+    EXPECT_EQ( FieldOf( pinned, "CornerRadius" ), "8.0" );
+    EXPECT_EQ( FieldOf( pinned, "Color" ), "<absent>" );
+    EXPECT_EQ( report.UnstatedFields, 1u );
+}
+
+TEST( PrefabOverrides, AFullyStatedPrefabCountsNoUnstatedFields )
+{
+    // The negative control for the line above: for a file this engine wrote, the counter is zero, so a
+    // non-zero one always means "that file was written by something else".
+    EntityData live            = BaseRecord();
+    live.Components["UIPanel"] = Payload2( "Color", 0.90, "CornerRadius", 8.0 );
+
+    PrefabDiffReport report;
+    (void)DiffPrefabEntity( BaseRecord(), live, { UUID( 7001 ) }, &report );
+    EXPECT_EQ( report.UnstatedFields, 0u );
 }
 
 // --- What the mechanism cannot express, it counts ---------------------------------------------------
@@ -220,7 +355,7 @@ TEST( PrefabOverrides, OverridesSurviveTheFile )
     // The override is only worth anything if it survives JSON, because the file is the whole point: the
     // defect being fixed is that an edit did not survive a save and a load.
     EntityData live            = BaseRecord();
-    live.Components["UIPanel"] = Payload( "Color", 0.90 );
+    live.Components["UIPanel"] = Payload2( "Color", 0.90, "CornerRadius", 8.0 );
     live.Translation           = glm::vec3( 5.0f, 6.0f, 7.0f );
     const auto over            = DiffPrefabEntity( BaseRecord(), live, { UUID( 4 ), UUID( 7001 ) } );
     ASSERT_TRUE( over.has_value() );
@@ -247,6 +382,9 @@ TEST( PrefabOverrides, OverridesSurviveTheFile )
     ASSERT_TRUE( round.Translation.has_value() );
     EXPECT_EQ( round.Translation->z, 7.0f );
     ASSERT_TRUE( round.Components.get( "UIPanel" ).has_value() );
+    // A FIELD-level payload has to survive the file just as a component-level one did: what is written
+    // is `{"Color":0.9}` and nothing else, and it has to come back as exactly that or the merge on the
+    // other side would restore a field nobody overrode.
     EXPECT_EQ( Text( round.Components.get( "UIPanel" ).value() ), Text( Payload( "Color", 0.90 ) ) );
 }
 // NOLINTEND(bugprone-unchecked-optional-access)
