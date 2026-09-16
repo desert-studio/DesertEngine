@@ -7,7 +7,7 @@
 # The check list below started as the owner's list from his backend project. What changed and why is
 # recorded at the bottom of this file — every deviation is named, because a check silently dropped is
 # indistinguishable from a check nobody noticed was missing.
-Checks: '-*,google-*,boost-*,readability-*,-readability-named-parameter,misc-*,linuxkernel-*,performance-*,-performance-inefficient-string-concatenation,modernize-*,-modernize-use-trailing-return-type,-modernize-pass-by-value,cppcoreguidelines-*,-cppcoreguidelines-avoid-non-const-global-variables,concurrency-*,bugprone-*,-cppcoreguidelines-special-member-functions,-misc-non-private-member-variables-in-classes,-misc-definitions-in-headers,-readability-redundant-member-init,-google-global-names-in-headers,-google-build-using-namespace,-cppcoreguidelines-avoid-const-or-ref-data-members,-cppcoreguidelines-macro-usage,clang-diagnostic-*,-clang-diagnostic-gnu-zero-variadic-macro-arguments,-cppcoreguidelines-avoid-c-arrays,-cppcoreguidelines-non-private-member-variables-in-classes,-google-readability-avoid-underscore-in-googletest-name,-bugprone-reserved-identifier,-bugprone-macro-parentheses,-google-build-namespaces,-performance-enum-size,-google-explicit-constructor,-bugprone-easily-swappable-parameters,-boost-use-ranges,-misc-use-internal-linkage,-readability-avoid-const-params-in-decls,-cppcoreguidelines-missing-std-forward,-misc-unused-using-decls,-performance-avoid-endl,-misc-use-anonymous-namespace,-readability-uppercase-literal-suffix,-readability-identifier-length,-readability-magic-numbers,-cppcoreguidelines-avoid-magic-numbers,-readability-function-cognitive-complexity,-misc-include-cleaner,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-pro-bounds-constant-array-index,-cppcoreguidelines-pro-bounds-array-to-pointer-decay,-cppcoreguidelines-pro-type-union-access,-cppcoreguidelines-pro-type-vararg,-cppcoreguidelines-avoid-do-while,-modernize-avoid-c-arrays,-google-runtime-int,-misc-header-include-cycle'
+Checks: '-*,google-*,boost-*,readability-*,-readability-named-parameter,misc-*,linuxkernel-*,performance-*,-performance-inefficient-string-concatenation,modernize-*,-modernize-use-trailing-return-type,-modernize-pass-by-value,cppcoreguidelines-*,-cppcoreguidelines-avoid-non-const-global-variables,concurrency-*,bugprone-*,-cppcoreguidelines-special-member-functions,-misc-non-private-member-variables-in-classes,-misc-definitions-in-headers,-readability-redundant-member-init,-google-global-names-in-headers,-google-build-using-namespace,-cppcoreguidelines-avoid-const-or-ref-data-members,-cppcoreguidelines-macro-usage,clang-diagnostic-*,-clang-diagnostic-gnu-zero-variadic-macro-arguments,-cppcoreguidelines-avoid-c-arrays,-cppcoreguidelines-non-private-member-variables-in-classes,-google-readability-avoid-underscore-in-googletest-name,-bugprone-reserved-identifier,-bugprone-macro-parentheses,-google-build-namespaces,-performance-enum-size,-google-explicit-constructor,-bugprone-easily-swappable-parameters,-boost-use-ranges,-misc-use-internal-linkage,-readability-avoid-const-params-in-decls,-cppcoreguidelines-missing-std-forward,-misc-unused-using-decls,-performance-avoid-endl,-misc-use-anonymous-namespace,-readability-uppercase-literal-suffix,-readability-identifier-length,-readability-magic-numbers,-cppcoreguidelines-avoid-magic-numbers,-readability-function-cognitive-complexity,-misc-include-cleaner,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-pro-bounds-constant-array-index,-cppcoreguidelines-pro-bounds-array-to-pointer-decay,-cppcoreguidelines-pro-type-union-access,-cppcoreguidelines-pro-type-vararg,-cppcoreguidelines-avoid-do-while,-modernize-avoid-c-arrays,-google-runtime-int,-misc-header-include-cycle,-readability-braces-around-statements,-google-readability-braces-around-statements'
 
 # HEADERS ARE ANALYSED, and this is the one setting whose old value silently narrowed the tool's reach.
 # `HeaderFilterRegex: ''` matches nothing, so clang-tidy reports diagnostics from the .cpp only.
@@ -197,3 +197,25 @@ CheckOptions:
 #
 # REVERSIBLE, AND THE COST OF REVERSING IS ONE LINE. The full set is still what `CheckTidy.sh --all`
 # would report if a row is taken out; nothing about the analysis is lost, only what the GATE fails on.
+
+# == ВРЕМЕННО ВЫКЛЮЧЕНО 2026-09-16, решение владельца =============================================
+#
+# readability-braces-around-statements и псевдоним google-readability-braces-around-statements.
+#
+# ПОЧЕМУ. За сутки проверка дала 118 замечаний и НОЛЬ дефектов поведения — всё до единого «оператор
+# должен быть в скобках», в новом коде графов и в сюитах. Она уронила CI на пакете из шести
+# законченных работ, тогда как Windows Debug, Windows Release, macOS, ASan и формат были зелёными:
+# единственное, что она остановила, — доставка работающего кода.
+#
+# И дёшево не чинится. `clang-tidy --fix` ОТКАЗЫВАЕТСЯ применять правки, пока в разборе есть ошибка,
+# а локально она есть (не находит стандартную библиотеку даже с тем `-isysroot`, что передаёт гейт).
+# Обходит это только `--fix-errors`, и он правит ПОВЕРХ сломанного разбора: 2026-09-16 он добавил
+# `const` членам трёх заголовков и сделал метод статическим, сюита перестала компилироваться, правки
+# откатывались целиком.
+#
+# ТИМЛИД БЫЛ НЕПРАВ, и это записано намеренно: владелец предлагал выключить её раньше, тимлид
+# порекомендовал оставить ради читаемости. Читаемость не пострадала ни разу; цена — красный CI и час.
+#
+# УСЛОВИЕ ВОЗВРАТА: (а) `--fix` начнёт применяться локально без `--fix-errors`, то есть разбор
+# перестанет падать на стандартной библиотеке, и (б) накопленные нарушения будут вычищены одним
+# заходом. Пока оба не выполнены, проверка стоит дороже, чем приносит.
