@@ -403,7 +403,7 @@ namespace Desert::ECS
                 {
                     animator.DetachRig();
                 }
-                anim.BuiltRigSource    = Assets::AssetHandle{};
+                anim.BuiltRigSource    = 0;
                 anim.BuiltRigRevision  = 0;
                 anim.BuiltRigSignature = 0;
             };
@@ -446,7 +446,8 @@ namespace Desert::ECS
                 return;
             }
 
-            const bool current = animator.GetRig() != nullptr && anim.BuiltRigSource == wanted &&
+            const bool current = animator.GetRig() != nullptr &&
+                                 anim.BuiltRigSource == static_cast<uint64_t>( wanted ) &&
                                  anim.BuiltRigRevision == asset->GetRevision() &&
                                  anim.BuiltRigSignature == skeleton.GetSignature();
             if ( current )
@@ -470,7 +471,7 @@ namespace Desert::ECS
                 return;
             }
 
-            anim.BuiltRigSource    = wanted;
+            anim.BuiltRigSource    = static_cast<uint64_t>( wanted );
             anim.BuiltRigRevision  = asset->GetRevision();
             anim.BuiltRigSignature = skeleton.GetSignature();
         }

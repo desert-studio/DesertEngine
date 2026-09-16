@@ -105,6 +105,11 @@ namespace Desert::Player
         // missing preload can take. Order-free: a theme names only font paths, which FontService
         // registers on demand, and nothing else names a theme.
         m_AssetPreloader->PreloadUIThemes();
+        // AND HERE TOO, which the editor's copy alone would not have given us: AssetPreloadCensus caught
+        // exactly this omission on A12's first sweep. A rig that loads in the editor and silently does not
+        // in the packaged game is worse than no rig — the scene names it, one line goes to the log, and the
+        // character poses from its clips.
+        m_AssetPreloader->PreloadControlRigs();
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
         // everything else, so the player sees the language the build boots in with no extra plumbing.
         m_AssetPreloader->PreloadStringTables();

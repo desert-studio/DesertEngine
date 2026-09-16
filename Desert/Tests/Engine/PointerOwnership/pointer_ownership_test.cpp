@@ -325,11 +325,18 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   {Hierarchy, Skeleton, Clip}. T5.3's keyer is deliberately stateless about all three -- the pack
     //   is what lets it be -- so the three rows share one argument rather than inventing three. Read off
     //   THIS branch's run; per the six merges above it will not survive the merge and must be re-read.
-    EXPECT_EQ( CountOf( Form::Raw ), 361 );
-    EXPECT_EQ( CountOf( Form::Shared ), 324 );
+    //   -> +2 with A12 (838 -> 840), one Raw and one Shared, and they are two different arguments.
+    //   The Raw is `AnimationECSSystem::m_AssetManager`: the system now resolves a ControlRigComponent's
+    //   handle to a parsed `.derig`, and it takes the manager the same way it already takes the animation
+    //   library -- by the host's own guarantee, with a register row of its own beside that one. The Shared
+    //   is `ControlRigPanel::m_Scene`, which is what every panel in this editor holds and needs no new
+    //   argument. Read off THIS branch's run; per the merges above it will not survive the merge and must
+    //   be re-read there.
+    EXPECT_EQ( CountOf( Form::Raw ), 362 );
+    EXPECT_EQ( CountOf( Form::Shared ), 325 );
     EXPECT_EQ( CountOf( Form::Unique ), 115 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 838 )
+    EXPECT_EQ( (int)Members().size(), 840 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -553,7 +560,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // NEITHER BRANCH'S TOTAL SURVIVES THE MERGE: Ю13 alone says 319, Г26 alone says 325, and the tree
     // says 323. Read off a run; see the arithmetic at TheScanFindsTheCensusedPopulation.
     // 323 -> 324 with Ю16: UIRenderTextureCache::Capture::Scene, the world one UI element shows.
-    EXPECT_EQ( CountOf( Form::Shared ), 324 );
+    // 324 -> 325 with A12: ControlRigPanel::m_Scene, which is what every panel in this editor holds.
+    EXPECT_EQ( CountOf( Form::Shared ), 325 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

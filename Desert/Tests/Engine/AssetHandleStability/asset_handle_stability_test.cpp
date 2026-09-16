@@ -34,6 +34,7 @@
 #include <Engine/Assets/AssetMetadata.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/StringTableAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
@@ -105,6 +106,7 @@ namespace
              { AssetTypeID::CloudLayout, "CloudLayoutAsset", &HandleOf<Desert::Assets::CloudLayoutAsset> },
              { AssetTypeID::UITheme, "UIThemeAsset", &HandleOf<Desert::Assets::UIThemeAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset> },
+             { AssetTypeID::ControlRig, "ControlRigAsset", &HandleOf<Desert::Assets::ControlRigAsset> },
         };
         return kinds;
     }
@@ -1101,6 +1103,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::CloudLayout,
          AssetTypeID::UITheme,
          AssetTypeID::StringTable,
+         AssetTypeID::ControlRig,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

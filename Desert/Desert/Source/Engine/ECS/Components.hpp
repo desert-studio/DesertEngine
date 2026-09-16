@@ -413,9 +413,14 @@ namespace Desert::ECS
          * undo rewrites, duplicate copies and the prefab path rebuilds, and a copied stamp would tell a
          * duplicated entity that a stage it does not have is up to date.
          */
-        Assets::AssetHandle BuiltRigSource;
-        uint32_t            BuiltRigRevision  = 0;
-        uint64_t            BuiltRigSignature = 0;
+        // A PLAIN INTEGER AND NOT AN `AssetHandle`, and the type is the statement: this is an IDENTITY
+        // STAMP, not a reference. Nothing dereferences it, and nothing must keep the rig resident on its
+        // account — the component's own `ControlRigData::Rig` is the reference, and SceneAssetRoots marks
+        // that one. Spelt as a handle it was indistinguishable from a second, unmarked reference, and
+        // Tests/Engine/AssetRoots said so by name on the first sweep.
+        uint64_t BuiltRigSource    = 0;
+        uint32_t BuiltRigRevision  = 0;
+        uint64_t BuiltRigSignature = 0;
 
         AnimationComponent() = default;
 
