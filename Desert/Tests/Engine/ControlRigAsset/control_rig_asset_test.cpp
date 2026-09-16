@@ -225,8 +225,9 @@ namespace
         // ONE control of the three carries a shape transform, on purpose: the round trips below then
         // cover both spellings of the optional field — present, and absent meaning identity — instead of
         // covering whichever one the fixture happened to pick.
-        hand.ShapeTransform        = Placed( { 0.0F, 1.5F, 0.0F }, 90.0F, { 1.0F, 0.0F, 0.0F } );
-        hand.ShapeTransform->Scale = glm::vec3( 14.0F, 14.0F, 6.0F );
+        RigFile::RigTransformData handShape = Placed( { 0.0F, 1.5F, 0.0F }, 90.0F, { 1.0F, 0.0F, 0.0F } );
+        handShape.Scale                     = glm::vec3( 14.0F, 14.0F, 6.0F );
+        hand.ShapeTransform                 = handShape;
         hand.Offset    = Placed( { 5.0F, 0.0F, -3.0F }, 12.0F, { 0.0F, 1.0F, 0.0F } );
         hand.Pose      = Placed( { 45.0F, -18.0F, 27.0F }, 33.0F, { 0.0F, 0.0F, 1.0F } );
         hand.Parents.push_back( Space( "Component", "", 1.0F ) );
@@ -523,7 +524,7 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
                                     []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
     ASSERT_NE( hand, sizedBack.GetValue().Controls.end() );
     ASSERT_TRUE( hand->ShapeTransform.has_value() );
-    EXPECT_EQ( hand->ShapeTransform->Scale, glm::vec3( 18.0F ) );
+    EXPECT_EQ( hand->ShapeTransform.value_or( RigFile::RigTransformData{} ).Scale, glm::vec3( 18.0F ) );
     EXPECT_NE( RigFile::WriteControlRig( sizedBack.GetValue() ).find( "ShapeTransform" ), std::string::npos );
 }
 
@@ -537,8 +538,10 @@ TEST( ControlRigAssetTest, AShapeScaledToZeroIsRefusedAndTheMessageNamesTheContr
 
     // A CONTROL DRAWN FLAT IS A CONTROL NOBODY CAN GRAB, which is the identical symptom to the typo'd
     // shape name this format already refuses. Reachable by typing a zero, so it is refused by typing one.
-    at->ShapeTransform->Scale = glm::vec3( 14.0F, 0.0F, 6.0F );
-    const auto refused        = RigFile::ValidateControlRigData( data );
+    RigFile::RigTransformData flattened = at->ShapeTransform.value_or( RigFile::RigTransformData{} );
+    flattened.Scale                     = glm::vec3( 14.0F, 0.0F, 6.0F );
+    at->ShapeTransform                  = flattened;
+    const auto refused                  = RigFile::ValidateControlRigData( data );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "Hand_CTRL" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "shape transform" ), std::string::npos ) << refused.GetError();
@@ -560,7 +563,10 @@ TEST( ControlRigAssetTest, AShapeScaledToZeroIsRefusedAndTheMessageNamesTheContr
     const auto              nan       = std::find_if( notFinite.Controls.begin(), notFinite.Controls.end(),
                                                       []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
     ASSERT_NE( nan, notFinite.Controls.end() );
-    nan->ShapeTransform->Translation.y = std::numeric_limits<float>::quiet_NaN();
+    ASSERT_TRUE( nan->ShapeTransform.has_value() );
+    RigFile::RigTransformData poisoned = nan->ShapeTransform.value_or( RigFile::RigTransformData{} );
+    poisoned.Translation.y             = std::numeric_limits<float>::quiet_NaN();
+    nan->ShapeTransform                = poisoned;
     EXPECT_FALSE( RigFile::ValidateControlRigData( notFinite ).IsSuccess() );
 }
 

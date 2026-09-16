@@ -306,8 +306,8 @@ TEST( ControlManipulatorTest, TheShapeTransformSizesTheDrawingAndTheSizeIsArithm
 
     // Two controls at the same place, differing ONLY in their shape transform. Same library entry, so
     // whatever the drawn radius turns out to be, the ratio between them is this field and nothing else.
-    ControlHierarchy rig;
-    ControlElement   bare =
+    ControlHierarchy     rig;
+    const ControlElement bare =
          MakeControl( "bare_ctrl", "Circle3", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
     const uint32_t unsized = MustAdd( rig, bare );
 
@@ -376,7 +376,6 @@ TEST( ControlManipulatorTest, SizingAControlDoesNotMoveIt )
     // Without the second half the first is a test that would have passed on the defect.
     const Skeleton  skeleton = MakeRig();
     const LocalPose local    = PoseWithChestAt( glm::vec3( 0.0F ) );
-    ComponentPose   pose( skeleton, local );
 
     BoneTransform animated;
     animated.Translation = glm::vec3( 26.4F, 0.0F, 0.0F );
@@ -392,7 +391,7 @@ TEST( ControlManipulatorTest, SizingAControlDoesNotMoveIt )
         return rig.GetGlobalTransform( added.GetValue() );
     };
 
-    ControlElement plain =
+    const ControlElement plain =
          MakeControl( "hand_ctrl", "CircleXY", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
 
     ControlElement sized       = plain;

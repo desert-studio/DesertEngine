@@ -62,9 +62,11 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + kTheOneHeader );
+            const std::ifstream probe( prefix + kTheOneHeader );
             if ( probe )
+            {
                 return prefix;
+            }
             prefix += "../";
         }
         return {};
@@ -72,8 +74,8 @@ namespace
 
     std::string ReadAll( const fs::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
-        std::ostringstream buffer;
+        const std::ifstream in( path, std::ios::binary );
+        std::ostringstream  buffer;
         buffer << in.rdbuf();
         return buffer.str();
     }
@@ -127,20 +129,28 @@ TEST( ReflectorSingleSourceTest, ExactlyOneHeaderOfThisTreeSpecialisesRflReflect
         for ( const auto& entry : fs::recursive_directory_iterator( base ) )
         {
             if ( !entry.is_regular_file() || !IsSource( entry.path() ) )
+            {
                 continue;
+            }
             // ThirdParty is vendored inside some of these trees.
             if ( entry.path().string().find( "ThirdParty" ) != std::string::npos )
+            {
                 continue;
+            }
 
             ++scanned;
             const std::string code =
                  Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( entry.path() ) );
             if ( !DefinesASpecialisation( code ) )
+            {
                 continue;
+            }
 
             std::string relative = entry.path().string();
-            if ( relative.rfind( root, 0 ) == 0 )
+            if ( relative.starts_with( root ) )
+            {
                 relative = relative.substr( root.size() );
+            }
             // WINDOWS. `fs::path::string()` hands back this platform's separator, so the rows below —
             // and every message this census prints — would be `\`-spelled there and would match
             // nothing. Normalised to `/` so the expected set is ONE literal for both platforms rather
@@ -209,7 +219,9 @@ TEST( ReflectorSingleSourceTest, TheSurvivingHeaderStillSpellsEveryTypeTheTreeSe
                            code.find( "struct Reflector<::" + type + ">" ) != std::string::npos;
         EXPECT_TRUE( found ) << "nothing serialises " << row.Type << " any more: " << row.Why;
         if ( found )
+        {
             ++covered;
+        }
     }
     EXPECT_EQ( covered, rows.size() );
 }
