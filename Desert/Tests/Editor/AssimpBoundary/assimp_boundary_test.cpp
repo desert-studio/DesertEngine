@@ -83,8 +83,23 @@ namespace
     std::vector<std::string> TrackedFiles()
     {
         std::vector<std::string> files;
-        const std::string        command = "git -C \"" + RepositoryRoot().string() + "\" ls-files 2>/dev/null";
-        FILE*                    pipe    = popen( command.c_str(), "r" );
+        // `popen`/`pclose` ARE POSIX AND MSVC HAS NEITHER — it spells them `_popen`/`_pclose`. This file
+        // shipped with the POSIX names and broke BOTH Windows configurations while every local gate and
+        // the whole macOS sweep stayed green; same shape as the launcher's `setenv`.
+        //
+        // AND THE NAME IS THE SMALLER HALF. cmd.exe strips the outer pair of quotes off the whole command
+        // line, so a quoted path needs one more pair around the lot, and the null device is `nul`, not
+        // `/dev/null`. Getting only the name right would compile, run, produce nothing, and this census
+        // would then examine an empty list — which the ASSERT below turns into a loud failure rather than
+        // the silent pass it would otherwise be. The other two suites in this tree that pipe a child
+        // process (CloudNoiseVolumeHandle, AssetHandleStability) already do it this way.
+#ifdef DESERT_PLATFORM_WINDOWS
+        const std::string command = "\"\"git\" -C \"" + RepositoryRoot().string() + "\" ls-files 2>nul\"";
+        FILE*             pipe    = _popen( command.c_str(), "r" );
+#else
+        const std::string command = "git -C '" + RepositoryRoot().string() + "' ls-files 2>/dev/null";
+        FILE*             pipe    = popen( command.c_str(), "r" );
+#endif
         if ( pipe == nullptr )
         {
             return files;
@@ -102,7 +117,11 @@ namespace
                 files.push_back( entry );
             }
         }
+#ifdef DESERT_PLATFORM_WINDOWS
+        _pclose( pipe );
+#else
         pclose( pipe );
+#endif
         return files;
     }
 } // namespace
