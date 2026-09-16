@@ -23,8 +23,8 @@ namespace Desert::Assets::Serialization
         // one for writing — is how a format ends up able to write a word it cannot read.
         struct SpaceKindRow
         {
-            std::string_view              Text;
-            Animation::ControlSpaceKind   Kind;
+            std::string_view            Text;
+            Animation::ControlSpaceKind Kind;
         };
 
         constexpr std::array<SpaceKindRow, 3> kSpaceKinds = { {
@@ -62,8 +62,7 @@ namespace Desert::Assets::Serialization
                        "every ControlSpaceKind must have exactly one spelling in the file; a kind with no "
                        "row is a rig this format can hold in memory and cannot write" );
 
-        [[nodiscard]] Common::BoolResultStr FiniteTransform( const std::string&      control,
-                                                             const std::string&      which,
+        [[nodiscard]] Common::BoolResultStr FiniteTransform( const std::string& control, const std::string& which,
                                                              const RigTransformData& t )
         {
             // A non-finite transform is a control whose global is NaN: it draws nothing, hit-tests to
@@ -73,8 +72,8 @@ namespace Desert::Assets::Serialization
             {
                 if ( !std::isfinite( t.Translation[c] ) || !std::isfinite( t.Scale[c] ) )
                 {
-                    return Common::MakeFormattedError<bool>(
-                         "control '{}' has a non-finite {} on component {}", control, which, c );
+                    return Common::MakeFormattedError<bool>( "control '{}' has a non-finite {} on component {}",
+                                                             control, which, c );
                 }
             }
             for ( int c = 0; c < 4; ++c )
@@ -116,14 +115,14 @@ namespace Desert::Assets::Serialization
         /// Refuses a parent chain that closes on itself, walking only the `Control` slots — the other two
         /// kinds terminate by construction. Iterative rather than recursive: a hand-edited file is exactly
         /// where an unbounded depth can come from, and a stack overflow is not a refusal.
-        [[nodiscard]] Common::BoolResultStr RefuseCycles( const ControlRigData&                        data,
-                                                         const std::unordered_map<std::string, size_t>& byName )
+        [[nodiscard]] Common::BoolResultStr RefuseCycles( const ControlRigData&                          data,
+                                                          const std::unordered_map<std::string, size_t>& byName )
         {
             // 0 = unvisited, 1 = on the current path, 2 = proven acyclic. The classic colouring, because a
             // plain visited-set answers "have I been here" and not "am I inside my own subtree".
-            std::vector<uint8_t>  state( data.Controls.size(), 0 );
-            std::vector<size_t>   stack;
-            std::vector<size_t>   cursor;
+            std::vector<uint8_t> state( data.Controls.size(), 0 );
+            std::vector<size_t>  stack;
+            std::vector<size_t>  cursor;
 
             for ( size_t root = 0; root < data.Controls.size(); ++root )
             {
@@ -327,21 +326,20 @@ namespace Desert::Assets::Serialization
                 else if ( space.Target.empty() )
                 {
                     return Common::MakeFormattedError<bool>(
-                         "control '{}' has a {} space that names nothing to follow", control.Name,
-                         space.Kind );
+                         "control '{}' has a {} space that names nothing to follow", control.Name, space.Kind );
                 }
                 else if ( *kind == Animation::ControlSpaceKind::Control )
                 {
                     if ( space.Target == control.Name )
                     {
-                        return Common::MakeFormattedError<bool>(
-                             "control '{}' is parented to itself", control.Name );
+                        return Common::MakeFormattedError<bool>( "control '{}' is parented to itself",
+                                                                 control.Name );
                     }
                     if ( byName.find( space.Target ) == byName.end() )
                     {
                         return Common::MakeFormattedError<bool>(
-                             "control '{}' is parented to '{}', which this rig does not define",
-                             control.Name, space.Target );
+                             "control '{}' is parented to '{}', which this rig does not define", control.Name,
+                             space.Target );
                     }
                 }
             }
@@ -461,8 +459,8 @@ namespace Desert::Assets::Serialization
         auto text = Common::Utils::FileSystem::ReadFileContent( path );
         if ( !text )
         {
-            return Common::MakeFormattedError<ControlRigData>( "cannot read control rig '{}': {}",
-                                                               path.string(), text.GetError() );
+            return Common::MakeFormattedError<ControlRigData>( "cannot read control rig '{}': {}", path.string(),
+                                                               text.GetError() );
         }
 
         auto parsed = ParseControlRig( text.GetValue() );
@@ -605,8 +603,7 @@ namespace Desert::Assets::Serialization
             if ( index >= skeleton.GetBones().size() )
             {
                 return Common::MakeFormattedError<std::string>(
-                     "bone index {} is outside this skeleton's {} bones", index,
-                     skeleton.GetBones().size() );
+                     "bone index {} is outside this skeleton's {} bones", index, skeleton.GetBones().size() );
             }
             return Common::MakeSuccess( skeleton.GetBones()[index].Name );
         };
@@ -643,8 +640,8 @@ namespace Desert::Assets::Serialization
                     if ( slot.Index >= hierarchy.Size() )
                     {
                         return Common::MakeFormattedError<ControlRigData>(
-                             "control '{}' follows control index {}, which this rig does not have",
-                             control.Name, slot.Index );
+                             "control '{}' follows control index {}, which this rig does not have", control.Name,
+                             slot.Index );
                     }
                     space.Target = hierarchy.Get( slot.Index ).Name;
                 }

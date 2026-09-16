@@ -91,8 +91,7 @@ namespace Desert::Core
         // character silently poses from its clip alone. That is the shape the UI theme hit (Ю13) and the
         // one the string tables hit; it is cheaper to write the row than to debug the symptom.
         for ( const auto entity : registry.view<ECS::ControlRigComponent>() )
-            roots.Mark( registry.get<ECS::ControlRigComponent>( entity ).Data.Rig,
-                        "an entity is posed by it" );
+            roots.Mark( registry.get<ECS::ControlRigComponent>( entity ).Data.Rig, "an entity is posed by it" );
 
         // ── THE INTERFACE ─────────────────────────────────────────────────────────────────────────────
         //

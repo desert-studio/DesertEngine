@@ -120,7 +120,7 @@ namespace Desert::Assets::Serialization
      */
     struct ControlSpaceData
     {
-        std::string Kind   = "Component";
+        std::string Kind = "Component";
         std::string Target;
         float       Weight = 1.0f;
 
@@ -224,14 +224,14 @@ namespace Desert::Assets::Serialization
      * The stage comes back with its drives already sorted into the skeleton's resolve order
      * (`ControlRigStage::SetDrives` does that), so `Animator::AttachRig` can accept it as it stands.
      */
-    NO_DISCARD Common::BoolResultStr BuildControlRig( const ControlRigData& data,
-                                                      const Animation::Skeleton& skeleton,
+    NO_DISCARD Common::BoolResultStr BuildControlRig( const ControlRigData&       data,
+                                                      const Animation::Skeleton&  skeleton,
                                                       Animation::ControlRigStage& out );
 
     /// The exact mirror of `BuildControlRig`, and it lives beside it for `BuildAssetDataFromClip`'s reason:
     /// a format whose two directions are not testable together is a format whose round trip is an
     /// assumption. Needs the skeleton to turn the stage's bone indices back into names.
-    NO_DISCARD Common::ResultStr<ControlRigData> BuildDataFromControlRig( const std::string& name,
-                                                                         const Animation::ControlRigStage& rig,
-                                                                         const Animation::Skeleton& skeleton );
+    NO_DISCARD Common::ResultStr<ControlRigData> BuildDataFromControlRig( const std::string&                name,
+                                                                          const Animation::ControlRigStage& rig,
+                                                                          const Animation::Skeleton& skeleton );
 } // namespace Desert::Assets::Serialization

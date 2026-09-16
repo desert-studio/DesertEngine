@@ -1012,8 +1012,8 @@ namespace Desert::Editor
                                 if ( rig && !rig->IsReadyForUse() )
                                 {
                                     if ( const auto loaded = rig->Load(); !loaded )
-                                        LOG_ERROR( "[Animation] Dropped control rig '{}' is not usable: {}",
-                                                   path, loaded.GetError() );
+                                        LOG_ERROR( "[Animation] Dropped control rig '{}' is not usable: {}", path,
+                                                   loaded.GetError() );
                                 }
                                 // BOUND ONLY IF IT PARSED. A handle to a rig that refused to load is a slot
                                 // that names a rig and poses nothing, which is the silent state this whole

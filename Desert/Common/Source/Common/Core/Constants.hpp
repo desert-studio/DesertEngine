@@ -344,7 +344,7 @@ namespace Common::Constants
         inline const std::filesystem::path& CLOUD_VOLUME_PATH   = Dir( ContentDir::CloudVolume );
         inline const std::filesystem::path& CLOUD_LAYOUT_PATH   = Dir( ContentDir::CloudLayout );
         inline const std::filesystem::path& UI_THEME_PATH       = Dir( ContentDir::UITheme );
-        inline const std::filesystem::path& CONTROL_RIG_PATH   = Dir( ContentDir::ControlRig );
+        inline const std::filesystem::path& CONTROL_RIG_PATH    = Dir( ContentDir::ControlRig );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
         inline const std::filesystem::path& TEXTURE_PATH_COOKED = Dir( ContentDir::TextureCooked );

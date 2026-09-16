@@ -41,8 +41,7 @@ namespace Desert::Assets
         if ( text.empty() )
         {
             m_Ready = false;
-            return Common::MakeFormattedError<bool>( "control rig '{}' is empty or could not be opened",
-                                                     path );
+            return Common::MakeFormattedError<bool>( "control rig '{}' is empty or could not be opened", path );
         }
 
         auto parsed = Serialization::ParseControlRig( text );
@@ -53,9 +52,8 @@ namespace Desert::Assets
                                                      parsed.GetError() );
         }
 
-        m_Data = parsed.ExtractValue();
-        m_DisplayName =
-             m_Data.Name.empty() ? m_Metadata.Filepath.stem().string() : m_Data.Name;
+        m_Data        = parsed.ExtractValue();
+        m_DisplayName = m_Data.Name.empty() ? m_Metadata.Filepath.stem().string() : m_Data.Name;
         ++m_Revision;
         m_Ready = true;
 

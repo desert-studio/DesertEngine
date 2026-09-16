@@ -112,8 +112,8 @@ namespace Desert::Editor
         }
     }
 
-    void LightGizmoRenderer::RenderControlRig( const std::shared_ptr<Desert::Core::Camera>& camera,
-                                               float width, float height, float xpos, float ypos )
+    void LightGizmoRenderer::RenderControlRig( const std::shared_ptr<Desert::Core::Camera>& camera, float width,
+                                               float height, float xpos, float ypos )
     {
         const auto& selected = Core::SelectionManager::GetSelected();
         if ( !selected )
@@ -197,22 +197,22 @@ namespace Desert::Editor
         const glm::vec2   pointerV = glm::vec2( pointer.x, pointer.y );
         ImDrawList* const drawList = ImGui::GetWindowDrawList();
 
-        const Animation::ManipulatorHit hover = Animation::HitTest( m_ControlFrame, pointerV, 10.0f );
+        const Animation::ManipulatorHit hover  = Animation::HitTest( m_ControlFrame, pointerV, 10.0f );
         const uint32_t                  chosen = Core::ControlRigEditMode::GetSelected();
 
         for ( const Animation::ControlShapeDraw& shape : m_ControlFrame.Shapes )
         {
-            const bool isSelected = ( shape.Control == chosen );
-            const bool isHovered  = ( shape.Control == hover.Control );
-            const ImU32 colour    = isSelected ? IM_COL32( 255, 200, 60, 255 )
-                                    : isHovered ? IM_COL32( 255, 255, 255, 255 )
-                                                : IM_COL32( 90, 190, 255, 200 );
-            const float thickness = isSelected ? 2.5f : 1.5f;
+            const bool  isSelected = ( shape.Control == chosen );
+            const bool  isHovered  = ( shape.Control == hover.Control );
+            const ImU32 colour     = isSelected  ? IM_COL32( 255, 200, 60, 255 )
+                                     : isHovered ? IM_COL32( 255, 255, 255, 255 )
+                                                 : IM_COL32( 90, 190, 255, 200 );
+            const float thickness  = isSelected ? 2.5f : 1.5f;
 
             for ( const Animation::ManipulatorSegment& segment : shape.Screen )
             {
-                drawList->AddLine( ImVec2( segment.A.x, segment.A.y ), ImVec2( segment.B.x, segment.B.y ),
-                                   colour, thickness );
+                drawList->AddLine( ImVec2( segment.A.x, segment.A.y ), ImVec2( segment.B.x, segment.B.y ), colour,
+                                   thickness );
             }
 
             if ( isSelected && shape.Origin.InFront )

@@ -182,8 +182,8 @@ namespace Desert::Editor
             // THE POSE, EDITABLE — and it is the same value the viewport drag writes, through the same
             // setter. Two ways to move a control that wrote to two places would be the one-source-of-truth
             // defect with a keyboard on one side and a mouse on the other.
-            Animation::BoneTransform pose = control.Pose;
-            glm::vec3 translation = pose.Translation;
+            Animation::BoneTransform pose        = control.Pose;
+            glm::vec3                translation = pose.Translation;
             if ( ImGui::DragFloat3( "Translation (cm)", &translation.x, 0.5f ) )
             {
                 pose.Translation = translation;
@@ -209,9 +209,8 @@ namespace Desert::Editor
         ImGui::TextDisabled( "Each row is one control's transform becoming one bone's." );
         for ( const Animation::ControlBoneDrive& drive : rig->GetDrives() )
         {
-            const char* name = drive.Control < hierarchy.Size()
-                                    ? hierarchy.Get( drive.Control ).Name.c_str()
-                                    : "(gone)";
+            const char* name =
+                 drive.Control < hierarchy.Size() ? hierarchy.Get( drive.Control ).Name.c_str() : "(gone)";
             ImGui::BulletText( "%s -> bone %u", name, drive.Bone );
         }
 

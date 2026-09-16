@@ -37,8 +37,7 @@ namespace Desert::ECS
          *        be null: a host with no asset manager simply has no rigs, and the refusal says so once
          *        rather than crashing on the first entity that names one.
          */
-        AnimationECSSystem( Animation::AnimationLibrary* animationLibrary,
-                            Assets::AssetManager*        assetManager )
+        AnimationECSSystem( Animation::AnimationLibrary* animationLibrary, Assets::AssetManager* assetManager )
              : m_AnimationLibrary( animationLibrary ), m_AssetManager( assetManager )
         {
         }
@@ -89,10 +88,10 @@ namespace Desert::ECS
                 // pipeline runs inside Animator::Update below.
                 SyncSkeletalControls( registry, entity, *anim.Animator, skeleton );
 
-            // AFTER the controls and before playback, for the same reason: the rig is the LAST stage of
-            // the same pipeline (Animator::SyncStages), and the pipeline runs inside Animator::Update
-            // below. Attaching after the update would put the rig one frame behind the pose it operates on.
-            SyncControlRig( registry, entity, anim, *anim.Animator, skeleton );
+                // AFTER the controls and before playback, for the same reason: the rig is the LAST stage of
+                // the same pipeline (Animator::SyncStages), and the pipeline runs inside Animator::Update
+                // below. Attaching after the update would put the rig one frame behind the pose it operates on.
+                SyncControlRig( registry, entity, anim, *anim.Animator, skeleton );
 
                 // AnimGraph path: the state machine PICKS the clip; the Animator just plays it. Falls back to
                 // the CurrentClip path below when no graph is attached.
@@ -460,16 +459,14 @@ namespace Desert::ECS
                  !built )
             {
                 forget();
-                ReportOnce( fmt::format( "rig-build:{}", static_cast<uint64_t>( wanted ) ),
-                            built.GetError() );
+                ReportOnce( fmt::format( "rig-build:{}", static_cast<uint64_t>( wanted ) ), built.GetError() );
                 return;
             }
 
             if ( auto attached = animator.AttachRig( std::move( stage ) ); !attached )
             {
                 forget();
-                ReportOnce( fmt::format( "rig-attach:{}", static_cast<uint64_t>( wanted ) ),
-                            attached.GetError() );
+                ReportOnce( fmt::format( "rig-attach:{}", static_cast<uint64_t>( wanted ) ), attached.GetError() );
                 return;
             }
 

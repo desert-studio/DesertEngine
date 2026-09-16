@@ -370,9 +370,9 @@ TEST( ControlRigAssetTest, ARigThatHasBeenThroughTheRuntimeFormIsStillTheSameRig
     ASSERT_EQ( result.Controls.size(), original.Controls.size() );
     for ( const RigFile::ControlElementData& want : original.Controls )
     {
-        const auto found = std::find_if( result.Controls.begin(), result.Controls.end(),
-                                         [&want]( const RigFile::ControlElementData& have )
-                                         { return have.Name == want.Name; } );
+        const auto found =
+             std::find_if( result.Controls.begin(), result.Controls.end(),
+                           [&want]( const RigFile::ControlElementData& have ) { return have.Name == want.Name; } );
         ASSERT_NE( found, result.Controls.end() ) << "control '" << want.Name << "' did not survive";
         EXPECT_EQ( *found, want ) << "control '" << want.Name << "' came back different";
     }
@@ -386,9 +386,8 @@ TEST( ControlRigAssetTest, ARigThatHasBeenThroughTheRuntimeFormIsStillTheSameRig
 
 TEST( ControlRigAssetTest, TheFileSurvivesTheDiskAndTheRefusalsNameTheFile )
 {
-    const std::filesystem::path dir =
-         std::filesystem::temp_directory_path() / "desert_a12_rig_roundtrip";
-    std::error_code ec;
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_a12_rig_roundtrip";
+    std::error_code             ec;
     std::filesystem::remove_all( dir, ec );
     std::filesystem::create_directories( dir, ec );
     const std::filesystem::path path = dir / "Arm.derig";
@@ -426,9 +425,8 @@ TEST( ControlRigAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirect
     auto              ok   = RigFile::ParseControlRig( text );
     ASSERT_TRUE( ok.IsSuccess() ) << "WriteControlRig must stamp the current generation, not carry one in";
 
-    const std::string tampered =
-         "{\"FormatVersion\":99,\"Name\":\"X\",\"Controls\":[],\"Drives\":[]}";
-    auto refused = RigFile::ParseControlRig( tampered );
+    const std::string tampered = "{\"FormatVersion\":99,\"Name\":\"X\",\"Controls\":[],\"Drives\":[]}";
+    auto              refused  = RigFile::ParseControlRig( tampered );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "99" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( std::to_string( RigFile::kControlRigVersion ) ), std::string::npos )
@@ -537,8 +535,8 @@ TEST( ControlRigAssetTest, TheSameFileOnAReorderedSkeletonDrivesTheBonesItNAMES 
 TEST( ControlRigAssetTest, ABoneTheSkeletonDoesNotHaveIsRefusedByNameAndNotResolvedToIdentity )
 {
     std::vector<BoneInfo> bones( 2 );
-    bones[0].Name = "Root";
-    bones[1].Name = "Only";
+    bones[0].Name         = "Root";
+    bones[1].Name         = "Only";
     bones[1].ParentBoneID = 0U;
     Skeleton stub( std::move( bones ) );
     stub.RecomputeOffsetMatrices();
@@ -570,25 +568,22 @@ TEST( ControlRigAssetTest, EveryShapeOfUnusableRigIsRefusedAndTheMessageNamesThe
          { "no controls", []( RigFile::ControlRigData& d ) { d.Controls.clear(); }, "controls" },
          { "no drives", []( RigFile::ControlRigData& d ) { d.Drives.clear(); }, "drives no bones" },
          { "empty control name", []( RigFile::ControlRigData& d ) { d.Controls[1].Name.clear(); }, "empty name" },
-         { "duplicate control name",
-           []( RigFile::ControlRigData& d ) { d.Controls[2].Name = d.Controls[1].Name; }, "Hand_CTRL" },
-         { "unknown space kind",
-           []( RigFile::ControlRigData& d ) { d.Controls[1].Parents[0].Kind = "Socket"; }, "Socket" },
+         { "duplicate control name", []( RigFile::ControlRigData& d ) { d.Controls[2].Name = d.Controls[1].Name; },
+           "Hand_CTRL" },
+         { "unknown space kind", []( RigFile::ControlRigData& d ) { d.Controls[1].Parents[0].Kind = "Socket"; },
+           "Socket" },
          { "component space naming a target",
            []( RigFile::ControlRigData& d ) { d.Controls[1].Parents[0].Target = "Spine"; }, "Component space" },
          { "bone space naming nothing",
            []( RigFile::ControlRigData& d ) { d.Controls[2].Parents[0].Target.clear(); }, "names nothing" },
          { "control space naming an unknown control",
            []( RigFile::ControlRigData& d ) { d.Controls[0].Parents[0].Target = "Ghost_CTRL"; }, "Ghost_CTRL" },
-         { "a control parented to itself",
-           []( RigFile::ControlRigData& d ) { d.Controls[0].Parents[0].Target = d.Controls[0].Name; },
-           "parented to itself" },
-         { "a parent cycle",
-           []( RigFile::ControlRigData& d )
-           { d.Controls[1].Parents[0] = Space( "Control", "Wrist_CTRL", 1.0F ); },
-           "cycle" },
-         { "no parent space at all",
-           []( RigFile::ControlRigData& d ) { d.Controls[1].Parents.clear(); }, "no parent space" },
+         { "a control parented to itself", []( RigFile::ControlRigData& d )
+           { d.Controls[0].Parents[0].Target = d.Controls[0].Name; }, "parented to itself" },
+         { "a parent cycle", []( RigFile::ControlRigData& d )
+           { d.Controls[1].Parents[0] = Space( "Control", "Wrist_CTRL", 1.0F ); }, "cycle" },
+         { "no parent space at all", []( RigFile::ControlRigData& d ) { d.Controls[1].Parents.clear(); },
+           "no parent space" },
          { "all weights zero",
            []( RigFile::ControlRigData& d )
            {
@@ -596,16 +591,14 @@ TEST( ControlRigAssetTest, EveryShapeOfUnusableRigIsRefusedAndTheMessageNamesThe
                d.Controls[0].Parents[1].Weight = 0.0F;
            },
            "all zero" },
-         { "a non-finite pose",
-           []( RigFile::ControlRigData& d )
-           { d.Controls[1].Pose.Translation.y = std::numeric_limits<float>::quiet_NaN(); },
-           "non-finite" },
-         { "a zero scale",
-           []( RigFile::ControlRigData& d ) { d.Controls[1].Offset.Scale.z = 0.0F; }, "zero component" },
+         { "a non-finite pose", []( RigFile::ControlRigData& d )
+           { d.Controls[1].Pose.Translation.y = std::numeric_limits<float>::quiet_NaN(); }, "non-finite" },
+         { "a zero scale", []( RigFile::ControlRigData& d ) { d.Controls[1].Offset.Scale.z = 0.0F; },
+           "zero component" },
          { "a drive naming an unknown control",
            []( RigFile::ControlRigData& d ) { d.Drives[0].Control = "Ghost_CTRL"; }, "Ghost_CTRL" },
-         { "two drives on one bone",
-           []( RigFile::ControlRigData& d ) { d.Drives[1].Bone = d.Drives[0].Bone; }, "Two drives" },
+         { "two drives on one bone", []( RigFile::ControlRigData& d ) { d.Drives[1].Bone = d.Drives[0].Bone; },
+           "Two drives" },
     };
 
     for ( const Case& c : cases )
@@ -685,8 +678,7 @@ TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
            "a Render function nobody calls is the exact shape of the defect this census exists for" },
          { "Editor/Source/Editor/Panels/PropertyEditor/PropertyEditorBuilder.cpp", "\"ControlRigAsset\"",
            "without this the Details page draws a raw handle number instead of a picker" },
-         { "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp",
-           "ControlRigComponent",
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp", "ControlRigComponent",
            "without this the component has no Details page and cannot be added to an entity at all" },
     };
 
