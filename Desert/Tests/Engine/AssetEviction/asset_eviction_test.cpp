@@ -521,8 +521,8 @@ TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
 
     AssetManager manager;
 
-    auto skeleton = manager.CreateAsset<SkeletonAsset>( AssetPriority::Medium,
-                                                        Common::Filepath( WriteProbeRig( dir / "probe.skeleton" ) ) );
+    auto skeleton = manager.CreateAsset<SkeletonAsset>(
+         AssetPriority::Medium, Common::Filepath( WriteProbeRig( dir / "probe.skeleton" ) ) );
     ASSERT_TRUE( skeleton );
     const std::uint64_t signature = skeleton->GetSignature();
     ASSERT_NE( signature, 0U ) << "the probe rig did not load; the relation cannot be tested";
@@ -563,9 +563,9 @@ TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
     AssetRootSet roots;
     roots.Mark( mesh->GetMetadata().Handle, "the test says a SkinnedMeshComponent draws it" );
     const auto second = AssetEviction::Run( manager, roots, sink );
-    EXPECT_EQ( second.Reachable, 2U ) << "the mesh -> rig edge was not followed after the rebind: the trace "
-                                         "reached " << second.Reachable << " asset(s) where the mesh alone "
-                                         "names one more";
+    EXPECT_EQ( second.Reachable, 2U )
+         << "the mesh -> rig edge was not followed after the rebind: the trace reached " << second.Reachable
+         << " asset(s) where the mesh alone names one more";
     EXPECT_NE( skeleton->GetSkeleton(), nullptr )
          << "the rig was released again while the mesh that is drawing with it is reachable";
 
