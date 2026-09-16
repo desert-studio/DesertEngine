@@ -18,6 +18,11 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
+        -- Animator.cpp also runs the Rig stage (T5.4), which is a link edge and not a behaviour these
+        -- suites exercise: none of them attaches a rig, which is what keeps "a pipeline with no rig
+        -- produces exactly what it produced before" measurable HERE rather than only in the rig suite.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",

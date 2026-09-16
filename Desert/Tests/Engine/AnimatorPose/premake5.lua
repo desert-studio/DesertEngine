@@ -16,6 +16,11 @@ project(test_name)
         -- two functions and no Vulkan; no suite here adds a control, which is what makes "a rig with no
         -- controls behaves exactly as before" a thing these suites stillmeasure.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
+        -- Animator.cpp also runs the Rig stage (T5.4), which is a link edge and not a behaviour these
+        -- suites exercise: none of them attaches a rig, which is what keeps "a pipeline with no rig
+        -- produces exactly what it produced before" measurable HERE rather than only in the rig suite.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         -- The tick grid every clip time now lives on (A5).
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
