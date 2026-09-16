@@ -246,6 +246,21 @@ namespace Desert::Editor
         MarkEdited();
     }
 
+    std::vector<std::string> AnimGraphPanel::ResolveClipNames( const ECS::AnimationComponent& anim ) const
+    {
+        std::vector<std::string> names;
+        if ( anim.Animator == nullptr || m_Library == nullptr )
+        {
+            return names; // no skeleton to ask about yet; NOT the same fact as "this skeleton has none"
+        }
+        // The SAME rule AnimationECSSystem resolves the chosen name with.
+        for ( const auto& asset : m_Library->GetForSkeleton( anim.Animator->GetSkeleton() ) )
+        {
+            names.push_back( asset->GetClip().AnimationName );
+        }
+        return names;
+    }
+
     std::vector<ISubjectDocument::DocumentAction> AnimGraphPanel::Actions()
     {
         // The SAME function the toolbar button calls. A second code path here would be a second behaviour
@@ -253,7 +268,7 @@ namespace Desert::Editor
         // presses.
         //  is here for the reason  is: this machine refuses synthetic input, so a view
         // control that exists only as a toolbar button is a view control no test and no script can reach.
-        return {
+        std::vector<DocumentAction> actions{
              { "Save", [this] { SaveGraph(); } },
              { "Frame All", [this] { Graph::FrameAll( m_Context ); } },
              { "Frame Selection", [this] { Graph::FrameSelection( m_Context ); } },
@@ -268,6 +283,43 @@ namespace Desert::Editor
              // survived as long as the state one had.
              { "Add Parameter", [this] { AddParameter(); } },
         };
+
+        // ── ONE ENTRY PER FINDING, AND IT IS THE SAME CALL THE STRIP'S CLICK MAKES ────────────────────
+        //
+        // `Save`, `+ State` and `+ Parameter` are here because a toolbar button is unreachable to every
+        // client and every check on this machine — synthetic input is closed — and a control nothing can
+        // drive is a control nothing can photograph. A line in the ⚠ strip is exactly such a control, and
+        // it is also the one that is HARDEST to reach by hand: the reader has to find the line first.
+        //
+        // The label carries the finding's own sentence rather than an ordinal, because the ordinal moves
+        // the moment the graph does, and the palette matches labels exactly. Findings are recomputed here
+        // rather than cached from the last frame: a document action can be run while the window is docked
+        // behind another one and has not drawn this frame.
+        ECS::AnimationComponent* anim = ResolveComponent();
+        if ( anim == nullptr || !anim->Graph )
+        {
+            return actions;
+        }
+
+        const std::vector<std::string> clipNames = ResolveClipNames( *anim );
+        const G::ClipSet clips{ anim->Animator != nullptr && m_Library != nullptr, clipNames };
+        for ( const auto& warning : G::Validate( *anim->Graph, clips ) )
+        {
+            actions.push_back( { "Reveal: " + warning.Text,
+                                 [this, warning]
+                                 {
+                                     // RE-RESOLVED, not captured: the component can be gone by the time an
+                                     // entry built for the palette is run, and a graph captured by
+                                     // reference would then be a dangling one.
+                                     ECS::AnimationComponent* now = ResolveComponent();
+                                     if ( now != nullptr && now->Graph )
+                                     {
+                                         RevealWarning( *now->Graph, warning );
+                                     }
+                                 } } );
+        }
+
+        return actions;
     }
 
     void AnimGraphPanel::OnUIRender()
@@ -296,15 +348,7 @@ namespace Desert::Editor
         }
 
         // Clip names available for this skeleton (for the clip picker) — from the (lazily built) Animator.
-        std::vector<std::string> clipNames;
-        if ( anim->Animator && m_Library )
-        {
-            // The SAME rule AnimationECSSystem resolves the chosen name with. This picker used to ask
-            // tolerantly while the state machine asked exactly, so a Mixamo clip offered here resolved to
-            // nothing at runtime and the state played nothing without a word.
-            for ( const auto& a : m_Library->GetForSkeleton( anim->Animator->GetSkeleton() ) )
-                clipNames.push_back( a->GetClip().AnimationName );
-        }
+        const std::vector<std::string> clipNames = ResolveClipNames( *anim );
 
         // THE ● OF THE §8.2 HEADER. The first frame records what is on disk rather than claiming the
         // document is already dirty; every bump of the asset's revision after that is an edit nobody has

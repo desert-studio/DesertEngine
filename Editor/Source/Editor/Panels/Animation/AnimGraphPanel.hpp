@@ -149,6 +149,12 @@ namespace Desert::Editor
         void DrawWarningStrip( const Animation::Graph::AnimGraph&                 graph,
                                const std::vector<Animation::Graph::GraphWarning>& warnings );
 
+        /// The clip names this entity's skeleton can actually play, empty when there is no Animator to ask
+        /// yet. ONE derivation, shared by the clip picker, the validator and the document actions: this
+        /// picker used to ask the library tolerantly while the state machine asked it exactly, so a clip
+        /// offered here resolved to nothing at runtime and the state played nothing without a word.
+        [[nodiscard]] std::vector<std::string> ResolveClipNames( const ECS::AnimationComponent& anim ) const;
+
         /// Selects on the canvas whatever @p warning is about, and moves the view to it. What turns the
         /// strip from a wall of text into a way to reach the control that fixes the finding — and what
         /// finally gives `GraphWarning::State` and `::Transition` a reader; they were computed for every

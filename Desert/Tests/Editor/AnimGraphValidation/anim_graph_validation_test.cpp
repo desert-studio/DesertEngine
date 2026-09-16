@@ -817,6 +817,48 @@ TEST( AnimGraphValidation, TheStripIsAControlAndNotJustText )
          << "a state finding no longer selects its node";
 }
 
+TEST( AnimGraphValidation, EveryFindingIsAlsoADocumentActionBecauseTheMouseIsClosed )
+{
+    // THE ONLY WAY A FINDING CAN BE REACHED WITHOUT A HAND. Synthetic input is closed on this machine, so
+    // a strip line that exists only as a click is a control no client, no check and no frame can drive --
+    // and it is the least reachable control in the window even for a person, because reaching it starts
+    // with finding the line. `Save`, `+ State` and `+ Parameter` are document actions for exactly this
+    // argument; this is the fourth application of it, and it is what made the report's frames possible.
+    const std::string source = PanelSource();
+    ASSERT_FALSE( source.empty() );
+
+    EXPECT_NE( source.find( "\"Reveal: \" + warning.Text" ), std::string::npos )
+         << "the findings are no longer published as document actions, so nothing without a mouse can "
+            "reach one";
+    EXPECT_NE( source.find( "RevealWarning( *now->Graph, warning )" ), std::string::npos )
+         << "the document action does not run the same reveal the click runs -- two behaviours to keep "
+            "in step is exactly what the action exists to avoid";
+    EXPECT_NE( source.find( "ECS::AnimationComponent* now = ResolveComponent()" ), std::string::npos )
+         << "the action captures the component instead of re-resolving it; a document can outlive the "
+            "palette list that named it";
+}
+
+TEST( AnimGraphValidation, TheClipListIsDerivedOnceForThePickerAndForTheValidator )
+{
+    // ONE RULE FOR "WHAT CAN THIS SKELETON PLAY". The picker used to ask the library tolerantly while the
+    // state machine asked it exactly, so a clip offered in the combo resolved to nothing at runtime -- and
+    // W1b is the rule that reports precisely that mismatch. A validator asking a DIFFERENT question than
+    // the picker offers would light up on clips the picker had just handed the author.
+    const std::string source = PanelSource();
+    ASSERT_FALSE( source.empty() );
+
+    size_t uses = 0;
+    for ( size_t at = source.find( "ResolveClipNames( *anim )" ); at != std::string::npos;
+          at        = source.find( "ResolveClipNames( *anim )", at + 1 ) )
+    {
+        ++uses;
+    }
+    EXPECT_EQ( uses, 2u ) << "the draw and the document actions no longer share one clip list (found "
+                          << uses << " uses)";
+    EXPECT_NE( source.find( "m_Library->GetForSkeleton( anim.Animator->GetSkeleton() )" ), std::string::npos )
+         << "the one derivation no longer asks the library the way AnimationECSSystem does";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
