@@ -169,6 +169,9 @@ namespace Desert::Editor
         /// nothing else in this graph already sits. Shared by the toolbar button and by the document
         /// action of the same name, so what a client drives is what a person presses.
         void AddState();
+        /// Appends a parameter named so that nothing else in this graph carries that name. Shared by the
+        /// toolbar button and by the document action of the same name, for the reason `AddState` is.
+        void AddParameter();
         /// @p height is the canvas's, so the two columns end on the same line and neither of them sits
         /// on the warning strip below. See the call site.
         void DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,

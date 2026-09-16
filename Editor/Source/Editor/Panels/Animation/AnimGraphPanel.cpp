@@ -223,6 +223,25 @@ namespace Desert::Editor
         MarkEdited();
     }
 
+    void AnimGraphPanel::AddParameter()
+    {
+        ECS::AnimationComponent* anim = ResolveComponent();
+        if ( anim == nullptr || !anim->Graph )
+        {
+            m_Status        = "no graph to add a parameter to";
+            m_StatusIsError = true;
+            return;
+        }
+
+        // UNIQUE BY CONSTRUCTION, for the reason `+ State` is: this pushed the literal "Param" every
+        // time, so two presses left two parameters that no condition can tell apart — the second one's
+        // declared type is never consulted, because `Evaluator::FindParameter` takes the first match,
+        // while its default still overwrites the first one's in `Evaluator::Reset`.
+        anim->Graph->Parameters.push_back( { Graph::MakeUniqueParameterName( *anim->Graph, "Param", -1 ),
+                                             static_cast<int>( G::ParamType::Float ), 0.0f } );
+        MarkEdited();
+    }
+
     std::vector<ISubjectDocument::DocumentAction> AnimGraphPanel::Actions()
     {
         // The SAME function the toolbar button calls. A second code path here would be a second behaviour
@@ -239,6 +258,11 @@ namespace Desert::Editor
              // every check on this machine -- which is exactly why "a new state lands on top of its
              // neighbour" survived: nothing but a person with a mouse could produce one.
              { "Add State", [this] { AddState(); } },
+             // AND `+ Parameter`, on the same terms. It is the other authoring action of this window
+             // that creates something, and until it was one there was no way for a check or a client to
+             // press it — which is why "two presses make two parameters nothing can tell apart" had
+             // survived as long as the state one had.
+             { "Add Parameter", [this] { AddParameter(); } },
         };
     }
 
@@ -653,15 +677,7 @@ namespace Desert::Editor
             ImGui::PopID();
         }
         if ( ImGui::SmallButton( "+ Parameter" ) )
-        {
-            // UNIQUE BY CONSTRUCTION, for the reason `+ State` is: this button pushed the literal "Param"
-            // every time, so two presses left two parameters that no condition can tell apart — the
-            // second one's type is never consulted and its default still overwrites the first one's in
-            // `Evaluator::Reset`.
-            graph.Parameters.push_back( { Graph::MakeUniqueParameterName( graph, "Param", -1 ),
-                                          static_cast<int>( G::ParamType::Float ), 0.0f } );
-            dirty = true;
-        }
+            AddParameter();
 
         ImGui::Separator();
 

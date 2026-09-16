@@ -601,9 +601,31 @@ TEST( AnimGraphValidation, ThePanelRenamesThroughTheRuleRatherThanWritingTheName
          << "the parameter rename does not go through the rule, so conditions are left behind again";
     EXPECT_EQ( source.find( "InputText( p.Name" ), std::string::npos )
          << "the panel edits Parameter::Name in place, which is the defect itself";
-    EXPECT_NE( source.find( "Graph::MakeUniqueParameterName( graph, \"Param\", -1 )" ), std::string::npos )
+    EXPECT_NE( source.find( "Graph::MakeUniqueParameterName( *anim->Graph, \"Param\", -1 )" ),
+               std::string::npos )
          << "'+ Parameter' pushes a fixed name again, so two presses produce two indistinguishable "
             "parameters";
+}
+
+TEST( AnimGraphValidation, TheParameterButtonAndTheDocumentActionAddTheSameParameter )
+{
+    // THE SAME ARGUMENT AS `AddState`, AND THE SAME SPELLING OF IT. `+ Parameter` is a document action
+    // because a toolbar button is unreachable to every client and every check on this machine, and that
+    // is precisely why "two presses make two parameters nothing can tell apart" survived as long as the
+    // state one did. `AddParameter();` WITH THE SEMICOLON, so the definition's own
+    // `void AnimGraphPanel::AddParameter()` is not counted with the calls.
+    const std::string source = PanelSource();
+    ASSERT_FALSE( source.empty() );
+
+    size_t calls = 0;
+    for ( size_t at = source.find( "AddParameter();" ); at != std::string::npos;
+          at        = source.find( "AddParameter();", at + 1 ) )
+    {
+        ++calls;
+    }
+    EXPECT_EQ( calls, 2u ) << "the toolbar button and the 'Add Parameter' document action are not the "
+                              "same call any more (found "
+                           << calls << ")";
 }
 
 int main( int argc, char** argv )
