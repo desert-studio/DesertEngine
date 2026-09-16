@@ -27,14 +27,22 @@ if [ "$WHAT" = all ] || [ "$WHAT" = suites ]; then
     # *.make would include orphans premake never deletes; that cost a false BUILD-FAIL and, in the
     # tidy gate, a whole dead run.
     if [ -f Makefile ]; then
+        TMPLIST="$(mktemp -t projectindex)"
         TOOLS="|$(ls Tools | tr '\n' '|')"
         sed -n 's/^PROJECTS := //p' Makefile | tr ' ' '\n' | while read -r p; do
             [ -n "$p" ] || continue
             case "$p" in Desert|Common|Editor|Runtime|GLFW|ImGui*|imgui-node-editor|yaml-cpp|Jolt|Lua|Optick|MeshOptimizer|Dlib|ReflectCpp|Assimp|GoogleTest|BuildAllTests|RunAllTests) continue;; esac
             case "$TOOLS" in *"|$p|"*) continue;; esac
             printf '%s\n' "$p"
-        done | sort | column -c 110 2>/dev/null || true
-        printf '\n  count: %s\n' "$(sed -n 's/^PROJECTS := //p' Makefile | tr ' ' '\n' | grep -c . )"
+        done | sort > "$TMPLIST"
+        column -c 110 < "$TMPLIST" 2>/dev/null || cat "$TMPLIST"
+        # THE COUNT IS DERIVED FROM THE LIST THAT WAS JUST PRINTED, and that is the whole point.
+        # It used to count the RAW `PROJECTS :=` line while the list above was filtered — 263 against
+        # 233 — so the header said "count" and answered a different question, with no word of it in
+        # the output. An agent read 263, compared it with its sweep's 233 and had to work out which
+        # of the two was lying. Found 2026-09-16 by А11.
+        printf '\n  count: %s   (test suites only — libraries, Tools/ and the aggregate targets are excluded)\n' "$(grep -c . "$TMPLIST")"
+        rm -f "$TMPLIST"
     else
         echo "  no Makefile — run: CI=true premake5 gmake"
     fi
