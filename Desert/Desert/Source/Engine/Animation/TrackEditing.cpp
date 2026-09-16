@@ -37,6 +37,19 @@ namespace Desert::Animation
                 // One key is a constant and has no neighbours to take a slope from; zero keys is nothing.
                 for ( KeyType& key : keys )
                 {
+                    if ( key.Mode != TangentMode::Auto )
+                    {
+                        // THE MODE CHECK WAS MISSING HERE, and the loop below it is the same loop
+                        // `AutoSetTangents` guards with exactly this condition — whose header promises
+                        // "`User` and `Break` keys are left exactly as they are". This early-out went
+                        // around that promise: a channel holding ONE key had its authored slope zeroed by
+                        // any edit anywhere in the track, and it was invisible because one key is sampled
+                        // as a constant and its tangents do nothing. They start doing something the moment
+                        // a SECOND key arrives — by which time the slope is already gone, so the symptom
+                        // is a curve that is flat where the animator shaped it and no edit to blame.
+                        // Found by T5.3's re-key test; the contract it breaks is T4.2's.
+                        continue;
+                    }
                     key.ArriveTangent = glm::vec3( 0.0f );
                     key.LeaveTangent  = glm::vec3( 0.0f );
                 }

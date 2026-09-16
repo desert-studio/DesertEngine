@@ -128,7 +128,8 @@ namespace
             // an implementation that keyed `Offset * Pose` would pass with a zero offset and be wrong for
             // every rig a person would actually author.
             hand.Offset.Translation = glm::vec3( 10.0F, 0.0F, 0.0F );
-            Hand                    = Rig.Add( hand ).GetValue();
+            const auto added        = Rig.Add( hand );
+            Hand                    = added.IsSuccess() ? added.GetValue() : ControlHierarchy::INVALID;
             Rig.Evaluate( Bones, Pose );
         }
 
