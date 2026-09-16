@@ -82,12 +82,43 @@ namespace Desert::Assets
             const auto& allSkeletons = manager.FindAllByType<Assets::SkeletonAsset>();
             for ( const auto& [handle, skeleton] : allSkeletons )
             {
-                if ( skeleton->GetSignature() == m_SkeletonSignature )
+                if ( skeleton->GetSignature() != m_SkeletonSignature )
+                    continue;
+
+                // THE RIG'S BONES MUST BE RESIDENT BEFORE THIS COUNTS AS RESOLVED, and that is not a
+                // nicety: the only thing anyone does with this dependency is
+                // `MeshFactory::CreateSkinned`, which reads `GetSkeleton()` and refuses the whole mesh
+                // when it is null. Asset eviction releases a rig whenever a scene without a skinned mesh
+                // is open (it is reachable only through this very dependency), so "registered but cold"
+                // is the ORDINARY state here rather than an edge case — it is what every scene opened
+                // after the first one finds.
+                if ( const auto loaded = skeleton->EnsureLoaded( manager ); !loaded )
                 {
-                    m_SkeletonDependency.Handle = handle;
-                    m_SkeletonDependency.Cached = skeleton;
-                    break;
+                    LOG_ERROR( "SkinnedMeshAsset '{}': rig sig {} is registered as '{}' but could not be "
+                               "read back: {}",
+                               m_Metadata.Filepath.string(), m_SkeletonSignature,
+                               skeleton->GetMetadata().Filepath.string(), loaded.GetError() );
+                    continue;
                 }
+
+                // AND THE REMEMBERED NUMBER IS RE-CHECKED AGAINST THE BONES JUST READ. A cold rig answers
+                // with the signature of the last payload it held, which is what makes it findable at all;
+                // that value may be stale if the `.skeleton` was re-cooked while it was cold. Verifying
+                // here is what keeps the remembered signature a HINT THAT STARTS A LOOKUP rather than a
+                // fact that completes one — binding a mesh to a rig it no longer matches is the failure
+                // this file's zero-guard was written to prevent, arriving from the other direction.
+                if ( skeleton->GetSignature() != m_SkeletonSignature )
+                {
+                    LOG_WARN( "SkinnedMeshAsset '{}': rig '{}' was remembered as sig {} and reads back as "
+                              "{} — it has been re-cooked. Not bound.",
+                              m_Metadata.Filepath.string(), skeleton->GetMetadata().Filepath.string(),
+                              m_SkeletonSignature, skeleton->GetSignature() );
+                    continue;
+                }
+
+                m_SkeletonDependency.Handle = handle;
+                m_SkeletonDependency.Cached = skeleton;
+                break;
             }
 
             if ( !m_SkeletonDependency.IsValid() )
