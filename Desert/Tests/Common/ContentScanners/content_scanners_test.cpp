@@ -107,7 +107,9 @@ namespace
     //
     //   AssetReferencesScan           every file under the assets root     0  vs 249   -> FIXED
     //   ComponentEditorRegistrations  .lua the script picker offers        0  vs   6   -> FIXED
-    //   NodeGraphPanel                .dgraph the Load popup offers        0  vs   5   -> FIXED
+    //   NodeGraphPanel                .dgraph the Load popup offers        0  vs   5   -> GONE (the popup
+    //                                                                                    itself is gone;
+    //                                                                                    see the test below)
     //   FileExplorerPanel             immediate children of the root       0  vs   8   -> MEASURED REFUSAL
     //
     // THE ONE THAT STAYS, and why it is not laziness. Swapping the browser's walk would make it LIST
@@ -170,7 +172,9 @@ namespace
     //
     // 4 -> 1: I8 routed AssetReferencesScan, NodeGraphPanel and the script picker in
     // ComponentEditorRegistrations through the shared enumeration, so their rows are gone rather than
-    // reworded — a register describes the tree, and those three files no longer walk anything.
+    // reworded — a register describes the tree, and those three files no longer walk anything. The graph
+    // panel then stopped walking in any sense at all: `.dgraph` became an asset, the panel became a
+    // document over one of them, and its file list went with the tool.
     constexpr std::size_t kDebtRowCount = 1;
 
     // ── FINDING THE TREE AND READING IT ─────────────────────────────────────────────────────────────
@@ -393,16 +397,22 @@ TEST( ContentScanners, TheTwoSceneListsGoThroughTheSharedEnumeration )
     }
 }
 
-// AND THE THREE I8 FIXED STAY FIXED, for the same reason and in the same shape as the witness above.
-// Deleting a row is what "fixed" means here, so without this test the register would forget these three
-// files existed and a reverted call site would only be noticed by whoever packaged the game.
-TEST( ContentScanners, TheThreeScannersI8FixedGoThroughTheSharedEnumeration )
+// AND THE ONES I8 FIXED STAY FIXED, for the same reason and in the same shape as the witness above.
+// Deleting a row is what "fixed" means here, so without this test the register would forget these files
+// existed and a reverted call site would only be noticed by whoever packaged the game.
+//
+// NodeGraphPanel.cpp WAS THE THIRD OF THEM AND IS GONE FROM THIS LIST, which is a stronger outcome rather
+// than a weaker one: the `Load ▾` popup it enumerated `.dgraph` files for does not exist any more. A
+// `.dgraph` is an asset and its window is a document, so opening one is the browser's double-click or the
+// palette's Open group — and that group is built from OpenableAssets, which walks ASSETS_PATH through this
+// same shared enumeration (EditorLayer.cpp). The panel now walks nothing at all, so there is no call site
+// here left to revert.
+TEST( ContentScanners, TheScannersI8FixedGoThroughTheSharedEnumeration )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
     for ( const char* file : { "Editor/Source/Editor/Core/AssetReferencesScan.cpp",
-                               "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp",
                                "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp" } )
     {
         const std::string source = ReadFile( root + file );
@@ -411,7 +421,7 @@ TEST( ContentScanners, TheThreeScannersI8FixedGoThroughTheSharedEnumeration )
                    std::string::npos )
              << file
              << " stopped using the shared enumeration. Measured with a mounted pak and no loose files, a "
-                "raw walk returns 0 where this one returns 249 / 5 / 6 respectively.";
+                "raw walk returns 0 where this one returns 249 / 6 respectively.";
     }
 }
 

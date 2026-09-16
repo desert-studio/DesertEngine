@@ -4,6 +4,8 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
 
+#include <filesystem>
+
 namespace Desert::Assets
 {
     ShaderGraphAsset::ShaderGraphAsset( AssetPriority priority, const Common::Filepath& filepath )
@@ -74,7 +76,17 @@ namespace Desert::Assets
     Common::BoolResultStr ShaderGraphAsset::Save( const Common::Filepath&                     filepath,
                                                   const Serialization::ShaderGraph::Document& doc )
     {
-        if ( const auto ok = Serialization::ShaderGraph::SaveShaderGraphFile( filepath, doc ); !ok )
+        std::error_code ec;
+        if ( filepath.has_parent_path() )
+        {
+            std::filesystem::create_directories( filepath.parent_path(), ec );
+        }
+
+        // Atomic, for SaveControlRigFile's reason: a failed write must not cost the author the graph they
+        // already had on disk.
+        if ( const auto ok = Common::Utils::FileSystem::WriteContentToFileAtomic(
+                  filepath, Serialization::ShaderGraph::Serialize( doc ) );
+             !ok )
         {
             return ok;
         }

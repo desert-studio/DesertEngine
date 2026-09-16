@@ -26,7 +26,6 @@
 
 #include <array>
 #include <cstdint>
-#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -134,9 +133,9 @@ namespace Desert::Assets::Serialization::ShaderGraph
     /// malformed JSON is an error carrying reflect-cpp's own message, never a quietly empty graph.
     [[nodiscard]] Common::ResultStr<Document> ParseShaderGraph( const std::string& json );
 
-    /// Writes a graph through the atomic write primitive, creating the directory if needed. Static-shaped
-    /// for `ControlRigAsset::Save`'s reason: saving is what CREATES an asset, so it must not require an
-    /// instance for a file that does not exist yet.
-    [[nodiscard]] Common::BoolResultStr SaveShaderGraphFile( const std::filesystem::path& path,
-                                                             const Document&              doc );
+    // NO WRITE FUNCTION HERE, and it is a line worth keeping: this unit turns bytes into a document and
+    // back, and nothing in it touches the disk. `ShaderGraphAsset::Save` is what writes, because the
+    // moment a file is opened this translation unit needs Common's filesystem layer — which on macOS
+    // drags the Objective-C file dialog into every suite that compiles it, and the compiler suite was
+    // written to need Common's HEADERS and link nothing.
 } // namespace Desert::Assets::Serialization::ShaderGraph
