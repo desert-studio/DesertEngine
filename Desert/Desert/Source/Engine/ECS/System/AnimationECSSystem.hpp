@@ -438,7 +438,7 @@ namespace Desert::ECS
             {
                 anim.Graph = asset->GetGraph();
                 // The evaluator was built from the OLD object; the revision compare below rebuilds it.
-                anim.BuiltGraphSource = wanted;
+                anim.BuiltGraphSource = static_cast<uint64_t>( wanted );
             }
             return asset->GetRevision();
         }

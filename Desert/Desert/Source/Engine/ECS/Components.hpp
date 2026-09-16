@@ -417,8 +417,13 @@ namespace Desert::ECS
          * evaluating the previous shape with no sign that anything was stale. The counter belongs to the
          * thing that changes: `AnimGraphAsset::GetRevision()`, one number for every entity that names it.
          */
-        Assets::AssetHandle BuiltGraphSource;       // the handle the evaluator was built from
-        uint32_t            BuiltGraphRevision = 0; // the asset revision it was built at
+        // A PLAIN uint64 AND NOT AN AssetHandle, exactly like BuiltRigSource below, and the census is what
+        // insists on it: an `AssetHandle` on a component is a REFERENCE the eviction root walk must mark
+        // (Desert/Tests/Engine/AssetRoots names any it cannot find). This field is not a reference — it is
+        // a fingerprint of the last build, and marking it would keep a graph alive after the slot that
+        // named it was cleared. The authored reference is `GraphAsset` above, and that one IS a root.
+        uint64_t BuiltGraphSource   = 0; // the handle the evaluator was built from
+        uint32_t BuiltGraphRevision = 0; // the asset revision it was built at
 
         /**
          * @brief What the Animator's CURRENT control-rig stage was built from. TRANSIENT, and the same

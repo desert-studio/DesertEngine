@@ -18,6 +18,9 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Tools/SceneMigrator/Source/SceneMigration.cpp",
+        -- The anim graph's JSON round trip: schema step 21 moves the state machine out of the entity and
+        -- reads it with the engine's own parser, so every suite that compiles the migration links it too.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
         -- The canonicalisation half of the v13 -> v14 step. It is a separate translation unit precisely
         -- so the fifteen other step suites do not have to link the engine's reflection table; this suite
         -- tests it, so it takes it.

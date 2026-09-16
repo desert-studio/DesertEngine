@@ -1127,6 +1127,19 @@ namespace Desert::Tests::PointerCensus
         { "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.hpp",
           "SequencerPanel", "m_Library", Guard::HostOutlivesUs,
           "EditorLayer owns it and declares it BEFORE m_OpenDocuments -- this is a DOCUMENT, so m_Panels is the wrong container to cite (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts both orders rather than trusting either" },
+        { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp",
+          "AnimGraphPanel", "m_AssetManager", Guard::HostOutlivesUs,
+          "EditorLayer owns the manager as a shared_ptr member and hands the raw pointer to the factory "
+          "that builds this document; documents live in EditorDocuments, which EditorLayer also owns and "
+          "which is destroyed before the manager it was given. It is also allowed to be NULL -- a host "
+          "with no manager simply cannot resolve the graph, and ResolveAsset says so through the window's "
+          "status line instead of dereferencing" },
+        { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/AnimationComponentWidget.hpp",
+          "AnimationComponentWidget", "m_AssetManager", Guard::HostOutlivesUs,
+          "the widget is constructed and destroyed inside ONE Details frame, from a shared_ptr the "
+          "registration locks for exactly that call (ComponentEditContext::AssetManager is a weak_ptr and "
+          "the lock is what makes the raw pointer valid for the whole of it). Null when no manager exists, "
+          "and every use checks -- the same shape the three widgets below hold it in" },
         { "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.hpp",
           "SequencerPanel", "m_AssetManager", Guard::HostOutlivesUs,
           "EditorLayer owns it and declares it BEFORE m_OpenDocuments -- this is a DOCUMENT, so m_Panels is the wrong container to cite (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts both orders rather than trusting either" },

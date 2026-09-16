@@ -332,11 +332,20 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   is `ControlRigPanel::m_Scene`, which is what every panel in this editor holds and needs no new
     //   argument. Read off THIS branch's run; per the merges above it will not survive the merge and must
     //   be re-read there.
-    EXPECT_EQ( CountOf( Form::Raw ), 362 );
-    EXPECT_EQ( CountOf( Form::Shared ), 325 );
+    //   -> +3 with A15 (840 -> 843), two Raw and one Shared, and all three come from the anim graph
+    //   becoming a `.danimgraph` asset. The two Raw are `AnimGraphPanel::m_AssetManager` and
+    //   `AnimationComponentWidget::m_AssetManager`: the graph is a FILE now, so the window that edits one
+    //   has to resolve a handle to save it and the Details slot has to offer the project's graphs — both
+    //   take the manager the way every other panel and widget in this editor takes it, with a register row
+    //   of its own. The Shared is `AnimGraphAsset::m_Graph`, and it is shared ON PURPOSE rather than
+    //   incidentally: it is the one object every entity naming that file points at, which is what makes
+    //   an edit reach all of them instead of one. Read off THIS branch's run; per the merges above it will
+    //   not survive the merge and must be re-read there.
+    EXPECT_EQ( CountOf( Form::Raw ), 364 );
+    EXPECT_EQ( CountOf( Form::Shared ), 326 );
     EXPECT_EQ( CountOf( Form::Unique ), 115 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 840 )
+    EXPECT_EQ( (int)Members().size(), 843 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -561,7 +570,11 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // says 323. Read off a run; see the arithmetic at TheScanFindsTheCensusedPopulation.
     // 323 -> 324 with Ю16: UIRenderTextureCache::Capture::Scene, the world one UI element shows.
     // 324 -> 325 with A12: ControlRigPanel::m_Scene, which is what every panel in this editor holds.
-    EXPECT_EQ( CountOf( Form::Shared ), 325 );
+    // 325 -> 326 with A15: AnimGraphAsset::m_Graph. Shared BY DESIGN and not by habit — every entity that
+    // names one `.danimgraph` holds this same object, so an edit in the graph window is the graph all of
+    // them evaluate next frame. A unique_ptr here, or a copy per entity, would compile and would restore
+    // the per-entity blob that schema step 21 removed.
+    EXPECT_EQ( CountOf( Form::Shared ), 326 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 
