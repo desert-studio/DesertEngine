@@ -4,7 +4,6 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <Engine/Core/Serialize/CustomReflect.hpp>
 
 #include <rflcpp/rfl/Generic.hpp>
 #include <rflcpp/rfl/ExtraFields.hpp>

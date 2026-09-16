@@ -16,7 +16,6 @@
 
 #include <SceneMigration.hpp>
 #include <Engine/Assets/MaterialData.hpp>
-#include <Engine/Core/Serialize/CustomReflect.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Core/AssetHandle.hpp>

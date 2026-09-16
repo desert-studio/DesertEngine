@@ -1,8 +1,8 @@
--- The source census that keeps `rfl::Reflector`'s glm specialisations in ONE header. It compiles and
+-- The source census that keeps every `rfl::Reflector` specialisation in ONE header. It compiles and
 -- links nothing of the engine: the subject is the SOURCE TEXT, because the defect it guards against —
--- a second header specialising the same template for the same type — is invisible to the compiler
--- until somebody includes both in one translation unit, at which point it is a redefinition error in a
--- file that did nothing wrong.
+-- a second header specialising the same template for the same type — is invisible to the compiler until
+-- somebody includes both in one translation unit, at which point it is a redefinition error reported in
+-- a file that did nothing wrong, naming two headers neither of which is at fault.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)

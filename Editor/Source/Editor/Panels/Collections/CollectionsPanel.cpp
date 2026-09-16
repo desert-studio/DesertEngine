@@ -26,7 +26,6 @@
 // reads a .demat back — it has to recover the material's existing identity so re-cooking one produces
 // the same bytes, and a cook that is not reproducible cannot be compared against a record.
 #include <Engine/Assets/Serialization/Material.hpp>
-#include <Engine/Core/Serialize/CustomReflect.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Utilities/ContentManifest.hpp>

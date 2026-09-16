@@ -225,7 +225,7 @@ namespace
         // ONE control of the three carries a shape transform, on purpose: the round trips below then
         // cover both spellings of the optional field — present, and absent meaning identity — instead of
         // covering whichever one the fixture happened to pick.
-        hand.ShapeTransform = Placed( { 0.0F, 1.5F, 0.0F }, 90.0F, { 1.0F, 0.0F, 0.0F } );
+        hand.ShapeTransform        = Placed( { 0.0F, 1.5F, 0.0F }, 90.0F, { 1.0F, 0.0F, 0.0F } );
         hand.ShapeTransform->Scale = glm::vec3( 14.0F, 14.0F, 6.0F );
         hand.Offset    = Placed( { 5.0F, 0.0F, -3.0F }, 12.0F, { 0.0F, 1.0F, 0.0F } );
         hand.Pose      = Placed( { 45.0F, -18.0F, 27.0F }, 33.0F, { 0.0F, 0.0F, 1.0F } );
@@ -549,15 +549,16 @@ TEST( ControlRigAssetTest, AShapeScaledToZeroIsRefusedAndTheMessageNamesTheContr
     const auto              too   = std::find_if( other.Controls.begin(), other.Controls.end(),
                                                   []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
     ASSERT_NE( too, other.Controls.end() );
-    too->Offset.Scale      = glm::vec3( 0.0F, 1.0F, 1.0F );
+    too->Offset.Scale       = glm::vec3( 0.0F, 1.0F, 1.0F );
     const auto otherRefusal = RigFile::ValidateControlRigData( other );
     ASSERT_FALSE( otherRefusal.IsSuccess() );
-    EXPECT_NE( otherRefusal.GetError().find( "cannot be inverted" ), std::string::npos ) << otherRefusal.GetError();
+    EXPECT_NE( otherRefusal.GetError().find( "cannot be inverted" ), std::string::npos )
+         << otherRefusal.GetError();
     EXPECT_EQ( otherRefusal.GetError().find( "shape transform" ), std::string::npos ) << otherRefusal.GetError();
 
     RigFile::ControlRigData notFinite = ArmRigFile();
-    const auto              nan = std::find_if( notFinite.Controls.begin(), notFinite.Controls.end(),
-                                                []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
+    const auto              nan       = std::find_if( notFinite.Controls.begin(), notFinite.Controls.end(),
+                                                      []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
     ASSERT_NE( nan, notFinite.Controls.end() );
     nan->ShapeTransform->Translation.y = std::numeric_limits<float>::quiet_NaN();
     EXPECT_FALSE( RigFile::ValidateControlRigData( notFinite ).IsSuccess() );
@@ -800,8 +801,7 @@ TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
            "without this the panel exists as a file nobody opens" },
          { "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp", "Animation::BuildFrame(",
            "THE CALLER ControlManipulator NEVER HAD: without it the controls are never drawn" },
-         { "Desert/Desert/Source/Engine/Animation/Rig/ControlManipulator.cpp",
-           "element.ShapeTransform.ToMatrix()",
+         { "Desert/Desert/Source/Engine/Animation/Rig/ControlManipulator.cpp", "element.ShapeTransform.ToMatrix()",
            "the file's per-control size reaching the drawing; without this term every built-in draws at "
            "its authored unit size, which is ONE CENTIMETRE, and the rig loads perfectly while the "
            "animator sees nothing to grab" },

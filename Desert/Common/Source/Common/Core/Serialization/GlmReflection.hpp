@@ -1,23 +1,30 @@
 #pragma once
 
 /**
- * THE ONE PLACE `rfl::Reflector` IS SPECIALISED FOR A glm TYPE. Do not add a second.
+ * THE ONE PLACE `rfl::Reflector` IS SPECIALISED IN THIS TREE. Do not add a second.
  *
- * There were two. `Engine/Core/Serialize/GLMReflect.hpp` specialised `Reflector<glm::vec2/3/4>` with the
- * same wire form as this file and WITHOUT `quat` or `mat4`, and thirteen translation units included it
- * instead of this one. A specialisation of the same template for the same type in two headers is not a
- * style question: including both in one translation unit is ill-formed, so the two halves of the tree
- * could never meet. The symptom was not a compile error anybody saw — it was that adding `quat` to a
- * struct served by the other header failed for a reason that read like a missing include, and that the
- * file a developer reached for decided which types they were allowed to serialise.
+ * There were THREE, and the third was found by the compiler while the second was being removed:
  *
- * WHY THIS HEADER IS THE SURVIVOR rather than the smaller one: it is the superset (quat and mat4), it
- * lives in `Common`, which everything already links, and the transforms this engine serialises are
- * quaternions — a serialisation header that cannot spell a rotation is the one that has to grow.
+ *   Engine/Core/Serialize/GLMReflect.hpp     vec2, vec3, vec4 — and no `quat`, no `mat4`
+ *   Engine/Core/Serialize/CustomReflect.hpp  UUID, AssetHandle
  *
- * `Desert/Tests/Engine/GlmReflectorCensus` asserts the RELATION rather than this fix: "a specialisation
- * of `rfl::Reflector` for a glm type exists in exactly one header of this tree", with the count derived
- * from the files it finds. A one-off deletion is how a second source of truth comes back.
+ * Both were proper subsets of this file with the identical wire form, and the same thirteen translation
+ * units included the PAIR — which is why the collision stayed invisible: they only ever met this header
+ * in files that included neither.
+ *
+ * A specialisation of one template for one type in two headers is not a style question. Including both
+ * in one translation unit is ill-formed, so the two halves of the tree could never meet, and the header
+ * a developer happened to reach for silently decided which types they were allowed to serialise —
+ * `GLMReflect.hpp` could not spell a `glm::quat`, which is every rotation this engine stores. Nothing
+ * reported it; it was found by accident, while doing something else.
+ *
+ * WHY THIS HEADER IS THE SURVIVOR: it is the superset, and it lives in `Common`, which everything
+ * already links. A serialisation header that cannot spell a rotation is the one that has to grow.
+ *
+ * `Desert/Tests/Engine/ReflectorSingleSource` asserts the RELATION rather than this fix: "an
+ * `rfl::Reflector` specialisation exists in exactly one header of this tree", with the count derived
+ * from the files the walk finds, plus one named row per type so that "exactly one" cannot be satisfied
+ * by a header that has been emptied out. A one-off deletion is how a second source of truth comes back.
  */
 
 #include <rflcpp/rfl.hpp>

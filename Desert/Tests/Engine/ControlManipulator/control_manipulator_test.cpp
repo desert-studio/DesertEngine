@@ -328,8 +328,8 @@ TEST( ControlManipulatorTest, TheShapeTransformSizesTheDrawingAndTheSizeIsArithm
     // 8 is a circle of radius 24 world units — 24 cm — and every drawn point is exactly that far out.
     for ( const auto& draw : frame.Shapes )
     {
-        const float expected = ( draw.Control == sized ) ? 24.0F : 3.0F;
-        const glm::vec3 origin = PositionOf( draw.World );
+        const float     expected = ( draw.Control == sized ) ? 24.0F : 3.0F;
+        const glm::vec3 origin   = PositionOf( draw.World );
         for ( const glm::vec3& point : draw.WorldPoints )
         {
             EXPECT_NEAR( glm::length( point - origin ), expected, 1e-3F ) << "control " << draw.Control;
@@ -395,7 +395,7 @@ TEST( ControlManipulatorTest, SizingAControlDoesNotMoveIt )
     ControlElement plain =
          MakeControl( "hand_ctrl", "CircleXY", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
 
-    ControlElement sized      = plain;
+    ControlElement sized       = plain;
     sized.ShapeTransform.Scale = glm::vec3( 8.0F );
 
     ControlElement viaOffset = plain;

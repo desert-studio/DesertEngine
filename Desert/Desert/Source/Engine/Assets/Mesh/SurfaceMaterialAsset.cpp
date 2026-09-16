@@ -3,7 +3,6 @@
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <Engine/Core/Serialize/CustomReflect.hpp>
 #include <Engine/Assets/Serialization/Material.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
