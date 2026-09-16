@@ -610,9 +610,9 @@ TEST( ControlKeying, AKeyInsertedBeforeExistingOnesStaysSorted )
 
 TEST( ControlKeying, AControlNamedLikeABoneIsRefused )
 {
-    Skeleton      bones = MakeSkeleton();
-    LocalPose     local = ChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
-    ComponentPose pose{ bones, local };
+    const Skeleton  bones = MakeSkeleton();
+    const LocalPose local = ChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
+    ComponentPose   pose{ bones, local };
 
     ControlHierarchy rig;
     const auto added = rig.Add( MakeControl( "chest", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } ) );
