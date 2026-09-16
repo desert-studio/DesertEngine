@@ -123,6 +123,30 @@ namespace
         return library.IsSuccess() ? library.GetValue() : ControlShapeLibrary();
     }
 
+    /**
+     * @brief The built-ins plus one entry that is @p base scaled by @p size.
+     *
+     * SIZE COMES FROM THE LIBRARY AND NOT FROM THE CONTROL'S OFFSET, and this helper is where the suite
+     * says so. Sizing by `Offset.Scale` was tried first and is measured wrong: the offset's scale also
+     * multiplies the pose's translation, so a control sized 8x moved 182.9 units where the animator asked
+     * for 26.4. See the note at the top of ControlShape.hpp.
+     */
+    ControlShapeLibrary LibraryWithSized( const char* newName, const char* base, float size )
+    {
+        ControlShapeLibrary library = MustBuiltIn();
+        const ControlShape* source  = library.Find( base );
+        EXPECT_NE( source, nullptr ) << base;
+        if ( source == nullptr )
+        {
+            return library;
+        }
+        ControlShape sized = *source;
+        sized.Transform    = glm::scale( glm::mat4( 1.0F ), glm::vec3( size ) ) * sized.Transform;
+        auto added         = library.Add( newName, std::move( sized ) );
+        EXPECT_TRUE( added.IsSuccess() ) << added.GetError();
+        return library;
+    }
+
     [[nodiscard]] glm::vec3 PositionOf( const glm::mat4& m )
     {
         return { m[3].x, m[3].y, m[3].z };
@@ -201,13 +225,12 @@ TEST( ControlManipulatorTest, TheShapeIsDrawnWhereTheControlIsAndNotNearIt )
     const Skeleton      skeleton = MakeRig();
     LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
     ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = MustBuiltIn();
+    ControlShapeLibrary library = LibraryWithSized( "Circle8", "CircleXY", 8.0F );
 
     ControlHierarchy rig;
-    ControlElement   hand = MakeControl( "hand_ctrl", "CircleXY",
+    ControlElement   hand = MakeControl( "hand_ctrl", "Circle8",
                                          { ControlSpace{ ControlSpaceKind::Bone, 1, 1.0F } } );
     hand.Offset.Translation = glm::vec3( 0.0F, 0.0F, 10.0F );
-    hand.Offset.Scale       = glm::vec3( 8.0F ); // the rig author's size, and the only place size lives
     const uint32_t control  = MustAdd( rig, hand );
     ASSERT_NE( control, ControlHierarchy::INVALID );
 
@@ -235,7 +258,7 @@ TEST( ControlManipulatorTest, TheShapeIsDrawnWhereTheControlIsAndNotNearIt )
 
     // THE NEGATIVE CONTROL. A layer that forgot the placement would hand back the library's unit points;
     // these are not those.
-    const ControlShape* circle = library.Find( "CircleXY" );
+    const ControlShape* circle = library.Find( "Circle8" );
     ASSERT_NE( circle, nullptr );
     ASSERT_EQ( draw.WorldPoints.size(), circle->Polylines.front().Points.size() );
     EXPECT_GT( glm::length( draw.WorldPoints.front() - circle->Polylines.front().Points.front() ), 1.0F );
@@ -249,6 +272,8 @@ TEST( ControlManipulatorTest, TheShapeIsDrawnWhereTheControlIsAndNotNearIt )
     }
 
     // MOVING THE CONTROL MOVES THE DRAWING BY THE SAME VECTOR — the arithmetic version of "it follows".
+    // Exactly the same vector, because the size is the LIBRARY's and the offset's scale is 1: that is the
+    // whole reason the size does not live on the control (see LibraryWithSized).
     BoneTransform animated;
     animated.Translation = glm::vec3( 25.0F, -7.0F, 3.0F );
     ASSERT_TRUE( rig.SetPose( control, animated ).IsSuccess() );
@@ -258,6 +283,10 @@ TEST( ControlManipulatorTest, TheShapeIsDrawnWhereTheControlIsAndNotNearIt )
     EXPECT_LT( glm::length( ( CentroidOf( moved.Shapes.front().WorldPoints ) - CentroidOf( draw.WorldPoints ) ) -
                             animated.Translation ),
                1e-3F );
+    EXPECT_LT( glm::length( CentroidOf( moved.Shapes.front().WorldPoints ) -
+                            PositionOf( rig.GetGlobalTransform( control ) ) ),
+               1e-3F )
+         << "the drawing must still be centred on the control after it moved";
 }
 
 TEST( ControlManipulatorTest, AShapeNameTheLibraryDoesNotHaveIsReportedAndNotSilentlySkipped )
@@ -317,13 +346,12 @@ TEST( ControlManipulatorTest, AShapeBehindTheCameraDrawsNothingAtAll )
     const Skeleton      skeleton = MakeRig();
     LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
     ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = MustBuiltIn();
+    ControlShapeLibrary library = LibraryWithSized( "Sphere10", "Sphere", 10.0F );
 
     ControlHierarchy rig;
-    ControlElement   behind = MakeControl( "behind_ctrl", "Sphere",
+    ControlElement   behind = MakeControl( "behind_ctrl", "Sphere10",
                                            { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
     behind.Offset.Translation = glm::vec3( 0.0F, 0.0F, 900.0F ); // the camera is at z = 300, looking at 0
-    behind.Offset.Scale       = glm::vec3( 10.0F );
     MustAdd( rig, behind );
     rig.Evaluate( skeleton, pose );
 
@@ -341,13 +369,12 @@ TEST( ControlManipulatorTest, AShapeStraddlingTheNearPlaneIsCutRatherThanStreake
     const Skeleton      skeleton = MakeRig();
     LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
     ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = MustBuiltIn();
+    ControlShapeLibrary library = LibraryWithSized( "Sphere100", "Sphere", 100.0F );
 
     ControlHierarchy rig;
-    ControlElement   around = MakeControl( "around_ctrl", "Sphere",
+    ControlElement   around = MakeControl( "around_ctrl", "Sphere100",
                                            { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
     around.Offset.Translation = glm::vec3( 0.0F, 0.0F, 300.0F ); // centred ON the eye
-    around.Offset.Scale       = glm::vec3( 100.0F );
     MustAdd( rig, around );
     rig.Evaluate( skeleton, pose );
 
@@ -372,12 +399,11 @@ TEST( ControlManipulatorTest, TheHitTestAnswersNoWhereThereIsNoWire )
     const Skeleton      skeleton = MakeRig();
     LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
     ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = MustBuiltIn();
+    ControlShapeLibrary library = LibraryWithSized( "Circle40", "CircleXY", 40.0F );
 
     ControlHierarchy rig;
-    ControlElement   ctrl = MakeControl( "big_ctrl", "CircleXY",
+    ControlElement   ctrl = MakeControl( "big_ctrl", "Circle40",
                                          { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
-    ctrl.Offset.Scale     = glm::vec3( 40.0F );
     const uint32_t index  = MustAdd( rig, ctrl );
     rig.Evaluate( skeleton, pose );
 
@@ -417,12 +443,11 @@ TEST( ControlManipulatorTest, ATranslateDragPutsTheControlUnderThePointer )
     const Skeleton      skeleton = MakeRig();
     LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
     ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = MustBuiltIn();
+    ControlShapeLibrary library = LibraryWithSized( "Circle20", "CircleXY", 20.0F );
 
     ControlHierarchy rig;
-    ControlElement   ctrl = MakeControl( "root_ctrl", "CircleXY",
+    ControlElement   ctrl = MakeControl( "root_ctrl", "Circle20",
                                          { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
-    ctrl.Offset.Scale     = glm::vec3( 20.0F );
     const uint32_t index  = MustAdd( rig, ctrl );
     rig.Evaluate( skeleton, pose );
 
@@ -476,12 +501,11 @@ TEST( ControlManipulatorTest, AParentMovingMidDragDoesNotPinTheControlToWhereItW
     const Skeleton      skeleton = MakeRig();
     LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
     ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = MustBuiltIn();
+    ControlShapeLibrary library = LibraryWithSized( "Circle15", "CircleXY", 15.0F );
 
     ControlHierarchy rig;
-    ControlElement   hand = MakeControl( "hand_ctrl", "CircleXY",
+    ControlElement   hand = MakeControl( "hand_ctrl", "Circle15",
                                          { ControlSpace{ ControlSpaceKind::Bone, 1, 1.0F } } );
-    hand.Offset.Scale     = glm::vec3( 15.0F );
     const uint32_t index  = MustAdd( rig, hand );
     rig.Evaluate( skeleton, pose );
 
@@ -514,12 +538,11 @@ TEST( ControlManipulatorTest, ARotateDragTurnsTheControlWithoutMovingIt )
     const Skeleton      skeleton = MakeRig();
     LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
     ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = MustBuiltIn();
+    ControlShapeLibrary library = LibraryWithSized( "Sphere30", "Sphere", 30.0F );
 
     ControlHierarchy rig;
-    ControlElement   ctrl = MakeControl( "spin_ctrl", "Sphere",
+    ControlElement   ctrl = MakeControl( "spin_ctrl", "Sphere30",
                                          { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
-    ctrl.Offset.Scale     = glm::vec3( 30.0F );
     const uint32_t index  = MustAdd( rig, ctrl );
     rig.Evaluate( skeleton, pose );
 
@@ -587,4 +610,10 @@ TEST( ControlManipulatorTest, ADragRefusesWhatItCannotMeasure )
     noPixels.ViewportSize    = glm::vec2( 0.0F, 0.0F );
     EXPECT_FALSE(
          drag.Begin( rig, index, ManipulatorMode::Translate, noPixels, glm::vec2( 0.0F ), 20.0F ).IsSuccess() );
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

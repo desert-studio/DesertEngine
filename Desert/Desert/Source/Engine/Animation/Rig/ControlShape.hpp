@@ -17,16 +17,25 @@
  * manipulator layer is cheaper. So a shape here is a LIST OF LINE SEGMENTS, which the existing viewport
  * overlay can already draw, and no render pass is added by this tier.
  *
- * ── SIZE IS THE RIG AUTHOR'S, AND IT LIVES IN ONE PLACE ──────────────────────────────────────────────
+ * ── SIZE LIVES IN THE ENTRY'S TRANSFORM, AND NOT IN THE CONTROL'S SCALE ──────────────────────────────
  *
- * Every built-in is authored at unit size around its own origin. A control is sized by the SCALE of its
- * `Offset` — the rig author's transform — and nowhere else. A `Size` field here would be a second source
- * of truth for the same number, and the first thing it would do is disagree with the offset an animator
- * can see in the Details panel.
+ * Every built-in is authored at unit size around its own origin, and a sized shape is a library entry
+ * whose `Transform` carries the scale. That looks like an odd place for it until you try the obvious
+ * alternative, which is what this file first did: size the control by the SCALE of its `Offset`.
  *
- * The per-entry `Transform` is not that second knob: it is what lets ONE circle serve `CircleXY`,
- * `CircleXZ` and `CircleYZ` and one octahedron serve `Diamond`, i.e. it is the library's own authoring,
- * fixed at registration and never touched afterwards.
+ * MEASURED, AND THE COUPLING IS REAL. A control's global is `parent * offset * pose`, so the offset's
+ * scale multiplies the POSE's translation too: a control sized 8x travelled 8 world units per unit of
+ * animated translation, and the drawn shape's centroid moved 182.9 units where the animator had asked
+ * for 26.4. The offset's scale is not a size knob — it is a change to what a pose unit MEANS, and one
+ * that a clip authored before the resize would silently reinterpret.
+ *
+ * UE avoids the same coupling the same way, with a shape transform that is NOT the offset
+ * (`LibraryShapeTransform * ControlShapeTransform * ControlGlobalTransform`, report 01 §(a)6). We have
+ * the first and third terms and not the middle one, because a per-control shape transform is state
+ * `ControlElement` deliberately does not carry and there is nowhere to author it until the rig is an
+ * asset (T5.4). Named as absent rather than faked: a sized entry per distinct size is the honest
+ * stand-in, and it is also what makes the entry transform load-bearing rather than decorative — one
+ * circle serves `CircleXY`, `CircleXZ` and `CircleYZ` through it.
  */
 
 #include <Common/Core/ResultStr.hpp>

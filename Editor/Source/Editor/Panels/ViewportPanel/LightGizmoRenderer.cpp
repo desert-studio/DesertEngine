@@ -9,6 +9,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Rig/ControlManipulator.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>

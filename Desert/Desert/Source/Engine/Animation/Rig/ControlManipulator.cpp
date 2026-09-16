@@ -22,16 +22,63 @@ namespace Desert::Animation
             return glm::vec2( ( relative.x * 2.0F ) - 1.0F, 1.0F - ( relative.y * 2.0F ) );
         }
 
-        [[nodiscard]] bool Unproject( const glm::mat4& inverseViewProjection, const glm::vec2& ndc, float z,
-                                      glm::vec3& out )
+        /**
+         * @brief Both ends of the pixel's line, ORDERED NEAR-END FIRST — without being told which is which.
+         *
+         * THIS ORDERING IS THE WHOLE REASON THIS FUNCTION EXISTS, and getting it wrong is not a cosmetic
+         * error. The engine's projections are REVERSED-Z (`Engine/Core/Projection.hpp`), so NDC z of 0 is
+         * the FAR plane — and the default far plane is 50 km. Unprojecting there and then intersecting a
+         * drag plane 3 m in front of the camera subtracts two numbers of magnitude 5e6 to get one of
+         * magnitude 3e2: measured, that lost about a pixel of drag accuracy, and the homogeneous w at
+         * that distance (~2e-7) is small enough that a fixed epsilon rejects the unprojection outright.
+         *
+         * THE DISCRIMINATOR NEEDS NO CONVENTION. For any perspective projection the unprojected
+         * homogeneous w is proportional to 1/view-depth, so the end with the LARGER |w| is the nearer
+         * one. Under an orthographic projection both are exactly 1 and either end will do, which is also
+         * the right answer. So this file still does not know, and does not need to know, which way z runs.
+         */
+        [[nodiscard]] bool UnprojectLine( const glm::mat4& inverseViewProjection, const glm::vec2& ndc,
+                                          glm::vec3& nearEnd, glm::vec3& farEnd )
         {
-            const glm::vec4 point = inverseViewProjection * glm::vec4( ndc.x, ndc.y, z, 1.0F );
-            if ( std::abs( point.w ) < kClipEpsilon )
+            const glm::vec4 atZeroZ = inverseViewProjection * glm::vec4( ndc.x, ndc.y, 0.0F, 1.0F );
+            const glm::vec4 atOneZ  = inverseViewProjection * glm::vec4( ndc.x, ndc.y, 1.0F, 1.0F );
+
+            // A RELATIVE FLOOR, NOT A PIXEL ONE. The only thing that makes this division illegal is a w
+            // of zero; a merely small w means "far away", which is a legitimate answer about a 50 km
+            // plane and used to be refused as if the matrix were broken.
+            if ( !( std::abs( atZeroZ.w ) > 0.0F ) || !( std::abs( atOneZ.w ) > 0.0F ) )
             {
                 return false;
             }
-            out = glm::vec3( point ) / point.w;
-            return std::isfinite( out.x ) && std::isfinite( out.y ) && std::isfinite( out.z );
+
+            const glm::vec3 first  = glm::vec3( atZeroZ ) / atZeroZ.w;
+            const glm::vec3 second = glm::vec3( atOneZ ) / atOneZ.w;
+            if ( !std::isfinite( first.x ) || !std::isfinite( first.y ) || !std::isfinite( first.z ) ||
+                 !std::isfinite( second.x ) || !std::isfinite( second.y ) || !std::isfinite( second.z ) )
+            {
+                return false;
+            }
+
+            if ( std::abs( atZeroZ.w ) >= std::abs( atOneZ.w ) )
+            {
+                nearEnd = first;
+                farEnd  = second;
+            }
+            else
+            {
+                nearEnd = second;
+                farEnd  = first;
+            }
+            return true;
+        }
+
+        /// The near end of the pixel's line. What every direction here is measured at, for the reason
+        /// `UnprojectLine` carries.
+        [[nodiscard]] bool UnprojectNear( const glm::mat4& inverseViewProjection, const glm::vec2& ndc,
+                                          glm::vec3& out )
+        {
+            glm::vec3 discard( 0.0F );
+            return UnprojectLine( inverseViewProjection, ndc, out, discard );
         }
 
         /**
@@ -48,17 +95,17 @@ namespace Desert::Animation
             glm::vec3 centre( 0.0F );
             glm::vec3 oneRight( 0.0F );
             glm::vec3 oneDown( 0.0F );
-            if ( !Unproject( inverseViewProjection, PixelToNdc( view, pixel ), 0.0F, centre ) )
+            if ( !UnprojectNear( inverseViewProjection, PixelToNdc( view, pixel ), centre ) )
             {
                 return false;
             }
-            if ( !Unproject( inverseViewProjection, PixelToNdc( view, pixel + glm::vec2( 1.0F, 0.0F ) ), 0.0F,
-                             oneRight ) )
+            if ( !UnprojectNear( inverseViewProjection, PixelToNdc( view, pixel + glm::vec2( 1.0F, 0.0F ) ),
+                                 oneRight ) )
             {
                 return false;
             }
-            if ( !Unproject( inverseViewProjection, PixelToNdc( view, pixel + glm::vec2( 0.0F, 1.0F ) ), 0.0F,
-                             oneDown ) )
+            if ( !UnprojectNear( inverseViewProjection, PixelToNdc( view, pixel + glm::vec2( 0.0F, 1.0F ) ),
+                                 oneDown ) )
             {
                 return false;
             }
@@ -93,32 +140,28 @@ namespace Desert::Animation
         }
 
         /**
-         * @brief The LINE through a pixel, as an origin and a direction.
+         * @brief The line through a pixel, from its NEAR end outwards.
          *
-         * A LINE AND NOT A RAY, said out loud because the sign of `direction` depends on which end of the
-         * NDC z range is the near plane and this file refuses to know. Every use below is a plane
-         * intersection, which is the same point for either sign.
+         * The origin is the near end and the direction points away from the eye — not because this file
+         * knows the depth convention, but because `UnprojectLine` orders the two ends by their own
+         * homogeneous w. Measuring from the near end is what keeps a plane intersection three metres away
+         * accurate: from the far end it is a difference of two 50 km numbers (see `UnprojectLine`).
          */
         [[nodiscard]] bool LineThroughPixel( const ManipulatorView& view, const glm::mat4& inverseViewProjection,
                                              const glm::vec2& pixel, glm::vec3& origin, glm::vec3& direction )
         {
-            const glm::vec2 ndc = PixelToNdc( view, pixel );
-            glm::vec3       atZeroZ( 0.0F );
-            glm::vec3       atOneZ( 0.0F );
-            if ( !Unproject( inverseViewProjection, ndc, 0.0F, atZeroZ ) )
+            glm::vec3 nearEnd( 0.0F );
+            glm::vec3 farEnd( 0.0F );
+            if ( !UnprojectLine( inverseViewProjection, PixelToNdc( view, pixel ), nearEnd, farEnd ) )
             {
                 return false;
             }
-            if ( !Unproject( inverseViewProjection, ndc, 1.0F, atOneZ ) )
-            {
-                return false;
-            }
-            const glm::vec3 along = atOneZ - atZeroZ;
+            const glm::vec3 along = farEnd - nearEnd;
             if ( glm::dot( along, along ) < 1e-20F )
             {
                 return false;
             }
-            origin    = atZeroZ;
+            origin    = nearEnd;
             direction = glm::normalize( along );
             return true;
         }

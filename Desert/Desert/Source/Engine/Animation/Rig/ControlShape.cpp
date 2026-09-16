@@ -1,5 +1,6 @@
 #include "ControlShape.hpp"
 
+#include <array>
 #include <cmath>
 #include <utility>
 
@@ -202,10 +203,17 @@ namespace Desert::Animation
         diamond.Polylines = UnitOctahedron();
 
         ControlShapeLibrary library;
-        const std::pair<const char*, ControlShape*> table[] = {
-             { "CircleXY", &circleXY }, { "CircleXZ", &circleXZ }, { "CircleYZ", &circleYZ },
-             { "Sphere", &sphere },     { "Box", &box },           { "Diamond", &diamond },
-        };
+        // `std::array` AND NOT A C ARRAY: the contract's rule, and the reason is that a table which can
+        // reach zero rows has no legal C spelling — clang takes a zero-length array as a GNU extension
+        // and MSVC rejects it outright (C2466). This one cannot reach zero today, and the type should not
+        // be the thing that decides that.
+        const std::array<std::pair<const char*, const ControlShape*>, 6> table = {
+             { { "CircleXY", &circleXY },
+               { "CircleXZ", &circleXZ },
+               { "CircleYZ", &circleYZ },
+               { "Sphere", &sphere },
+               { "Box", &box },
+               { "Diamond", &diamond } } };
         for ( const auto& entry : table )
         {
             auto added = library.Add( entry.first, *entry.second );
