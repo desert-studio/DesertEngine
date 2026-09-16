@@ -7,9 +7,12 @@
 
 #include <Common/Core/UUID.hpp>
 
+#include <cstdint>
+
 #include <Engine/Assets/Common.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,6 +28,11 @@ namespace Desert::Animation
 {
     class AnimationLibrary;
 }
+namespace Desert::Animation::Graph
+{
+    struct AnimGraph;
+    struct GraphWarning;
+} // namespace Desert::Animation::Graph
 namespace Desert::ECS
 {
     struct AnimationComponent;
@@ -129,9 +137,41 @@ namespace Desert::Editor
         // cannot disagree.
         [[nodiscard]] ECS::AnimationComponent* ResolveComponent() const;
 
-        /// @p width is passed rather than taken from the child window that used to wrap this: see the
-        /// note at the call site, and `Graph::DeferredFrameAll` for what the child was costing.
-        void DrawCanvas( ECS::AnimationComponent& anim, float width );
+        /// @p width and @p height are passed rather than taken from the child window that used to wrap
+        /// this: see the note at the call site, and `Graph::DeferredFrameAll` for what the child was
+        /// costing. The height is given because the warning strip below the canvas has to be reserved
+        /// BEFORE the canvas is drawn, and a canvas that took "the rest of the window" would sit on it.
+        void DrawCanvas( ECS::AnimationComponent& anim, float width, float height );
+
+        /// The ⚠ strip of §8.2: what `Animation::Graph::Validate` found, drawn where a person authoring
+        /// the graph is looking. Returns nothing — it is the LAST thing drawn — and takes the findings
+        /// rather than the graph, because the deciding belongs to a unit with no ImGui in it.
+        void DrawWarningStrip( const Animation::Graph::AnimGraph&                 graph,
+                               const std::vector<Animation::Graph::GraphWarning>& warnings );
+
+        /// The document action behind ONE finding: re-resolves the component and reveals @p warning.
+        /// A MEMBER and not a lambda — see the call site for why the check leaves no lambda available.
+        /// BY REFERENCE, and `bind_front` is what makes that safe: it stores its own COPY of the bound
+        /// finding, so the reference this sees names that copy and not the vector the palette built from.
+        void RevealFinding( const Animation::Graph::GraphWarning& warning );
+
+        /// The clip names this entity's skeleton can actually play, empty when there is no Animator to ask
+        /// yet. ONE derivation, shared by the clip picker, the validator and the document actions: this
+        /// picker used to ask the library tolerantly while the state machine asked it exactly, so a clip
+        /// offered here resolved to nothing at runtime and the state played nothing without a word.
+        [[nodiscard]] std::vector<std::string> ResolveClipNames( const ECS::AnimationComponent& anim ) const;
+
+        /// Selects on the canvas whatever @p warning is about, and moves the view to it. What turns the
+        /// strip from a wall of text into a way to reach the control that fixes the finding — and what
+        /// finally gives `GraphWarning::State` and `::Transition` a reader; they were computed for every
+        /// finding and read by nothing at all.
+        void RevealWarning( const Animation::Graph::AnimGraph&    graph,
+                            const Animation::Graph::GraphWarning& warning );
+
+        /// The height `DrawWarningStrip` will take for @p count findings, so the canvas above it can be
+        /// made that much shorter. One function answers both questions, because a reserved height and a
+        /// drawn height that are computed separately are two numbers that drift by a pixel a release.
+        [[nodiscard]] static float WarningStripHeight( size_t count );
 
         // The `.danimgraph` this entity names, or nullptr. ONE resolution, so "what the canvas draws" and
         // "what Save writes" can never be two different graphs.
@@ -145,7 +185,18 @@ namespace Desert::Editor
         // Writes the graph to its own file. Reports through the status line, which is this window's one
         // error channel.
         void SaveGraph();
-        void DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames );
+
+        /// Appends a state, named so that nothing else in this graph carries that name and placed where
+        /// nothing else in this graph already sits. Shared by the toolbar button and by the document
+        /// action of the same name, so what a client drives is what a person presses.
+        void AddState();
+        /// Appends a parameter named so that nothing else in this graph carries that name. Shared by the
+        /// toolbar button and by the document action of the same name, for the reason `AddState` is.
+        void AddParameter();
+        /// @p height is the canvas's, so the two columns end on the same line and neither of them sits
+        /// on the warning strip below. See the call site.
+        void DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
+                            float height );
 
         // WEAK, not shared. A document that held its scene alive would keep a closed level in memory for
         // as long as its window was open, and — worse — would then answer "my subject is alive" about an
@@ -156,6 +207,17 @@ namespace Desert::Editor
         Assets::AssetManager*                m_AssetManager = nullptr;
         std::string                          m_Status; // last save result line
         bool                                 m_StatusIsError = false;
+
+        // THE ● OF THE §8.2 HEADER: the asset revision as of the last write to disk. Unset until the
+        // first frame, because the asset is reached through the scene and the scene is not resolvable at
+        // construction. The ASSET's revision and not a flag of this window's own, so that an edit made in
+        // a second window over the SAME .danimgraph also shows here — which is the whole point of a graph
+        // being one shared object (§5.1).
+        //
+        // IT IS CONSERVATIVE IN ONE DIRECTION, said out loud: `AnimGraphAsset::Load` bumps the revision
+        // too, so re-loading the file from disk under an open window shows the dot until the next Save.
+        // That errs towards asking for a write that is not needed, never towards hiding one that is.
+        std::optional<uint32_t>              m_SavedRevision;
         ax::NodeEditor::EditorContext*       m_Context = nullptr;
 
         // CANVAS IDENTITY, AND IT IS NOT AN INDEX. `NodeId( i ) = i + 1` meant that deleting a state

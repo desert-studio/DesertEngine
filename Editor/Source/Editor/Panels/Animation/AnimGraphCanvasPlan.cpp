@@ -1,6 +1,7 @@
 #include "AnimGraphCanvasPlan.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace Desert::Editor::Graph
 {
@@ -146,6 +147,37 @@ namespace Desert::Editor::Graph
         return {};
     }
 
+    WarningTarget WarningTargetOf( const AnimGraphCanvas& canvas, const G::AnimGraph& graph,
+                                   const G::GraphWarning& warning )
+    {
+        const int si = FindStateByName( graph, warning.State );
+        if ( si < 0 || si >= static_cast<int>( canvas.StateNodes.size() ) )
+            return {}; // a warning about a state this plan does not contain
+
+        WarningTarget target;
+
+        if ( warning.Transition >= 0 )
+        {
+            // THE LINK IS LOOKED UP THROUGH `LinkRefs` AND NOT COMPUTED. The pair (state, transition) is
+            // exactly the index arithmetic this unit exists to have deleted: transitions to a name no
+            // state carries are skipped by `PlanAnimGraph`, so the nth transition of a state is NOT the
+            // nth link out of it, and anything that assumed it was would select a link belonging to a
+            // different transition than the warning is about.
+            for ( size_t i = 0; i < canvas.LinkRefs.size(); ++i )
+            {
+                const TransitionRef& ref = canvas.LinkRefs[i];
+                if ( ref.State == si && ref.Index == warning.Transition )
+                {
+                    target.Link = canvas.Plan.Links[i].Id;
+                    return target;
+                }
+            }
+        }
+
+        target.Node = canvas.StateNodes[static_cast<size_t>( si )];
+        return target;
+    }
+
     std::string MakeUniqueStateName( const G::AnimGraph& graph, const std::string& desired, int selfIndex )
     {
         const auto taken = [&]( const std::string& candidate )
@@ -160,7 +192,7 @@ namespace Desert::Editor::Graph
             return false;
         };
 
-        const std::string base = desired.empty() ? std::string( "State" ) : desired;
+        std::string base = desired.empty() ? std::string( "State" ) : desired;
         if ( !taken( base ) )
             return base;
 
@@ -173,5 +205,121 @@ namespace Desert::Editor::Graph
                 return candidate;
         }
         return base; // unreachable: N+1 candidates against at most N occupied names
+    }
+
+    std::string MakeUniqueParameterName( const G::AnimGraph& graph, const std::string& desired, int selfIndex )
+    {
+        const auto taken = [&]( const std::string& candidate )
+        {
+            for ( int i = 0; i < static_cast<int>( graph.Parameters.size() ); ++i )
+            {
+                if ( i == selfIndex )
+                {
+                    continue;
+                }
+                if ( graph.Parameters[static_cast<size_t>( i )].Name == candidate )
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        std::string base = desired.empty() ? std::string( "Param" ) : desired;
+        if ( !taken( base ) )
+        {
+            return base;
+        }
+
+        // Bounded by the number of parameters plus one, so the loop cannot fail to find a free name and
+        // has no unbounded arm to reason about. The same argument `MakeUniqueStateName` runs.
+        for ( size_t suffix = 1; suffix <= graph.Parameters.size() + 1; ++suffix )
+        {
+            std::string candidate = base + "_" + std::to_string( suffix );
+            if ( !taken( candidate ) )
+            {
+                return candidate;
+            }
+        }
+        return base; // unreachable: N + 1 candidates against at most N occupied names
+    }
+
+    std::string RenameParameter( G::AnimGraph& graph, int index, const std::string& desired )
+    {
+        if ( index < 0 || index >= static_cast<int>( graph.Parameters.size() ) )
+        {
+            return {};
+        }
+
+        const std::string previous                          = graph.Parameters[static_cast<size_t>( index )].Name;
+        const std::string renamed                           = MakeUniqueParameterName( graph, desired, index );
+        graph.Parameters[static_cast<size_t>( index )].Name = renamed;
+
+        if ( renamed == previous )
+        {
+            return renamed;
+        }
+
+        // WHICH PARAMETER THE CONDITIONS WERE ACTUALLY READING. `Evaluator::FindParameter` takes the first
+        // declaration carrying the name, so conditions on `previous` belong to the first parameter of that
+        // name and to no other. A later duplicate — which only a hand-edited file can produce, since both
+        // creation and rename go through `MakeUniqueParameterName` — must leave them where they are.
+        for ( int i = 0; i < index; ++i )
+        {
+            if ( graph.Parameters[static_cast<size_t>( i )].Name == previous )
+            {
+                return renamed;
+            }
+        }
+
+        for ( auto& state : graph.States )
+        {
+            for ( auto& transition : state.Transitions )
+            {
+                for ( auto& condition : transition.Conditions )
+                {
+                    if ( condition.Parameter == previous )
+                    {
+                        condition.Parameter = renamed;
+                    }
+                }
+            }
+        }
+        return renamed;
+    }
+
+    StatePosition NextStatePosition( const G::AnimGraph& graph )
+    {
+        // Half a step in each axis. A cell is "taken" when an existing state sits closer to its centre
+        // than that, which is the same thing as saying the two nodes would visually collide.
+        const auto occupied = [&]( const StatePosition& cell )
+        {
+            return std::any_of( graph.States.begin(), graph.States.end(),
+                                [&cell]( const auto& state )
+                                {
+                                    return std::abs( state.X - cell.X ) < kStateGridStepX * 0.5f &&
+                                           std::abs( state.Y - cell.Y ) < kStateGridStepY * 0.5f;
+                                } );
+        };
+
+        // BOUNDED BY N + 1, and that bound is a proof rather than a guess: a point lies within half a
+        // step of at most one grid centre per axis, so N states can take at most N cells, and one of the
+        // first N + 1 cells is therefore free. The same argument `MakeUniqueStateName` runs.
+        const int cells = static_cast<int>( graph.States.size() ) + 1;
+        for ( int cell = 0; cell < cells; ++cell )
+        {
+            // The row is an INTEGER division and is spelled as one on its own line. Written inline it
+            // sits inside a float expression, where it reads as -- and is flagged as -- a precision
+            // loss; here it is plainly "which row of the grid", which is what it has always meant.
+            const int           column = cell % kStateGridColumns;
+            const int           row    = cell / kStateGridColumns;
+            const StatePosition candidate{ static_cast<float>( column ) * kStateGridStepX,
+                                           static_cast<float>( row ) * kStateGridStepY };
+            if ( !occupied( candidate ) )
+            {
+                return candidate;
+            }
+        }
+        return {}; // unreachable, by the bound above
     }
 } // namespace Desert::Editor::Graph

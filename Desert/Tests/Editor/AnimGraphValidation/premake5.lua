@@ -10,27 +10,23 @@ project(test_name)
 
     files {
         test_files,
-        -- The asset wrapper and the JSON round trip it parses with. The EVALUATOR is here too, because
-        -- this suite's load-bearing assertion is not "the bytes round-trip" -- it is that one file becomes
-        -- ONE object that several entities share, and the thing that consumes that object is an evaluator.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
-        -- The evaluator delegates its structure check to the validator (ONE spelling of "which
-        -- conditions name an undeclared parameter"), so the two units link together everywhere.
+        -- THE RULES, AND THE PLACEMENT RULE, compiled straight into the test. Both units are free of
+        -- ImGui on purpose: the panel that draws them is the one place on this machine no test can run
+        -- (synthetic input is closed, and a build machine has no `ed::EditorContext`), so the DECIDING
+        -- was split out of it and the WIRING is asserted by a census over the panel's source text.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
+        "%{wks.location}/Editor/Source/Editor/Core/GraphCanvas/GraphCanvas.cpp",
+        "%{wks.location}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
+        "%{wks.location}/Editor/Source",
     }
 
-    -- LINKED, not compiled in: SaveControlRigFile goes through Common's atomic write primitive, so the
-    -- file half of the format is exercised by the same call the editor makes rather than by a local
-    -- ofstream this suite invents. Common carries Objective-C (the macOS file dialog), which is why the
-    -- two frameworks come with it — FileSystemWrite's premake makes the same pair for the same reason.
-    links { "Common", "Optick" }
+    links { "Common", "Optick" } -- Common's JobSystem registers worker threads with Optick
 
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }

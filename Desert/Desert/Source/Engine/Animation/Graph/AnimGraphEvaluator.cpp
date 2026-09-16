@@ -1,5 +1,7 @@
 #include "AnimGraph.hpp"
 
+#include "AnimGraphValidation.hpp"
+
 #include <algorithm>
 
 namespace Desert::Animation::Graph
@@ -146,35 +148,12 @@ namespace Desert::Animation::Graph
 
     void Evaluator::CheckStructure()
     {
-        // EVERY CONDITION IS CHECKED ONCE, HERE, because the place it is READ cannot refuse: it runs for
-        // every condition of every candidate transition, every frame. See GetStructureError.
-        std::string missing;
-        size_t      count = 0;
-        for ( const auto& state : m_Graph.States )
-        {
-            for ( const auto& transition : state.Transitions )
-            {
-                for ( const auto& condition : transition.Conditions )
-                {
-                    if ( FindParameter( condition.Parameter ) != nullptr )
-                    {
-                        continue;
-                    }
-                    ++count;
-                    missing += missing.empty() ? "" : ", ";
-                    missing += fmt::format( "{} -> {} on '{}'", state.Name, transition.To, condition.Parameter );
-                }
-            }
-        }
-
-        m_StructureError.clear();
-        if ( count > 0 )
-        {
-            m_StructureError =
-                 fmt::format( "{} condition(s) name a parameter this graph does not declare, and each reads 0 and "
-                              "compares against it rather than failing: [{}].",
-                              count, missing );
-        }
+        // ONE SPELLING OF THE RULE, AND IT LIVES IN AnimGraphValidation. This used to be the only place
+        // that knew which conditions name an undeclared parameter, so the panel had no way to draw the
+        // same fact without writing it a second time -- and two spellings of one rule is a strip and a
+        // log that one day disagree about the same graph. The check still happens HERE, once, because
+        // the place the conditions are read cannot refuse; what moved is where the sentence is written.
+        m_StructureError = UndeclaredConditionParameters( m_Graph );
     }
 
     float Evaluator::GetFloat( const std::string& name ) const

@@ -13,6 +13,7 @@
 
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
+#include <Engine/Animation/Graph/AnimGraphValidation.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 
@@ -20,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <cstdint>
 #include <memory>
 
@@ -68,7 +70,39 @@ namespace Desert::Editor
             // text + both frame paddings + the arrow button, which is square and a frame tall
             return widest + ( ImGui::GetStyle().FramePadding.x * 2.0F ) + ImGui::GetFrameHeight();
         }
-        const char* kOpNames[]   = { ">", "<", ">=", "<=", "==", "!=", "is true", "is false" };
+        const char* kOpNames[] = { ">", "<", ">=", "<=", "==", "!=", "is true", "is false" };
+
+        /// One float, drawn as whatever the graph DECLARED it to be. Used by the `def` control; the
+        /// `live` one below cannot share it, because each of its three arms calls a different, refusable
+        /// setter on the evaluator rather than writing a float.
+        ///
+        /// The store is a float for both — that is the evaluator's uniform store and not a claim about
+        /// the type — so a Bool default is 0/1 and an Int default is a whole number, exactly as
+        /// `Parameter::Default` documents.
+        bool DrawTypedValue( const char* id, Animation::Graph::ParamType type, float& value )
+        {
+            if ( type == Animation::Graph::ParamType::Bool )
+            {
+                bool flag = value != 0.0f;
+                if ( !ImGui::Checkbox( id, &flag ) )
+                {
+                    return false;
+                }
+                value = flag ? 1.0f : 0.0f;
+                return true;
+            }
+            if ( type == Animation::Graph::ParamType::Int )
+            {
+                auto whole = static_cast<int>( std::lround( value ) );
+                if ( !ImGui::DragInt( id, &whole, 1.0f ) )
+                {
+                    return false;
+                }
+                value = static_cast<float>( whole );
+                return true;
+            }
+            return ImGui::DragFloat( id, &value, 0.05f );
+        }
     } // namespace
 
     AnimGraphPanel::AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
@@ -162,6 +196,70 @@ namespace Desert::Editor
         }
         m_Status        = "Saved " + asset->GetMetadata().Filepath.filename().string();
         m_StatusIsError = false;
+        // What is on disk is now what is in memory. The dot goes out here and nowhere else.
+        m_SavedRevision = asset->GetRevision();
+    }
+
+    void AnimGraphPanel::AddState()
+    {
+        ECS::AnimationComponent* anim = ResolveComponent();
+        if ( anim == nullptr || !anim->Graph )
+        {
+            m_Status        = "no graph to add a state to";
+            m_StatusIsError = true;
+            return;
+        }
+
+        G::State ns;
+        // UNIQUE BY CONSTRUCTION. "State_" + size() collides the moment a state is deleted and another
+        // added, and two states sharing a name is not cosmetic: `Entry`, `Transition::To` and
+        // `Evaluator::FindState` all resolve by string and all take the FIRST match, so the second one is
+        // unreachable and plays the first one's clip with nothing said.
+        ns.Name = Graph::MakeUniqueStateName( *anim->Graph,
+                                              "State_" + std::to_string( anim->Graph->States.size() ), -1 );
+        // AND NOT (0, 0), which is where every new state used to land: the second one covered the first
+        // exactly, and a node under another node cannot be clicked, renamed, given a clip or deleted. The
+        // rule is in `AnimGraphCanvasPlan` because that unit has no ImGui in it and can therefore be
+        // measured; `AnimGraphValidation` compiles it and asserts the separation.
+        const Graph::StatePosition where = Graph::NextStatePosition( *anim->Graph );
+        ns.X                             = where.X;
+        ns.Y                             = where.Y;
+        anim->Graph->States.push_back( ns );
+        MarkEdited();
+    }
+
+    void AnimGraphPanel::AddParameter()
+    {
+        ECS::AnimationComponent* anim = ResolveComponent();
+        if ( anim == nullptr || !anim->Graph )
+        {
+            m_Status        = "no graph to add a parameter to";
+            m_StatusIsError = true;
+            return;
+        }
+
+        // UNIQUE BY CONSTRUCTION, for the reason `+ State` is: this pushed the literal "Param" every
+        // time, so two presses left two parameters that no condition can tell apart — the second one's
+        // declared type is never consulted, because `Evaluator::FindParameter` takes the first match,
+        // while its default still overwrites the first one's in `Evaluator::Reset`.
+        anim->Graph->Parameters.push_back( { Graph::MakeUniqueParameterName( *anim->Graph, "Param", -1 ),
+                                             static_cast<int>( G::ParamType::Float ), 0.0f } );
+        MarkEdited();
+    }
+
+    std::vector<std::string> AnimGraphPanel::ResolveClipNames( const ECS::AnimationComponent& anim ) const
+    {
+        std::vector<std::string> names;
+        if ( anim.Animator == nullptr || m_Library == nullptr )
+        {
+            return names; // no skeleton to ask about yet; NOT the same fact as "this skeleton has none"
+        }
+        // The SAME rule AnimationECSSystem resolves the chosen name with.
+        for ( const auto& asset : m_Library->GetForSkeleton( anim.Animator->GetSkeleton() ) )
+        {
+            names.push_back( asset->GetClip().AnimationName );
+        }
+        return names;
     }
 
     std::vector<ISubjectDocument::DocumentAction> AnimGraphPanel::Actions()
@@ -171,11 +269,52 @@ namespace Desert::Editor
         // presses.
         //  is here for the reason  is: this machine refuses synthetic input, so a view
         // control that exists only as a toolbar button is a view control no test and no script can reach.
-        return {
+        std::vector<DocumentAction> actions{
              { "Save", [this] { SaveGraph(); } },
              { "Frame All", [this] { Graph::FrameAll( m_Context ); } },
              { "Frame Selection", [this] { Graph::FrameSelection( m_Context ); } },
+             // AND `+ State`, FOR THE SAME REASON `Save` IS HERE. It is the one authoring action of this
+             // window that creates something, and a toolbar button is unreachable to every client and
+             // every check on this machine -- which is exactly why "a new state lands on top of its
+             // neighbour" survived: nothing but a person with a mouse could produce one.
+             { "Add State", [this] { AddState(); } },
+             // AND `+ Parameter`, on the same terms. It is the other authoring action of this window
+             // that creates something, and until it was one there was no way for a check or a client to
+             // press it — which is why "two presses make two parameters nothing can tell apart" had
+             // survived as long as the state one had.
+             { "Add Parameter", [this] { AddParameter(); } },
         };
+
+        // ── ONE ENTRY PER FINDING, AND IT IS THE SAME CALL THE STRIP'S CLICK MAKES ────────────────────
+        //
+        // `Save`, `+ State` and `+ Parameter` are here because a toolbar button is unreachable to every
+        // client and every check on this machine — synthetic input is closed — and a control nothing can
+        // drive is a control nothing can photograph. A line in the ⚠ strip is exactly such a control, and
+        // it is also the one that is HARDEST to reach by hand: the reader has to find the line first.
+        //
+        // The label carries the finding's own sentence rather than an ordinal, because the ordinal moves
+        // the moment the graph does, and the palette matches labels exactly. Findings are recomputed here
+        // rather than cached from the last frame: a document action can be run while the window is docked
+        // behind another one and has not drawn this frame.
+        ECS::AnimationComponent* anim = ResolveComponent();
+        if ( anim == nullptr || !anim->Graph )
+        {
+            return actions;
+        }
+
+        const std::vector<std::string> clipNames = ResolveClipNames( *anim );
+        const G::ClipSet               clips{ anim->Animator != nullptr && m_Library != nullptr, clipNames };
+        for ( const auto& warning : G::Validate( *anim->Graph, clips ) )
+        {
+            // NOT A LAMBDA, and that is a finding rather than a style: `bugprone-exception-escape` fires
+            // on a parameter-less lambda in this tree, and `DocumentAction::Run` takes no parameters, so
+            // there is no lambda here the check accepts. `EditorLayer::RunDocumentAction` records the
+            // same one at the other end of this very wire. `bind_front` binds the member directly.
+            actions.push_back(
+                 { "Reveal: " + warning.Text, std::bind_front( &AnimGraphPanel::RevealFinding, this, warning ) } );
+        }
+
+        return actions;
     }
 
     void AnimGraphPanel::OnUIRender()
@@ -204,32 +343,37 @@ namespace Desert::Editor
         }
 
         // Clip names available for this skeleton (for the clip picker) — from the (lazily built) Animator.
-        std::vector<std::string> clipNames;
-        if ( anim->Animator && m_Library )
+        const std::vector<std::string> clipNames = ResolveClipNames( *anim );
+
+        // THE ● OF THE §8.2 HEADER. The first frame records what is on disk rather than claiming the
+        // document is already dirty; every bump of the asset's revision after that is an edit nobody has
+        // written yet.
+        const auto asset = ResolveAsset();
+        if ( asset && !m_SavedRevision )
         {
-            // The SAME rule AnimationECSSystem resolves the chosen name with. This picker used to ask
-            // tolerantly while the state machine asked exactly, so a Mixamo clip offered here resolved to
-            // nothing at runtime and the state played nothing without a word.
-            for ( const auto& a : m_Library->GetForSkeleton( anim->Animator->GetSkeleton() ) )
-                clipNames.push_back( a->GetClip().AnimationName );
+            m_SavedRevision = asset->GetRevision();
         }
+        const bool unsaved = asset && m_SavedRevision && asset->GetRevision() != *m_SavedRevision;
 
         // Toolbar.
         if ( ImGui::Button( ICON_MDI_CONTENT_SAVE "  Save" ) )
             SaveGraph();
         Utils::ImGuiUtilities::Tooltip( "Write this graph back to its .danimgraph" );
+        if ( unsaved )
+        {
+            // NOT A COSMETIC DOT. Dragging a state is an edit to the FILE (§7.2: the drag authors
+            // State.X/Y and they travel to the graph file), and until this appeared the only signal that
+            // a layout would be lost on close was that it was lost. There is no close prompt on these
+            // documents; this is what stands in for one, and its absence is what made "dragged it,
+            // closed it, lost it" silent.
+            ImGui::SameLine();
+            ImGui::TextColored( ImVec4( 1.0f, 0.78f, 0.25f, 1.0f ), ICON_MDI_CIRCLE_MEDIUM );
+            Utils::ImGuiUtilities::Tooltip( "This graph has edits that are not on disk yet" );
+        }
         ImGui::SameLine();
         if ( ImGui::Button( "+ State" ) )
         {
-            G::State ns;
-            // UNIQUE BY CONSTRUCTION. "State_" + size() collides the moment a state is deleted and
-            // another added, and two states sharing a name is not cosmetic: `Entry`, `Transition::To` and
-            // `Evaluator::FindState` all resolve by string and all take the FIRST match, so the second
-            // one is unreachable and plays the first one's clip with nothing said.
-            ns.Name = Graph::MakeUniqueStateName( *anim->Graph,
-                                                  "State_" + std::to_string( anim->Graph->States.size() ), -1 );
-            anim->Graph->States.push_back( ns );
-            MarkEdited();
+            AddState();
         }
         ImGui::SameLine();
         Graph::DrawViewButtons( m_Context );
@@ -251,15 +395,151 @@ namespace Desert::Editor
         // was really doing.
         constexpr float kSideW  = 300.0f;
         const float     canvasW = std::max( 160.0f, ImGui::GetContentRegionAvail().x - kSideW );
-        DrawCanvas( *anim, canvasW );
+
+        // WHAT IS WRONG WITH THIS GRAPH, DECIDED BY A UNIT WITH NO IMGUI IN IT. The clip list is handed
+        // over as "Known" only when there was an Animator to ask: an entity whose skeleton has not been
+        // resolved yet would otherwise have every one of its states reported as naming a missing clip,
+        // for the frames before it is true.
+        const G::ClipSet                   clips{ anim->Animator != nullptr && m_Library != nullptr, clipNames };
+        const std::vector<G::GraphWarning> warnings = G::Validate( *anim->Graph, clips );
+
+        const float stripH  = WarningStripHeight( warnings.size() );
+        const float canvasH = std::max( 80.0f, ImGui::GetContentRegionAvail().y - stripH );
+        DrawCanvas( *anim, canvasW, canvasH );
 
         ImGui::SameLine();
         ImGui::BeginGroup();
-        DrawSidePanel( *anim, clipNames );
+        // THE SAME HEIGHT THE CANVAS GOT, and not `0` meaning "the rest of the window". A height-0 child
+        // here reaches the bottom of the document, so it swallowed the space reserved for the warning
+        // strip and the strip was laid out BELOW the visible area: computed every frame, drawn nowhere.
+        // Found in the editor, on the frame that was supposed to photograph the strip -- which is the
+        // whole argument for taking the frame.
+        DrawSidePanel( *anim, clipNames, canvasH );
         ImGui::EndGroup();
+
+        DrawWarningStrip( *anim->Graph, warnings );
     }
 
-    void AnimGraphPanel::DrawCanvas( ECS::AnimationComponent& anim, float width )
+    float AnimGraphPanel::WarningStripHeight( size_t count )
+    {
+        if ( count == 0 )
+        {
+            return 0.0f;
+        }
+        // Every finding is reachable — the strip SCROLLS rather than truncating. A strip that showed
+        // "and 7 more" would be a control that hides a defect, which is the one thing a validator may
+        // not do; a strip that grew to thirty lines would eat the canvas it is about.
+        constexpr size_t kMaxVisibleLines = 3;
+        const auto       lines            = static_cast<float>( std::min( count, kMaxVisibleLines ) );
+        return ImGui::GetTextLineHeightWithSpacing() * lines + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    }
+
+    void AnimGraphPanel::DrawWarningStrip( const G::AnimGraph&                 graph,
+                                           const std::vector<G::GraphWarning>& warnings )
+    {
+        if ( warnings.empty() )
+        {
+            return; // a graph with nothing wrong with it gets no strip at all, not an empty one
+        }
+
+        ImGui::Separator();
+        ImGui::BeginChild( "##agWarnings", ImVec2( 0.0f, WarningStripHeight( warnings.size() ) ), false );
+        ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 1.0f, 0.78f, 0.25f, 1.0f ) );
+        for ( int i = 0; i < static_cast<int>( warnings.size() ); ++i )
+        {
+            const auto& warning = warnings[static_cast<size_t>( i )];
+            ImGui::PushID( i );
+
+            // ── THE LINE IS A CONTROL, AND UNTIL IT WAS, HALF OF EVERY FINDING WAS UNREADABLE ──────────
+            //
+            // `GraphWarning` has carried `State` and `Transition` since the validator landed and NOTHING
+            // read them: the strip drew `Text` and stopped. So a reader told that «Run» names no clip
+            // still had to find `Run` by eye on a canvas the whole of §8 exists to make readable at
+            // thirty states -- which is the same as not being told, and it is the shape no frame can
+            // show is missing, because what is missing is a reader for a field.
+            //
+            // Clicking selects the element on the canvas and moves the view to it, which ALSO puts it in
+            // the side panel's inspector on the same frame: the state's clip picker, or the transition's
+            // conditions. The distance from "what is wrong" to "the control that fixes it" is one click
+            // rather than a search.
+            // THE LINE IS COMPOSED ONCE AND MEASURED AS WHAT IS DRAWN. Measuring `warning.Text` while
+            // drawing the icon plus two spaces in front of it is how a hit box ends up one line shorter
+            // than its sentence: the icon is what pushes a borderline sentence onto a second line, and
+            // the bottom line would then not be clickable while looking exactly as if it were.
+            const std::string line     = std::string( ICON_MDI_ALERT "  " ) + warning.Text;
+            const float       avail    = ImGui::GetContentRegionAvail().x;
+            const ImVec2      textSize = ImGui::CalcTextSize( line.c_str(), nullptr, false, avail );
+            const ImVec2      before   = ImGui::GetCursorPos();
+
+            // SELECTABLE UNDER THE TEXT RATHER THAN AROUND IT, because `Selectable` does not wrap and
+            // `TextWrapped` is not a control. Un-wrapped the sentence ran off the document's right edge
+            // and the half that names the clip or the parameter -- the only actionable half -- was cut,
+            // which is a warning that reports a problem without saying which one. Measured from the
+            // editor: the first frame ever taken of this strip showed exactly that. So the hit box is
+            // sized to the WRAPPED text and the text is drawn back over it.
+            const bool clicked =
+                 ImGui::Selectable( "##agw", false, ImGuiSelectableFlags_None, ImVec2( 0.0f, textSize.y ) );
+            Utils::ImGuiUtilities::Tooltip( "Select this on the canvas" );
+
+            const ImVec2 after = ImGui::GetCursorPos();
+            ImGui::SetCursorPos( before );
+            ImGui::TextWrapped( "%s", line.c_str() );
+            // Back to where the Selectable left it, so a sentence that wrapped to two lines and a hit box
+            // that was sized for two lines cannot advance the cursor by different amounts.
+            ImGui::SetCursorPos( after );
+
+            if ( clicked )
+            {
+                RevealWarning( graph, warning );
+            }
+            ImGui::PopID();
+        }
+        ImGui::PopStyleColor();
+        ImGui::EndChild();
+    }
+
+    void AnimGraphPanel::RevealFinding( const G::GraphWarning& warning )
+    {
+        // RE-RESOLVED, not captured: the component can be gone by the time an entry built for the palette
+        // is run, and a graph captured by reference would then be a dangling one.
+        ECS::AnimationComponent* now = ResolveComponent();
+        if ( now != nullptr && now->Graph )
+        {
+            RevealWarning( *now->Graph, warning );
+        }
+    }
+
+    void AnimGraphPanel::RevealWarning( const G::AnimGraph& graph, const G::GraphWarning& warning )
+    {
+        // WHICH ELEMENT, ASKED OF THE PLAN — the same seam every other "which thing is this" question in
+        // this window goes through, and for the same reason: the nth transition of a state is not the nth
+        // link out of it, because a transition to a name no state carries is drawn as no link at all.
+        const Graph::WarningTarget target = Graph::WarningTargetOf( m_Canvas, graph, warning );
+        if ( !target.Valid() )
+        {
+            return;
+        }
+
+        ed::SetCurrentEditor( m_Context );
+        ed::ClearSelection();
+        if ( target.Link != Graph::ElementId::Invalid )
+        {
+            ed::SelectLink( ed::LinkId( Graph::Raw( target.Link ) ) );
+        }
+        else
+        {
+            ed::SelectNode( ed::NodeId( Graph::Raw( target.Node ) ) );
+        }
+        ed::SetCurrentEditor( nullptr );
+
+        // The SAME navigation the `Frame Sel` button runs, and not a second spelling of it: two ways to
+        // move this view would be two behaviours to keep in step, and the button's own rule (an empty
+        // selection frames everything) is the right one here too -- a selection this function failed to
+        // make must not leave the reader staring at an empty rectangle.
+        Graph::FrameSelection( m_Context );
+    }
+
+    void AnimGraphPanel::DrawCanvas( ECS::AnimationComponent& anim, float width, float height )
     {
         auto& graph = *anim.Graph;
         bool  dirty = false;
@@ -271,7 +551,7 @@ namespace Desert::Editor
         // The size the canvas is actually drawn at, which is also what `DeferredFrameAll` waits to see
         // stop changing. Height 0 means "the rest of the window" to the node editor, so it is resolved
         // here rather than guessed at.
-        const ImVec2 canvasSize( width, ImGui::GetContentRegionAvail().y );
+        const ImVec2 canvasSize( width, height );
 
         ed::SetCurrentEditor( m_Context );
         ed::Begin( "##animGraph", canvasSize );
@@ -327,9 +607,15 @@ namespace Desert::Editor
             // Persist user drags back into the model, by ELEMENT and not by index. The canvas used to be
             // asked for `NodeId( i )` after a deletion had shifted every later state down one, so it
             // handed back the neighbour's position and this line wrote it into the wrong state.
-            // A drag is a layout change and nothing else: it must not mark the asset edited, or merely
-            // looking at a graph would ask to be saved. Parity with what stood here.
-            (void)Graph::PullNodePosition( planned, s.X, s.Y );
+            //
+            // A DRAG IS AN EDIT TO THE FILE, and the `(void)` that used to stand here said otherwise.
+            // `State.X/Y` are serialized into the .danimgraph (§7.2 names the drag as authoring them),
+            // so a layout the user arranged and never saved is a layout that dies with the window, with
+            // nothing on screen to say so. The fear behind the `(void)` — "merely looking at a graph
+            // would ask to be saved" — is answered by the return value rather than by dropping it:
+            // `PullNodePosition` is false unless the position actually MOVED, so an untouched graph
+            // never dirties. Measured in the editor, not assumed: see the report's frame.
+            dirty |= Graph::PullNodePosition( planned, s.X, s.Y );
         }
 
         // --- Transition links ---
@@ -426,19 +712,21 @@ namespace Desert::Editor
             MarkEdited();
     }
 
-    void AnimGraphPanel::DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames )
+    void AnimGraphPanel::DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
+                                        float height )
     {
         auto& graph = *anim.Graph;
         auto* eval  = anim.GraphEvaluator.get();
         bool  dirty = false;
 
-        ImGui::BeginChild( "##agSide", ImVec2( 290.0f, 0.0f ), true );
+        ImGui::BeginChild( "##agSide", ImVec2( 290.0f, height ), true );
 
         // ---- Parameters (with live value controls) ----
         ImGui::TextUnformatted( "Parameters" );
         for ( int i = 0; i < static_cast<int>( graph.Parameters.size() ); ++i )
         {
-            auto& p = graph.Parameters[i];
+            auto&      p            = graph.Parameters[i];
+            const auto declaredType = static_cast<G::ParamType>( p.Type );
             ImGui::PushID( i );
             ImGui::SetNextItemWidth( 90 );
             // InputText, NOT Property. `Property` is the two-COLUMN row helper: it prints the name with
@@ -448,20 +736,58 @@ namespace Desert::Editor
             // Three symptoms, one misuse. `InputText` takes the id AS the ImGui label, so `##` hides it the
             // way it is meant to. Reported from the editor by the owner; nothing here asserts that a row is
             // legible, which is why it survived.
-            dirty |= Utils::ImGuiUtilities::InputText( p.Name, "##pn" );
+            // EDITED THROUGH A COPY, AND COMMITTED BY `RenameParameter`. Writing straight into `p.Name`
+            // is what made 07 §17.4: the name moved and every `Condition` naming it stayed behind, reading
+            // 0.0 through the deliberately tolerant `Evaluator::GetFloat` and comparing against that — so
+            // `Speed > 3` went permanently false and `Speed < 3` permanently TRUE, with nothing logged
+            // either way. The state rename thirty lines below has carried its new name into `Entry` and
+            // every `Transition::To` all along; this is the same job on the other half of the graph, and
+            // it lives in `AnimGraphCanvasPlan` so a suite with no ImGui in it can mutate it.
+            std::string typed = p.Name;
+            if ( Utils::ImGuiUtilities::InputText( typed, "##pn" ) )
+            {
+                Graph::RenameParameter( graph, i, typed );
+                dirty = true;
+            }
             ImGui::SameLine();
             ImGui::SetNextItemWidth( TypeComboWidth() );
             dirty |= ImGui::Combo( "##pt", &p.Type, kTypeNames, IM_ARRAYSIZE( kTypeNames ) );
             ImGui::SameLine();
+            if ( ImGui::SmallButton( "x" ) )
+            {
+                graph.Parameters.erase( graph.Parameters.begin() + i );
+                dirty = true;
+                ImGui::PopID();
+                break;
+            }
+
+            // ── def AND live, ON THE ROW BELOW, AND THEY ARE NOT THE SAME KIND OF THING ───────────────
+            //
+            // `def` is AUTHORED: it is `Parameter::Default`, it travels into the .danimgraph, and
+            // `Evaluator::Reset` / `SyncGraph` seed the live value from it. `live` is the value in THIS
+            // session's evaluator and is written to no file.
+            //
+            // THE `def` CONTROL IS NEW, AND ITS ABSENCE WAS NOT COSMETIC (07 §3.1, §17.3). The field has
+            // existed in the model and in the file format all along with nothing anywhere able to set
+            // it, so every parameter of every shipped graph started at 0. For a `Speed > 3` condition
+            // that means a built game's state machine cannot leave its entry state by any route except
+            // exit-time — the one row in §8.3 marked "currently unreachable".
+            ImGui::TextDisabled( "def" );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 70 );
+            dirty |= DrawTypedValue( "##pd", declaredType, p.Default );
+
+            ImGui::SameLine();
+            ImGui::TextDisabled( "live" );
+            ImGui::SameLine();
             ImGui::SetNextItemWidth( 70 );
             float live = eval ? eval->GetFloat( p.Name ) : p.Default;
 
-            // THE CONTROL NOW MATCHES THE DECLARED TYPE, all three of them. An `Int` parameter was drawn
+            // THE CONTROL MATCHES THE DECLARED TYPE, all three of them. An `Int` parameter was drawn
             // as a float drag and pushed through SetFloat, which the evaluator accepted because its
             // setters did no checking at all; now it would be refused, and the honest fix is the control
             // the type always deserved. The live value is still stored as one float — that is the
             // evaluator's uniform store, not a type.
-            const auto declaredType = static_cast<G::ParamType>( p.Type );
             if ( declaredType == G::ParamType::Bool )
             {
                 bool b = live != 0.0f;
@@ -482,21 +808,10 @@ namespace Desert::Editor
             {
                 ReportParamWrite( eval->SetFloat( p.Name, live ) );
             }
-            ImGui::SameLine();
-            if ( ImGui::SmallButton( "x" ) )
-            {
-                graph.Parameters.erase( graph.Parameters.begin() + i );
-                dirty = true;
-                ImGui::PopID();
-                break;
-            }
             ImGui::PopID();
         }
         if ( ImGui::SmallButton( "+ Parameter" ) )
-        {
-            graph.Parameters.push_back( { "Param", static_cast<int>( G::ParamType::Float ), 0.0f } );
-            dirty = true;
-        }
+            AddParameter();
 
         ImGui::Separator();
 
