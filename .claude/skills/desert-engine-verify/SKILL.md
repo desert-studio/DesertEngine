@@ -265,7 +265,7 @@ ran=0
 # makefile is older than the newest one and the test says nothing. That was tried first.)
 PROJECTS=$(sed -n 's/^PROJECTS := //p' Makefile | tr ' ' '\n')
 for t in $PROJECTS; do
-  case "$t" in Desert|Common|Editor|Runtime|GLFW|ImGui*|imgui-node-editor|yaml-cpp|Jolt|Lua|Optick|MeshOptimizer|Dlib|ReflectCpp|BuildAllTests|RunAllTests) continue;; esac
+  case "$t" in Desert|Common|Editor|Runtime|GLFW|ImGui*|imgui-node-editor|yaml-cpp|Jolt|Lua|Optick|MeshOptimizer|Dlib|ReflectCpp|Assimp|BuildAllTests|RunAllTests) continue;; esac
   case "$TOOLS" in *"|$t|"*) continue;; esac
   if ! make -f "$t.make" config=debug -j8 >/dev/null 2>&1; then echo "BUILD-FAIL $t"; continue; fi
   if [ ! -x "build/Bin/Tests/Debug/$t" ]; then echo "NO-BINARY $t"; continue; fi
