@@ -176,6 +176,71 @@ namespace Desert::Editor::Graph
         return base; // unreachable: N+1 candidates against at most N occupied names
     }
 
+    std::string MakeUniqueParameterName( const G::AnimGraph& graph, const std::string& desired, int selfIndex )
+    {
+        const auto taken = [&]( const std::string& candidate )
+        {
+            for ( int i = 0; i < static_cast<int>( graph.Parameters.size() ); ++i )
+            {
+                if ( i == selfIndex )
+                    continue;
+                if ( graph.Parameters[static_cast<size_t>( i )].Name == candidate )
+                    return true;
+            }
+            return false;
+        };
+
+        const std::string base = desired.empty() ? std::string( "Param" ) : desired;
+        if ( !taken( base ) )
+            return base;
+
+        // Bounded by the number of parameters plus one, so the loop cannot fail to find a free name and
+        // has no unbounded arm to reason about. The same argument `MakeUniqueStateName` runs.
+        for ( size_t suffix = 1; suffix <= graph.Parameters.size() + 1; ++suffix )
+        {
+            std::string candidate = base + "_" + std::to_string( suffix );
+            if ( !taken( candidate ) )
+                return candidate;
+        }
+        return base; // unreachable: N + 1 candidates against at most N occupied names
+    }
+
+    std::string RenameParameter( G::AnimGraph& graph, int index, const std::string& desired )
+    {
+        if ( index < 0 || index >= static_cast<int>( graph.Parameters.size() ) )
+            return {};
+
+        const std::string previous = graph.Parameters[static_cast<size_t>( index )].Name;
+        const std::string renamed  = MakeUniqueParameterName( graph, desired, index );
+        graph.Parameters[static_cast<size_t>( index )].Name = renamed;
+
+        if ( renamed == previous )
+            return renamed;
+
+        // WHICH PARAMETER THE CONDITIONS WERE ACTUALLY READING. `Evaluator::FindParameter` takes the first
+        // declaration carrying the name, so conditions on `previous` belong to the first parameter of that
+        // name and to no other. A later duplicate — which only a hand-edited file can produce, since both
+        // creation and rename go through `MakeUniqueParameterName` — must leave them where they are.
+        for ( int i = 0; i < index; ++i )
+        {
+            if ( graph.Parameters[static_cast<size_t>( i )].Name == previous )
+                return renamed;
+        }
+
+        for ( auto& state : graph.States )
+        {
+            for ( auto& transition : state.Transitions )
+            {
+                for ( auto& condition : transition.Conditions )
+                {
+                    if ( condition.Parameter == previous )
+                        condition.Parameter = renamed;
+                }
+            }
+        }
+        return renamed;
+    }
+
     StatePosition NextStatePosition( const G::AnimGraph& graph )
     {
         // Half a step in each axis. A cell is "taken" when an existing state sits closer to its centre

@@ -71,6 +71,33 @@ namespace Desert::Editor::Graph
     [[nodiscard]] std::string MakeUniqueStateName( const Animation::Graph::AnimGraph& graph,
                                                    const std::string& desired, int selfIndex );
 
+    /// @p desired, or @p desired with a numeric suffix, such that no OTHER parameter of @p graph carries
+    /// it. @p selfIndex is the parameter being named (-1 when it does not exist yet).
+    ///
+    /// THE SAME ARGUMENT AS `MakeUniqueStateName`, ABOUT THE OTHER HALF OF THE GRAPH. `Condition` names a
+    /// parameter by string and `Evaluator::FindParameter` takes the FIRST match, so two parameters sharing
+    /// a name means the second one's declared TYPE is never consulted while its `Default` still overwrites
+    /// the first one's in `Evaluator::Reset` — one live value, two authors, and nothing said. `+ Parameter`
+    /// pushed the literal name "Param" every time, so two presses produced exactly that.
+    [[nodiscard]] std::string MakeUniqueParameterName( const Animation::Graph::AnimGraph& graph,
+                                                       const std::string& desired, int selfIndex );
+
+    /// Renames `graph.Parameters[index]` to @p desired — uniquified as above — AND rewrites every
+    /// `Condition` that named it. Returns the name actually given.
+    ///
+    /// RENAMING A PARAMETER USED TO BREAK EVERY CONDITION ON IT, IN SILENCE (07 §17.4). The panel wrote
+    /// `Parameter::Name` and stopped there, unlike the state rename beside it which carries the new name
+    /// into `Entry` and every `Transition::To`. What made it worse than "stopped working" is the read
+    /// side: `Evaluator::GetFloat` answers an undeclared name with 0.0 and `EvaluateCondition` compares
+    /// against that, so `>`/`>=` against a positive threshold go permanently false while
+    /// `<`/`<=`/`is false` go permanently TRUE. One rename can either kill a transition or jam the state
+    /// machine into taking it every tick, and neither outcome writes a line anywhere.
+    ///
+    /// ONLY THE FIRST PARAMETER OF A GIVEN NAME CARRIES ITS CONDITIONS, because that is the one
+    /// `Evaluator::FindParameter` resolves them against. Renaming a later duplicate (which only a
+    /// hand-edited file can produce) must not steal conditions that were never reading it.
+    std::string RenameParameter( Animation::Graph::AnimGraph& graph, int index, const std::string& desired );
+
     /// A canvas position, in the node editor's coordinates. Not `ImVec2`: this header is compiled by a
     /// suite that links no ImGui, which is the whole reason the unit exists apart from its panel.
     struct StatePosition

@@ -477,6 +477,135 @@ TEST( AnimGraphValidation, TheButtonAndTheDocumentActionAddTheSameState )
                               "call any more (found " << calls << ")";
 }
 
+// ═══ PART 4 — RENAMING A PARAMETER, WHICH IS THE DEFECT W3 EXISTS TO REPORT ══════════════════════════
+//
+// W3 tells a reader that a condition names a parameter the graph does not declare. The commonest way to
+// PRODUCE one was the panel itself: it moved `Parameter::Name` and left every `Condition` behind. These
+// tests are about the cure rather than the report, and the last one asserts the two agree.
+
+namespace
+{
+    /// Two parameters and one transition whose two conditions name one of them each, so that every test
+    /// below has a control it must not disturb.
+    G::AnimGraph TwoParameterGraph()
+    {
+        G::AnimGraph graph;
+        graph.Parameters.push_back( { "Speed", static_cast<int>( G::ParamType::Float ), 0.0f } );
+        graph.Parameters.push_back( { "Armed", static_cast<int>( G::ParamType::Bool ), 0.0f } );
+
+        G::State idle = Playing( "Idle", "Idle" );
+        G::State run  = Playing( "Run", "Run" );
+
+        G::Transition toRun;
+        toRun.To = "Run";
+        toRun.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 3.0f ) );
+        toRun.Conditions.push_back( Cond( "Armed", G::CompareOp::IsTrue ) );
+        idle.Transitions.push_back( toRun );
+
+        graph.Entry = "Idle";
+        graph.States.push_back( idle );
+        graph.States.push_back( run );
+        return graph;
+    }
+} // namespace
+
+TEST( AnimGraphValidation, RenamingAParameterCarriesItsConditionsWithIt )
+{
+    G::AnimGraph graph = TwoParameterGraph();
+
+    EXPECT_EQ( EG::RenameParameter( graph, 0, "GroundSpeed" ), "GroundSpeed" );
+
+    EXPECT_EQ( graph.Parameters[0].Name, "GroundSpeed" );
+    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[0].Parameter, "GroundSpeed" )
+         << "the condition was left naming a parameter that no longer exists, which reads 0.0 through the "
+            "tolerant GetFloat and compares against it";
+    // THE NEGATIVE CONTROL. A rename that rewrote every condition rather than the matching ones would
+    // pass the line above and destroy the graph.
+    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[1].Parameter, "Armed" );
+    EXPECT_EQ( graph.Parameters[1].Name, "Armed" );
+}
+
+TEST( AnimGraphValidation, ARenameOntoAnOccupiedNameIsGivenAFreeOneAndTheConditionsFollowTHAT )
+{
+    // Renaming `Speed` to `Armed` cannot be granted: `Evaluator::FindParameter` takes the first match, so
+    // the second `Armed` would declare a type nobody consults while its default still overwrote the
+    // first's in `Reset`. What matters here is that the conditions follow the name actually GIVEN and not
+    // the name asked for -- a rename that uniquified the parameter and propagated the request would break
+    // exactly the conditions it was meant to keep.
+    G::AnimGraph graph = TwoParameterGraph();
+
+    const std::string given = EG::RenameParameter( graph, 0, "Armed" );
+    EXPECT_NE( given, "Armed" );
+    EXPECT_EQ( graph.Parameters[0].Name, given );
+    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[0].Parameter, given );
+    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[1].Parameter, "Armed" );
+}
+
+TEST( AnimGraphValidation, RenamingALaterDuplicateDoesNotStealTheFirstOnesConditions )
+{
+    // Only a hand-edited `.danimgraph` can hold two parameters of one name now, and in such a file the
+    // conditions belong to the FIRST -- that is the one `Evaluator::FindParameter` resolves them against.
+    // Renaming the second one must therefore move nothing.
+    G::AnimGraph graph = TwoParameterGraph();
+    graph.Parameters.push_back( { "Speed", static_cast<int>( G::ParamType::Int ), 0.0f } );
+
+    EXPECT_EQ( EG::RenameParameter( graph, 2, "Cadence" ), "Cadence" );
+    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[0].Parameter, "Speed" )
+         << "the condition was reading parameter 0 and was moved onto a rename of parameter 2";
+}
+
+TEST( AnimGraphValidation, ANewParameterIsNamedFreeOfTheOnesAlreadyThere )
+{
+    G::AnimGraph graph;
+    const std::string first = EG::MakeUniqueParameterName( graph, "Param", -1 );
+    EXPECT_EQ( first, "Param" );
+    graph.Parameters.push_back( { first, static_cast<int>( G::ParamType::Float ), 0.0f } );
+
+    const std::string second = EG::MakeUniqueParameterName( graph, "Param", -1 );
+    EXPECT_NE( second, first ) << "two presses of '+ Parameter' produced two parameters nothing can tell "
+                                  "apart";
+}
+
+TEST( AnimGraphValidation, RenamingIsWhatMakesTheStripGoQUIET )
+{
+    // THE RELATION, AND IT IS THE POINT OF THE WHOLE PART. Part 1 measures that W3 fires; this measures
+    // that the panel's rename is the thing that stops it firing. Two separately-correct halves that
+    // disagreed about which name a condition carries would leave a strip permanently lit on a graph the
+    // user had just fixed.
+    G::AnimGraph graph = TwoParameterGraph();
+
+    // The defect, reproduced exactly as the panel used to produce it: the name moves, the condition does
+    // not.
+    graph.Parameters[0].Name = "GroundSpeed";
+    const auto broken        = G::Validate( graph, Known() );
+    ASSERT_FALSE( broken.empty() );
+    EXPECT_EQ( broken.front().Kind, G::WarningKind::UndeclaredConditionParam );
+
+    // And the cure. Rename it back THROUGH THE RULE and the strip has nothing left to say.
+    graph.Parameters[0].Name = "Speed";
+    EXPECT_EQ( EG::RenameParameter( graph, 0, "GroundSpeed" ), "GroundSpeed" );
+    const auto cured = G::Validate( graph, Known() );
+    EXPECT_TRUE( cured.empty() ) << "the rename left the graph in a state the validator still objects "
+                                    "to:\n"
+                                 << Joined( cured );
+}
+
+TEST( AnimGraphValidation, ThePanelRenamesThroughTheRuleRatherThanWritingTheNameItself )
+{
+    // The census half. Part 4 above stays green if the panel goes back to writing `p.Name` directly --
+    // which is what it did, and what 07 §17.4 is about.
+    const std::string source = PanelSource();
+    ASSERT_FALSE( source.empty() );
+
+    EXPECT_NE( source.find( "Graph::RenameParameter( graph, i, typed )" ), std::string::npos )
+         << "the parameter rename does not go through the rule, so conditions are left behind again";
+    EXPECT_EQ( source.find( "InputText( p.Name" ), std::string::npos )
+         << "the panel edits Parameter::Name in place, which is the defect itself";
+    EXPECT_NE( source.find( "Graph::MakeUniqueParameterName( graph, \"Param\", -1 )" ), std::string::npos )
+         << "'+ Parameter' pushes a fixed name again, so two presses produce two indistinguishable "
+            "parameters";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );

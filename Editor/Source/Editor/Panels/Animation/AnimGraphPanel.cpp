@@ -578,7 +578,19 @@ namespace Desert::Editor
             // Three symptoms, one misuse. `InputText` takes the id AS the ImGui label, so `##` hides it the
             // way it is meant to. Reported from the editor by the owner; nothing here asserts that a row is
             // legible, which is why it survived.
-            dirty |= Utils::ImGuiUtilities::InputText( p.Name, "##pn" );
+            // EDITED THROUGH A COPY, AND COMMITTED BY `RenameParameter`. Writing straight into `p.Name`
+            // is what made 07 §17.4: the name moved and every `Condition` naming it stayed behind, reading
+            // 0.0 through the deliberately tolerant `Evaluator::GetFloat` and comparing against that — so
+            // `Speed > 3` went permanently false and `Speed < 3` permanently TRUE, with nothing logged
+            // either way. The state rename thirty lines below has carried its new name into `Entry` and
+            // every `Transition::To` all along; this is the same job on the other half of the graph, and
+            // it lives in `AnimGraphCanvasPlan` so a suite with no ImGui in it can mutate it.
+            std::string typed = p.Name;
+            if ( Utils::ImGuiUtilities::InputText( typed, "##pn" ) )
+            {
+                Graph::RenameParameter( graph, i, typed );
+                dirty = true;
+            }
             ImGui::SameLine();
             ImGui::SetNextItemWidth( TypeComboWidth() );
             dirty |= ImGui::Combo( "##pt", &p.Type, kTypeNames, IM_ARRAYSIZE( kTypeNames ) );
@@ -642,7 +654,12 @@ namespace Desert::Editor
         }
         if ( ImGui::SmallButton( "+ Parameter" ) )
         {
-            graph.Parameters.push_back( { "Param", static_cast<int>( G::ParamType::Float ), 0.0f } );
+            // UNIQUE BY CONSTRUCTION, for the reason `+ State` is: this button pushed the literal "Param"
+            // every time, so two presses left two parameters that no condition can tell apart — the
+            // second one's type is never consulted and its default still overwrites the first one's in
+            // `Evaluator::Reset`.
+            graph.Parameters.push_back( { Graph::MakeUniqueParameterName( graph, "Param", -1 ),
+                                          static_cast<int>( G::ParamType::Float ), 0.0f } );
             dirty = true;
         }
 
