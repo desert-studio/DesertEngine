@@ -113,7 +113,7 @@ namespace Desert::Player
         // (Engine/Core/SceneRenderCollectors.hpp). "Same as the editor" was a comment above a hand-copied
         // block, which is the arrangement that let a sixth caller omit the whole thing silently (Ю16).
         Desert::Core::AddSceneRenderCollectors( *m_Scene );
-        m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get() );
+        m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
         m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
         m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );

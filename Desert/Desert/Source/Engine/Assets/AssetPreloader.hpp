@@ -82,6 +82,11 @@ namespace Desert::Assets
         // no other asset names it. Loading one PUBLISHES it to the process's localisation lookup, which is
         // why there is no register loop beside this call the way the cloud stages have one.
         void PreloadStringTables();
+        // Control rigs (`.derig`). Independent of everything above — a rig names no other asset and no
+        // other asset names it. Scanned rather than left to the scene's own on-demand load so the
+        // entity's rig slot can OFFER them by name: a picker that can only show what a scene already
+        // names is a picker that can never be used to pick a different rig.
+        void PreloadControlRigs();
 
     private:
         std::weak_ptr<AssetManager> m_AssetManager;

@@ -60,6 +60,13 @@ namespace Desert::Assets
         // screen without a restart. See Engine/Localization/StringTable.hpp.
         StringTable,
 
+        // A CONTROL RIG (`.derig`): the controls an animator grabs, their parent spaces, and which bone
+        // each one drives. A first-class asset because tier T5 shipped four working halves of a rig — a
+        // hierarchy, a manipulator, keying and a pipeline stage — and NO way for a scene to have one: a
+        // `ControlRigStage` had to be built in C++ by a caller that did not exist. See
+        // Engine/Assets/Serialization/ControlRig.hpp.
+        ControlRig,
+
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
         // That red is the only reason this enumerator exists: an asset type whose handle stability nobody
@@ -110,6 +117,10 @@ namespace Desert::Assets
             // the ordinary rule already holds it alive for exactly as long as a live canvas names it, and
             // exempting it from eviction would keep every theme ever opened resident for nothing.
             case AssetTypeID::UITheme:
+            // A RIG IS SCENE-SCOPED for the theme's reason and by the same mechanism:
+            // `ControlRigData::Rig` is an `AssetHandle`, so the reachability walk can see it and the
+            // ordinary rule holds it alive for exactly as long as a live entity names it.
+            case AssetTypeID::ControlRig:
             case AssetTypeID::Count:
                 return false;
         }
@@ -162,6 +173,8 @@ namespace Desert::Assets
                 return "UITheme";
             case AssetTypeID::StringTable:
                 return "StringTable";
+            case AssetTypeID::ControlRig:
+                return "ControlRig";
             case AssetTypeID::Count:
                 return "Count";
         }

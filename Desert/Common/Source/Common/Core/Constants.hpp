@@ -64,6 +64,7 @@ namespace Common::Constants
             CloudVolume,
             CloudLayout,
             UITheme,
+            ControlRig,
             Cooked,
             MeshCooked,
             TextureCooked,
@@ -121,6 +122,11 @@ namespace Common::Constants
              // assets root: a theme is scanned separately so no other kind can be offered in a canvas's
              // theme slot, and UI/ is where the rest of the UI's own content will land.
              /* UITheme       */ { "UI/Themes/", DirRoot::Assets },
+             // Control rigs (`.derig`) get their own folder for the theme's reason: a rig is scanned
+             // separately so no other kind can be offered in an entity's rig slot, and nothing else is a
+             // rig. Beside Animations/ rather than inside it because a rig is not a clip — it is the thing
+             // a clip's control tracks are authored against.
+             /* ControlRig    */ { "Rigs/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
              /* MeshCooked    */ { "Meshes/", DirRoot::Cooked },
              /* TextureCooked */ { "Textures/", DirRoot::Cooked },
@@ -338,6 +344,7 @@ namespace Common::Constants
         inline const std::filesystem::path& CLOUD_VOLUME_PATH   = Dir( ContentDir::CloudVolume );
         inline const std::filesystem::path& CLOUD_LAYOUT_PATH   = Dir( ContentDir::CloudLayout );
         inline const std::filesystem::path& UI_THEME_PATH       = Dir( ContentDir::UITheme );
+        inline const std::filesystem::path& CONTROL_RIG_PATH   = Dir( ContentDir::ControlRig );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
         inline const std::filesystem::path& TEXTURE_PATH_COOKED = Dir( ContentDir::TextureCooked );

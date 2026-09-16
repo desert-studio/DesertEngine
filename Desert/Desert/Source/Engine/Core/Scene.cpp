@@ -502,6 +502,7 @@ namespace Desert::Core
         // inside the parallel phase. Found by Tests/Engine/ComponentPools, which is the census that reads
         // the system headers rather than trusting this list.
         r.prepare<ECS::TwoBoneIKComponent>();
+        r.prepare<ECS::ControlRigComponent>();
         r.prepare<ECS::TextComponent>();
         r.prepare<ECS::TerrainComponent>();
 

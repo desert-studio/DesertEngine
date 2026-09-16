@@ -13,6 +13,7 @@
 #include "CloudTypeAsset.hpp"
 #include "CloudModellingVolumeAsset.hpp"
 #include "CloudLayoutAsset.hpp"
+#include "ControlRigAsset.hpp"
 #include "UIThemeAsset.hpp"
 #include "StringTableAsset.hpp"
 
@@ -37,6 +38,7 @@ namespace Desert::Assets
     constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_BODY_EXTENSIONS   = { ".dcmv" };
     constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_LAYOUT_EXTENSIONS = { ".dclayout" };
     constexpr std::array<std::string_view, 1> SUPPORTED_UI_THEME_EXTENSIONS     = { ".detheme" };
+    constexpr std::array<std::string_view, 1> SUPPORTED_CONTROL_RIG_EXTENSIONS  = { ".derig" };
     constexpr std::array<std::string_view, 1> SUPPORTED_STRING_TABLE_EXTENSIONS = {
          Localization::kStringTableExtension };
 
@@ -324,6 +326,18 @@ namespace Desert::Assets
                                themeAsset->GetMetadata().Filepath.string(), result.GetError() );
             }
         }
+    }
+
+    void AssetPreloader::PreloadControlRigs()
+    {
+        // Loaded eagerly for the reason a cloud type is: a rig is a few kilobytes of JSON and the entity's
+        // rig slot has to be able to OFFER the project's rigs, which it does by asking the manager for
+        // every asset of this type. There is no service register loop beside this call the way the cloud
+        // stages have one: a rig has no process-wide runtime form — the pipeline stage is built per
+        // ENTITY, against that entity's own skeleton, by AnimationECSSystem.
+        ProcessAssetFiles<ControlRigAsset>( Common::Constants::Path::CONTROL_RIG_PATH,
+                                            SUPPORTED_CONTROL_RIG_EXTENSIONS, m_AssetManager,
+                                            AssetPriority::Medium );
     }
 
     void AssetPreloader::PreloadCloudModellingVolumes()

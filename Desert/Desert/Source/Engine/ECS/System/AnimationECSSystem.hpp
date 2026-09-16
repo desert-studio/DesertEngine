@@ -12,6 +12,10 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/TwoBoneIKControl.hpp>
+#include <Engine/Animation/Rig/ControlRigStage.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ControlRigAsset.hpp>
+#include <Engine/Assets/Serialization/ControlRig.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -28,8 +32,14 @@ namespace Desert::ECS
     class AnimationECSSystem : public System
     {
     public:
-        explicit AnimationECSSystem( Animation::AnimationLibrary* animationLibrary )
-             : m_AnimationLibrary( animationLibrary )
+        /**
+         * @param assetManager where a `ControlRigComponent`'s handle is resolved to a parsed `.derig`. May
+         *        be null: a host with no asset manager simply has no rigs, and the refusal says so once
+         *        rather than crashing on the first entity that names one.
+         */
+        AnimationECSSystem( Animation::AnimationLibrary* animationLibrary,
+                            Assets::AssetManager*        assetManager )
+             : m_AnimationLibrary( animationLibrary ), m_AssetManager( assetManager )
         {
         }
 
@@ -78,6 +88,11 @@ namespace Desert::ECS
                 // Before either playback path, because a control is a stage of the same pipeline and the
                 // pipeline runs inside Animator::Update below.
                 SyncSkeletalControls( registry, entity, *anim.Animator, skeleton );
+
+            // AFTER the controls and before playback, for the same reason: the rig is the LAST stage of
+            // the same pipeline (Animator::SyncStages), and the pipeline runs inside Animator::Update
+            // below. Attaching after the update would put the rig one frame behind the pose it operates on.
+            SyncControlRig( registry, entity, anim, *anim.Animator, skeleton );
 
                 // AnimGraph path: the state machine PICKS the clip; the Animator just plays it. Falls back to
                 // the CurrentClip path below when no graph is attached.
@@ -364,6 +379,106 @@ namespace Desert::ECS
         }
 
         /**
+         * @brief THE HANDLE BECOMES A PIPELINE STAGE — and this is the function tier T5 did not have.
+         *
+         * T5 built a control hierarchy, a manipulator, keying and a stage, every one of them proven by a
+         * suite, and no scene could have a rig: `Animator::AttachRig` takes an object somebody has to
+         * construct in C++, and nobody constructed one. Everything above this line is that somebody.
+         *
+         * IT IS THE SAME SHAPE AS `SyncSkeletalControls`, deliberately: authored data in, live solver out,
+         * once per frame per entity, with the reverse direction — an entity that LOSES the component loses
+         * the stage — given equal weight. A rig left attached after its component went would go on posing
+         * the character forever with nothing in the editor showing why.
+         *
+         * WHAT IT DOES NOT DO IS REBUILD. See `AnimationComponent::BuiltRigSource`: the stage holds the
+         * animator's live control poses, so rebuilding it every frame would make the manipulator
+         * undraggable, and rebuilding it never would leave a hot-reloaded or re-pointed rig silently
+         * running the old one.
+         */
+        void SyncControlRig( entt::registry& registry, entt::entity entity, ECS::AnimationComponent& anim,
+                             Animation::Animator& animator, const Animation::Skeleton& skeleton ) const
+        {
+            const auto forget = [&anim, &animator]()
+            {
+                if ( animator.GetRig() != nullptr )
+                {
+                    animator.DetachRig();
+                }
+                anim.BuiltRigSource    = Assets::AssetHandle{};
+                anim.BuiltRigRevision  = 0;
+                anim.BuiltRigSignature = 0;
+            };
+
+            if ( !registry.has<ECS::ControlRigComponent>( entity ) )
+            {
+                forget();
+                return;
+            }
+
+            const Assets::AssetHandle wanted = registry.get<ECS::ControlRigComponent>( entity ).Data.Rig;
+            if ( static_cast<uint64_t>( wanted ) == 0 )
+            {
+                // An empty slot is the off switch, and it is the ONLY one — there is no second "enabled"
+                // flag that could disagree with it (see ControlRigData).
+                forget();
+                return;
+            }
+
+            if ( m_AssetManager == nullptr )
+            {
+                forget();
+                ReportOnce( "rig-no-manager",
+                            "an entity names a control rig, but this host has no asset manager to resolve "
+                            "it through; the entity is posed by its clip alone" );
+                return;
+            }
+
+            auto asset = m_AssetManager->FindByHandle<Assets::ControlRigAsset>( Common::UUID( wanted ) );
+            if ( !asset || !asset->IsReadyForUse() )
+            {
+                // SAID, NOT SWALLOWED. The silent version of this is a character that poses from its clip
+                // while the scene file plainly names a rig, which is indistinguishable from a rig system
+                // that does not work.
+                forget();
+                ReportOnce( fmt::format( "rig-missing:{}", static_cast<uint64_t>( wanted ) ),
+                            fmt::format( "control rig handle {} is not loaded; the entity naming it is "
+                                         "posed by its clip alone",
+                                         static_cast<uint64_t>( wanted ) ) );
+                return;
+            }
+
+            const bool current = animator.GetRig() != nullptr && anim.BuiltRigSource == wanted &&
+                                 anim.BuiltRigRevision == asset->GetRevision() &&
+                                 anim.BuiltRigSignature == skeleton.GetSignature();
+            if ( current )
+            {
+                return;
+            }
+
+            auto stage = std::make_unique<Animation::ControlRigStage>();
+            if ( auto built = Assets::Serialization::BuildControlRig( asset->GetData(), skeleton, *stage );
+                 !built )
+            {
+                forget();
+                ReportOnce( fmt::format( "rig-build:{}", static_cast<uint64_t>( wanted ) ),
+                            built.GetError() );
+                return;
+            }
+
+            if ( auto attached = animator.AttachRig( std::move( stage ) ); !attached )
+            {
+                forget();
+                ReportOnce( fmt::format( "rig-attach:{}", static_cast<uint64_t>( wanted ) ),
+                            attached.GetError() );
+                return;
+            }
+
+            anim.BuiltRigSource    = wanted;
+            anim.BuiltRigRevision  = asset->GetRevision();
+            anim.BuiltRigSignature = skeleton.GetSignature();
+        }
+
+        /**
          * @brief SAYS SO WHEN A STATE CANNOT PLAY. A state whose clip does not resolve used to be a `nullptr`
          *        that the caller stepped over: the character stood still, no log line, nothing for an artist
          *        to search for. That silence is the half of the defect a name-matching fix alone would leave.
@@ -386,6 +501,9 @@ namespace Desert::ECS
 
     private:
         Animation::AnimationLibrary*          m_AnimationLibrary;
+        // Non-owning: the manager belongs to the host, which outlives its scene. MAY BE NULL — a host
+        // that builds no asset manager simply has no rigs, and SyncControlRig says so once.
+        Assets::AssetManager*                 m_AssetManager = nullptr;
         std::chrono::steady_clock::time_point m_LastTime;
         bool                                  m_HasLast = false;
 

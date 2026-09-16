@@ -360,6 +360,12 @@ namespace Desert::Editor
         // paths, which FontService registers on demand, and nothing else names a theme.
         m_StartupStages.push_back(
              { "Preloading UI themes...", [this] { m_AssetPreloader->PreloadUIThemes(); } } );
+        // CALLED, and that is the point of the line existing (A12). The stage above carries the note about
+        // PreloadCloudLayouts having been a scan nobody ran; a rig library nobody scans is the same defect
+        // with a different extension — the entity's rig slot would be empty in every project that has
+        // rigs, and only a scene that already named one would ever load it.
+        m_StartupStages.push_back(
+             { "Preloading control rigs...", [this] { m_AssetPreloader->PreloadControlRigs(); } } );
         // Order-free, and early among the optional stages on purpose: a missing translation shows up on
         // the very first frame drawn, and its log line is far easier to read before the rest of the
         // content's lines arrive.
@@ -2250,7 +2256,7 @@ namespace Desert::Editor
         // flat colour with nothing in the log. The gameplay systems below still belong to the host: each
         // needs a service only the host owns.
         Desert::Core::AddSceneRenderCollectors( scene );
-        scene.AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get() );
+        scene.AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
         // AttachmentSystem runs right AFTER animation: weapons-in-hand follow the freshly-posed bone this frame.
         scene.AddSystem<ECS::AttachmentSystem>( &scene );
         // ScriptSystem runs BEFORE physics: scripts set the character's move intent (+ look) which
