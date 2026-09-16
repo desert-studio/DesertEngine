@@ -432,10 +432,18 @@ TEST( AssetEviction, AnUnloadedAssetStopsAnsweringWithItsPayload )
     EXPECT_EQ( layout.GetLayout().ContentHash, 0U );
 
     SkeletonAsset skeleton( AssetPriority::Medium, path );
+    EXPECT_EQ( skeleton.GetSignature(), 0U )
+         << "a rig that has never been read claims a signature. Zero is what 'not known yet' is spelled "
+            "as, and SkinnedMeshAsset::ResolveDependencies refuses to match it for that reason.";
     ASSERT_TRUE( skeleton.Unload() );
     EXPECT_EQ( skeleton.GetSkeleton(), nullptr )
          << "SkeletonAsset::Unload used to be `return BOOLSUCCESS` with no semicolon, leaking the "
             "unique_ptr it exclusively owns";
+    // THE RIG'S SIGNATURE IS THE CARVE-OUT, and it is stated here rather than inferred, beside the fields
+    // that do go. It is what the mesh MATCHES a rig by, so releasing it is releasing the asset's identity
+    // — the same thing `AssetBase::Unload`'s contract point 3 forbids for the handle — and the test below
+    // (ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth) is what that costs when it is not kept. It is
+    // asserted over a rig that was actually LOADED, there, because a fresh shell's zero proves nothing.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -532,6 +540,10 @@ TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
     const auto    swept = AssetEviction::Run( manager, AssetRootSet{}, sink );
     ASSERT_EQ( swept.Released, 2U ) << "the sweep did not release both; the state under test was not reached";
     ASSERT_EQ( skeleton->GetSkeleton(), nullptr );
+    EXPECT_EQ( skeleton->GetSignature(), signature )
+         << "the released rig forgot WHICH rig it is. Its bones are gone and must be; its identity is what "
+            "every mesh cooked against it names it by, and a registry record that cannot say what it is "
+            "cannot be found again by anything.";
 
     // THE SCENE COMES BACK. This is MeshService::Get's build-on-miss, and everything it needs is in the
     // registry: the same two files, the same two handles, the same signature inside the mesh.

@@ -36,9 +36,29 @@ namespace Desert::Assets
             return m_Skeleton.get();
         }
 
+        // WHICH RIG THIS IS — AND THAT OUTLIVES THE BONES, which is the whole of the fix that put this
+        // field here.
+        //
+        // It used to read `m_Skeleton ? m_Skeleton->GetSignature() : 0`, so a rig whose payload asset
+        // eviction had released answered 0 — indistinguishable from a rig whose file has never been read.
+        // `SkinnedMeshAsset::ResolveDependencies` matches on this number, so after the first eviction
+        // sweep of a session NO skinned mesh in the project could find its rig again, and because the
+        // sweep reaches a rig only through the dependency handle that failed to be filled in, nothing
+        // could ever bring it back. Measured 2026-09-16: ANIM_RigWitness.desce opened SECOND logged 410 x
+        // "MeshFactory: Skeleton dependency invalid" in twelve seconds and drew no character; opened
+        // FIRST, none.
+        //
+        // A signature is a hash of the bone structure, so it is derived from the payload — but what it is
+        // USED as is an identity, exactly like the path-derived handle that `AssetBase::Unload` is
+        // required to keep (contract point 3). Keeping it is the same statement as keeping the handle: an
+        // evicted asset keeps its identity or the reload is a different asset. The value can only ever
+        // START a lookup — the one caller re-checks it against the payload it just loaded, so a `.skeleton`
+        // edited while it was cold cannot bind a mesh to a rig it no longer matches.
+        //
+        // Zero still means "never read", and still never matches: this field is written only by `Load`.
         uint64_t GetSignature() const
         {
-            return m_Skeleton ? m_Skeleton->GetSignature() : 0;
+            return m_Signature;
         }
 
         static AssetTypeID GetTypeID()
@@ -48,6 +68,9 @@ namespace Desert::Assets
 
     private:
         std::unique_ptr<Animation::Skeleton> m_Skeleton;
+
+        // The payload's identity, kept across `Unload`. See GetSignature.
+        uint64_t m_Signature = 0U;
     };
 
 } // namespace Desert::Assets

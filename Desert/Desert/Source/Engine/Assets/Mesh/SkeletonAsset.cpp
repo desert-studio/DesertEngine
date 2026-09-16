@@ -29,6 +29,9 @@ namespace Desert::Assets
         auto data = dataReflected.value();
 
         m_Skeleton = std::make_unique<Animation::Skeleton>( std::move( data.Bones ) );
+        // Taken from the bones that were just read, never from `data.Signature`: the file's own field is
+        // what a cook WROTE, and this is what the rig in memory IS. A mesh is matched against the second.
+        m_Signature = m_Skeleton->GetSignature();
 
         return BOOLSUCCESS;
     }
@@ -43,6 +46,11 @@ namespace Desert::Assets
         // It also leaked the one thing this class owns. `m_Skeleton` is a `unique_ptr<Animation::Skeleton>`
         // holding the whole bone hierarchy, and nothing released it.
         m_Skeleton.reset();
+        // `m_Signature` is deliberately NOT cleared — it is this rig's identity rather than its payload,
+        // and clearing it is the defect GetSignature's comment records. The suite
+        // `AssetEviction.AnUnloadedAssetStopsAnsweringWithItsPayload` states this carve-out next to the
+        // fields that DO go, and `AssetEviction.ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth`
+        // asserts it over a rig that was really loaded — so the next reader has to decide, not infer.
         return BOOLSUCCESS;
     }
 } // namespace Desert::Assets
