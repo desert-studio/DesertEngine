@@ -8,20 +8,29 @@ namespace Desert::Editor::Graph
 
     namespace
     {
-        // THE CANVAS KEY OF STATE @p index, AS THE TREE COMPUTES IT TODAY — the position of the state in
-        // `graph.States`. `AnimGraphPanel.cpp:50-53` spelt it `NodeId( i ) = i + 1`; the arithmetic has
-        // moved here unchanged, and the id it yields is the same id.
+        // The canvas key of state @p index. A state is named by its `Name` — the same string the runtime
+        // resolves `Entry` and `Transition::To` against — so the canvas and the model agree on identity by
+        // construction rather than by a second field somebody has to keep in step.
         //
-        // THIS IS THE DEFECT AND IT IS DELIBERATELY STILL HERE for one commit, so that the suite that
-        // measures it can be seen going red over the rule the tree actually ships rather than over a
-        // replica of it written inside a test. The next commit replaces this one function.
+        // THE ORDINAL SUFFIX IS NOT COSMETIC. `MakeUniqueStateName` keeps names unique at every point the
+        // editor can create one, but a `.danimgraph` is a text file a person can edit, and a duplicate
+        // name reaching this function must still produce two DIFFERENT canvas ids: handing one id to two
+        // nodes makes `imgui-node-editor` draw one of them and lose the other. Total function, no
+        // precondition on the caller.
         std::string StateKey( const G::AnimGraph& graph, int index )
         {
-            ( void )graph;
-            return std::to_string( index );
+            const std::string& name = graph.States[static_cast<size_t>( index )].Name;
+
+            int ordinal = 0;
+            for ( int i = 0; i < index; ++i )
+                if ( graph.States[static_cast<size_t>( i )].Name == name )
+                    ++ordinal;
+
+            if ( ordinal == 0 )
+                return name;
+            return name + "\x1f#" + std::to_string( ordinal + 1 );
         }
 
-        // Likewise `LinkId( state, transition ) = kLink + state * 4096 + transition`, by position.
         std::string TransitionKey( const std::string& from, const std::string& to )
         {
             return from + "\x1f>" + to;
