@@ -97,9 +97,9 @@ namespace Desert::Editor::Graph
     /// planner already follow. A `.danimgraph` edited by hand can carry two states of one name; the
     /// second is unreachable to the runtime, so sending its reader to the first is sending them to the
     /// one that actually runs.
-    [[nodiscard]] WarningTarget WarningTargetOf( const AnimGraphCanvas&                 canvas,
-                                                 const Animation::Graph::AnimGraph&     graph,
-                                                 const Animation::Graph::GraphWarning&  warning );
+    [[nodiscard]] WarningTarget WarningTargetOf( const AnimGraphCanvas&                canvas,
+                                                 const Animation::Graph::AnimGraph&    graph,
+                                                 const Animation::Graph::GraphWarning& warning );
 
     /// @p desired, or @p desired with a numeric suffix, such that no OTHER state of @p graph carries it.
     /// @p selfIndex is the state being named (-1 when the state does not exist yet), so renaming a state

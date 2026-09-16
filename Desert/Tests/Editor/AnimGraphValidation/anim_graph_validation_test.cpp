@@ -667,7 +667,7 @@ TEST( AnimGraphValidation, W1PointsAtTheStatesOwnNode )
 
 TEST( AnimGraphValidation, W3PointsAtTheTransitionsOwnLink )
 {
-    G::AnimGraph graph = HealthyGraph();
+    G::AnimGraph graph                           = HealthyGraph();
     graph.States[0].Transitions[0].Conditions[0] = Cond( "Velocity", G::CompareOp::Greater, 3.0f );
 
     EG::ElementIdMap ids;
@@ -716,8 +716,8 @@ TEST( AnimGraphValidation, TheNthTransitionIsNotTheNthLink )
     const auto warnings = G::Validate( graph, Known() );
 
     // The finding about transition 1 must reach the ONE link, which is transition 1's.
-    const auto onOne = std::find_if( warnings.begin(), warnings.end(), []( const G::GraphWarning& w )
-                                     { return w.Transition == 1; } );
+    const auto onOne = std::find_if( warnings.begin(), warnings.end(),
+                                     []( const G::GraphWarning& w ) { return w.Transition == 1; } );
     ASSERT_NE( onOne, warnings.end() ) << Joined( warnings );
     const EG::WarningTarget one = EG::WarningTargetOf( canvas, graph, *onOne );
     ASSERT_NE( one.Link, EG::ElementId::Invalid );
@@ -725,8 +725,8 @@ TEST( AnimGraphValidation, TheNthTransitionIsNotTheNthLink )
 
     // And the finding about transition 0 -- which has no link -- must still be reachable, through the
     // state it belongs to. A finding nothing can be clicked on is a finding the strip cannot act on.
-    const auto onZero = std::find_if( warnings.begin(), warnings.end(), []( const G::GraphWarning& w )
-                                      { return w.Transition == 0; } );
+    const auto onZero = std::find_if( warnings.begin(), warnings.end(),
+                                      []( const G::GraphWarning& w ) { return w.Transition == 0; } );
     ASSERT_NE( onZero, warnings.end() ) << Joined( warnings );
     const EG::WarningTarget zero = EG::WarningTargetOf( canvas, graph, *onZero );
     ASSERT_TRUE( zero.Valid() );
@@ -793,8 +793,8 @@ TEST( AnimGraphValidation, DeletingAStateDoesNotSendAWarningToItsNeighbour )
     const int selected = EG::StateOfNode( canvas, target.Node );
     ASSERT_GE( selected, 0 );
     EXPECT_EQ( graph.States[static_cast<size_t>( selected )].Name, "Aim" )
-         << "the warning about 'Aim' selects '"
-         << graph.States[static_cast<size_t>( selected )].Name << "' instead";
+         << "the warning about 'Aim' selects '" << graph.States[static_cast<size_t>( selected )].Name
+         << "' instead";
 }
 
 TEST( AnimGraphValidation, TheStripIsAControlAndNotJustText )
@@ -853,8 +853,8 @@ TEST( AnimGraphValidation, TheClipListIsDerivedOnceForThePickerAndForTheValidato
     {
         ++uses;
     }
-    EXPECT_EQ( uses, 2u ) << "the draw and the document actions no longer share one clip list (found "
-                          << uses << " uses)";
+    EXPECT_EQ( uses, 2u ) << "the draw and the document actions no longer share one clip list (found " << uses
+                          << " uses)";
     EXPECT_NE( source.find( "m_Library->GetForSkeleton( anim.Animator->GetSkeleton() )" ), std::string::npos )
          << "the one derivation no longer asks the library the way AnimationECSSystem does";
 }

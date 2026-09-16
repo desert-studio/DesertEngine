@@ -302,11 +302,10 @@ namespace Desert::Editor
         }
 
         const std::vector<std::string> clipNames = ResolveClipNames( *anim );
-        const G::ClipSet clips{ anim->Animator != nullptr && m_Library != nullptr, clipNames };
+        const G::ClipSet               clips{ anim->Animator != nullptr && m_Library != nullptr, clipNames };
         for ( const auto& warning : G::Validate( *anim->Graph, clips ) )
         {
-            actions.push_back( { "Reveal: " + warning.Text,
-                                 [this, warning]
+            actions.push_back( { "Reveal: " + warning.Text, [this, warning]
                                  {
                                      // RE-RESOLVED, not captured: the component can be gone by the time an
                                      // entry built for the palette is run, and a graph captured by
@@ -440,7 +439,7 @@ namespace Desert::Editor
     }
 
     void AnimGraphPanel::DrawWarningStrip( const G::AnimGraph&                 graph,
-                                          const std::vector<G::GraphWarning>& warnings )
+                                           const std::vector<G::GraphWarning>& warnings )
     {
         if ( warnings.empty() )
         {
@@ -471,10 +470,10 @@ namespace Desert::Editor
             // drawing the icon plus two spaces in front of it is how a hit box ends up one line shorter
             // than its sentence: the icon is what pushes a borderline sentence onto a second line, and
             // the bottom line would then not be clickable while looking exactly as if it were.
-            const std::string line   = std::string( ICON_MDI_ALERT "  " ) + warning.Text;
-            const float       avail  = ImGui::GetContentRegionAvail().x;
-            const ImVec2 textSize = ImGui::CalcTextSize( line.c_str(), nullptr, false, avail );
-            const ImVec2 before   = ImGui::GetCursorPos();
+            const std::string line     = std::string( ICON_MDI_ALERT "  " ) + warning.Text;
+            const float       avail    = ImGui::GetContentRegionAvail().x;
+            const ImVec2      textSize = ImGui::CalcTextSize( line.c_str(), nullptr, false, avail );
+            const ImVec2      before   = ImGui::GetCursorPos();
 
             // SELECTABLE UNDER THE TEXT RATHER THAN AROUND IT, because `Selectable` does not wrap and
             // `TextWrapped` is not a control. Un-wrapped the sentence ran off the document's right edge
@@ -482,8 +481,8 @@ namespace Desert::Editor
             // which is a warning that reports a problem without saying which one. Measured from the
             // editor: the first frame ever taken of this strip showed exactly that. So the hit box is
             // sized to the WRAPPED text and the text is drawn back over it.
-            const bool clicked = ImGui::Selectable( "##agw", false, ImGuiSelectableFlags_None,
-                                                    ImVec2( 0.0f, textSize.y ) );
+            const bool clicked =
+                 ImGui::Selectable( "##agw", false, ImGuiSelectableFlags_None, ImVec2( 0.0f, textSize.y ) );
             Utils::ImGuiUtilities::Tooltip( "Select this on the canvas" );
 
             const ImVec2 after = ImGui::GetCursorPos();

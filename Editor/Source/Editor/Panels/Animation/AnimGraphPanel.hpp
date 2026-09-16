@@ -32,7 +32,7 @@ namespace Desert::Animation::Graph
 {
     struct AnimGraph;
     struct GraphWarning;
-}
+} // namespace Desert::Animation::Graph
 namespace Desert::ECS
 {
     struct AnimationComponent;
@@ -159,7 +159,7 @@ namespace Desert::Editor
         /// strip from a wall of text into a way to reach the control that fixes the finding — and what
         /// finally gives `GraphWarning::State` and `::Transition` a reader; they were computed for every
         /// finding and read by nothing at all.
-        void RevealWarning( const Animation::Graph::AnimGraph& graph,
+        void RevealWarning( const Animation::Graph::AnimGraph&    graph,
                             const Animation::Graph::GraphWarning& warning );
 
         /// The height `DrawWarningStrip` will take for @p count findings, so the canvas above it can be
