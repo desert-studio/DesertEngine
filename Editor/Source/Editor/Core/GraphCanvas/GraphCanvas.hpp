@@ -54,10 +54,10 @@ namespace Desert::Editor::Graph
     };
 
     inline constexpr uint64_t kKindSpan = 0x2000'0000ULL;
-    inline constexpr uint64_t kNodeBase = 1ULL;                // 0 is Invalid, so the node range starts at 1
-    inline constexpr uint64_t kPinBase  = kKindSpan;           // 0x2000'0000
-    inline constexpr uint64_t kLinkBase = kKindSpan * 2ULL;    // 0x4000'0000
-    inline constexpr uint64_t kEndOfIds = kKindSpan * 3ULL;    // one past the last id any kind may take
+    inline constexpr uint64_t kNodeBase = 1ULL;             // 0 is Invalid, so the node range starts at 1
+    inline constexpr uint64_t kPinBase  = kKindSpan;        // 0x2000'0000
+    inline constexpr uint64_t kLinkBase = kKindSpan * 2ULL; // 0x4000'0000
+    inline constexpr uint64_t kEndOfIds = kKindSpan * 3ULL; // one past the last id any kind may take
 
     /// The range an id belongs to. An id outside every range answers `Node`, which is what the shader
     /// graph's own small ids are — it is a RANGE question and not a claim about a particular document.
@@ -158,8 +158,8 @@ namespace Desert::Editor::Graph
     struct PlannedNode
     {
         ElementId   Id = ElementId::Invalid;
-        std::string Key;                  // the document's own name for this element
-        float       X            = 0.0f;  // the model's stored position
+        std::string Key;                 // the document's own name for this element
+        float       X            = 0.0f; // the model's stored position
         float       Y            = 0.0f;
         bool        PushPosition = false; // fresh: tell the canvas where this is, do not ask it
     };

@@ -94,9 +94,9 @@ namespace Desert::Editor::Graph
                 if ( target < 0 )
                     continue; // a transition to a name no state carries has nothing to draw between
 
-                const std::string key = TransitionKey( keys[static_cast<size_t>( i )],
-                                                       keys[static_cast<size_t>( target )] );
-                const Resolved    link = ids.Resolve( ElementKind::Link, key );
+                const std::string key =
+                     TransitionKey( keys[static_cast<size_t>( i )], keys[static_cast<size_t>( target )] );
+                const Resolved link = ids.Resolve( ElementKind::Link, key );
 
                 PlannedLink planned;
                 planned.Id      = link.Id;

@@ -162,7 +162,7 @@ namespace Desert::Editor
         // shifted every later state onto its neighbour's id, so the canvas handed back the neighbour's
         // position and the panel wrote it into the wrong state — one deletion moved the whole layout.
         // The map issues an id per state NAME, which is the identity the graph already resolves by.
-        Graph::ElementIdMap  m_Ids;
+        Graph::ElementIdMap    m_Ids;
         Graph::AnimGraphCanvas m_Canvas; // this frame's plan; the side panel reads it to map a selection
 
         // Framing the content waits for the frame after the first, because the canvas does not exist on

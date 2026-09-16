@@ -203,8 +203,8 @@ namespace Desert::Editor
             // another added, and two states sharing a name is not cosmetic: `Entry`, `Transition::To` and
             // `Evaluator::FindState` all resolve by string and all take the FIRST match, so the second
             // one is unreachable and plays the first one's clip with nothing said.
-            ns.Name = Graph::MakeUniqueStateName(
-                 *anim->Graph, "State_" + std::to_string( anim->Graph->States.size() ), -1 );
+            ns.Name = Graph::MakeUniqueStateName( *anim->Graph,
+                                                  "State_" + std::to_string( anim->Graph->States.size() ), -1 );
             anim->Graph->States.push_back( ns );
             MarkEdited();
         }
@@ -306,7 +306,7 @@ namespace Desert::Editor
             // handed back the neighbour's position and this line wrote it into the wrong state.
             // A drag is a layout change and nothing else: it must not mark the asset edited, or merely
             // looking at a graph would ask to be saved. Parity with what stood here.
-            ( void )Graph::PullNodePosition( planned, s.X, s.Y );
+            (void)Graph::PullNodePosition( planned, s.X, s.Y );
         }
 
         // --- Transition links ---
@@ -376,8 +376,7 @@ namespace Desert::Editor
             {
                 if ( ed::AcceptDeletedItem() )
                 {
-                    const int ni =
-                         Graph::StateOfNode( m_Canvas, static_cast<Graph::ElementId>( dn.Get() ) );
+                    const int ni = Graph::StateOfNode( m_Canvas, static_cast<Graph::ElementId>( dn.Get() ) );
                     if ( ni >= 0 )
                     {
                         const std::string gone = graph.States[ni].Name;

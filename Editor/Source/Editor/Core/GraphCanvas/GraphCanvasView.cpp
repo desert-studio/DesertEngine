@@ -104,7 +104,7 @@ namespace Desert::Editor::Graph
         if ( status.empty() )
             return;
         ImGui::SameLine();
-        ImGui::TextColored( isError ? ImVec4( 1.0f, 0.45f, 0.4f, 1.0f ) : ImVec4( 0.5f, 0.9f, 0.5f, 1.0f ),
-                            "%s", status.c_str() );
+        ImGui::TextColored( isError ? ImVec4( 1.0f, 0.45f, 0.4f, 1.0f ) : ImVec4( 0.5f, 0.9f, 0.5f, 1.0f ), "%s",
+                            status.c_str() );
     }
 } // namespace Desert::Editor::Graph

@@ -29,15 +29,15 @@ namespace Desert::Editor::Graph
             plan.Nodes.push_back( std::move( planned ) );
 
             for ( const auto& pin : node.Inputs )
-                ( void )ledger.See( static_cast<ElementId>( pin.Id ) );
+                (void)ledger.See( static_cast<ElementId>( pin.Id ) );
             for ( const auto& pin : node.Outputs )
-                ( void )ledger.See( static_cast<ElementId>( pin.Id ) );
+                (void)ledger.See( static_cast<ElementId>( pin.Id ) );
         }
 
         for ( const auto& link : doc.Links )
         {
             const auto id = static_cast<ElementId>( link.Id );
-            ( void )ledger.See( id );
+            (void)ledger.See( id );
 
             PlannedLink planned;
             planned.Id      = id;

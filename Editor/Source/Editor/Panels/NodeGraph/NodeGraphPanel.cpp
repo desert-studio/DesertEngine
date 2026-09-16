@@ -715,7 +715,7 @@ namespace Desert::Editor
             // The canvas is where a node IS while the window is open; the document is where it is
             // stored. One read per frame keeps them the same thing and removes Save's private copy of
             // this loop.
-            ( void )Graph::PullNodePosition( planned, node.X, node.Y );
+            (void)Graph::PullNodePosition( planned, node.X, node.Y );
         }
 
         // --- Links (coloured by the source pin's type) ---

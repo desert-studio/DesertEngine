@@ -176,7 +176,7 @@ TEST( GraphCanvasIdentity, DeletingOneStateMovesNoneOfTheOthers )
     GC::ElementIdMap    ids;
     CanvasPositionStore canvas;
 
-    ( void )DrawFrame( graph, ids, canvas ); // the document opens: every stored position goes in
+    (void)DrawFrame( graph, ids, canvas ); // the document opens: every stored position goes in
 
     std::vector<Position> before;
     for ( const auto& state : graph.States )
@@ -187,7 +187,7 @@ TEST( GraphCanvasIdentity, DeletingOneStateMovesNoneOfTheOthers )
     graph.States.erase( graph.States.begin() + 1 );
     before.erase( before.begin() + 1 );
 
-    ( void )DrawFrame( graph, ids, canvas );
+    (void)DrawFrame( graph, ids, canvas );
 
     int moved = 0;
     for ( size_t i = 0; i < graph.States.size(); ++i )
@@ -213,7 +213,7 @@ TEST( GraphCanvasIdentity, ADeletedStateTakesItsIdWithIt )
     G::AnimGraph     graph = GraphWithStates( 3 );
     GC::ElementIdMap ids;
 
-    const GC::AnimGraphCanvas first  = GC::PlanAnimGraph( graph, ids );
+    const GC::AnimGraphCanvas first    = GC::PlanAnimGraph( graph, ids );
     const GC::ElementId       secondId = first.StateNodes[1];
     const GC::ElementId       thirdId  = first.StateNodes[2];
 
@@ -309,7 +309,7 @@ TEST( GraphCanvasIdentity, AStateAddedAfterTheFirstFrameStillGetsItsStoredPositi
     GC::ElementIdMap    ids;
     CanvasPositionStore canvas;
 
-    ( void )DrawFrame( graph, ids, canvas );
+    (void)DrawFrame( graph, ids, canvas );
 
     G::State late;
     late.Name = "Late";
@@ -332,7 +332,7 @@ TEST( GraphCanvasIdentity, TwoStatesSharingANameGetTwoIds )
 {
     // A `.danimgraph` is a text file, so this can arrive from disk however carefully the editor keeps
     // names unique. Handing one id to two nodes makes the canvas draw one of them and lose the other.
-    G::AnimGraph graph = GraphWithStates( 2 );
+    G::AnimGraph graph   = GraphWithStates( 2 );
     graph.States[1].Name = graph.States[0].Name;
 
     GC::ElementIdMap          ids;
@@ -459,15 +459,15 @@ TEST( GraphCanvasIdentity, EveryCommittedAnimGraphPlansToTheSameCanvasTwice )
         const auto parsed = G::Deserialize( ReadAll( file ) );
         ASSERT_TRUE( parsed.IsSuccess() ) << file.filename().string() << ": " << parsed.GetError();
 
-        GC::ElementIdMap  firstIds;
-        GC::ElementIdMap  secondIds;
+        GC::ElementIdMap   firstIds;
+        GC::ElementIdMap   secondIds;
         const G::AnimGraph graph = parsed.GetValue();
 
         const uint64_t a = GC::Fingerprint( GC::PlanAnimGraph( graph, firstIds ).Plan );
         const uint64_t b = GC::Fingerprint( GC::PlanAnimGraph( graph, secondIds ).Plan );
 
-        std::printf( "[GraphCanvasIdentity] %-28s canvas fnv1a=%016llx\n",
-                     file.filename().string().c_str(), static_cast<unsigned long long>( a ) );
+        std::printf( "[GraphCanvasIdentity] %-28s canvas fnv1a=%016llx\n", file.filename().string().c_str(),
+                     static_cast<unsigned long long>( a ) );
 
         EXPECT_EQ( a, b ) << file.filename().string() << " planned to two different canvases";
     }
@@ -479,8 +479,7 @@ TEST( GraphCanvasIdentity, EveryCommittedShaderGraphPlansToTheSameCanvasTwice )
     ASSERT_FALSE( root.empty() );
 
     std::vector<std::filesystem::path> files;
-    for ( const auto& entry :
-          std::filesystem::recursive_directory_iterator( root / "Editor/Resources/Assets" ) )
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / "Editor/Resources/Assets" ) )
         if ( entry.path().extension() == ".dgraph" )
             files.push_back( entry.path() );
     std::sort( files.begin(), files.end() );
@@ -492,15 +491,15 @@ TEST( GraphCanvasIdentity, EveryCommittedShaderGraphPlansToTheSameCanvasTwice )
         const auto parsed = SGF::ParseShaderGraph( ReadAll( file ) );
         ASSERT_TRUE( parsed.IsSuccess() ) << file.filename().string() << ": " << parsed.GetError();
 
-        GC::ElementLedger  firstLedger;
-        GC::ElementLedger  secondLedger;
+        GC::ElementLedger   firstLedger;
+        GC::ElementLedger   secondLedger;
         const SGF::Document doc = parsed.GetValue();
 
         const uint64_t a = GC::Fingerprint( GC::PlanShaderGraph( doc, firstLedger ) );
         const uint64_t b = GC::Fingerprint( GC::PlanShaderGraph( doc, secondLedger ) );
 
-        std::printf( "[GraphCanvasIdentity] %-28s canvas fnv1a=%016llx\n",
-                     file.filename().string().c_str(), static_cast<unsigned long long>( a ) );
+        std::printf( "[GraphCanvasIdentity] %-28s canvas fnv1a=%016llx\n", file.filename().string().c_str(),
+                     static_cast<unsigned long long>( a ) );
 
         EXPECT_EQ( a, b ) << file.filename().string() << " planned to two different canvases";
     }
@@ -516,14 +515,14 @@ TEST( GraphCanvasIdentity, TheFingerprintNoticesWhatItIsFor )
     const uint64_t   base = GC::Fingerprint( GC::PlanAnimGraph( graph, ids ).Plan );
 
     {
-        G::AnimGraph     moved = GraphWithStates( 3 );
+        G::AnimGraph moved = GraphWithStates( 3 );
         moved.States[1].X += 1.0f;
         GC::ElementIdMap other;
         EXPECT_NE( GC::Fingerprint( GC::PlanAnimGraph( moved, other ).Plan ), base ) << "position";
     }
     {
-        G::AnimGraph     renamed = GraphWithStates( 3 );
-        renamed.States[1].Name   = "Other";
+        G::AnimGraph renamed   = GraphWithStates( 3 );
+        renamed.States[1].Name = "Other";
         GC::ElementIdMap other;
         EXPECT_NE( GC::Fingerprint( GC::PlanAnimGraph( renamed, other ).Plan ), base ) << "identity";
     }
