@@ -12,7 +12,7 @@
  *      operator's inputs."
  *
  * That is this file. The operator has exactly the shape `FAnimNode_ControlRigBase::ExecuteControlRig`
- * has (report 05 §640-646):
+ * has (report 05 §636-646):
  *
  *     UpdateInput(rig, pose);      // pose -> rig hierarchy      -> ControlHierarchy::Evaluate
  *     rig->Evaluate_AnyThread();   // the solve                  -> T5.5, and NOT here

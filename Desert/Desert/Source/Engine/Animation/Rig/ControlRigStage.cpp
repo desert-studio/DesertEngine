@@ -71,7 +71,7 @@ namespace Desert::Animation
     {
         m_LastError.clear();
 
-        // ---- the input hop: pose -> rig hierarchy (report 05 §642, `UpdateInput`) -----------------------
+        // ---- the input hop: pose -> rig hierarchy (report 05 §641, `UpdateInput`) -----------------------
         //
         // The stages before this one have just rewritten every bone of `pose`, so the component view's
         // cached matrices are the previous stage's — or the previous FRAME's. Dropping the flags here is
@@ -89,13 +89,13 @@ namespace Desert::Animation
             return Common::MakeError<bool>( m_LastError );
         }
 
-        // ---- the solve would be here (report 05 §643) ---------------------------------------------------
+        // ---- the solve would be here (report 05 §642) ---------------------------------------------------
         //
         // T5.5. Today a control reaches its bone through identity — `m_Global` composed by T5.1 IS the
         // bone's new transform — which is a rig whose forwards event is one "set transform" per control.
         // The seam does not change when the graph arrives; the body of the loop below does.
 
-        // ---- the output hop: rig hierarchy -> pose (report 05 §644, `UpdateOutput`) ---------------------
+        // ---- the output hop: rig hierarchy -> pose (report 05 §643, `UpdateOutput`) ---------------------
         m_Overrides.clear();
         m_Overrides.reserve( m_Drives.size() );
 
