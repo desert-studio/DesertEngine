@@ -70,4 +70,33 @@ namespace Desert::Editor::Graph
     /// unreachable and plays the first one's clip with nothing said. Nothing enforced it before.
     [[nodiscard]] std::string MakeUniqueStateName( const Animation::Graph::AnimGraph& graph,
                                                    const std::string& desired, int selfIndex );
+
+    /// A canvas position, in the node editor's coordinates. Not `ImVec2`: this header is compiled by a
+    /// suite that links no ImGui, which is the whole reason the unit exists apart from its panel.
+    struct StatePosition
+    {
+        float X = 0.0f;
+        float Y = 0.0f;
+    };
+
+    /// Where a state ADDED to @p graph right now should be put, so that it does not land on top of one
+    /// that is already there.
+    ///
+    /// `+ State` used to write (0, 0) into every new state. The second one therefore covered the first
+    /// exactly, and a node hidden under another node is not a cosmetic defect: it cannot be clicked, so
+    /// it cannot be given a clip, renamed or deleted, and the only way to reach it is to drag the one on
+    /// top away first — which nobody does, because nothing says it is there. The graph the layout is for
+    /// is the one §8 exists to make readable at thirty states.
+    ///
+    /// A GRID SCAN AND NOT "TO THE RIGHT OF THE LAST ONE": the rightmost-plus-a-step rule walks a graph
+    /// off into a strip nobody can frame, and it puts the new state back on top of a neighbour as soon
+    /// as the user has dragged things around. This asks which grid cell is free, which is true whatever
+    /// the user did with the mouse.
+    [[nodiscard]] StatePosition NextStatePosition( const Animation::Graph::AnimGraph& graph );
+
+    /// The grid `NextStatePosition` places on. Named here because the test asserts separation in terms
+    /// of them, and a test that spelled its own numbers would pass while the panel drifted.
+    inline constexpr float kStateGridStepX  = 240.0f;
+    inline constexpr float kStateGridStepY  = 130.0f;
+    inline constexpr int   kStateGridColumns = 5;
 } // namespace Desert::Editor::Graph

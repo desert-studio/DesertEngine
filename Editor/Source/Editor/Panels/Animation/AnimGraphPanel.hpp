@@ -7,9 +7,12 @@
 
 #include <Common/Core/UUID.hpp>
 
+#include <cstdint>
+
 #include <Engine/Assets/Common.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,6 +27,10 @@ namespace Desert::Core
 namespace Desert::Animation
 {
     class AnimationLibrary;
+}
+namespace Desert::Animation::Graph
+{
+    struct GraphWarning;
 }
 namespace Desert::ECS
 {
@@ -129,9 +136,21 @@ namespace Desert::Editor
         // cannot disagree.
         [[nodiscard]] ECS::AnimationComponent* ResolveComponent() const;
 
-        /// @p width is passed rather than taken from the child window that used to wrap this: see the
-        /// note at the call site, and `Graph::DeferredFrameAll` for what the child was costing.
-        void DrawCanvas( ECS::AnimationComponent& anim, float width );
+        /// @p width and @p height are passed rather than taken from the child window that used to wrap
+        /// this: see the note at the call site, and `Graph::DeferredFrameAll` for what the child was
+        /// costing. The height is given because the warning strip below the canvas has to be reserved
+        /// BEFORE the canvas is drawn, and a canvas that took "the rest of the window" would sit on it.
+        void DrawCanvas( ECS::AnimationComponent& anim, float width, float height );
+
+        /// The ⚠ strip of §8.2: what `Animation::Graph::Validate` found, drawn where a person authoring
+        /// the graph is looking. Returns nothing — it is the LAST thing drawn — and takes the findings
+        /// rather than the graph, because the deciding belongs to a unit with no ImGui in it.
+        void DrawWarningStrip( const std::vector<Animation::Graph::GraphWarning>& warnings );
+
+        /// The height `DrawWarningStrip` will take for @p count findings, so the canvas above it can be
+        /// made that much shorter. One function answers both questions, because a reserved height and a
+        /// drawn height that are computed separately are two numbers that drift by a pixel a release.
+        [[nodiscard]] static float WarningStripHeight( size_t count );
 
         // The `.danimgraph` this entity names, or nullptr. ONE resolution, so "what the canvas draws" and
         // "what Save writes" can never be two different graphs.
@@ -156,6 +175,17 @@ namespace Desert::Editor
         Assets::AssetManager*                m_AssetManager = nullptr;
         std::string                          m_Status; // last save result line
         bool                                 m_StatusIsError = false;
+
+        // THE ● OF THE §8.2 HEADER: the asset revision as of the last write to disk. Unset until the
+        // first frame, because the asset is reached through the scene and the scene is not resolvable at
+        // construction. The ASSET's revision and not a flag of this window's own, so that an edit made in
+        // a second window over the SAME .danimgraph also shows here — which is the whole point of a graph
+        // being one shared object (§5.1).
+        //
+        // IT IS CONSERVATIVE IN ONE DIRECTION, said out loud: `AnimGraphAsset::Load` bumps the revision
+        // too, so re-loading the file from disk under an open window shows the dot until the next Save.
+        // That errs towards asking for a write that is not needed, never towards hiding one that is.
+        std::optional<uint32_t> m_SavedRevision;
         ax::NodeEditor::EditorContext*       m_Context = nullptr;
 
         // CANVAS IDENTITY, AND IT IS NOT AN INDEX. `NodeId( i ) = i + 1` meant that deleting a state

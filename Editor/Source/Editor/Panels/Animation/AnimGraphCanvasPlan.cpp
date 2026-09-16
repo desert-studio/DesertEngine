@@ -1,6 +1,7 @@
 #include "AnimGraphCanvasPlan.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace Desert::Editor::Graph
 {
@@ -173,5 +174,36 @@ namespace Desert::Editor::Graph
                 return candidate;
         }
         return base; // unreachable: N+1 candidates against at most N occupied names
+    }
+
+    StatePosition NextStatePosition( const G::AnimGraph& graph )
+    {
+        // Half a step in each axis. A cell is "taken" when an existing state sits closer to its centre
+        // than that, which is the same thing as saying the two nodes would visually collide.
+        const auto occupied = [&]( const StatePosition& cell )
+        {
+            for ( const auto& state : graph.States )
+            {
+                if ( std::abs( state.X - cell.X ) < kStateGridStepX * 0.5f &&
+                     std::abs( state.Y - cell.Y ) < kStateGridStepY * 0.5f )
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // BOUNDED BY N + 1, and that bound is a proof rather than a guess: a point lies within half a
+        // step of at most one grid centre per axis, so N states can take at most N cells, and one of the
+        // first N + 1 cells is therefore free. The same argument `MakeUniqueStateName` runs.
+        const int cells = static_cast<int>( graph.States.size() ) + 1;
+        for ( int cell = 0; cell < cells; ++cell )
+        {
+            const StatePosition candidate{ static_cast<float>( cell % kStateGridColumns ) * kStateGridStepX,
+                                           static_cast<float>( cell / kStateGridColumns ) * kStateGridStepY };
+            if ( !occupied( candidate ) )
+                return candidate;
+        }
+        return {}; // unreachable, by the bound above
     }
 } // namespace Desert::Editor::Graph

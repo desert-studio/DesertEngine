@@ -12,6 +12,9 @@ project(test_name)
         test_files,
         -- Compile the unit under test directly (pure CPU; the rfl serialization .cpp is NOT needed here).
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
+        -- The evaluator delegates its structure check to the validator (ONE spelling of "which
+        -- conditions name an undeclared parameter"), so the two units link together everywhere.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp",
     }
 
     includedirs {
