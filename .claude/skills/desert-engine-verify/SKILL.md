@@ -239,6 +239,15 @@ deleting it oversubscribes the machine for everyone. If a lock looks dead, say s
 it — both of these happened on 2026-09-07, one costing hours and one costing a window of
 oversubscription.
 
+**AND DO NOT RUN THE EDITOR WHILE THE SWEEP IS RUNNING, EITHER.** Several censuses walk the CONTENT
+ON DISK — `SceneVersionGateCorpus` reads every `.desce`, `AnimationClipCorpus` every `.anim` — and a
+live editor writes autosaves into that same tree. Measured 2026-09-16: an editor left over from an
+earlier build wrote `Scenes/Autosave/*.desce` at the pre-bump schema while the sweep was walking them,
+and `SceneVersionGate` came back red for a reason that had nothing to do with the merge under test; the
+suite was 12/12 green the moment it was re-run alone. Same family as the commit rule above — **your own
+activity moved the thing the instrument measures** — and the same cure: one at a time, and re-run
+before believing a red.
+
 **AND DO NOT COMMIT WHILE THE SWEEP IS RUNNING.** `BuildVersion` compares the built
 `Version.gen.hpp` against the CURRENT head, so a commit made mid-sweep turns that suite red for a
 reason that has nothing to do with the work under test — measured 2026-09-16, where a two-file commit

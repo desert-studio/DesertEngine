@@ -75,6 +75,29 @@ namespace Desert::Editor
         }
 
         const char* kTypeNames[] = { "Bool", "Int", "Float" };
+
+        // THE COMBO IS AS WIDE AS ITS WIDEST LABEL, AND THAT IS A DERIVATION RATHER THAN A NUMBER.
+        // It was 55 px flat: the arrow button alone is a frame height, so the text got roughly 28 px and
+        // "Bool" only just fitted while "Float" was cut — reported from the editor, not from a test,
+        // because nothing here asserts that a label is legible. A hard number also cannot survive the
+        // next entry in kTypeNames: whoever adds "Trigger" would have to remember this line, and the
+        // failure would again be silent and visual. Asking ImGui for the widest label cannot drift.
+        float TypeComboWidth()
+        {
+            float widest = 0.0F;
+            for ( const char* name : kTypeNames )
+            {
+                // Plain comparison rather than ImMax: that one lives in imgui_internal.h, which this
+                // file does not include, and reaching for it is how IM_PI broke the launcher build.
+                const float width = ImGui::CalcTextSize( name ).x;
+                if ( width > widest )
+                {
+                    widest = width;
+                }
+            }
+            // text + both frame paddings + the arrow button, which is square and a frame tall
+            return widest + ( ImGui::GetStyle().FramePadding.x * 2.0F ) + ImGui::GetFrameHeight();
+        }
         const char* kOpNames[]   = { ">", "<", ">=", "<=", "==", "!=", "is true", "is false" };
     } // namespace
 
@@ -440,10 +463,17 @@ namespace Desert::Editor
             auto& p = graph.Parameters[i];
             ImGui::PushID( i );
             ImGui::SetNextItemWidth( 90 );
-            dirty |= Utils::ImGuiUtilities::Property( "##pn", p.Name );
+            // InputText, NOT Property. `Property` is the two-COLUMN row helper: it prints the name with
+            // TextUnformatted and calls NextColumn twice, so "##pn" — ImGui's "hide this label" spelling —
+            // was drawn on screen as the literal text `##pn`, the NextColumn calls ran outside any columns
+            // block, and its own PushItemWidth( -1 ) overrode the SetNextItemWidth( 90 ) one line above.
+            // Three symptoms, one misuse. `InputText` takes the id AS the ImGui label, so `##` hides it the
+            // way it is meant to. Reported from the editor by the owner; nothing here asserts that a row is
+            // legible, which is why it survived.
+            dirty |= Utils::ImGuiUtilities::InputText( p.Name, "##pn" );
             ImGui::SameLine();
-            ImGui::SetNextItemWidth( 55 );
-            dirty |= ImGui::Combo( "##pt", &p.Type, kTypeNames, 3 );
+            ImGui::SetNextItemWidth( TypeComboWidth() );
+            dirty |= ImGui::Combo( "##pt", &p.Type, kTypeNames, IM_ARRAYSIZE( kTypeNames ) );
             ImGui::SameLine();
             ImGui::SetNextItemWidth( 70 );
             float live = eval ? eval->GetFloat( p.Name ) : p.Default;
