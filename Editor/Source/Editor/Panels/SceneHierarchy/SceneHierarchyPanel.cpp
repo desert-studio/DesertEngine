@@ -8,8 +8,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Core/Serialize/GLMReflect.hpp>
-#include <Engine/Core/Serialize/CustomReflect.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <rflcpp/rfl/json.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Geometry/ProceduralCharacterFactory.hpp>

@@ -292,9 +292,13 @@ namespace Desert::Animation
             draw.World   = hierarchy.GetGlobalTransform( control );
 
             // THE PLACEMENT, AND IT IS THE WHOLE CLAIM OF THIS TIER: report 01 §(a)6 composes a shape as
-            // the library's transform under the control's global. There is no third term, because a
-            // per-control shape transform is state T5.1 deliberately does not carry.
-            const glm::mat4 placement = draw.World * shape->Transform;
+            // `LibraryShapeTransform * ControlShapeTransform * ControlGlobalTransform`, which in this
+            // engine's column-vector spelling is the product below. The middle term is the control's OWN
+            // size and orientation for its shape, and it is deliberately applied HERE and nowhere else:
+            // `draw.World` is read straight from the hierarchy and is not touched by it, so a resize
+            // cannot move the control. Sizing through `Offset.Scale` instead does move it — measured, 8x
+            // put the shape at 182.9 units where the animator asked for 26.4.
+            const glm::mat4 placement = draw.World * element.ShapeTransform.ToMatrix() * shape->Transform;
 
             for ( const ControlShapePolyline& run : shape->Polylines )
             {

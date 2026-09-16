@@ -43,8 +43,7 @@
 #include <Engine/Assets/MaterialData.hpp>
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: the glm/UUID adapters plus the json backend.
-#include <Engine/Core/Serialize/GLMReflect.hpp>
-#include <Engine/Core/Serialize/CustomReflect.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>

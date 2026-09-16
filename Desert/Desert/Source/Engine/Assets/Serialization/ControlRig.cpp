@@ -62,8 +62,14 @@ namespace Desert::Assets::Serialization
                        "every ControlSpaceKind must have exactly one spelling in the file; a kind with no "
                        "row is a rig this format can hold in memory and cannot write" );
 
+        /// @param zeroScaleReason why a zero scale component is fatal FOR THIS FIELD. A parameter and not a
+        /// sentence baked in here, because the two answers are genuinely different — a zero in an offset
+        /// or a pose is a parent space that cannot be inverted, a zero in a shape transform is a control
+        /// drawn flat — and one message covering both would be wrong about one of them. "A comment is not
+        /// the code" applies to a refusal's text too: it is the only thing the rigger gets.
         [[nodiscard]] Common::BoolResultStr FiniteTransform( const std::string& control, const std::string& which,
-                                                             const RigTransformData& t )
+                                                             const RigTransformData& t,
+                                                             const std::string&      zeroScaleReason )
         {
             // A non-finite transform is a control whose global is NaN: it draws nothing, hit-tests to
             // nothing, and drives its bone to a matrix that poisons every skinning weight it touches. The
@@ -86,10 +92,10 @@ namespace Desert::Assets::Serialization
             }
             if ( t.Scale.x == 0.0f || t.Scale.y == 0.0f || t.Scale.z == 0.0f )
             {
-                return Common::MakeFormattedError<bool>(
-                     "control '{}' has a zero component in its {} scale ({}, {}, {}); the parent space it "
-                     "builds cannot be inverted, so a drag on it or on any child would have no answer",
-                     control, which, t.Scale.x, t.Scale.y, t.Scale.z );
+                return Common::MakeFormattedError<bool>( "control '{}' has a zero component in its {} scale "
+                                                         "({}, {}, {}); {}",
+                                                         control, which, t.Scale.x, t.Scale.y, t.Scale.z,
+                                                         zeroScaleReason );
             }
             return Common::MakeSuccess( true );
         }
@@ -273,13 +279,29 @@ namespace Desert::Assets::Serialization
                      control.Name );
             }
 
-            if ( auto ok = FiniteTransform( control.Name, "offset", control.Offset ); !ok )
+            constexpr const char* kSpaceReason = "the parent space it builds cannot be inverted, so a drag "
+                                                 "on it or on any child would have no answer";
+            if ( auto ok = FiniteTransform( control.Name, "offset", control.Offset, kSpaceReason ); !ok )
             {
                 return ok;
             }
-            if ( auto ok = FiniteTransform( control.Name, "pose", control.Pose ); !ok )
+            if ( auto ok = FiniteTransform( control.Name, "pose", control.Pose, kSpaceReason ); !ok )
             {
                 return ok;
+            }
+            if ( control.ShapeTransform.has_value() )
+            {
+                // REFUSED AND NOT CLAMPED. A flattened shape draws as a line or a point: invisible at any
+                // zoom and unhittable, which is the identical symptom to a typo'd shape name that this
+                // format already refuses by name. A knob that can reach that state silently would be the
+                // "a knob that hides a defect instead of fixing it" the contract forbids.
+                if ( auto ok = FiniteTransform( control.Name, "shape transform", *control.ShapeTransform,
+                                                "a shape scaled to zero on an axis draws flat, which is a "
+                                                "control the animator can neither see nor grab" );
+                     !ok )
+                {
+                    return ok;
+                }
             }
         }
 
@@ -510,8 +532,12 @@ namespace Desert::Assets::Serialization
             Animation::ControlElement element;
             element.Name      = file.Name;
             element.ShapeName = file.ShapeName;
-            element.Offset    = ToBoneTransform( file.Offset );
-            element.Pose      = ToBoneTransform( file.Pose );
+            // ABSENT IS IDENTITY, spelled once, here. `RigTransformData{}` is the identity TRS (scale one,
+            // unit quaternion), which is exactly the composition BuildFrame performed before this field
+            // existed — that equivalence is what lets `kControlRigVersion` stay at 1.
+            element.ShapeTransform = ToBoneTransform( file.ShapeTransform.value_or( RigTransformData{} ) );
+            element.Offset         = ToBoneTransform( file.Offset );
+            element.Pose           = ToBoneTransform( file.Pose );
             element.Parents.reserve( file.Parents.size() );
 
             for ( const ControlSpaceData& space : file.Parents )
@@ -617,6 +643,16 @@ namespace Desert::Assets::Serialization
             file.ShapeName = control.ShapeName;
             file.Offset    = FromBoneTransform( control.Offset );
             file.Pose      = FromBoneTransform( control.Pose );
+
+            // THE CANONICAL SPELLING OF "no shape transform" IS THE ABSENT FIELD, chosen once and here.
+            // Both spellings are legal input and build the same control, so the writer picks one: a rig
+            // whose controls are all default does not grow a block of ones per control, and a generation-1
+            // file round-trips through this function unchanged instead of gaining fields it never had.
+            if ( const RigTransformData shape = FromBoneTransform( control.ShapeTransform );
+                 shape != RigTransformData{} )
+            {
+                file.ShapeTransform = shape;
+            }
             file.Parents.reserve( control.Parents.size() );
 
             for ( const Animation::ControlSpace& slot : control.Parents )

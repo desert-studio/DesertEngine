@@ -16,6 +16,10 @@
 //   * THE HIT TEST SAYS NO — the positive control is a pointer far from any shape, and the sharper one
 //     is a pointer at the CENTRE of a big circle: a bounding-box test passes "I grabbed it" there, and
 //     a rim test must not.
+//   * SIZE IS NOT PLACEMENT (A13). A per-control `ShapeTransform` scales the drawing and must leave the
+//     control's global BIT-IDENTICAL. That second half is the whole test: a suite that only checked the
+//     drawn radius would pass on the implementation this field exists to replace — sizing through
+//     `Offset.Scale`, which moved a control to 182.9 units where the animator asked for 26.4.
 //
 // The camera is built through `Desert::Core::MakePerspective`, so the suite runs against the engine's
 // real reversed-Z convention rather than a convenient one.
@@ -125,10 +129,11 @@ namespace
     /**
      * @brief The built-ins plus one entry that is @p base scaled by @p size.
      *
-     * SIZE COMES FROM THE LIBRARY AND NOT FROM THE CONTROL'S OFFSET, and this helper is where the suite
-     * says so. Sizing by `Offset.Scale` was tried first and is measured wrong: the offset's scale also
-     * multiplies the pose's translation, so a control sized 8x moved 182.9 units where the animator asked
-     * for 26.4. See the note at the top of ControlShape.hpp.
+     * A LIBRARY entry's size is shared by every control that names it; A13 added the per-control term
+     * beside it. Both are here so the suite can assert they COMPOSE rather than that either one works
+     * alone. Neither is `Offset.Scale`, which was tried first and is measured wrong: the offset's scale
+     * also multiplies the pose's translation, so a control sized 8x moved 182.9 units where the animator
+     * asked for 26.4. See the note at the top of ControlShape.hpp.
      */
     ControlShapeLibrary LibraryWithSized( const char* newName, const char* base, float size )
     {
@@ -262,8 +267,10 @@ TEST( ControlManipulatorTest, TheShapeIsDrawnWhereTheControlIsAndNotNearIt )
     ASSERT_EQ( draw.WorldPoints.size(), circle->Polylines.front().Points.size() );
     EXPECT_GT( glm::length( draw.WorldPoints.front() - circle->Polylines.front().Points.front() ), 1.0F );
 
-    // ...and the composition is exactly `global * libraryTransform * point`, term for term.
-    const glm::mat4 placement = rig.GetGlobalTransform( control ) * circle->Transform;
+    // ...and the composition is exactly `global * shapeTransform * libraryTransform * point`, term for
+    // term. This control's shape transform is identity, which is what a rig that names no size means.
+    const glm::mat4 placement =
+         rig.GetGlobalTransform( control ) * rig.Get( control ).ShapeTransform.ToMatrix() * circle->Transform;
     for ( size_t i = 0; i < draw.WorldPoints.size(); ++i )
     {
         const glm::vec3 expected = glm::vec3( placement * glm::vec4( circle->Polylines.front().Points[i], 1.0F ) );
@@ -286,6 +293,126 @@ TEST( ControlManipulatorTest, TheShapeIsDrawnWhereTheControlIsAndNotNearIt )
                             PositionOf( rig.GetGlobalTransform( control ) ) ),
                1e-3F )
          << "the drawing must still be centred on the control after it moved";
+}
+
+// ── size (A13) ─────────────────────────────────────────────────────────────────────────────────────
+
+TEST( ControlManipulatorTest, TheShapeTransformSizesTheDrawingAndTheSizeIsArithmeticNotImpression )
+{
+    const Skeleton            skeleton = MakeRig();
+    const LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = LibraryWithSized( "Circle3", "CircleXY", 3.0F );
+
+    // Two controls at the same place, differing ONLY in their shape transform. Same library entry, so
+    // whatever the drawn radius turns out to be, the ratio between them is this field and nothing else.
+    ControlHierarchy     rig;
+    const ControlElement bare =
+         MakeControl( "bare_ctrl", "Circle3", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+    const uint32_t unsized = MustAdd( rig, bare );
+
+    ControlElement big =
+         MakeControl( "big_ctrl", "Circle3", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+    big.ShapeTransform.Scale = glm::vec3( 8.0F );
+    const uint32_t sized     = MustAdd( rig, big );
+    ASSERT_NE( sized, ControlHierarchy::INVALID );
+
+    rig.Evaluate( skeleton, pose );
+
+    const ManipulatorView view = MakeView( glm::vec3( 0.0F, 0.0F, 300.0F ), glm::vec3( 0.0F ) );
+    ManipulatorFrame      frame;
+    BuildFrame( rig, library, view, frame );
+    ASSERT_EQ( frame.Shapes.size(), 2U );
+
+    // THE NUMBER, NOT "IT GOT BIGGER". A unit circle under a library entry scaled 3 and a control scaled
+    // 8 is a circle of radius 24 world units — 24 cm — and every drawn point is exactly that far out.
+    for ( const auto& draw : frame.Shapes )
+    {
+        const float     expected = ( draw.Control == sized ) ? 24.0F : 3.0F;
+        const glm::vec3 origin   = PositionOf( draw.World );
+        for ( const glm::vec3& point : draw.WorldPoints )
+        {
+            EXPECT_NEAR( glm::length( point - origin ), expected, 1e-3F ) << "control " << draw.Control;
+        }
+    }
+
+    // THE TWO TERMS COMPOSE, they do not replace each other: the sized control is the library's own size
+    // times its own, which is the term-for-term claim report 01 §(a)6 makes.
+    const ControlShape* entry = library.Find( "Circle3" );
+    ASSERT_NE( entry, nullptr );
+    for ( const auto& draw : frame.Shapes )
+    {
+        const glm::mat4 placement =
+             draw.World * rig.Get( draw.Control ).ShapeTransform.ToMatrix() * entry->Transform;
+        for ( size_t i = 0; i < draw.WorldPoints.size(); ++i )
+        {
+            const glm::vec3 expected =
+                 glm::vec3( placement * glm::vec4( entry->Polylines.front().Points[i], 1.0F ) );
+            EXPECT_LT( glm::length( draw.WorldPoints[i] - expected ), 1e-3F ) << "point " << i;
+        }
+    }
+
+    // AND IT REACHES THE PIXELS THE ANIMATOR GRABS. The unsized control's rim is inside the hit radius of
+    // its own ORIGIN, so a test on screen distance alone would pass for both; the sized one's rim is
+    // tens of pixels out, and the hit test finds it there. This is the "visible and hittable" half.
+    const auto& sizedDraw = ( frame.Shapes[0].Control == sized ) ? frame.Shapes[0] : frame.Shapes[1];
+    const auto& bareDraw  = ( frame.Shapes[0].Control == sized ) ? frame.Shapes[1] : frame.Shapes[0];
+    // Both circles lie in the same z plane at the same depth, so the pixel ratio is the world ratio
+    // exactly rather than approximately; asserting 8 to a tenth of a pixel is therefore honest.
+    EXPECT_NEAR( sizedDraw.ScreenRadius, 8.0F * bareDraw.ScreenRadius, 0.1F );
+    EXPECT_GT( sizedDraw.ScreenRadius, 10.0F ) << "a control smaller than the grab radius cannot be aimed at";
+    EXPECT_LT( bareDraw.ScreenRadius, 10.0F ) << "the premise: an unsized control is a mark, and this is it";
+
+    const glm::vec2 rim = sizedDraw.Origin.Pixel + glm::vec2( sizedDraw.ScreenRadius, 0.0F );
+    EXPECT_EQ( HitTest( frame, rim, 4.0F ).Control, sized ) << "the rim of a sized control is grabbable";
+    EXPECT_EQ( unsized, rig.Find( "bare_ctrl" ) );
+}
+
+TEST( ControlManipulatorTest, SizingAControlDoesNotMoveIt )
+{
+    // THE POSITIVE CONTROL AGAINST THE DEFECT THIS FIELD EXISTS TO AVOID. Both halves are here on
+    // purpose: the first asserts the shape transform leaves the pose alone, and the second BUILDS the
+    // rejected implementation — size through `Offset.Scale` — and shows this same assertion catching it.
+    // Without the second half the first is a test that would have passed on the defect.
+    const Skeleton  skeleton = MakeRig();
+    const LocalPose local    = PoseWithChestAt( glm::vec3( 0.0F ) );
+
+    BoneTransform animated;
+    animated.Translation = glm::vec3( 26.4F, 0.0F, 0.0F );
+
+    const auto globalOf = [&skeleton, &local]( const ControlElement& authored, const BoneTransform& animatedPose )
+    {
+        ComponentPose    scratch( skeleton, local );
+        ControlHierarchy rig;
+        auto             added = rig.Add( authored );
+        EXPECT_TRUE( added.IsSuccess() ) << added.GetError();
+        rig.Evaluate( skeleton, scratch );
+        EXPECT_TRUE( rig.SetPose( added.GetValue(), animatedPose ).IsSuccess() );
+        return rig.GetGlobalTransform( added.GetValue() );
+    };
+
+    const ControlElement plain =
+         MakeControl( "hand_ctrl", "CircleXY", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+
+    ControlElement sized       = plain;
+    sized.ShapeTransform.Scale = glm::vec3( 8.0F );
+
+    ControlElement viaOffset = plain;
+    viaOffset.Offset.Scale   = glm::vec3( 8.0F );
+
+    const glm::mat4 plainGlobal  = globalOf( plain, animated );
+    const glm::mat4 sizedGlobal  = globalOf( sized, animated );
+    const glm::mat4 offsetGlobal = globalOf( viaOffset, animated );
+
+    // BIT-IDENTICAL, not "close". The shape transform is read by the drawing and by nothing else, so
+    // there is no float path along which it could perturb the resolve, and == says exactly that.
+    EXPECT_EQ( sizedGlobal, plainGlobal ) << "a resize must not move the control";
+    EXPECT_EQ( PositionOf( sizedGlobal ), glm::vec3( 26.4F, 0.0F, 0.0F ) );
+
+    // ...and the rejected route moves it, by the factor it was sized with: 26.4 asked, 211.2 delivered.
+    EXPECT_NE( offsetGlobal, plainGlobal );
+    EXPECT_NEAR( PositionOf( offsetGlobal ).x, 211.2F, 1e-3F )
+         << "the offset's scale multiplies the POSE's translation; that is why size is not authored there";
 }
 
 TEST( ControlManipulatorTest, AShapeNameTheLibraryDoesNotHaveIsReportedAndNotSilentlySkipped )

@@ -5,6 +5,11 @@
     {
       "Name": "Elbow_CTRL",
       "ShapeName": "Diamond",
+      "ShapeTransform": {
+        "Translation": [0.0, 0.0, 0.0],
+        "Rotation": [1.0, 0.0, 0.0, 0.0],
+        "Scale": [10.0, 10.0, 10.0]
+      },
       "Offset": {
         "Translation": [-70.0, 0.0, 0.0],
         "Rotation": [1.0, 0.0, 0.0, 0.0],
@@ -22,6 +27,11 @@
     {
       "Name": "Hand_CTRL",
       "ShapeName": "CircleXY",
+      "ShapeTransform": {
+        "Translation": [0.0, 0.0, 0.0],
+        "Rotation": [1.0, 0.0, 0.0, 0.0],
+        "Scale": [18.0, 18.0, 18.0]
+      },
       "Offset": {
         "Translation": [-140.0, 170.0, 0.0],
         "Rotation": [1.0, 0.0, 0.0, 0.0],

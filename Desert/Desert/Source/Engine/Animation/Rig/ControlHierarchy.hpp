@@ -87,11 +87,21 @@ namespace Desert::Animation
      * `ShapeName` is a NAME resolved against a shape library, never geometry (§(a)6). A control that draws
      * nothing leaves it empty, and T5.2's manipulator layer is what will read it — this file must not know
      * what a shape looks like.
+     *
+     * `ShapeTransform` IS THE THIRD TERM, AND IT IS NOT `Offset`. UE composes a drawn control as
+     * `LibraryShapeTransform * ControlShapeTransform * ControlGlobalTransform` (report 01 §(a)6); we had
+     * the library's term and the control's global and nothing in between, so every built-in — authored at
+     * unit size — drew one CENTIMETRE wide, because 1 world unit is 1 cm. The obvious alternative is
+     * measured wrong rather than merely inelegant: sizing a control through `Offset.Scale` multiplies the
+     * POSE's translation too, and a control sized 8x put its shape at 182.9 units where the animator had
+     * asked for 26.4. So this is a separate value, it is read by NOTHING in this file, and that is the
+     * property T5.2's suite asserts — resizing a control must leave its global bit-identical.
      */
     struct ControlElement
     {
         std::string               Name;
         std::string               ShapeName;
+        BoneTransform             ShapeTransform;
         BoneTransform             Offset;
         BoneTransform             Pose;
         std::vector<ControlSpace> Parents;

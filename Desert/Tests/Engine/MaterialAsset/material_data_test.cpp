@@ -4,8 +4,7 @@
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: glm/UUID adapters + json backend.
-#include <Engine/Core/Serialize/GLMReflect.hpp>
-#include <Engine/Core/Serialize/CustomReflect.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <rflcpp/rfl/json.hpp>
 
 using Desert::Assets::MaterialData;

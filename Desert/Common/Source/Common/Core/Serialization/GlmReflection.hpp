@@ -1,5 +1,32 @@
 #pragma once
 
+/**
+ * THE ONE PLACE `rfl::Reflector` IS SPECIALISED IN THIS TREE. Do not add a second.
+ *
+ * There were THREE, and the third was found by the compiler while the second was being removed:
+ *
+ *   Engine/Core/Serialize/GLMReflect.hpp     vec2, vec3, vec4 — and no `quat`, no `mat4`
+ *   Engine/Core/Serialize/CustomReflect.hpp  UUID, AssetHandle
+ *
+ * Both were proper subsets of this file with the identical wire form, and the same thirteen translation
+ * units included the PAIR — which is why the collision stayed invisible: they only ever met this header
+ * in files that included neither.
+ *
+ * A specialisation of one template for one type in two headers is not a style question. Including both
+ * in one translation unit is ill-formed, so the two halves of the tree could never meet, and the header
+ * a developer happened to reach for silently decided which types they were allowed to serialise —
+ * `GLMReflect.hpp` could not spell a `glm::quat`, which is every rotation this engine stores. Nothing
+ * reported it; it was found by accident, while doing something else.
+ *
+ * WHY THIS HEADER IS THE SURVIVOR: it is the superset, and it lives in `Common`, which everything
+ * already links. A serialisation header that cannot spell a rotation is the one that has to grow.
+ *
+ * `Desert/Tests/Engine/ReflectorSingleSource` asserts the RELATION rather than this fix: "an
+ * `rfl::Reflector` specialisation exists in exactly one header of this tree", with the count derived
+ * from the files the walk finds, plus one named row per type so that "exactly one" cannot be satisfied
+ * by a header that has been emptied out. A one-off deletion is how a second source of truth comes back.
+ */
+
 #include <rflcpp/rfl.hpp>
 #include <rflcpp/rfl/json.hpp>
 
