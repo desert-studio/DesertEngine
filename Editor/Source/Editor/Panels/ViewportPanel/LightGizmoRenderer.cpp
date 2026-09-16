@@ -52,7 +52,9 @@ namespace Desert::Editor
 
             const Animation::ProjectedPoint projected = Animation::ProjectToViewport( view, world );
             if ( !projected.InFront )
+            {
                 return false;
+            }
 
             outScreen = projected.Pixel;
             return true;

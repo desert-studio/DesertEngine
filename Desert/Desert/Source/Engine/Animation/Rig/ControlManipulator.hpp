@@ -81,11 +81,11 @@ namespace Desert::Animation
      */
     struct ProjectedPoint
     {
-        glm::vec2 Pixel   = glm::vec2( 0.0F );
+        glm::vec2 Pixel = glm::vec2( 0.0F );
         /// NDC z as the projection produced it. Reported because a caller may have a use for it; nothing
         /// in this file compares two of them, because the sense of the axis is the projection's business.
-        float Depth = 0.0F;
-        bool      InFront = false;
+        float Depth   = 0.0F;
+        bool  InFront = false;
     };
 
     /// World -> viewport pixels. The one copy; see the file note.
@@ -112,12 +112,12 @@ namespace Desert::Animation
         uint32_t  Control = ControlHierarchy::INVALID;
         glm::mat4 World   = glm::mat4( 1.0F ); ///< the control's global transform, as this frame read it
 
-        std::vector<glm::vec3>  WorldPoints; ///< the shape's points placed in the world
-        std::vector<glm::uvec2> Segments;    ///< index pairs into WorldPoints, closing runs included
-        std::vector<ManipulatorSegment> Screen; ///< the visible part of each segment, in pixels
+        std::vector<glm::vec3>          WorldPoints; ///< the shape's points placed in the world
+        std::vector<glm::uvec2>         Segments;    ///< index pairs into WorldPoints, closing runs included
+        std::vector<ManipulatorSegment> Screen;      ///< the visible part of each segment, in pixels
 
-        ProjectedPoint Origin;                ///< the control's own origin, projected
-        float          ScreenRadius = 0.0F;   ///< furthest drawn pixel from Origin — the arcball's radius
+        ProjectedPoint Origin;              ///< the control's own origin, projected
+        float          ScreenRadius = 0.0F; ///< furthest drawn pixel from Origin — the arcball's radius
     };
 
     /**

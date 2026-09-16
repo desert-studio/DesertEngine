@@ -90,11 +90,10 @@ namespace
     ManipulatorView MakeView( const glm::vec3& eye, const glm::vec3& target )
     {
         ManipulatorView view;
-        view.ViewProjection = Desert::Core::MakePerspective( glm::radians( 60.0F ),
-                                                             kViewportWidth / kViewportHeight,
-                                                             Desert::Core::kDefaultNearPlane,
-                                                             Desert::Core::kDefaultFarPlane ) *
-                              glm::lookAt( eye, target, glm::vec3( 0.0F, 1.0F, 0.0F ) );
+        view.ViewProjection =
+             Desert::Core::MakePerspective( glm::radians( 60.0F ), kViewportWidth / kViewportHeight,
+                                            Desert::Core::kDefaultNearPlane, Desert::Core::kDefaultFarPlane ) *
+             glm::lookAt( eye, target, glm::vec3( 0.0F, 1.0F, 0.0F ) );
         view.ViewportOrigin = glm::vec2( 0.0F, 0.0F );
         view.ViewportSize   = glm::vec2( kViewportWidth, kViewportHeight );
         return view;
@@ -222,14 +221,14 @@ TEST( ControlManipulatorTest, ADegenerateShapeIsRefusedRatherThanRegistered )
 
 TEST( ControlManipulatorTest, TheShapeIsDrawnWhereTheControlIsAndNotNearIt )
 {
-    const Skeleton      skeleton = MakeRig();
-    LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
-    ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = LibraryWithSized( "Circle8", "CircleXY", 8.0F );
+    const Skeleton            skeleton = MakeRig();
+    const LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = LibraryWithSized( "Circle8", "CircleXY", 8.0F );
 
     ControlHierarchy rig;
-    ControlElement   hand = MakeControl( "hand_ctrl", "Circle8",
-                                         { ControlSpace{ ControlSpaceKind::Bone, 1, 1.0F } } );
+    ControlElement   hand =
+         MakeControl( "hand_ctrl", "Circle8", { ControlSpace{ ControlSpaceKind::Bone, 1, 1.0F } } );
     hand.Offset.Translation = glm::vec3( 0.0F, 0.0F, 10.0F );
     const uint32_t control  = MustAdd( rig, hand );
     ASSERT_NE( control, ControlHierarchy::INVALID );
@@ -291,10 +290,10 @@ TEST( ControlManipulatorTest, TheShapeIsDrawnWhereTheControlIsAndNotNearIt )
 
 TEST( ControlManipulatorTest, AShapeNameTheLibraryDoesNotHaveIsReportedAndNotSilentlySkipped )
 {
-    const Skeleton      skeleton = MakeRig();
-    LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
-    ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = MustBuiltIn();
+    const Skeleton            skeleton = MakeRig();
+    const LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = MustBuiltIn();
 
     ControlHierarchy rig;
     MustAdd( rig, MakeControl( "typo_ctrl", "Circl", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } ) );
@@ -341,16 +340,56 @@ TEST( ControlManipulatorTest, TheProjectionAgreesWithTheCameraAndRefusesWhatIsBe
     EXPECT_NEAR( shifted.Pixel.y - centre.Pixel.y, 91.0F, 1e-3F );
 }
 
+TEST( ControlManipulatorTest, TheProjectionIsTheCONVENTIONITREPLACED )
+{
+    // THE ONE THING A REFACTOR OWES: that the value did not move. `ProjectToViewport` replaced a private
+    // copy in `LightGizmoRenderer.cpp` (and a third, dead and unsafe, in `Common::Math::SpaceTransformer`),
+    // and twenty-odd call sites in the viewport overlay now go through it. The old body is written out
+    // here as a GOLDEN REFERENCE rather than trusted to have been copied correctly, because "I moved the
+    // same lines" is exactly the claim that an eye cannot check and that a picture of a bone gizmo landing
+    // roughly on a joint cannot either.
+    const ManipulatorView view = MakeView( glm::vec3( 120.0F, 90.0F, 400.0F ), glm::vec3( -30.0F, 10.0F, 0.0F ) );
+
+    const std::vector<glm::vec3> probes = { glm::vec3( 0.0F ),
+                                            glm::vec3( 50.0F, 0.0F, 0.0F ),
+                                            glm::vec3( -50.0F, 0.0F, 0.0F ),
+                                            glm::vec3( 0.0F, 80.0F, 0.0F ),
+                                            glm::vec3( 0.0F, -80.0F, 0.0F ),
+                                            glm::vec3( 17.0F, -33.0F, 210.0F ),
+                                            glm::vec3( -400.0F, 250.0F, -900.0F ) };
+
+    for ( const glm::vec3& world : probes )
+    {
+        // Verbatim from the deleted LightGizmoRenderer::ProjectToScreen, viewport-local (origin at zero).
+        const glm::vec4 clip                = view.ViewProjection * glm::vec4( world, 1.0f );
+        const bool      inFrontByTheOldRule = clip.w > 1e-4f;
+
+        const auto projected = ProjectToViewport( view, world );
+        ASSERT_EQ( projected.InFront, inFrontByTheOldRule )
+             << "at " << world.x << "," << world.y << "," << world.z;
+        if ( !inFrontByTheOldRule )
+        {
+            continue;
+        }
+
+        const glm::vec3 ndc  = glm::vec3( clip ) / clip.w;
+        const float     oldX = ( ndc.x * 0.5f + 0.5f ) * kViewportWidth;
+        const float     oldY = ( 1.0f - ( ndc.y * 0.5f + 0.5f ) ) * kViewportHeight;
+        EXPECT_FLOAT_EQ( projected.Pixel.x, oldX );
+        EXPECT_FLOAT_EQ( projected.Pixel.y, oldY );
+    }
+}
+
 TEST( ControlManipulatorTest, AShapeBehindTheCameraDrawsNothingAtAll )
 {
-    const Skeleton      skeleton = MakeRig();
-    LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
-    ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = LibraryWithSized( "Sphere10", "Sphere", 10.0F );
+    const Skeleton            skeleton = MakeRig();
+    const LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = LibraryWithSized( "Sphere10", "Sphere", 10.0F );
 
     ControlHierarchy rig;
-    ControlElement   behind = MakeControl( "behind_ctrl", "Sphere10",
-                                           { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+    ControlElement   behind =
+         MakeControl( "behind_ctrl", "Sphere10", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
     behind.Offset.Translation = glm::vec3( 0.0F, 0.0F, 900.0F ); // the camera is at z = 300, looking at 0
     MustAdd( rig, behind );
     rig.Evaluate( skeleton, pose );
@@ -366,14 +405,14 @@ TEST( ControlManipulatorTest, AShapeBehindTheCameraDrawsNothingAtAll )
 
 TEST( ControlManipulatorTest, AShapeStraddlingTheNearPlaneIsCutRatherThanStreaked )
 {
-    const Skeleton      skeleton = MakeRig();
-    LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
-    ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = LibraryWithSized( "Sphere100", "Sphere", 100.0F );
+    const Skeleton            skeleton = MakeRig();
+    const LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = LibraryWithSized( "Sphere100", "Sphere", 100.0F );
 
     ControlHierarchy rig;
-    ControlElement   around = MakeControl( "around_ctrl", "Sphere100",
-                                           { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+    ControlElement   around =
+         MakeControl( "around_ctrl", "Sphere100", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
     around.Offset.Translation = glm::vec3( 0.0F, 0.0F, 300.0F ); // centred ON the eye
     MustAdd( rig, around );
     rig.Evaluate( skeleton, pose );
@@ -396,15 +435,15 @@ TEST( ControlManipulatorTest, AShapeStraddlingTheNearPlaneIsCutRatherThanStreake
 
 TEST( ControlManipulatorTest, TheHitTestAnswersNoWhereThereIsNoWire )
 {
-    const Skeleton      skeleton = MakeRig();
-    LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
-    ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = LibraryWithSized( "Circle40", "CircleXY", 40.0F );
+    const Skeleton            skeleton = MakeRig();
+    const LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = LibraryWithSized( "Circle40", "CircleXY", 40.0F );
 
-    ControlHierarchy rig;
-    ControlElement   ctrl = MakeControl( "big_ctrl", "Circle40",
-                                         { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
-    const uint32_t index  = MustAdd( rig, ctrl );
+    ControlHierarchy     rig;
+    const ControlElement ctrl =
+         MakeControl( "big_ctrl", "Circle40", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+    const uint32_t index = MustAdd( rig, ctrl );
     rig.Evaluate( skeleton, pose );
 
     const ManipulatorView view = MakeView( glm::vec3( 0.0F, 0.0F, 300.0F ), glm::vec3( 0.0F ) );
@@ -440,15 +479,15 @@ TEST( ControlManipulatorTest, TheHitTestAnswersNoWhereThereIsNoWire )
 
 TEST( ControlManipulatorTest, ATranslateDragPutsTheControlUnderThePointer )
 {
-    const Skeleton      skeleton = MakeRig();
-    LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
-    ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = LibraryWithSized( "Circle20", "CircleXY", 20.0F );
+    const Skeleton            skeleton = MakeRig();
+    const LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = LibraryWithSized( "Circle20", "CircleXY", 20.0F );
 
-    ControlHierarchy rig;
-    ControlElement   ctrl = MakeControl( "root_ctrl", "Circle20",
-                                         { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
-    const uint32_t index  = MustAdd( rig, ctrl );
+    ControlHierarchy     rig;
+    const ControlElement ctrl =
+         MakeControl( "root_ctrl", "Circle20", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+    const uint32_t index = MustAdd( rig, ctrl );
     rig.Evaluate( skeleton, pose );
 
     const ManipulatorView view   = MakeView( glm::vec3( 0.0F, 0.0F, 300.0F ), glm::vec3( 0.0F ) );
@@ -468,7 +507,7 @@ TEST( ControlManipulatorTest, ATranslateDragPutsTheControlUnderThePointer )
     EXPECT_EQ( rig.Get( index ).Pose.Translation, glm::vec3( 0.0F ) );
 
     // Grabbed exactly on the control's origin, so the control must end up exactly under the new pointer.
-    const glm::vec2 moved = origin.Pixel + glm::vec2( 120.0F, -45.0F );
+    const glm::vec2 moved  = origin.Pixel + glm::vec2( 120.0F, -45.0F );
     auto            update = drag.Update( rig, view, moved );
     ASSERT_TRUE( update.IsSuccess() ) << update.GetError();
 
@@ -498,19 +537,19 @@ TEST( ControlManipulatorTest, AParentMovingMidDragDoesNotPinTheControlToWhereItW
     // GLOBAL at the grab and re-asserted it every frame would hold the control at the parent's old place
     // — the dragged hand that stops following the arm. What is remembered here is the LOCAL pose, so a
     // still pointer leaves it bit-identical and the control travels with its parent.
-    const Skeleton      skeleton = MakeRig();
-    LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
-    ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = LibraryWithSized( "Circle15", "CircleXY", 15.0F );
+    const Skeleton            skeleton = MakeRig();
+    LocalPose                 local    = PoseWithChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = LibraryWithSized( "Circle15", "CircleXY", 15.0F );
 
-    ControlHierarchy rig;
-    ControlElement   hand = MakeControl( "hand_ctrl", "Circle15",
-                                         { ControlSpace{ ControlSpaceKind::Bone, 1, 1.0F } } );
-    const uint32_t index  = MustAdd( rig, hand );
+    ControlHierarchy     rig;
+    const ControlElement hand =
+         MakeControl( "hand_ctrl", "Circle15", { ControlSpace{ ControlSpaceKind::Bone, 1, 1.0F } } );
+    const uint32_t index = MustAdd( rig, hand );
     rig.Evaluate( skeleton, pose );
 
-    const ManipulatorView view = MakeView( glm::vec3( 0.0F, 100.0F, 300.0F ), glm::vec3( 0.0F, 100.0F, 0.0F ) );
-    const auto grabAt = ProjectToViewport( view, PositionOf( rig.GetGlobalTransform( index ) ) );
+    const ManipulatorView view   = MakeView( glm::vec3( 0.0F, 100.0F, 300.0F ), glm::vec3( 0.0F, 100.0F, 0.0F ) );
+    const auto            grabAt = ProjectToViewport( view, PositionOf( rig.GetGlobalTransform( index ) ) );
     ASSERT_TRUE( grabAt.InFront );
 
     ControlDrag drag;
@@ -535,15 +574,15 @@ TEST( ControlManipulatorTest, AParentMovingMidDragDoesNotPinTheControlToWhereItW
 
 TEST( ControlManipulatorTest, ARotateDragTurnsTheControlWithoutMovingIt )
 {
-    const Skeleton      skeleton = MakeRig();
-    LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
-    ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = LibraryWithSized( "Sphere30", "Sphere", 30.0F );
+    const Skeleton            skeleton = MakeRig();
+    const LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = LibraryWithSized( "Sphere30", "Sphere", 30.0F );
 
-    ControlHierarchy rig;
-    ControlElement   ctrl = MakeControl( "spin_ctrl", "Sphere30",
-                                         { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
-    const uint32_t index  = MustAdd( rig, ctrl );
+    ControlHierarchy     rig;
+    const ControlElement ctrl =
+         MakeControl( "spin_ctrl", "Sphere30", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+    const uint32_t index = MustAdd( rig, ctrl );
     rig.Evaluate( skeleton, pose );
 
     const ManipulatorView view   = MakeView( glm::vec3( 0.0F, 0.0F, 300.0F ), glm::vec3( 0.0F ) );
@@ -577,31 +616,31 @@ TEST( ControlManipulatorTest, ARotateDragTurnsTheControlWithoutMovingIt )
 
 TEST( ControlManipulatorTest, ADragRefusesWhatItCannotMeasure )
 {
-    const Skeleton      skeleton = MakeRig();
-    LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
-    ComponentPose       pose( skeleton, local );
-    ControlShapeLibrary library = MustBuiltIn();
+    const Skeleton            skeleton = MakeRig();
+    const LocalPose           local    = PoseWithChestAt( glm::vec3( 0.0F ) );
+    ComponentPose             pose( skeleton, local );
+    const ControlShapeLibrary library = MustBuiltIn();
 
-    ControlHierarchy rig;
-    ControlElement   ctrl = MakeControl( "ctrl", "CircleXY",
-                                         { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
-    const uint32_t index  = MustAdd( rig, ctrl );
+    ControlHierarchy     rig;
+    const ControlElement ctrl =
+         MakeControl( "ctrl", "CircleXY", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+    const uint32_t index = MustAdd( rig, ctrl );
 
-    ControlElement behind = MakeControl( "behind", "CircleXY",
-                                         { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
-    behind.Offset.Translation = glm::vec3( 0.0F, 0.0F, 900.0F );
+    ControlElement behind =
+         MakeControl( "behind", "CircleXY", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
+    behind.Offset.Translation  = glm::vec3( 0.0F, 0.0F, 900.0F );
     const uint32_t behindIndex = MustAdd( rig, behind );
     rig.Evaluate( skeleton, pose );
 
     const ManipulatorView view = MakeView( glm::vec3( 0.0F, 0.0F, 300.0F ), glm::vec3( 0.0F ) );
     ControlDrag           drag;
 
-    EXPECT_FALSE( drag.Begin( rig, 99U, ManipulatorMode::Translate, view, glm::vec2( 400.0F, 300.0F ), 20.0F )
-                       .IsSuccess() )
+    EXPECT_FALSE(
+         drag.Begin( rig, 99U, ManipulatorMode::Translate, view, glm::vec2( 400.0F, 300.0F ), 20.0F ).IsSuccess() )
          << "a control that is not in the rig";
-    EXPECT_FALSE( drag.Begin( rig, behindIndex, ManipulatorMode::Translate, view, glm::vec2( 400.0F, 300.0F ),
-                              20.0F )
-                       .IsSuccess() )
+    EXPECT_FALSE(
+         drag.Begin( rig, behindIndex, ManipulatorMode::Translate, view, glm::vec2( 400.0F, 300.0F ), 20.0F )
+              .IsSuccess() )
          << "a control behind the camera has no screen position to measure from";
     EXPECT_FALSE( drag.Update( rig, view, glm::vec2( 400.0F, 300.0F ) ).IsSuccess() )
          << "a refused Begin must not leave a drag armed";

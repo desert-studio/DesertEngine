@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cmath>
+#include <numbers>
 #include <utility>
 
 namespace Desert::Animation
@@ -46,7 +47,7 @@ namespace Desert::Animation
             run.Points.reserve( kCircleSegments );
             for ( int i = 0; i < kCircleSegments; ++i )
             {
-                const float angle = ( 2.0F * 3.14159265358979323846F * static_cast<float>( i ) ) /
+                const float angle = ( 2.0F * std::numbers::pi_v<float> * static_cast<float>( i ) ) /
                                     static_cast<float>( kCircleSegments );
                 run.Points.push_back( ( axisU * std::cos( angle ) ) + ( axisV * std::sin( angle ) ) );
             }
@@ -61,22 +62,21 @@ namespace Desert::Animation
             std::vector<ControlShapePolyline> runs;
 
             ControlShapePolyline bottom;
-            bottom.Points = { { -1.0F, -1.0F, -1.0F },
-                              { 1.0F, -1.0F, -1.0F },
-                              { 1.0F, -1.0F, 1.0F },
-                              { -1.0F, -1.0F, 1.0F } };
+            bottom.Points = {
+                 { -1.0F, -1.0F, -1.0F }, { 1.0F, -1.0F, -1.0F }, { 1.0F, -1.0F, 1.0F }, { -1.0F, -1.0F, 1.0F } };
             bottom.Closed = true;
             runs.push_back( bottom );
 
             ControlShapePolyline top;
-            top.Points  = { { -1.0F, 1.0F, -1.0F }, { 1.0F, 1.0F, -1.0F }, { 1.0F, 1.0F, 1.0F }, { -1.0F, 1.0F, 1.0F } };
+            top.Points = {
+                 { -1.0F, 1.0F, -1.0F }, { 1.0F, 1.0F, -1.0F }, { 1.0F, 1.0F, 1.0F }, { -1.0F, 1.0F, 1.0F } };
             top.Closed = true;
             runs.push_back( top );
 
             for ( int corner = 0; corner < 4; ++corner )
             {
-                const float x = ( corner == 0 || corner == 3 ) ? -1.0F : 1.0F;
-                const float z = ( corner < 2 ) ? -1.0F : 1.0F;
+                const float          x = ( corner == 0 || corner == 3 ) ? -1.0F : 1.0F;
+                const float          z = ( corner < 2 ) ? -1.0F : 1.0F;
                 ControlShapePolyline upright;
                 upright.Points = { { x, -1.0F, z }, { x, 1.0F, z } };
                 upright.Closed = false;
@@ -89,15 +89,18 @@ namespace Desert::Animation
         [[nodiscard]] std::vector<ControlShapePolyline> UnitOctahedron()
         {
             ControlShapePolyline xy;
-            xy.Points = { { 1.0F, 0.0F, 0.0F }, { 0.0F, 1.0F, 0.0F }, { -1.0F, 0.0F, 0.0F }, { 0.0F, -1.0F, 0.0F } };
+            xy.Points = {
+                 { 1.0F, 0.0F, 0.0F }, { 0.0F, 1.0F, 0.0F }, { -1.0F, 0.0F, 0.0F }, { 0.0F, -1.0F, 0.0F } };
             xy.Closed = true;
 
             ControlShapePolyline xz;
-            xz.Points = { { 1.0F, 0.0F, 0.0F }, { 0.0F, 0.0F, 1.0F }, { -1.0F, 0.0F, 0.0F }, { 0.0F, 0.0F, -1.0F } };
+            xz.Points = {
+                 { 1.0F, 0.0F, 0.0F }, { 0.0F, 0.0F, 1.0F }, { -1.0F, 0.0F, 0.0F }, { 0.0F, 0.0F, -1.0F } };
             xz.Closed = true;
 
             ControlShapePolyline yz;
-            yz.Points = { { 0.0F, 1.0F, 0.0F }, { 0.0F, 0.0F, 1.0F }, { 0.0F, -1.0F, 0.0F }, { 0.0F, 0.0F, -1.0F } };
+            yz.Points = {
+                 { 0.0F, 1.0F, 0.0F }, { 0.0F, 0.0F, 1.0F }, { 0.0F, -1.0F, 0.0F }, { 0.0F, 0.0F, -1.0F } };
             yz.Closed = true;
 
             return { xy, xz, yz };
@@ -183,8 +186,9 @@ namespace Desert::Animation
         // not decoration: without it the other two planes would be two more point lists to keep in step.
         ControlShape circleXZ;
         circleXZ.Polylines = circleXY.Polylines;
-        circleXZ.Transform = glm::mat4( glm::vec4( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec4( 0.0F, 0.0F, 1.0F, 0.0F ),
-                                        glm::vec4( 0.0F, -1.0F, 0.0F, 0.0F ), glm::vec4( 0.0F, 0.0F, 0.0F, 1.0F ) );
+        circleXZ.Transform =
+             glm::mat4( glm::vec4( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec4( 0.0F, 0.0F, 1.0F, 0.0F ),
+                        glm::vec4( 0.0F, -1.0F, 0.0F, 0.0F ), glm::vec4( 0.0F, 0.0F, 0.0F, 1.0F ) );
 
         ControlShape circleYZ;
         circleYZ.Polylines = circleXY.Polylines;
@@ -207,13 +211,12 @@ namespace Desert::Animation
         // reach zero rows has no legal C spelling — clang takes a zero-length array as a GNU extension
         // and MSVC rejects it outright (C2466). This one cannot reach zero today, and the type should not
         // be the thing that decides that.
-        const std::array<std::pair<const char*, const ControlShape*>, 6> table = {
-             { { "CircleXY", &circleXY },
-               { "CircleXZ", &circleXZ },
-               { "CircleYZ", &circleYZ },
-               { "Sphere", &sphere },
-               { "Box", &box },
-               { "Diamond", &diamond } } };
+        const std::array<std::pair<const char*, const ControlShape*>, 6> table = { { { "CircleXY", &circleXY },
+                                                                                     { "CircleXZ", &circleXZ },
+                                                                                     { "CircleYZ", &circleYZ },
+                                                                                     { "Sphere", &sphere },
+                                                                                     { "Box", &box },
+                                                                                     { "Diamond", &diamond } } };
         for ( const auto& entry : table )
         {
             auto added = library.Add( entry.first, *entry.second );

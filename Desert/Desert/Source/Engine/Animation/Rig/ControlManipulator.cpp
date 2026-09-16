@@ -19,7 +19,7 @@ namespace Desert::Animation
         [[nodiscard]] glm::vec2 PixelToNdc( const ManipulatorView& view, const glm::vec2& pixel )
         {
             const glm::vec2 relative = ( pixel - view.ViewportOrigin ) / view.ViewportSize;
-            return glm::vec2( ( relative.x * 2.0F ) - 1.0F, 1.0F - ( relative.y * 2.0F ) );
+            return { ( relative.x * 2.0F ) - 1.0F, 1.0F - ( relative.y * 2.0F ) };
         }
 
         /**
@@ -122,8 +122,8 @@ namespace Desert::Animation
             // PIXEL Y GROWS DOWNWARD, so screen-up is the other way. Orthogonalised against `right`
             // rather than assumed perpendicular: a projection carrying shear would otherwise hand back a
             // basis that is not a rotation, and the arcball built on it would not preserve angles.
-            const glm::vec3 upRaw     = -downY;
-            const glm::vec3 upOrtho   = upRaw - ( right * glm::dot( upRaw, right ) );
+            const glm::vec3 upRaw   = -downY;
+            const glm::vec3 upOrtho = upRaw - ( right * glm::dot( upRaw, right ) );
             if ( glm::dot( upOrtho, upOrtho ) < 1e-20F )
             {
                 return false;
@@ -201,7 +201,7 @@ namespace Desert::Animation
 
         [[nodiscard]] float DistanceToSegment( const glm::vec2& point, const glm::vec2& a, const glm::vec2& b )
         {
-            const glm::vec2 along  = b - a;
+            const glm::vec2 along         = b - a;
             const float     lengthSquared = glm::dot( along, along );
             if ( lengthSquared < 1e-12F )
             {
@@ -220,7 +220,8 @@ namespace Desert::Animation
          * resolves the control's ancestors. This is the same discipline T5.1's `SetGlobalTransform` needed
          * from the other side, where a parent nobody had read still held last frame's cache.
          */
-        [[nodiscard]] Common::ResultStr<glm::mat4> ParentTimesOffset( ControlHierarchy& hierarchy, uint32_t control )
+        [[nodiscard]] Common::ResultStr<glm::mat4> ParentTimesOffset( ControlHierarchy& hierarchy,
+                                                                      uint32_t          control )
         {
             const glm::mat4 pose = hierarchy.Get( control ).Pose.ToMatrix();
             if ( std::abs( glm::determinant( pose ) ) < kSingularEpsilon )
@@ -258,9 +259,10 @@ namespace Desert::Animation
 
         const glm::vec3 ndc = glm::vec3( clip ) / clip.w;
         projected.Pixel.x   = view.ViewportOrigin.x + ( ( ( ndc.x * 0.5F ) + 0.5F ) * view.ViewportSize.x );
-        projected.Pixel.y   = view.ViewportOrigin.y + ( ( 1.0F - ( ( ndc.y * 0.5F ) + 0.5F ) ) * view.ViewportSize.y );
-        projected.Depth     = ndc.z;
-        projected.InFront   = true;
+        projected.Pixel.y =
+             view.ViewportOrigin.y + ( ( 1.0F - ( ( ndc.y * 0.5F ) + 0.5F ) ) * view.ViewportSize.y );
+        projected.Depth   = ndc.z;
+        projected.InFront = true;
         return projected;
     }
 
@@ -296,12 +298,12 @@ namespace Desert::Animation
 
             for ( const ControlShapePolyline& run : shape->Polylines )
             {
-                const uint32_t base = static_cast<uint32_t>( draw.WorldPoints.size() );
+                const auto base = static_cast<uint32_t>( draw.WorldPoints.size() );
                 for ( const glm::vec3& point : run.Points )
                 {
-                    draw.WorldPoints.push_back( glm::vec3( placement * glm::vec4( point, 1.0F ) ) );
+                    draw.WorldPoints.emplace_back( placement * glm::vec4( point, 1.0F ) );
                 }
-                const uint32_t count = static_cast<uint32_t>( run.Points.size() );
+                const auto count = static_cast<uint32_t>( run.Points.size() );
                 for ( uint32_t i = 0; ( i + 1 ) < count; ++i )
                 {
                     draw.Segments.emplace_back( base + i, base + i + 1 );
@@ -339,9 +341,11 @@ namespace Desert::Animation
 
                 ManipulatorSegment drawn;
                 drawn.A.x = view.ViewportOrigin.x + ( ( ( ndcA.x * 0.5F ) + 0.5F ) * view.ViewportSize.x );
-                drawn.A.y = view.ViewportOrigin.y + ( ( 1.0F - ( ( ndcA.y * 0.5F ) + 0.5F ) ) * view.ViewportSize.y );
+                drawn.A.y =
+                     view.ViewportOrigin.y + ( ( 1.0F - ( ( ndcA.y * 0.5F ) + 0.5F ) ) * view.ViewportSize.y );
                 drawn.B.x = view.ViewportOrigin.x + ( ( ( ndcB.x * 0.5F ) + 0.5F ) * view.ViewportSize.x );
-                drawn.B.y = view.ViewportOrigin.y + ( ( 1.0F - ( ( ndcB.y * 0.5F ) + 0.5F ) ) * view.ViewportSize.y );
+                drawn.B.y =
+                     view.ViewportOrigin.y + ( ( 1.0F - ( ( ndcB.y * 0.5F ) + 0.5F ) ) * view.ViewportSize.y );
                 draw.Screen.push_back( drawn );
 
                 if ( draw.Origin.InFront )
@@ -367,8 +371,8 @@ namespace Desert::Animation
                 const float distance = DistanceToSegment( pointer, segment.A, segment.B );
                 if ( distance < best )
                 {
-                    best        = distance;
-                    hit.Control = shape.Control;
+                    best           = distance;
+                    hit.Control    = shape.Control;
                     hit.DistancePx = distance;
                 }
             }
@@ -449,8 +453,8 @@ namespace Desert::Animation
         }
         if ( m_Control >= static_cast<uint32_t>( hierarchy.Size() ) )
         {
-            return Common::MakeFormattedError<bool>( "the dragged control {} is not in this rig of {}",
-                                                     m_Control, hierarchy.Size() );
+            return Common::MakeFormattedError<bool>( "the dragged control {} is not in this rig of {}", m_Control,
+                                                     hierarchy.Size() );
         }
 
         auto space = ParentTimesOffset( hierarchy, m_Control );
@@ -495,7 +499,7 @@ namespace Desert::Animation
                 return Common::MakeError<bool>( "this view-projection cannot be inverted into a screen basis" );
             }
 
-            const glm::vec3 arc        = ArcballVector( pointer, m_ArcballCenter, m_ArcballRadius, right, up, toward );
+            const glm::vec3 arc = ArcballVector( pointer, m_ArcballCenter, m_ArcballRadius, right, up, toward );
             const glm::quat worldDelta = glm::rotation( m_ArcAtGrab, arc );
 
             const auto decomposed = BoneTransform::FromMatrix( space.GetValue() );
