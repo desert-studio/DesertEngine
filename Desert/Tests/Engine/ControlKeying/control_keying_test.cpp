@@ -151,9 +151,9 @@ TEST( ControlKeying, KeyHoldsTheControlsLocalPoseOnTheRequestedTick )
 {
     Fixture fix;
 
-    const BoneTransform pose = TransformOf( glm::vec3( 3.0F, -4.0F, 5.0F ),
-                                            glm::angleAxis( 0.7F, glm::vec3( 0.0F, 1.0F, 0.0F ) ),
-                                            glm::vec3( 2.0F, 0.5F, 1.25F ) );
+    const BoneTransform pose =
+         TransformOf( glm::vec3( 3.0F, -4.0F, 5.0F ), glm::angleAxis( 0.7F, glm::vec3( 0.0F, 1.0F, 0.0F ) ),
+                      glm::vec3( 2.0F, 0.5F, 1.25F ) );
 
     const auto written = fix.Keyer.Write( fix.At( 96 ), fix.Hand, pose, ControlWriteSource::Authored );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
@@ -179,9 +179,9 @@ TEST( ControlKeying, TheKeyIsWhereTheControlIs )
 {
     Fixture fix;
 
-    const BoneTransform pose = TransformOf( glm::vec3( 3.0F, -4.0F, 5.0F ),
-                                            glm::angleAxis( 0.7F, glm::vec3( 0.0F, 1.0F, 0.0F ) ),
-                                            glm::vec3( 1.0F ) );
+    const BoneTransform pose =
+         TransformOf( glm::vec3( 3.0F, -4.0F, 5.0F ), glm::angleAxis( 0.7F, glm::vec3( 0.0F, 1.0F, 0.0F ) ),
+                      glm::vec3( 1.0F ) );
     ASSERT_TRUE( fix.Keyer.Write( fix.At( 96 ), fix.Hand, pose, ControlWriteSource::Authored ).IsSuccess() );
 
     const glm::mat4 global = fix.Rig.GetGlobalTransform( fix.Hand );
@@ -194,9 +194,8 @@ TEST( ControlKeying, TheKeyIsWhereTheControlIs )
     ASSERT_NE( track, nullptr );
     const BoneTransform sampled = track->Sample( FrameTime{ FrameNumber{ 96 }, 0.0F }, fix.Clip.TickRate );
 
-    const glm::mat4 chest = fix.Pose.Get( 1 );
-    const glm::mat4 recomposed =
-         chest * fix.Rig.Get( fix.Hand ).Offset.ToMatrix() * sampled.ToMatrix();
+    const glm::mat4 chest      = fix.Pose.Get( 1 );
+    const glm::mat4 recomposed = chest * fix.Rig.Get( fix.Hand ).Offset.ToMatrix() * sampled.ToMatrix();
 
     for ( int column = 0; column < 4; ++column )
     {
@@ -231,11 +230,9 @@ namespace
         }
         for ( int frame = 0; frame < kDragFrames; ++frame )
         {
-            const BoneTransform pose = TransformOf(
-                 glm::vec3( static_cast<float>( frame ), 0.0F, 0.0F ),
-                 glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) );
-            const auto written =
-                 fix.Keyer.Write( fix.At( frame ), fix.Hand, pose, ControlWriteSource::Authored );
+            const BoneTransform pose = TransformOf( glm::vec3( static_cast<float>( frame ), 0.0F, 0.0F ),
+                                                    glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) );
+            const auto written = fix.Keyer.Write( fix.At( frame ), fix.Hand, pose, ControlWriteSource::Authored );
             ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
             EXPECT_EQ( written.GetValue(), interaction ? 0U : 1U );
         }
@@ -306,12 +303,12 @@ TEST( ControlKeying, ACancelledInteractionKeysNothing )
 {
     Fixture fix;
     ASSERT_TRUE( fix.Keyer.BeginInteraction().IsSuccess() );
-    ASSERT_TRUE( fix.Keyer
-                      .Write( fix.At( 4 ), fix.Hand,
-                              TransformOf( glm::vec3( 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
-                                           glm::vec3( 1.0F ) ),
-                              ControlWriteSource::Authored )
-                      .IsSuccess() );
+    ASSERT_TRUE(
+         fix.Keyer
+              .Write( fix.At( 4 ), fix.Hand,
+                      TransformOf( glm::vec3( 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
+                      ControlWriteSource::Authored )
+              .IsSuccess() );
     fix.Keyer.CancelInteraction();
 
     EXPECT_FALSE( fix.Keyer.Interacting() );
@@ -368,17 +365,24 @@ TEST( ControlKeying, PlaybackMovesEveryControlAndWritesNoKey )
 {
     Fixture fix;
 
-    // One authored key at tick 30, so there is something for playback to read back.
-    ASSERT_TRUE( fix.Keyer
-                      .Write( fix.At( 30 ), fix.Hand,
-                              TransformOf( glm::vec3( 6.0F, 7.0F, 8.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
-                                           glm::vec3( 1.0F ) ),
-                              ControlWriteSource::Authored )
-                      .IsSuccess() );
+    // TWO authored keys, and playback scrubs BETWEEN them. The first version of this test authored one
+    // key and scrubbed onto it, and a mutation that deleted the `Playback` branch entirely PASSED it: the
+    // re-key wrote the same value onto the same tick, so nothing observable moved. A keyer feeding itself
+    // is only visible where the sampled value is one the clip does not already hold a key for — which is
+    // every frame of an actual playback, and was the one frame that test did not use.
+    for ( const int tick : { 0, 60 } )
+    {
+        ASSERT_TRUE( fix.Keyer
+                          .Write( fix.At( tick ), fix.Hand,
+                                  TransformOf( glm::vec3( static_cast<float>( tick ), 0.0F, 0.0F ),
+                                               glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
+                                  ControlWriteSource::Authored )
+                          .IsSuccess() );
+    }
     const auto before = PositionKeysOf( fix.Clip );
-    ASSERT_EQ( before.size(), 1U );
+    ASSERT_EQ( before.size(), 2U );
 
-    // Move the control away, then scrub back onto the key: this is the loop §823 closes.
+    // Move the control away, then scrub to a tick BETWEEN the keys: this is the loop §823 closes.
     ASSERT_TRUE( fix.Rig
                       .SetPose( fix.Hand, TransformOf( glm::vec3( -50.0F, 0.0F, 0.0F ),
                                                        glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ) )
@@ -387,24 +391,28 @@ TEST( ControlKeying, PlaybackMovesEveryControlAndWritesNoKey )
     ASSERT_TRUE( applied.IsSuccess() ) << applied.GetError();
     EXPECT_EQ( applied.GetValue(), 1U ) << "playback has to actually move the control";
 
-    // IT MOVED — otherwise "no key was written" is the answer a no-op gives.
-    EXPECT_NEAR( fix.Rig.Get( fix.Hand ).Pose.Translation.x, 6.0F, 1e-4F );
-    EXPECT_NEAR( fix.Rig.Get( fix.Hand ).Pose.Translation.y, 7.0F, 1e-4F );
+    // IT MOVED, and to a value no key holds — otherwise "no key was written" is the answer a no-op gives.
+    const float sampled = fix.Rig.Get( fix.Hand ).Pose.Translation.x;
+    EXPECT_GT( sampled, 0.0F );
+    EXPECT_LT( sampled, 60.0F );
 
     // AND NOTHING WAS WRITTEN. Not "the same number of keys" — the same keys.
     const auto after = PositionKeysOf( fix.Clip );
     ASSERT_EQ( after.size(), before.size() );
-    EXPECT_EQ( after[0].first, before[0].first );
-    EXPECT_EQ( after[0].second, before[0].second );
+    for ( size_t i = 0; i < before.size(); ++i )
+    {
+        EXPECT_EQ( after[i].first, before[i].first );
+        EXPECT_EQ( after[i].second, before[i].second );
+    }
 }
 
 TEST( ControlKeying, TheSamePoseWrittenAsAuthoredDoesKey )
 {
     // THE POSITIVE CONTROL for the test above, on the same tick and with the same value, so the only
     // difference between keying and not keying is the flag.
-    Fixture fix;
-    const BoneTransform pose = TransformOf( glm::vec3( 6.0F, 7.0F, 8.0F ),
-                                            glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) );
+    Fixture             fix;
+    const BoneTransform pose =
+         TransformOf( glm::vec3( 6.0F, 7.0F, 8.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) );
 
     ASSERT_TRUE( fix.Keyer.Write( fix.At( 30 ), fix.Hand, pose, ControlWriteSource::Playback ).IsSuccess() );
     EXPECT_TRUE( fix.Clip.Tracks.empty() ) << "the flag is what stops this";
@@ -423,12 +431,12 @@ TEST( ControlKeying, PlaybackDuringAnInteractionDoesNotBecomePending )
     // arriving one frame later rather than being closed.
     Fixture fix;
     ASSERT_TRUE( fix.Keyer.BeginInteraction().IsSuccess() );
-    ASSERT_TRUE( fix.Keyer
-                      .Write( fix.At( 10 ), fix.Hand,
-                              TransformOf( glm::vec3( 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
-                                           glm::vec3( 1.0F ) ),
-                              ControlWriteSource::Playback )
-                      .IsSuccess() );
+    ASSERT_TRUE(
+         fix.Keyer
+              .Write( fix.At( 10 ), fix.Hand,
+                      TransformOf( glm::vec3( 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
+                      ControlWriteSource::Playback )
+              .IsSuccess() );
     EXPECT_EQ( fix.Keyer.Pending(), 0U );
 
     const auto ended = fix.Keyer.EndInteraction( fix.At( 10 ) );
@@ -439,7 +447,7 @@ TEST( ControlKeying, PlaybackDuringAnInteractionDoesNotBecomePending )
 
 TEST( ControlKeying, PlaybackLeavesAnUnkeyedControlWhereItIs )
 {
-    Fixture fix;
+    Fixture              fix;
     const ControlElement extra =
          MakeControl( "elbow_ctrl", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } );
     const auto added = fix.Rig.Add( extra );
@@ -451,12 +459,12 @@ TEST( ControlKeying, PlaybackLeavesAnUnkeyedControlWhereItIs )
                       .SetPose( elbow, TransformOf( glm::vec3( 42.0F, 0.0F, 0.0F ),
                                                     glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ) )
                       .IsSuccess() );
-    ASSERT_TRUE( fix.Keyer
-                      .Write( fix.At( 5 ), fix.Hand,
-                              TransformOf( glm::vec3( 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
-                                           glm::vec3( 1.0F ) ),
-                              ControlWriteSource::Authored )
-                      .IsSuccess() );
+    ASSERT_TRUE(
+         fix.Keyer
+              .Write( fix.At( 5 ), fix.Hand,
+                      TransformOf( glm::vec3( 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
+                      ControlWriteSource::Authored )
+              .IsSuccess() );
 
     const auto applied = Desert::Animation::ApplyClipToControls( fix.At( 5 ), fix.Keyer );
     ASSERT_TRUE( applied.IsSuccess() ) << applied.GetError();
@@ -469,7 +477,7 @@ TEST( ControlKeying, PlaybackLeavesAnUnkeyedControlWhereItIs )
 
 TEST( ControlKeying, ANonUniformScaleKeysIntoTheScaleChannelAndReadsBack )
 {
-    Fixture fix;
+    Fixture         fix;
     const glm::vec3 scale( 2.0F, 0.5F, 3.0F );
     ASSERT_TRUE( fix.Keyer
                       .Write( fix.At( 60 ), fix.Hand,
@@ -498,8 +506,8 @@ TEST( ControlKeying, AScaledControlScalesItsChildrensSpaces )
     // parent is a control inherits that control's scale by construction. A9's second open question is
     // answered by this arithmetic rather than by a paragraph, and if the composition ever changes this is
     // the test that says so.
-    Fixture fix;
-    ControlElement child = MakeControl( "finger_ctrl", { ControlSpace{ ControlSpaceKind::Control, 0, 1.0F } } );
+    Fixture        fix;
+    ControlElement child   = MakeControl( "finger_ctrl", { ControlSpace{ ControlSpaceKind::Control, 0, 1.0F } } );
     child.Pose.Translation = glm::vec3( 4.0F, 0.0F, 0.0F );
     const auto added       = fix.Rig.Add( child );
     ASSERT_TRUE( added.IsSuccess() ) << added.GetError();
@@ -537,8 +545,8 @@ TEST( ControlKeying, RekeyingAnExistingKeyKeepsItsAuthoredShape )
     Fixture fix;
     ASSERT_TRUE( fix.Keyer
                       .Write( fix.At( 20 ), fix.Hand,
-                              TransformOf( glm::vec3( 1.0F, 0.0F, 0.0F ),
-                                           glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
+                              TransformOf( glm::vec3( 1.0F, 0.0F, 0.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
+                                           glm::vec3( 1.0F ) ),
                               ControlWriteSource::Authored )
                       .IsSuccess() );
 
@@ -560,8 +568,8 @@ TEST( ControlKeying, RekeyingAnExistingKeyKeepsItsAuthoredShape )
 
     ASSERT_TRUE( fix.Keyer
                       .Write( fix.At( 20 ), fix.Hand,
-                              TransformOf( glm::vec3( 5.0F, 0.0F, 0.0F ),
-                                           glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
+                              TransformOf( glm::vec3( 5.0F, 0.0F, 0.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
+                                           glm::vec3( 1.0F ) ),
                               ControlWriteSource::Authored )
                       .IsSuccess() );
 
@@ -607,8 +615,7 @@ TEST( ControlKeying, AControlNamedLikeABoneIsRefused )
     ComponentPose pose{ bones, local };
 
     ControlHierarchy rig;
-    const auto       added =
-         rig.Add( MakeControl( "chest", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } ) );
+    const auto added = rig.Add( MakeControl( "chest", { ControlSpace{ ControlSpaceKind::Component, 0, 1.0F } } ) );
     ASSERT_TRUE( added.IsSuccess() );
     rig.Evaluate( bones, pose );
 
@@ -625,8 +632,7 @@ TEST( ControlKeying, AControlNamedLikeABoneIsRefused )
          keyer.Write( target, added.GetValue(),
                       TransformOf( glm::vec3( 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
                       ControlWriteSource::Authored );
-    EXPECT_FALSE( written.IsSuccess() )
-         << "a track name is the only binding key: these keys would drive the bone";
+    EXPECT_FALSE( written.IsSuccess() ) << "a track name is the only binding key: these keys would drive the bone";
     EXPECT_TRUE( clip.Tracks.empty() );
     // AND THE POSE IS NOT STORED EITHER: animation under a control that can never be keyed is work the
     // animator loses without being told.
@@ -635,7 +641,7 @@ TEST( ControlKeying, AControlNamedLikeABoneIsRefused )
 
 TEST( ControlKeying, RefusalsThatWouldOtherwiseBeSilent )
 {
-    Fixture fix;
+    Fixture             fix;
     const BoneTransform pose =
          TransformOf( glm::vec3( 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) );
 
@@ -648,7 +654,7 @@ TEST( ControlKeying, RefusalsThatWouldOtherwiseBeSilent )
     EXPECT_FALSE( fix.Keyer.Write( fix.At( 0 ), 99U, pose, ControlWriteSource::Authored ).IsSuccess() );
 
     ControlKeyTarget broken = fix.At( 0 );
-    broken.Clip            = nullptr;
+    broken.Clip             = nullptr;
     EXPECT_FALSE( fix.Keyer.Write( broken, fix.Hand, pose, ControlWriteSource::Authored ).IsSuccess() );
 
     EXPECT_FALSE( fix.Keyer.EndInteraction( fix.At( 0 ) ).IsSuccess() )

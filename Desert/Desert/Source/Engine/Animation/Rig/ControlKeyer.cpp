@@ -221,9 +221,8 @@ namespace Desert::Animation
                 continue;
             }
 
-            const BoneTransform sampled =
-                 found->Sample( FrameTime{ target.Tick, 0.0F }, target.Clip->TickRate );
-            const auto written = keyer.Write( target, control, sampled, ControlWriteSource::Playback );
+            const BoneTransform sampled = found->Sample( FrameTime{ target.Tick, 0.0F }, target.Clip->TickRate );
+            const auto          written = keyer.Write( target, control, sampled, ControlWriteSource::Playback );
             if ( !written.IsSuccess() )
             {
                 return Common::MakeError<uint32_t>( written.GetError() );

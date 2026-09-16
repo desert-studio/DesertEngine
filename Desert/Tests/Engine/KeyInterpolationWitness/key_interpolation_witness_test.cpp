@@ -335,6 +335,41 @@ TEST( KeyInterpolationWitness, ApplyChannelRefusesAShapeItDoesNotMatchInsteadOfW
     EXPECT_TRUE( Desert::Animation::LiftChannel( track, Desert::Animation::TrackChannel::Position, 3 ).empty() );
 }
 
+// THE AUTO PASS'S PROMISE HOLDS ON A ONE-KEY CHANNEL TOO.
+//
+// `AutoSetTangents`' header says "`User` and `Break` keys are left exactly as they are", and it honours
+// that — but `RefreshTangents` short-circuits a channel of fewer than two keys BEFORE reaching it, and
+// that short-circuit used to zero every tangent regardless of mode. It was invisible by construction: a
+// one-key channel is sampled as a constant, so its tangents do nothing until a SECOND key arrives, and by
+// then the authored slope is long gone with no edit to blame it on. Found by T5.3's re-key test.
+TEST( KeyInterpolationWitness, RefreshingTangentsLeavesAUserKeyAloneEvenWhenItIsTheOnlyOne )
+{
+    Desert::Animation::BoneTrack track;
+    track.BoneName = "IK_Shoulder";
+
+    Desert::Animation::PositionKeyFrame user;
+    user.Tick          = Desert::Animation::FrameNumber{ 0 };
+    user.Position      = glm::vec3( 1.0F, 2.0F, 3.0F );
+    user.Interp        = Desert::Animation::KeyInterp::Cubic;
+    user.Mode          = Desert::Animation::TangentMode::User;
+    user.ArriveTangent = glm::vec3( 5.0F, 6.0F, 7.0F );
+    user.LeaveTangent  = glm::vec3( -5.0F, -6.0F, -7.0F );
+    track.PositionKeys.push_back( user );
+
+    Desert::Animation::RefreshTangents( track, Desert::Animation::PROJECT_TICK_RATE );
+
+    ASSERT_EQ( track.PositionKeys.size(), 1U );
+    EXPECT_FLOAT_EQ( track.PositionKeys[0].ArriveTangent.y, 6.0F );
+    EXPECT_FLOAT_EQ( track.PositionKeys[0].LeaveTangent.y, -6.0F );
+
+    // The positive control: an `Auto` key in the same position IS flattened, so the guard above is a mode
+    // check and not a refusal to do the job.
+    track.PositionKeys[0].Mode          = Desert::Animation::TangentMode::Auto;
+    track.PositionKeys[0].ArriveTangent = glm::vec3( 5.0F, 6.0F, 7.0F );
+    Desert::Animation::RefreshTangents( track, Desert::Animation::PROJECT_TICK_RATE );
+    EXPECT_FLOAT_EQ( track.PositionKeys[0].ArriveTangent.y, 0.0F );
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
