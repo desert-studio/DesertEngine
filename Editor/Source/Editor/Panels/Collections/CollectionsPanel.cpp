@@ -27,7 +27,7 @@
 // the same bytes, and a cook that is not reproducible cannot be compared against a record.
 #include <Engine/Assets/Serialization/Material.hpp>
 #include <Engine/Core/Serialize/CustomReflect.hpp>
-#include <Engine/Core/Serialize/GLMReflect.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/ContentUpdate.hpp>

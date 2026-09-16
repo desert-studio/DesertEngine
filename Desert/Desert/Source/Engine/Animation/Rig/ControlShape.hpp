@@ -17,25 +17,26 @@
  * manipulator layer is cheaper. So a shape here is a LIST OF LINE SEGMENTS, which the existing viewport
  * overlay can already draw, and no render pass is added by this tier.
  *
- * ── SIZE LIVES IN THE ENTRY'S TRANSFORM, AND NOT IN THE CONTROL'S SCALE ──────────────────────────────
+ * ── SIZE IS NEVER THE CONTROL'S SCALE, AND THE THIRD TERM NOW EXISTS ────────────────────────────────
  *
- * Every built-in is authored at unit size around its own origin, and a sized shape is a library entry
- * whose `Transform` carries the scale. That looks like an odd place for it until you try the obvious
- * alternative, which is what this file first did: size the control by the SCALE of its `Offset`.
+ * Every built-in is authored at unit size around its own origin. That is a size of ONE CENTIMETRE, since
+ * 1 world unit = 1 cm, so on a 260 cm character an unsized control is a mark a pixel wide that an
+ * animator can neither see nor grab.
  *
- * MEASURED, AND THE COUPLING IS REAL. A control's global is `parent * offset * pose`, so the offset's
- * scale multiplies the POSE's translation too: a control sized 8x travelled 8 world units per unit of
- * animated translation, and the drawn shape's centroid moved 182.9 units where the animator had asked
- * for 26.4. The offset's scale is not a size knob — it is a change to what a pose unit MEANS, and one
- * that a clip authored before the resize would silently reinterpret.
+ * MEASURED, AND THE OBVIOUS FIX IS THE WRONG ONE. A control's global is `parent * offset * pose`, so
+ * sizing it through the SCALE of its `Offset` multiplies the POSE's translation too: a control sized 8x
+ * travelled 8 world units per unit of animated translation, and the drawn shape's centroid moved 182.9
+ * units where the animator had asked for 26.4. The offset's scale is not a size knob — it is a change to
+ * what a pose unit MEANS, and one that a clip authored before the resize would silently reinterpret.
  *
- * UE avoids the same coupling the same way, with a shape transform that is NOT the offset
- * (`LibraryShapeTransform * ControlShapeTransform * ControlGlobalTransform`, report 01 §(a)6). We have
- * the first and third terms and not the middle one, because a per-control shape transform is state
- * `ControlElement` deliberately does not carry and there is nowhere to author it until the rig is an
- * asset (T5.4). Named as absent rather than faked: a sized entry per distinct size is the honest
- * stand-in, and it is also what makes the entry transform load-bearing rather than decorative — one
- * circle serves `CircleXY`, `CircleXZ` and `CircleYZ` through it.
+ * UE avoids the same coupling with a shape transform that is NOT the offset
+ * (`LibraryShapeTransform * ControlShapeTransform * ControlGlobalTransform`, report 01 §(a)6). THIS FILE
+ * USED TO SAY WE HAD THE FIRST AND THIRD TERMS AND NOT THE MIDDLE ONE, "because there is nowhere to
+ * author it until the rig is an asset (T5.4)". That premise died with `.derig`: a rig is a file now, so
+ * `ControlElement::ShapeTransform` is a per-control field the file carries and `BuildFrame` composes.
+ * The entry transform is still load-bearing and still not a size knob — one circle serves `CircleXY`,
+ * `CircleXZ` and `CircleYZ` through it, which is ORIENTATION shared by every control naming that entry,
+ * while the size a rigger chooses for one control belongs to that control.
  */
 
 #include <Common/Core/ResultStr.hpp>

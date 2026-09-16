@@ -3,7 +3,7 @@
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
-#include <Engine/Core/Serialize/GLMReflect.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Core/Serialize/CustomReflect.hpp>
 
 #include <rflcpp/rfl/Generic.hpp>
@@ -82,7 +82,7 @@ namespace Desert::Assets
     };
 
     // MaterialComponent (generic data-driven material) mirror. Param values reflect directly (glm::vec4 via
-    // GLMReflect); texture refs round-trip as cooked paths through the AssetResolver ("TextureAsset").
+    // GlmReflection.hpp); texture refs round-trip as cooked paths through the AssetResolver ("TextureAsset").
     struct MaterialParamSer
     {
         std::string Name;

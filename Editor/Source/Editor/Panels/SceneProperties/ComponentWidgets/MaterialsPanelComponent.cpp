@@ -27,7 +27,7 @@
 
 // rfl serialization environment (same as SurfaceMaterialAsset.cpp) — used to write a fresh
 // material file with its stable GUID before the asset is created/registered.
-#include <Engine/Core/Serialize/GLMReflect.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Core/Serialize/CustomReflect.hpp>
 #include <rflcpp/rfl/json.hpp>
 

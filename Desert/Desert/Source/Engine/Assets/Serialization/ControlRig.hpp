@@ -87,10 +87,26 @@ namespace Desert::Assets::Serialization
     /**
      * @brief The FILE layout's generation.
      *
-     *   1 - controls with named parent spaces, and control -> bone drives by name (A12).
+     *   1 - controls with named parent spaces, and control -> bone drives by name (A12); a control's
+     *       optional `ShapeTransform`, absent meaning identity (A13).
      *
      * See the file note for why this is its own sequence and not `Core::kSceneVersion`. An unknown value is
      * refused in BOTH directions rather than read as if it meant what it means here.
+     *
+     * ── WHY A13's FIELD DID NOT MOVE THIS NUMBER, DECIDED RATHER THAN SKIPPED ────────────────────────
+     *
+     * This counter's only power is to REFUSE: `ParseControlRig` rejects any value that is not this one,
+     * and there is no migration step in the runtime (that is the `.detheme` shape this format borrowed on
+     * purpose). So the question "bump or not" is exactly "must a file written before the field be
+     * refused", and the answer is measurably no — a generation-1 file has no per-control shape transform,
+     * an absent `ShapeTransform` means identity, and identity is precisely the composition
+     * `BuildFrame` performed before the field existed. Not one existing byte changes meaning.
+     *
+     * Bumping would therefore make the number LIE: it would say "this build cannot read that file" about
+     * files it reads exactly right, and it would hard-refuse every `.derig` a rigger saved yesterday for
+     * a change that loses nothing. The contract's migration rule ("the version goes up, a pure migration
+     * function, the corpus converted") is about a step that changes what existing bytes MEAN; this is not
+     * one. The number moves the first time a `.derig` written today cannot be read as written.
      */
     inline constexpr int32_t kControlRigVersion = 1;
 
@@ -127,14 +143,31 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const ControlSpaceData& ) const = default;
     };
 
-    /// One control: the rigger's offset, the animated pose, the shape name, and the parent slots.
+    /**
+     * @brief One control: the rigger's offset, the animated pose, the shape, and the parent slots.
+     *
+     * `ShapeTransform` IS HOW BIG THE CONTROL IS DRAWN, and it is a field of its own rather than the scale
+     * of `Offset`. The built-in shapes are authored at unit size and 1 world unit is 1 cm, so without this
+     * every control on a 260 cm character is a centimetre-wide mark nobody can see or grab; and sizing
+     * through `Offset.Scale` is measured wrong, because the offset's scale multiplies the POSE's
+     * translation as well (8x put a control at 182.9 units where the animator asked for 26.4). It is the
+     * middle term of report 01 §(a)6's `Library * ControlShape * ControlGlobal`, and nothing but the
+     * manipulator's drawing reads it.
+     *
+     * OPTIONAL, AND ABSENT MEANS IDENTITY — the only meaning a file written before the field could have
+     * had. That is what lets the format's version counter stay where it is; see `kControlRigVersion`.
+     * A present identity and an absent field are both legal input and build the same control; the writer
+     * emits the field only when it is not identity, so a round trip is stable in either direction and a
+     * hand-edited rig does not grow a block of ones per control.
+     */
     struct ControlElementData
     {
-        std::string                   Name;
-        std::string                   ShapeName;
-        RigTransformData              Offset;
-        RigTransformData              Pose;
-        std::vector<ControlSpaceData> Parents;
+        std::string                     Name;
+        std::string                     ShapeName;
+        std::optional<RigTransformData> ShapeTransform;
+        RigTransformData                Offset;
+        RigTransformData                Pose;
+        std::vector<ControlSpaceData>   Parents;
 
         [[nodiscard]] bool operator==( const ControlElementData& ) const = default;
     };
@@ -178,7 +211,9 @@ namespace Desert::Assets::Serialization
      * the two disagreeing about what is legal. Refuses: no controls; no drives (see `ControlRigData`); an
      * empty or duplicate control name; an unknown space kind; a "Component" slot that names a target; a
      * "Bone"/"Control" slot that names none; a "Control" slot naming a control this file does not define;
-     * a parent cycle; an all-zero weight set; a non-finite number anywhere; an empty drive; a drive naming
+     * a parent cycle; an all-zero weight set; a non-finite number anywhere; a shape transform with a zero
+     * scale component (a control drawn flat is one an animator cannot grab, which is the same symptom as
+     * a typo'd shape name and must not be reachable by writing a number); an empty drive; a drive naming
      * a control this file does not define; and two drives on the same bone.
      *
      * THE CYCLE AND THE UNKNOWN-CONTROL CHECKS ARE HERE AS WELL AS IN `ControlHierarchy::Add`, and that is

@@ -52,7 +52,8 @@ using Desert::Animation::FrameTime;
 using Desert::Animation::PROJECT_TICK_RATE;
 using Desert::Animation::Skeleton;
 
-namespace RigFile = Desert::Assets::Serialization;
+namespace RigFile   = Desert::Assets::Serialization;
+namespace Animation = Desert::Animation;
 
 namespace
 {
@@ -221,6 +222,11 @@ namespace
         RigFile::ControlElementData hand;
         hand.Name      = "Hand_CTRL";
         hand.ShapeName = "CircleXY";
+        // ONE control of the three carries a shape transform, on purpose: the round trips below then
+        // cover both spellings of the optional field — present, and absent meaning identity — instead of
+        // covering whichever one the fixture happened to pick.
+        hand.ShapeTransform = Placed( { 0.0F, 1.5F, 0.0F }, 90.0F, { 1.0F, 0.0F, 0.0F } );
+        hand.ShapeTransform->Scale = glm::vec3( 14.0F, 14.0F, 6.0F );
         hand.Offset    = Placed( { 5.0F, 0.0F, -3.0F }, 12.0F, { 0.0F, 1.0F, 0.0F } );
         hand.Pose      = Placed( { 45.0F, -18.0F, 27.0F }, 33.0F, { 0.0F, 0.0F, 1.0F } );
         hand.Parents.push_back( Space( "Component", "", 1.0F ) );
@@ -431,6 +437,130 @@ TEST( ControlRigAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirect
     EXPECT_NE( refused.GetError().find( "99" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( std::to_string( RigFile::kControlRigVersion ) ), std::string::npos )
          << refused.GetError();
+}
+
+TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansIdentity )
+{
+    const Skeleton skeleton = MakeArmRig();
+
+    // A GENERATION-1 FILE, WRITTEN BEFORE THE FIELD EXISTED, is the input this test is really about: it
+    // must load, and its controls must draw exactly as they always did. That equivalence is the whole
+    // argument for leaving kControlRigVersion where it is, so it is asserted rather than reasoned about.
+    const std::string legacy = R"({
+      "FormatVersion": 1,
+      "Name": "Legacy",
+      "Controls": [
+        { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
+          "Offset": { "Translation": [1.0, 2.0, 3.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] }
+      ],
+      "Drives": [ { "Control": "Hand_CTRL", "Bone": "Hand" } ]
+    })";
+
+    auto parsedLegacy = RigFile::ParseControlRig( legacy );
+    ASSERT_TRUE( parsedLegacy.IsSuccess() ) << parsedLegacy.GetError();
+    ASSERT_EQ( parsedLegacy.GetValue().Controls.size(), 1U );
+    EXPECT_FALSE( parsedLegacy.GetValue().Controls[0].ShapeTransform.has_value() )
+         << "an absent field must stay absent, not be invented as a present identity";
+
+    ControlRigStage legacyStage;
+    ASSERT_TRUE( RigFile::BuildControlRig( parsedLegacy.GetValue(), skeleton, legacyStage ).IsSuccess() );
+    const Animation::ControlElement& legacyControl = legacyStage.GetHierarchy().Get( 0 );
+    EXPECT_EQ( legacyControl.ShapeTransform.ToMatrix(), glm::mat4( 1.0F ) )
+         << "absent means identity, which is the composition BuildFrame did before the field existed";
+
+    // A FILE THAT NAMES A SIZE gets that size, to the float, on the control it names and on no other.
+    const std::string sizedText = R"({
+      "FormatVersion": 1,
+      "Name": "Sized",
+      "Controls": [
+        { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
+          "ShapeTransform": { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [18.0, 18.0, 18.0] },
+          "Offset": { "Translation": [1.0, 2.0, 3.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] },
+        { "Name": "Tail_CTRL", "ShapeName": "CircleXY",
+          "Offset": { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] }
+      ],
+      "Drives": [ { "Control": "Hand_CTRL", "Bone": "Hand" }, { "Control": "Tail_CTRL", "Bone": "Tail" } ]
+    })";
+
+    auto parsedSized = RigFile::ParseControlRig( sizedText );
+    ASSERT_TRUE( parsedSized.IsSuccess() ) << parsedSized.GetError();
+
+    ControlRigStage sizedStage;
+    ASSERT_TRUE( RigFile::BuildControlRig( parsedSized.GetValue(), skeleton, sizedStage ).IsSuccess() );
+    Animation::ControlHierarchy& sized = sizedStage.GetHierarchy();
+    ASSERT_EQ( sized.Size(), 2U );
+    EXPECT_EQ( sized.Get( sized.Find( "Hand_CTRL" ) ).ShapeTransform.Scale, glm::vec3( 18.0F ) );
+    EXPECT_EQ( sized.Get( sized.Find( "Tail_CTRL" ) ).ShapeTransform.Scale, glm::vec3( 1.0F ) )
+         << "one control's size must not leak into its neighbour";
+
+    // AND THE SIZE IS NOT THE POSE. The two controls sit at different offsets and identical poses; the
+    // sized one's global must be exactly its offset, not its offset multiplied by eighteen. This is the
+    // assertion that fails on the implementation this field replaced.
+    Animation::LocalPose local;
+    local.Resize( skeleton.GetBones().size() );
+    Animation::ComponentPose component( skeleton, local );
+    sized.Evaluate( skeleton, component );
+    const glm::mat4 handGlobal = sized.GetGlobalTransform( sized.Find( "Hand_CTRL" ) );
+    EXPECT_EQ( glm::vec3( handGlobal[3] ), glm::vec3( 1.0F, 2.0F, 3.0F ) );
+
+    // THE WRITER PICKS ONE SPELLING. A rig whose controls are all identity comes back without the field,
+    // so a generation-1 file round-trips through the runtime unchanged instead of gaining ones.
+    auto legacyBack = RigFile::BuildDataFromControlRig( "Legacy", legacyStage, skeleton );
+    ASSERT_TRUE( legacyBack.IsSuccess() ) << legacyBack.GetError();
+    EXPECT_FALSE( legacyBack.GetValue().Controls[0].ShapeTransform.has_value() );
+    EXPECT_EQ( RigFile::WriteControlRig( legacyBack.GetValue() ).find( "ShapeTransform" ), std::string::npos )
+         << "the absent spelling must not be written out as an identity block";
+
+    auto sizedBack = RigFile::BuildDataFromControlRig( "Sized", sizedStage, skeleton );
+    ASSERT_TRUE( sizedBack.IsSuccess() ) << sizedBack.GetError();
+    const auto hand = std::find_if( sizedBack.GetValue().Controls.begin(), sizedBack.GetValue().Controls.end(),
+                                    []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
+    ASSERT_NE( hand, sizedBack.GetValue().Controls.end() );
+    ASSERT_TRUE( hand->ShapeTransform.has_value() );
+    EXPECT_EQ( hand->ShapeTransform->Scale, glm::vec3( 18.0F ) );
+    EXPECT_NE( RigFile::WriteControlRig( sizedBack.GetValue() ).find( "ShapeTransform" ), std::string::npos );
+}
+
+TEST( ControlRigAssetTest, AShapeScaledToZeroIsRefusedAndTheMessageNamesTheControlAndTheField )
+{
+    RigFile::ControlRigData data = ArmRigFile();
+    const auto              at   = std::find_if( data.Controls.begin(), data.Controls.end(),
+                                                 []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
+    ASSERT_NE( at, data.Controls.end() );
+    ASSERT_TRUE( at->ShapeTransform.has_value() );
+
+    // A CONTROL DRAWN FLAT IS A CONTROL NOBODY CAN GRAB, which is the identical symptom to the typo'd
+    // shape name this format already refuses. Reachable by typing a zero, so it is refused by typing one.
+    at->ShapeTransform->Scale = glm::vec3( 14.0F, 0.0F, 6.0F );
+    const auto refused        = RigFile::ValidateControlRigData( data );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Hand_CTRL" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "shape transform" ), std::string::npos ) << refused.GetError();
+
+    // ...and the refusal is about THIS field: the same zero in the offset says something different,
+    // because the two failures are different (an uninvertible parent space, versus an invisible shape).
+    RigFile::ControlRigData other = ArmRigFile();
+    const auto              too   = std::find_if( other.Controls.begin(), other.Controls.end(),
+                                                  []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
+    ASSERT_NE( too, other.Controls.end() );
+    too->Offset.Scale      = glm::vec3( 0.0F, 1.0F, 1.0F );
+    const auto otherRefusal = RigFile::ValidateControlRigData( other );
+    ASSERT_FALSE( otherRefusal.IsSuccess() );
+    EXPECT_NE( otherRefusal.GetError().find( "cannot be inverted" ), std::string::npos ) << otherRefusal.GetError();
+    EXPECT_EQ( otherRefusal.GetError().find( "shape transform" ), std::string::npos ) << otherRefusal.GetError();
+
+    RigFile::ControlRigData notFinite = ArmRigFile();
+    const auto              nan = std::find_if( notFinite.Controls.begin(), notFinite.Controls.end(),
+                                                []( const RigFile::ControlElementData& c ) { return c.Name == "Hand_CTRL"; } );
+    ASSERT_NE( nan, notFinite.Controls.end() );
+    nan->ShapeTransform->Translation.y = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FALSE( RigFile::ValidateControlRigData( notFinite ).IsSuccess() );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -670,6 +800,11 @@ TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
            "without this the panel exists as a file nobody opens" },
          { "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp", "Animation::BuildFrame(",
            "THE CALLER ControlManipulator NEVER HAD: without it the controls are never drawn" },
+         { "Desert/Desert/Source/Engine/Animation/Rig/ControlManipulator.cpp",
+           "element.ShapeTransform.ToMatrix()",
+           "the file's per-control size reaching the drawing; without this term every built-in draws at "
+           "its authored unit size, which is ONE CENTIMETRE, and the rig loads perfectly while the "
+           "animator sees nothing to grab" },
          { "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp", "Animation::HitTest(",
            "without it a control cannot be selected in the viewport" },
          { "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp", "m_ControlDrag.Begin(",

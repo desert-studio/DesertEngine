@@ -44,7 +44,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 // rfl serialization environment (the same three the mesh slot editor pulls in for the same reason) — a
 // fresh terrain material is written to disk with its stable GUID before the asset is created + registered.
-#include <Engine/Core/Serialize/GLMReflect.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Core/Serialize/CustomReflect.hpp>
 #include <rflcpp/rfl/json.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>

@@ -163,7 +163,14 @@ namespace Desert::Editor
                 }
                 if ( ImGui::IsItemHovered() && !control.ShapeName.empty() )
                 {
-                    ImGui::SetTooltip( "Shape: %s", control.ShapeName.c_str() );
+                    // THE SIZE IS SHOWN AND NOT EDITED, and that is the honest shape of it. The shape
+                    // transform is authored in the `.derig`; an in-panel drag would write a value that
+                    // lives until the next load and then vanish, which is worse than no control at all.
+                    // Shown because a control drawn too small looks exactly like a control that is not
+                    // there, and the number is the one thing that tells them apart.
+                    const glm::vec3& size = control.ShapeTransform.Scale;
+                    ImGui::SetTooltip( "Shape: %s\nShape size (cm): %.3g, %.3g, %.3g", control.ShapeName.c_str(),
+                                       size.x, size.y, size.z );
                 }
             }
         }
