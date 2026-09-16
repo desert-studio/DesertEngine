@@ -80,8 +80,8 @@ namespace Desert::Editor
 
     AnimGraphPanel::AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
                                     const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                    const Animation::AnimationLibrary* library,
-                                    Assets::AssetManager*              assetManager )
+                                    const Animation::AnimationLibrary*            library,
+                                    Assets::AssetManager*                         assetManager )
          : ISubjectDocument( displayName, subject ), m_Scene( scene ), m_Library( library ),
            m_AssetManager( assetManager )
     {
@@ -161,8 +161,7 @@ namespace Desert::Editor
 
         // THE SUBJECT'S OWN FILE, on the shader graph's terms: a path composed from the graph's Name would
         // be a silent Save As the first time somebody renamed one.
-        if ( const auto written = Assets::AnimGraphAsset::Save( asset->GetMetadata().Filepath, *graph );
-             !written )
+        if ( const auto written = Assets::AnimGraphAsset::Save( asset->GetMetadata().Filepath, *graph ); !written )
         {
             m_Status        = "NOT saved: " + written.GetError();
             m_StatusIsError = true;

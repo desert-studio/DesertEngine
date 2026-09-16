@@ -41,7 +41,7 @@ namespace Desert::Assets
     constexpr std::array<std::string_view, 1> SUPPORTED_UI_THEME_EXTENSIONS     = { ".detheme" };
     constexpr std::array<std::string_view, 1> SUPPORTED_CONTROL_RIG_EXTENSIONS  = { ".derig" };
     constexpr std::array<std::string_view, 1> SUPPORTED_ANIM_GRAPH_EXTENSIONS   = {
-        Desert::Animation::Graph::kAnimGraphExtension };
+         Desert::Animation::Graph::kAnimGraphExtension };
     constexpr std::array<std::string_view, 1> SUPPORTED_STRING_TABLE_EXTENSIONS = {
          Localization::kStringTableExtension };
 

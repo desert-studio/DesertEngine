@@ -295,7 +295,7 @@ TEST( AnimGraphAsset, TheEcsHandsOverTheAssetsObjectRatherThanACopyOfIt )
     // passes on the wrong occurrence, which is the trap this project keeps meeting in string censuses.
     std::size_t bare = 0;
     for ( std::size_t at = source.find( "GraphRevision" ); at != std::string::npos;
-          at            = source.find( "GraphRevision", at + 1 ) )
+          at             = source.find( "GraphRevision", at + 1 ) )
     {
         const bool partOfBuilt = at >= 5 && source.compare( at - 5, 5, "Built" ) == 0;
         if ( !partOfBuilt )

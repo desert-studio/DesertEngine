@@ -30,8 +30,7 @@ namespace Desert::Editor
 
     AnimationComponentWidget::AnimationComponentWidget( const Animation::AnimationLibrary* animationLibrary,
                                                         Assets::AssetManager*              assetManager )
-         : IComponentWidget( "Animation" ), m_AnimationLibrary( animationLibrary ),
-           m_AssetManager( assetManager )
+         : IComponentWidget( "Animation" ), m_AnimationLibrary( animationLibrary ), m_AssetManager( assetManager )
     {
     }
 
@@ -318,8 +317,8 @@ namespace Desert::Editor
         std::string stem;
         for ( const char c : graph.Name )
         {
-            const bool safe = ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' ) ||
-                              ( c >= '0' && c <= '9' ) || c == '_' || c == '-';
+            const bool safe = ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' ) || ( c >= '0' && c <= '9' ) ||
+                              c == '_' || c == '-';
             stem.push_back( safe ? c : '_' );
         }
         if ( stem.empty() )
@@ -331,7 +330,7 @@ namespace Desert::Editor
         for ( int i = 0; i < 256; ++i )
         {
             const std::string candidate = i == 0 ? stem : stem + std::to_string( i );
-            path = Common::Constants::Path::ANIM_GRAPH_PATH /
+            path                        = Common::Constants::Path::ANIM_GRAPH_PATH /
                    ( candidate + std::string( Animation::Graph::kAnimGraphExtension ) );
             if ( !std::filesystem::exists( path ) )
             {
@@ -365,15 +364,15 @@ namespace Desert::Editor
         Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( EntityId( entity ) ) );
     }
 
-    DESERT_REGISTER_CUSTOM_COMPONENT( ECS::AnimationComponent, "Animation", false,
-                                      ( []( ECS::Entity& e, ::Desert::Core::Scene* s,
-                                            const ComponentEditContext& ctx )
-                                        {
-                                            // LOCKED HERE AND NOT STORED AS A weak_ptr: the widget lives
-                                            // for exactly this call, so a pointer that is valid now is
-                                            // valid for all of it, and the lock is what makes that true.
-                                            const auto assets = ctx.AssetManager.lock();
-                                            AnimationComponentWidget( ctx.AnimationLibrary, assets.get() )
-                                                 .Render( e, s );
-                                        } ) )
+    DESERT_REGISTER_CUSTOM_COMPONENT(
+         ECS::AnimationComponent, "Animation", false,
+         (
+              []( ECS::Entity& e, ::Desert::Core::Scene* s, const ComponentEditContext& ctx )
+              {
+                  // LOCKED HERE AND NOT STORED AS A weak_ptr: the widget lives
+                  // for exactly this call, so a pointer that is valid now is
+                  // valid for all of it, and the lock is what makes that true.
+                  const auto assets = ctx.AssetManager.lock();
+                  AnimationComponentWidget( ctx.AnimationLibrary, assets.get() ).Render( e, s );
+              } ) )
 } // namespace Desert::Editor

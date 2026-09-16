@@ -1972,8 +1972,8 @@ namespace Desert::Migration
                 // Present and not a string. LEFT IN PLACE, named, and counted as a refusal: dropping a key
                 // whose content we could not read is dropping an artist's work to make a number go up.
                 report.Rejected += 1;
-                report.RejectedNames.push_back( tag + " > Animation.GraphJson is " +
-                                                Describe( blob.value() ) + ", not a string" );
+                report.RejectedNames.push_back( tag + " > Animation.GraphJson is " + Describe( blob.value() ) +
+                                                ", not a string" );
                 continue;
             }
 
@@ -2010,8 +2010,8 @@ namespace Desert::Migration
                 // then refuses, and dropping it would lose the work outright. Named, so a fixed tool can
                 // have another go at the same file.
                 report.Rejected += 1;
-                report.RejectedNames.push_back( tag + " > Animation.GraphJson is not a graph: " +
-                                                parsed.GetError() );
+                report.RejectedNames.push_back( tag +
+                                                " > Animation.GraphJson is not a graph: " + parsed.GetError() );
                 continue;
             }
 

@@ -155,8 +155,7 @@ namespace
                &MetadataTypeOf<Desert::Assets::ShaderGraphAsset>,
                &DeclaredTypeOf<Desert::Assets::ShaderGraphAsset> },
              { AssetTypeID::AnimGraph, "AnimGraphAsset", &HandleOf<Desert::Assets::AnimGraphAsset>,
-               &MetadataTypeOf<Desert::Assets::AnimGraphAsset>,
-               &DeclaredTypeOf<Desert::Assets::AnimGraphAsset> },
+               &MetadataTypeOf<Desert::Assets::AnimGraphAsset>, &DeclaredTypeOf<Desert::Assets::AnimGraphAsset> },
         };
         return kinds;
     }

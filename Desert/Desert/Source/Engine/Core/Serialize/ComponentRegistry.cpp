@@ -1462,8 +1462,7 @@ namespace Desert::Core::Serialize
             ComponentSerializer s;
             s.Key       = "Animation";
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::AnimationComponent>(); };
-            s.Serialize = [key = s.Key]( ECS::Entity                 e,
-                                         const Assets::AssetManager& assetManager ) -> rfl::Generic
+            s.Serialize = [key = s.Key]( ECS::Entity e, const Assets::AssetManager& assetManager ) -> rfl::Generic
             {
                 const auto&                   ac = e.GetComponent<ECS::AnimationComponent>();
                 Assets::AnimationComponentSer ser;
@@ -1487,8 +1486,8 @@ namespace Desert::Core::Serialize
                 }
                 return WriteBlock( ser, key );
             };
-            s.Deserialize = [key = s.Key]( ECS::Entity e, const rfl::Generic& g,
-                                           const Assets::AssetManager& assetManager )
+            s.Deserialize =
+                 [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& assetManager )
             {
                 auto parsed = ReadBlock<Assets::AnimationComponentSer>( g, key );
                 if ( !parsed.has_value() )
@@ -1496,9 +1495,9 @@ namespace Desert::Core::Serialize
                 const auto& d = parsed.value();
                 auto& ac = e.HasComponent<ECS::AnimationComponent>() ? e.GetComponent<ECS::AnimationComponent>()
                                                                      : e.AddComponent<ECS::AnimationComponent>();
-                ac.CurrentClip   = d.CurrentClip;
-                ac.Playing       = d.Playing;
-                ac.Loop          = d.Loop;
+                ac.CurrentClip = d.CurrentClip;
+                ac.Playing     = d.Playing;
+                ac.Loop        = d.Loop;
                 ac.PlaybackSpeed = d.PlaybackSpeed;
 
                 // ONLY THE HANDLE IS SET HERE. The graph OBJECT is AnimationECSSystem's to hand over

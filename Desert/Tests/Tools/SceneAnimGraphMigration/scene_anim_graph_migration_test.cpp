@@ -27,10 +27,14 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
+#include <rflcpp/rfl/DefaultIfMissing.hpp>
 #include <rflcpp/rfl/json.hpp>
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -39,6 +43,24 @@ using Desert::Migration::MigrateAnimGraphV20ToV21;
 
 namespace
 {
+    std::filesystem::path RepoRoot()
+    {
+        std::filesystem::path prefix = ".";
+        for ( int up = 0; up < 8; ++up )
+        {
+            if ( std::filesystem::exists( prefix / "Desert/Common/Source/Common/Core/Constants.hpp" ) )
+                return prefix;
+            prefix /= "..";
+        }
+        return {};
+    }
+
+    std::string ReadAll( const std::filesystem::path& path )
+    {
+        std::ifstream in( path, std::ios::binary );
+        return std::string( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    }
+
     // One entity carrying an "Animation" payload with the given GraphJson value, verbatim.
     Desert::Assets::EntityData EntityWithBlob( const std::string& tag, const rfl::Generic& graphJson )
     {
@@ -176,8 +198,7 @@ TEST( SceneAnimGraphMigration, AnUnparseableBlobIsLeftInPlaceAndNamed )
     EXPECT_TRUE( report.Graphs.empty() );
     ASSERT_EQ( report.RejectedNames.size(), 1u );
     EXPECT_NE( report.RejectedNames[0].find( "Broken" ), std::string::npos )
-         << "the refusal does not name the entity, so an operator cannot find it: "
-         << report.RejectedNames[0];
+         << "the refusal does not name the entity, so an operator cannot find it: " << report.RejectedNames[0];
 
     // LEFT IN PLACE. The work is still in the file and a fixed tool can have another go; dropping it
     // would lose an authored state machine to make a counter go up.
@@ -268,8 +289,7 @@ TEST( SceneAnimGraphMigration, TheStepRunsThroughTheGateExactlyOnceAndOnlyBelowI
     };
 
     // Below the step: it runs, and the file comes back.
-    auto       below  = sceneWith( Desert::Migration::kSceneVersionAnimGraphAsset - 1,
-                                   BlobFor( "Locomotion", "Walk" ) );
+    auto below = sceneWith( Desert::Migration::kSceneVersionAnimGraphAsset - 1, BlobFor( "Locomotion", "Walk" ) );
     const auto raised = Desert::Migration::MigrateScene( below );
     EXPECT_TRUE( raised.AnimGraphRaised );
     ASSERT_EQ( raised.AnimGraph.Graphs.size(), 1u );
@@ -289,10 +309,86 @@ TEST( SceneAnimGraphMigration, TheStepIsTheHeadAndTheHeadIsWhatTheEngineRequires
     // The same relation SceneMigration.hpp asserts at compile time, restated at run time so a reader of
     // this suite can see which number the step is without opening the header.
     EXPECT_EQ( Desert::Migration::kSceneVersionAnimGraphAsset, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Migration::kSceneVersionAnimGraphAsset,
-               Desert::Migration::kSceneVersionTextKeySigil + 1 )
+    EXPECT_EQ( Desert::Migration::kSceneVersionAnimGraphAsset, Desert::Migration::kSceneVersionTextKeySigil + 1 )
          << "step 21 is no longer the one after 20 — two steps share a number, which is the collision "
             "that cost this project a merge (see kSceneVersionTextKeySigil's own note)";
+}
+
+// ── THE CORPUS GATE ────────────────────────────────────────────────────────────────────────────────
+//
+// WHY THIS EXISTS, AND IT IS A CORRECTION. The obvious control for a corpus conversion is "the suites
+// that read those scenes still pass", and it was run: `AnimGraphScript` and `TwoBoneWitness` are green
+// on the migrated files. Then the mutation that proves a control: making `SyncAnimGraph` ignore the
+// handle entirely — so that NO entity anywhere is ever given a graph — left both of them green.
+// `AnimGraphScript` builds its graphs in code and links only the evaluator; `TwoBoneWitness` reads the
+// scene as TEXT, for a pinned mesh handle. Neither walks the runtime graph path, so neither could ever
+// have said anything about this step.
+//
+// What they cannot say, this can: every reference the conversion WROTE has to resolve. A migration that
+// produced a dangling path would leave a character playing one clip while its scene file names a state
+// machine — the silent shape §5.1 exists to end — and nothing else in this repository would notice.
+TEST( SceneAnimGraphMigration, EveryGraphTheCorpusNamesExistsAndParses )
+{
+    const std::filesystem::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "the repository root is not above this working directory";
+
+    const std::filesystem::path assets = root / "Editor/Resources/Assets";
+    const std::filesystem::path scenes = assets / "Scenes";
+    ASSERT_TRUE( std::filesystem::is_directory( scenes ) ) << scenes;
+
+    int named = 0;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( scenes ) )
+    {
+        if ( entry.path().extension() != ".desce" )
+            continue;
+
+        const std::string text = ReadAll( entry.path() );
+        ASSERT_FALSE( text.empty() ) << entry.path();
+
+        const auto parsed = rfl::json::read<Desert::Core::SceneSerialized, rfl::DefaultIfMissing>( text );
+        ASSERT_TRUE( parsed ) << entry.path().string() << ": " << parsed.error().what();
+
+        for ( const auto& entity : parsed.value().Entities )
+        {
+            const auto payload = entity.Components.get( "Animation" );
+            if ( !payload.has_value() )
+                continue;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                continue;
+
+            // THE RETIRED KEY MUST BE GONE FROM THE WHOLE CORPUS. A file still carrying it is a file the
+            // conversion missed, and the engine would drop its state machine in silence.
+            EXPECT_FALSE( fields.value().get( "GraphJson" ).has_value() )
+                 << entry.path().string() << " still carries the retired GraphJson key";
+
+            const auto named_graph = fields.value().get( "Graph" );
+            if ( !named_graph.has_value() )
+                continue;
+
+            const auto relative = named_graph.value().to_string();
+            ASSERT_TRUE( relative.has_value() ) << entry.path().string() << ": Graph is not a string";
+
+            const std::filesystem::path graphFile = assets / *relative;
+            ASSERT_TRUE( std::filesystem::exists( graphFile ) )
+                 << entry.path().string() << " names " << *relative << ", which is not on disk";
+
+            const auto graph = Desert::Animation::Graph::Deserialize( ReadAll( graphFile ) );
+            ASSERT_TRUE( graph.IsSuccess() ) << graphFile.string() << ": " << graph.GetError();
+            EXPECT_FALSE( graph.GetValue().States.empty() )
+                 << graphFile.string()
+                 << " parses to a graph with no states, so the character naming it "
+                    "would fall back to its single clip";
+            ++named;
+        }
+    }
+
+    // NOT AN OPTIONAL COUNT. The whole test passes vacuously the day the conversion stops writing
+    // references at all, which is exactly the failure it is here to catch — six blobs across three
+    // scenes went in, and they are what these references came from.
+    EXPECT_GE( named, 6 ) << "the corpus names " << named
+                          << " graphs; the conversion moved six state machines, so a number below that "
+                             "means references were lost rather than shared";
 }
 
 int main( int argc, char** argv )

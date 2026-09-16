@@ -30,7 +30,7 @@ namespace Desert::Assets
 {
     class AssetManager;
     class AnimGraphAsset;
-}
+} // namespace Desert::Assets
 
 namespace Desert::Editor
 {
@@ -149,7 +149,7 @@ namespace Desert::Editor
         std::weak_ptr<::Desert::Core::Scene> m_Scene;
         const Animation::AnimationLibrary*   m_Library      = nullptr;
         Assets::AssetManager*                m_AssetManager = nullptr;
-        std::string                          m_Status;                 // last save result line
+        std::string                          m_Status; // last save result line
         bool                                 m_StatusIsError = false;
         ax::NodeEditor::EditorContext*       m_Context = nullptr;
 

@@ -417,8 +417,8 @@ namespace Desert::ECS
          * evaluating the previous shape with no sign that anything was stale. The counter belongs to the
          * thing that changes: `AnimGraphAsset::GetRevision()`, one number for every entity that names it.
          */
-        Assets::AssetHandle BuiltGraphSource;           // the handle the evaluator was built from
-        uint32_t            BuiltGraphRevision = 0;     // the asset revision it was built at
+        Assets::AssetHandle BuiltGraphSource;       // the handle the evaluator was built from
+        uint32_t            BuiltGraphRevision = 0; // the asset revision it was built at
 
         /**
          * @brief What the Animator's CURRENT control-rig stage was built from. TRANSIENT, and the same
