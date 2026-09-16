@@ -417,17 +417,21 @@ TEST( AnimGraphValidation, NewStatesNeverLandOnTopOfEachOther )
 
 TEST( AnimGraphValidation, ANewStateAvoidsWhereTheUserDraggedTheOthers )
 {
-    // The grid is asked which cell is FREE, not how many states there are. A rule that counted would put
-    // the new one back on top of a neighbour the moment the user rearranged the graph.
+    // THE GRID IS ASKED WHICH CELL IS FREE, NOT HOW MANY STATES THERE ARE, and this is the case that
+    // tells the two apart. The one existing state has been dragged onto the SECOND cell, so a rule that
+    // counted ("one state, therefore cell one") would drop the new node exactly on top of it, while cell
+    // zero sits empty. Written this way after a mutation: with the dragged state left at the origin,
+    // counting and scanning give the same answer and the counting rule survived the test.
     G::AnimGraph graph;
     G::State     dragged;
     dragged.Name = "Idle";
-    dragged.X    = 0.0f;
+    dragged.X    = EG::kStateGridStepX; // cell 1
     dragged.Y    = 0.0f;
     graph.States.push_back( dragged );
 
     const EG::StatePosition second = EG::NextStatePosition( graph );
-    EXPECT_GE( std::abs( second.X - dragged.X ) + std::abs( second.Y - dragged.Y ), EG::kStateGridStepX );
+    EXPECT_FLOAT_EQ( second.X, 0.0f ) << "the free cell zero was passed over";
+    EXPECT_FLOAT_EQ( second.Y, 0.0f );
 }
 
 TEST( AnimGraphValidation, TheFirstStateOfAnEmptyGraphSitsAtTheOrigin )
@@ -446,4 +450,35 @@ TEST( AnimGraphValidation, ThePanelUsesThePlacementRuleRatherThanZero )
     ASSERT_FALSE( source.empty() );
     EXPECT_NE( source.find( "Graph::NextStatePosition( *anim->Graph )" ), std::string::npos )
          << "+ State does not use the placement rule, so new states land on top of each other again";
+}
+
+TEST( AnimGraphValidation, TheButtonAndTheDocumentActionAddTheSameState )
+{
+    // WHAT A CLIENT DRIVES IS WHAT A PERSON PRESSES. `+ State` is also a document action, because a
+    // toolbar button cannot be pressed on this machine -- synthetic input is closed -- and that is
+    // precisely why "a new state lands on top of its neighbour" survived until now: nothing but a person
+    // with a mouse could produce one. Two code paths here would be two behaviours to keep in step, and
+    // the checked one would be the one nobody uses.
+    const std::string source = PanelSource();
+    ASSERT_FALSE( source.empty() );
+
+    // `AddState();` WITH THE SEMICOLON, which is a call and not a definition: the definition's own
+    // `void AnimGraphPanel::AddState()` contains the bare spelling and would be counted with it. Written
+    // this way because the first version of this assertion counted three and its comment claimed the
+    // definition was excluded -- a comment asserting something the code did not do, which is the class of
+    // defect this project keeps paying for, caught here by its own test.
+    size_t calls = 0;
+    for ( size_t at = source.find( "AddState();" ); at != std::string::npos;
+          at        = source.find( "AddState();", at + 1 ) )
+    {
+        ++calls;
+    }
+    EXPECT_EQ( calls, 2u ) << "the toolbar button and the 'Add State' document action are not the same "
+                              "call any more (found " << calls << ")";
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

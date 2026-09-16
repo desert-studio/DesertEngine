@@ -195,6 +195,34 @@ namespace Desert::Editor
         m_SavedRevision = asset->GetRevision();
     }
 
+    void AnimGraphPanel::AddState()
+    {
+        ECS::AnimationComponent* anim = ResolveComponent();
+        if ( anim == nullptr || !anim->Graph )
+        {
+            m_Status        = "no graph to add a state to";
+            m_StatusIsError = true;
+            return;
+        }
+
+        G::State ns;
+        // UNIQUE BY CONSTRUCTION. "State_" + size() collides the moment a state is deleted and another
+        // added, and two states sharing a name is not cosmetic: `Entry`, `Transition::To` and
+        // `Evaluator::FindState` all resolve by string and all take the FIRST match, so the second one is
+        // unreachable and plays the first one's clip with nothing said.
+        ns.Name = Graph::MakeUniqueStateName( *anim->Graph,
+                                              "State_" + std::to_string( anim->Graph->States.size() ), -1 );
+        // AND NOT (0, 0), which is where every new state used to land: the second one covered the first
+        // exactly, and a node under another node cannot be clicked, renamed, given a clip or deleted. The
+        // rule is in `AnimGraphCanvasPlan` because that unit has no ImGui in it and can therefore be
+        // measured; `AnimGraphValidation` compiles it and asserts the separation.
+        const Graph::StatePosition where = Graph::NextStatePosition( *anim->Graph );
+        ns.X                             = where.X;
+        ns.Y                             = where.Y;
+        anim->Graph->States.push_back( ns );
+        MarkEdited();
+    }
+
     std::vector<ISubjectDocument::DocumentAction> AnimGraphPanel::Actions()
     {
         // The SAME function the toolbar button calls. A second code path here would be a second behaviour
@@ -206,6 +234,11 @@ namespace Desert::Editor
              { "Save", [this] { SaveGraph(); } },
              { "Frame All", [this] { Graph::FrameAll( m_Context ); } },
              { "Frame Selection", [this] { Graph::FrameSelection( m_Context ); } },
+             // AND `+ State`, FOR THE SAME REASON `Save` IS HERE. It is the one authoring action of this
+             // window that creates something, and a toolbar button is unreachable to every client and
+             // every check on this machine -- which is exactly why "a new state lands on top of its
+             // neighbour" survived: nothing but a person with a mouse could produce one.
+             { "Add State", [this] { AddState(); } },
         };
     }
 
@@ -270,24 +303,7 @@ namespace Desert::Editor
         }
         ImGui::SameLine();
         if ( ImGui::Button( "+ State" ) )
-        {
-            G::State ns;
-            // UNIQUE BY CONSTRUCTION. "State_" + size() collides the moment a state is deleted and
-            // another added, and two states sharing a name is not cosmetic: `Entry`, `Transition::To` and
-            // `Evaluator::FindState` all resolve by string and all take the FIRST match, so the second
-            // one is unreachable and plays the first one's clip with nothing said.
-            ns.Name = Graph::MakeUniqueStateName( *anim->Graph,
-                                                  "State_" + std::to_string( anim->Graph->States.size() ), -1 );
-            // AND NOT (0, 0), which is where every new state used to land: the second one covered the
-            // first exactly, and a node under another node cannot be clicked, renamed, given a clip or
-            // deleted. The rule is in `AnimGraphCanvasPlan` because that unit has no ImGui in it and can
-            // therefore be measured; `AnimGraphValidation` compiles it and asserts the separation.
-            const Graph::StatePosition where = Graph::NextStatePosition( *anim->Graph );
-            ns.X                             = where.X;
-            ns.Y                             = where.Y;
-            anim->Graph->States.push_back( ns );
-            MarkEdited();
-        }
+            AddState();
         ImGui::SameLine();
         Graph::DrawViewButtons( m_Context );
         if ( const auto* cur = anim->GraphEvaluator ? anim->GraphEvaluator->CurrentState() : nullptr )
@@ -322,7 +338,12 @@ namespace Desert::Editor
 
         ImGui::SameLine();
         ImGui::BeginGroup();
-        DrawSidePanel( *anim, clipNames );
+        // THE SAME HEIGHT THE CANVAS GOT, and not `0` meaning "the rest of the window". A height-0 child
+        // here reaches the bottom of the document, so it swallowed the space reserved for the warning
+        // strip and the strip was laid out BELOW the visible area: computed every frame, drawn nowhere.
+        // Found in the editor, on the frame that was supposed to photograph the strip -- which is the
+        // whole argument for taking the frame.
+        DrawSidePanel( *anim, clipNames, canvasH );
         ImGui::EndGroup();
 
         DrawWarningStrip( warnings );
@@ -347,11 +368,16 @@ namespace Desert::Editor
 
         ImGui::Separator();
         ImGui::BeginChild( "##agWarnings", ImVec2( 0.0f, WarningStripHeight( warnings.size() ) ), false );
+        ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 1.0f, 0.78f, 0.25f, 1.0f ) );
         for ( const auto& warning : warnings )
         {
-            ImGui::TextColored( ImVec4( 1.0f, 0.78f, 0.25f, 1.0f ), ICON_MDI_ALERT "  %s",
-                                warning.Text.c_str() );
+            // WRAPPED, NOT CLIPPED. Un-wrapped the sentence ran off the document's right edge and the
+            // half that names the clip or the parameter -- the only actionable half -- was cut, which is
+            // a warning that reports a problem without saying which one. Measured from the editor: the
+            // first frame taken of this strip showed exactly that.
+            ImGui::TextWrapped( ICON_MDI_ALERT "  %s", warning.Text.c_str() );
         }
+        ImGui::PopStyleColor();
         ImGui::EndChild();
     }
 
@@ -528,13 +554,14 @@ namespace Desert::Editor
             MarkEdited();
     }
 
-    void AnimGraphPanel::DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames )
+    void AnimGraphPanel::DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
+                                        float height )
     {
         auto& graph = *anim.Graph;
         auto* eval  = anim.GraphEvaluator.get();
         bool  dirty = false;
 
-        ImGui::BeginChild( "##agSide", ImVec2( 290.0f, 0.0f ), true );
+        ImGui::BeginChild( "##agSide", ImVec2( 290.0f, height ), true );
 
         // ---- Parameters (with live value controls) ----
         ImGui::TextUnformatted( "Parameters" );

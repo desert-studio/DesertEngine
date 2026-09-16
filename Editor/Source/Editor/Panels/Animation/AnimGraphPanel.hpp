@@ -164,7 +164,15 @@ namespace Desert::Editor
         // Writes the graph to its own file. Reports through the status line, which is this window's one
         // error channel.
         void SaveGraph();
-        void DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames );
+
+        /// Appends a state, named so that nothing else in this graph carries that name and placed where
+        /// nothing else in this graph already sits. Shared by the toolbar button and by the document
+        /// action of the same name, so what a client drives is what a person presses.
+        void AddState();
+        /// @p height is the canvas's, so the two columns end on the same line and neither of them sits
+        /// on the warning strip below. See the call site.
+        void DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
+                            float height );
 
         // WEAK, not shared. A document that held its scene alive would keep a closed level in memory for
         // as long as its window was open, and — worse — would then answer "my subject is alive" about an
