@@ -278,7 +278,10 @@ TEST( ControlRigStageTest, ThePoseFromTheAnimationSourceComesOutOfTheRigAtTheCon
     const glm::mat4 handWithoutRig = animator.GetBoneModelMatrix( kHand );
 
     const BoneTransform offset = Placed( { 5.0F, 0.0F, -3.0F }, 12.0F, { 0.0F, 1.0F, 0.0F } );
-    const BoneTransform pose   = Placed( { 42.0F, 77.0F, -18.0F }, -35.0F, { 1.0F, 0.0F, 1.0F } );
+    // FAR FROM WHERE THE CLIP PUTS THE HAND, on purpose. The arithmetic assertion below is the exact one;
+    // this distance exists so that "changed" is a number with room above the float noise (~1e-4 cm on a
+    // 100-cm rig) rather than a difference an unrelated tweak to the clip could close.
+    const BoneTransform pose   = Placed( { 150.0F, -120.0F, 80.0F }, -35.0F, { 1.0F, 0.0F, 1.0F } );
 
     uint32_t   control = ControlHierarchy::INVALID;
     const auto attached = animator.AttachRig( HandRig( skeleton, offset, pose, &control ) );
@@ -595,4 +598,10 @@ TEST( ControlRigStageTest, ARigOverTheWrongSkeletonRefusesAndLeavesThePoseAsTheS
     // A REFUSAL IS NOT A HALF-APPLIED POSE. The stage ran and contributed nothing, which is the only
     // honest answer a rig that cannot read the skeleton has.
     EXPECT_TRUE( SameBytes( animator.GetPose().Matrices, before ) );
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
