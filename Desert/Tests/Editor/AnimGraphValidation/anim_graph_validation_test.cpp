@@ -124,7 +124,7 @@ namespace
 
     std::string ReadAll( const std::filesystem::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
+        const std::ifstream in( path, std::ios::binary );
         std::ostringstream buffer;
         buffer << in.rdbuf();
         return buffer.str();
@@ -504,7 +504,7 @@ namespace
         graph.Parameters.push_back( { "Armed", static_cast<int>( G::ParamType::Bool ), 0.0f } );
 
         G::State idle = Playing( "Idle", "Idle" );
-        G::State run  = Playing( "Run", "Run" );
+        const G::State run = Playing( "Run", "Run" );
 
         G::Transition toRun;
         toRun.To = "Run";

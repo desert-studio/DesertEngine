@@ -192,7 +192,7 @@ namespace Desert::Editor::Graph
             return false;
         };
 
-        const std::string base = desired.empty() ? std::string( "State" ) : desired;
+        std::string base = desired.empty() ? std::string( "State" ) : desired;
         if ( !taken( base ) )
             return base;
 
@@ -225,7 +225,7 @@ namespace Desert::Editor::Graph
             return false;
         };
 
-        const std::string base = desired.empty() ? std::string( "Param" ) : desired;
+        std::string base = desired.empty() ? std::string( "Param" ) : desired;
         if ( !taken( base ) )
         {
             return base;
@@ -294,15 +294,12 @@ namespace Desert::Editor::Graph
         // than that, which is the same thing as saying the two nodes would visually collide.
         const auto occupied = [&]( const StatePosition& cell )
         {
-            for ( const auto& state : graph.States )
-            {
-                if ( std::abs( state.X - cell.X ) < kStateGridStepX * 0.5f &&
-                     std::abs( state.Y - cell.Y ) < kStateGridStepY * 0.5f )
-                {
-                    return true;
-                }
-            }
-            return false;
+            return std::any_of( graph.States.begin(), graph.States.end(),
+                                [&cell]( const auto& state )
+                                {
+                                    return std::abs( state.X - cell.X ) < kStateGridStepX * 0.5f &&
+                                           std::abs( state.Y - cell.Y ) < kStateGridStepY * 0.5f;
+                                } );
         };
 
         // BOUNDED BY N + 1, and that bound is a proof rather than a guess: a point lies within half a
@@ -311,8 +308,13 @@ namespace Desert::Editor::Graph
         const int cells = static_cast<int>( graph.States.size() ) + 1;
         for ( int cell = 0; cell < cells; ++cell )
         {
-            const StatePosition candidate{ static_cast<float>( cell % kStateGridColumns ) * kStateGridStepX,
-                                           static_cast<float>( cell / kStateGridColumns ) * kStateGridStepY };
+            // The row is an INTEGER division and is spelled as one on its own line. Written inline it
+            // sits inside a float expression, where it reads as -- and is flagged as -- a precision
+            // loss; here it is plainly "which row of the grid", which is what it has always meant.
+            const int           column = cell % kStateGridColumns;
+            const int           row    = cell / kStateGridColumns;
+            const StatePosition candidate{ static_cast<float>( column ) * kStateGridStepX,
+                                           static_cast<float>( row ) * kStateGridStepY };
             if ( !occupied( candidate ) )
             {
                 return candidate;

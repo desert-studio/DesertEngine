@@ -149,6 +149,12 @@ namespace Desert::Editor
         void DrawWarningStrip( const Animation::Graph::AnimGraph&                 graph,
                                const std::vector<Animation::Graph::GraphWarning>& warnings );
 
+        /// The document action behind ONE finding: re-resolves the component and reveals @p warning.
+        /// A MEMBER and not a lambda — see the call site for why the check leaves no lambda available.
+        /// BY REFERENCE, and `bind_front` is what makes that safe: it stores its own COPY of the bound
+        /// finding, so the reference this sees names that copy and not the vector the palette built from.
+        void RevealFinding( const Animation::Graph::GraphWarning& warning );
+
         /// The clip names this entity's skeleton can actually play, empty when there is no Animator to ask
         /// yet. ONE derivation, shared by the clip picker, the validator and the document actions: this
         /// picker used to ask the library tolerantly while the state machine asked it exactly, so a clip

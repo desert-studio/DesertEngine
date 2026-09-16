@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <cstdint>
 #include <memory>
 
@@ -305,17 +306,12 @@ namespace Desert::Editor
         const G::ClipSet               clips{ anim->Animator != nullptr && m_Library != nullptr, clipNames };
         for ( const auto& warning : G::Validate( *anim->Graph, clips ) )
         {
-            actions.push_back( { "Reveal: " + warning.Text, [this, warning]
-                                 {
-                                     // RE-RESOLVED, not captured: the component can be gone by the time an
-                                     // entry built for the palette is run, and a graph captured by
-                                     // reference would then be a dangling one.
-                                     ECS::AnimationComponent* now = ResolveComponent();
-                                     if ( now != nullptr && now->Graph )
-                                     {
-                                         RevealWarning( *now->Graph, warning );
-                                     }
-                                 } } );
+            // NOT A LAMBDA, and that is a finding rather than a style: `bugprone-exception-escape` fires
+            // on a parameter-less lambda in this tree, and `DocumentAction::Run` takes no parameters, so
+            // there is no lambda here the check accepts. `EditorLayer::RunDocumentAction` records the
+            // same one at the other end of this very wire. `bind_front` binds the member directly.
+            actions.push_back(
+                 { "Reveal: " + warning.Text, std::bind_front( &AnimGraphPanel::RevealFinding, this, warning ) } );
         }
 
         return actions;
@@ -434,7 +430,7 @@ namespace Desert::Editor
         // "and 7 more" would be a control that hides a defect, which is the one thing a validator may
         // not do; a strip that grew to thirty lines would eat the canvas it is about.
         constexpr size_t kMaxVisibleLines = 3;
-        const float      lines            = static_cast<float>( std::min( count, kMaxVisibleLines ) );
+        const auto       lines            = static_cast<float>( std::min( count, kMaxVisibleLines ) );
         return ImGui::GetTextLineHeightWithSpacing() * lines + ImGui::GetStyle().ItemSpacing.y * 2.0f;
     }
 
@@ -500,6 +496,17 @@ namespace Desert::Editor
         }
         ImGui::PopStyleColor();
         ImGui::EndChild();
+    }
+
+    void AnimGraphPanel::RevealFinding( const G::GraphWarning& warning )
+    {
+        // RE-RESOLVED, not captured: the component can be gone by the time an entry built for the palette
+        // is run, and a graph captured by reference would then be a dangling one.
+        ECS::AnimationComponent* now = ResolveComponent();
+        if ( now != nullptr && now->Graph )
+        {
+            RevealWarning( *now->Graph, warning );
+        }
     }
 
     void AnimGraphPanel::RevealWarning( const G::AnimGraph& graph, const G::GraphWarning& warning )

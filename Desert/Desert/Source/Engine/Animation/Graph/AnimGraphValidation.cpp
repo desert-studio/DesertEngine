@@ -146,14 +146,8 @@ namespace Desert::Animation::Graph
             }
             // A point `outer` forbids but `inner` allows is a case where `inner` fires and `outer` does
             // not, which is exactly what containment denies.
-            for ( const float point : outer.Excluded )
-            {
-                if ( Admits( inner, point ) )
-                {
-                    return false;
-                }
-            }
-            return true;
+            return std::none_of( outer.Excluded.begin(), outer.Excluded.end(),
+                                 [&inner]( const float point ) { return Admits( inner, point ); } );
         }
 
         using DomainMap = std::unordered_map<std::string, Domain>;
@@ -180,16 +174,13 @@ namespace Desert::Animation::Graph
         [[nodiscard]] bool Shadows( const DomainMap& earlier, const DomainMap& later )
         {
             const Domain unconstrained;
-            for ( const auto& [name, outer] : earlier )
-            {
-                const auto  found = later.find( name );
-                const auto& inner = found == later.end() ? unconstrained : found->second;
-                if ( !Contains( outer, inner ) )
-                {
-                    return false;
-                }
-            }
-            return true;
+            return std::all_of( earlier.begin(), earlier.end(),
+                                [&later, &unconstrained]( const auto& entry )
+                                {
+                                    const auto  found = later.find( entry.first );
+                                    const auto& inner = found == later.end() ? unconstrained : found->second;
+                                    return Contains( entry.second, inner );
+                                } );
         }
 
         /// Whether @p earlier's exit-time gate opens no later than @p later's. An earlier transition held
