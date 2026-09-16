@@ -102,6 +102,7 @@
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
 #include "Editor/Panels/Animation/AnimLayersPanel.hpp"
 #include "Editor/Panels/Animation/ControlRigPanel.hpp"
+#include "Editor/Core/Selection/ControlRigEditMode.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include "Editor/Core/OpenableAssets.hpp"
 #include "Editor/Core/ViewportCameraProperties.hpp"
@@ -3704,6 +3705,17 @@ namespace Desert::Editor
                                   auto& view    = EditorPreferences::Get().DebugView;
                                   view.ShowGrid = !view.ShowGrid;
                                   EditorPreferences::Save();
+                                  return PaletteCommandDone();
+                              } } );
+        // THE CONTROL RIG OVERLAY, and the reason it is a palette entry rather than only the panel's
+        // checkbox is Г14's rule applied to this tier: a capability reachable only by a mouse click inside
+        // a panel does not exist for the control channel, so no unattended run could ever photograph the
+        // control shapes — and a manipulator layer whose appearance cannot be checked is exactly the
+        // "built, tested and unseen" shape this project keeps paying for. It is a VIEWPORT MODE and
+        // persists nowhere, like 2D UI mode above and unlike the grid.
+        commands.push_back( { "View", "Toggle the control rig overlay", []
+                              {
+                                  Core::ControlRigEditMode::Toggle();
                                   return PaletteCommandDone();
                               } } );
         commands.push_back( { "View", "Toggle 2D UI mode", [this]
