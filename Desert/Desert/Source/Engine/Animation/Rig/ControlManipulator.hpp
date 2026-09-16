@@ -25,20 +25,31 @@
  *
  * ── THE PIXEL SPACE, AND WHY THE PROJECTION LIVES HERE ───────────────────────────────────────────────
  *
- * `ProjectToViewport` is the ONE world -> viewport-pixel function in the tree. It used to be a second,
- * private copy in `LightGizmoRenderer.cpp`; a manipulator that agreed with that copy only by inspection
- * would be a convention held in two places, and the class of defect that produces is the one the
- * contract calls "one source of truth per value". Y GROWS DOWNWARD, which is ImGui's convention and
- * therefore the viewport's.
+ * `ProjectToViewport` is the ONE world -> viewport-pixel function in the tree. There were three: a
+ * private copy in `LightGizmoRenderer.cpp` behind 16 call sites, which is now a thin adapter onto this
+ * one, and `Common::Math::SpaceTransformer::WorldToScreenSpace` — zero callers, reachable only through
+ * the `Engine/Desert.hpp` umbrella, and the UNSAFE spelling (it divides by w unconditionally, which is
+ * the defect the surviving copy carries its own paragraph about). That one is deleted. A manipulator
+ * that agreed with a second copy only by inspection would be a convention held in two places, which is
+ * the defect the contract calls "one source of truth per value" — so the suite writes the replaced body
+ * out as a golden reference and asserts the two agree to the float, rather than trusting the move.
+ *
+ * Y GROWS DOWNWARD, which is ImGui's convention and therefore the viewport's.
  *
  * ── IT DOES NOT KNOW THE DEPTH CONVENTION, AND THAT IS DELIBERATE ────────────────────────────────────
  *
  * Nothing here asks whether NDC z runs near->far or far->near, and nothing needs the camera position.
  * The drag intersects a LINE through the pointer with a plane (an intersection is the same point for
  * either orientation of the line), and the arcball basis is built from PIXEL OFFSETS unprojected at one
- * fixed depth, whose differences give screen-right and screen-down in world regardless. A layer that
- * took the convention as an input would have a knob that is wrong on exactly one camera type and right
- * everywhere it was tested.
+ * depth, whose differences give screen-right and screen-down in world whichever end that depth is.
+ *
+ * IT IS NOT FREE OF THE CONVENTION BY LUCK — it was WRONG first. `ScreenBasis` unprojected at NDC z = 0,
+ * which under this engine's reversed-Z (`Engine/Core/Projection.hpp`) is the FAR plane at 50 km: the
+ * homogeneous w there is about 2e-7, a fixed epsilon refused the unprojection outright, and a drag plane
+ * three metres away came out as the difference of two numbers of magnitude 5e6. `UnprojectLine` now
+ * orders the line's two ends by their OWN |w| — proportional to 1/view-depth for any perspective
+ * projection, exactly 1 for both under an orthographic one — so the near end is identified without the
+ * convention ever being named.
  */
 
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
