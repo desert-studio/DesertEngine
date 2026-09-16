@@ -234,7 +234,7 @@ namespace Desert::Animation
         // (additive rig layers, ControlRig.cpp:571-714) is on report 01's "defer it" list. A second rig is
         // an ordering question nobody has asked yet.
         [[nodiscard]] Common::BoolResultStr AttachRig( std::unique_ptr<ControlRigStage> rig );
-        void                               DetachRig();
+        void                                DetachRig();
         /// Non-owning, for the tool that drives the operator's inputs (report 05 §658). Null when none.
         [[nodiscard]] ControlRigStage*       GetRig();
         [[nodiscard]] const ControlRigStage* GetRig() const;

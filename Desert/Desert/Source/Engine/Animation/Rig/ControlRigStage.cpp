@@ -8,7 +8,7 @@
 
 namespace Desert::Animation
 {
-    Common::BoolResultStr ControlRigStage::SetDrives( const Skeleton&              skeleton,
+    Common::BoolResultStr ControlRigStage::SetDrives( const Skeleton&               skeleton,
                                                       std::vector<ControlBoneDrive> drives )
     {
         if ( drives.empty() )
@@ -108,9 +108,9 @@ namespace Desert::Animation
             {
                 // Named on BOTH sides. "A control produced a basis that will not decompose" is unactionable;
                 // "control 'Hand_CTRL', driving bone 'Hand', is mirrored" names the thing the rigger edits.
-                m_LastError = fmt::format( "control '{}' driving bone {} ('{}'): {}",
-                                           m_Hierarchy.Get( drive.Control ).Name, drive.Bone,
-                                           skeleton.GetBones()[drive.Bone].Name, decomposed.GetError() );
+                m_LastError =
+                     fmt::format( "control '{}' driving bone {} ('{}'): {}", m_Hierarchy.Get( drive.Control ).Name,
+                                  drive.Bone, skeleton.GetBones()[drive.Bone].Name, decomposed.GetError() );
                 ReportErrorOnChange();
                 return Common::MakeError<bool>( m_LastError );
             }

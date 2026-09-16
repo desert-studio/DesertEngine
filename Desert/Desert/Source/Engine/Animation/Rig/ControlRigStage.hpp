@@ -111,7 +111,7 @@ namespace Desert::Animation
          * have; and two drives on the SAME bone, because "which control wins" has no answer that is not
          * invented here.
          */
-        [[nodiscard]] Common::BoolResultStr SetDrives( const Skeleton&              skeleton,
+        [[nodiscard]] Common::BoolResultStr SetDrives( const Skeleton&               skeleton,
                                                        std::vector<ControlBoneDrive> drives );
 
         [[nodiscard]] const std::vector<ControlBoneDrive>& GetDrives() const

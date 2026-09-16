@@ -239,7 +239,7 @@ namespace
 
     glm::vec3 Origin( const glm::mat4& m )
     {
-        return glm::vec3( m[3] );
+        return { m[3] };
     }
 
     // The rig the arithmetic tests use: one control in COMPONENT space (so its parent space is exactly the
@@ -247,11 +247,10 @@ namespace
     std::unique_ptr<ControlRigStage> HandRig( const Skeleton& skeleton, const BoneTransform& offset,
                                               const BoneTransform& pose, uint32_t* outControl )
     {
-        auto stage = std::make_unique<ControlRigStage>();
-        const uint32_t control =
-             MustAdd( stage->GetHierarchy(),
-                      MakeControl( "Hand_CTRL", ControlSpace{ ControlSpaceKind::Component, 0, 1.0F }, offset,
-                                   pose ) );
+        auto           stage   = std::make_unique<ControlRigStage>();
+        const uint32_t control = MustAdd(
+             stage->GetHierarchy(),
+             MakeControl( "Hand_CTRL", ControlSpace{ ControlSpaceKind::Component, 0, 1.0F }, offset, pose ) );
         if ( outControl != nullptr )
         {
             *outControl = control;
@@ -281,9 +280,9 @@ TEST( ControlRigStageTest, ThePoseFromTheAnimationSourceComesOutOfTheRigAtTheCon
     // FAR FROM WHERE THE CLIP PUTS THE HAND, on purpose. The arithmetic assertion below is the exact one;
     // this distance exists so that "changed" is a number with room above the float noise (~1e-4 cm on a
     // 100-cm rig) rather than a difference an unrelated tweak to the clip could close.
-    const BoneTransform pose   = Placed( { 150.0F, -120.0F, 80.0F }, -35.0F, { 1.0F, 0.0F, 1.0F } );
+    const BoneTransform pose = Placed( { 150.0F, -120.0F, 80.0F }, -35.0F, { 1.0F, 0.0F, 1.0F } );
 
-    uint32_t   control = ControlHierarchy::INVALID;
+    uint32_t   control  = ControlHierarchy::INVALID;
     const auto attached = animator.AttachRig( HandRig( skeleton, offset, pose, &control ) );
     ASSERT_TRUE( attached.IsSuccess() ) << attached.GetError();
 
@@ -313,9 +312,9 @@ TEST( ControlRigStageTest, TheRigWritesTheBoneItDrivesAndNoOtherBone )
 
     Animator rigged( skeleton );
     rigged.Play( clip, false );
-    const auto attached = rigged.AttachRig( HandRig( skeleton, Placed( { 1.0F, 2.0F, 3.0F }, 5.0F, { 0, 1, 0 } ),
-                                                     Placed( { 42.0F, 77.0F, -18.0F }, -35.0F, { 1, 0, 1 } ),
-                                                     nullptr ) );
+    const auto attached =
+         rigged.AttachRig( HandRig( skeleton, Placed( { 1.0F, 2.0F, 3.0F }, 5.0F, { 0, 1, 0 } ),
+                                    Placed( { 42.0F, 77.0F, -18.0F }, -35.0F, { 1, 0, 1 } ), nullptr ) );
     ASSERT_TRUE( attached.IsSuccess() ) << attached.GetError();
     rigged.SetTick( FrameTime{ FrameNumber{ 0 } } );
 
@@ -324,10 +323,10 @@ TEST( ControlRigStageTest, TheRigWritesTheBoneItDrivesAndNoOtherBone )
     // component transform legitimately moves because its parent did.
     for ( uint32_t bone = 0; bone < skeleton.GetBones().size(); ++bone )
     {
-        const bool driven = ( bone == kHand );
-        const auto& a     = plain.GetLocalPose()[bone];
-        const auto& b     = rigged.GetLocalPose()[bone];
-        const bool same   = a.Translation == b.Translation && a.Rotation == b.Rotation && a.Scale == b.Scale;
+        const bool  driven = ( bone == kHand );
+        const auto& a      = plain.GetLocalPose()[bone];
+        const auto& b      = rigged.GetLocalPose()[bone];
+        const bool  same   = a.Translation == b.Translation && a.Rotation == b.Rotation && a.Scale == b.Scale;
         EXPECT_EQ( same, !driven ) << "bone " << bone << " ('" << skeleton.GetBones()[bone].Name << "')";
     }
 }
@@ -349,9 +348,9 @@ TEST( ControlRigStageTest, WithNoRigThePipelineIsBitForBitWhatItWasBeforeTheStag
 
     Animator cycled( skeleton );
     cycled.Play( clip, false );
-    const auto attached = cycled.AttachRig( HandRig( skeleton, Placed( { 5.0F, 0.0F, -3.0F }, 12.0F, { 0, 1, 0 } ),
-                                                     Placed( { 42.0F, 77.0F, -18.0F }, -35.0F, { 1, 0, 1 } ),
-                                                     nullptr ) );
+    const auto attached =
+         cycled.AttachRig( HandRig( skeleton, Placed( { 5.0F, 0.0F, -3.0F }, 12.0F, { 0, 1, 0 } ),
+                                    Placed( { 42.0F, 77.0F, -18.0F }, -35.0F, { 1, 0, 1 } ), nullptr ) );
     ASSERT_TRUE( attached.IsSuccess() ) << attached.GetError();
     cycled.SetTick( FrameTime{ FrameNumber{ 7 } } );
     ASSERT_FALSE( SameBytes( cycled.GetPose().Matrices, reference ) ) << "the rig did nothing, so this "
@@ -381,9 +380,8 @@ TEST( ControlRigStageTest, TheRigIsTheLastStageAndTheWholeOrderIsAsserted )
 
     // ADDED IN THE WRONG ORDER ON PURPOSE: rig, then control, then layer. `SyncStages` rebuilds the list in
     // the pipeline's canonical order, so the sequence below must not depend on the order of these calls.
-    const auto attached = animator.AttachRig( HandRig( skeleton, BoneTransform{},
-                                                       Placed( { 42.0F, 77.0F, -18.0F }, -35.0F, { 1, 0, 1 } ),
-                                                       nullptr ) );
+    const auto attached = animator.AttachRig(
+         HandRig( skeleton, BoneTransform{}, Placed( { 42.0F, 77.0F, -18.0F }, -35.0F, { 1, 0, 1 } ), nullptr ) );
     ASSERT_TRUE( attached.IsSuccess() ) << attached.GetError();
 
     auto ik = std::make_unique<TwoBoneIKControl>();
@@ -438,11 +436,11 @@ TEST( ControlRigStageTest, AControlParentedToABoneFollowsThisFramesPoseAndNotThe
     // clip does not touch and which is not in the shoulder's chain. So "the tail is where the shoulder is"
     // is a statement about the input hop, and the clip moving the shoulder makes it a different statement
     // on every tick.
-    auto           stage   = std::make_unique<ControlRigStage>();
-    const uint32_t control = MustAdd( stage->GetHierarchy(),
-                                      MakeControl( "Shoulder_CTRL",
-                                                   ControlSpace{ ControlSpaceKind::Bone, kShoulder, 1.0F },
-                                                   BoneTransform{}, BoneTransform{} ) );
+    auto           stage = std::make_unique<ControlRigStage>();
+    const uint32_t control =
+         MustAdd( stage->GetHierarchy(),
+                  MakeControl( "Shoulder_CTRL", ControlSpace{ ControlSpaceKind::Bone, kShoulder, 1.0F },
+                               BoneTransform{}, BoneTransform{} ) );
     const auto drives = stage->SetDrives( skeleton, { ControlBoneDrive{ control, kTail } } );
     ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
 
@@ -478,19 +476,18 @@ TEST( ControlRigStageTest, DrivesAreSortedParentsFirstSoTheOutputHopIsNeverHande
     const BoneTransform shoulderPose = Placed( { -30.0F, 60.0F, 11.0F }, 20.0F, { 0.0F, 0.0F, 1.0F } );
     const BoneTransform handPose     = Placed( { 42.0F, 77.0F, -18.0F }, -35.0F, { 1.0F, 0.0F, 1.0F } );
 
-    auto           stage = std::make_unique<ControlRigStage>();
-    const uint32_t hand  = MustAdd( stage->GetHierarchy(),
-                                    MakeControl( "Hand_CTRL", ControlSpace{ ControlSpaceKind::Component, 0, 1.0F },
-                                                 BoneTransform{}, handPose ) );
-    const uint32_t shoulder =
-         MustAdd( stage->GetHierarchy(),
-                  MakeControl( "Shoulder_CTRL", ControlSpace{ ControlSpaceKind::Component, 0, 1.0F },
-                               BoneTransform{}, shoulderPose ) );
+    auto           stage    = std::make_unique<ControlRigStage>();
+    const uint32_t hand     = MustAdd( stage->GetHierarchy(),
+                                       MakeControl( "Hand_CTRL", ControlSpace{ ControlSpaceKind::Component, 0, 1.0F },
+                                                    BoneTransform{}, handPose ) );
+    const uint32_t shoulder = MustAdd(
+         stage->GetHierarchy(), MakeControl( "Shoulder_CTRL", ControlSpace{ ControlSpaceKind::Component, 0, 1.0F },
+                                             BoneTransform{}, shoulderPose ) );
 
     // CHILD FIRST. `ApplyBoneOverrides` refuses this order, naming both resolve ranks; the rig must sort it
     // rather than pass the author's order through and fail for a reason the author cannot see.
-    const auto drives =
-         stage->SetDrives( skeleton, { ControlBoneDrive{ hand, kHand }, ControlBoneDrive{ shoulder, kShoulder } } );
+    const auto drives = stage->SetDrives(
+         skeleton, { ControlBoneDrive{ hand, kHand }, ControlBoneDrive{ shoulder, kShoulder } } );
     ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
     ASSERT_EQ( stage->GetDrives().size(), 2U );
     EXPECT_EQ( stage->GetDrives()[0].Bone, kShoulder );
@@ -568,16 +565,16 @@ TEST( ControlRigStageTest, ARigThatDrivesNothingIsRefusedRatherThanAttachedAsAnI
 
 TEST( ControlRigStageTest, ARigOverTheWrongSkeletonRefusesAndLeavesThePoseAsTheStageBeforeItProducedIt )
 {
-    const Skeleton      big      = MakeArmRig();
-    const Skeleton      small    = MakeStubRig();
-    const AnimationClip clip     = ArmClip();
+    const Skeleton      big   = MakeArmRig();
+    const Skeleton      small = MakeStubRig();
+    const AnimationClip clip  = ArmClip();
 
     // Built and validated against the eight-bone rig: a control parented to bone 7, driving bone 0.
-    auto           stage   = std::make_unique<ControlRigStage>();
-    const uint32_t control = MustAdd( stage->GetHierarchy(),
-                                      MakeControl( "Prop_CTRL", ControlSpace{ ControlSpaceKind::Bone, 7, 1.0F },
-                                                   BoneTransform{},
-                                                   Placed( { 500.0F, 0.0F, 0.0F }, 0.0F, { 0, 1, 0 } ) ) );
+    auto           stage = std::make_unique<ControlRigStage>();
+    const uint32_t control =
+         MustAdd( stage->GetHierarchy(),
+                  MakeControl( "Prop_CTRL", ControlSpace{ ControlSpaceKind::Bone, 7, 1.0F }, BoneTransform{},
+                               Placed( { 500.0F, 0.0F, 0.0F }, 0.0F, { 0, 1, 0 } ) ) );
     const auto drives = stage->SetDrives( big, { ControlBoneDrive{ control, kSpine } } );
     ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
 
