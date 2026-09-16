@@ -947,7 +947,7 @@ namespace Desert::Editor
 
                 if ( field.Meta.AssetType == "ControlRigAsset" )
                 {
-                    uint64_t* rigHandle = static_cast<uint64_t*>( p );
+                    auto* rigHandle = static_cast<uint64_t*>( p );
 
                     // "None" IS A MEANINGFUL STATE AND SAYS SO, on the theme slot's terms: an entity with
                     // no rig is posed by its clips alone, which is what every character authored before
@@ -957,11 +957,13 @@ namespace Desert::Editor
                     if ( *rigHandle != 0 )
                     {
                         preview = "(missing)";
-                        if ( assetMgr )
+                        if ( assetMgr != nullptr )
                         {
                             if ( auto rig = assetMgr->FindByHandle<Assets::ControlRigAsset>(
                                       Common::UUID( *rigHandle ) ) )
+                            {
                                 preview = rig->GetDisplayName();
+                            }
                         }
                     }
 
@@ -973,7 +975,7 @@ namespace Desert::Editor
                             *rigHandle = 0;
                             changed    = true;
                         }
-                        if ( assetMgr )
+                        if ( assetMgr != nullptr )
                         {
                             for ( const auto& [h, rig] : assetMgr->FindAllByType<Assets::ControlRigAsset>() )
                             {
@@ -984,7 +986,9 @@ namespace Desert::Editor
                                     changed    = true;
                                 }
                                 if ( selected )
+                                {
                                     ImGui::SetItemDefaultFocus();
+                                }
                             }
                         }
                         ImGui::EndCombo();
@@ -992,45 +996,49 @@ namespace Desert::Editor
 
                     if ( ImGui::BeginDragDropTarget() )
                     {
-                        if ( const ImGuiPayload* pl =
+                        if ( const ImGuiPayload* payload =
                                   ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
                         {
-                            const std::string path( static_cast<const char*>( pl->Data ),
-                                                    pl->DataSize > 0 ? pl->DataSize - 1 : 0 );
+                            const std::string path( static_cast<const char*>( payload->Data ),
+                                                    payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
                             // The extension is checked HERE for the theme slot's reason: the Content
                             // Browser emits one generic AssetFile payload for every type it has no icon
                             // for, so without it this slot would bind a handle to a `.demat`.
-                            if ( assetMgr && !path.empty() &&
+                            if ( assetMgr != nullptr && !path.empty() &&
                                  std::filesystem::path( path ).extension() ==
                                       Assets::Serialization::kControlRigExtension )
                             {
-                                auto& mutableManager = const_cast<Assets::AssetManager&>( *assetMgr );
-                                auto  rig            = mutableManager.FindByPath<Assets::ControlRigAsset>( path );
-                                if ( !rig )
-                                    rig = mutableManager.CreateAsset<Assets::ControlRigAsset>(
-                                         Assets::AssetPriority::Medium, path );
-                                if ( rig && !rig->IsReadyForUse() )
-                                {
-                                    if ( const auto loaded = rig->Load(); !loaded )
-                                        LOG_ERROR( "[Animation] Dropped control rig '{}' is not usable: {}", path,
-                                                   loaded.GetError() );
-                                }
-                                // BOUND ONLY IF IT PARSED. A handle to a rig that refused to load is a slot
-                                // that names a rig and poses nothing, which is the silent state this whole
-                                // tier exists to avoid; the log line above is the one the author needs.
+                                // ONLY A RIG THE PROJECT HAS ALREADY SCANNED. The theme slot next door
+                                // const_casts the manager to create one on the spot; that is a hole this
+                                // slot does not need, because AssetPreloader::PreloadControlRigs walks the
+                                // project's Rigs/ folder at startup and a rig dropped from the Content
+                                // Browser is by definition inside the project. A `.derig` from anywhere
+                                // else is REFUSED BY NAME rather than bound to a handle nothing can
+                                // resolve after a restart.
+                                auto rig = assetMgr->FindByPath<Assets::ControlRigAsset>( path );
                                 if ( rig && rig->IsReadyForUse() )
                                 {
                                     *rigHandle = static_cast<uint64_t>( rig->GetMetadata().Handle );
                                     changed    = true;
+                                }
+                                else
+                                {
+                                    LOG_WARN( "[Animation] '{}' is not a control rig this project has "
+                                              "loaded; put it under the project's Rigs/ folder and restart, "
+                                              "or pick a rig from the list.",
+                                              path );
                                 }
                             }
                         }
                         ImGui::EndDragDropTarget();
                     }
                     if ( ImGui::IsItemHovered() )
-                        ImGui::SetTooltip( "Pick a control rig or drag a .derig here. \"None\" means this "
-                                           "entity is posed by its animation clips alone — which is not a "
-                                           "failure, it is how a character behaves with no rig." );
+                    {
+                        ImGui::SetTooltip( "Pick a control rig or drop a .derig from the project here. "
+                                           "\"None\" means this entity is posed by its animation clips "
+                                           "alone — which is not a failure, it is how a character behaves "
+                                           "with no rig." );
+                    }
                     break;
                 }
 

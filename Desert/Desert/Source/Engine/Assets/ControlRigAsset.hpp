@@ -34,18 +34,18 @@ namespace Desert::Assets
         Common::BoolResultStr Load() override;
         Common::BoolResultStr Unload() override;
 
-        bool IsReadyForUse() const override
+        [[nodiscard]] bool IsReadyForUse() const override
         {
             return m_Ready;
         }
 
-        const Serialization::ControlRigData& GetData() const
+        [[nodiscard]] const Serialization::ControlRigData& GetData() const
         {
             return m_Data;
         }
 
         /// What to show in a slot. The file's `Name` when it has one, the file's stem when it does not.
-        const std::string& GetDisplayName() const
+        [[nodiscard]] const std::string& GetDisplayName() const
         {
             return m_DisplayName;
         }
@@ -53,7 +53,7 @@ namespace Desert::Assets
         /// Bumped by every successful Load. The ECS system holds the revision it last built a stage from,
         /// so a hot-reloaded rig is rebuilt and an unchanged one is not — which is what stops the per-frame
         /// sync from re-resolving every name sixty times a second.
-        uint32_t GetRevision() const
+        [[nodiscard]] uint32_t GetRevision() const
         {
             return m_Revision;
         }

@@ -304,7 +304,7 @@ namespace
 
     std::string ReadFile( const std::string& path )
     {
-        std::ifstream in( path, std::ios::binary );
+        const std::ifstream in( path, std::ios::binary );
         if ( !in )
         {
             return {};
@@ -425,7 +425,7 @@ TEST( ControlRigAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirect
     auto              ok   = RigFile::ParseControlRig( text );
     ASSERT_TRUE( ok.IsSuccess() ) << "WriteControlRig must stamp the current generation, not carry one in";
 
-    const std::string tampered = "{\"FormatVersion\":99,\"Name\":\"X\",\"Controls\":[],\"Drives\":[]}";
+    const std::string tampered = R"({"FormatVersion":99,"Name":"X","Controls":[],"Drives":[]})";
     auto              refused  = RigFile::ParseControlRig( tampered );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "99" ), std::string::npos ) << refused.GetError();

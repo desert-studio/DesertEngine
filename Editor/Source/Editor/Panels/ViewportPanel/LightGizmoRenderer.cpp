@@ -127,7 +127,7 @@ namespace Desert::Editor
             Core::ControlRigEditMode::Clear();
             return;
         }
-        auto& entity = entOpt->get();
+        const ECS::Entity& entity = entOpt->get();
         if ( !entity.HasComponent<ECS::AnimationComponent>() )
         {
             Core::ControlRigEditMode::Clear();
@@ -149,7 +149,9 @@ namespace Desert::Editor
             // and the selection must not survive it.
             Core::ControlRigEditMode::Clear();
             if ( m_ControlDrag.Active() )
+            {
                 m_ControlDrag.End();
+            }
             return;
         }
 
@@ -202,12 +204,21 @@ namespace Desert::Editor
 
         for ( const Animation::ControlShapeDraw& shape : m_ControlFrame.Shapes )
         {
-            const bool  isSelected = ( shape.Control == chosen );
-            const bool  isHovered  = ( shape.Control == hover.Control );
-            const ImU32 colour     = isSelected  ? IM_COL32( 255, 200, 60, 255 )
-                                     : isHovered ? IM_COL32( 255, 255, 255, 255 )
-                                                 : IM_COL32( 90, 190, 255, 200 );
-            const float thickness  = isSelected ? 2.5f : 1.5f;
+            const bool isSelected = ( shape.Control == chosen );
+            const bool isHovered  = ( shape.Control == hover.Control );
+
+            // Written as a lookup rather than as nested ternaries: three states (selected, hovered, idle)
+            // read as three rows, and the analyser refuses a conditional inside a conditional anyway.
+            ImU32 colour = IM_COL32( 90, 190, 255, 200 );
+            if ( isSelected )
+            {
+                colour = IM_COL32( 255, 200, 60, 255 );
+            }
+            else if ( isHovered )
+            {
+                colour = IM_COL32( 255, 255, 255, 255 );
+            }
+            const float thickness = isSelected ? 2.5f : 1.5f;
 
             for ( const Animation::ManipulatorSegment& segment : shape.Screen )
             {
@@ -225,7 +236,9 @@ namespace Desert::Editor
         if ( !ImGui::IsWindowHovered( ImGuiHoveredFlags_AllowWhenBlockedByActiveItem ) )
         {
             if ( m_ControlDrag.Active() && !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+            {
                 m_ControlDrag.End();
+            }
             return;
         }
 
@@ -242,7 +255,8 @@ namespace Desert::Editor
             {
                 m_ControlDrag.End();
             }
-            m_LightIconHovered = true; // a drag in progress must not let the scene pick fire underneath it
+            // A drag in progress must not let the scene pick fire underneath it.
+            m_LightIconHovered = true;
             return;
         }
 

@@ -34,20 +34,20 @@ namespace Desert::Editor
     public:
         explicit ControlRigPanel( std::shared_ptr<::Desert::Core::Scene> scene );
 
-        ImVec2 GetDefaultSize() const override
+        [[nodiscard]] ImVec2 GetDefaultSize() const override
         {
-            return ImVec2( 320.0f, 380.0f );
+            return { 320.0f, 380.0f };
         }
         void OnUIRender() override;
 
         // Contextual: a rig belongs to a skinned mesh with an Animator.
         // NOT contextual: selecting a character is not a request to start posing it. It opens only when
         // asked for — the View menu or the command palette.
-        bool IsContextual() const override
+        [[nodiscard]] bool IsContextual() const override
         {
             return false;
         }
-        bool IsRelevant() const override;
+        [[nodiscard]] bool IsRelevant() const override;
 
     private:
         std::shared_ptr<::Desert::Core::Scene> m_Scene;

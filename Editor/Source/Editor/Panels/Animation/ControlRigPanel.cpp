@@ -46,7 +46,7 @@ namespace Desert::Editor
         {
             return;
         }
-        auto& entity = entOpt->get();
+        const ECS::Entity& entity = entOpt->get();
 
         if ( !entity.HasComponent<ECS::ControlRigComponent>() )
         {
@@ -111,7 +111,7 @@ namespace Desert::Editor
                                "a control selects it here too." );
         }
 
-        bool rotate = Core::ControlRigEditMode::RotateMode();
+        const bool rotate = Core::ControlRigEditMode::RotateMode();
         if ( ImGui::RadioButton( "Translate", !rotate ) )
         {
             Core::ControlRigEditMode::SetRotateMode( false );
@@ -197,9 +197,17 @@ namespace Desert::Editor
             ImGui::Text( "Parent spaces (%zu)", control.Parents.size() );
             for ( const Animation::ControlSpace& space : control.Parents )
             {
-                const char* kind = space.Kind == Animation::ControlSpaceKind::Component ? "Component"
-                                   : space.Kind == Animation::ControlSpaceKind::Bone    ? "Bone"
-                                                                                        : "Control";
+                // A lookup rather than nested ternaries: three kinds read as three rows, and the analyser
+                // refuses a conditional inside a conditional in any case.
+                const char* kind = "Component";
+                if ( space.Kind == Animation::ControlSpaceKind::Bone )
+                {
+                    kind = "Bone";
+                }
+                else if ( space.Kind == Animation::ControlSpaceKind::Control )
+                {
+                    kind = "Control";
+                }
                 ImGui::BulletText( "%s [%u]  weight %.2f", kind, space.Index, space.Weight );
             }
         }
@@ -209,8 +217,14 @@ namespace Desert::Editor
         ImGui::TextDisabled( "Each row is one control's transform becoming one bone's." );
         for ( const Animation::ControlBoneDrive& drive : rig->GetDrives() )
         {
-            const char* name =
-                 drive.Control < hierarchy.Size() ? hierarchy.Get( drive.Control ).Name.c_str() : "(gone)";
+            // "(gone)" cannot be reached while the stage is the one the drives were sorted against; it is
+            // written rather than asserted because this panel draws every frame and a crash in a label is
+            // the worst possible way to report an index that has gone stale.
+            const char* name = "(gone)";
+            if ( drive.Control < hierarchy.Size() )
+            {
+                name = hierarchy.Get( drive.Control ).Name.c_str();
+            }
             ImGui::BulletText( "%s -> bone %u", name, drive.Bone );
         }
 
