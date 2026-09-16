@@ -263,7 +263,7 @@ namespace
                 // machine and on nobody else's. A gate that read it would go red for a file CI has never
                 // seen and that no register could honestly name — which is the false positive this suite
                 // claims not to have, so it is excluded by name rather than by luck.
-                if ( entry.path().string().find( "/Autosave/" ) != std::string::npos )
+                if ( entry.path().generic_string().find( "/Autosave/" ) != std::string::npos )
                     continue;
                 CollectFromFile( entry.path(), out );
             }

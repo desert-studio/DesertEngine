@@ -258,7 +258,7 @@ TEST( SceneTextKeySigilMigration, TheRetiredBindingFormatIsGoneFromTheComponentA
             continue;
         // Not `Scenes/Autosave/`: gitignored crash recovery, written by whatever a developer had open, so
         // it may legitimately predate this migration and is not content this repository ships.
-        if ( entry.path().string().find( "/Autosave/" ) != std::string::npos )
+        if ( entry.path().generic_string().find( "/Autosave/" ) != std::string::npos )
             continue;
         const std::string text = ReadFile( entry.path() );
         EXPECT_EQ( text.find( "\"Format\"" ), std::string::npos )

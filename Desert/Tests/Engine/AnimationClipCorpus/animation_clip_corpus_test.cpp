@@ -278,7 +278,7 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsAtTheCurrentGeneration )
             continue;
         }
         // Build outputs are copies of the sources above and are not part of the corpus.
-        if ( entry.path().string().find( "/build/" ) != std::string::npos )
+        if ( entry.path().generic_string().find( "/build/" ) != std::string::npos )
         {
             continue;
         }
@@ -293,7 +293,7 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsAtTheCurrentGeneration )
         // which is not a property of the repository at all: remove those worktrees and it passes
         // without anything being fixed. The existing `/build/` line already conceded that not every
         // `.anim` under the root belongs to the corpus; the list of exclusions was simply short by one.
-        if ( entry.path().string().find( "/.claude/" ) != std::string::npos )
+        if ( entry.path().generic_string().find( "/.claude/" ) != std::string::npos )
         {
             continue;
         }
@@ -337,7 +337,7 @@ TEST( AnimationClipCorpus, EveryKeyInEveryClipSTATESItsShapeRatherThanInheriting
         {
             continue;
         }
-        if ( entry.path().string().find( "/build/" ) != std::string::npos )
+        if ( entry.path().generic_string().find( "/build/" ) != std::string::npos )
         {
             continue;
         }

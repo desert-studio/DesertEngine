@@ -142,3 +142,72 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// THE SEPARATOR, WHICH IS THE SAME DEFECT AS `far` WEARING DIFFERENT CLOTHES.
+//
+// `std::filesystem::path::string()` returns the NATIVE spelling: forward slashes on macOS and Linux,
+// **backslashes on Windows**. So a census that skips part of the tree with
+// `entry.path().string().find( "/build/" )` silently skips NOTHING on Windows — the substring cannot
+// occur — and the walk then reads whatever lives there.
+//
+// Measured 2026-09-16, and it cost a red `dev` on the primary target. `AnimationClipCorpus` walks the
+// repository asserting every `.anim` is at the current generation, and excluded `/build/` and
+// `/.claude/` this way. On Windows neither exclusion matched, the walk reached
+// `build/TestScratch/AnimationClipFormat/desert_anim_clip_write/_Walk.anim` — a scratch file ANOTHER
+// SUITE had just written — and failed on it at generation 0. The verdict therefore depended on which
+// suites had run before it, which is not a property of the repository at all.
+//
+// It was FIVE call sites across four censuses, all written the same way, none of them wrong on the
+// machine they were written on. That is why this is an assertion and not five fixes: `generic_string()`
+// is forward-slashed on every platform and is the only spelling a path filter may use.
+TEST( ReservedIdentifiers, NoPathFilterUsesTheNativeSpelling )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const auto files = SourceFiles( root );
+    ASSERT_FALSE( files.empty() ) << "no sources walked — this census examined nothing";
+
+    // `.string()` followed by a search for a slash-delimited fragment. The fragment is what makes it a
+    // PATH FILTER rather than any other use of `.string()`, which is why the pattern requires the quote
+    // and the leading slash rather than flagging every `.string()` in the tree.
+    const std::regex nativeFilter( R"(\.string\(\)\s*\.find\(\s*"/)" );
+
+    std::vector<std::string> offenders;
+    for ( const fs::path& file : files )
+    {
+        std::ifstream in( file );
+        std::string   line;
+        int           number = 0;
+        while ( std::getline( in, line ) )
+        {
+            ++number;
+            // A COMMENT IS NOT CODE, and a census that reddens on prose is a census someone will
+            // silence. This very file explains the defect by quoting it, and the first run flagged
+            // that explanation — so the rule is stated once here instead of being worked around by
+            // rewording every paragraph that has to name the thing it forbids.
+            const std::size_t firstGlyph = line.find_first_not_of( " \t" );
+            if ( firstGlyph != std::string::npos &&
+                 ( line.compare( firstGlyph, 2, "//" ) == 0 || line.compare( firstGlyph, 1, "*" ) == 0 ) )
+            {
+                continue;
+            }
+            if ( std::regex_search( line, nativeFilter ) )
+            {
+                offenders.push_back( fs::relative( file, root ).generic_string() + ":" +
+                                     std::to_string( number ) );
+            }
+        }
+    }
+
+    EXPECT_TRUE( offenders.empty() )
+         << "A path filter is searching the NATIVE spelling for a forward-slashed fragment, so it "
+            "matches nothing on Windows and the exclusion silently does not happen. Use "
+            "`generic_string()`, which is forward-slashed on every platform.\n"
+         << [&offenders]
+    {
+        std::string all;
+        for ( const std::string& o : offenders )
+            all += "  " + o + "\n";
+        return all;
+    }();
+}
