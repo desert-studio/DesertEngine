@@ -83,6 +83,11 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AudioSourceComponent, Data, 
 // next door — AnimationComponent — is a custom one because it owns an Animator and a graph; that is the line
 // between the two.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::TwoBoneIKComponent, Data, "TwoBoneIKData", "Two-Bone IK" )
+// Control Rig is the reflected one-liner for Two-Bone IK's reason and more so: it is ONE value an artist
+// picks. Everything behind it — resolving the file's names against this entity's skeleton, building the
+// pipeline stage, rebuilding it when the file changes — belongs to AnimationECSSystem, and the panel that
+// lets an animator grab a control is a panel (View -> Control Rig), not a Details page.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ControlRigComponent, Data, "ControlRigData", "Control Rig" )
 // Particle Emitter is a CUSTOM entry: the reflected fields plus a transport (play / pause / restart),
 // because "is it emitting right now" is a state you drive, not a value you type. See MakeEmitterEntry.
 // UI Canvas is a CUSTOM entry: the reflected fields PLUS "Open in UI Editor", which is what the UI Editor

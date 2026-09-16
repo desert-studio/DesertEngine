@@ -2,7 +2,7 @@
 
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Core/Serialize/GLMReflect.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
 

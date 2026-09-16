@@ -101,6 +101,7 @@
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
 #include "Editor/Panels/Animation/AnimLayersPanel.hpp"
+#include "Editor/Panels/Animation/ControlRigPanel.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include "Editor/Core/OpenableAssets.hpp"
 #include "Editor/Core/ViewportCameraProperties.hpp"
@@ -684,6 +685,7 @@ namespace Desert::Editor
         m_Panels.Add<Editor::AssetReferencesPanel>( m_MainScene, m_AssetManager );
         m_Panels.Add<Editor::LuaConsolePanel>( m_MainScene.get(), m_AssetManager.get() );
         m_Panels.Add<Editor::AnimLayersPanel>( m_MainScene, m_AnimationLibrary.get() );
+        m_Panels.Add<Editor::ControlRigPanel>( m_MainScene );
         m_Panels.Add<Editor::BuildSettingsPanel>();
         // THE CLOUDS WINDOW IS A TOOL, and it must be: it is a setting the user keeps (View ▸ Clouds), it
         // edits no subject of its own, and the compiler refuses a document here anyway (PanelRegistry).

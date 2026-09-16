@@ -1,4 +1,6 @@
 #include "LightGizmoRenderer.hpp"
+
+#include <Editor/Core/Selection/ControlRigEditMode.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/SkeletonEditMode.hpp>
@@ -93,6 +95,197 @@ namespace Desert::Editor
 
         // Rig placement overlay (Convert-to-Skinned) — draws the bones being placed on a static mesh.
         RenderRigBuilder( camera, width, height );
+
+        // Control Rig overlay — the caller ControlManipulator never had. Gated by the mode rather than by
+        // the selection alone: a character with a rig is a character you usually want to see UNRIGGED while
+        // dressing the scene, and every control drawn on top of every skinned mesh is a viewport full of
+        // circles nobody asked for.
+        if ( Core::ControlRigEditMode::IsActive() )
+        {
+            RenderControlRig( camera, width, height, xpos, ypos );
+        }
+        else if ( m_ControlDrag.Active() )
+        {
+            // Leaving the mode mid-drag ENDS the drag. Without this the next entry into the mode would
+            // resume a grab against a hierarchy that may have been rebuilt under it.
+            m_ControlDrag.End();
+        }
+    }
+
+    void LightGizmoRenderer::RenderControlRig( const std::shared_ptr<Desert::Core::Camera>& camera,
+                                               float width, float height, float xpos, float ypos )
+    {
+        const auto& selected = Core::SelectionManager::GetSelected();
+        if ( !selected )
+        {
+            Core::ControlRigEditMode::Clear();
+            return;
+        }
+        const auto& entOpt = m_Scene->FindEntityByID( *selected );
+        if ( !entOpt )
+        {
+            Core::ControlRigEditMode::Clear();
+            return;
+        }
+        auto& entity = entOpt->get();
+        if ( !entity.HasComponent<ECS::AnimationComponent>() )
+        {
+            Core::ControlRigEditMode::Clear();
+            return;
+        }
+
+        auto& anim = entity.GetComponent<ECS::AnimationComponent>();
+        if ( !anim.Animator )
+        {
+            Core::ControlRigEditMode::Clear();
+            return;
+        }
+
+        Animation::ControlRigStage* rig = anim.Animator->GetRig();
+        if ( rig == nullptr )
+        {
+            // The entity has no rig ATTACHED — either it names none, or the one it names refused to build.
+            // AnimationECSSystem has already said which, once; drawing nothing here is the honest answer
+            // and the selection must not survive it.
+            Core::ControlRigEditMode::Clear();
+            if ( m_ControlDrag.Active() )
+                m_ControlDrag.End();
+            return;
+        }
+
+        if ( !m_ControlShapes.has_value() )
+        {
+            auto built = Animation::ControlShapeLibrary::BuiltIn();
+            if ( !built )
+            {
+                // UNWRAPPED, not discarded. BuiltIn() refuses a degenerate table, and a discarded refusal
+                // here would ship a library one shape short — whose first symptom is a control an animator
+                // cannot grab.
+                LOG_ERROR( "[Animation] The built-in control shape library is unusable: {}", built.GetError() );
+                return;
+            }
+            m_ControlShapes = built.ExtractValue();
+        }
+
+        Animation::ControlHierarchy& hierarchy = rig->GetHierarchy();
+
+        // THE CONTROLS ARE IN THE ENTITY'S COMPONENT SPACE, so the view matrix the manipulator is given
+        // carries the entity's world transform. Folding it into the ViewProjection rather than into every
+        // control's global is what keeps `ProjectToViewport` the one projection in the tree: the
+        // manipulator does not learn about entities, and the drag's inverse is the same matrix inverted
+        // once.
+        const glm::mat4 entityWorld = entity.GetComponent<ECS::TransformComponent>().GetTransform();
+
+        Animation::ManipulatorView view;
+        view.ViewProjection = camera->GetProjectionMatrix() * camera->GetViewMatrix() * entityWorld;
+        view.ViewportOrigin = glm::vec2( xpos, ypos );
+        view.ViewportSize   = glm::vec2( width, height );
+
+        Animation::BuildFrame( hierarchy, *m_ControlShapes, view, m_ControlFrame );
+
+        // SAID, NOT SWALLOWED, and ControlManipulator returns it as part of the answer for this reason: a
+        // control naming a shape the library does not have must not look identical to one the rigger chose
+        // not to draw, because the animator's only symptom would be a control they cannot grab.
+        for ( const std::string& unknown : m_ControlFrame.UnknownShapes )
+        {
+            LOG_WARN( "[Animation] Control rig shape '{}' is not in the library; the controls naming it draw "
+                      "nothing and cannot be grabbed.",
+                      unknown );
+        }
+
+        const ImVec2      pointer  = ImGui::GetMousePos();
+        const glm::vec2   pointerV = glm::vec2( pointer.x, pointer.y );
+        ImDrawList* const drawList = ImGui::GetWindowDrawList();
+
+        const Animation::ManipulatorHit hover = Animation::HitTest( m_ControlFrame, pointerV, 10.0f );
+        const uint32_t                  chosen = Core::ControlRigEditMode::GetSelected();
+
+        for ( const Animation::ControlShapeDraw& shape : m_ControlFrame.Shapes )
+        {
+            const bool isSelected = ( shape.Control == chosen );
+            const bool isHovered  = ( shape.Control == hover.Control );
+            const ImU32 colour    = isSelected ? IM_COL32( 255, 200, 60, 255 )
+                                    : isHovered ? IM_COL32( 255, 255, 255, 255 )
+                                                : IM_COL32( 90, 190, 255, 200 );
+            const float thickness = isSelected ? 2.5f : 1.5f;
+
+            for ( const Animation::ManipulatorSegment& segment : shape.Screen )
+            {
+                drawList->AddLine( ImVec2( segment.A.x, segment.A.y ), ImVec2( segment.B.x, segment.B.y ),
+                                   colour, thickness );
+            }
+
+            if ( isSelected && shape.Origin.InFront )
+            {
+                drawList->AddText( ImVec2( shape.Origin.Pixel.x + 8.0f, shape.Origin.Pixel.y - 6.0f ), colour,
+                                   hierarchy.Get( shape.Control ).Name.c_str() );
+            }
+        }
+
+        if ( !ImGui::IsWindowHovered( ImGuiHoveredFlags_AllowWhenBlockedByActiveItem ) )
+        {
+            if ( m_ControlDrag.Active() && !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+                m_ControlDrag.End();
+            return;
+        }
+
+        if ( m_ControlDrag.Active() )
+        {
+            if ( ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+            {
+                if ( const auto moved = m_ControlDrag.Update( hierarchy, view, pointerV ); !moved )
+                {
+                    LOG_WARN( "[Animation] Control drag refused: {}", moved.GetError() );
+                }
+            }
+            else
+            {
+                m_ControlDrag.End();
+            }
+            m_LightIconHovered = true; // a drag in progress must not let the scene pick fire underneath it
+            return;
+        }
+
+        if ( hover.Control != Animation::ControlHierarchy::INVALID )
+        {
+            // The hover gates the scene pick for the same reason a light icon does: clicking a control is
+            // not a request to select whatever mesh is behind it.
+            m_LightIconHovered = true;
+
+            if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+            {
+                Core::ControlRigEditMode::SetSelected( hover.Control );
+
+                const Animation::ManipulatorMode mode = Core::ControlRigEditMode::RotateMode()
+                                                             ? Animation::ManipulatorMode::Rotate
+                                                             : Animation::ManipulatorMode::Translate;
+
+                // The GRABBED SHAPE'S radius, not a constant: the shape the animator sees IS the trackball,
+                // so a rim-to-rim sweep is half a turn. A constant would feel wrong at every zoom but one.
+                float radius = 1.0f;
+                for ( const Animation::ControlShapeDraw& shape : m_ControlFrame.Shapes )
+                {
+                    if ( shape.Control == hover.Control )
+                    {
+                        radius = shape.ScreenRadius > 0.0f ? shape.ScreenRadius : 1.0f;
+                        break;
+                    }
+                }
+
+                if ( const auto begun =
+                          m_ControlDrag.Begin( hierarchy, hover.Control, mode, view, pointerV, radius );
+                     begun )
+                {
+                    m_ControlPoseAtGrab = m_ControlDrag.PoseAtGrab();
+                    m_ControlDragOwner  = *selected;
+                }
+                else
+                {
+                    LOG_WARN( "[Animation] Control '{}' could not be grabbed: {}",
+                              hierarchy.Get( hover.Control ).Name, begun.GetError() );
+                }
+            }
+        }
     }
 
     void LightGizmoRenderer::RenderPointLights( const std::shared_ptr<Desert::Core::Camera>& camera, float width,

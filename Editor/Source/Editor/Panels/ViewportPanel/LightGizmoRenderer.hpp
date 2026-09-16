@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Desert.hpp>
+#include <Engine/Animation/Rig/ControlManipulator.hpp>
 #include <ImGui/imgui.h>
 
 #include <optional>
@@ -54,6 +55,20 @@ namespace Desert::Editor
         // In-editor rig placement (RigBuilder): overlay the bones being placed on a static mesh before
         // "Convert to Skinned". Shares the UE-style visuals with RenderSkeleton via DrawBoneGizmos.
         void RenderRigBuilder( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
+        /**
+         * @brief Control Rig mode: draw the selected entity's control shapes, pick one, and drag it.
+         *
+         * THE CALLER `ControlManipulator` NEVER HAD (T5.2). That file answers three questions per frame —
+         * where are the shapes, is the pointer on one, what does a drag write — adds no pass, no entity and
+         * no component, and until this function existed nothing asked it any of them.
+         *
+         * It reads the LIVE hierarchy out of the entity's Animator, which is the stage AnimationECSSystem
+         * built from the entity's `.derig`. So a drag writes into the object the Rig pipeline stage is about
+         * to evaluate, and the moved control reaches the skinning matrices on the same frame — there is no
+         * copy in between that could go stale, which is why nothing here caches a hierarchy.
+         */
+        void RenderControlRig( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height,
+                               float xpos, float ypos );
         // Shared UE-style bone drawing: octahedral parent->child links + sphere joints, from already-projected
         // absolute-screen head positions (nullopt = behind camera). parents[i] < 0 marks a root. When
         // recordForPick is set, fills m_BoneScreenPositions for PickBone.
@@ -131,6 +146,25 @@ namespace Desert::Editor
         std::vector<std::pair<int, ImVec2>> m_BoneScreenPositions;
 
         bool m_LightIconHovered = false; // see IsLightIconHovered()
+
+        // The in-progress control drag. IMMEDIATE MODE MEANS THIS LIVES IN THE CALLER (ControlManipulator's
+        // own words), and this overlay is the caller. It keeps the control's LOCAL pose at the grab and
+        // nothing global — see ControlDrag's note on why remembering the global is a defect that reads as a
+        // rig failure rather than a manipulator one.
+        Animation::ControlDrag m_ControlDrag;
+        // The pose the grab captured, kept beside the drag so one undo entry per completed drag is pushed
+        // from the value that was actually there. Held BY VALUE, never as an address — DragValueHandle's
+        // note is about exactly this.
+        Animation::BoneTransform m_ControlPoseAtGrab;
+        Common::UUID             m_ControlDragOwner;
+
+        // Reused between frames so a steady state allocates nothing after the first — the frame builder
+        // takes it as an output parameter for that reason.
+        Animation::ManipulatorFrame m_ControlFrame;
+        // Built once, on first use: the six shipped shapes. A Result rather than a library because
+        // BuiltIn() can refuse, and a discarded refusal is the "empty successful answer" the contract
+        // forbids — a control nobody can grab, with nothing said.
+        std::optional<Animation::ControlShapeLibrary> m_ControlShapes;
 
         // Active handle drag. The start value + start pixel distance define the proportional drag; the
         // captured bytes become one undo entry when the mouse is released.

@@ -196,6 +196,13 @@ namespace
                     .Register();
             }
             {
+                using T = ::Desert::ECS::ControlRigData;
+                TypeBuilder( "ControlRigData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "Rig", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Rig ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Rig )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Rig", .Category = "Control Rig", .Tooltip = "The .derig whose controls pose this entity's skeleton", .IsAsset = true, .AssetType = "ControlRigAsset", } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
                 using T = ::Desert::ECS::DirectionalLightData;
                 TypeBuilder( "DirectionalLightData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Color )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "Light", .Tooltip = "Tint of the illumination arriving at scene surfaces. The sun you SEE in the sky is the Sky Atmosphere component's Sun Color / Sun Intensity.", .IsColor = true, .Temperature = true, } } )
