@@ -41,6 +41,12 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeData.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/StringTableAsset.cpp",
+        -- The shader graph: the asset wrapper and the FORMAT it parses. The node catalogue and the GLSL
+        -- emitter are NOT here and cannot be -- they live in Editor/ -- which is the seam the format was
+        -- split along in the first place: this suite constructs the asset and reads its handle, and the
+        -- handle is a function of the path, not of what a node means.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/ShaderGraphAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp",
         -- The control rig: the asset wrapper and the format it parses, plus the two Animation units the
         -- format converts to and from. None of them reaches the GPU — a rig is names and transforms —
         -- which is why they compile straight into a suite that links no renderer.

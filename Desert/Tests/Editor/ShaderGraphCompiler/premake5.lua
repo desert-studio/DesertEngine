@@ -15,6 +15,9 @@ project(test_name)
         -- back with the SAME parser the engine uses — an end-to-end check of the domain contract. Both
         -- units are dependency-light (Common + reflect-cpp headers only), so no engine link is needed.
         "%{wks.location}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp",
+        -- The FILE half, which the catalogue above is compiled against: a `.dgraph` is an asset now, so
+        -- pins/nodes/links and the JSON round trip live in the engine where the asset system can name them.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
     }
 

@@ -2,9 +2,6 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 
-#include <rflcpp/rfl/json.hpp>
-#include <rflcpp/rfl/DefaultIfMissing.hpp>
-
 #include <algorithm>
 #include <cctype>
 #include <format>
@@ -1493,18 +1490,15 @@ namespace Desert::Editor::ShaderGraph
     }
 
     // ---------------------------------------------------------------- serialization -----------
-    std::string Serialize( const Document& doc )
-    {
-        return rfl::json::write( doc );
-    }
-
     Common::ResultStr<Loaded> Deserialize( const std::string& json )
     {
-        auto parsed = rfl::json::read<Document, rfl::DefaultIfMissing>( json );
+        // The BYTES are the engine's business and the CATALOGUE is this file's; the two steps are named
+        // separately because only the second one can change what the artist authored.
+        auto parsed = ::Desert::Assets::Serialization::ShaderGraph::ParseShaderGraph( json );
         if ( !parsed )
-            return Common::MakeError<Loaded>( std::format( "bad .dgraph: {}", parsed.error().what() ) );
+            return Common::MakeError<Loaded>( parsed.GetError() );
 
-        Loaded loaded{ parsed.value(), 0 };
+        Loaded loaded{ parsed.ExtractValue(), 0 };
         loaded.MigratedPins = MigrateToCatalogue( loaded.Doc );
         return Common::MakeSuccess( std::move( loaded ) );
     }

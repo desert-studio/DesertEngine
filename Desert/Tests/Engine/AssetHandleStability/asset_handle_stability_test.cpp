@@ -35,6 +35,7 @@
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
+#include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/StringTableAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
@@ -78,11 +79,30 @@ namespace
         return static_cast<uint64_t>( asset.GetMetadata().Handle );
     }
 
+    // WHAT THE CONSTRUCTED ASSET SAYS IT IS — its metadata's own AssetType, which is the value the
+    // constructor passed up to AssetBase. Read separately from `TAsset::GetTypeID()` on purpose; the
+    // whole point of the census below is that those are two statements and nothing made them agree.
+    template <typename TAsset>
+    AssetTypeID MetadataTypeOf( const std::string& path )
+    {
+        const TAsset asset( AssetPriority::Medium, Common::Filepath( path ) );
+        return asset.GetMetadata().AssetType;
+    }
+
+    // WHAT THE CLASS DECLARES STATICALLY — the value AssetManager keys its registry on.
+    template <typename TAsset>
+    AssetTypeID DeclaredTypeOf()
+    {
+        return TAsset::GetTypeID();
+    }
+
     struct AssetKind
     {
         AssetTypeID Type;
         const char* Name;
         uint64_t ( *Handle )( const std::string& );
+        AssetTypeID ( *MetadataType )( const std::string& );
+        AssetTypeID ( *DeclaredType )();
     };
 
     // THE CATALOGUE. Every concrete asset type in the engine, with the type id it reports. The census test
@@ -90,23 +110,49 @@ namespace
     const std::vector<AssetKind>& Catalogue()
     {
         static const std::vector<AssetKind> kinds = {
-             { AssetTypeID::Mesh, "StaticMeshAsset", &HandleOf<Desert::Assets::StaticMeshAsset> },
-             { AssetTypeID::Mesh, "SkinnedMeshAsset", &HandleOf<Desert::Assets::SkinnedMeshAsset> },
-             { AssetTypeID::Material, "SurfaceMaterialAsset", &HandleOf<Desert::Assets::SurfaceMaterialAsset> },
-             { AssetTypeID::Texture2D, "TextureAsset", &HandleOf<Desert::Assets::TextureAsset> },
-             { AssetTypeID::Skybox, "SkyboxAsset", &HandleOf<Desert::Assets::SkyboxAsset> },
-             { AssetTypeID::Shader, "ShaderAsset", &HandleOf<Desert::Assets::ShaderAsset> },
-             { AssetTypeID::Skeleton, "SkeletonAsset", &HandleOf<Desert::Assets::SkeletonAsset> },
-             { AssetTypeID::Animation, "AnimationAsset", &HandleOf<Desert::Assets::AnimationAsset> },
+             { AssetTypeID::Mesh, "StaticMeshAsset", &HandleOf<Desert::Assets::StaticMeshAsset>,
+               &MetadataTypeOf<Desert::Assets::StaticMeshAsset>,
+               &DeclaredTypeOf<Desert::Assets::StaticMeshAsset> },
+             { AssetTypeID::Mesh, "SkinnedMeshAsset", &HandleOf<Desert::Assets::SkinnedMeshAsset>,
+               &MetadataTypeOf<Desert::Assets::SkinnedMeshAsset>,
+               &DeclaredTypeOf<Desert::Assets::SkinnedMeshAsset> },
+             { AssetTypeID::Material, "SurfaceMaterialAsset", &HandleOf<Desert::Assets::SurfaceMaterialAsset>,
+               &MetadataTypeOf<Desert::Assets::SurfaceMaterialAsset>,
+               &DeclaredTypeOf<Desert::Assets::SurfaceMaterialAsset> },
+             { AssetTypeID::Texture2D, "TextureAsset", &HandleOf<Desert::Assets::TextureAsset>,
+               &MetadataTypeOf<Desert::Assets::TextureAsset>, &DeclaredTypeOf<Desert::Assets::TextureAsset> },
+             { AssetTypeID::Skybox, "SkyboxAsset", &HandleOf<Desert::Assets::SkyboxAsset>,
+               &MetadataTypeOf<Desert::Assets::SkyboxAsset>, &DeclaredTypeOf<Desert::Assets::SkyboxAsset> },
+             { AssetTypeID::Shader, "ShaderAsset", &HandleOf<Desert::Assets::ShaderAsset>,
+               &MetadataTypeOf<Desert::Assets::ShaderAsset>, &DeclaredTypeOf<Desert::Assets::ShaderAsset> },
+             { AssetTypeID::Skeleton, "SkeletonAsset", &HandleOf<Desert::Assets::SkeletonAsset>,
+               &MetadataTypeOf<Desert::Assets::SkeletonAsset>, &DeclaredTypeOf<Desert::Assets::SkeletonAsset> },
+             { AssetTypeID::Animation, "AnimationAsset", &HandleOf<Desert::Assets::AnimationAsset>,
+               &MetadataTypeOf<Desert::Assets::AnimationAsset>, &DeclaredTypeOf<Desert::Assets::AnimationAsset> },
              { AssetTypeID::CloudNoiseVolume, "CloudNoiseVolumeAsset",
-               &HandleOf<Desert::Assets::CloudNoiseVolumeAsset> },
-             { AssetTypeID::CloudType, "CloudTypeAsset", &HandleOf<Desert::Assets::CloudTypeAsset> },
+               &HandleOf<Desert::Assets::CloudNoiseVolumeAsset>,
+               &MetadataTypeOf<Desert::Assets::CloudNoiseVolumeAsset>,
+               &DeclaredTypeOf<Desert::Assets::CloudNoiseVolumeAsset> },
+             { AssetTypeID::CloudType, "CloudTypeAsset", &HandleOf<Desert::Assets::CloudTypeAsset>,
+               &MetadataTypeOf<Desert::Assets::CloudTypeAsset>, &DeclaredTypeOf<Desert::Assets::CloudTypeAsset> },
              { AssetTypeID::CloudModellingVolume, "CloudModellingVolumeAsset",
-               &HandleOf<Desert::Assets::CloudModellingVolumeAsset> },
-             { AssetTypeID::CloudLayout, "CloudLayoutAsset", &HandleOf<Desert::Assets::CloudLayoutAsset> },
-             { AssetTypeID::UITheme, "UIThemeAsset", &HandleOf<Desert::Assets::UIThemeAsset> },
-             { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset> },
-             { AssetTypeID::ControlRig, "ControlRigAsset", &HandleOf<Desert::Assets::ControlRigAsset> },
+               &HandleOf<Desert::Assets::CloudModellingVolumeAsset>,
+               &MetadataTypeOf<Desert::Assets::CloudModellingVolumeAsset>,
+               &DeclaredTypeOf<Desert::Assets::CloudModellingVolumeAsset> },
+             { AssetTypeID::CloudLayout, "CloudLayoutAsset", &HandleOf<Desert::Assets::CloudLayoutAsset>,
+               &MetadataTypeOf<Desert::Assets::CloudLayoutAsset>,
+               &DeclaredTypeOf<Desert::Assets::CloudLayoutAsset> },
+             { AssetTypeID::UITheme, "UIThemeAsset", &HandleOf<Desert::Assets::UIThemeAsset>,
+               &MetadataTypeOf<Desert::Assets::UIThemeAsset>, &DeclaredTypeOf<Desert::Assets::UIThemeAsset> },
+             { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
+               &MetadataTypeOf<Desert::Assets::StringTableAsset>,
+               &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
+             { AssetTypeID::ControlRig, "ControlRigAsset", &HandleOf<Desert::Assets::ControlRigAsset>,
+               &MetadataTypeOf<Desert::Assets::ControlRigAsset>,
+               &DeclaredTypeOf<Desert::Assets::ControlRigAsset> },
+             { AssetTypeID::ShaderGraph, "ShaderGraphAsset", &HandleOf<Desert::Assets::ShaderGraphAsset>,
+               &MetadataTypeOf<Desert::Assets::ShaderGraphAsset>,
+               &DeclaredTypeOf<Desert::Assets::ShaderGraphAsset> },
         };
         return kinds;
     }
@@ -1059,6 +1105,42 @@ TEST( AssetHandleStability, ATypedLookupRefusesAnotherClassUnderTheSameTypeId )
             "AssetTypeID — the collision the type id is too coarse to see";
 }
 
+// AN ASSET SAYS WHAT IT IS TWICE, AND NOTHING MADE THE TWO AGREE.
+//
+// `AssetManager::CreateAsset` keys the registry on `AssetType::GetTypeID()`, while the record it files
+// carries `metadata.AssetType` — the value the CONSTRUCTOR handed to `AssetBase`. Two statements about
+// one fact, in two files, with nothing checking them against each other. Found by mutation: changing
+// `ShaderGraphAsset::GetTypeID()` to return `ControlRig` while its constructor still passed
+// `AssetTypeID::ShaderGraph` compiled, linked, and left every suite in this repository green.
+//
+// WHAT THAT COSTS WHEN IT HAPPENS. The lookup and the record part company: `FindByPath<T>` still finds
+// the asset (it asks GetTypeID for both), but everything that reads the metadata gets the other answer
+// — `IsProjectScopedAsset(metadata.AssetType)` decides eviction on it, the editor's subject facet is an
+// AssetTypeID, and `AssetTypeName` puts it in the message whose whole job is to be trusted. It is the
+// two-places-must-agree shape this suite already exists for, one level below where it was looking.
+TEST( AssetHandleStability, AnAssetReportsOneTypeAndNotTwo )
+{
+    for ( const AssetKind& kind : Catalogue() )
+    {
+        // THE RELATION FIRST, because it is the one that holds without this file: what the class
+        // DECLARES (the registry's key) against what an instance of it REPORTS (the record's metadata).
+        // A row in a test cannot be the authority on that; the two halves of the class have to agree
+        // with each other.
+        EXPECT_EQ( kind.DeclaredType(), kind.MetadataType( kPathA ) )
+             << kind.Name << "::GetTypeID() says " << Desert::Assets::AssetTypeName( kind.DeclaredType() )
+             << " while an instance of it carries " << Desert::Assets::AssetTypeName( kind.MetadataType( kPathA ) )
+             << ". AssetManager keys the registry on the first and files the record with the second, so "
+                "every reader of metadata.AssetType — eviction's project-scope test, the editor's subject "
+                "facet, AssetTypeName in a refusal — gets the other answer.";
+
+        // AND THEN THE CATALOGUE'S OWN CLAIM, so the census above cannot be satisfied by changing both
+        // halves of the class together.
+        EXPECT_EQ( kind.DeclaredType(), kind.Type )
+             << kind.Name << " reports " << Desert::Assets::AssetTypeName( kind.DeclaredType() )
+             << " but this catalogue files it under " << Desert::Assets::AssetTypeName( kind.Type );
+    }
+}
+
 TEST( AssetHandleStability, EveryAssetTypeIdNamesItselfDistinctly )
 {
     // AssetManager's refusal above logs the two type NAMES, because "type 4 was requested as type 10" is a
@@ -1104,6 +1186,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::UITheme,
          AssetTypeID::StringTable,
          AssetTypeID::ControlRig,
+         AssetTypeID::ShaderGraph,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1114,14 +1197,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
     EXPECT_EQ( declared.size() + 1, enumerators )
          << "AssetTypeID has gained or lost an enumerator. A new asset type must be added to this suite's "
             "catalogue, or its handle stability is untested — which is exactly how five types kept a "
-            "random per-launch identity for as long as they did.\n"
-            "AND IF THE NEW TYPE IS THE SHADER GRAPH: U7-2's refusal is spent. It left the Node Graph as "
-            "the editor's last tool-that-edits-something precisely because there was no `.dgraph` asset "
-            "type to key a document on, and the moment there is one the rest of that work is a block of "
-            "registration like the seven before it. The four things it measured as being in the way are "
-            "written out at Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp, at the "
-            "FileType::ShaderGraph branch; the one that matters most is that New/Load/double-click discard "
-            "unsaved work with no prompt today, which stops being possible once the window is a document.";
+            "random per-launch identity for as long as they did.";
 
     std::set<int> covered;
     for ( const auto& kind : Catalogue() )

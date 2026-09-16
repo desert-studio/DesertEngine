@@ -67,6 +67,14 @@ namespace Desert::Assets
         // Engine/Assets/Serialization/ControlRig.hpp.
         ControlRig,
 
+        // A SHADER GRAPH (`.dgraph`): the node document an artist authors a material in, which COMPILES
+        // to a Desert Shader Language file. A first-class asset not because anything at runtime reads a
+        // graph — nothing does, the runtime reads the compiled `.shader` — but because a handle is what
+        // makes the editor's last tool-that-edits-something a document: one window per graph, opened by
+        // subject, with no path left where a second graph replaces the first one's unsaved work. That was
+        // refusal U7-2, and this enumerator is what spends it. See Engine/Assets/ShaderGraphAsset.hpp.
+        ShaderGraph,
+
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
         // That red is the only reason this enumerator exists: an asset type whose handle stability nobody
@@ -121,6 +129,16 @@ namespace Desert::Assets
             // `ControlRigData::Rig` is an `AssetHandle`, so the reachability walk can see it and the
             // ordinary rule holds it alive for exactly as long as a live entity names it.
             case AssetTypeID::ControlRig:
+            // A SHADER GRAPH IS SCENE-SCOPED, and the decision is the interesting half. It looks
+            // project-wide — no component holds an `AssetHandle` to one, so the reachability walk cannot
+            // see it, which is the exact shape that made StringTable project-scoped. The difference is
+            // what an unreachable graph COSTS: a string table that is swept out takes every localized
+            // label on screen with it, while a graph that is swept out costs nothing at all, because
+            // nothing but an open editor window ever reads one and that window holds its own copy. So the
+            // ordinary rule is right here for the ordinary reason — an asset nothing names is released —
+            // and exempting graphs would keep every graph ever opened resident to protect a reader that
+            // does not exist.
+            case AssetTypeID::ShaderGraph:
             case AssetTypeID::Count:
                 return false;
         }
@@ -175,6 +193,8 @@ namespace Desert::Assets
                 return "StringTable";
             case AssetTypeID::ControlRig:
                 return "ControlRig";
+            case AssetTypeID::ShaderGraph:
+                return "ShaderGraph";
             case AssetTypeID::Count:
                 return "Count";
         }
