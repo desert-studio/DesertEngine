@@ -17,10 +17,11 @@
 //     AnimGraphPanel.cpp  NodeId( i )            = i + 1
 //     AnimGraphPanel.cpp  LinkId( state, trans ) = kLink + state * 4096 + trans
 //
-// Delete state 2 of 5 and every later state shifts down one index, so on the next frame state i is drawn
+// Delete one state and every later state shifts down one index, so on the next frame state i is drawn
 // under the id that belonged to state i+1: `ed::GetNodePosition` hands back its NEIGHBOUR's position and
 // the panel writes that into `State.X/Y`. One deletion silently moves every state after it, and the file
-// is then saved with the moved layout. `Desert/Tests/Editor/GraphCanvasIdentity` measures it.
+// is then saved with the moved layout. MEASURED by `Desert/Tests/Editor/GraphCanvasIdentity` over the
+// rule as the tree shipped it: six states, delete the second, and FOUR OF THE FIVE SURVIVORS move.
 //
 // The fix is not better arithmetic. It is that identity must come from the ELEMENT and not from where it
 // happens to sit in a vector, which is the same disease as "a `.dgraph` has no identity", one frame wide.

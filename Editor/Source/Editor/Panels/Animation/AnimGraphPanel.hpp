@@ -165,8 +165,9 @@ namespace Desert::Editor
         Graph::ElementIdMap    m_Ids;
         Graph::AnimGraphCanvas m_Canvas; // this frame's plan; the side panel reads it to map a selection
 
-        // Framing the content waits for the frame after the first, because the canvas does not exist on
-        // the first one. The whole measurement is at the class's declaration.
+        // Framing the content waits for a canvas that has stopped resizing — it does not exist on the
+        // first frame, and a navigation issued while it is still changing size is thrown away. The whole
+        // measurement is at the class's declaration.
         Graph::DeferredFrameAll m_FrameAll;
     };
 } // namespace Desert::Editor
