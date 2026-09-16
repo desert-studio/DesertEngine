@@ -1256,6 +1256,20 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Animation/Graph/AnimGraph.hpp",
           "Result", "Current", Guard::HostOutlivesUs,
           "a State inside the AnimGraph asset the result was produced from; the graph outlives one evaluation" },
+        // A10 (T5.3): THE KEYING TARGET. Three pointers in one pack, and the pack exists PRECISELY so that
+        // the keyer stores none of them -- `ControlKeyer`'s only members are a bool and a vector of
+        // indices. A keyer holding a clip would owe this register an argument about outliving an asset
+        // unload, and the honest form of that argument is "it does not"; the same reasoning is why
+        // `ControlHierarchy::Evaluate` takes the pose per call rather than in its constructor.
+        { "Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.hpp",
+          "ControlKeyTarget", "Hierarchy", Guard::CallScoped,
+          kWhyArgumentPack },
+        { "Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.hpp",
+          "ControlKeyTarget", "Skeleton", Guard::CallScoped,
+          kWhyArgumentPack },
+        { "Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.hpp",
+          "ControlKeyTarget", "Clip", Guard::CallScoped,
+          kWhyArgumentPack },
         { "Desert/Desert/Source/Engine/Core/Input.hpp",
           "Mouse", "m_Window", Guard::IdentityOnly,
           "the GLFW window handle, kept as `const void*` so Engine/Core does not include GLFW; it is passed back to the platform layer, never dereferenced here" },
