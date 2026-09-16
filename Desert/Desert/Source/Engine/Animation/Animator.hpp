@@ -6,6 +6,7 @@
 #include "AnimationClip.hpp"
 #include "BoneControl.hpp"
 #include "Pose.hpp"
+#include "Rig/ControlRigStage.hpp"
 
 #include <Common/Core/Timestep.hpp>
 
@@ -28,16 +29,19 @@ namespace Desert::Animation
      * resolve-to-component-space and multiply-by-offset tail is NOT a stage — it is the pipeline's output
      * and there is nothing after it to reorder against.
      *
-     * The list is of enumerators rather than of polymorphic objects deliberately. All the shape buys today
-     * is ordering and membership, both of which an enum gives; when the first stage with state of its own
-     * arrives (a rig, a solver) this becomes a list of objects, and that is a change inside one file
-     * BECAUSE the list already exists.
+     * The list is of enumerators rather than of polymorphic objects deliberately. All the shape buys is
+     * ordering and membership, both of which an enum gives. `Rig` (T5.4) was the predicted arrival of "the
+     * first stage with state of its own", and it did NOT force the list to become polymorphic: the state
+     * went into the stage's own object (`ControlRigStage`) and the enumerator still only says when it runs.
+     * The list of objects becomes worth its vtable when two stages of the SAME kind must be ordered against
+     * each other, which nothing yet asks for.
      */
     enum class PoseStage : uint8_t
     {
         Source,   ///< the base clip, or the crossfade of the outgoing and incoming clips
         Layers,   ///< override / additive layers folded over the base, per masked bone
         Controls, ///< skeletal controls (IK and friends): sparse component-space overrides, blended locally
+        Rig,      ///< a control rig: the animator's controls, resolved and written onto the bones they drive
     };
 
     [[nodiscard]] const char* ToString( PoseStage stage );
@@ -216,6 +220,25 @@ namespace Desert::Animation
         /// Non-owning, for configuring a control after it has been added. Null for an out-of-range index.
         [[nodiscard]] BoneControl* GetControl( int index );
 
+        // --- The control rig (T5.4) ---------------------------------------------------------------------
+        //
+        // THE LAST STAGE, AND REPORT 05 §658 IS WHY. Sequencer does not put a Control Rig inside the
+        // character's AnimGraph; it wraps the whole graph in a layer instance whose input pose IS that
+        // graph's output, so the rig runs "after the AnimBP produces its pose and before the pose reaches
+        // the mesh, as a post-process stack". `Source` + `Layers` + `Controls` are our AnimBP — the clips,
+        // the layering and the skeletal-control stack UE also puts inside it — so the rig goes after all
+        // three, and an animator's hand-authored control beats the procedural IK on a bone they share.
+        // That is the intended reading, not an accident of push_back order: see SyncStages.
+        //
+        // AT MOST ONE. UE's layer instance can stack several rig nodes, and every reason to stack them
+        // (additive rig layers, ControlRig.cpp:571-714) is on report 01's "defer it" list. A second rig is
+        // an ordering question nobody has asked yet.
+        [[nodiscard]] Common::BoolResultStr AttachRig( std::unique_ptr<ControlRigStage> rig );
+        void                                DetachRig();
+        /// Non-owning, for the tool that drives the operator's inputs (report 05 §658). Null when none.
+        [[nodiscard]] ControlRigStage*       GetRig();
+        [[nodiscard]] const ControlRigStage* GetRig() const;
+
     private:
         struct ClipPlayback
         {
@@ -255,6 +278,10 @@ namespace Desert::Animation
         /// PoseStage::Controls — runs each control over `pose`. NOT const: a control reads the pose in
         /// component space, which is a cache fill on m_Component, and writes back through the blend.
         void EvaluateControls( LocalPose& pose );
+
+        /// PoseStage::Rig — the rig reads the pose the stages above produced and writes its driven bones
+        /// back into it. Only reached when a rig is attached, which is the stage's membership rule.
+        void EvaluateRig( LocalPose& pose );
 
         /// m_EvaluatedPose -> m_Skinning (and invalidates the component-space cache behind it).
         void PublishPose();
@@ -337,6 +364,12 @@ namespace Desert::Animation
         // Skeletal controls, run by PoseStage::Controls. `unique_ptr` because a control is polymorphic and
         // holds its own resolved bone indices; the Animator is its one owner and outlives it by definition.
         std::vector<std::unique_ptr<BoneControl>> m_Controls;
+
+        // The control rig, run by PoseStage::Rig. `unique_ptr` and not a value member because a rig is the
+        // optional thing an entity has or has not, and "has not" must not cost every Animator a
+        // ControlHierarchy's four vectors; null IS the answer to "is there a rig", with no second flag to
+        // disagree with it.
+        std::unique_ptr<ControlRigStage> m_Rig;
 
         std::vector<PoseStage> m_Stages;
 

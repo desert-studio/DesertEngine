@@ -315,15 +315,21 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   Animator is its one owner — so it answers both questions in its type and owes no row below.
     //   The number is READ OFF THIS BRANCH'S RUN; per the six merges above, it will not survive the
     //   merge and must be re-read there.
+    //   -> +1 with A11 (837 -> 838), Unique, and it owes no row for the reason A3's did not:
+    //   `Animator::m_Rig` is the optional control-rig stage (T5.4) and the Animator is its one owner.
+    //   `ControlRigStage` itself adds NO pointer member of any form -- it holds its `ControlHierarchy` by
+    //   value and takes the skeleton, the pose and the component view per call, which is the same refusal
+    //   to store a lifetime T5.1 and T5.3 made. Read off THIS branch's run; per the six merges above it
+    //   will not survive the merge and must be re-read there.
     //   -> +3 with A10 (834 -> 837), all three Raw and all three CallScoped: `ControlKeyTarget`'s
     //   {Hierarchy, Skeleton, Clip}. T5.3's keyer is deliberately stateless about all three -- the pack
     //   is what lets it be -- so the three rows share one argument rather than inventing three. Read off
     //   THIS branch's run; per the six merges above it will not survive the merge and must be re-read.
     EXPECT_EQ( CountOf( Form::Raw ), 361 );
     EXPECT_EQ( CountOf( Form::Shared ), 324 );
-    EXPECT_EQ( CountOf( Form::Unique ), 114 );
+    EXPECT_EQ( CountOf( Form::Unique ), 115 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 837 )
+    EXPECT_EQ( (int)Members().size(), 838 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

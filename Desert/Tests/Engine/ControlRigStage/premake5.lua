@@ -10,26 +10,21 @@ project(test_name)
 
     files {
         test_files,
-        -- Units under test (pure CPU: no Vulkan symbols are referenced, only declaration-only headers).
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
-        -- Animator.cpp runs the Controls stage, so it needs the control base it calls through. The base is
-        -- two functions and no Vulkan; no suite here adds a control, which is what makes "a rig with no
-        -- controls behaves exactly as before" a thing these suites stillmeasure.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
-        -- Animator.cpp also runs the Rig stage (T5.4), which is a link edge and not a behaviour these
-        -- suites exercise: none of them attaches a rig, which is what keeps "a pipeline with no rig
-        -- produces exactly what it produced before" measurable HERE rather than only in the rig suite.
+        -- The stage under test, the control layer it owns, the override arithmetic it writes THROUGH (the
+        -- output hop is `ApplyBoneOverrides` and not a second copy of it), and the Animator whose pipeline
+        -- it joins. `TwoBoneIKControl` + the solver are here for ONE assertion — the four-stage order —
+        -- because "the rig is last" is only a statement when there is a Controls stage for it to be last of.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
-        -- Timestep's constructor lives in a .cpp, and Animator::Update takes one. libCommon is not among
-        -- the libraries a test suite links (only gtest and the reflect-cpp/optick shims are), so the one
-        -- translation unit that defines it has to be listed here.
-        "%{wks.location}/Desert/Common/Source/Common/Core/Timestep.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
-        -- The tick grid every clip time now lives on (A5).
+        -- The tick grid every clip time lives on (A5).
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 
     includedirs {

@@ -25,6 +25,8 @@ namespace Desert::Animation
                 return "Layers";
             case PoseStage::Controls:
                 return "Controls";
+            case PoseStage::Rig:
+                return "Rig";
         }
         return "?";
     }
@@ -223,6 +225,9 @@ namespace Desert::Animation
                 case PoseStage::Controls:
                     EvaluateControls( m_EvaluatedPose );
                     break;
+                case PoseStage::Rig:
+                    EvaluateRig( m_EvaluatedPose );
+                    break;
             }
         }
 
@@ -298,6 +303,15 @@ namespace Desert::Animation
         }
     }
 
+    void Animator::EvaluateRig( LocalPose& pose )
+    {
+        // DISCARDED for the reason `EvaluateControls` discards: the rig has already reported its own
+        // refusal, once per distinct message, and a refused rig leaves the pose exactly as the stage before
+        // it produced it. There is nothing this function could do with the string that the rig has not
+        // already done, and `GetRig()->GetLastError()` is where an editor reads it.
+        static_cast<void>( m_Rig->Evaluate( m_Skeleton, pose, m_Component ) );
+    }
+
     void Animator::PublishPose()
     {
         m_Component.Invalidate();
@@ -320,6 +334,13 @@ namespace Desert::Animation
         if ( !m_Controls.empty() )
         {
             m_Stages.push_back( PoseStage::Controls );
+        }
+        if ( m_Rig )
+        {
+            // LAST, and report 05 §658 is the argument — see the AttachRig comment in the header. The
+            // membership test is the pointer and nothing else: `AttachRig` refuses a rig that drives no
+            // bones, so a rig that is here is a rig that changes the pose.
+            m_Stages.push_back( PoseStage::Rig );
         }
     }
 
@@ -703,6 +724,52 @@ namespace Desert::Animation
     BoneControl* Animator::GetControl( int index )
     {
         return ( index >= 0 && index < static_cast<int>( m_Controls.size() ) ) ? m_Controls[index].get() : nullptr;
+    }
+
+    // ============================================================
+    // The control rig
+    // ============================================================
+
+    Common::BoolResultStr Animator::AttachRig( std::unique_ptr<ControlRigStage> rig )
+    {
+        if ( !rig )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "refusing to attach a null control rig to rig (signature {}).", m_Skeleton.GetSignature() );
+        }
+
+        if ( rig->GetDrives().empty() )
+        {
+            // REFUSED, NOT ACCEPTED-AND-IGNORED, and this is the load-bearing half of T5.4's proof. A rig
+            // with no drives would join `m_Stages` as a stage that cannot change the pose — and a stage
+            // that silently does nothing passes every assertion a stage that works passes. The suite's
+            // positive control ("the pose came out changed, by this much") only means something because
+            // this state cannot be reached.
+            return Common::MakeFormattedError<bool>(
+                 "refusing to attach a control rig that drives no bones to rig (signature {}): it would be "
+                 "a pipeline stage that cannot change the pose. Call ControlRigStage::SetDrives first.",
+                 m_Skeleton.GetSignature() );
+        }
+
+        m_Rig = std::move( rig );
+        SyncStages();
+        return Common::MakeSuccess( true );
+    }
+
+    void Animator::DetachRig()
+    {
+        m_Rig.reset();
+        SyncStages();
+    }
+
+    ControlRigStage* Animator::GetRig()
+    {
+        return m_Rig.get();
+    }
+
+    const ControlRigStage* Animator::GetRig() const
+    {
+        return m_Rig.get();
     }
 
 } // namespace Desert::Animation
