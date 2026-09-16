@@ -9,6 +9,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Rig/ControlManipulator.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>
@@ -35,16 +36,27 @@ namespace Desert::Editor
         // behind the camera (clip w <= 0). WorldToScreenSpace divides by w unconditionally, so behind
         // points flip to mirrored on-screen positions — that produced both the ghost bulb icon when
         // turning 180 degrees and the radius circle lines streaking across the whole screen.
+        //
+        // THE ARITHMETIC MOVED TO Engine/Animation/Rig/ControlManipulator (T5.2) AND THIS IS NOW AN
+        // ADAPTER. The control manipulator has to project into exactly the space this overlay draws in,
+        // and a second copy of the formula is a convention held in two places — the class of defect the
+        // contract calls "one source of truth per value". This wrapper keeps the viewport-local
+        // signature the twenty-odd call sites here already use.
         bool ProjectToScreen( const glm::vec3& world, const glm::mat4& mvp, float width, float height,
                               glm::vec2& outScreen )
         {
-            const glm::vec4 clip = mvp * glm::vec4( world, 1.0f );
-            if ( clip.w <= 1e-4f )
-                return false;
+            Animation::ManipulatorView view;
+            view.ViewProjection = mvp;
+            view.ViewportOrigin = glm::vec2( 0.0f, 0.0f );
+            view.ViewportSize   = glm::vec2( width, height );
 
-            const glm::vec3 ndc = glm::vec3( clip ) / clip.w;
-            outScreen.x = ( ndc.x * 0.5f + 0.5f ) * width;
-            outScreen.y = ( 1.0f - ( ndc.y * 0.5f + 0.5f ) ) * height;
+            const Animation::ProjectedPoint projected = Animation::ProjectToViewport( view, world );
+            if ( !projected.InFront )
+            {
+                return false;
+            }
+
+            outScreen = projected.Pixel;
             return true;
         }
     } // namespace
