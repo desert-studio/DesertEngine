@@ -45,6 +45,10 @@ project(test_name)
         -- emitter are NOT here and cannot be -- they live in Editor/ -- which is the seam the format was
         -- split along in the first place: this suite constructs the asset and reads its handle, and the
         -- handle is a function of the path, not of what a node means.
+        -- The anim graph: the asset wrapper and the JSON round trip its Load calls. Plain structs over
+        -- reflect-cpp, no GPU, no renderer — the same recipe as the rig two blocks up.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/ShaderGraphAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp",
         -- The control rig: the asset wrapper and the format it parses, plus the two Animation units the

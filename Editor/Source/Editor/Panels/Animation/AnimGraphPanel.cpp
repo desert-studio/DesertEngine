@@ -1,6 +1,10 @@
 #include "AnimGraphPanel.hpp"
+
+#include <Engine/Assets/AnimGraphAsset.hpp>
+#include <Engine/Assets/AssetManager.hpp>
 #include <Editor/Panels/PanelContext.hpp>
 
+#include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -76,8 +80,10 @@ namespace Desert::Editor
 
     AnimGraphPanel::AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
                                     const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                    const Animation::AnimationLibrary*            library )
-         : ISubjectDocument( displayName, subject ), m_Scene( scene ), m_Library( library )
+                                    const Animation::AnimationLibrary* library,
+                                    Assets::AssetManager*              assetManager )
+         : ISubjectDocument( displayName, subject ), m_Scene( scene ), m_Library( library ),
+           m_AssetManager( assetManager )
     {
         ed::Config config;
         config.SettingsFile = nullptr; // node positions live in the graph (State.X/Y), not a stray json
@@ -112,6 +118,68 @@ namespace Desert::Editor
         return &entity.GetComponent<ECS::AnimationComponent>();
     }
 
+    Assets::Asset<Assets::AnimGraphAsset> AnimGraphPanel::ResolveAsset() const
+    {
+        const ECS::AnimationComponent* anim = ResolveComponent();
+        if ( !anim || !anim->GraphAsset || m_AssetManager == nullptr )
+            return nullptr;
+        return m_AssetManager->FindByHandle<Assets::AnimGraphAsset>( anim->GraphAsset );
+    }
+
+    void AnimGraphPanel::MarkEdited()
+    {
+        if ( const auto asset = ResolveAsset() )
+        {
+            asset->MarkEdited();
+            return;
+        }
+        // NOT SILENT. An edit that reaches no asset is an edit no evaluator will ever be told about: the
+        // canvas would show the new shape while every character on this graph went on playing the old one,
+        // which is the exact class of defect — a comment or a control promising something the tree does
+        // not do — that this project keeps paying for.
+        m_Status        = "this graph has no asset behind it; the edit will not reach the running character";
+        m_StatusIsError = true;
+    }
+
+    void AnimGraphPanel::SaveGraph()
+    {
+        const auto asset = ResolveAsset();
+        if ( !asset )
+        {
+            m_Status        = "nothing to save: this window's entity names no loaded anim graph";
+            m_StatusIsError = true;
+            return;
+        }
+
+        const auto graph = asset->GetGraph();
+        if ( !graph )
+        {
+            m_Status        = "nothing to save: the asset holds no graph";
+            m_StatusIsError = true;
+            return;
+        }
+
+        // THE SUBJECT'S OWN FILE, on the shader graph's terms: a path composed from the graph's Name would
+        // be a silent Save As the first time somebody renamed one.
+        if ( const auto written = Assets::AnimGraphAsset::Save( asset->GetMetadata().Filepath, *graph );
+             !written )
+        {
+            m_Status        = "NOT saved: " + written.GetError();
+            m_StatusIsError = true;
+            return;
+        }
+        m_Status        = "Saved " + asset->GetMetadata().Filepath.filename().string();
+        m_StatusIsError = false;
+    }
+
+    std::vector<ISubjectDocument::DocumentAction> AnimGraphPanel::Actions()
+    {
+        // The SAME function the toolbar button calls. A second code path here would be a second behaviour
+        // to keep in step, and the point of the entry is that what a client drives is what a person
+        // presses.
+        return { { "Save", [this] { SaveGraph(); } } };
+    }
+
     void AnimGraphPanel::OnUIRender()
     {
         // NO "SELECT AN ENTITY" EMPTY STATE any more: this window is about one entity for its whole life.
@@ -127,17 +195,13 @@ namespace Desert::Editor
 
         if ( !anim->Graph )
         {
-            ImGui::TextWrapped( "This entity has no AnimGraph yet." );
-            if ( ImGui::Button( "Create AnimGraph" ) )
-            {
-                anim->Graph = std::make_shared<G::AnimGraph>();
-                G::State idle;
-                idle.Name = "Idle";
-                anim->Graph->States.push_back( idle );
-                anim->Graph->Entry = "Idle";
-                anim->GraphRevision++;
-                m_ApplyPositions = true;
-            }
+            // NO "Create AnimGraph" BUTTON HERE ANY MORE, and its absence is the point. A graph is a FILE
+            // now, and creating one means writing it, registering it and pointing this entity's slot at
+            // it — three steps that can each fail and that belong where the SLOT is, in Details. A second
+            // creator here would be a second way to make a graph and the two would drift; what stood here
+            // could only ever make an unsaved one, which is precisely the storage §5.1 removed.
+            ImGui::TextWrapped( "This entity names no anim graph, or the file it names is not loaded. "
+                                "Pick or create one in Details > Animation > AnimGraph." );
             return;
         }
 
@@ -153,18 +217,32 @@ namespace Desert::Editor
         }
 
         // Toolbar.
+        if ( ImGui::Button( ICON_MDI_CONTENT_SAVE "  Save" ) )
+            SaveGraph();
+        Utils::ImGuiUtilities::Tooltip( "Write this graph back to its .danimgraph" );
+        ImGui::SameLine();
         if ( ImGui::Button( "+ State" ) )
         {
             G::State ns;
             ns.Name = "State_" + std::to_string( anim->Graph->States.size() );
             anim->Graph->States.push_back( ns );
-            anim->GraphRevision++;
+            MarkEdited();
         }
         ImGui::SameLine();
         if ( const auto* cur = anim->GraphEvaluator ? anim->GraphEvaluator->CurrentState() : nullptr )
         {
             ImGui::SameLine();
             ImGui::TextDisabled( "| Active: %s", cur->Name.c_str() );
+        }
+
+        // The window's ONE error channel — a save that failed, or an edit that reached no asset. It has to
+        // be on screen, because the alternative is a log line nobody authoring a graph is reading.
+        if ( !m_Status.empty() )
+        {
+            ImGui::SameLine();
+            ImGui::TextColored( m_StatusIsError ? ImVec4( 1.0f, 0.45f, 0.4f, 1.0f )
+                                                : ImVec4( 0.5f, 0.9f, 0.5f, 1.0f ),
+                                "%s", m_Status.c_str() );
         }
 
         constexpr float kSideW = 300.0f;
@@ -345,7 +423,7 @@ namespace Desert::Editor
         ed::SetCurrentEditor( nullptr );
 
         if ( dirty )
-            anim.GraphRevision++;
+            MarkEdited();
     }
 
     void AnimGraphPanel::DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames )
@@ -534,7 +612,7 @@ namespace Desert::Editor
         ImGui::EndChild();
 
         if ( dirty )
-            anim.GraphRevision++;
+            MarkEdited();
     }
 
 } // namespace Desert::Editor

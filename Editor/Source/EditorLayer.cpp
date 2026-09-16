@@ -833,7 +833,7 @@ namespace Desert::Editor
                            {
                                return std::make_unique<Editor::AnimGraphPanel>(
                                     subject, SubjectEntityName( subject, "Anim Graph" ), m_MainScene,
-                                    m_AnimationLibrary.get() );
+                                    m_AnimationLibrary.get(), m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::AnimationComponent>( subject.Owner ); } } );

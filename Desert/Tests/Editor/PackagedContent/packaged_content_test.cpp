@@ -1384,6 +1384,10 @@ namespace
              // assets root and that whole tree is packed, which is the rule stated above this block; a
              // NotContent verdict here would be a second, contradicting statement about one mechanism.
              { "SHADER_GRAPH_PATH", &P::SHADER_GRAPH_PATH, RootVerdict::Packaged, "" },
+             // PACKAGED, and unlike the shader graph beside it a shipped build genuinely READS these: an
+             // entity's AnimationComponent names a `.danimgraph` and AnimationECSSystem resolves it at
+             // scene load. Leaving it out would ship characters that stand still.
+             { "ANIM_GRAPH_PATH", &P::ANIM_GRAPH_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
              { "MESH_PATH_COOKED", &P::MESH_PATH_COOKED, RootVerdict::Packaged, "" },
              { "TEXTURE_PATH_COOKED", &P::TEXTURE_PATH_COOKED, RootVerdict::Packaged, "" },

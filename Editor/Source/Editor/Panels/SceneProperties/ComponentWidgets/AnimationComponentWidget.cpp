@@ -10,6 +10,13 @@
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
+#include <Engine/Assets/AnimGraphAsset.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+
+#include <Common/Core/Constants.hpp>
+#include <Common/Core/Logger.hpp>
+
+#include <filesystem>
 
 #include <Editor/Panels/Animation/AnimGraphPanel.hpp>
 #include <Editor/Core/PanelRequests.hpp>
@@ -21,8 +28,10 @@ namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
 
-    AnimationComponentWidget::AnimationComponentWidget( const Animation::AnimationLibrary* animationLibrary )
-         : IComponentWidget( "Animation" ), m_AnimationLibrary( animationLibrary )
+    AnimationComponentWidget::AnimationComponentWidget( const Animation::AnimationLibrary* animationLibrary,
+                                                        Assets::AssetManager*              assetManager )
+         : IComponentWidget( "Animation" ), m_AnimationLibrary( animationLibrary ),
+           m_AssetManager( assetManager )
     {
     }
 
@@ -167,28 +176,78 @@ namespace Desert::Editor
         ImGui::Indent( 6.0f );
         ImGui::Dummy( ImVec2( 0.0f, 2.0f ) );
 
-        if ( !animation.Graph )
+        // ── THE SLOT ──────────────────────────────────────────────────────────────────────────────────
+        //
+        // A graph is a FILE now, so this is a picker over the project's graphs and not a "create it inside
+        // this entity" button. That is the whole of §5.1's animation half on screen: two characters point
+        // at one `.danimgraph` and share it, where the old blob made every copy its own divergent island.
+        auto* const assets = m_AssetManager;
+
+        std::string preview = "None (plays CurrentClip)";
+        if ( animation.GraphAsset )
+        {
+            // "(missing)" is a REAL and DIFFERENT state from "None" — a handle whose file the asset scan
+            // did not find — and the two look identical on screen unless they are named apart. The rig
+            // slot next door states the same pair for the same reason.
+            preview = "(missing)";
+            if ( assets != nullptr )
+            {
+                if ( auto graph = assets->FindByHandle<Assets::AnimGraphAsset>( animation.GraphAsset ) )
+                {
+                    preview = graph->GetDisplayName();
+                }
+            }
+        }
+
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::BeginCombo( "##animgraphslot", preview.c_str() ) )
+        {
+            if ( ImGui::Selectable( "None (plays CurrentClip)", !animation.GraphAsset ) )
+            {
+                // THE SLOT IS CLEARED, THE FILE IS NOT DELETED. A picker that removed content from disk
+                // would make "I picked the wrong one" unrecoverable; the graph object goes too, because
+                // AnimationECSSystem hands it over from the asset and an entity with no handle that kept
+                // the old pointer would be evaluating a graph its scene file no longer names.
+                animation.GraphAsset = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+                animation.Graph.reset();
+                animation.GraphEvaluator.reset();
+            }
+            if ( assets != nullptr )
+            {
+                for ( const auto& [handle, graph] : assets->FindAllByType<Assets::AnimGraphAsset>() )
+                {
+                    const bool selected = ( handle == animation.GraphAsset );
+                    if ( ImGui::Selectable( graph->GetDisplayName().c_str(), selected ) )
+                    {
+                        // ONLY THE HANDLE. The object is AnimationECSSystem's to hand over, from the
+                        // asset, so that every entity naming one file ends up pointing at ONE object —
+                        // assigning `graph->GetGraph()` here as well would be a second writer of the same
+                        // fact and the two would disagree the first time a load replaced it.
+                        animation.GraphAsset = handle;
+                        animation.GraphEvaluator.reset();
+                    }
+                    if ( selected )
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        if ( !animation.GraphAsset )
         {
             ImGui::PushTextWrapPos( 0.0f );
             ImGui::TextDisabled( "A state machine that picks the clip from live parameters "
-                                 "(e.g. Speed, IsJumping). Author it visually in the Anim Graph panel." );
+                                 "(e.g. Speed, IsJumping). Pick one above, or make a new one." );
             ImGui::PopTextWrapPos();
             ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
-            if ( Utils::ImGuiUtilities::AccentButton( ICON_MDI_PLUS_CIRCLE "  Create AnimGraph", 28.0f ) )
+            if ( Utils::ImGuiUtilities::AccentButton( ICON_MDI_PLUS_CIRCLE "  New AnimGraph", 28.0f ) )
             {
-                auto     graph = std::make_shared<G::AnimGraph>();
-                G::State idle;
-                idle.Name = "Idle";
-                if ( !clips.empty() )
-                    idle.Clip = clips.front()->GetClip().AnimationName;
-                graph->States.push_back( idle );
-                graph->Entry    = "Idle";
-                animation.Graph = graph;
-                animation.GraphRevision++;
-                // Straight into the visual editor, ON THIS ENTITY. The subject is what the request
-                // carries, so the window that opens is this graph's and not "whatever is selected".
-                Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( EntityId( entity ) ) );
+                CreateAnimGraphAsset( entity, animation, clips, assets );
             }
+            Utils::ImGuiUtilities::Tooltip( "Writes a new .danimgraph under the project's AnimGraphs/ "
+                                            "folder and points this entity at it" );
             ImGui::Unindent( 6.0f );
             return;
         }
@@ -206,8 +265,18 @@ namespace Desert::Editor
         {
             ImGui::TextDisabled( ICON_MDI_PAUSE " Active state shows in Play/Preview" );
         }
-        ImGui::TextDisabled( "%zu states  \xc2\xb7  %zu parameters", animation.Graph->States.size(),
-                             animation.Graph->Parameters.size() );
+        if ( animation.Graph )
+        {
+            ImGui::TextDisabled( "%zu states  \xc2\xb7  %zu parameters", animation.Graph->States.size(),
+                                 animation.Graph->Parameters.size() );
+        }
+        else
+        {
+            // NAMED, NOT BLANK. The slot holds a handle and the object is not here — either the file is
+            // gone or the entity has not been through AnimationECSSystem yet (no skinned mesh, no
+            // animator). Both are states an author can act on; an empty line is not.
+            ImGui::TextDisabled( "not resolved yet — needs a Skinned Mesh, or the file is missing" );
+        }
 
         ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
         // THE BUTTON THE OWNER ASKED FOR, and the one that could not be built before U7: it opens a
@@ -217,21 +286,94 @@ namespace Desert::Editor
         if ( Utils::ImGuiUtilities::AccentButton( ICON_MDI_STATE_MACHINE "  Open in Anim Graph", 28.0f ) )
             Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( EntityId( entity ) ) );
 
-        ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.46f, 0.19f, 0.19f, 1.0f ) );
-        ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.62f, 0.24f, 0.24f, 1.0f ) );
-        const bool remove = ImGui::Button( ICON_MDI_DELETE "  Remove AnimGraph" );
-        ImGui::PopStyleColor( 2 );
-        if ( remove )
+        ImGui::Unindent( 6.0f );
+    }
+
+    void AnimationComponentWidget::CreateAnimGraphAsset(
+         ECS::Entity& entity, ECS::AnimationComponent& animation,
+         const std::vector<Assets::Asset<Assets::AnimationAsset>>& clips, Assets::AssetManager* assets )
+    {
+        namespace G = Animation::Graph;
+
+        if ( assets == nullptr )
         {
-            animation.Graph.reset();
-            animation.GraphEvaluator.reset();
+            LOG_ERROR( "[Animation] a new anim graph cannot be created without an asset manager." );
+            return;
         }
 
-        ImGui::Unindent( 6.0f );
+        G::AnimGraph graph;
+        // NAMED AFTER THE ENTITY, because the FILE is named after the graph (the migration does the same)
+        // and a file called "AnimGraph.danimgraph" would be claimed by the first character and then
+        // silently shared by every one after it — sharing is the feature, but it has to be CHOSEN.
+        graph.Name = entity.GetComponent<ECS::TagComponent>().Tag + "_Graph";
+        G::State idle;
+        idle.Name = "Idle";
+        if ( !clips.empty() )
+            idle.Clip = clips.front()->GetClip().AnimationName;
+        graph.States.push_back( idle );
+        graph.Entry = "Idle";
+
+        // The same sanitisation the migration applies, and for the same reason: an entity tag is anything
+        // the author typed, and a '/' in it would put the file outside AnimGraphs/.
+        std::string stem;
+        for ( const char c : graph.Name )
+        {
+            const bool safe = ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' ) ||
+                              ( c >= '0' && c <= '9' ) || c == '_' || c == '-';
+            stem.push_back( safe ? c : '_' );
+        }
+        if ( stem.empty() )
+            stem = "AnimGraph";
+
+        // A name already on disk is NOT overwritten: the author pressed "New", and taking another
+        // character's graph away from it is the opposite of that.
+        std::filesystem::path path;
+        for ( int i = 0; i < 256; ++i )
+        {
+            const std::string candidate = i == 0 ? stem : stem + std::to_string( i );
+            path = Common::Constants::Path::ANIM_GRAPH_PATH /
+                   ( candidate + std::string( Animation::Graph::kAnimGraphExtension ) );
+            if ( !std::filesystem::exists( path ) )
+            {
+                graph.Name = candidate;
+                break;
+            }
+        }
+
+        if ( const auto written = Assets::AnimGraphAsset::Save( path, graph ); !written )
+        {
+            LOG_ERROR( "[Animation] the new anim graph '{}' was not written: {} — the entity's slot is "
+                       "left empty rather than pointed at a file that does not exist.",
+                       path.string(), written.GetError() );
+            return;
+        }
+
+        auto asset = assets->CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, path );
+        if ( !asset || !asset->IsReadyForUse() )
+        {
+            LOG_ERROR( "[Animation] '{}' was written but could not be registered as an asset; the entity's "
+                       "slot is left empty.",
+                       path.string() );
+            return;
+        }
+
+        animation.GraphAsset = asset->GetMetadata().Handle;
+        animation.GraphEvaluator.reset();
+
+        // Straight into the visual editor, ON THIS ENTITY. The subject is what the request carries, so the
+        // window that opens is this graph's and not "whatever is selected".
+        Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( EntityId( entity ) ) );
     }
 
     DESERT_REGISTER_CUSTOM_COMPONENT( ECS::AnimationComponent, "Animation", false,
                                       ( []( ECS::Entity& e, ::Desert::Core::Scene* s,
                                             const ComponentEditContext& ctx )
-                                        { AnimationComponentWidget( ctx.AnimationLibrary ).Render( e, s ); } ) )
+                                        {
+                                            // LOCKED HERE AND NOT STORED AS A weak_ptr: the widget lives
+                                            // for exactly this call, so a pointer that is valid now is
+                                            // valid for all of it, and the lock is what makes that true.
+                                            const auto assets = ctx.AssetManager.lock();
+                                            AnimationComponentWidget( ctx.AnimationLibrary, assets.get() )
+                                                 .Render( e, s );
+                                        } ) )
 } // namespace Desert::Editor

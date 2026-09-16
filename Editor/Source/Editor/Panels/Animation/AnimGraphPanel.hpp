@@ -4,6 +4,8 @@
 
 #include <Common/Core/UUID.hpp>
 
+#include <Engine/Assets/Common.hpp>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,6 +25,11 @@ namespace Desert::Animation
 namespace Desert::ECS
 {
     struct AnimationComponent;
+}
+namespace Desert::Assets
+{
+    class AssetManager;
+    class AnimGraphAsset;
 }
 
 namespace Desert::Editor
@@ -64,7 +71,7 @@ namespace Desert::Editor
 
         AnimGraphPanel( const SubjectId& subject, const std::string& displayName,
                         const std::shared_ptr<::Desert::Core::Scene>& scene,
-                        const Animation::AnimationLibrary*            library );
+                        const Animation::AnimationLibrary* library, Assets::AssetManager* assetManager );
         ~AnimGraphPanel() override;
 
         ImVec2 GetDefaultSize() const override
@@ -73,6 +80,13 @@ namespace Desert::Editor
         }
 
         void OnUIRender() override;
+
+        // What this window can be asked to do by something without a mouse. `Save` is the whole of it and
+        // it is not optional: the graph is a FILE now, so an edit that is never written is an edit that
+        // dies with the process — and a toolbar button cannot be pressed on this machine (synthetic input
+        // is closed), which is what made the shader graph's own Save unphotographable until it became a
+        // document action. This entry runs the SAME function the button runs.
+        [[nodiscard]] std::vector<DocumentAction> Actions() override;
 
         // The entity, in the scene this document was opened over, still carrying an AnimationComponent.
         // All three have to hold: deleting the entity, removing the component, or closing the scene are
@@ -113,6 +127,19 @@ namespace Desert::Editor
         [[nodiscard]] ECS::AnimationComponent* ResolveComponent() const;
 
         void DrawCanvas( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames );
+
+        // The `.danimgraph` this entity names, or nullptr. ONE resolution, so "what the canvas draws" and
+        // "what Save writes" can never be two different graphs.
+        [[nodiscard]] Assets::Asset<Assets::AnimGraphAsset> ResolveAsset() const;
+
+        // "The object you are holding was just changed." Bumps the ASSET's revision, which is what makes
+        // every entity sharing this graph re-sync — the component-side `GraphRevision` this replaced could
+        // only ever have re-synced the one entity whose window was open.
+        void MarkEdited();
+
+        // Writes the graph to its own file. Reports through the status line, which is this window's one
+        // error channel.
+        void SaveGraph();
         void DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames );
 
         // WEAK, not shared. A document that held its scene alive would keep a closed level in memory for
@@ -120,7 +147,10 @@ namespace Desert::Editor
         // entity in a registry nothing else can reach. Expiry IS one of the ways this document's subject
         // dies, and a weak_ptr is what makes it visible rather than invisible.
         std::weak_ptr<::Desert::Core::Scene> m_Scene;
-        const Animation::AnimationLibrary*   m_Library = nullptr;
+        const Animation::AnimationLibrary*   m_Library      = nullptr;
+        Assets::AssetManager*                m_AssetManager = nullptr;
+        std::string                          m_Status;                 // last save result line
+        bool                                 m_StatusIsError = false;
         ax::NodeEditor::EditorContext*       m_Context = nullptr;
 
         bool m_ApplyPositions = true; // push State.X/Y into the canvas the first time this graph is drawn

@@ -35,6 +35,7 @@
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
+#include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/StringTableAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
@@ -153,6 +154,9 @@ namespace
              { AssetTypeID::ShaderGraph, "ShaderGraphAsset", &HandleOf<Desert::Assets::ShaderGraphAsset>,
                &MetadataTypeOf<Desert::Assets::ShaderGraphAsset>,
                &DeclaredTypeOf<Desert::Assets::ShaderGraphAsset> },
+             { AssetTypeID::AnimGraph, "AnimGraphAsset", &HandleOf<Desert::Assets::AnimGraphAsset>,
+               &MetadataTypeOf<Desert::Assets::AnimGraphAsset>,
+               &DeclaredTypeOf<Desert::Assets::AnimGraphAsset> },
         };
         return kinds;
     }
@@ -1187,6 +1191,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::StringTable,
          AssetTypeID::ControlRig,
          AssetTypeID::ShaderGraph,
+         AssetTypeID::AnimGraph,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
