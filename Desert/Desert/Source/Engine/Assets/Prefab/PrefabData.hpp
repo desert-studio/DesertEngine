@@ -150,16 +150,26 @@ namespace Desert::Assets
         bool        Billboard         = false;
     };
 
-    // AnimationComponent mirror — playback settings + the AnimGraph as JSON (the Animator + graph evaluator are
-    // transient runtime objects, rebuilt from the mesh skeleton / this JSON). GraphJson is empty when the
-    // entity has no state machine.
+    // AnimationComponent mirror — playback settings plus the `.danimgraph` this entity plays (the Animator
+    // and the graph evaluator are transient runtime objects, rebuilt from the mesh skeleton and from that
+    // file).
+    //
+    // `Graph` IS A PATH AND `GraphJson` IS GONE. The blob carried the whole state machine inside every
+    // entity that used one, which is what stopped two characters sharing a walk graph; schema step 21
+    // (`kSceneVersionAnimGraphAsset`) extracted the six blobs in this repository into files and put their
+    // relative paths here. RELATIVE, on exactly the terms `ControlRigData::Rig` is relative: a graph is
+    // content that ships WITH the project, and an absolute path would carry one developer's home
+    // directory into every scene that names one.
+    //
+    // `std::optional`, so "this entity has no state machine" is the ABSENCE of a key rather than an empty
+    // string that a reader then has to agree means the same thing.
     struct AnimationComponentSer
     {
-        std::string CurrentClip;
-        bool        Playing          = true;
-        bool        Loop             = true;
-        float       PlaybackSpeed    = 1.0f;
-        std::string GraphJson;
+        std::string                CurrentClip;
+        bool                       Playing       = true;
+        bool                       Loop          = true;
+        float                      PlaybackSpeed = 1.0f;
+        std::optional<std::string> Graph;
     };
 
     // NOTE: camera/light/skybox payloads are no longer mirrored here — they serialize generically through

@@ -95,6 +95,18 @@ namespace Desert::Core
             roots.Mark( registry.get<ECS::ControlRigComponent>( entity ).Data.Rig, "an entity is posed by it" );
         }
 
+        // THE ANIM GRAPH IS A ROOT FOR THE RIG'S REASON AND BY THE SAME MECHANISM. Nothing else names a
+        // `.danimgraph` — a graph is named only by an entity's AnimationComponent — so without this row the
+        // first eviction sweep after a scene load drops it, AnimationECSSystem finds a handle the manager
+        // has never heard of, and the character silently plays its single `CurrentClip` while the file says
+        // it has a state machine. That is the shape the UI theme hit (Ю13), the string tables hit, and the
+        // rig would have hit; it is cheaper to write the row than to debug the symptom a fourth time.
+        for ( const auto entity : registry.view<ECS::AnimationComponent>() )
+        {
+            roots.Mark( registry.get<ECS::AnimationComponent>( entity ).GraphAsset,
+                        "an entity is animated by it" );
+        }
+
         // ── THE INTERFACE ─────────────────────────────────────────────────────────────────────────────
         //
         // Every UI element that names an asset. They are separate components rather than one, so this is

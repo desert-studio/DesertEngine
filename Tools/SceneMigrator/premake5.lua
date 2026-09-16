@@ -29,6 +29,11 @@ project "SceneMigrator"
         -- window and no Desert link (Desert/Tests/Engine/ConfigOwnership and SceneForeignKeys build on
         -- exactly this recipe). Reflection.gen.cpp is emitted by DesertHeaderTool as a PREBUILD STEP OF
         -- `Desert`, hence the dependency below.
+        -- THE ANIM GRAPH'S JSON ROUND TRIP, for the v20 -> v21 step. 24 lines of reflect-cpp over plain
+        -- structs, with no Desert link behind it: the blob that step moves out of the entity IS this type
+        -- serialized, so reading it with a hand-written parser here would be a second statement of the
+        -- format — the fork this tool's own header forbids.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",

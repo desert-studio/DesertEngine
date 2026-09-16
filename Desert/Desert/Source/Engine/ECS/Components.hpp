@@ -350,17 +350,31 @@ namespace Desert::ECS
         // drained + dispatched to the entity's scripts (OnAnimationNotify) by ScriptSystem. Transient.
         std::vector<std::string> PendingNotifies;
 
-        // AnimGraph (Phase 4): a data-driven state machine that PICKS the clip to play from live parameters.
-        // When Graph is set, AnimationECSSystem drives the Animator from the evaluator instead of CurrentClip.
-        //
-        // IT IS SERIALIZED. This comment claimed "in-memory only (not serialized with the scene)" while
-        // ComponentRegistry's "Animation" serializer wrote `Animation::Graph::Serialize(*Graph)` into the
-        // .desce and rebuilt the graph from it on load. The save path is live, which is the whole reason the
-        // graph's identity (per-entity blob vs shared asset) has to be settled before anyone saves a scene
-        // with a graph in it: today the repository has zero such scenes and the window is open.
-        //
-        // GraphEvaluator/BuiltGraphRevision ARE transient: GraphRevision is bumped by the editor on any
-        // structural edit so the ECS rebuilds the evaluator; parameters are set live on the evaluator.
+        /**
+         * @brief The `.danimgraph` this entity plays — a data-driven state machine that PICKS the clip
+         *        from live parameters. AUTHORED, and the only half of the graph a scene file states.
+         *
+         * IT USED TO BE A JSON STRING INSIDE THE ENTITY. `AnimationComponentSer::GraphJson` carried
+         * `Animation::Graph::Serialize(*Graph)` verbatim, so the graph had no identity of its own: two
+         * characters could not share one walk graph, and copying it copied a blob that then drifted.
+         *
+         * AND THE COMMENT THAT STOOD HERE WAS FALSE BY THE TIME IT MATTERED. It said the schema question
+         * could wait because "today the repository has zero such scenes and the window is open" — the
+         * repository had 10 scenes carrying an `Animation` block and 6 non-empty `GraphJson` blobs across
+         * three of them, all three load-bearing for a test suite. The window had closed; the step that
+         * closed it is `kSceneVersionAnimGraphAsset` (21) and it converted those three.
+         */
+        Assets::AssetHandle GraphAsset;
+
+        /**
+         * @brief The graph object itself. TRANSIENT, and SHARED with every other entity naming the same
+         *        file: it is `AnimGraphAsset`'s own `shared_ptr`, handed over by AnimationECSSystem.
+         *
+         * NOT A COPY, deliberately. A copy per entity would mean an edit in the Anim Graph window reached
+         * exactly one of the characters using that graph, which is the defect the asset was made to end.
+         * The EVALUATORS are per entity — each holds its own copy of the graph and its own live parameter
+         * values — so two characters share a graph and still stand in different states.
+         */
         std::shared_ptr<Animation::Graph::AnimGraph> Graph;
         std::shared_ptr<Animation::Graph::Evaluator> GraphEvaluator; // transient runtime state
 
@@ -391,9 +405,20 @@ namespace Desert::ECS
             std::string Name;
             float       Value = 0.0f; // bool as 0/1, int as a whole number — read through the declaration
         };
-        std::vector<PendingGraphParam>               PendingGraphParams;
-        uint32_t                                     GraphRevision      = 0;
-        uint32_t                                     BuiltGraphRevision = 0; // ECS: rev the evaluator was built at
+        std::vector<PendingGraphParam> PendingGraphParams;
+
+        /**
+         * @brief What this entity's evaluator was built FROM. TRANSIENT, and the same shape as
+         *        BuiltRigSource/BuiltRigRevision below.
+         *
+         * THERE IS NO `GraphRevision` ON THE COMPONENT ANY MORE, and its removal is the point. It was
+         * bumped by whoever edited the graph — which could only ever be the component in front of the
+         * editor, so a graph shared by two characters would have re-synced ONE of them and left the other
+         * evaluating the previous shape with no sign that anything was stale. The counter belongs to the
+         * thing that changes: `AnimGraphAsset::GetRevision()`, one number for every entity that names it.
+         */
+        Assets::AssetHandle BuiltGraphSource;           // the handle the evaluator was built from
+        uint32_t            BuiltGraphRevision = 0;     // the asset revision it was built at
 
         /**
          * @brief What the Animator's CURRENT control-rig stage was built from. TRANSIENT, and the same

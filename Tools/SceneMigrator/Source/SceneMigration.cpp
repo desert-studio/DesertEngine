@@ -1,5 +1,9 @@
 #include "SceneMigration.hpp"
 
+// The graph model and its JSON round trip, for the v20 -> v21 step: the blob it moves out of the entity
+// IS this type serialized, so reading it with anything else would be a second statement of the format.
+#include <Engine/Animation/Graph/AnimGraph.hpp>
+
 #include <Engine/Core/SceneSettings.hpp>
 // For the shipped presets' names and the directory they live in, and nothing else. The v4 -> v5 migration
 // turns the species integer a v4 file carries into the PATH of the preset that holds the same twelve
@@ -1919,6 +1923,130 @@ namespace Desert::Migration
         return report;
     }
 
+    AnimGraphMigrationReport MigrateAnimGraphV20ToV21( std::vector<Assets::EntityData>& entities )
+    {
+        // A GRAPH NAME IS NOT A FILENAME until this says so. An artist types anything into the graph's
+        // Name field, and a '/' in it would make the migration write outside AnimGraphs/ — which is the
+        // one way a pure-looking step can reach a file nobody asked it to touch. Everything that is not a
+        // letter, a digit, '_' or '-' becomes '_'; the mapping is many-to-one, and the CALLER is what
+        // notices two different graphs landing on one name (see the header).
+        const auto asFilename = []( const std::string& name )
+        {
+            std::string out;
+            out.reserve( name.size() );
+            for ( const char c : name )
+            {
+                const bool safe = ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' ) ||
+                                  ( c >= '0' && c <= '9' ) || c == '_' || c == '-';
+                out.push_back( safe ? c : '_' );
+            }
+            return out;
+        };
+
+        AnimGraphMigrationReport report;
+
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+
+            const auto payload = entity.Components.get( "Animation" );
+            if ( !payload.has_value() )
+                continue;
+
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+            {
+                LOG_WARN( "[SceneMigration] entity '{0}': the Animation payload is {1}, not an object - its "
+                          "state machine could not be moved and stays as it is",
+                          tag, Describe( payload.value() ) );
+                continue;
+            }
+
+            const auto blob = fields.value().get( "GraphJson" );
+            if ( !blob.has_value() )
+                continue; // already converted, or never had a graph - tree untouched, so this is idempotent
+
+            const auto json = blob.value().to_string();
+            if ( !json.has_value() )
+            {
+                // Present and not a string. LEFT IN PLACE, named, and counted as a refusal: dropping a key
+                // whose content we could not read is dropping an artist's work to make a number go up.
+                report.Rejected += 1;
+                report.RejectedNames.push_back( tag + " > Animation.GraphJson is " +
+                                                Describe( blob.value() ) + ", not a string" );
+                continue;
+            }
+
+            // Rebuilt rather than edited in place, like every step above: rfl::Object is an ordered vector
+            // of pairs with no in-place assignment through its iterators.
+            const auto withoutBlob = [&fields]( std::optional<std::string> graphPath )
+            {
+                rfl::Generic::Object kept;
+                for ( const auto& [key, value] : fields.value() )
+                {
+                    if ( key == "GraphJson" )
+                        continue;
+                    kept[key] = value;
+                }
+                if ( graphPath.has_value() )
+                    kept["Graph"] = rfl::Generic( *graphPath );
+                return kept;
+            };
+
+            if ( json->empty() )
+            {
+                // The common case by count: an entity with an Animation component and no state machine.
+                // The key simply goes; no file, no reference, and the payload says "no graph" by absence.
+                entity.Components["Animation"] = rfl::Generic( withoutBlob( std::nullopt ) );
+                report.Empty += 1;
+                continue;
+            }
+
+            auto parsed = Animation::Graph::Deserialize( *json );
+            if ( !parsed )
+            {
+                // LEFT IN PLACE. A blob that will not parse is a state machine somebody authored and this
+                // tool cannot read; writing it to a file unread would produce a `.danimgraph` the engine
+                // then refuses, and dropping it would lose the work outright. Named, so a fixed tool can
+                // have another go at the same file.
+                report.Rejected += 1;
+                report.RejectedNames.push_back( tag + " > Animation.GraphJson is not a graph: " +
+                                                parsed.GetError() );
+                continue;
+            }
+
+            const Animation::Graph::AnimGraph graph = parsed.ExtractValue();
+
+            // NAMED AFTER THE GRAPH, which is what makes two characters that carried byte-identical blobs
+            // - exactly what copying a character produced - converge on ONE file and genuinely share it.
+            // A graph with no Name of its own falls back to the ENTITY's tag, because "" is not a filename
+            // and inventing one constant for every such blob would collide them all into a single file.
+            std::string stem = asFilename( graph.Name );
+            if ( stem.empty() )
+                stem = asFilename( tag );
+            if ( stem.empty() )
+                stem = "Graph";
+
+            // THE CENSUS ROW AND THE FORMAT'S OWN CONSTANT, never a literal: the folder this tool writes
+            // into and the folder the content scan reads from are one statement (Constants.hpp), and a
+            // second spelling of either here is how a migrated scene comes to name a file nothing loads.
+            static constexpr auto kAnimGraphDir = Common::Constants::Path::CONTENT_DIRS[static_cast<std::size_t>(
+                 Common::Constants::Path::ContentDir::AnimGraph )];
+            const std::string     relative =
+                 std::string( kAnimGraphDir.Rel ) + stem + std::string( Animation::Graph::kAnimGraphExtension );
+
+            // RE-SERIALIZED, not copied through. The blob was written by whatever build saved the scene;
+            // writing the canonical form means two entities whose graphs differ only in key order or in a
+            // field one build omitted produce the SAME bytes, which is what lets the caller collapse them
+            // onto one file instead of discovering a spurious conflict.
+            report.Graphs.push_back( AnimGraphFile{ relative, Animation::Graph::Serialize( graph ) } );
+            entity.Components["Animation"] = rfl::Generic( withoutBlob( relative ) );
+            report.Entities += 1;
+        }
+
+        return report;
+    }
+
     RetiredKeysMigrationReport MigrateRetiredKeys( std::optional<rfl::Generic>&     settings,
                                                    std::vector<Assets::EntityData>& entities )
     {
@@ -2646,6 +2774,15 @@ namespace Desert::Migration
             {
                 report.TextKeySigilRaised = true;
                 report.TextKeySigil       = MigrateTextKeySigilV18ToV19( entities );
+            }
+
+            // The state machine leaves the entity for a file of its own. After the sigil step and before
+            // the retirement pass, like every other step; it reads and writes one key no step above
+            // touches, so nothing depends on where in this chain it sits.
+            if ( statedSceneVersion < kSceneVersionAnimGraphAsset )
+            {
+                report.AnimGraphRaised = true;
+                report.AnimGraph       = MigrateAnimGraphV20ToV21( entities );
             }
 
             if ( statedSceneVersion < kSceneVersion )

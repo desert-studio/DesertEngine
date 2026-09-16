@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -13,6 +14,18 @@
 // AnimGraphSerialization.cpp); enums are stored as int for stable, tolerant serialization.
 namespace Desert::Animation::Graph
 {
+    /// The extension a saved graph is named by (`.danimgraph`). BESIDE THE DATA AND NOT BESIDE THE ASSET
+    /// WRAPPER, on the terms `kControlRigExtension` states: the scene migrator has to spell this to name
+    /// the files it writes and links no asset layer at all, and a second spelling of an extension is a
+    /// slot that silently refuses a valid file.
+    ///
+    /// WHY NOT `.degraph`, which is the engine's usual `de` prefix: the shader graph is `.dgraph`, and
+    /// `.degraph` differs from it by ONE LETTER in the middle of a word — a file list nobody can read at a
+    /// glance and a `switch` whose wrong arm looks right. This spelling carries the word `anim`, so the two
+    /// can never be confused by a human or by a grep. Constants.hpp makes the same argument in a
+    /// static_assert about `.stmesh` / `.skmesh`.
+    inline constexpr std::string_view kAnimGraphExtension = ".danimgraph";
+
     enum class ParamType : int
     {
         Bool  = 0,

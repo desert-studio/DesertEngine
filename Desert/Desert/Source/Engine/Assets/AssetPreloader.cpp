@@ -13,6 +13,7 @@
 #include "CloudTypeAsset.hpp"
 #include "CloudModellingVolumeAsset.hpp"
 #include "CloudLayoutAsset.hpp"
+#include "AnimGraphAsset.hpp"
 #include "ControlRigAsset.hpp"
 #include "UIThemeAsset.hpp"
 #include "StringTableAsset.hpp"
@@ -39,6 +40,8 @@ namespace Desert::Assets
     constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_LAYOUT_EXTENSIONS = { ".dclayout" };
     constexpr std::array<std::string_view, 1> SUPPORTED_UI_THEME_EXTENSIONS     = { ".detheme" };
     constexpr std::array<std::string_view, 1> SUPPORTED_CONTROL_RIG_EXTENSIONS  = { ".derig" };
+    constexpr std::array<std::string_view, 1> SUPPORTED_ANIM_GRAPH_EXTENSIONS   = {
+        Desert::Animation::Graph::kAnimGraphExtension };
     constexpr std::array<std::string_view, 1> SUPPORTED_STRING_TABLE_EXTENSIONS = {
          Localization::kStringTableExtension };
 
@@ -338,6 +341,22 @@ namespace Desert::Assets
         ProcessAssetFiles<ControlRigAsset>( Common::Constants::Path::CONTROL_RIG_PATH,
                                             SUPPORTED_CONTROL_RIG_EXTENSIONS, m_AssetManager,
                                             AssetPriority::Medium );
+    }
+
+    void AssetPreloader::PreloadAnimGraphs()
+    {
+        // Loaded eagerly for the RIG's reason and not the shader graph's, and the difference is the
+        // decision. A `.dgraph` gets no preloader at all: nothing but an open editor window ever reads one,
+        // so parsing every graph in the project at boot would be work for a reader that does not exist. A
+        // `.danimgraph` is named by a COMPONENT SLOT, and that slot has to be able to OFFER the project's
+        // graphs — which it does by asking the manager for every asset of this type. An entity's own graph
+        // is resolved by path at scene load whether or not this ran; what this buys is the picker.
+        //
+        // There is no service register loop beside this call: a graph has no process-wide runtime form —
+        // the evaluator is per ENTITY, built by AnimationECSSystem from the object this asset owns.
+        ProcessAssetFiles<AnimGraphAsset>( Common::Constants::Path::ANIM_GRAPH_PATH,
+                                           SUPPORTED_ANIM_GRAPH_EXTENSIONS, m_AssetManager,
+                                           AssetPriority::Medium );
     }
 
     void AssetPreloader::PreloadCloudModellingVolumes()
