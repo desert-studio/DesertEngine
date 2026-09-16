@@ -182,8 +182,7 @@ namespace Desert::Editor
     {
         if ( !m_AssetManager )
             return nullptr;
-        return m_AssetManager->FindByHandle<Assets::ShaderGraphAsset>(
-             Assets::AssetHandle( Subject().Owner ) );
+        return m_AssetManager->FindByHandle<Assets::ShaderGraphAsset>( Assets::AssetHandle( Subject().Owner ) );
     }
 
     bool NodeGraphPanel::IsSubjectAlive() const
@@ -584,8 +583,7 @@ namespace Desert::Editor
             // obstacle #3 of U7-2's refusal — unsaved work gone with no prompt. It now writes a starter
             // graph beside this one and asks the registry to open it, so the graph on screen is still on
             // screen afterwards.
-            if ( const std::string created =
-                      CreateNewGraphFile( GraphsDirectory().string(), m_Doc.DomainEnum() );
+            if ( const std::string created = CreateNewGraphFile( GraphsDirectory().string(), m_Doc.DomainEnum() );
                  !created.empty() )
             {
                 if ( RequestShaderGraphDocument( m_AssetManager.get(), created ) !=

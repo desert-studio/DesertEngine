@@ -72,7 +72,7 @@ namespace Desert::Assets::Serialization::ShaderGraph
 
     struct Pin
     {
-        uint64_t    Id   = 0;
+        uint64_t    Id = 0;
         std::string Name;
         int         Type = 0; // ValueType (int for reflection-friendly serialization)
     };
@@ -83,9 +83,9 @@ namespace Desert::Assets::Serialization::ShaderGraph
     {
         uint64_t             Id = 0;
         std::string          Kind;
-        std::string          ParamName;             // TextureSample / *Param nodes: exposed property name
+        std::string          ParamName;              // TextureSample / *Param nodes: exposed property name
         std::array<float, 4> Value = { 1, 1, 1, 1 }; // *Const / *Param nodes: (default) value
-        float                X = 0.0f, Y = 0.0f;    // canvas position (captured on save)
+        float                X = 0.0f, Y = 0.0f;     // canvas position (captured on save)
         std::vector<Pin>     Inputs;
         std::vector<Pin>     Outputs;
     };

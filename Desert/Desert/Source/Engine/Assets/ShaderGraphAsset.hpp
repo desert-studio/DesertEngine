@@ -69,7 +69,7 @@ namespace Desert::Assets
         /// Writes a graph to disk, creating the directory if needed. Static because saving is what CREATES
         /// an asset: writing through an instance would mean an instance had to exist for a file that does
         /// not.
-        static Common::BoolResultStr Save( const Common::Filepath&                        filepath,
+        static Common::BoolResultStr Save( const Common::Filepath&                     filepath,
                                            const Serialization::ShaderGraph::Document& doc );
 
     private:

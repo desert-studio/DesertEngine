@@ -37,8 +37,8 @@ namespace Desert::Editor
         Requested,     // queued; the window appears on the next frame
     };
 
-    [[nodiscard]] inline ShaderGraphDocumentRequest
-    RequestShaderGraphDocument( Assets::AssetManager* assetManager, const std::string& assetPath )
+    [[nodiscard]] inline ShaderGraphDocumentRequest RequestShaderGraphDocument( Assets::AssetManager* assetManager,
+                                                                                const std::string&    assetPath )
     {
         if ( !assetManager )
             return ShaderGraphDocumentRequest::NotAGraphPath;
@@ -61,8 +61,8 @@ namespace Desert::Editor
             // outside an open editor window ever reads one, so parsing every graph in the project at boot
             // would be work for a reader that does not exist — which makes this find-or-create the ONE
             // place a `.dgraph` becomes an asset.
-            asset = assetManager->CreateAsset<Assets::ShaderGraphAsset>( Assets::AssetPriority::Medium,
-                                                                         assetPath );
+            asset =
+                 assetManager->CreateAsset<Assets::ShaderGraphAsset>( Assets::AssetPriority::Medium, assetPath );
         }
 
         if ( !asset )

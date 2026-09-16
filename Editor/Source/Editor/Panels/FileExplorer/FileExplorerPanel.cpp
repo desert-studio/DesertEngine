@@ -1414,8 +1414,7 @@ namespace Desert::Editor
                                     if ( RequestShaderGraphDocument( m_AssetManager, path ) !=
                                          ShaderGraphDocumentRequest::Requested )
                                     {
-                                        LOG_ERROR( "[ShaderGraph] '{}' was created but would not open.",
-                                                   path );
+                                        LOG_ERROR( "[ShaderGraph] '{}' was created but would not open.", path );
                                     }
                                     QueueRefresh();
                                 };

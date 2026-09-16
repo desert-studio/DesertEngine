@@ -823,6 +823,102 @@ TEST( ShaderGraphCompiler, TheDeliberatelyBrokenGraphIsRefusedBeforeAnyGlslIsEmi
          << "the refusal does not name the node the value came from: " << compiled.GetError();
 }
 
+// =================================================================================================
+// THE FILE IS AN ASSET NOW: what the ENGINE half of the format must do, and what it must refuse.
+// =================================================================================================
+//
+// `Pin/Node/Link/Document` and the JSON round trip moved to Engine/Assets/Serialization/ShaderGraph.hpp
+// so that `ShaderGraphAsset` could exist and `NodeGraphPanel` could become a document over its handle.
+// These tests are about THAT half and are written against `SGF::` deliberately: the editor's
+// `SG::Deserialize` adds the catalogue migration on top, so a test written through it cannot say which
+// of the two steps answered.
+
+TEST( ShaderGraphFormat, TheRoundTripIsByteStableOverEveryCommittedGraph )
+{
+    // The corpus, not a fixture. A document that came off disk and went back must produce the SAME
+    // bytes, because that is what an editor Save does to a file nobody edited — and a Save that
+    // reordered or re-spelled anything would make every open-and-close a diff in somebody's commit.
+    const std::filesystem::path directory =
+         Desert::Tests::ShaderGraph::RepoRoot() / "Editor/Resources/Assets/ShaderGraphs";
+    ASSERT_TRUE( std::filesystem::is_directory( directory ) ) << directory;
+
+    int seen = 0;
+    for ( const auto& entry : std::filesystem::directory_iterator( directory ) )
+    {
+        if ( entry.path().extension() != SGF::kShaderGraphExtension )
+            continue;
+
+        const auto parsed = SGF::ParseShaderGraph( Desert::Tests::ShaderGraph::ReadAll( entry.path() ) );
+        ASSERT_TRUE( parsed.IsSuccess() ) << entry.path().string() << ": " << parsed.GetError();
+
+        const std::string written = SGF::Serialize( parsed.GetValue() );
+        const auto        again   = SGF::ParseShaderGraph( written );
+        ASSERT_TRUE( again.IsSuccess() ) << entry.path().string() << ": " << again.GetError();
+        EXPECT_EQ( SGF::Serialize( again.GetValue() ), written )
+             << entry.path().filename().string() << " does not round-trip to one text";
+        ++seen;
+    }
+    EXPECT_GT( seen, 0 ) << "no committed graph was read at all — the corpus moved and this test passed "
+                            "on nothing, which is the empty successful answer the contract forbids";
+}
+
+TEST( ShaderGraphFormat, MalformedJsonIsRefusedAndSaysSo )
+{
+    // NOT an empty document. A `.dgraph` that will not parse is a file an artist is about to lose work
+    // over: `ShaderGraphAsset::Load` turns this error into a refusal that names the path, so the window
+    // is never created over a graph nobody could read. Substituting an empty Document here would open a
+    // blank canvas over a file with content in it and invite a Save straight over the top.
+    const auto refused = SGF::ParseShaderGraph( "{ this is not json" );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( ".dgraph" ), std::string::npos )
+         << "the refusal does not say what kind of file failed: " << refused.GetError();
+}
+
+TEST( ShaderGraphFormat, AFieldAnOlderBuildNeverWroteTakesItsDefault )
+{
+    // `DefaultIfMissing`, asserted rather than assumed: a graph written before `Lit` existed must still
+    // open, and it must open as the unlit surface that build meant. A strict read here would refuse
+    // every graph in anybody's project the first time the Document grew a member.
+    const auto parsed = SGF::ParseShaderGraph( R"({"Name":"Old","NextId":3,"Nodes":[],"Links":[]})" );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    EXPECT_EQ( parsed.GetValue().Name, "Old" );
+    EXPECT_EQ( parsed.GetValue().DomainEnum(), SGF::Domain::Surface );
+    EXPECT_FALSE( parsed.GetValue().Lit );
+}
+
+// THE DOCUMENT SAVES TO THE FILE IT WAS OPENED ON, and this is the U6 rule that the window being a tool
+// used to break in the other direction.
+//
+// `SaveGraph` composed its path from `m_Doc.Name` — so renaming a graph in the toolbar field wrote a
+// DIFFERENT file and left the window claiming to be the first one, a Save As nobody asked for. A
+// document has a subject, and the subject's own path is where it goes. Asserted over the source text
+// because the panel needs an ImGui context and a node-editor canvas to exist at all; what is pinned is
+// the RELATION — Save writes `m_Path`, and `m_Path` comes from the asset's metadata, not from a name.
+TEST( ShaderGraphFormat, TheDocumentSavesToItsSubjectsOwnPath )
+{
+    const std::string source = Desert::Tests::ShaderGraph::ReadAll(
+         Desert::Tests::ShaderGraph::RepoRoot() / "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp" );
+    ASSERT_FALSE( source.empty() );
+
+    const std::size_t save = source.find( "void NodeGraphPanel::SaveGraph()" );
+    ASSERT_NE( save, std::string::npos ) << "SaveGraph is gone; this test cannot say anything about it";
+    const std::size_t end = source.find( "\n    }", save );
+    ASSERT_NE( end, std::string::npos );
+    const std::string body = source.substr( save, end - save );
+
+    EXPECT_NE( body.find( "ShaderGraphAsset::Save( m_Path" ), std::string::npos )
+         << "SaveGraph no longer writes the subject's own file. A path composed here from the document's "
+            "Name is a silent Save As: the artist renames a graph, a second file appears, and the window "
+            "goes on claiming to be the first one.";
+    EXPECT_EQ( body.find( "GraphsDirectory()" ), std::string::npos )
+         << "SaveGraph is composing a path out of the graphs folder again — that is the old tool's "
+            "behaviour, and it is how one window came to write two files.";
+
+    EXPECT_NE( source.find( "m_Path = asset->GetMetadata().Filepath" ), std::string::npos )
+         << "m_Path no longer comes from the subject's own metadata, so 'the file it was opened on' is "
+            "now whatever else set it.";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );

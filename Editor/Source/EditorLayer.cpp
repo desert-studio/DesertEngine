@@ -5867,8 +5867,7 @@ namespace Desert::Editor
         for ( const auto& group :
               { std::span<const char* const>( kLevelGroup ), std::span<const char* const>( kContentGroup ),
                 std::span<const char* const>( kOutputGroup ), std::span<const char* const>( kViewportGroup ),
-                std::span<const char* const>( kSequencerGroup ),
-                std::span<const char* const>( kToolGroup ) } )
+                std::span<const char* const>( kSequencerGroup ), std::span<const char* const>( kToolGroup ) } )
             for ( const char* name : group )
                 placed.insert( name );
 

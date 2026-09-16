@@ -41,8 +41,7 @@ namespace Desert::Assets
         if ( text.empty() )
         {
             m_Ready = false;
-            return Common::MakeFormattedError<bool>( "shader graph '{}' is empty or could not be opened",
-                                                     path );
+            return Common::MakeFormattedError<bool>( "shader graph '{}' is empty or could not be opened", path );
         }
 
         auto parsed = Serialization::ShaderGraph::ParseShaderGraph( text );
