@@ -65,6 +65,7 @@ namespace Common::Constants
             CloudLayout,
             UITheme,
             ControlRig,
+            ShaderGraph,
             Cooked,
             MeshCooked,
             TextureCooked,
@@ -127,6 +128,11 @@ namespace Common::Constants
              // rig. Beside Animations/ rather than inside it because a rig is not a clip — it is the thing
              // a clip's control tracks are authored against.
              /* ControlRig    */ { "Rigs/", DirRoot::Assets },
+             // Shader graphs (`.dgraph`) already lived in this folder before they were assets; the row
+             // exists so the folder has ONE spelling. It was `ASSETS_PATH / "ShaderGraphs"` written inside
+             // NodeGraphPanel.cpp, which is the shape this census was built to end — a directory named in
+             // a panel is a directory the content scan and the packager do not know about.
+             /* ShaderGraph   */ { "ShaderGraphs/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
              /* MeshCooked    */ { "Meshes/", DirRoot::Cooked },
              /* TextureCooked */ { "Textures/", DirRoot::Cooked },
@@ -345,6 +351,7 @@ namespace Common::Constants
         inline const std::filesystem::path& CLOUD_LAYOUT_PATH   = Dir( ContentDir::CloudLayout );
         inline const std::filesystem::path& UI_THEME_PATH       = Dir( ContentDir::UITheme );
         inline const std::filesystem::path& CONTROL_RIG_PATH    = Dir( ContentDir::ControlRig );
+        inline const std::filesystem::path& SHADER_GRAPH_PATH    = Dir( ContentDir::ShaderGraph );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
         inline const std::filesystem::path& TEXTURE_PATH_COOKED = Dir( ContentDir::TextureCooked );

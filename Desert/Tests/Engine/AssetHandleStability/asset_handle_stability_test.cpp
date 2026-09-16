@@ -35,6 +35,7 @@
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
+#include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/StringTableAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
@@ -107,6 +108,7 @@ namespace
              { AssetTypeID::UITheme, "UIThemeAsset", &HandleOf<Desert::Assets::UIThemeAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset> },
              { AssetTypeID::ControlRig, "ControlRigAsset", &HandleOf<Desert::Assets::ControlRigAsset> },
+             { AssetTypeID::ShaderGraph, "ShaderGraphAsset", &HandleOf<Desert::Assets::ShaderGraphAsset> },
         };
         return kinds;
     }
@@ -1104,6 +1106,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::UITheme,
          AssetTypeID::StringTable,
          AssetTypeID::ControlRig,
+         AssetTypeID::ShaderGraph,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1114,14 +1117,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
     EXPECT_EQ( declared.size() + 1, enumerators )
          << "AssetTypeID has gained or lost an enumerator. A new asset type must be added to this suite's "
             "catalogue, or its handle stability is untested — which is exactly how five types kept a "
-            "random per-launch identity for as long as they did.\n"
-            "AND IF THE NEW TYPE IS THE SHADER GRAPH: U7-2's refusal is spent. It left the Node Graph as "
-            "the editor's last tool-that-edits-something precisely because there was no `.dgraph` asset "
-            "type to key a document on, and the moment there is one the rest of that work is a block of "
-            "registration like the seven before it. The four things it measured as being in the way are "
-            "written out at Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp, at the "
-            "FileType::ShaderGraph branch; the one that matters most is that New/Load/double-click discard "
-            "unsaved work with no prompt today, which stops being possible once the window is a document.";
+            "random per-launch identity for as long as they did.";
 
     std::set<int> covered;
     for ( const auto& kind : Catalogue() )

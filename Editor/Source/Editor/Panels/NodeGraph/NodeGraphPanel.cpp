@@ -1,9 +1,11 @@
 #include "NodeGraphPanel.hpp"
 
 #include <Editor/Core/SubjectOpenRequest.hpp>
+#include <Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp>
 #include <Editor/Panels/MaterialEditor/MaterialShaderRebuild.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -52,9 +54,12 @@ namespace Desert::Editor
         }
         // clang-format on
 
-        std::filesystem::path GraphsDirectory()
+        // THE CENSUS ROW, not a second spelling. This used to be `ASSETS_PATH / "ShaderGraphs"` written
+        // here, which is a content directory the scan, the packager and the path census all knew nothing
+        // about — the exact shape Constants::ContentDir exists to end.
+        const std::filesystem::path& GraphsDirectory()
         {
-            return Common::Constants::Path::ASSETS_PATH / "ShaderGraphs";
+            return Common::Constants::Path::SHADER_GRAPH_PATH;
         }
 
         std::filesystem::path CompiledShaderPath( const std::string& name )
@@ -127,14 +132,44 @@ namespace Desert::Editor
         }
     } // namespace
 
-    NodeGraphPanel::NodeGraphPanel( const std::shared_ptr<Assets::AssetManager>& assetManager )
-         : IPanel( "Node Graph", /*showPanel=*/false ), m_AssetManager( assetManager )
+    NodeGraphPanel::NodeGraphPanel( const Assets::AssetHandle& graph, const std::string& displayName,
+                                    const std::shared_ptr<Assets::AssetManager>& assetManager )
+         : ISubjectDocument( displayName,
+                             AssetSubject( graph, static_cast<uint32_t>( Assets::AssetTypeID::ShaderGraph ) ) ),
+           m_AssetManager( assetManager )
     {
         ed::Config config;
         config.SettingsFile = nullptr; // node positions live in the .dgraph, not a stray json
         m_Context           = ed::CreateEditor( &config );
 
-        NewGraph();
+        // THE DOCUMENT READS ITS SUBJECT ONCE, HERE. The asset has already parsed the file (the path
+        // opener refuses to queue a subject whose asset would not load), so this cannot be the place a
+        // malformed graph is discovered — which is why there is no error branch: an unresolvable subject
+        // never becomes a window.
+        if ( const auto asset = ResolveAsset() )
+        {
+            m_Path = asset->GetMetadata().Filepath;
+            m_Doc  = asset->GetData();
+
+            // A migration is never silent (contract §4.7): it says which file, and how many pins moved.
+            // The graph is NOT written back here — a load that rewrites the artist's file before they
+            // have looked at it is worse than one that waits for Save, and the document in memory is
+            // already the new form, so nothing downstream sees the old one.
+            if ( const int migrated = SG::MigrateToCatalogue( m_Doc ); migrated > 0 )
+            {
+                LOG_INFO( "[ShaderGraph] '{}' was written against an older node catalogue: {} pin(s) "
+                          "appended to bring it up to date. Save the graph to persist them.",
+                          m_Path.string(), migrated );
+                m_Status = std::format( "+{} new pin(s) from the current catalogue", migrated );
+            }
+        }
+
+        // A graph that was just opened has not been EDITED, so it must not look dirty to the auto-compile.
+        // Seeding the fingerprint here is what makes the debounce fire on a change rather than on merely
+        // opening the window — which cost a ~370 ms rebuild for nothing, and was visible as a
+        // GraphShader.shader written the moment the window appeared.
+        m_LastFingerprint = StructuralFingerprint( m_Doc );
+        m_DirtySince      = {};
     }
 
     NodeGraphPanel::~NodeGraphPanel()
@@ -143,23 +178,22 @@ namespace Desert::Editor
             ed::DestroyEditor( m_Context );
     }
 
-    void NodeGraphPanel::NewGraph()
+    Assets::Asset<Assets::ShaderGraphAsset> NodeGraphPanel::ResolveAsset() const
     {
-        // A fresh graph keeps the domain you were working in.
-        const SG::Domain domain = m_Doc.DomainEnum();
-        m_Doc                   = {};
-        m_Doc.Domain            = static_cast<int>( domain );
-        PopulateStarter( m_Doc, domain );
+        if ( !m_AssetManager )
+            return nullptr;
+        return m_AssetManager->FindByHandle<Assets::ShaderGraphAsset>(
+             Assets::AssetHandle( Subject().Owner ) );
+    }
 
-        m_ApplyPositions = true;
-        m_Status.clear();
-
-        // A graph that was just loaded or created has not been EDITED, so it must not look dirty to the
-        // auto-compile. Seeding the fingerprint here is what makes the debounce fire on a change rather
-        // than on merely opening the panel — which cost a ~370 ms rebuild for nothing, and was visible as
-        // a GraphShader.shader written the moment the window appeared.
-        m_LastFingerprint = StructuralFingerprint( m_Doc );
-        m_DirtySince      = {};
+    bool NodeGraphPanel::IsSubjectAlive() const
+    {
+        // THE METADATA, not the loaded asset. A graph whose record the manager still holds is a graph this
+        // window is still about, even if an eviction sweep has since unloaded its payload — the document
+        // holds its own copy of the document and saves through the path, so an unloaded asset costs
+        // nothing. What closes the window is the record going away.
+        return m_AssetManager &&
+               m_AssetManager->FindMetadataByHandle( Assets::AssetHandle( Subject().Owner ) ) != nullptr;
     }
 
     void NodeGraphPanel::ChangeDomain( SG::Domain domain )
@@ -243,72 +277,31 @@ namespace Desert::Editor
         }
         ed::SetCurrentEditor( nullptr );
 
-        std::error_code ec;
-        std::filesystem::create_directories( GraphsDirectory(), ec );
-        const auto path = GraphsDirectory() / ( m_Doc.Name + ".dgraph" );
-        // The status line is the only feedback this panel has, and it used to say "Saved <file>" for a
-        // write nobody had checked — while the same file's LOAD and COMPILE paths below both report
-        // their failures properly.
-        if ( const auto written =
-                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, SG::Serialize( m_Doc ) );
-             !written )
+        // THE SUBJECT'S OWN FILE. The path used to be composed from `m_Doc.Name`, so renaming a graph in
+        // the field above silently wrote a DIFFERENT file and left this window claiming to be the first
+        // one. A document saves where it was opened; `Name` is the compiled shader's name and nothing
+        // else.
+        if ( const auto written = Assets::ShaderGraphAsset::Save( m_Path, m_Doc ); !written )
         {
             m_Status        = "NOT saved: " + written.GetError();
             m_StatusIsError = true;
             return;
         }
-        m_Status        = "Saved " + path.filename().string();
+
+        // The asset holds the parsed file; leaving it on the previous contents would make the NEXT window
+        // opened on this graph show what was on disk before this Save.
+        if ( const auto asset = ResolveAsset() )
+        {
+            if ( const auto reloaded = asset->Load(); !reloaded )
+            {
+                m_Status        = "saved, but the asset would not re-read it: " + reloaded.GetError();
+                m_StatusIsError = true;
+                return;
+            }
+        }
+
+        m_Status        = "Saved " + m_Path.filename().string();
         m_StatusIsError = false;
-    }
-
-    void NodeGraphPanel::LoadGraph( const std::string& fileName )
-    {
-        LoadGraphFromPath( ( GraphsDirectory() / fileName ).string() );
-    }
-
-    void NodeGraphPanel::LoadGraphFromPath( const std::string& fullPath )
-    {
-        // NO `std::filesystem::exists` GUARD. One stood here and returned silently — so a graph offered
-        // by the popup above and then not loaded left the panel showing the previous document with no
-        // word anywhere about why. It was also the second half of the same defect the popup had: it
-        // consults the DISK only, so a graph the shared enumeration found inside a mounted .dpak was
-        // listed and then refused without a message. The read below already answers a missing or
-        // unreadable file through the status line, which is this panel's own error channel.
-        const auto raw = Common::Utils::FileSystem::ReadFileContent( fullPath );
-        if ( !raw )
-        {
-            m_Status        = raw.GetError();
-            m_StatusIsError = true;
-            return;
-        }
-
-        auto parsed = SG::Deserialize( raw.GetValue() );
-        if ( !parsed )
-        {
-            m_Status        = parsed.GetError();
-            m_StatusIsError = true;
-            return;
-        }
-        m_Doc            = parsed.GetValue().Doc;
-        m_ApplyPositions = true;
-        m_Status         = "Loaded " + std::filesystem::path( fullPath ).filename().string();
-        m_StatusIsError  = false;
-
-        // A migration is never silent (contract §4.7): it says which file, and how many pins moved.
-        // The graph is NOT written back here — a load that rewrites the artist's file before they
-        // have looked at it is worse than one that waits for Save, and the document in memory is
-        // already the new form, so nothing downstream sees the old one.
-        if ( const int migrated = parsed.GetValue().MigratedPins; migrated > 0 )
-        {
-            LOG_INFO( "[ShaderGraph] '{}' was written against an older node catalogue: {} pin(s) "
-                      "appended to bring it up to date. Save the graph to persist them.",
-                      fullPath, migrated );
-            m_Status += std::format( " (+{} new pin(s) from the current catalogue)", migrated );
-        }
-
-        // Loaded, not edited — see the note in NewGraph.
-        m_LastFingerprint = StructuralFingerprint( m_Doc );
-        m_DirtySince      = {};
     }
 
     std::string NodeGraphPanel::CreateNewGraphFile( const std::string& directory, SG::Domain domain )
@@ -320,7 +313,7 @@ namespace Desert::Editor
         for ( int i = 0; i < 256; ++i )
         {
             const std::string candidate = i == 0 ? name : name + std::to_string( i );
-            path                        = std::filesystem::path( directory ) / ( candidate + ".dgraph" );
+            path = std::filesystem::path( directory ) / ( candidate + std::string( SG::kExtension ) );
             if ( !std::filesystem::exists( path ) )
             {
                 name = candidate;
@@ -328,16 +321,14 @@ namespace Desert::Editor
             }
         }
 
-        ShaderGraph::Document doc;
+        SG::Document doc;
         doc.Name   = name;
         doc.Domain = static_cast<int>( domain );
         PopulateStarter( doc, domain );
 
         // The returned path IS the proof the file exists — the caller opens it. An unwritten graph came
         // back as a path all the same, and the panel then opened nothing and said nothing.
-        if ( const auto written =
-                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, ShaderGraph::Serialize( doc ) );
-             !written )
+        if ( const auto written = Assets::ShaderGraphAsset::Save( path, doc ); !written )
         {
             LOG_ERROR( "[ShaderGraph] '{}' was not created: {}", path.string(), written.GetError() );
             return {};
@@ -345,31 +336,30 @@ namespace Desert::Editor
         return path.string();
     }
 
-    // One pending request is plenty — the last double-click wins.
-    static std::string s_PendingOpenRequest;
-
-    void NodeGraphPanel::RequestOpen( const std::string& dgraphPath )
+    void NodeGraphPanel::FrameAll()
     {
-        s_PendingOpenRequest = dgraphPath;
+        ed::SetCurrentEditor( m_Context );
+        ed::NavigateToContent( 0.4f );
+        ed::SetCurrentEditor( nullptr );
+    }
+
+    std::vector<ISubjectDocument::DocumentAction> NodeGraphPanel::Actions()
+    {
+        // The SAME functions the toolbar buttons call. A second code path here would be a second
+        // behaviour to keep in step, and the whole point of these entries is that what a client drives is
+        // what a person presses.
+        return {
+             { "Save", [this] { SaveGraph(); } },
+             { "Compile", [this] { Compile(); } },
+             { "Frame All", [this] { FrameAll(); } },
+        };
     }
 
     void NodeGraphPanel::OnPreUpdate()
     {
-        if ( !s_PendingOpenRequest.empty() )
-        {
-            LoadGraphFromPath( s_PendingOpenRequest );
-            s_PendingOpenRequest.clear();
-            GetVisibility()   = true; // double-click opens the panel even if it was hidden
-            m_LastFingerprint = StructuralFingerprint( m_Doc );
-            m_DirtySince      = {};
-        }
-
         AutoCompileIfSettled();
     }
 
-    // A cheap structural signature of the graph: what it MEANS, not where it sits. Node positions are
-    // excluded deliberately -- dragging a node around changes no generated GLSL, and recompiling for it
-    // would burn ~370 ms of shaderc to produce byte-identical output.
     uint64_t NodeGraphPanel::StructuralFingerprint( const ShaderGraph::Document& doc )
     {
         uint64_t   h   = 1469598103934665603ull; // FNV-1a
@@ -589,47 +579,31 @@ namespace Desert::Editor
 
         ImGui::SameLine();
         if ( ImGui::Button( "New" ) )
-            NewGraph();
+        {
+            // A SECOND WINDOW, not this one re-pointed. `New` used to replace `m_Doc` in place, which is
+            // obstacle #3 of U7-2's refusal — unsaved work gone with no prompt. It now writes a starter
+            // graph beside this one and asks the registry to open it, so the graph on screen is still on
+            // screen afterwards.
+            if ( const std::string created =
+                      CreateNewGraphFile( GraphsDirectory().string(), m_Doc.DomainEnum() );
+                 !created.empty() )
+            {
+                if ( RequestShaderGraphDocument( m_AssetManager.get(), created ) !=
+                     ShaderGraphDocumentRequest::Requested )
+                {
+                    m_Status        = "created " + created + " but it would not open (see log)";
+                    m_StatusIsError = true;
+                }
+            }
+            else
+            {
+                m_Status        = "a new graph could not be written (see log)";
+                m_StatusIsError = true;
+            }
+        }
         ImGui::SameLine();
         if ( ImGui::Button( "Save" ) )
             SaveGraph();
-
-        ImGui::SameLine();
-        if ( ImGui::Button( "Load" ) )
-            ImGui::OpenPopup( "##loadGraph" );
-        if ( ImGui::BeginPopup( "##loadGraph" ) )
-        {
-            // THROUGH THE ONE ENUMERATION (Common::Utils::FileSystem::ListFilesRecursive), which returns
-            // both halves of the content world. A raw directory walk stood here, and a project served
-            // from a mounted .dpak offered "no saved graphs" for a folder full of them.
-            //
-            // NAMED BY THE PATH RELATIVE TO THE GRAPHS FOLDER, not by the file name. The shared
-            // enumeration is RECURSIVE where the old walk was one level deep, so a graph in a subfolder
-            // is now offered — and it has to be addressable, or the menu would list a name that
-            // LoadGraph could not resolve. Sorted, because neither half of the enumeration promises an
-            // order and a menu that reshuffles between sessions is one nobody can learn.
-            std::vector<std::string> graphs;
-            for ( const std::filesystem::path& file :
-                  Common::Utils::FileSystem::ListFilesRecursive( GraphsDirectory() ) )
-            {
-                if ( file.extension() != ".dgraph" )
-                    continue;
-                std::error_code   relEc;
-                const std::string relative =
-                     std::filesystem::relative( file, GraphsDirectory(), relEc ).generic_string();
-                graphs.push_back( relEc || relative.empty() ? file.filename().generic_string() : relative );
-            }
-            std::sort( graphs.begin(), graphs.end() );
-
-            for ( const std::string& graph : graphs )
-            {
-                if ( ImGui::MenuItem( graph.c_str() ) )
-                    LoadGraph( graph );
-            }
-            if ( graphs.empty() )
-                ImGui::TextDisabled( "no saved graphs" );
-            ImGui::EndPopup();
-        }
 
         // Domain picks the output node, the vertex contract and the palette (Material Domain / Mode).
         ImGui::SameLine();
@@ -665,11 +639,7 @@ namespace Desert::Editor
 
         ImGui::SameLine();
         if ( ImGui::Button( "Frame" ) )
-        {
-            ed::SetCurrentEditor( m_Context );
-            ed::NavigateToContent( 0.4f );
-            ed::SetCurrentEditor( nullptr );
-        }
+            FrameAll();
 
         if ( !m_Status.empty() )
         {

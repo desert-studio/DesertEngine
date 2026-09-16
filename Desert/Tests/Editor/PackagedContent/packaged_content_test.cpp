@@ -1379,6 +1379,11 @@ namespace
              { "CLOUD_LAYOUT_PATH", &P::CLOUD_LAYOUT_PATH, RootVerdict::Packaged, "" },
              { "UI_THEME_PATH", &P::UI_THEME_PATH, RootVerdict::Packaged, "" },
              { "CONTROL_RIG_PATH", &P::CONTROL_RIG_PATH, RootVerdict::Packaged, "" },
+             // PACKAGED, even though no runtime reads a `.dgraph` — the compiled `.shader` under
+             // SHADERDIR_PATH is what a shipped build binds. It travels because it is derived from the
+             // assets root and that whole tree is packed, which is the rule stated above this block; a
+             // NotContent verdict here would be a second, contradicting statement about one mechanism.
+             { "SHADER_GRAPH_PATH", &P::SHADER_GRAPH_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
              { "MESH_PATH_COOKED", &P::MESH_PATH_COOKED, RootVerdict::Packaged, "" },
              { "TEXTURE_PATH_COOKED", &P::TEXTURE_PATH_COOKED, RootVerdict::Packaged, "" },

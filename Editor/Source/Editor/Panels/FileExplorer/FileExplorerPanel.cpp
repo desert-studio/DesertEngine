@@ -14,6 +14,7 @@
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/EditorPreferences.hpp> // the pinned folders live in editor.json (К5)
 #include <Editor/Panels/NodeGraph/NodeGraphPanel.hpp>
+#include <Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp>
 #include "../../Core/EditorResources.hpp"
 
 #include <Editor/Import/TextureDnD.hpp>
@@ -1408,7 +1409,14 @@ namespace Desert::Editor
                                          m_CurrentDir->AssetPath, domain );
                                     if ( path.empty() ) // not written — nothing to open, nothing new to list
                                         return;
-                                    NodeGraphPanel::RequestOpen( path );
+                                    // Through the SAME opener the double-click uses, so a graph created
+                                    // here and a graph opened from the tile reach one window by one route.
+                                    if ( RequestShaderGraphDocument( m_AssetManager, path ) !=
+                                         ShaderGraphDocumentRequest::Requested )
+                                    {
+                                        LOG_ERROR( "[ShaderGraph] '{}' was created but would not open.",
+                                                   path );
+                                    }
                                     QueueRefresh();
                                 };
                                 if ( ImGui::MenuItem( "Surface" ) )
@@ -2337,48 +2345,22 @@ namespace Desert::Editor
         {
             ChangeDirectory( entry );
         }
-        // ── THE TWO FILE KINDS THAT ARE NOT DOCUMENTS ─────────────────────────────────────────────────
+        // ── THE ONE FILE KIND THAT IS NOT A DOCUMENT ──────────────────────────────────────────────────
         //
         // A SCENE is not a document: it is what every other window is about, and opening one replaces the
         // world rather than adding a window to it — so it goes through its own guarded load, the same one
         // a drop and the File menu use.
         //
-        // A SHADER GRAPH is not a document, and U7-2 MEASURED THE PRICE OF MAKING IT ONE AND DID NOT PAY
-        // IT. The note that stood here named one of the four things in the way; here are all four, so the
-        // next reader can decide rather than re-derive.
-        //
-        //   1. THERE IS NO `AssetTypeID::ShaderGraph`. Adding one reddens
-        //      AssetHandleStability.TheCatalogueCoversEveryAssetTypeId until the type is catalogued, and
-        //      needs a `ShaderGraphAsset` beside it (CloudLayoutAsset, the smallest comparable one, is 175
-        //      lines across two files) plus its place in the preloader and the content scan.
-        //   2. A `.dgraph` HAS NO IDENTITY OF ITS OWN. ShaderGraph::Document is { Name, NextId, Domain,
-        //      Lit, Nodes, Links } — no GUID. A subject's Owner is a 64-bit id that must resolve back to
-        //      the data, and a NAME is not one: two graphs may share a name, and renaming one must not make
-        //      it a different document. So the FORMAT gains a field and the six `.dgraph` files in the tree
-        //      gain a migration. That is an asset-format change, which is a different kind of decision from
-        //      a registration.
-        //   3. THE PANEL IS SINGLE-DOCUMENT BY CONSTRUCTION: one ax::NodeEditor::EditorContext, one
-        //      m_Doc, one m_PreviewMaterial, and New / Load / this double-click all replace m_Doc with no
-        //      check at all — so a second `.dgraph` DISCARDS UNSAVED WORK WITH NO PROMPT. That is the U6
-        //      rule ("a document with unsaved edits is not closed without asking") broken by a window that
-        //      is not a document, and it is the strongest argument for finishing the job rather than
-        //      patching a prompt onto a tool.
-        //   4. AND IT IS THE ONE EDITOR AN AGENT CANNOT DRIVE. Measured on the control channel: the
-        //      palette offers `Panel / Open Node Graph`, which SHOWS the window, and no `Open` entry for
-        //      any `.dgraph` — because the Open group is enumerated from the registered path openers and
-        //      nothing claims that extension. A panel's own toolbar buttons are reachable by a mouse and
-        //      synthetic input is closed on this machine, so New / Load / Save here can be neither
-        //      exercised nor photographed. Every other editor became drivable the day it became a document.
-        //
-        // Named here rather than left as an unexplained branch: this IS the remaining hand-written arm, and
-        // it is one, not five.
+        // THE SHADER GRAPH USED TO BE THE SECOND ARM HERE, and the note that stood with it listed four
+        // things U7-2 had measured as being in the way of making it a document. Three were "there is no
+        // `AssetTypeID::ShaderGraph`", and they went with the type. The fourth — New/Load/double-click
+        // replacing the open graph with no prompt — stopped being expressible when one window became one
+        // graph. The one that looked most expensive was FALSE: a `.dgraph` needed no id of its own,
+        // because `AssetHandle` is derived from the project-relative path (see the note on
+        // Engine/Assets/Serialization/ShaderGraph.hpp's Document). Zero `.dgraph` files were migrated.
         else if ( doubleClicked && entry->Type == FileType::Scene )
         {
             Core::SceneOpenRequest::Request( entry->AssetPath );
-        }
-        else if ( doubleClicked && entry->Type == FileType::ShaderGraph )
-        {
-            NodeGraphPanel::RequestOpen( entry->AssetPath );
         }
         // ── EVERYTHING ELSE: ASK THE REGISTRY ─────────────────────────────────────────────────────────
         //

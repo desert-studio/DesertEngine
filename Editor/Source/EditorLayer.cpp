@@ -81,6 +81,7 @@
 #include "Editor/Panels/Logs/LogsPanel.hpp"
 #include "Editor/Panels/Collections/CollectionsPanel.hpp"
 #include "Editor/Panels/NodeGraph/NodeGraphPanel.hpp"
+#include "Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialEditorPanel.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp"
 #include "Editor/Panels/Animation/AnimGraphPanel.hpp"
@@ -184,11 +185,10 @@ namespace Desert::Editor
             return ICON_MDI_SHAPE_OUTLINE;
         if ( name == "Anim Layers" )
             return ICON_MDI_ANIMATION;
-        if ( name == "Node Graph" )
-            return ICON_MDI_GRAPH;
         if ( name == "Model from Photos" )
             return ICON_MDI_CUBE_SCAN;
-        // "Anim Graph", "Particle Editor", "UI Editor" and "Sequencer" were here. They are DOCUMENTS now,
+        // "Anim Graph", "Node Graph", "Particle Editor", "UI Editor" and "Sequencer" were here. They are
+        // DOCUMENTS now,
         // and a document's icon comes from its registration rather than from a table keyed on a panel name
         // — this table can only ever match a tool's constant name, and a document is named after the thing
         // it edits. See SubjectEditorRegistry::Registration::Icon.
@@ -673,9 +673,11 @@ namespace Desert::Editor
         // are generic over m_Panels, so there was never a per-panel entry to delete. An asset is opened from
         // the asset, not from a menu (Docs/Clouds/DEV_CONTRACT.md §4).
 
-        // Visual stubs for upcoming tools (hidden by default; toggled via the View menu). No real
-        // functionality yet — they exist so the layouts/interactions can be iterated on early.
-        m_Panels.Add<Editor::NodeGraphPanel>( m_AssetManager );
+        // THE NODE GRAPH IS NOT CONSTRUCTED HERE ANY MORE EITHER, and it was the last one: a `.dgraph` is
+        // an asset now, so the window is a document over its handle and is built on demand by the registry
+        // below. That is U7-2's refusal spent — see NodeGraphPanel.hpp for the four obstacles it named and
+        // which of them turned out to be real.
+        //
         // THE ANIM GRAPH, THE PARTICLE EDITOR, THE UI EDITOR AND THE SEQUENCER ARE NOT CONSTRUCTED HERE ANY
         // MORE, for the reason the four cloud panels above are not: they edit ONE thing, so they are
         // documents. The difference is what that one thing is — a component on an entity rather than a file
@@ -772,6 +774,32 @@ namespace Desert::Editor
                            {
                                return std::make_unique<Editor::CloudLayoutPanel>(
                                     Assets::AssetHandle( subject.Owner ), m_MainScene, m_AssetManager.get() );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
+        // THE SHADER GRAPH. The seventh asset document and the last window in this editor to become one;
+        // the display name is the graph's own `Name` (the file's stem when it has none), resolved here
+        // because a document must not need the asset manager to know what it is called.
+        m_SubjectEditors.Register(
+             Editor::NodeGraphPanel::SubjectType(),
+             Registration{ "ShaderGraph", ICON_MDI_GRAPH,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               const Assets::AssetHandle handle( subject.Owner );
+                               std::string               name = "Shader Graph";
+                               if ( m_AssetManager )
+                               {
+                                   if ( const auto graph =
+                                             m_AssetManager->FindByHandle<Assets::ShaderGraphAsset>( handle ) )
+                                   {
+                                       name = graph->GetDisplayName();
+                                   }
+                               }
+                               return std::make_unique<Editor::NodeGraphPanel>( handle, name, m_AssetManager );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -908,6 +936,21 @@ namespace Desert::Editor
                                                  }
                                                  return SubjectEditorRegistry::PathOpenOutcome::NotMine;
                                              } );
+        m_SubjectEditors.RegisterPathOpener(
+             { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
+             [this]( const std::string& path )
+             {
+                 switch ( RequestShaderGraphDocument( m_AssetManager.get(), path ) )
+                 {
+                     case ShaderGraphDocumentRequest::NotAGraphPath:
+                         return SubjectEditorRegistry::PathOpenOutcome::NotMine;
+                     case ShaderGraphDocumentRequest::Failed:
+                         return SubjectEditorRegistry::PathOpenOutcome::Failed;
+                     case ShaderGraphDocumentRequest::Requested:
+                         return SubjectEditorRegistry::PathOpenOutcome::Requested;
+                 }
+                 return SubjectEditorRegistry::PathOpenOutcome::NotMine;
+             } );
 
         // NOTHING OPENS A PANEL AT BOOT ANY MORE, and the absence is the point.
         //
@@ -5811,7 +5854,9 @@ namespace Desert::Editor
         // "Anim Graph", "Particle Editor", "UI Editor" and "Sequencer" are gone from these lists because
         // they are gone from the registry this menu loops over — a name left here would draw a group entry
         // for a panel that does not exist. They are opened from the component that holds them, in Details.
-        static constexpr const char* kGraphGroup[]     = { "Node Graph" };
+        // "Node Graph" is gone from here with the panel: the shader graph is a DOCUMENT, opened from the
+        // `.dgraph` in the asset browser or from the palette's Open group, and the whole `Graph Editors`
+        // submenu went with it rather than being left to draw an empty body.
         static constexpr const char* kSequencerGroup[] = { "Anim Layers" };
         // Localization sits with the tools rather than with the level: it is about the PROJECT's strings,
         // not about the scene that happens to be open, and it keeps answering after every scene change.
@@ -5822,7 +5867,7 @@ namespace Desert::Editor
         for ( const auto& group :
               { std::span<const char* const>( kLevelGroup ), std::span<const char* const>( kContentGroup ),
                 std::span<const char* const>( kOutputGroup ), std::span<const char* const>( kViewportGroup ),
-                std::span<const char* const>( kGraphGroup ), std::span<const char* const>( kSequencerGroup ),
+                std::span<const char* const>( kSequencerGroup ),
                 std::span<const char* const>( kToolGroup ) } )
             for ( const char* name : group )
                 placed.insert( name );
@@ -5897,12 +5942,6 @@ namespace Desert::Editor
                 if ( ImGui::MenuItem( item.c_str() ) && doc->Viewport )
                     doc->Viewport->GetVisibility() = false;
             }
-            ImGui::EndMenu();
-        }
-
-        if ( ImGui::BeginMenu( ICON_MDI_GRAPH "  Graph Editors" ) )
-        {
-            group( kGraphGroup );
             ImGui::EndMenu();
         }
 

@@ -2,48 +2,45 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <Engine/Assets/Serialization/ShaderGraph.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 
 #include <array>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Editor
 {
-    // The shader-graph DOCUMENT: a plain serializable model (rfl::json <-> .dgraph) plus the
-    // compiler that turns it into a Desert Shader Language (.shader) source. The panel owns the
-    // interactive canvas; this file owns the semantics.
+    // The shader graph's SEMANTICS: the node catalogue, the compiler that turns a graph into Desert
+    // Shader Language (.shader) source, and the migration that brings an older graph up to the current
+    // catalogue. The panel owns the interactive canvas; the FILE — pins, nodes, links, the JSON round
+    // trip — is Engine/Assets/Serialization/ShaderGraph.hpp, and the block below says why.
     namespace ShaderGraph
     {
-        enum class ValueType : int
-        {
-            Float = 0,
-            Vec2  = 1,
-            Color = 2, // vec4
-            // APPENDED AND NEVER REORDERED, like the pin lists below: a .dgraph stores Pin::Type as this
-            // integer, so inserting a value would silently retype every saved pin above it. Vec3 exists
-            // because the Volume domain's contract is written in three-component quantities that are NOT
-            // colours-with-alpha — a position in kilometres, an albedo, an emission per kilometre — and
-            // spelling them vec4 would make "what does .w mean here" a question with no answer.
-            Vec3 = 3,
-        };
+        // ── THE FILE LIVES IN THE ENGINE; WHAT A NODE MEANS LIVES HERE ───────────────────────────
+        //
+        // `Pin`, `Node`, `Link` and `Document` moved to Engine/Assets/Serialization/ShaderGraph.hpp the
+        // day a `.dgraph` became an asset: the handle-stability census, the content scan and the
+        // eviction walk all have to name `ShaderGraphAsset`, and none of them can see `Editor/`. They
+        // are ALIASED back rather than re-declared — one definition, two spellings — because the
+        // catalogue and the compiler below are written in these names and the seam is what is new, not
+        // the model.
+        //
+        // The DOMAIN and the VALUE TYPE travel with the document for the reason stated at their
+        // definitions: both are stored as integers in the file, so they are format, not semantics.
+        using ValueType = ::Desert::Assets::Serialization::ShaderGraph::ValueType;
+        using Domain    = ::Desert::Assets::Serialization::ShaderGraph::Domain;
+        using Pin       = ::Desert::Assets::Serialization::ShaderGraph::Pin;
+        using Node      = ::Desert::Assets::Serialization::ShaderGraph::Node;
+        using Link      = ::Desert::Assets::Serialization::ShaderGraph::Link;
+        using Document  = ::Desert::Assets::Serialization::ShaderGraph::Document;
 
-        // Where a graph runs (mirrors UE's Material Domain / Godot's shader Mode). The domain is the
-        // single axis that picks the output node, the vertex contract and the visible palette — the
-        // whole graph is parameterized by it. Stored as int on the Document for reflection-friendly
-        // serialization (same reason Pin::Type is an int).
-        enum class Domain : int
-        {
-            Surface     = 0, // lit/unlit material on scene meshes (mesh vertex + normals)
-            PostProcess = 1, // full-screen effect over the rendered scene color (fullscreen triangle)
-            // THE CLOUD MEDIUM — what a cloud IS at a point in space, and the one domain that compiles to
-            // a program FRAGMENT rather than to a program. Its output is a `Medium { ... }` block that
-            // four shipped programs are compiled against (Docs/Clouds/O1_DESIGN.md §10.3); it has no
-            // vertex contract, no framebuffer and no draw of its own, because it never draws — it is
-            // substituted into things that do.
-            Volume = 2,
-        };
+        // The extension and the content folder, read through the format's own constants so this side
+        // never spells either a second time.
+        inline constexpr std::string_view kExtension =
+             ::Desert::Assets::Serialization::ShaderGraph::kShaderGraphExtension;
 
         // Where the graph's OWN textures start in the descriptor set: the first slot of the window
         // reserved for graph-owned resources in EVERY domain, which the engine owns and a census keeps
@@ -59,50 +56,6 @@ namespace Desert::Editor
         }
         // "Core" nodes (math, Time, textures, params) live in every domain.
         constexpr unsigned AllDomains = ~0u;
-
-        struct Pin
-        {
-            uint64_t    Id   = 0;
-            std::string Name;
-            int         Type = 0; // ValueType (int for reflection-friendly serialization)
-        };
-
-        // Node semantics are identified by Kind. THE CATALOGUE IS Specs() IN ShaderGraph.cpp AND IS NOT
-        // REPEATED HERE: the list that stood in these lines named sixteen kinds while the table held
-        // thirty-seven, so anyone reading it learnt that the Volume domain did not exist. One list, in
-        // the file that also holds the pins and the domain mask.
-        struct Node
-        {
-            uint64_t             Id = 0;
-            std::string          Kind;
-            std::string          ParamName;          // TextureSample / *Param nodes: exposed property name
-            std::array<float, 4> Value = { 1, 1, 1, 1 }; // *Const / *Param nodes: (default) value
-            float                X = 0.0f, Y = 0.0f; // canvas position (captured on save)
-            std::vector<Pin>     Inputs;
-            std::vector<Pin>     Outputs;
-        };
-
-        struct Link
-        {
-            uint64_t Id   = 0;
-            uint64_t From = 0; // output pin id
-            uint64_t To   = 0; // input pin id
-        };
-
-        struct Document
-        {
-            std::string       Name   = "GraphShader";
-            uint64_t          NextId = 1;
-            int               Domain = static_cast<int>( ShaderGraph::Domain::Surface ); // ShaderGraph::Domain
-            bool              Lit    = false; // Surface-only: Lambert from the scene's directional light
-            std::vector<Node> Nodes;
-            std::vector<Link> Links;
-
-            ShaderGraph::Domain DomainEnum() const
-            {
-                return static_cast<ShaderGraph::Domain>( Domain );
-            }
-        };
 
         // Static description of a node kind — drives BOTH the palette/UI and the compiler.
         struct NodeSpec
@@ -224,8 +177,10 @@ namespace Desert::Editor
             int      MigratedPins = 0;
         };
 
-        // .dgraph (JSON) round-trip.
-        std::string               Serialize( const Document& doc );
+        // JSON -> document, THEN up to the current node catalogue. The writing half is not here: it is
+        // `Assets::Serialization::ShaderGraph::Serialize`, which needs no catalogue and belongs with the
+        // bytes. This one does need it, which is exactly why the two halves sit on opposite sides of the
+        // seam — see the note at the top of the engine header.
         Common::ResultStr<Loaded> Deserialize( const std::string& json );
     } // namespace ShaderGraph
 } // namespace Desert::Editor

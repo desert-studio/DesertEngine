@@ -15,6 +15,10 @@
 #include <vector>
 
 namespace SG = Desert::Editor::ShaderGraph;
+// The FILE half of the graph lives in the engine now (Engine/Assets/Serialization/ShaderGraph.hpp): the
+// asset system has to name it and cannot see Editor/. `SG::Deserialize` is still the editor's, because
+// bringing a graph up to the current node CATALOGUE is an authoring step, not a format one.
+namespace SGF = Desert::Assets::Serialization::ShaderGraph;
 using Desert::Core::Preprocess::DShaderParser;
 using namespace Desert::Core::Formats;
 
@@ -138,7 +142,7 @@ TEST( ShaderGraphCompiler, DomainIsDrivenByTheDocumentField )
 
 TEST( ShaderGraphCompiler, DomainSurvivesSerializationRoundTrip )
 {
-    const std::string json = SG::Serialize( PostProcessDoc() );
+    const std::string json = SGF::Serialize( PostProcessDoc() );
     auto              back = SG::Deserialize( json );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_EQ( back.GetValue().Doc.DomainEnum(), SG::Domain::PostProcess );
@@ -149,7 +153,7 @@ TEST( ShaderGraphCompiler, DomainSurvivesSerializationRoundTrip )
 // A .dgraph written before the Domain field existed (no "Domain" key) defaults to Surface.
 TEST( ShaderGraphCompiler, LegacyGraphWithoutDomainDefaultsToSurface )
 {
-    const std::string json = SG::Serialize( SurfaceDoc() );
+    const std::string json = SGF::Serialize( SurfaceDoc() );
     // Strip the Domain field to emulate an old document.
     // (Serialization always writes it, so just assert the default instead.)
     SG::Document fresh;
