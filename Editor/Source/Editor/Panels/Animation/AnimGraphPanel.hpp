@@ -2,6 +2,9 @@
 
 #include "../IPanel.hpp"
 
+#include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
+#include <Editor/Panels/Animation/AnimGraphCanvasPlan.hpp>
+
 #include <Common/Core/UUID.hpp>
 
 #include <Engine/Assets/Common.hpp>
@@ -126,7 +129,9 @@ namespace Desert::Editor
         // cannot disagree.
         [[nodiscard]] ECS::AnimationComponent* ResolveComponent() const;
 
-        void DrawCanvas( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames );
+        /// @p width is passed rather than taken from the child window that used to wrap this: see the
+        /// note at the call site, and `Graph::DeferredFrameAll` for what the child was costing.
+        void DrawCanvas( ECS::AnimationComponent& anim, float width );
 
         // The `.danimgraph` this entity names, or nullptr. ONE resolution, so "what the canvas draws" and
         // "what Save writes" can never be two different graphs.
@@ -153,6 +158,16 @@ namespace Desert::Editor
         bool                                 m_StatusIsError = false;
         ax::NodeEditor::EditorContext*       m_Context = nullptr;
 
-        bool m_ApplyPositions = true; // push State.X/Y into the canvas the first time this graph is drawn
+        // CANVAS IDENTITY, AND IT IS NOT AN INDEX. `NodeId( i ) = i + 1` meant that deleting a state
+        // shifted every later state onto its neighbour's id, so the canvas handed back the neighbour's
+        // position and the panel wrote it into the wrong state — one deletion moved the whole layout.
+        // The map issues an id per state NAME, which is the identity the graph already resolves by.
+        Graph::ElementIdMap    m_Ids;
+        Graph::AnimGraphCanvas m_Canvas; // this frame's plan; the side panel reads it to map a selection
+
+        // Framing the content waits for a canvas that has stopped resizing — it does not exist on the
+        // first frame, and a navigation issued while it is still changing size is thrown away. The whole
+        // measurement is at the class's declaration.
+        Graph::DeferredFrameAll m_FrameAll;
     };
 } // namespace Desert::Editor

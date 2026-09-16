@@ -2,6 +2,9 @@
 
 #include "../IPanel.hpp"
 #include "ShaderGraph.hpp"
+#include "ShaderGraphCanvasPlan.hpp"
+
+#include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/ShaderGraphAsset.hpp>
@@ -107,7 +110,6 @@ namespace Desert::Editor
         void DrawCanvas();
         void SaveGraph();
         void Compile();
-        void FrameAll();
 
         // The asset this window is bound to, or nullptr when it is gone. ONE resolution, used by the draw
         // and by the liveness answer, so "the window found something to draw" and "the subject is alive"
@@ -135,9 +137,17 @@ namespace Desert::Editor
         std::filesystem::path m_Path;
 
         ShaderGraph::Document m_Doc;
-        bool                  m_ApplyPositions = true; // push Node.X/Y into the canvas next frame
-        std::string           m_Status;                // last save/compile result line
+        std::string           m_Status; // last save/compile result line
         bool                  m_StatusIsError = false;
+
+        // WHICH ELEMENTS THE CANVAS ALREADY KNOWS. This document issues its own ids (`Document::NextId`),
+        // so the shared layer is not asked to name anything here — only to remember what it has seen, so
+        // that a node's stored X/Y is pushed in exactly once. `m_ApplyPositions` was one bool for the
+        // whole document, which is why creating a node from the palette needed a SECOND
+        // `ed::SetNodePosition` at the creation site; per element there is no such special case.
+        Graph::ElementLedger    m_Ledger;
+        Graph::CanvasPlan       m_Plan;
+        Graph::DeferredFrameAll m_FrameAll;
 
         // The material this graph's shader is previewed on, created on the first successful Compile and
         // reused after that (a new asset per compile would litter the project with scratch materials).

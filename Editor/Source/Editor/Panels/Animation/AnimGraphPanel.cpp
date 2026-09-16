@@ -4,8 +4,10 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Editor/Panels/PanelContext.hpp>
 
+#include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Panels/Animation/AnimGraphCanvasPlan.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -40,38 +42,6 @@ namespace Desert::Editor
             {
                 LOG_ERROR( "[AnimGraphPanel] {}", result.GetError() );
             }
-        }
-
-        // Disjoint id ranges so nodes / pins / links never collide in the node editor.
-        constexpr uint64_t kOutPin = 0x2000'0000ULL;
-        constexpr uint64_t kInPin  = 0x4000'0000ULL;
-        constexpr uint64_t kLink   = 0x8000'0000ULL;
-
-        uint64_t NodeId( int i )
-        {
-            return static_cast<uint64_t>( i ) + 1;
-        }
-        uint64_t OutPinId( int i )
-        {
-            return kOutPin + static_cast<uint64_t>( i );
-        }
-        uint64_t InPinId( int i )
-        {
-            return kInPin + static_cast<uint64_t>( i );
-        }
-        uint64_t LinkId( int state, int transition )
-        {
-            return kLink + static_cast<uint64_t>( state ) * 4096ull + static_cast<uint64_t>( transition );
-        }
-
-        // pin -> state index; returns -1 if the pin isn't a state pin of the given kind.
-        int OutPinState( uint64_t pin )
-        {
-            return ( pin >= kOutPin && pin < kInPin ) ? static_cast<int>( pin - kOutPin ) : -1;
-        }
-        int InPinState( uint64_t pin )
-        {
-            return ( pin >= kInPin && pin < kLink ) ? static_cast<int>( pin - kInPin ) : -1;
         }
 
         const char* kTypeNames[] = { "Bool", "Int", "Float" };
@@ -199,7 +169,13 @@ namespace Desert::Editor
         // The SAME function the toolbar button calls. A second code path here would be a second behaviour
         // to keep in step, and the point of the entry is that what a client drives is what a person
         // presses.
-        return { { "Save", [this] { SaveGraph(); } } };
+        //  is here for the reason  is: this machine refuses synthetic input, so a view
+        // control that exists only as a toolbar button is a view control no test and no script can reach.
+        return {
+             { "Save", [this] { SaveGraph(); } },
+             { "Frame All", [this] { Graph::FrameAll( m_Context ); } },
+             { "Frame Selection", [this] { Graph::FrameSelection( m_Context ); } },
+        };
     }
 
     void AnimGraphPanel::OnUIRender()
@@ -246,11 +222,17 @@ namespace Desert::Editor
         if ( ImGui::Button( "+ State" ) )
         {
             G::State ns;
-            ns.Name = "State_" + std::to_string( anim->Graph->States.size() );
+            // UNIQUE BY CONSTRUCTION. "State_" + size() collides the moment a state is deleted and
+            // another added, and two states sharing a name is not cosmetic: `Entry`, `Transition::To` and
+            // `Evaluator::FindState` all resolve by string and all take the FIRST match, so the second
+            // one is unreachable and plays the first one's clip with nothing said.
+            ns.Name = Graph::MakeUniqueStateName( *anim->Graph,
+                                                  "State_" + std::to_string( anim->Graph->States.size() ), -1 );
             anim->Graph->States.push_back( ns );
             MarkEdited();
         }
         ImGui::SameLine();
+        Graph::DrawViewButtons( m_Context );
         if ( const auto* cur = anim->GraphEvaluator ? anim->GraphEvaluator->CurrentState() : nullptr )
         {
             ImGui::SameLine();
@@ -259,18 +241,17 @@ namespace Desert::Editor
 
         // The window's ONE error channel — a save that failed, or an edit that reached no asset. It has to
         // be on screen, because the alternative is a log line nobody authoring a graph is reading.
-        if ( !m_Status.empty() )
-        {
-            ImGui::SameLine();
-            ImGui::TextColored( m_StatusIsError ? ImVec4( 1.0f, 0.45f, 0.4f, 1.0f )
-                                                : ImVec4( 0.5f, 0.9f, 0.5f, 1.0f ),
-                                "%s", m_Status.c_str() );
-        }
+        Graph::DrawStatusLine( m_Status, m_StatusIsError );
 
-        constexpr float kSideW = 300.0f;
-        ImGui::BeginChild( "##agCanvas", ImVec2( -kSideW, 0.0f ) );
-        DrawCanvas( *anim, clipNames );
-        ImGui::EndChild();
+        // THE CANVAS IS NOT WRAPPED IN A CHILD WINDOW, and that is the fix to "a docked Anim Graph drew an
+        // empty rectangle". See `Graph::DeferredFrameAll` for the measurement: a child sized exactly to
+        // the canvas gives `imgui-node-editor`'s lazy first-frame init nowhere to put its throwaway dummy
+        // widget, and the canvas is refused for that frame. The shader graph never had a child here and
+        // survived by four pixels. It gets an explicit WIDTH instead, which is the only thing the child
+        // was really doing.
+        constexpr float kSideW  = 300.0f;
+        const float     canvasW = std::max( 160.0f, ImGui::GetContentRegionAvail().x - kSideW );
+        DrawCanvas( *anim, canvasW );
 
         ImGui::SameLine();
         ImGui::BeginGroup();
@@ -278,13 +259,22 @@ namespace Desert::Editor
         ImGui::EndGroup();
     }
 
-    void AnimGraphPanel::DrawCanvas( ECS::AnimationComponent& anim, const std::vector<std::string>& )
+    void AnimGraphPanel::DrawCanvas( ECS::AnimationComponent& anim, float width )
     {
         auto& graph = *anim.Graph;
         bool  dirty = false;
 
+        // EVERY ID ON THIS CANVAS, AND WHAT IT NAMES — decided before a single ImGui call, by a unit with
+        // no ImGui in it. `NodeId( i ) = i + 1` used to live here.
+        m_Canvas = Graph::PlanAnimGraph( graph, m_Ids );
+
+        // The size the canvas is actually drawn at, which is also what `DeferredFrameAll` waits to see
+        // stop changing. Height 0 means "the rest of the window" to the node editor, so it is resolved
+        // here rather than guessed at.
+        const ImVec2 canvasSize( width, ImGui::GetContentRegionAvail().y );
+
         ed::SetCurrentEditor( m_Context );
-        ed::Begin( "##animGraph", ImVec2( 0.0f, 0.0f ) );
+        ed::Begin( "##animGraph", canvasSize );
 
         int activeIndex = -1;
         if ( anim.GraphEvaluator && anim.GraphEvaluator->CurrentState() )
@@ -301,12 +291,12 @@ namespace Desert::Editor
         // --- State nodes ---
         for ( int i = 0; i < static_cast<int>( graph.States.size() ); ++i )
         {
-            auto& s = graph.States[i];
+            auto&                     s       = graph.States[i];
+            const Graph::PlannedNode& planned = m_Canvas.Plan.Nodes[static_cast<size_t>( i )];
 
-            if ( m_ApplyPositions )
-                ed::SetNodePosition( ed::NodeId( NodeId( i ) ), ImVec2( s.X, s.Y ) );
+            Graph::PushNodePosition( planned );
 
-            ed::BeginNode( ed::NodeId( NodeId( i ) ) );
+            ed::BeginNode( ed::NodeId( Graph::Raw( planned.Id ) ) );
 
             const bool   isEntry  = ( graph.Entry == s.Name );
             const bool   isActive = ( i == activeIndex );
@@ -317,7 +307,8 @@ namespace Desert::Editor
             ImGui::TextDisabled( "%s", s.Clip.empty() ? "<no clip>" : s.Clip.c_str() );
 
             ImGui::BeginGroup();
-            ed::BeginPin( ed::PinId( InPinId( i ) ), ed::PinKind::Input );
+            ed::BeginPin( ed::PinId( Graph::Raw( m_Canvas.StateInPins[static_cast<size_t>( i )] ) ),
+                          ed::PinKind::Input );
             ImGui::TextUnformatted( "-> in" );
             ed::EndPin();
             ImGui::EndGroup();
@@ -325,46 +316,27 @@ namespace Desert::Editor
             ImGui::SameLine( 0.0f, 30.0f );
 
             ImGui::BeginGroup();
-            ed::BeginPin( ed::PinId( OutPinId( i ) ), ed::PinKind::Output );
+            ed::BeginPin( ed::PinId( Graph::Raw( m_Canvas.StateOutPins[static_cast<size_t>( i )] ) ),
+                          ed::PinKind::Output );
             ImGui::TextUnformatted( "out ->" );
             ed::EndPin();
             ImGui::EndGroup();
 
             ed::EndNode();
 
-            // Persist user drags back into the model (so positions save with the scene).
-            if ( !m_ApplyPositions )
-            {
-                const ImVec2 p = ed::GetNodePosition( ed::NodeId( NodeId( i ) ) );
-                if ( p.x != s.X || p.y != s.Y )
-                {
-                    s.X = p.x;
-                    s.Y = p.y;
-                }
-            }
+            // Persist user drags back into the model, by ELEMENT and not by index. The canvas used to be
+            // asked for `NodeId( i )` after a deletion had shifted every later state down one, so it
+            // handed back the neighbour's position and this line wrote it into the wrong state.
+            // A drag is a layout change and nothing else: it must not mark the asset edited, or merely
+            // looking at a graph would ask to be saved. Parity with what stood here.
+            (void)Graph::PullNodePosition( planned, s.X, s.Y );
         }
-        if ( m_ApplyPositions )
-            ed::NavigateToContent( 0.0f );
-        m_ApplyPositions = false;
 
         // --- Transition links ---
-        for ( int i = 0; i < static_cast<int>( graph.States.size() ); ++i )
+        for ( const auto& link : m_Canvas.Plan.Links )
         {
-            const auto& s = graph.States[i];
-            for ( int t = 0; t < static_cast<int>( s.Transitions.size() ); ++t )
-            {
-                const int target = [&]
-                {
-                    for ( int j = 0; j < static_cast<int>( graph.States.size() ); ++j )
-                        if ( graph.States[j].Name == s.Transitions[t].To )
-                            return j;
-                    return -1;
-                }();
-                if ( target < 0 )
-                    continue;
-                ed::Link( ed::LinkId( LinkId( i, t ) ), ed::PinId( OutPinId( i ) ), ed::PinId( InPinId( target ) ),
-                          ImVec4( 0.6f, 0.8f, 0.6f, 1.0f ), 2.0f );
-            }
+            ed::Link( ed::LinkId( Graph::Raw( link.Id ) ), ed::PinId( link.FromPin ), ed::PinId( link.ToPin ),
+                      ImVec4( 0.6f, 0.8f, 0.6f, 1.0f ), 2.0f );
         }
 
         // --- Create transitions by dragging out -> in ---
@@ -373,13 +345,14 @@ namespace Desert::Editor
             ed::PinId a, b;
             if ( ed::QueryNewLink( &a, &b ) && a && b )
             {
-                uint64_t pa = a.Get(), pb = b.Get();
-                int      src = OutPinState( pa );
-                int      dst = InPinState( pb );
+                const uint64_t pa  = a.Get();
+                const uint64_t pb  = b.Get();
+                int            src = Graph::StateOfOutPin( m_Canvas, pa );
+                int            dst = Graph::StateOfInPin( m_Canvas, pb );
                 if ( src < 0 && dst < 0 ) // dragged the other direction
                 {
-                    src = OutPinState( pb );
-                    dst = InPinState( pa );
+                    src = Graph::StateOfOutPin( m_Canvas, pb );
+                    dst = Graph::StateOfInPin( m_Canvas, pa );
                 }
 
                 const bool valid = src >= 0 && dst >= 0 && src != dst;
@@ -408,13 +381,15 @@ namespace Desert::Editor
             {
                 if ( ed::AcceptDeletedItem() )
                 {
-                    const uint64_t id = dl.Get() - kLink;
-                    const int      si = static_cast<int>( id / 4096ull );
-                    const int      ti = static_cast<int>( id % 4096ull );
-                    if ( si >= 0 && si < static_cast<int>( graph.States.size() ) && ti >= 0 &&
-                         ti < static_cast<int>( graph.States[si].Transitions.size() ) )
+                    // WHICH TRANSITION, ASKED OF THE PLAN. `( id - kLink ) / 4096` was an index pair
+                    // decoded out of an id, so deleting one transition renumbered the rest and the next
+                    // deletion took a different one than the user had selected.
+                    const Graph::TransitionRef ref =
+                         Graph::TransitionOfLink( m_Canvas, static_cast<Graph::ElementId>( dl.Get() ) );
+                    if ( ref.Valid() )
                     {
-                        graph.States[si].Transitions.erase( graph.States[si].Transitions.begin() + ti );
+                        auto& transitions = graph.States[ref.State].Transitions;
+                        transitions.erase( transitions.begin() + ref.Index );
                         dirty = true;
                     }
                 }
@@ -424,8 +399,8 @@ namespace Desert::Editor
             {
                 if ( ed::AcceptDeletedItem() )
                 {
-                    const int ni = static_cast<int>( dn.Get() ) - 1;
-                    if ( ni >= 0 && ni < static_cast<int>( graph.States.size() ) )
+                    const int ni = Graph::StateOfNode( m_Canvas, static_cast<Graph::ElementId>( dn.Get() ) );
+                    if ( ni >= 0 )
                     {
                         const std::string gone = graph.States[ni].Name;
                         graph.States.erase( graph.States.begin() + ni );
@@ -443,6 +418,9 @@ namespace Desert::Editor
 
         ed::End();
         ed::SetCurrentEditor( nullptr );
+
+        if ( m_FrameAll.Tick( canvasSize.x, canvasSize.y ) )
+            Graph::FrameAll( m_Context );
 
         if ( dirty )
             MarkEdited();
@@ -532,14 +510,20 @@ namespace Desert::Editor
 
         if ( haveNode )
         {
-            const int si = static_cast<int>( selNode.Get() ) - 1;
-            if ( si >= 0 && si < static_cast<int>( graph.States.size() ) )
+            // WHICH STATE, ASKED OF THE PLAN. `selNode.Get() - 1` decoded an index out of an id, so after
+            // a deletion the inspector edited the state next to the one that was highlighted.
+            const int si = Graph::StateOfNode( m_Canvas, static_cast<Graph::ElementId>( selNode.Get() ) );
+            if ( si >= 0 )
             {
                 auto& s = graph.States[si];
                 ImGui::TextUnformatted( "State" );
                 const std::string oldName = s.Name;
                 if ( Utils::ImGuiUtilities::Property( "Name", s.Name ) )
                 {
+                    // A RENAME THAT COLLIDES IS A STATE THAT DISAPPEARS: every reference in this graph
+                    // resolves by name and takes the first match. Renaming to an occupied name is
+                    // therefore answered with a free one rather than accepted silently.
+                    s.Name = Graph::MakeUniqueStateName( graph, s.Name, si );
                     if ( graph.Entry == oldName )
                         graph.Entry = s.Name;
                     for ( auto& st : graph.States )
@@ -572,13 +556,13 @@ namespace Desert::Editor
         }
         else if ( haveLink )
         {
-            const uint64_t id = selLink.Get() - kLink;
-            const int      si = static_cast<int>( id / 4096ull );
-            const int      ti = static_cast<int>( id % 4096ull );
-            if ( si >= 0 && si < static_cast<int>( graph.States.size() ) && ti >= 0 &&
-                 ti < static_cast<int>( graph.States[si].Transitions.size() ) )
+            // Same question, same answer: the plan knows which transition this link is.
+            const Graph::TransitionRef ref =
+                 Graph::TransitionOfLink( m_Canvas, static_cast<Graph::ElementId>( selLink.Get() ) );
+            if ( ref.Valid() )
             {
-                auto& tr = graph.States[si].Transitions[ti];
+                const int si = ref.State;
+                auto&     tr = graph.States[si].Transitions[ref.Index];
                 ImGui::Text( "Transition %s -> %s", graph.States[si].Name.c_str(), tr.To.c_str() );
                 ImGui::SetNextItemWidth( 90 );
                 dirty |= ImGui::DragFloat( "Blend", &tr.Blend, 0.01f, 0.0f, 2.0f );
