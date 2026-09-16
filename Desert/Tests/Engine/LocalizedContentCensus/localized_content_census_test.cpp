@@ -264,7 +264,9 @@ namespace
                 // seen and that no register could honestly name — which is the false positive this suite
                 // claims not to have, so it is excluded by name rather than by luck.
                 if ( entry.path().generic_string().find( "/Autosave/" ) != std::string::npos )
+                {
                     continue;
+                }
                 CollectFromFile( entry.path(), out );
             }
         }

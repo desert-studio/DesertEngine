@@ -207,7 +207,9 @@ TEST( ReservedIdentifiers, NoPathFilterUsesTheNativeSpelling )
     {
         std::string all;
         for ( const std::string& o : offenders )
+        {
             all += "  " + o + "\n";
+        }
         return all;
     }();
 }
