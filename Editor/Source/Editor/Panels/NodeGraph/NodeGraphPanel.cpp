@@ -237,7 +237,10 @@ namespace Desert::Editor
             m_Doc.Nodes.push_back( std::move( output ) );
         }
 
-        m_ApplyPositions = true;
+        // Changing domain prunes and adds nodes, so what is on screen is a different graph: frame it.
+        // Positions need no whole-document reset any more — a node that survived the prune keeps the one
+        // the canvas has, and a node that was just added is fresh to the ledger and gets its own.
+        m_FrameAll.Request();
         m_Status.clear();
     }
 
@@ -266,15 +269,9 @@ namespace Desert::Editor
 
     void NodeGraphPanel::SaveGraph()
     {
-        // Node positions are canvas state — pull them into the document before writing.
-        ed::SetCurrentEditor( m_Context );
-        for ( auto& node : m_Doc.Nodes )
-        {
-            const ImVec2 pos = ed::GetNodePosition( ed::NodeId( node.Id ) );
-            node.X           = pos.x;
-            node.Y           = pos.y;
-        }
-        ed::SetCurrentEditor( nullptr );
+        // NO POSITION PULL HERE ANY MORE. `DrawCanvas` reads every node's position back into the document
+        // on the frame it draws it (Graph::PullNodePosition), which is the SAME rule the anim graph runs,
+        // so Save writes what is on screen without a second way of finding out what that is.
 
         // THE SUBJECT'S OWN FILE. The path used to be composed from `m_Doc.Name`, so renaming a graph in
         // the field above silently wrote a DIFFERENT file and left this window claiming to be the first
@@ -335,13 +332,6 @@ namespace Desert::Editor
         return path.string();
     }
 
-    void NodeGraphPanel::FrameAll()
-    {
-        ed::SetCurrentEditor( m_Context );
-        ed::NavigateToContent( 0.4f );
-        ed::SetCurrentEditor( nullptr );
-    }
-
     std::vector<ISubjectDocument::DocumentAction> NodeGraphPanel::Actions()
     {
         // The SAME functions the toolbar buttons call. A second code path here would be a second
@@ -350,7 +340,8 @@ namespace Desert::Editor
         return {
              { "Save", [this] { SaveGraph(); } },
              { "Compile", [this] { Compile(); } },
-             { "Frame All", [this] { FrameAll(); } },
+             { "Frame All", [this] { Graph::FrameAll( m_Context ); } },
+             { "Frame Selection", [this] { Graph::FrameSelection( m_Context ); } },
         };
     }
 
@@ -636,30 +627,28 @@ namespace Desert::Editor
             Compile();
 
         ImGui::SameLine();
-        if ( ImGui::Button( "Frame" ) )
-            FrameAll();
+        Graph::DrawViewButtons( m_Context );
 
-        if ( !m_Status.empty() )
-        {
-            ImGui::SameLine();
-            ImGui::TextColored( m_StatusIsError ? ImVec4( 1.0f, 0.45f, 0.4f, 1.0f )
-                                                : ImVec4( 0.5f, 0.9f, 0.5f, 1.0f ),
-                                "%s", m_Status.c_str() );
-        }
+        Graph::DrawStatusLine( m_Status, m_StatusIsError );
     }
 
     void NodeGraphPanel::DrawCanvas()
     {
+        // EVERY ID ON THIS CANVAS, AND WHICH OF THEM THE CANVAS HAS NEVER SEEN — decided by the shared
+        // layer, in a unit with no ImGui in it, so both graph documents answer it the same way.
+        m_Plan = Graph::PlanShaderGraph( m_Doc, m_Ledger );
+
         ed::SetCurrentEditor( m_Context );
         ed::Begin( "##shaderGraph", ImVec2( 0.0f, 0.0f ) );
 
         // --- Nodes ---
-        for ( auto& node : m_Doc.Nodes )
+        for ( size_t index = 0; index < m_Doc.Nodes.size(); ++index )
         {
-            const SG::NodeSpec* spec = SG::FindSpec( node.Kind );
+            auto&                     node    = m_Doc.Nodes[index];
+            const Graph::PlannedNode& planned = m_Plan.Nodes[index];
+            const SG::NodeSpec*       spec    = SG::FindSpec( node.Kind );
 
-            if ( m_ApplyPositions )
-                ed::SetNodePosition( ed::NodeId( node.Id ), ImVec2( node.X, node.Y ) );
+            Graph::PushNodePosition( planned );
 
             ed::BeginNode( ed::NodeId( node.Id ) );
 
@@ -718,10 +707,12 @@ namespace Desert::Editor
             ImGui::EndGroup();
 
             ed::EndNode();
+
+            // The canvas is where a node IS while the window is open; the document is where it is
+            // stored. One read per frame keeps them the same thing and removes Save's private copy of
+            // this loop.
+            ( void )Graph::PullNodePosition( planned, node.X, node.Y );
         }
-        if ( m_ApplyPositions )
-            ed::NavigateToContent( 0.0f ); // fresh/new/loaded graph: frame it
-        m_ApplyPositions = false;
 
         // --- Links (coloured by the source pin's type) ---
         for ( const auto& link : m_Doc.Links )
@@ -829,10 +820,13 @@ namespace Desert::Editor
                     continue; // exactly one output per graph
                 if ( ImGui::MenuItem( spec.Title ) )
                 {
+                    // ONE PLACE THAT DECIDES WHERE A NEW NODE IS: its X/Y. The `ed::SetNodePosition`
+                    // that stood beside this existed only because `m_ApplyPositions` had already been
+                    // spent, and it was a second answer to the same question. The node is fresh to the
+                    // ledger next frame, so the shared rule pushes exactly these coordinates in.
                     auto node = SG::MakeNode( m_Doc, spec.Kind );
                     node.X    = popupCanvasPos.x;
                     node.Y    = popupCanvasPos.y;
-                    ed::SetNodePosition( ed::NodeId( node.Id ), popupCanvasPos );
                     m_Doc.Nodes.push_back( std::move( node ) );
                 }
             }
@@ -842,6 +836,9 @@ namespace Desert::Editor
 
         ed::End();
         ed::SetCurrentEditor( nullptr );
+
+        if ( m_FrameAll.Tick() )
+            Graph::FrameAll( m_Context );
     }
 
     void NodeGraphPanel::OnUIRender()
