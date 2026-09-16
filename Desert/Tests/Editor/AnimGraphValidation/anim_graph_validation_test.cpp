@@ -338,7 +338,7 @@ TEST( AnimGraphValidation, ThePanelIsTheOneThatAsksAndTheOneThatDraws )
          << "the panel does not call the validator, so every rule measured above is computed by nobody";
 
     // ...it hands the answer to the strip...
-    EXPECT_NE( source.find( "DrawWarningStrip( warnings )" ), std::string::npos )
+    EXPECT_NE( source.find( "DrawWarningStrip( *anim->Graph, warnings )" ), std::string::npos )
          << "the panel computes warnings and never draws them -- a rule with no reader";
 
     // ...and the strip puts the sentence on screen. `warning.Text` is what carries the state name and
@@ -630,6 +630,186 @@ TEST( AnimGraphValidation, TheParameterButtonAndTheDocumentActionAddTheSameParam
     EXPECT_EQ( calls, 2u ) << "the toolbar button and the 'Add Parameter' document action are not the "
                               "same call any more (found "
                            << calls << ")";
+}
+
+// ═══ PART 5 — A FINDING IS A PLACE ON THE CANVAS, NOT JUST A SENTENCE ════════════════════════════════
+//
+// `GraphWarning::State` and `::Transition` were computed for every finding and read by NOTHING: the strip
+// drew `Text` and stopped. That is a dead knob on the data side, and it is the half no frame can show is
+// missing -- the picture looks complete, because what is absent is a READER for a field. These are the
+// tests for the reader.
+
+TEST( AnimGraphValidation, W1PointsAtTheStatesOwnNode )
+{
+    G::AnimGraph graph = HealthyGraph();
+    graph.States[1].Clip.clear();
+
+    EG::ElementIdMap ids;
+    const auto       canvas = EG::PlanAnimGraph( graph, ids );
+
+    const auto warnings = G::Validate( graph, Known() );
+    ASSERT_EQ( warnings.size(), 1u ) << Joined( warnings );
+
+    const EG::WarningTarget target = EG::WarningTargetOf( canvas, graph, warnings[0] );
+    ASSERT_TRUE( target.Valid() ) << "the finding names a state the canvas cannot be pointed at";
+    EXPECT_EQ( target.Link, EG::ElementId::Invalid ) << "a state warning selected a transition";
+
+    // THE RELATION, NOT THE VALUE. Asserting the id equals some number would pass while the id named a
+    // different state; asking the canvas which state that id IS cannot.
+    EXPECT_EQ( EG::StateOfNode( canvas, target.Node ), 1 )
+         << "clicking the warning about 'Run' would select a different state";
+}
+
+TEST( AnimGraphValidation, W3PointsAtTheTransitionsOwnLink )
+{
+    G::AnimGraph graph = HealthyGraph();
+    graph.States[0].Transitions[0].Conditions[0] = Cond( "Velocity", G::CompareOp::Greater, 3.0f );
+
+    EG::ElementIdMap ids;
+    const auto       canvas = EG::PlanAnimGraph( graph, ids );
+
+    const auto warnings = G::Validate( graph, Known() );
+    ASSERT_EQ( CountOf( warnings, G::WarningKind::UndeclaredConditionParam ), 1u ) << Joined( warnings );
+
+    const EG::WarningTarget target = EG::WarningTargetOf( canvas, graph, warnings[0] );
+    ASSERT_NE( target.Link, EG::ElementId::Invalid )
+         << "a transition warning must select the LINK: the link is what opens the transition inspector, "
+            "which holds the conditions the warning is about";
+    EXPECT_EQ( target.Node, EG::ElementId::Invalid );
+
+    const EG::TransitionRef ref = EG::TransitionOfLink( canvas, target.Link );
+    ASSERT_TRUE( ref.Valid() );
+    EXPECT_EQ( ref.State, 0 );
+    EXPECT_EQ( ref.Index, warnings[0].Transition )
+         << "the selected link is a different transition than the one the finding is about";
+}
+
+TEST( AnimGraphValidation, TheNthTransitionIsNotTheNthLink )
+{
+    // THE REASON THE LOOKUP GOES THROUGH `LinkRefs` AND NOT THROUGH ARITHMETIC. `PlanAnimGraph` draws no
+    // link for a transition whose target name no state carries, so the transitions of a state and the
+    // links out of it are NOT the same list -- and W3 fires on exactly such a transition, because a
+    // condition is checked whatever its target is. Indexing the links by the warning's transition number
+    // would select the wrong transition here, or run off the end.
+    G::AnimGraph graph = HealthyGraph();
+    graph.States[0].Transitions.clear();
+
+    G::Transition toGhost; // a target no state carries: planned as no link at all
+    toGhost.To = "Ghost";
+    toGhost.Conditions.push_back( Cond( "Velocity", G::CompareOp::Greater, 1.0f ) );
+    graph.States[0].Transitions.push_back( toGhost );
+
+    G::Transition toRun;
+    toRun.To = "Run";
+    toRun.Conditions.push_back( Cond( "Velocity", G::CompareOp::Greater, 3.0f ) );
+    graph.States[0].Transitions.push_back( toRun );
+
+    EG::ElementIdMap ids;
+    const auto       canvas = EG::PlanAnimGraph( graph, ids );
+    ASSERT_EQ( canvas.Plan.Links.size(), 1u ) << "the ghost transition was drawn as a link after all";
+
+    const auto warnings = G::Validate( graph, Known() );
+
+    // The finding about transition 1 must reach the ONE link, which is transition 1's.
+    const auto onOne = std::find_if( warnings.begin(), warnings.end(), []( const G::GraphWarning& w )
+                                     { return w.Transition == 1; } );
+    ASSERT_NE( onOne, warnings.end() ) << Joined( warnings );
+    const EG::WarningTarget one = EG::WarningTargetOf( canvas, graph, *onOne );
+    ASSERT_NE( one.Link, EG::ElementId::Invalid );
+    EXPECT_EQ( EG::TransitionOfLink( canvas, one.Link ).Index, 1 );
+
+    // And the finding about transition 0 -- which has no link -- must still be reachable, through the
+    // state it belongs to. A finding nothing can be clicked on is a finding the strip cannot act on.
+    const auto onZero = std::find_if( warnings.begin(), warnings.end(), []( const G::GraphWarning& w )
+                                      { return w.Transition == 0; } );
+    ASSERT_NE( onZero, warnings.end() ) << Joined( warnings );
+    const EG::WarningTarget zero = EG::WarningTargetOf( canvas, graph, *onZero );
+    ASSERT_TRUE( zero.Valid() );
+    EXPECT_EQ( zero.Link, EG::ElementId::Invalid );
+    EXPECT_EQ( EG::StateOfNode( canvas, zero.Node ), 0 );
+}
+
+TEST( AnimGraphValidation, EveryFindingOfABadlyBrokenGraphCanBeReached )
+{
+    // THE PROPERTY THAT MATTERS FOR THE STRIP AS A WHOLE: no finding is a dead end. A single unreachable
+    // line teaches its reader that clicking does nothing, which costs the whole control.
+    G::AnimGraph graph;
+    graph.Entry = "Idle";
+    graph.States.push_back( Playing( "Idle", "Idle" ) );
+    graph.States.push_back( Playing( "Run", "NoSuchClip" ) );
+    graph.States.push_back( Playing( "Aim", "" ) );
+
+    G::Transition wide; // earlier and weaker: shadows the one below
+    wide.To = "Run";
+    wide.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 0.1f ) );
+    graph.States[0].Transitions.push_back( wide );
+
+    G::Transition narrow;
+    narrow.To = "Run";
+    narrow.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 3.0f ) );
+    graph.States[0].Transitions.push_back( narrow );
+
+    EG::ElementIdMap ids;
+    const auto       canvas = EG::PlanAnimGraph( graph, ids );
+
+    const auto warnings = G::Validate( graph, Known() );
+    ASSERT_GE( warnings.size(), 4u ) << Joined( warnings );
+    for ( const auto& warning : warnings )
+    {
+        EXPECT_TRUE( EG::WarningTargetOf( canvas, graph, warning ).Valid() )
+             << "this finding points at nothing on the canvas: " << warning.Text;
+    }
+}
+
+TEST( AnimGraphValidation, DeletingAStateDoesNotSendAWarningToItsNeighbour )
+{
+    // THE DEFECT CLASS THIS WHOLE UNIT EXISTS FOR, in the strip's own terms. Under `NodeId( i ) = i + 1`
+    // every id after a deletion named the neighbour, so a warning about 'Aim' would have selected 'Run'
+    // -- and the reader would have gone and edited the wrong state, which is worse than not being told.
+    G::AnimGraph graph;
+    graph.Entry = "Idle";
+    graph.States.push_back( Playing( "Idle", "Idle" ) );
+    graph.States.push_back( Playing( "Walk", "Idle" ) );
+    graph.States.push_back( Playing( "Run", "Idle" ) );
+    graph.States.push_back( Playing( "Aim", "" ) ); // the one warning in this graph
+
+    EG::ElementIdMap ids;
+    auto             canvas = EG::PlanAnimGraph( graph, ids ); // frame 1: everything present
+
+    graph.States.erase( graph.States.begin() + 1 ); // the user deletes 'Walk'
+    canvas = EG::PlanAnimGraph( graph, ids );       // frame 2, through the SAME id map
+
+    const auto warnings = G::Validate( graph, Known() );
+    ASSERT_EQ( warnings.size(), 1u ) << Joined( warnings );
+    EXPECT_EQ( warnings[0].State, "Aim" );
+
+    const EG::WarningTarget target = EG::WarningTargetOf( canvas, graph, warnings[0] );
+    ASSERT_TRUE( target.Valid() );
+    const int selected = EG::StateOfNode( canvas, target.Node );
+    ASSERT_GE( selected, 0 );
+    EXPECT_EQ( graph.States[static_cast<size_t>( selected )].Name, "Aim" )
+         << "the warning about 'Aim' selects '"
+         << graph.States[static_cast<size_t>( selected )].Name << "' instead";
+}
+
+TEST( AnimGraphValidation, TheStripIsAControlAndNotJustText )
+{
+    // The census half of Part 5, for the same reason every other census here exists: no run of this
+    // binary can click a line. What it pins is that the line IS clickable and that the click goes
+    // through the plan -- both of which can be removed without a single rule above going red.
+    const std::string source = PanelSource();
+    ASSERT_FALSE( source.empty() );
+
+    EXPECT_NE( source.find( "RevealWarning( graph, warning )" ), std::string::npos )
+         << "clicking a warning does nothing again, so GraphWarning::State/::Transition are back to "
+            "having no reader";
+    EXPECT_NE( source.find( "Graph::WarningTargetOf( m_Canvas, graph, warning )" ), std::string::npos )
+         << "the panel resolves the warning some other way than through the plan -- which is the index "
+            "arithmetic this unit was split out to delete";
+    EXPECT_NE( source.find( "ed::SelectLink" ), std::string::npos )
+         << "a transition finding no longer selects its link, so the conditions it is about stay closed";
+    EXPECT_NE( source.find( "ed::SelectNode" ), std::string::npos )
+         << "a state finding no longer selects its node";
 }
 
 int main( int argc, char** argv )
