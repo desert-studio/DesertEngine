@@ -100,4 +100,28 @@ namespace Desert::Animation
      */
     [[nodiscard]] bool InsertFirstKeyFromPose( BoneTrack& track, TrackChannel channel, FrameNumber tick,
                                                const glm::mat4& localPose );
+
+    /**
+     * @brief Make @p tick say @p pose, in all three channels. AN UPSERT, and the only one in the tree.
+     *
+     * The two functions above each answer a button an animator presses ONCE: `InsertKeyFromCurve` refuses
+     * an occupied tick and `InsertFirstKeyFromPose` refuses a non-empty channel, and both refusals are
+     * right for "add a key here". Keying is the other operation — "the value at this tick is now THIS",
+     * repeated every time the animator nudges the thing — and a refusal on the second nudge would mean the
+     * FIRST nudge is the one that sticks, which is the worst of the three possible behaviours.
+     *
+     * AN EXISTING KEY KEEPS ITS SHAPE: interp, tangent mode and both tangents survive the write. Same
+     * reason `AutoSetTangents` leaves a `User` key alone — the slope is the animator's work, and changing a
+     * value is not permission to discard it. A NEW key gets Cubic/Auto on position and scale and Linear on
+     * rotation, which is `InsertFirstKeyFromPose`'s convention rather than a second one: "the first key"
+     * and "a key" must not differ in shape.
+     *
+     * THE WHOLE TRACK'S AUTO TANGENTS ARE REFRESHED afterwards (§969 item 1), because the inserted key is
+     * a new neighbour for the two keys around it.
+     *
+     * Refuses a non-finite pose and changes nothing: a NaN written into a clip is a NaN in every pose
+     * sampled from it afterwards, and it would be blamed on the sampler.
+     */
+    [[nodiscard]] bool SetTransformKey( BoneTrack& track, FrameNumber tick, const BoneTransform& pose,
+                                        FrameRate tickRate );
 } // namespace Desert::Animation

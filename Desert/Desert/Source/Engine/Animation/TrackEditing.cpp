@@ -1,6 +1,7 @@
 #include "TrackEditing.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include <glm/gtx/matrix_decompose.hpp>
 
@@ -270,5 +271,75 @@ namespace Desert::Animation
             }
         }
         return false;
+    }
+
+    bool SetTransformKey( BoneTrack& track, FrameNumber tick, const BoneTransform& pose, FrameRate tickRate )
+    {
+        const auto finite3 = []( const glm::vec3& v )
+        { return std::isfinite( v.x ) && std::isfinite( v.y ) && std::isfinite( v.z ); };
+        if ( !finite3( pose.Translation ) || !finite3( pose.Scale ) || !std::isfinite( pose.Rotation.x ) ||
+             !std::isfinite( pose.Rotation.y ) || !std::isfinite( pose.Rotation.z ) ||
+             !std::isfinite( pose.Rotation.w ) )
+        {
+            return false;
+        }
+
+        // FOUND-OR-INSERTED IN ONE LOOKUP, and the `lower_bound` is the same one the sampler uses, so a key
+        // this writes is a key that reads back at the same tick by the same comparison. Writing then
+        // sorting would work too and is what the insert functions above do; it is not what this one does,
+        // because this runs once per interaction per control rather than once per button press, and an
+        // upsert that re-sorts a thousand-key channel to change one number is a shape nobody can defend.
+        {
+            const auto it = std::lower_bound( track.PositionKeys.begin(), track.PositionKeys.end(), tick );
+            if ( it != track.PositionKeys.end() && it->Tick == tick )
+            {
+                it->Position = pose.Translation;
+            }
+            else
+            {
+                PositionKeyFrame key;
+                key.Tick     = tick;
+                key.Position = pose.Translation;
+                key.Interp   = KeyInterp::Cubic;
+                key.Mode     = TangentMode::Auto;
+                track.PositionKeys.insert( it, key );
+            }
+        }
+
+        {
+            const auto it = std::lower_bound( track.RotationKeys.begin(), track.RotationKeys.end(), tick );
+            if ( it != track.RotationKeys.end() && it->Tick == tick )
+            {
+                it->Rotation = pose.Rotation;
+            }
+            else
+            {
+                RotationKeyFrame key;
+                key.Tick     = tick;
+                key.Rotation = pose.Rotation;
+                key.Interp   = KeyInterp::Linear;
+                track.RotationKeys.insert( it, key );
+            }
+        }
+
+        {
+            const auto it = std::lower_bound( track.ScaleKeys.begin(), track.ScaleKeys.end(), tick );
+            if ( it != track.ScaleKeys.end() && it->Tick == tick )
+            {
+                it->Scale = pose.Scale;
+            }
+            else
+            {
+                ScaleKeyFrame key;
+                key.Tick   = tick;
+                key.Scale  = pose.Scale;
+                key.Interp = KeyInterp::Cubic;
+                key.Mode   = TangentMode::Auto;
+                track.ScaleKeys.insert( it, key );
+            }
+        }
+
+        RefreshTangents( track, tickRate );
+        return true;
     }
 } // namespace Desert::Animation
