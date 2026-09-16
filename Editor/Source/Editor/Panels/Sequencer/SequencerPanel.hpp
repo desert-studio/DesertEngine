@@ -124,6 +124,11 @@ namespace Desert::Editor
         // one without the other is not something this window can key), for UI its UIAnimComponent.
         [[nodiscard]] bool IsSubjectAlive() const override;
 
+        // The rig timeline's own view mode, offered to the command palette and therefore to the control
+        // channel — see ISubjectDocument::Actions for why a button was not enough. UI mode has none: its
+        // lanes are not bone channels and there is no curve view over them.
+        [[nodiscard]] std::vector<DocumentAction> Actions() override;
+
         // A TIMELINE COSTS NO RENDERER SLOT. Everything it draws is ImGui geometry over components the
         // scene already holds; there is no Scene of its own, no SceneRenderer and no offscreen target, so
         // it is not pending demand for one of the six and closing it would free nothing. Answering the
@@ -185,6 +190,16 @@ namespace Desert::Editor
         void KeyBonePose( Animation::AnimationClip* clip, const Animation::Animator& animator, int boneIndex,
                           Animation::FrameTime time );
 
+        // THE SAME KEYS, DRAWN AS CURVES (T4.3). Replaces the lane area rather than sitting beside it: a
+        // dope sheet and a curve view are two readings of one channel, and showing both at once costs the
+        // vertical space that is the only thing a curve needs.
+        //
+        // Position and scale only. A rotation key is a quaternion with no tangents, and its four components
+        // are not four curves an animator can read — see TrackEditing::LiftChannel for why Euler channels
+        // would be a format change rather than a view.
+        void DrawCurveView( Animation::AnimationClip* clip, Animation::Animator* animator, float contentX0,
+                            float gutter, float laneW, float duration );
+
         // UI mode: the subject is this element's UIAnimComponent. Draws the clip's property lanes
         // (Offset / Size / Opacity / Color) with draggable keys and a scrubbable playhead.
         void DrawUITracks( ECS::Entity& entity );
@@ -197,7 +212,19 @@ namespace Desert::Editor
 
         const Timeline m_Timeline = Timeline::Skeletal;
 
-        float m_PxPerSec = 90.0f; // timeline zoom
+        // Curve view (T4.3). The value window is view state and is REFITTED when the selection changes,
+        // not every frame: a box that rescales itself while a key is dragged moves the key under the mouse.
+        bool      m_CurveView       = false;
+        glm::vec2 m_CurveRange      = glm::vec2( -1.0f, 1.0f );
+        bool      m_CurveFitPending = true;
+        int       m_CurveFitTrack   = -1; // what the current fit was computed for
+        int       m_CurveFitChannel = -1;
+
+        // What the mouse has hold of in the curve view: which component's key, and whether the key itself
+        // (0) or one of its tangent handles (1 = arrive, 2 = leave).
+        int m_CurveDragKey       = -1;
+        int m_CurveDragComponent = -1;
+        int m_CurveDragHandle    = 0;
 
         // Record mode: while ON (and in Skeleton Edit), moving the selected bone with the gizmo AUTO-keys it at
         // the playhead. m_RecordBone/m_RecordLast track the last-seen transform to detect a change.

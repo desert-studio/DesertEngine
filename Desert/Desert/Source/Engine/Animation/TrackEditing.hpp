@@ -40,6 +40,36 @@ namespace Desert::Animation
     void RefreshTangents( BoneTrack& track, FrameRate tickRate );
 
     /**
+     * @brief One vec3 channel's component, as the scalar keys the tangent maths and the curve view both use.
+     *
+     * A CURVE VIEW THAT BUILT ITS OWN SCALARS WOULD BE A SECOND STATEMENT OF WHAT A CHANNEL IS. The tangent
+     * rules, the evaluator and the picture an animator drags all have to be about the same numbers, and the
+     * cheapest way to guarantee that is for there to be one function that produces them. This is the one the
+     * auto pass already used, made public rather than copied.
+     *
+     * Rotation returns EMPTY, and that is the answer rather than a gap: a rotation key is a quaternion with
+     * no tangents (see `RotationKeyFrame`), and its four components are not four curves an animator can read.
+     * Euler channels would be — and they would be a format change, so they are not smuggled in through a view.
+     *
+     * @param component 0, 1 or 2 (x, y, z). Anything else returns empty rather than reading past the vector.
+     */
+    [[nodiscard]] std::vector<ScalarKey> LiftChannel( const BoneTrack& track, TrackChannel channel,
+                                                      int component );
+
+    /**
+     * @brief Write edited scalars back into one channel component: value and both tangents, per key.
+     *
+     * REFUSES A SIZE MISMATCH instead of writing what fits. Lift-edit-apply is a chain, and the failure this
+     * project keeps meeting is the middle link quietly dropping something — here that would be a curve view
+     * that inserted a key into its working copy and wrote the first N back over the wrong ticks. The ticks are
+     * checked too, for the same reason: this operation moves VALUES, and a retime is a different one.
+     *
+     * Returns false and changes nothing when the shapes disagree.
+     */
+    [[nodiscard]] bool ApplyChannel( BoneTrack& track, TrackChannel channel, int component,
+                                     const std::vector<ScalarKey>& scalars );
+
+    /**
      * @brief Insert a key at `tick` holding what the channel ALREADY says there, seeded with its slope.
      *
      * Returns false when a key is already on that tick — an upsert is a different operation with a

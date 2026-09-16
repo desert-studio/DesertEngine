@@ -55,6 +55,69 @@ namespace Desert::Animation
         }
     } // namespace
 
+    std::vector<ScalarKey> LiftChannel( const BoneTrack& track, TrackChannel channel, int component )
+    {
+        if ( component < 0 || component > 2 )
+        {
+            return {};
+        }
+        switch ( channel )
+        {
+            case TrackChannel::Position:
+                return LiftComponent( track.PositionKeys, &PositionKeyFrame::Position, component );
+            case TrackChannel::Scale:
+                return LiftComponent( track.ScaleKeys, &ScaleKeyFrame::Scale, component );
+            case TrackChannel::Rotation:
+                // Not a gap — see the header. A quaternion's components are not curves.
+                return {};
+        }
+        return {};
+    }
+
+    bool ApplyChannel( BoneTrack& track, TrackChannel channel, int component,
+                       const std::vector<ScalarKey>& scalars )
+    {
+        if ( component < 0 || component > 2 )
+        {
+            return false;
+        }
+
+        const auto write = [&]( auto& keys, auto member )
+        {
+            if ( keys.size() != scalars.size() )
+            {
+                return false;
+            }
+            for ( std::size_t i = 0; i < keys.size(); ++i )
+            {
+                if ( keys[i].Tick != scalars[i].Tick )
+                {
+                    return false; // a retime is a different operation — see the header
+                }
+            }
+            for ( std::size_t i = 0; i < keys.size(); ++i )
+            {
+                ( keys[i].*member )[component]   = scalars[i].Value;
+                keys[i].ArriveTangent[component] = scalars[i].ArriveTangent;
+                keys[i].LeaveTangent[component]  = scalars[i].LeaveTangent;
+                keys[i].Interp                   = scalars[i].Interp;
+                keys[i].Mode                     = scalars[i].Mode;
+            }
+            return true;
+        };
+
+        switch ( channel )
+        {
+            case TrackChannel::Position:
+                return write( track.PositionKeys, &PositionKeyFrame::Position );
+            case TrackChannel::Scale:
+                return write( track.ScaleKeys, &ScaleKeyFrame::Scale );
+            case TrackChannel::Rotation:
+                return false;
+        }
+        return false;
+    }
+
     void RefreshTangents( BoneTrack& track, FrameRate tickRate )
     {
         RefreshVectorChannel( track.PositionKeys, tickRate, &PositionKeyFrame::Position );
