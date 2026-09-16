@@ -21,6 +21,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../SettingConsumers/setting_consumers_reader.hpp"
+
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
@@ -571,6 +573,163 @@ TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
 
     std::error_code ec;
     std::filesystem::remove_all( dir, ec );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// THE REGISTER — what each dependency resolver MATCHES ON, and whether that value outlives a sweep.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+namespace
+{
+    namespace fs   = std::filesystem;
+    namespace Text = Desert::Tests::ConsumerText;
+
+    // Walks up from the working directory, as the other censuses do and for the same reason: the runner's
+    // working directory is not fixed.
+    std::string RepoRootFromHere()
+    {
+        std::string prefix = "./";
+        for ( int up = 0; up < 6; ++up )
+        {
+            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Assets/AssetBase.hpp" );
+            if ( probe )
+                return prefix;
+            prefix += "../";
+        }
+        return {};
+    }
+
+    // ONE ROW PER RESOLVER, and the row says the only thing a reader cannot get from the code in a
+    // glance: WHICH PROPERTY OF THE TARGET this resolver finds it by. The count is derived from the rows
+    // — pinning a NUMBER would let the next person satisfy the census by editing the number.
+    struct ResolverRow
+    {
+        const char* File;
+        const char* KeyedOn;
+    };
+
+    constexpr std::array<ResolverRow, 3> kDependencyResolvers = {
+         ResolverRow{ "Desert/Desert/Source/Engine/Assets/AssetBase.hpp",
+                      "nothing. The base's empty body, which is what an asset that names no other asset "
+                      "inherits." },
+         ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.hpp",
+                      "a rig, by SIGNATURE — a number computed from the rig's BONES, i.e. from its "
+                      "payload. This is the dangerous kind, and the one this suite's "
+                      "ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth exists for: it is safe only "
+                      "because SkeletonAsset keeps its signature across Unload and this resolver loads "
+                      "the rig back and re-checks the number against the bones it just read." },
+         ResolverRow{ "Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
+                      "a noise volume, by PATH. A path is identity: eviction releases payloads and is "
+                      "forbidden to touch identity, so this resolver cannot lose its target." },
+    };
+
+    // A DEFINITION, not a call and not a declaration: the name, its parameter list, whatever trailing
+    // specifiers it carries, and then a `{`. `asset->ResolveDependencies( *this );` and
+    // `void ResolveDependencies( AssetManager& ) override;` both end in `;` and are correctly ignored.
+    bool DefinesAResolverAt( const std::string& text, std::size_t at )
+    {
+        const std::size_t name = std::string( "ResolveDependencies" ).size();
+
+        std::size_t i = Text::SkipSpace( text, at + name );
+        if ( i >= text.size() || text[i] != '(' )
+            return false;
+
+        int depth = 0;
+        for ( ; i < text.size(); ++i )
+        {
+            if ( text[i] == '(' )
+                ++depth;
+            else if ( text[i] == ')' && --depth == 0 )
+            {
+                ++i;
+                break;
+            }
+        }
+
+        for ( ;; )
+        {
+            i = Text::SkipSpace( text, i );
+
+            const std::string word = Text::IdentAt( text, i );
+            if ( word.empty() )
+                break;
+            i += word.size();
+        }
+
+        return i < text.size() && text[i] == '{';
+    }
+} // namespace
+
+TEST( AssetEviction, EveryDependencyResolverSaysWhatItMatchesItsTargetBy )
+{
+    // WHY A CENSUS AND NOT A TEST. The defect this closes — a skinned mesh that could not find its rig
+    // again after the first sweep of a session — was invisible to BOTH existing guards. AssetRoots checks
+    // that every component's handle is walked; AssetEviction's Expand checks that every asset-to-asset
+    // edge is listed. Both were correct and both stayed green, because the edge WAS listed: what failed
+    // was that the resolver keyed on a number that the sweep itself erased, so the edge was never filled
+    // in to be followed. Nothing mechanical could see that, and the third resolver would repeat it.
+    //
+    // So the question this asks is the one a person has to answer: WHAT DOES THIS RESOLVER FIND ITS
+    // TARGET BY, AND DOES THAT VALUE SURVIVE THE TARGET'S `Unload()`? A new resolver turns this red until
+    // somebody writes the answer down.
+    const std::string root = RepoRootFromHere();
+    ASSERT_FALSE( root.empty() ) << "the repository root was not found from the working directory";
+
+    std::set<std::string> found;
+    for ( const auto& entry : fs::recursive_directory_iterator( root + "Desert/Desert/Source" ) )
+    {
+        if ( !entry.is_regular_file() )
+            continue;
+        const std::string ext = entry.path().extension().string();
+        if ( ext != ".hpp" && ext != ".cpp" && ext != ".h" )
+            continue;
+
+        std::ifstream     in( entry.path() );
+        std::stringstream buffer;
+        buffer << in.rdbuf();
+
+        // Comments AND literals stripped: a resolver named in a comment must not be able to satisfy this
+        // census, which would be a false pass — the shape AssetResolverCensus records the same choice for.
+        const std::string text = Text::StripCommentsAndLiterals( buffer.str() );
+
+        for ( const std::size_t at : Text::WordPositions( text, "ResolveDependencies" ) )
+        {
+            if ( !DefinesAResolverAt( text, at ) )
+                continue;
+
+            // GENERIC SPELLING, not native: `path::string()` hands back backslashes on Windows and the
+            // rows below are written with forward slashes. That exact confusion turned `dev` red on
+            // 2026-09-16 and is now held by ReservedIdentifiers.NoPathFilterUsesTheNativeSpelling.
+            std::string relative = fs::relative( entry.path(), root ).generic_string();
+            found.insert( relative );
+            break;
+        }
+    }
+
+    std::set<std::string> registered;
+    for ( const ResolverRow& row : kDependencyResolvers )
+        registered.insert( row.File );
+
+    for ( const std::string& file : found )
+    {
+        EXPECT_EQ( registered.count( file ), 1U )
+             << file
+             << " defines ResolveDependencies and no row in kDependencyResolvers says what it matches its "
+                "target by. Add one, and answer the question it asks: does that value survive the "
+                "target's Unload()? If it is derived from the target's payload the answer is no by "
+                "default, and the dependency is lost at the first eviction sweep — see "
+                "ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth.";
+    }
+
+    for ( const std::string& file : registered )
+    {
+        EXPECT_EQ( found.count( file ), 1U )
+             << file << " is registered here and defines no resolver any more; the row is stale.";
+    }
+
+    EXPECT_EQ( found.size(), kDependencyResolvers.size() )
+         << "the number of resolvers is derived from the rows, never typed: this is the two sets "
+            "disagreeing, and the per-file expectations above name which ones.";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
