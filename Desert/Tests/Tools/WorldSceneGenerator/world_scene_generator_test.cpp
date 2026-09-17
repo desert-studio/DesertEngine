@@ -37,6 +37,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <cctype>
 #include <set>
 #include <sstream>
 #include <string>
@@ -121,9 +122,9 @@ namespace
     }
 
     // A counting mint, like the corpus suites use: a scene whose records all carry ids must never call it.
-    Desert::Core::Rules::MintId CountingMint( size_t& minted )
+    auto CountingMint( size_t& minted )
     {
-        return [&minted]() -> uint64_t { return 1'000'000 + minted++; };
+        return [&minted]() { return Common::UUID( 1'000'000 + minted++ ); };
     }
 } // namespace
 
@@ -171,11 +172,15 @@ TEST( WorldSceneGenerator, ADifferentSeedIsADifferentWorldAndTheSameSeedIsNot )
     EXPECT_EQ( one, oneAgain );
 }
 
-// 1d. A CELL'S CONTENTS DO NOT DEPEND ON HOW MANY CELLS CAME BEFORE IT. The generator seeds each cell from
-// its own coordinate rather than from a stream advanced in iteration order, which is what lets a bigger
-// world contain the smaller one instead of being a new world - and is the property a per-cell regeneration
-// would need on the day step 8 streams these cells.
-TEST( WorldSceneGenerator, GrowingTheWorldLeavesTheCELLSThatWereAlreadyThereAlone )
+// 1d. A PLACE IN THE WORLD HOLDS THE SAME BUILDINGS WHATEVER SIZE THE WORLD IS. The generator seeds each
+// cell from its own world coordinate rather than from a stream advanced in iteration order, so a bigger
+// world CONTAINS the smaller one instead of being a different one - and that is the property a per-cell
+// regeneration needs on the day step 8 streams these cells.
+//
+// IT FAILED ON ITS FIRST RUN and the fix was in the generator, not here: the seed was taken from the grid
+// INDEX, and the grid is centred, so the cell at world (0,0) is index 1 in a 2-cell world and index 16 in
+// a 32-cell one. Growing the world regenerated all of it.
+TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
 {
     std::string small, large;
     ASSERT_EQ( GenerateSmoke( Scratch() / "grow_2.desce", small, { "--cells", "2" } ), 0 ) << small;
@@ -264,18 +269,25 @@ TEST( WorldSceneGenerator, EveryObjectSITSInTheCellItsNameClaims )
 
     for ( const auto& entity : scene->Entities )
     {
-        if ( !entity.Tag.has_value() || entity.Tag->size() < 6 || ( *entity.Tag )[0] != 'C' )
+        // "C<xx>_<zz>_..." and nothing else. Matched on SHAPE rather than on the first letter, because
+        // the fixture entity "Camera" also begins with a C and turned the first version of this sweep
+        // into a std::stoi exception - a test that dies rather than reports is a test with no verdict.
+        if ( !entity.Tag.has_value() )
             continue;
-        const int cx = std::stoi( entity.Tag->substr( 1, 2 ) );
-        const int cz = std::stoi( entity.Tag->substr( 4, 2 ) );
+        const std::string& tag = *entity.Tag;
+        if ( tag.size() < 7 || tag[0] != 'C' || !std::isdigit( tag[1] ) || !std::isdigit( tag[2] ) ||
+             tag[3] != '_' || !std::isdigit( tag[4] ) || !std::isdigit( tag[5] ) || tag[6] != '_' )
+            continue;
+        const int cx = std::stoi( tag.substr( 1, 2 ) );
+        const int cz = std::stoi( tag.substr( 4, 2 ) );
 
         const float originX = static_cast<float>( cx - kHalf ) * kCell;
         const float originZ = static_cast<float>( cz - kHalf ) * kCell;
 
-        EXPECT_GE( entity.Translation->x, originX ) << *entity.Tag;
-        EXPECT_LE( entity.Translation->x, originX + kCell ) << *entity.Tag;
-        EXPECT_GE( entity.Translation->z, originZ ) << *entity.Tag;
-        EXPECT_LE( entity.Translation->z, originZ + kCell ) << *entity.Tag;
+        EXPECT_GE( entity.Translation->x, originX ) << tag;
+        EXPECT_LE( entity.Translation->x, originX + kCell ) << tag;
+        EXPECT_GE( entity.Translation->z, originZ ) << tag;
+        EXPECT_LE( entity.Translation->z, originZ + kCell ) << tag;
         ++checked;
     }
     EXPECT_EQ( checked, 4 * 4 * ( 6 + 1 ) ) << "the sweep found a different world than it generated";

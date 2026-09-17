@@ -22,6 +22,7 @@ project(test_name)
         "%{wks.location}/Tools/WorldGen/Source/WorldGenMain.cpp",
         "%{wks.location}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
@@ -54,6 +55,9 @@ project(test_name)
         defines { "DESERT_PLATFORM_WINDOWS" }
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
+        -- Common carries the Objective-C file dialog; linking it needs AppKit and the ObjC runtime. The
+        -- suite reaches Common for the write primitive the tool writes the scene with.
+        links { "Cocoa.framework", "Foundation.framework" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}

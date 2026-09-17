@@ -20,10 +20,18 @@ namespace Desert::WorldGen
             return x ^ ( x >> 31 );
         }
 
-        // A cell's stream, addressed by coordinate rather than advanced by iteration. `draw` is the index
-        // of the number inside the cell, so cell (cx,cz) answers the same sequence whoever asks and in
-        // whatever order - the property a per-cell regeneration would need and the reason the file does
-        // not move when Cells changes.
+        // A cell's stream, addressed by the cell's PLACE IN THE WORLD rather than advanced by iteration.
+        // `draw` is the index of the number inside the cell, so a cell answers the same sequence whoever
+        // asks and in whatever order - the property a per-cell regeneration would need on the day step 8
+        // streams these cells.
+        //
+        // THE COORDINATES ARE SIGNED AND CENTRED, NOT GRID INDICES, AND THE FIRST VERSION OF THIS FUNCTION
+        // USED INDICES. The grid is centred on the origin, so the cell at world (0,0) is index 16 in a
+        // 32-cell world and index 1 in a 2-cell one - and seeding from the index meant that GROWING the
+        // world regenerated every building in it, including the ones at places that had not moved. The
+        // test WorldSceneGenerator.TheSamePlaceInTheWorldHoldsTheSameBuildings caught it on the first run;
+        // the property it checks is not decoration, it is what makes "generate a bigger world" a bigger
+        // world and not a different one.
         constexpr uint64_t CellDraw( uint64_t seed, int cx, int cz, int draw )
         {
             return Mix( Mix( Mix( seed ) ^ ( static_cast<uint64_t>( cx ) * 0x0000'0001'0000'0001ull ) ) ^
@@ -191,12 +199,12 @@ namespace Desert::WorldGen
                     const int sx = i % slots;
                     const int sz = i / slots;
 
-                    const uint64_t d0 = CellDraw( spec.Seed, cx, cz, i * 8 + 0 );
-                    const uint64_t d1 = CellDraw( spec.Seed, cx, cz, i * 8 + 1 );
-                    const uint64_t d2 = CellDraw( spec.Seed, cx, cz, i * 8 + 2 );
-                    const uint64_t d3 = CellDraw( spec.Seed, cx, cz, i * 8 + 3 );
-                    const uint64_t d4 = CellDraw( spec.Seed, cx, cz, i * 8 + 4 );
-                    const uint64_t d5 = CellDraw( spec.Seed, cx, cz, i * 8 + 5 );
+                    const uint64_t d0 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 0 );
+                    const uint64_t d1 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 1 );
+                    const uint64_t d2 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 2 );
+                    const uint64_t d3 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 3 );
+                    const uint64_t d4 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 4 );
+                    const uint64_t d5 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 5 );
 
                     // Whole metres, so the float that reaches the file is exact (header, second bullet).
                     const int widthCm  = Range( d0, 4, 14 ) * 100;
