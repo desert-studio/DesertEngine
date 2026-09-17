@@ -341,11 +341,17 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   incidentally: it is the one object every entity naming that file points at, which is what makes
     //   an edit reach all of them instead of one. Read off THIS branch's run; per the merges above it will
     //   not survive the merge and must be re-read there.
-    EXPECT_EQ( CountOf( Form::Raw ), 364 );
+    //   -> +1 with B2 (843 -> 844), one Raw, and it is `LoadTimingScope::m_Parent`. The world
+    //   programme's synchronous-load detector times nested loads by having each scope hand its duration
+    //   up to the one enclosing it, and the enclosing scope is reached by the only thing that can name a
+    //   stack object: its address. Its row argues the guard from the LIFO order of the call stack, the
+    //   thread-local stack of open scopes, and the four deleted copy/move operators -- the last of which
+    //   is what makes "one parent per scope" a property of the type rather than of the caller.
+    EXPECT_EQ( CountOf( Form::Raw ), 365 );
     EXPECT_EQ( CountOf( Form::Shared ), 326 );
     EXPECT_EQ( CountOf( Form::Unique ), 115 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 843 )
+    EXPECT_EQ( (int)Members().size(), 844 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

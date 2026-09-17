@@ -1236,6 +1236,16 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Animation/AnimationLibrary.hpp",
           "AnimationLibrary", "m_AssetManager", Guard::HostOutlivesUs,
           "EditorLayer declares the AssetManager before the library and destroys it after" },
+        { "Desert/Desert/Source/Engine/Assets/SyncLoadLedger.hpp",
+          "LoadTimingScope", "m_Parent", Guard::HostOutlivesUs,
+          "the enclosing load scope on THIS thread's stack. Scopes are created and destroyed in LIFO order "
+          "-- each is a local in the body of an AssetBase::Load() that a load one level up is inside -- so "
+          "the parent's lifetime strictly encloses the child's by the shape of the call stack. Two things "
+          "make that hold rather than merely look true: the stack of open scopes is THREAD-LOCAL, so a load "
+          "on the preloader's thread can never take the address of a scope on the hot-reload watcher's; and "
+          "the type is neither copyable nor movable (all four operators deleted), because a copy would give "
+          "two scopes one parent and a move would leave a live pointer to a husk. Dereferenced exactly once, "
+          "in the destructor, to add this scope's duration to the parent's child-time" },
         { "Desert/Desert/Source/Engine/Assets/AssetPreloader.hpp",
           "AssetPreloader", "m_AnimationLibrary", Guard::HostOutlivesUs,
           "the library the scan publishes clips to. Taken as a REFERENCE by the constructor, so it can never "

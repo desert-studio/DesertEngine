@@ -263,7 +263,8 @@ namespace Desert::Assets
 
     inline LoadPhase SyncLoadLedger::Phase()
     {
-        return SyncLoadDetail::BootFinished().load( std::memory_order_relaxed ) ? LoadPhase::Frame : LoadPhase::Boot;
+        return SyncLoadDetail::BootFinished().load( std::memory_order_relaxed ) ? LoadPhase::Frame
+                                                                                : LoadPhase::Boot;
     }
 
     inline uint64_t SyncLoadLedger::Loads()
@@ -301,7 +302,7 @@ namespace Desert::Assets
     }
 
     inline void SyncLoadLedger::Record( const std::string& path, const double totalMs, const double selfMs,
-                                 const bool outermost )
+                                        const bool outermost )
     {
         SyncLoadDetail::LoadCount().fetch_add( 1, std::memory_order_relaxed );
 
@@ -340,7 +341,8 @@ namespace Desert::Assets
             LOG_WARN( "[SyncLoad] IN A FRAME: '{}' blocked for {} (load #{} in-frame). A load after the "
                       "first frame is a hitch the player feels — it belongs in the preload or behind a "
                       "streamer.",
-                      path, SyncLoadDetail::Ms( totalMs ), SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed ) );
+                      path, SyncLoadDetail::Ms( totalMs ),
+                      SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed ) );
         }
         else if ( logged == SyncLoadDetail::kInFrameLogCap )
         {
@@ -357,20 +359,24 @@ namespace Desert::Assets
         const uint64_t loads   = SyncLoadDetail::LoadCount().load( std::memory_order_relaxed );
         const uint64_t inFrame = SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed );
 
-        std::string text = "loads=" + std::to_string( loads ) + " in " + SyncLoadDetail::Ms( SyncLoadDetail::Sums().TotalMs ) +
+        std::string text = "loads=" + std::to_string( loads ) + " in " +
+                           SyncLoadDetail::Ms( SyncLoadDetail::Sums().TotalMs ) +
                            " (outermost scopes only; nested loads are counted, not re-timed)";
         // BOTH HALVES NAMED SEPARATELY, and zero in-frame loads is a RESULT worth printing rather than a
         // line to omit: "the preload caught everything" is the claim every later tier rests on, and a
         // report that went quiet when it was true would make the good case indistinguishable from a
         // detector that was not running.
-        text += "\n  in-frame: " + std::to_string( inFrame ) + " load(s) in " + SyncLoadDetail::Ms( SyncLoadDetail::Sums().InFrameMs );
+        text += "\n  in-frame: " + std::to_string( inFrame ) + " load(s) in " +
+                SyncLoadDetail::Ms( SyncLoadDetail::Sums().InFrameMs );
         if ( inFrame == 0 )
         {
             text += loads == 0 ? " — nothing loaded at all yet" : " — every load so far happened at boot";
         }
         if ( loads > 0 )
         {
-            text += "\n  slowest single load by its OWN time: " + SyncLoadDetail::Ms( SyncLoadDetail::Sums().SlowestMs ) + " — '" + SyncLoadDetail::Sums().SlowestPath + "'";
+            text += "\n  slowest single load by its OWN time: " +
+                    SyncLoadDetail::Ms( SyncLoadDetail::Sums().SlowestMs ) + " — '" +
+                    SyncLoadDetail::Sums().SlowestPath + "'";
         }
         return text;
     }
@@ -386,14 +392,14 @@ namespace Desert::Assets
         SyncLoadDetail::Sums().InFrameMs = 0.0;
         SyncLoadDetail::Sums().SlowestMs = 0.0;
         SyncLoadDetail::Sums().SlowestPath.clear();
-        SyncLoadDetail::Depth() = 0;
+        SyncLoadDetail::Depth()     = 0;
         SyncLoadDetail::OpenScope() = nullptr;
     }
 
     inline LoadTimingScope::LoadTimingScope( std::string path ) : m_Path( std::move( path ) )
     {
-        m_Outermost = SyncLoadDetail::Depth() == 0;
-        m_Parent    = SyncLoadDetail::OpenScope();
+        m_Outermost                 = SyncLoadDetail::Depth() == 0;
+        m_Parent                    = SyncLoadDetail::OpenScope();
         SyncLoadDetail::OpenScope() = this;
         ++SyncLoadDetail::Depth();
         m_StartNs = SyncLoadDetail::NowNs();
@@ -410,7 +416,8 @@ namespace Desert::Assets
         {
             m_Parent->m_ChildNs += totalNs;
         }
-        SyncLoadLedger::Record( m_Path, SyncLoadDetail::NowMs( totalNs ), SyncLoadDetail::NowMs( totalNs - m_ChildNs ), m_Outermost );
+        SyncLoadLedger::Record( m_Path, SyncLoadDetail::NowMs( totalNs ),
+                                SyncLoadDetail::NowMs( totalNs - m_ChildNs ), m_Outermost );
     }
 
 } // namespace Desert::Assets
