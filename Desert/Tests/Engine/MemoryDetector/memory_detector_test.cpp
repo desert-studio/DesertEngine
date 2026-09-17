@@ -279,8 +279,14 @@ TEST( MemoryDetectorCensus, TheExtensionIsEnabledOnTheDeviceAndGatesTheChainedSt
          fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" ) );
     ASSERT_FALSE( text.empty() );
 
-    EXPECT_NE( text.find( "VK_EXT_MEMORY_BUDGET_EXTENSION_NAME" ), std::string::npos )
-         << "the device is created without VK_EXT_memory_budget, so every usage figure is zero";
+    // THE LINE THAT DOES IT, NOT THE MENTION OF IT. The first version of this assertion looked for the
+    // extension NAME anywhere in the file and SURVIVED a mutation that deleted the push_back — because
+    // the `IsExtensionSupported( ... )` test above it still names the same constant. A rule satisfied by
+    // a mention is satisfied by the `if` that decides nothing.
+    EXPECT_NE( text.find( "deviceExtensions.push_back( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME )" ),
+               std::string::npos )
+         << "the device is created without VK_EXT_memory_budget in its extension list, so every usage "
+            "figure the driver reports is zero";
 
     // AND THE GATE. Chaining VkPhysicalDeviceMemoryBudgetPropertiesEXT into a query on a device that was
     // not created with the extension is undefined behaviour whose observed shape is a struct nobody
