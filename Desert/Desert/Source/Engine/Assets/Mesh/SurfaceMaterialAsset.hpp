@@ -16,7 +16,7 @@ namespace Desert::Assets
     public:
         SurfaceMaterialAsset( AssetPriority priority, const Common::Filepath& filepath );
 
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         // Serialize the canonical data to .demat JSON — or REFUSE, when this asset is running on

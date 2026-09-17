@@ -122,7 +122,7 @@ namespace
             return AssetTypeID::Prefab;
         }
 
-        Common::BoolResultStr Load() override
+        Common::BoolResultStr LoadFromFile() override
         {
             m_Ready = true;
             ++LoadCount;

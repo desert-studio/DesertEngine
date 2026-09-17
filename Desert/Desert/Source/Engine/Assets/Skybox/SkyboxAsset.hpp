@@ -9,7 +9,7 @@ namespace Desert::Assets
     public:
         SkyboxAsset( AssetPriority priority, const Common::Filepath& filepath );
 
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         bool IsReadyForUse() const override

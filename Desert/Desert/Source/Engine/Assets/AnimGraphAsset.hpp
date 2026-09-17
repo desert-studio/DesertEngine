@@ -41,7 +41,7 @@ namespace Desert::Assets
         /// Reads and parses the file. Missing, empty or malformed is an ERROR carrying the reason — never
         /// a quietly substituted empty graph, which would leave a character standing still while its scene
         /// file plainly names a state machine.
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         [[nodiscard]] bool IsReadyForUse() const override

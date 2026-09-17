@@ -1,3 +1,4 @@
+#include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
@@ -98,6 +99,19 @@ namespace Desert::Graphic
 
     [[nodiscard]] Common::BoolResultStr Renderer::BeginFrame()
     {
+        // THE MEMORY READING IS TAKEN HERE, ONCE A FRAME, IN THE SHIPPED PATH.
+        //
+        // Not in a HUD, and not behind a flag: the world programme's §0.4 acceptance criterion is about
+        // the host the player runs, which draws no HUD at all, and a detector that only samples while an
+        // editor panel is open measures the editor. Not in `EndFrame` either — the draw counters made
+        // the same choice for the same reason: a frame that loses the device is never recorded, so work
+        // hung off the end of a frame is skipped exactly when the numbers would have explained
+        // something.
+        //
+        // BEFORE the backend call rather than after, so a frame the backend refuses still contributes
+        // its reading. The refusal is the interesting frame.
+        MemoryWatch::SampleFrame();
+
         return s_RendererAPI->BeginFrame();
     }
 

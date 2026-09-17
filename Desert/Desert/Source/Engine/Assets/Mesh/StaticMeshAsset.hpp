@@ -11,7 +11,7 @@ namespace Desert::Assets
     public:
         StaticMeshAsset( const AssetPriority priority, const Common::Filepath& filepath );
 
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         bool IsSkinned() const override

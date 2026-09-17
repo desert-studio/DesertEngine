@@ -18,7 +18,7 @@ namespace Desert::Assets
         // that constructor.
     }
 
-    Common::BoolResultStr SkinnedMeshAsset::Load()
+    Common::BoolResultStr SkinnedMeshAsset::LoadFromFile()
     {
         const auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
         if ( !raw )

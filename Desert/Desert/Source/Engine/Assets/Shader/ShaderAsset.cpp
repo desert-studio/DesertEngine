@@ -9,7 +9,7 @@ namespace Desert::Assets
     {
     }
 
-    Common::BoolResultStr ShaderAsset::Load()
+    Common::BoolResultStr ShaderAsset::LoadFromFile()
     {
         // A missing .shader file used to "load" as empty content and fail later, inside the
         // compiler, with a message that no longer named the file. Refuse here, with the path.

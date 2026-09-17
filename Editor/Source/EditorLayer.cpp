@@ -1,5 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
 
 #include <functional>
@@ -1046,23 +1048,31 @@ namespace Desert::Editor
                 //
                 // A phase nobody can name is a phase every brief guesses at, and three of this project's
                 // timed investigations went looking in the wrong one.
+                // THE TIMING AND THE LINE COME FROM `Core::BootTimeline` NOW, not from a chrono pair
+                // here — because the shipping runtime needed the same thing and two copies of an
+                // accumulation rule is how the two numbers stop being comparable. The SCHEDULER stays
+                // here: running one stage per frame behind a progress overlay is this layer's own
+                // arrangement and has nothing to do with timing. See Engine/Core/BootTimeline.hpp.
                 const auto stageStart = std::chrono::steady_clock::now();
                 m_StartupStages[m_StartupNext].Run();
-                const auto stageMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                          std::chrono::steady_clock::now() - stageStart )
-                                          .count();
-                m_StartupElapsedMs += stageMs;
+                const double stageMs =
+                     std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - stageStart )
+                          .count();
                 ++m_StartupNext;
-
-                LOG_INFO( "[Startup] stage {}/{} '{}' took {} ms ({} ms into the staged boot)", m_StartupNext,
-                          m_StartupStages.size(), m_StartupStages[m_StartupNext - 1].Label, stageMs,
-                          m_StartupElapsedMs );
+                m_Boot.Record( m_StartupStages[m_StartupNext - 1].Label, stageMs );
 
                 if ( !StartupLoading() )
                 {
-                    LOG_INFO( "[Startup] all {} stage(s) done in {} ms; the editor is now answering about a "
-                              "project it has actually read.",
-                              m_StartupStages.size(), m_StartupElapsedMs );
+                    m_Boot.LogSummary();
+                    LOG_INFO( "[Startup] all {} stage(s) done in {:.1f} ms; the editor is now answering "
+                              "about a project it has actually read.",
+                              m_StartupStages.size(), m_Boot.ElapsedMs() );
+                    // AND THE BOOT IS OVER HERE — not at the first frame, which the loading overlay has
+                    // been presenting for the whole of the staged load. Every synchronous asset load
+                    // after this line reports itself as a hitch. See Engine/Assets/SyncLoadLedger.hpp.
+                    Assets::SyncLoadLedger::NoteBootFinished();
+                    LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
+                    LOG_INFO( "[Memory] boot finished — {}", Graphic::MemoryReadout::Take().Report() );
                 }
             }
             SampleFrameQuiescence();

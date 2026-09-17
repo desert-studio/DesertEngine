@@ -13,7 +13,7 @@ namespace Desert::Assets
     public:
         SkeletonAsset( const AssetPriority priority, const Common::Filepath& filepath );
 
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         // WAS A HARDCODED `return true`, WHICH MADE THIS TYPE UNLOADABLE AND UNLOADED AT ONCE.

@@ -13,7 +13,7 @@ namespace Desert::Assets
     public:
         AnimationAsset( const AssetPriority priority, const Common::Filepath& filepath );
 
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         const Animation::AnimationClip& GetClip() const

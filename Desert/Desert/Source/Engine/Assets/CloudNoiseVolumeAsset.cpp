@@ -15,7 +15,7 @@ namespace Desert::Assets
         // derives it the same way for every asset type. See the comment on that constructor.
     }
 
-    Common::BoolResultStr CloudNoiseVolumeAsset::Load()
+    Common::BoolResultStr CloudNoiseVolumeAsset::LoadFromFile()
     {
         const std::string path = m_Metadata.Filepath.string();
 

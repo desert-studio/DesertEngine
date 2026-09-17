@@ -1,3 +1,5 @@
+#include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RenderPhaseRegistry.hpp>
@@ -78,6 +80,19 @@ namespace Desert::Graphic
         // device memory, the asset layer's CPU copies and the allocator's own slack. A line per load makes
         // the growth attributable to an owner instead of merely visible. See Graphic/ResourceLedger.hpp.
         LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
+
+        // THE OTHER TWO NUMBERS, BESIDE IT, AT THE SAME MOMENT — because the line above was measured
+        // BLIND to the thing that grows. Between the control scene and a 50 179-entity world the ledger
+        // total moved 677 829 bytes (0.15 %) while the process grew 315 MB, and nothing in the log said
+        // so. Printed here rather than somewhere new for the reason this site was chosen in the first
+        // place: scene load is the moment the population changes, and three numbers taken at different
+        // moments cannot be subtracted from each other.
+        LOG_INFO( "[Memory] {}", MemoryReadout::Take().Report() );
+        LOG_INFO( "[Memory] {}", MemoryWatch::Report() );
+        // AND WHAT LOADING THIS SCENE COST IN BLOCKING READS, split by phase. A scene switch during play
+        // is the case this line was written for: the boot's total is expected and large, and an in-frame
+        // count that is not zero after it names a hitch.
+        LOG_INFO( "[SyncLoad] {}", Assets::SyncLoadLedger::Report() );
     }
 
     bool SceneRenderer::EnsureRendererResources()

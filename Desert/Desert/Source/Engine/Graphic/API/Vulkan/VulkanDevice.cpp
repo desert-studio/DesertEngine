@@ -320,6 +320,47 @@ namespace Desert::Graphic::API::Vulkan
             LOG_ERROR( "[Device] vkDeviceWaitIdle failed: {}", VkResultToString( idle ) );
     }
 
+    Engine::DeviceMemoryReport VulkanLogicalDevice::QueryMemory() const
+    {
+        Engine::DeviceMemoryReport report;
+
+        // THE QUERY IS MADE HERE, EVERY CALL, INTO A LOCAL. There is no member holding the last answer,
+        // deliberately: the spec's words for these numbers are "a rough estimate" that is "not
+        // invariant", so a stored copy would be a reading of an instant that has passed, presented with
+        // the authority of a fact. Whatever this costs, it costs less than a wrong budget.
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{};
+        budget.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+
+        VkPhysicalDeviceMemoryProperties2 properties{};
+        properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+        // Chained ONLY when the extension was enabled on this device. Chaining it otherwise is undefined
+        // behaviour whose observed shape is a struct nobody wrote to, i.e. zeros — and zero usage on a
+        // loaded device is the one wrong answer this whole readout exists to stop us believing.
+        properties.pNext = m_MemoryBudgetEnabled ? static_cast<void*>( &budget ) : nullptr;
+
+        vkGetPhysicalDeviceMemoryProperties2( m_PhysicalDevice->GetVulkanPhysicalDevice(), &properties );
+
+        report.BudgetKnown = m_MemoryBudgetEnabled;
+        const uint32_t heaps =
+             std::min( properties.memoryProperties.memoryHeapCount, uint32_t{ VK_MAX_MEMORY_HEAPS } );
+        report.Heaps.reserve( heaps );
+        for ( uint32_t heap = 0; heap < heaps; ++heap )
+        {
+            Engine::DeviceMemoryHeap row;
+            row.Size = properties.memoryProperties.memoryHeaps[heap].size;
+            row.DeviceLocal =
+                 ( properties.memoryProperties.memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT ) != 0;
+            if ( m_MemoryBudgetEnabled )
+            {
+                row.Budget = budget.heapBudget[heap];
+                row.Usage  = budget.heapUsage[heap];
+            }
+            report.Heaps.push_back( row );
+        }
+
+        return report;
+    }
+
     std::string VulkanLogicalDevice::GetName() const
     {
         return m_DeviceName;
@@ -409,6 +450,25 @@ namespace Desert::Graphic::API::Vulkan
             deviceExtensions.push_back( "VK_KHR_portability_subset" );
         }
 #endif
+
+        // VK_EXT_memory_budget — THE ONLY WAY TO ASK THE DRIVER WHAT WE ACTUALLY HOLD.
+        //
+        // Optional, because it is an extension and a device may not have it, and the reading reports
+        // `BudgetKnown = false` in that case rather than zeros. Present on MoltenVK 1.1.357 / Apple M1
+        // Pro (probed on this machine: 130 device extensions, this among them, one 16 GiB heap whose
+        // budget reads 11.84 GiB) and on every Windows driver we target. The instance side it needs,
+        // VK_KHR_get_physical_device_properties2, is already enabled unconditionally in
+        // VulkanContext.cpp — so the only thing missing was this line.
+        if ( m_PhysicalDevice->IsExtensionSupported( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME ) )
+        {
+            deviceExtensions.push_back( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME );
+            m_MemoryBudgetEnabled = true;
+        }
+        else
+        {
+            LOG_WARN( "[Device] VK_EXT_memory_budget is absent; device-memory usage will report as "
+                      "unknown rather than as zero." );
+        }
 
         createInfo.ppEnabledExtensionNames = deviceExtensions.data();
         createInfo.enabledExtensionCount   = (uint32_t)deviceExtensions.size();

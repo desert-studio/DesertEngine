@@ -21,7 +21,7 @@ namespace Desert::Assets
         return m_Metadata.Filepath.generic_string();
     }
 
-    Common::BoolResultStr StringTableAsset::Load()
+    Common::BoolResultStr StringTableAsset::LoadFromFile()
     {
         const std::string path = m_Metadata.Filepath.string();
 

@@ -19,7 +19,7 @@ namespace Desert::Assets
     {
     }
 
-    Common::BoolResultStr CloudLayoutAsset::Load()
+    Common::BoolResultStr CloudLayoutAsset::LoadFromFile()
     {
         const std::string path = m_Metadata.Filepath.string();
 

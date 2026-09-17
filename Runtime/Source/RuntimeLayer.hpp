@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 
@@ -55,6 +56,11 @@ namespace Desert::Player
         std::shared_ptr<Assets::AssetManager> m_AssetManager;
         // BEFORE the preloader, which holds a non-owning reference to it and must therefore not outlive
         // it: members are destroyed in reverse declaration order.
+        // The boot's own record: one named, timed stage per preload, plus the systems and the scene load.
+        // A MEMBER AND NOT A LOCAL IN OnAttach, because the summary is logged after the scene has loaded
+        // and a local would have gone out of scope with the stage list in it.
+        Core::BootTimeline m_Boot{ "Runtime" };
+
         std::unique_ptr<Animation::AnimationLibrary> m_AnimationLibrary;
         std::unique_ptr<Assets::AssetPreloader>      m_AssetPreloader;
         std::unique_ptr<Graphic::SceneRenderer>      m_SceneRenderer;

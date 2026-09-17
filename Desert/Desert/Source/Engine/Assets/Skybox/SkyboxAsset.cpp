@@ -9,7 +9,7 @@ namespace Desert::Assets
     {
     }
 
-    Common::BoolResultStr SkyboxAsset::Load()
+    Common::BoolResultStr SkyboxAsset::LoadFromFile()
     {
         // THE PANORAMA IS NOT READ HERE, and that is by design: EnvironmentManager::Create uploads the
         // .hdr and runs the radiance/irradiance/prefilter bakes on the GPU, so this asset holds nothing

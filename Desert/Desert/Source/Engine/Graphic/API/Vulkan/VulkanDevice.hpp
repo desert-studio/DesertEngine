@@ -107,6 +107,7 @@ namespace Desert::Graphic::API::Vulkan
         // Device interface implementation
         [[nodiscard]] const Engine::DeviceCapabilities& GetCapabilities() const override;
         virtual void                                    WaitIdle() const override;
+        [[nodiscard]] Engine::DeviceMemoryReport        QueryMemory() const override;
         [[nodiscard]] virtual std::string               GetName() const override;
         [[nodiscard]] bool IsFormatSupported( ::Desert::Core::Formats::ImageFormat format,
                                               Engine::FormatUsage                  usage ) const override;
@@ -154,6 +155,12 @@ namespace Desert::Graphic::API::Vulkan
         VkDevice                              m_LogicalDevice;
         VkPipelineCache                       m_PipelineCache = VK_NULL_HANDLE;
         std::string                           m_DeviceName;
+
+        // Whether VK_EXT_memory_budget was ENABLED on this device, not merely supported by it. Chaining
+        // `VkPhysicalDeviceMemoryBudgetPropertiesEXT` into a properties query whose extension the device
+        // was not created with is undefined behaviour that in practice returns silent zeros — which would
+        // be read as "nothing is allocated" by the one reader whose whole purpose is to notice growth.
+        bool m_MemoryBudgetEnabled = false;
 
         VkQueue m_GraphicsQueue;
         VkQueue m_ComputeQueue;

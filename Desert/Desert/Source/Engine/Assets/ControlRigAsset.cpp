@@ -14,7 +14,7 @@ namespace Desert::Assets
         m_DisplayName = m_Metadata.Filepath.stem().string();
     }
 
-    Common::BoolResultStr ControlRigAsset::Load()
+    Common::BoolResultStr ControlRigAsset::LoadFromFile()
     {
         const std::string path = m_Metadata.Filepath.string();
 

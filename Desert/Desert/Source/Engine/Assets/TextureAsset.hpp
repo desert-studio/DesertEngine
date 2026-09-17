@@ -30,7 +30,7 @@ namespace Desert::Assets
 
         explicit TextureAsset( AssetPriority priority, const Common::Filepath& filepath );
 
-        virtual Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
 
         virtual Common::BoolResultStr Unload() override;
 
