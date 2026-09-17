@@ -56,8 +56,8 @@ namespace
 
     std::string ReadAll( const fs::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
-        std::ostringstream buffer;
+        const std::ifstream in( path, std::ios::binary );
+        std::ostringstream  buffer;
         buffer << in.rdbuf();
         return buffer.str();
     }
