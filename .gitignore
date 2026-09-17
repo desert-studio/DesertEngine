@@ -263,3 +263,22 @@ compile_commands.json.partial.*
 # were committed by a `git add` in the root on 2026-09-06 and found on 2026-09-15; nothing referenced
 # them. The pattern is here so that the next stray report is not committed the same way.
 nuclei-*.txt
+
+# --- Generated worlds (Tools/WorldGen) ---------------------------------------------------------------
+# The programme's world-scale measuring stick (Docs/World/PROGRAMME.md §1) is 12 MB of JSON and 50 179
+# entities, and Tools/WorldGen reproduces it BYTE FOR BYTE in 2.4 seconds from a two-word command:
+#
+#     build/Bin/Debug/WorldGen --preset world --out Worlds/World_Grid8km.desce --verify
+#
+# So the GENERATOR is the source and the scene is not. Committing the file would add 12 MB to a packed
+# history that has already blown a CI checkout timeout once, to store something a test asserts can be
+# recreated exactly (Desert/Tests/Tools/WorldSceneGenerator).
+#
+# AND THIS IS WHY IT IS NOT UNDER Editor/Resources/Assets/Scenes/, WHICH IS MEASURED AND NOT ASSUMED.
+# Twenty-one suites name that tree, a directory iterator and ".desce" in one file. With this one file dropped into it: SceneVersionGate
+# went 1.35 s -> 4.91 s and SceneForeignKeys went 19.2 s -> more than ten minutes, on the same machine
+# and the same binaries. A measuring stick that costs the whole test sweep an hour is not free, and the
+# scenes directory is a place where "one more file" is a cost everybody else pays. The file opens by
+# path (`--scene ../Worlds/World_Grid8km.desce`), which is how every headless capture names a scene
+# anyway; what it loses is a row in the Content Browser.
+Worlds/
