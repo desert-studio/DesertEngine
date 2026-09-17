@@ -21,6 +21,7 @@
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/DrawCounters.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -45,6 +46,13 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError( "the device is lost; no frame can be recorded. See the [DeviceLost] "
                                       "line above for the cause." );
         }
+
+        // ROLLED HERE AND NOT IN EndFrame, and the difference is observable. A lost device returns above
+        // without recording anything, so rolling in EndFrame would either be skipped — leaving the last
+        // GOOD frame's count standing as if it were the failed one's — or would zero the very number that
+        // explains the failure. Rolling at the top means the readable count always belongs to the last
+        // frame that actually recorded.
+        DrawCounter::Roll();
 
         auto window = m_Window.lock();
         if ( !window )
@@ -380,13 +388,12 @@ namespace Desert::Graphic::API::Vulkan
                     continue;
                 }
 
-                vkCmdDrawIndexed( m_CurrentCommandBuffer, drawCount, instanceCount, drawOffset,
-                                  (int32_t)submesh.VertexOffset, firstInstance );
+                DrawIndexedCounted( drawCount, instanceCount, drawOffset,
+                                    (int32_t)submesh.VertexOffset, firstInstance );
             }
             else
             {
-                vkCmdDraw( m_CurrentCommandBuffer, submesh.VertexCount, instanceCount, submesh.VertexOffset,
-                           firstInstance );
+                DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
             }
         }
     }
@@ -428,7 +435,7 @@ namespace Desert::Graphic::API::Vulkan
                                 pcBuffer.Data );
         }
 
-        vkCmdDraw( m_CurrentCommandBuffer, 6, 1, 0, 0 );
+        DrawCounted( 6, 1, 0, 0 );
     }
 
     void VulkanRendererAPI::SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
@@ -488,7 +495,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // Vertices are addressed absolutely (the batcher bakes base offsets into the indices), so the
         // vertex offset stays 0 and only firstIndex selects this batch's slice of the shared buffer.
-        vkCmdDrawIndexed( m_CurrentCommandBuffer, indexCount, 1, firstIndex, 0, 0 );
+        DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
     }
 
     void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount,
@@ -522,7 +529,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // Vertexless: the DebugLine vertex shader pulls each endpoint from the Lines storage buffer by
         // gl_VertexIndex. Lines topology -> every 2 vertices form one segment.
-        vkCmdDraw( m_CurrentCommandBuffer, vertexCount, 1, 0, 0 );
+        DrawCounted( vertexCount, 1, 0, 0 );
     }
 
     void VulkanRendererAPI::SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
@@ -568,7 +575,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // Vertexless: the vertex shader synthesizes geometry from gl_VertexIndex. For a patch-list
         // (tessellation) pipeline, vertexCount = patchCount * PatchControlPoints.
-        vkCmdDraw( m_CurrentCommandBuffer, vertexCount, 1, 0, 0 );
+        DrawCounted( vertexCount, 1, 0, 0 );
     }
 
     void VulkanRendererAPI::DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,
@@ -799,6 +806,26 @@ namespace Desert::Graphic::API::Vulkan
         }
         vkCmdClearAttachments( m_CurrentCommandBuffer, attachmentCount, attachments.data(), attachmentCount,
                                clearRects.data() );
+    }
+
+    // ── ОДНА ВОРОНКА НА ВСЕ ОТРИСОВКИ (см. довод в заголовке) ────────────────────────────────────────
+    //
+    // Счёт идёт ДО вызова: если драйвер упадёт на этом вызове, число уже названо, и последний кадр
+    // скажет, сколько успел. Обратный порядок терял бы ровно тот кадр, который надо объяснить.
+    void VulkanRendererAPI::DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount,
+                                                uint32_t firstIndex, int32_t vertexOffset,
+                                                uint32_t firstInstance )
+    {
+        DrawCounter::Record( instanceCount );
+        vkCmdDrawIndexed( m_CurrentCommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset,
+                          firstInstance );
+    }
+
+    void VulkanRendererAPI::DrawCounted( uint32_t vertexCount, uint32_t instanceCount,
+                                         uint32_t firstVertex, uint32_t firstInstance )
+    {
+        DrawCounter::Record( instanceCount );
+        vkCmdDraw( m_CurrentCommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance );
     }
 
 } // namespace Desert::Graphic::API::Vulkan

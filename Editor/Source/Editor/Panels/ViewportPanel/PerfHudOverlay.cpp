@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <vector>
+#include <Engine/Graphic/DrawCounters.hpp>
 
 namespace Desert::Editor
 {
@@ -40,7 +41,10 @@ namespace Desert::Editor
         constexpr float kWidth  = 240.0f;
         constexpr float kGraphH = 42.0f;
         const float     lineH   = ImGui::GetTextLineHeightWithSpacing();
-        const float     height  = kPad * 2.0f + lineH /*fps*/ + kGraphH + 4.0f + scopeRows * lineH;
+        // +lineH для строки отрисовок: рамка считается по тому, ЧТО рисуется, иначе новая строка
+        // вылезает за подложку — и это видно только на кадре, чего ни один тест не скажет.
+        const float     height =
+             kPad * 2.0f + lineH /*fps*/ + kGraphH + 4.0f + lineH /*draws*/ + scopeRows * lineH;
 
         const ImVec2 p0( viewportMax.x - kWidth - 12.0f, viewportMin.y + 12.0f );
         const ImVec2 p1( p0.x + kWidth, p0.y + height );
@@ -77,8 +81,28 @@ namespace Desert::Editor
         const float refY = g1.y - std::clamp( 16.7f / scaleMs, 0.0f, 1.0f ) * ( g1.y - g0.y );
         dl->AddLine( ImVec2( g0.x, refY ), ImVec2( g1.x, refY ), IM_COL32( 120, 230, 120, 60 ) );
 
-        // Top scopes.
+        // DRAW CALLS, and this line is the point of the counter rather than a decoration. The
+        // world-scale scene (50 179 entities) could name its entity count, its file size, its load time
+        // and its resident set — and could name NEITHER a frame time nor a draw call, because nothing
+        // counted them. `Docs/World/PROGRAMME.md` step 2: the programme is measured against detectors,
+        // and this is the number that tells "we draw everything" apart from "we draw too much".
+        //
+        // Instances are shown BESIDE draws, never instead of them: an ISM batch is one draw and many
+        // instances, so a single figure would report the batch as either one object or as thousands of
+        // calls — and step 3 (culling) is judged on exactly that difference.
         float y = g1.y + 4.0f;
+        {
+            const Graphic::DrawCounters draws = Graphic::DrawCounter::LastFrame();
+            char                        row[96];
+            std::snprintf( row, sizeof( row ), "%-18.18s %6u", "draws / instances", draws.Draws );
+            dl->AddText( ImVec2( p0.x + kPad, y ), IM_COL32( 190, 200, 235, 255 ), row );
+            char tail[32];
+            std::snprintf( tail, sizeof( tail ), " / %u", draws.Instances );
+            dl->AddText( ImVec2( p0.x + kPad + 160.0f, y ), IM_COL32( 150, 160, 190, 255 ), tail );
+            y += lineH;
+        }
+
+        // Top scopes.
         for ( int i = 0; i < scopeRows; ++i )
         {
             char row[96];

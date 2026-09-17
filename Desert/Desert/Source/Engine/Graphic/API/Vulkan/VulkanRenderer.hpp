@@ -76,6 +76,21 @@ namespace Desert::Graphic::API::Vulkan
         // single-writer half.)
 
     private:
+        // EVERY DRAW IN THIS FILE GOES THROUGH THESE TWO, AND THAT IS ASSERTED RATHER THAN INTENDED.
+        //
+        // Six submit paths reach a `vkCmdDraw*`. A counter incremented at six call sites is a counter that
+        // will be right at five of them — and nothing in a frame reveals a draw that was not counted, which
+        // is exactly the kind of instrument this project keeps finding answers a different question than the
+        // one asked. So the vk calls are wrapped, and `Desert/Tests/Engine/DrawCounterFunnel` asserts over
+        // the SOURCE TEXT that `vkCmdDraw` and `vkCmdDrawIndexed` appear nowhere else in it.
+        //
+        // Why here and not in a render pass: an ISM batch is ONE draw with many instances, and only the
+        // recording site knows the instance count. Counting passes would report the batch as one of each.
+        void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
+                                 int32_t vertexOffset, uint32_t firstInstance );
+        void DrawCounted( uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
+                          uint32_t firstInstance );
+
         void SetViewportAndScissor( const uint32_t width, const uint32_t height );
         void ClearAttachments( const std::vector<VkClearValue>&    clearValues,
                                const std::shared_ptr<Framebuffer>& framebuffer );
