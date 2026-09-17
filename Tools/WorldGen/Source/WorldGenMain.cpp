@@ -131,7 +131,9 @@ namespace Desert::WorldGen
         std::string        assetsRoot = "Editor/Resources/Assets";
         std::string        presetKey  = "world";
         std::string        nameOverride;
-        std::optional<int> cells, perCell, cellSize;
+        std::optional<int> cells;
+        std::optional<int> perCell;
+        std::optional<int> cellSize;
         std::optional<int> seed;
         bool               verify = false;
 

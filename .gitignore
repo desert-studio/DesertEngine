@@ -275,7 +275,7 @@ nuclei-*.txt
 # recreated exactly (Desert/Tests/Tools/WorldSceneGenerator).
 #
 # AND THIS IS WHY IT IS NOT UNDER Editor/Resources/Assets/Scenes/, WHICH IS MEASURED AND NOT ASSUMED.
-# Nineteen suites walk that tree on every sweep. With this one file dropped into it: SceneVersionGate
+# Twenty-one suites name that tree, a directory iterator and ".desce" in one file. With this one file dropped into it: SceneVersionGate
 # went 1.35 s -> 4.91 s and SceneForeignKeys went 19.2 s -> more than ten minutes, on the same machine
 # and the same binaries. A measuring stick that costs the whole test sweep an hour is not free, and the
 # scenes directory is a place where "one more file" is a cost everybody else pays. The file opens by

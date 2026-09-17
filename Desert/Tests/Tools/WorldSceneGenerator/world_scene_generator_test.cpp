@@ -83,7 +83,8 @@ namespace
 
     std::string ReadAll( const std::filesystem::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
+        const std::ifstream in( path, std::ios::binary );
+        // .rdbuf() is const on the stream itself; the buffer it hands back is what is read from.
         std::ostringstream buffer;
         buffer << in.rdbuf();
         return buffer.str();
@@ -137,7 +138,8 @@ namespace
 // the engine, and nobody could tell which.
 TEST( WorldSceneGenerator, TheSameSpecGeneratedTwiceIsTheSameFile )
 {
-    std::string first, second;
+    std::string first;
+    std::string second;
     ASSERT_EQ( GenerateSmoke( Scratch() / "twice_a.desce", first ), 0 ) << first;
     ASSERT_EQ( GenerateSmoke( Scratch() / "twice_b.desce", second ), 0 ) << second;
 
@@ -163,7 +165,9 @@ TEST( WorldSceneGenerator, TheToolsOwnVerifyFlagPassesAndStillWritesTheFile )
 // works. A different seed must produce a different world.
 TEST( WorldSceneGenerator, ADifferentSeedIsADifferentWorldAndTheSameSeedIsNot )
 {
-    std::string one, two, oneAgain;
+    std::string one;
+    std::string two;
+    std::string oneAgain;
     ASSERT_EQ( GenerateSmoke( Scratch() / "seed1.desce", one, { "--seed", "1" } ), 0 ) << one;
     ASSERT_EQ( GenerateSmoke( Scratch() / "seed2.desce", two, { "--seed", "2" } ), 0 ) << two;
     ASSERT_EQ( GenerateSmoke( Scratch() / "seed1b.desce", oneAgain, { "--seed", "1" } ), 0 ) << oneAgain;
@@ -182,7 +186,8 @@ TEST( WorldSceneGenerator, ADifferentSeedIsADifferentWorldAndTheSameSeedIsNot )
 // a 32-cell one. Growing the world regenerated all of it.
 TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
 {
-    std::string small, large;
+    std::string small;
+    std::string large;
     ASSERT_EQ( GenerateSmoke( Scratch() / "grow_2.desce", small, { "--cells", "2" } ), 0 ) << small;
     ASSERT_EQ( GenerateSmoke( Scratch() / "grow_4.desce", large, { "--cells", "4" } ), 0 ) << large;
 
@@ -208,8 +213,11 @@ TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
         return found;
     };
 
-    const auto fromSmall = payloads( *smallScene, "C01_01_" );
-    const auto fromLarge = payloads( *largeScene, "C02_02_" );
+    if ( !smallScene.has_value() || !largeScene.has_value() )
+        FAIL() << "a generated world did not parse back";
+
+    const auto fromSmall = payloads( smallScene.value(), "C01_01_" );
+    const auto fromLarge = payloads( largeScene.value(), "C02_02_" );
     ASSERT_FALSE( fromSmall.empty() );
     EXPECT_EQ( fromSmall, fromLarge );
 }
@@ -240,13 +248,24 @@ TEST( WorldSceneGenerator, TheShippedPresetIsTheWorldTheProgrammeArguedFor )
 
     // The extent, read off the ground tiles rather than trusted: the outermost tile centre is half a cell
     // in from the edge, so the world spans 32 cells of 256 m = 8192 m.
-    float minX = 0.0f, maxX = 0.0f;
+    float minX = 0.0f;
+    float maxX = 0.0f;
     for ( const auto& entity : scene->Entities )
-        if ( entity.Tag.has_value() && entity.Tag->find( "_Ground" ) != std::string::npos )
+    {
+        // A record with no Tag or no Translation is not skipped quietly - EVERY record this generator
+        // writes states both, so one that does not is a defect in the generator and not a row to pass
+        // over. (The explicit has_value() guards are also what make the reads below provably safe to
+        // clang-tidy's optional dataflow, which does not follow gtest's ASSERT_ macros.)
+        if ( !entity.Tag.has_value() || !entity.Translation.has_value() )
         {
-            minX = std::min( minX, entity.Translation->x );
-            maxX = std::max( maxX, entity.Translation->x );
+            ADD_FAILURE() << "a record states no Tag or no Translation";
+            continue;
         }
+        if ( entity.Tag.value().find( "_Ground" ) == std::string::npos )
+            continue;
+        minX = std::min( minX, entity.Translation.value().x );
+        maxX = std::max( maxX, entity.Translation.value().x );
+    }
     EXPECT_FLOAT_EQ( maxX - minX, 31.0f * 25600.0f ); // 31 gaps between 32 tile centres
     EXPECT_FLOAT_EQ( ( maxX - minX ) + 25600.0f, 819200.0f ) << "8192 m, 1 unit = 1 cm";
 }
@@ -275,19 +294,27 @@ TEST( WorldSceneGenerator, EveryObjectSITSInTheCellItsNameClaims )
         if ( !entity.Tag.has_value() )
             continue;
         const std::string& tag = *entity.Tag;
-        if ( tag.size() < 7 || tag[0] != 'C' || !std::isdigit( tag[1] ) || !std::isdigit( tag[2] ) ||
-             tag[3] != '_' || !std::isdigit( tag[4] ) || !std::isdigit( tag[5] ) || tag[6] != '_' )
+        // std::isdigit takes an int and answers an int, and a char is signed here - so the cast in and
+        // the comparison out are both deliberate rather than noise.
+        const auto digit = []( char c ) { return std::isdigit( static_cast<unsigned char>( c ) ) != 0; };
+        if ( tag.size() < 7 || tag[0] != 'C' || !digit( tag[1] ) || !digit( tag[2] ) || tag[3] != '_' ||
+             !digit( tag[4] ) || !digit( tag[5] ) || tag[6] != '_' )
             continue;
+        if ( !entity.Translation.has_value() )
+        {
+            ADD_FAILURE() << tag << " states no Translation";
+            continue;
+        }
         const int cx = std::stoi( tag.substr( 1, 2 ) );
         const int cz = std::stoi( tag.substr( 4, 2 ) );
 
         const float originX = static_cast<float>( cx - kHalf ) * kCell;
         const float originZ = static_cast<float>( cz - kHalf ) * kCell;
 
-        EXPECT_GE( entity.Translation->x, originX ) << tag;
-        EXPECT_LE( entity.Translation->x, originX + kCell ) << tag;
-        EXPECT_GE( entity.Translation->z, originZ ) << tag;
-        EXPECT_LE( entity.Translation->z, originZ + kCell ) << tag;
+        EXPECT_GE( entity.Translation.value().x, originX ) << tag;
+        EXPECT_LE( entity.Translation.value().x, originX + kCell ) << tag;
+        EXPECT_GE( entity.Translation.value().z, originZ ) << tag;
+        EXPECT_LE( entity.Translation.value().z, originZ + kCell ) << tag;
         ++checked;
     }
     EXPECT_EQ( checked, 4 * 4 * ( 6 + 1 ) ) << "the sweep found a different world than it generated";
@@ -309,9 +336,14 @@ TEST( WorldSceneGenerator, EveryBuildingsBaseSitsOnTheGroundPlane )
     {
         if ( !entity.Tag.has_value() || entity.Tag->find( "_B" ) == std::string::npos )
             continue;
+        if ( !entity.Translation.has_value() || !entity.Scale.has_value() )
+        {
+            ADD_FAILURE() << *entity.Tag << " states no transform";
+            continue;
+        }
         // A primitive cube is 100 cm on a side, so the box's height is Scale.y * 100 and its base is
         // Translation.y - height/2.
-        const float base = entity.Translation->y - entity.Scale->y * 100.0f / 2.0f;
+        const float base = entity.Translation.value().y - entity.Scale.value().y * 100.0f / 2.0f;
         EXPECT_FLOAT_EQ( base, 0.0f ) << *entity.Tag;
         ++standing;
     }
@@ -342,10 +374,16 @@ TEST( WorldSceneGenerator, TheGeneratedSceneStatesBothVersionIntegersExplicitly 
 
     const auto parsed = rfl::json::read<SceneSerialized>( bytes );
     ASSERT_TRUE( parsed.has_value() );
-    ASSERT_TRUE( parsed->SceneVersion.has_value() );
-    ASSERT_TRUE( parsed->UnitVersion.has_value() );
-    EXPECT_EQ( *parsed->SceneVersion, kSceneVersion );
-    EXPECT_EQ( *parsed->UnitVersion, kUnitVersion );
+
+    // Bound once, then guarded once. Reaching through the Result on every line gives the reader - and
+    // the analyser - a fresh expression each time, so neither can tell that the check two lines up was
+    // about the same value.
+    const SceneSerialized& scene = parsed.value();
+    ASSERT_TRUE( scene.SceneVersion.has_value() )
+         << "an absent version integer reads as version 0, and the loader refuses the file";
+    ASSERT_TRUE( scene.UnitVersion.has_value() );
+    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
+    EXPECT_EQ( scene.UnitVersion.value_or( 0 ), kUnitVersion );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -509,9 +547,10 @@ TEST( WorldSceneGenerator, RefusalsAreNamedAndNothingIsWritten )
 
     // An assets root with no materials in it: the generator must say so rather than write a world whose
     // every object names a material that is not there.
-    std::vector<std::string> args{ "--out",    out.string(), "--assets", "/nonexistent-assets-root",
-                                   "--preset", "smoke" };
-    std::ostringstream       reported, refused;
+    const std::vector<std::string> args{ "--out",    out.string(), "--assets", "/nonexistent-assets-root",
+                                         "--preset", "smoke" };
+    std::ostringstream             reported;
+    std::ostringstream             refused;
     EXPECT_NE( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 );
     EXPECT_NE( refused.str().find( "CB_White" ), std::string::npos ) << refused.str();
     EXPECT_FALSE( std::filesystem::exists( out ) );

@@ -60,7 +60,7 @@ namespace Desert::WorldGen
 
         rfl::Generic Num( double v )
         {
-            return rfl::Generic( v );
+            return { v };
         }
 
         Assets::EntityData MakeEntity( uint64_t id, std::string tag, glm::vec3 translation, glm::vec3 rotation,
@@ -179,10 +179,15 @@ namespace Desert::WorldGen
                 // has to be a thing that can be present or absent on its own - that is what step 8 streams
                 // and what step 6 packs, and a single world-sized slab would be resident always.
                 {
+                    // Whole centimetres first, float second. The tile centre is an integer by
+                    // construction, and halving inside the cast is an integer division that merely LOOKS
+                    // like it produces the float it is assigned to.
+                    const int centreX = originX + spec.CellSizeCm / 2;
+                    const int centreZ = originZ + spec.CellSizeCm / 2;
+
                     auto ground =
                          MakeEntity( nextId++, std::string( cellTag ) + "_Ground",
-                                     { static_cast<float>( originX + spec.CellSizeCm / 2 ), -25.0f,
-                                       static_cast<float>( originZ + spec.CellSizeCm / 2 ) },
+                                     { static_cast<float>( centreX ), -25.0f, static_cast<float>( centreZ ) },
                                      { 0.0f, 0.0f, 0.0f }, BoxScale( spec.CellSizeCm, 50, spec.CellSizeCm ) );
 
                     Assets::StaticMeshComponentSer mesh;
