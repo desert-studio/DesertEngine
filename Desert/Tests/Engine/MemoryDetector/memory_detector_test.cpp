@@ -244,8 +244,10 @@ TEST_F( WatchFixture, ThePeakSurvivesAFALLINGReading )
 
     const std::string text = MemoryWatch::Report();
     EXPECT_NE( text.find( "grew" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( "300.3 MB" ), std::string::npos )
-         << "the growth line should carry the 314 MB difference: " << text;
+    // PINNED ON THE EXACT BYTE COUNT, not the rounded megabytes: the rounding is presentation and the
+    // difference is the measurement. 734 600 000 - 419 500 000 = 315 100 000, which is the 315 MB this
+    // whole detector was built because nothing reported.
+    EXPECT_NE( text.find( "grew 315100000 B" ), std::string::npos ) << text;
 }
 
 TEST_F( WatchFixture, ADeviceThatNeverAnsweredIsReportedAsUnknownAndNotAsZeroGrowth )
@@ -326,20 +328,28 @@ TEST( MemoryDetectorCensus, TheShippedFramePathTakesAReadingEveryFrame )
          ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/Renderer.cpp" ) );
     ASSERT_FALSE( renderer.empty() );
 
-    const std::size_t begin  = renderer.find( "Renderer::BeginFrame" );
-    const std::size_t sample = renderer.find( "MemoryWatch::SampleFrame" );
+    // BOUNDED BY THE FUNCTION'S OWN TWO LANDMARKS rather than by where `Renderer::EndFrame` happens to
+    // sit in the file. The first spelling of this assertion compared against `EndFrame`'s position and
+    // failed on a tree where `EndFrame` is DEFINED ABOVE `BeginFrame` — a green-looking rule that was
+    // measuring the order of definitions, which nothing depends on.
+    const std::size_t begin    = renderer.find( "Renderer::BeginFrame" );
+    const std::size_t delegate = renderer.find( "s_RendererAPI->BeginFrame()" );
+    const std::size_t sample   = renderer.find( "MemoryWatch::SampleFrame" );
     ASSERT_NE( begin, std::string::npos );
+    ASSERT_NE( delegate, std::string::npos ) << "Renderer::BeginFrame no longer calls the backend";
     ASSERT_NE( sample, std::string::npos ) << "no frame path samples the memory watch";
-    EXPECT_GT( sample, begin ) << "the sample is not inside BeginFrame";
-
-    const std::size_t endFrame = renderer.find( "Renderer::EndFrame" );
-    if ( endFrame != std::string::npos )
-    {
-        EXPECT_LT( sample, endFrame ) << "the sample moved out of BeginFrame and into EndFrame, where a "
-                                         "frame that loses the device never reaches it";
-    }
+    EXPECT_GT( sample, begin ) << "the sample sits above Renderer::BeginFrame, i.e. outside it";
+    EXPECT_LT( sample, delegate )
+         << "the sample is after the backend call, so a frame the backend refuses never contributes its "
+            "reading — and the refused frame is the interesting one";
 
     // A FRESH READING, not a stored one handed back in: the call site is what says so.
     EXPECT_NE( renderer.find( "MemoryWatch::SampleFrame( MemoryReadout::Take() )" ), std::string::npos )
          << "the frame path no longer takes a fresh reading at the call site";
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

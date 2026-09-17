@@ -89,7 +89,14 @@ namespace Desert::Assets
         /// name.
         [[nodiscard]] static uint64_t InFrameLoads();
         [[nodiscard]] static double   InFrameMs();
-        /// The single slowest load seen, and what it was. For the line that says which file to look at.
+        /// The single slowest load seen BY ITS OWN TIME, and what it was. For the line that says which
+        /// file to go and open.
+        ///
+        /// SELF TIME, NOT WALL TIME, and the first version of this got it wrong: a prefab that loads six
+        /// meshes always outlasts each of them, so a wall-clock ranking names the container every time
+        /// and the file that actually spent the milliseconds never appears. Exclusive time — the scope's
+        /// own duration minus everything its children spent — is what a profiler reports for exactly
+        /// this reason, and the suite that caught the mistake asserts the inner file wins.
         [[nodiscard]] static double      SlowestMs();
         [[nodiscard]] static std::string SlowestPath();
 
@@ -100,7 +107,7 @@ namespace Desert::Assets
 
     private:
         friend class LoadTimingScope;
-        static void Record( const std::string& path, double ms, bool outermost );
+        static void Record( const std::string& path, double totalMs, double selfMs, bool outermost );
     };
 
     /**
@@ -124,8 +131,13 @@ namespace Desert::Assets
 
     private:
         std::string m_Path;
-        int64_t     m_StartNs  = 0;
-        bool        m_Outermost = false;
+        int64_t     m_StartNs = 0;
+        /// Nanoseconds this scope's CHILDREN spent, added by each of them as it closes. Subtracting it
+        /// is what turns wall time into self time; kept on the parent rather than in a side table
+        /// because the parent is the only object that is certainly alive for the whole of a child.
+        int64_t          m_ChildNs   = 0;
+        LoadTimingScope* m_Parent    = nullptr;
+        bool             m_Outermost = false;
     };
 
 } // namespace Desert::Assets

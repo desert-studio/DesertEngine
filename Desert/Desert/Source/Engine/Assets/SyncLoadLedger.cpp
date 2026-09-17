@@ -26,6 +26,16 @@ namespace Desert::Assets
             return depth;
         }
 
+        /// The innermost open scope on THIS thread, so a closing scope can hand its duration to its
+        /// parent. Thread-local for the same reason the depth is: the preloader runs staged work and hot
+        /// reload runs off the watcher, and a shared pointer here would let one thread's load be
+        /// subtracted from another thread's.
+        LoadTimingScope*& OpenScope()
+        {
+            static thread_local LoadTimingScope* open = nullptr;
+            return open;
+        }
+
         std::mutex& TotalsLock()
         {
             static std::mutex lock;
@@ -111,7 +121,8 @@ namespace Desert::Assets
         return g_SlowestPath;
     }
 
-    void SyncLoadLedger::Record( const std::string& path, const double ms, const bool outermost )
+    void SyncLoadLedger::Record( const std::string& path, const double totalMs, const double selfMs,
+                                 const bool outermost )
     {
         g_Loads.fetch_add( 1, std::memory_order_relaxed );
 
@@ -125,16 +136,16 @@ namespace Desert::Assets
             std::lock_guard<std::mutex> guard( TotalsLock() );
             if ( outermost )
             {
-                g_TotalMs += ms;
+                g_TotalMs += totalMs;
                 if ( inFrame )
-                    g_InFrameMs += ms;
+                    g_InFrameMs += totalMs;
             }
-            // The slowest is tracked at EVERY depth, not only the outermost: the outermost scope of a
-            // prefab that loads six meshes is attributed to the prefab, and the file worth looking at is
-            // one of the six.
-            if ( ms > g_SlowestMs )
+            // RANKED BY SELF TIME, AT EVERY DEPTH. Wall time would name the outermost scope every time
+            // — a prefab always outlasts the meshes it loads — and send every investigation to the
+            // container instead of to the file that spent the milliseconds.
+            if ( selfMs > g_SlowestMs )
             {
-                g_SlowestMs   = ms;
+                g_SlowestMs   = selfMs;
                 g_SlowestPath = path;
             }
         }
@@ -150,7 +161,7 @@ namespace Desert::Assets
             LOG_WARN( "[SyncLoad] IN A FRAME: '{}' blocked for {} (load #{} in-frame). A load after the "
                       "first frame is a hitch the player feels — it belongs in the preload or behind a "
                       "streamer.",
-                      path, Ms( ms ), g_InFrameLoads.load( std::memory_order_relaxed ) );
+                      path, Ms( totalMs ), g_InFrameLoads.load( std::memory_order_relaxed ) );
         }
         else if ( logged == kInFrameLogCap )
         {
@@ -180,7 +191,8 @@ namespace Desert::Assets
         }
         if ( loads > 0 )
         {
-            text += "\n  slowest single load: " + Ms( g_SlowestMs ) + " — '" + g_SlowestPath + "'";
+            text += "\n  slowest single load by its OWN time: " + Ms( g_SlowestMs ) + " — '" +
+                    g_SlowestPath + "'";
         }
         return text;
     }
@@ -196,21 +208,31 @@ namespace Desert::Assets
         g_InFrameMs = 0.0;
         g_SlowestMs = 0.0;
         g_SlowestPath.clear();
-        Depth() = 0;
+        Depth()     = 0;
+        OpenScope() = nullptr;
     }
 
     LoadTimingScope::LoadTimingScope( std::string path ) : m_Path( std::move( path ) )
     {
         m_Outermost = Depth() == 0;
+        m_Parent    = OpenScope();
+        OpenScope() = this;
         ++Depth();
         m_StartNs = NowNs();
     }
 
     LoadTimingScope::~LoadTimingScope()
     {
-        const double ms = NowMs( NowNs() - m_StartNs );
+        const int64_t totalNs = NowNs() - m_StartNs;
         --Depth();
-        SyncLoadLedger::Record( m_Path, ms, m_Outermost );
+        OpenScope() = m_Parent;
+        // Handed UP before this scope's own row is written, so a parent that closes later already knows
+        // what its children cost. `m_ChildNs` is only ever touched by the thread that owns the stack.
+        if ( m_Parent != nullptr )
+        {
+            m_Parent->m_ChildNs += totalNs;
+        }
+        SyncLoadLedger::Record( m_Path, NowMs( totalNs ), NowMs( totalNs - m_ChildNs ), m_Outermost );
     }
 
 } // namespace Desert::Assets

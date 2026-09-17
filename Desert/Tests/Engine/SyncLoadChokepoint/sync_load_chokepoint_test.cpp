@@ -167,10 +167,13 @@ TEST_F( LedgerFixture, TheSlowestIsTrackedAtEVERYDepthBecauseTheFileWorthOpening
             Work( 25 );
         }
     }
-    // The outer scope is longer in wall clock, but the file a reader should go and look at is the one
-    // that spent the time. Attributing the slowest to the container would send every investigation to
-    // the prefab.
+    // THE OUTER SCOPE IS LONGER IN WALL CLOCK AND MUST STILL LOSE. This assertion failed on the first
+    // implementation, which ranked by wall time: the prefab won, as a container always does, and the
+    // file that spent the 25 ms was never named. Ranking by SELF time — duration minus what the
+    // children spent — is the fix, and it is why `LoadTimingScope` carries a parent pointer at all.
     EXPECT_EQ( SyncLoadLedger::SlowestPath(), "huge.stmesh" ) << SyncLoadLedger::Report();
+    // And the self time it was ranked on is the inner scope's own, not the outer's.
+    EXPECT_GE( SyncLoadLedger::SlowestMs(), 20.0 );
 }
 
 TEST_F( LedgerFixture, ALoadAfterTheBootIsCountedSeparatelyAndTheBootTotalIsNotContaminated )
@@ -297,31 +300,58 @@ TEST( SyncLoadChokepointCensus, NoAssetTypeDeclaresItsOwnLoad )
     }();
 }
 
-TEST( SyncLoadChokepointCensus, EveryAssetSubclassImplementsTheTimedHalf )
+TEST( SyncLoadChokepointCensus, EveryConcreteAssetTypeImplementsTheTimedHalf )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // DERIVED, NOT PINNED TO A COUNT. `Docs` records why: a gate pinning a NUMBER is satisfied by
-    // editing the number. The set of types is whatever inherits AssetBase in the tree today, and each
-    // one of them has to name the function the chokepoint calls.
+    // DERIVED, NOT PINNED TO A COUNT. A gate that pins a NUMBER is satisfied by editing the number; the
+    // set of types is whatever inherits AssetBase in the tree today, and each of them has to name the
+    // function the chokepoint calls.
+    //
+    // WITH ONE EXEMPTION THE FIRST VERSION OF THIS TEST DID NOT HAVE, AND IT CAUGHT IT: `MeshAsset` and
+    // `MaterialAsset` inherit AssetBase and correctly declare NOTHING — they are intermediate abstract
+    // bases (`StaticMeshAsset`, `SkinnedMeshAsset` and `SurfaceMaterialAsset` derive from them and do
+    // the reading). Demanding a `LoadFromFile` from them would have forced a body that cannot exist.
+    // The exemption is DERIVED too: a type is intermediate when another asset header names it as a
+    // base, so a real type that stopped implementing the function is not exempted by accident.
     std::vector<std::string> subclasses;
     std::vector<std::string> missing;
-    for ( const fs::path& header : AssetHeaders( root ) )
+    std::vector<std::string> allText;
+    std::vector<fs::path>    headers = AssetHeaders( root );
+    for ( const fs::path& header : headers )
+        allText.push_back( Desert::Tests::ConsumerText::StripComments( ReadAll( header ) ) );
+
+    for ( std::size_t i = 0; i < headers.size(); ++i )
     {
-        const std::string text = Desert::Tests::ConsumerText::StripComments( ReadAll( header ) );
+        const std::string& text = allText[i];
         if ( !DeclaresAnAssetSubclass( text ) )
             continue;
-        subclasses.push_back( header.filename().string() );
-        if ( text.find( "LoadFromFile" ) == std::string::npos )
-            missing.push_back( header.filename().string() );
+        const std::string name = headers[i].stem().string();
+        subclasses.push_back( name );
+        if ( text.find( "LoadFromFile" ) != std::string::npos )
+            continue;
+
+        const std::regex derivesFromIt( R"(:\s*public\s+)" + name + R"(\b)" );
+        bool             isABaseForSomebody = false;
+        for ( std::size_t j = 0; j < headers.size(); ++j )
+        {
+            if ( j != i && std::regex_search( allText[j], derivesFromIt ) )
+            {
+                isABaseForSomebody = true;
+                break;
+            }
+        }
+        if ( !isABaseForSomebody )
+            missing.push_back( name );
     }
 
     EXPECT_GE( subclasses.size(), 10u )
          << "the scan found only " << subclasses.size()
          << " AssetBase subclasses, which means the scan broke rather than that the tree shrank";
     EXPECT_TRUE( missing.empty() ) << [&] {
-        std::string message = "these AssetBase subclasses never name LoadFromFile:";
+        std::string message =
+             "these concrete AssetBase subclasses never name LoadFromFile, so their loads are untimed:";
         for ( const std::string& name : missing )
             message += "\n  " + name;
         return message;
@@ -344,4 +374,10 @@ TEST( SyncLoadChokepointCensus, BothHostsCloseTheirBootSoAnInFrameLoadCanBeRecog
         EXPECT_NE( text.find( "SyncLoadLedger::NoteBootFinished" ), std::string::npos )
              << layer << " never closes its boot, so every load it makes afterwards counts as boot work";
     }
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
