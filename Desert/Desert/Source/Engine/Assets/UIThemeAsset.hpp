@@ -27,7 +27,7 @@ namespace Desert::Assets
         /// carrying a binding the resolver cannot honour is an ERROR carrying the reason — never a quietly
         /// substituted default, because a theme that silently became a different theme renders as a UI
         /// that merely looks like somebody else's.
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         bool IsReadyForUse() const override

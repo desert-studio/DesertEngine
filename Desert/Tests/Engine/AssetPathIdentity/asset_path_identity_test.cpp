@@ -108,7 +108,7 @@ namespace
             return TypeId;
         }
 
-        Common::BoolResultStr Load() override
+        Common::BoolResultStr LoadFromFile() override
         {
             m_Ready = true;
             return BOOLSUCCESS;

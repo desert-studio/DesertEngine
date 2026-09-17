@@ -13,7 +13,7 @@
 
 namespace Desert::Assets
 {
-    Common::BoolResultStr PrefabAsset::Load()
+    Common::BoolResultStr PrefabAsset::LoadFromFile()
     {
         const auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
         if ( !raw )

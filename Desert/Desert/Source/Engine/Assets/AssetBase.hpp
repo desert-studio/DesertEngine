@@ -6,6 +6,7 @@
 
 #include "Common.hpp"
 #include "AssetMetadata.hpp"
+#include "SyncLoadLedger.hpp"
 
 namespace Desert::Assets
 {
@@ -26,7 +27,36 @@ namespace Desert::Assets
         {
         }
 
-        virtual Common::BoolResultStr Load() = 0;
+        /**
+         * @brief READ THIS ASSET'S FILE. Non-virtual on purpose — this is the timed chokepoint.
+         *
+         * Every synchronous asset load in the engine passes through exactly here, and it is the only
+         * function that can say so. `Load()` was pure virtual until the world programme needed to know
+         * how much of a boot, and how much of a FRAME, was spent reading files: at that point it was
+         * reached from 45 call sites outside the tests, so instrumenting the callers meant editing 45
+         * places and being wrong the moment a forty-sixth appeared. Instrumenting the function they all
+         * call means being right by construction.
+         *
+         * A subclass cannot take this over. `override` does not apply to a non-virtual member, so the
+         * old spelling fails to COMPILE rather than quietly bypassing the timer — and
+         * `Desert/Tests/Engine/SyncLoadChokepoint` covers the one remaining route, a fresh declaration
+         * without `override`, by asserting over the source text that no subclass declares `Load()` at
+         * all. See Engine/Assets/SyncLoadLedger.hpp for what is counted and why nesting is timed once.
+         */
+        // DELIBERATELY NOT `NO_DISCARD`, even though ignoring a load failure is a defect. Nineteen of
+        // the 45 existing call sites discard the result (`a->Load();`), and adding the attribute here
+        // would emit nineteen new warnings in a tree built with warnings-as-errors on one platform — a
+        // detector that does not compile has changed behaviour, which is the one thing it must not do.
+        // Whether those nineteen should be checked is a real question and a separate one.
+        Common::BoolResultStr Load()
+        {
+            // THE PATH IS TAKEN BEFORE THE CALL. Two asset types replace `m_Metadata.Handle` from an id
+            // inside the file during the load, and `TextureAsset` also rewrites where it thinks its
+            // source lives — reading the path afterwards would attribute the time to whatever the file
+            // said rather than to the file we opened.
+            const LoadTimingScope timing( m_Metadata.Filepath.string() );
+            return LoadFromFile();
+        }
 
         // RELEASE THIS ASSET'S PAYLOAD, KEEPING ITS IDENTITY.
         //
@@ -117,6 +147,13 @@ namespace Desert::Assets
         }
 
     protected:
+        /// THE PER-TYPE HALF OF `Load()`. Reads the file and fills the type; says nothing about timing.
+        ///
+        /// Protected rather than public because the public half is the whole contract: a caller reaching
+        /// a `LoadFromFile` directly would be a load the ledger never saw, which is exactly the hole this
+        /// split closes. `AssetBase::Load()` is its only caller in the engine.
+        virtual Common::BoolResultStr LoadFromFile() = 0;
+
         AssetMetadata m_Metadata;
     };
 

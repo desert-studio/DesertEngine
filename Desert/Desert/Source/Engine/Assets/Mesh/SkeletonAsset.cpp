@@ -14,7 +14,7 @@ namespace Desert::Assets
     {
     }
 
-    Common::BoolResultStr SkeletonAsset::Load()
+    Common::BoolResultStr SkeletonAsset::LoadFromFile()
     {
         const auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
         if ( !raw )

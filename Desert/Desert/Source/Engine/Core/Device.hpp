@@ -3,9 +3,11 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Desert::Engine
 {
@@ -121,6 +123,65 @@ namespace Desert::Engine
      * them. If a caller needs to know whether something is possible, it asks GetCapabilities(); if it needs
      * to make something, it asks that resource's Create().
      */
+    /**
+     * @brief ONE MEMORY HEAP AS THE DRIVER SEES IT RIGHT NOW. A reading, not a capability.
+     *
+     * WHY IT IS NOT A FIELD OF `DeviceCapabilities`. That struct's own header says it is "a snapshot of
+     * what the hardware can do, queried once at device selection" — and the Vulkan specification calls
+     * the two numbers below *"a rough estimate"* that is *"not invariant"*. Putting a non-invariant
+     * reading in the struct everybody treats as constant is how a stale number becomes a budget: a
+     * caller reads `VideoMemory` (which IS invariant and stays there) and `Usage` from the same place
+     * and has no way to tell that one of them is hours old.
+     *
+     * `Budget` is what the implementation is willing to let this process hold, which on Metal is
+     * `recommendedMaxWorkingSetSize` and is SMALLER than `Size` — measured here, 11.84 GiB of a 16 GiB
+     * heap. A detector that compared usage against `Size` would report 26 % head-room that does not
+     * exist.
+     */
+    struct DeviceMemoryHeap
+    {
+        uint64_t Size        = 0; ///< the heap's total size; invariant
+        uint64_t Budget      = 0; ///< what the implementation will let us hold; 0 when unknown
+        uint64_t Usage       = 0; ///< estimated bytes this process holds in this heap; 0 when unknown
+        bool     DeviceLocal = false;
+    };
+
+    /**
+     * @brief The whole device-memory reading, with an explicit "the driver would not say".
+     *
+     * `BudgetKnown` is false when `VK_EXT_memory_budget` is absent, and then every `Budget`/`Usage`
+     * above is 0 and means NOTHING. The flag exists because the two states must not print the same
+     * number: an empty device and a device that declined to answer are different facts, and the
+     * delivery contract's §1.4 is exactly about not letting them share a representation. `Heaps`
+     * is still filled in that case — heap sizes come from core Vulkan and are always available.
+     */
+    struct DeviceMemoryReport
+    {
+        bool                          BudgetKnown = false;
+        std::vector<DeviceMemoryHeap> Heaps;
+
+        /// Sum of `Usage` over device-local heaps. Meaningless, and must not be printed, when
+        /// `BudgetKnown` is false.
+        [[nodiscard]] uint64_t DeviceLocalUsage() const
+        {
+            uint64_t total = 0;
+            for ( const DeviceMemoryHeap& heap : Heaps )
+                if ( heap.DeviceLocal )
+                    total += heap.Usage;
+            return total;
+        }
+
+        /// Sum of `Budget` over device-local heaps. Same caveat.
+        [[nodiscard]] uint64_t DeviceLocalBudget() const
+        {
+            uint64_t total = 0;
+            for ( const DeviceMemoryHeap& heap : Heaps )
+                if ( heap.DeviceLocal )
+                    total += heap.Budget;
+            return total;
+        }
+    };
+
     class Device
     {
     public:
@@ -149,6 +210,20 @@ namespace Desert::Engine
          * @brief Wait for all device operations to complete.
          */
         virtual void WaitIdle() const = 0;
+
+        /**
+         * @brief Ask the driver, NOW, how much device memory this process holds.
+         *
+         * RE-QUERIED BY EVERY CALLER, CACHED BY NOBODY, and that is a property of this signature rather
+         * than a rule in a comment: it returns by value and the interface offers no getter for "the last
+         * reading", so there is nothing to go stale. The Vulkan specification's words for the numbers it
+         * carries are *"a rough estimate"* and *"not invariant"* — a cached estimate of a non-invariant
+         * quantity is not a cheaper measurement, it is a different and wrong one.
+         *
+         * Costs one `vkGetPhysicalDeviceMemoryProperties2` (measured on this machine at well under the
+         * cost of a single draw submission), so a per-frame caller is the intended one.
+         */
+        [[nodiscard]] virtual DeviceMemoryReport QueryMemory() const = 0;
 
         /**
          * @brief Platform/API specific name of the device.

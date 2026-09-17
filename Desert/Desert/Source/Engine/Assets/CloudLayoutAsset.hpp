@@ -32,7 +32,7 @@ namespace Desert::Assets
         /// Reads and decodes the container. A file that is missing, truncated, corrupt or from an unknown
         /// version is an ERROR carrying the reason and the numbers — never a quietly empty layout, because
         /// an empty layout renders as a sky the artist's painting simply did not reach.
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         bool IsReadyForUse() const override

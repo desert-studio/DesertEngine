@@ -1,4 +1,6 @@
 #include "RuntimeLayer.hpp"
+#include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Assets/SyncLoadLedger.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -88,45 +90,52 @@ namespace Desert::Player
 
         // The runtime does NOT cook: it plays what the editor cooked. Assets load from the project's
         // Cooked/ tree (missing cooked content = open the project in the editor once).
-        m_AssetPreloader->PreloadShaders(); // MUST precede the render systems (ctors resolve shaders)
-        m_AssetPreloader->PreloadCookedAssetsAndMaterials();
-        m_AssetPreloader->PreloadSkyboxes();
-        m_AssetPreloader->PreloadCloudNoiseVolumes();
-        m_AssetPreloader->PreloadCloudTypes(); // MUST follow the volumes: a type binds the one it names
-        m_AssetPreloader->PreloadCloudModellingVolumes(); // order-free: a body names nothing and is named
-                                                          // by nothing but a scene
+        // EVERY PRELOAD IS A NAMED, TIMED STAGE — and until now this host had no startup timing at all.
+        //
+        // The editor has had it since a client watched a boot for five minutes without being able to say
+        // which stage was spending them. The shipping runtime, which is the process a player actually
+        // starts, had thirteen preload calls in a flat sequence and one log line, `[Runtime] Scene
+        // loaded`, which arrives after all of it. §0.4 of the world programme makes "start-up time does
+        // not grow with the size of the map" one of four acceptance criteria, so the host the criterion
+        // is about was the host nobody could measure. The stage LABELS deliberately match the editor's
+        // wording where the work is the same, so two logs can be put side by side.
+        m_Boot.Run( "Preloading shaders", [this] { m_AssetPreloader->PreloadShaders(); } );
+        m_Boot.Run( "Preloading meshes, textures and materials",
+                    [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } );
+        m_Boot.Run( "Preloading skyboxes", [this] { m_AssetPreloader->PreloadSkyboxes(); } );
+        m_Boot.Run( "Preloading cloud noise volumes", [this] { m_AssetPreloader->PreloadCloudNoiseVolumes(); } );
+        // MUST follow the volumes: a type binds the one it names.
+        m_Boot.Run( "Preloading cloud types", [this] { m_AssetPreloader->PreloadCloudTypes(); } );
+        // order-free: a body names nothing and is named by nothing but a scene
+        m_Boot.Run( "Preloading cloud modelling volumes",
+                    [this] { m_AssetPreloader->PreloadCloudModellingVolumes(); } );
         // Missing here too, and for the same reason it was missing from the editor: PreloadCloudLayouts
         // was written, tested and never called, so a packaged game rendered every painted sky
         // procedurally. Order-free like the line above.
-        m_AssetPreloader->PreloadCloudLayouts();
+        m_Boot.Run( "Preloading cloud layouts", [this] { m_AssetPreloader->PreloadCloudLayouts(); } );
         // The UI themes (Ю13). HERE AND NOT ONLY IN THE EDITOR, because this is the process that ships:
         // a canvas whose theme the player's build never scanned draws every element's own colour, which
         // is a game that looks right in the editor and wrong on the player's machine — the worst shape a
         // missing preload can take. Order-free: a theme names only font paths, which FontService
         // registers on demand, and nothing else names a theme.
-        m_AssetPreloader->PreloadUIThemes();
+        m_Boot.Run( "Preloading UI themes", [this] { m_AssetPreloader->PreloadUIThemes(); } );
         // AND HERE TOO, which the editor's copy alone would not have given us: AssetPreloadCensus caught
         // exactly this omission on A12's first sweep. A rig that loads in the editor and silently does not
         // in the packaged game is worse than no rig — the scene names it, one line goes to the log, and the
         // character poses from its clips.
-        m_AssetPreloader->PreloadControlRigs();
-        m_AssetPreloader->PreloadAnimGraphs();
+        m_Boot.Run( "Preloading control rigs", [this] { m_AssetPreloader->PreloadControlRigs(); } );
+        m_Boot.Run( "Preloading anim graphs", [this] { m_AssetPreloader->PreloadAnimGraphs(); } );
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
         // everything else, so the player sees the language the build boots in with no extra plumbing.
-        m_AssetPreloader->PreloadStringTables();
+        m_Boot.Run( "Preloading string tables", [this] { m_AssetPreloader->PreloadStringTables(); } );
 
         // Same system set + order as the editor's Play mode — and it is the SAME LIST, not a copy of it
         // (Engine/Core/SceneRenderCollectors.hpp). "Same as the editor" was a comment above a hand-copied
         // block, which is the arrangement that let a sixth caller omit the whole thing silently (Ю16).
-        Desert::Core::AddSceneRenderCollectors( *m_Scene );
-        m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
-        m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
-        m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
-        m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );
-        m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );
-        m_Scene->AddSystem<ECS::AudioECSSystem>( m_Scene.get() );
+        m_Boot.Run( "Building the render collectors and gameplay systems", [this] { BuildGameplaySystems(); } );
 
-        if ( const auto init = m_Scene->Init(); !init )
+        if ( const auto init = m_Boot.Run( "Initialising the systems", [this] { return m_Scene->Init(); } );
+             !init )
             return init;
 
         // Scene: --scene override, else the project's default scene.
@@ -141,12 +150,23 @@ namespace Desert::Player
             // nothing to run, and starting on an empty world would be the silent substitution §1.4 forbids
             // - the player would see a black screen and the reason would be one line up in a log they do
             // not have. The read's / loader's error already names the file (and the version and the fix).
-            const auto sceneJson = Common::Utils::FileSystem::ReadFileContent( scenePath );
+            // THE READ AND THE PARSE ARE SEPARATE STAGES. On the 12 MB, 50 179-entity world scene these
+            // two are the boot, and they fail for different reasons — one is the disk (or the pak), the
+            // other is the JSON. A single "Loading scene" stage would have made the two indistinguishable
+            // in the one log that gets sent back from a player's machine.
+            const auto sceneJson =
+                 m_Boot.Run( "Reading the scene file",
+                             [&scenePath] { return Common::Utils::FileSystem::ReadFileContent( scenePath ); } );
             if ( !sceneJson )
                 return Common::MakeError( sceneJson.GetError() );
-            if ( const auto loaded = serializer.DeserializeFromJson( sceneJson.GetValue(), scenePath ); !loaded )
+            if ( const auto loaded =
+                      m_Boot.Run( "Deserialising the scene", [&]
+                                  { return serializer.DeserializeFromJson( sceneJson.GetValue(), scenePath ); } );
+                 !loaded )
                 return Common::MakeError( loaded.GetError() );
-            if ( const auto init = m_Scene->Init(); !init )
+            if ( const auto init =
+                      m_Boot.Run( "Initialising the loaded scene", [this] { return m_Scene->Init(); } );
+                 !init )
                 return init;
             LOG_INFO( "[Runtime] Scene loaded: {}", scenePath );
         }
@@ -160,7 +180,32 @@ namespace Desert::Player
         // Straight into gameplay: scripts tick, physics runs, the main CameraComponent drives the view.
         m_Scene->SetState( Core::Scene::SceneState::Play );
         TriggerSplash(); // the boot scene's splash is the game's startup splash
+
+        m_Boot.LogSummary();
+        // AND HERE THE BOOT IS OVER, which is what turns every later synchronous load into a reported
+        // hitch. This line and not `Renderer::BeginFrame`: the runtime presents splash frames while it
+        // boots, and a phase keyed on the first frame would have marked the whole preload as in-frame.
+        // See Engine/Assets/SyncLoadLedger.hpp.
+        Assets::SyncLoadLedger::NoteBootFinished();
+        LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
+        LOG_INFO( "[Memory] boot finished — {}", Graphic::MemoryReadout::Take().Report() );
         return BOOLSUCCESS;
+    }
+
+    void RuntimeLayer::BuildGameplaySystems()
+    {
+        // A METHOD RATHER THAN THE LAMBDA BODY IT WAS. A parameter-less multi-line lambda is the one
+        // construct on which clang-format 18.1.3 (what CI runs) and 18.1.8 (what this machine has)
+        // disagree — `[this] {` against `[this]\n{` — so the changed-lines gate goes red for code that
+        // is locally clean, and the repair anybody reaches for is to reformat by hand until CI stops
+        // complaining. A named method keeps the lambda on one line and says what the stage is.
+        Desert::Core::AddSceneRenderCollectors( *m_Scene );
+        m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
+        m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
+        m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
+        m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );
+        m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );
+        m_Scene->AddSystem<ECS::AudioECSSystem>( m_Scene.get() );
     }
 
     Common::BoolResultStr RuntimeLayer::OnDetach()

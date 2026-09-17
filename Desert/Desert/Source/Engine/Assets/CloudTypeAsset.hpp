@@ -39,7 +39,7 @@ namespace Desert::Assets
         /// carrying numbers the generator cannot honour is an ERROR carrying the reason and the offending
         /// value — never a quietly built-in default, because a type that silently became the default one
         /// renders as a sky that merely looks like somebody else's.
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         /// Binds NoiseVolume (a project-relative path in the file) to the volume asset it names. Called by

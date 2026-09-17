@@ -33,7 +33,7 @@ namespace Desert::Assets
         /// an unknown format version, or that collides with another table is an ERROR carrying the reason
         /// and the offending value — never a quietly empty table, because an empty table is a screen full
         /// of keys with nothing in the log to say why.
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
 
         /// Withdraws the table from the lookup. A key it owned resolves as missing afterwards, loudly,
         /// which is the correct state: the strings really are gone.

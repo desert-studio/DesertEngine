@@ -20,7 +20,7 @@ namespace Desert::Assets
         m_DisplayName = m_Metadata.Filepath.stem().string();
     }
 
-    Common::BoolResultStr CloudTypeAsset::Load()
+    Common::BoolResultStr CloudTypeAsset::LoadFromFile()
     {
         const std::string path = m_Metadata.Filepath.string();
 

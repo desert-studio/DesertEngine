@@ -31,7 +31,7 @@ namespace Desert::Assets
         /// Reads and parses the file. A file that is missing, malformed, from an unknown format version or
         /// describing a rig the loader cannot honour is an ERROR carrying the reason — never a quietly
         /// substituted empty rig, which would attach as a stage that cannot change the pose.
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         [[nodiscard]] bool IsReadyForUse() const override

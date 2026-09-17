@@ -33,7 +33,7 @@ namespace Desert::Assets
         /// Reads and parses the file. Missing, empty or malformed is an ERROR carrying the reason — never
         /// a quietly substituted empty graph, which would open as a blank canvas over a file that has
         /// content in it and invite the artist to save over their own work.
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         [[nodiscard]] bool IsReadyForUse() const override

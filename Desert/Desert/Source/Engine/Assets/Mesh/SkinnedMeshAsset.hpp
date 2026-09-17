@@ -19,7 +19,7 @@ namespace Desert::Assets
         // -------------------------------------------------
         // Asset lifecycle
         // -------------------------------------------------
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         bool IsSkinned() const override

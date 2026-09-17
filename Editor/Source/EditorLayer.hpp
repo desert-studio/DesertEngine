@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Runtime/AssetHotReload.hpp>
 #include <ImGui/imgui.h>
@@ -601,11 +602,12 @@ namespace Desert::Editor
         std::vector<StartupStage> m_StartupStages;
         size_t                    m_StartupNext           = 0;
         int                       m_StartupFramesRendered = 0;
-        // How long the stages run so far have cost, in milliseconds. Accumulated rather than derived from
-        // a start timestamp: a stage runs one per FRAME, so wall clock between the first and the last also
-        // counts the frames in between, and the number that answers "which stage is spending the boot" is
-        // the sum of the stages themselves.
-        long long                 m_StartupElapsedMs = 0;
+        // WHERE THE ELAPSED TOTAL LIVES NOW. It used to be a `long long` accumulated here with the
+        // accumulation rule written in this comment; the rule (sum of the stages, NOT wall clock between
+        // the first and the last, because a stage runs one per frame) now lives in `Core::BootTimeline`
+        // alongside the line format, so that the shipping runtime's boot numbers and this one mean the
+        // same thing. Nothing about the per-frame scheduler above moved.
+        ::Desert::Core::BootTimeline m_Boot{ "Editor" };
         bool                      StartupLoading() const
         {
             return m_StartupNext < m_StartupStages.size();

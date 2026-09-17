@@ -27,7 +27,7 @@ namespace Desert::Assets
         {
         }
 
-        Common::BoolResultStr Load() override;
+        Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
         std::string Serialize() const;
