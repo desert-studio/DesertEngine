@@ -88,8 +88,18 @@ namespace Desert::Graphic
     class MemoryWatch final
     {
     public:
-        /// One reading, folded into the peaks. Called once per frame, by the renderer.
-        static void SampleFrame();
+        /**
+         * @brief Fold one reading into the peaks. Called once per frame, by the renderer.
+         *
+         * THE READING IS PASSED IN RATHER THAN TAKEN HERE, and that is not a style choice. `Take()` has
+         * to reach `EngineContext` — hence the whole engine — while everything this class decides (what
+         * the baseline is, when a peak rises, what "unknown" means as against "zero") is arithmetic. Put
+         * the query inside and the arithmetic becomes unreachable from any suite that has not opened a
+         * window, which is all of them. The caller writes `MemoryWatch::SampleFrame(
+         * MemoryReadout::Take() )`, which also says at the call site that a fresh reading is taken every
+         * frame.
+         */
+        static void SampleFrame( const MemoryReadout& reading );
 
         /// Frames sampled so far. Zero means the detector never ran, which a report must distinguish
         /// from "nothing grew".

@@ -1,7 +1,5 @@
 #include "MemoryReadout.hpp"
 
-#include <Engine/Core/EngineContext.hpp>
-
 #include <atomic>
 #include <cstdio>
 
@@ -41,25 +39,6 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    MemoryReadout MemoryReadout::Take()
-    {
-        MemoryReadout out;
-
-        // NULL-CHECKED, and this is what makes the type testable. A suite has no device and no window;
-        // if this dereferenced unconditionally, the only place the readout could be exercised would be a
-        // running editor, and the assertion that it reports "unknown" instead of zero — the whole point
-        // of the `BudgetKnown` flag — would have nowhere to live.
-        if ( const std::shared_ptr<Engine::Device> device = EngineContext::GetInstance().GetDevice() )
-        {
-            out.Device = device->QueryMemory();
-        }
-
-        out.Ledger  = ResourceLedger::Take();
-        out.Process = Common::Utils::ReadProcessFootprint();
-
-        return out;
-    }
-
     std::string MemoryReadout::Report() const
     {
         std::string text;
@@ -96,10 +75,8 @@ namespace Desert::Graphic
         return text;
     }
 
-    void MemoryWatch::SampleFrame()
+    void MemoryWatch::SampleFrame( const MemoryReadout& readout )
     {
-        const MemoryReadout readout = MemoryReadout::Take();
-
         const uint64_t resident    = readout.Process.Known ? readout.Process.Resident : 0;
         const uint64_t deviceUsage = readout.Device.BudgetKnown ? readout.Device.DeviceLocalUsage() : 0;
 
