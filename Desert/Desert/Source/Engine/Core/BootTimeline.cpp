@@ -29,8 +29,7 @@ namespace Desert::Core
         }
 
         std::vector<Stage> ordered = m_Stages;
-        std::sort( ordered.begin(), ordered.end(),
-                   []( const Stage& a, const Stage& b ) { return a.Ms > b.Ms; } );
+        std::sort( ordered.begin(), ordered.end(), []( const Stage& a, const Stage& b ) { return a.Ms > b.Ms; } );
 
         std::string lines;
         for ( const Stage& stage : ordered )
@@ -42,8 +41,8 @@ namespace Desert::Core
             lines += fmt::format( "\n  {:>9.1f} ms  {:>5.1f}%  {}", stage.Ms, share, stage.Label );
         }
 
-        LOG_INFO( "[{}/Startup] {} stage(s) in {:.1f} ms, slowest first:{}", m_Host, m_Stages.size(),
-                  m_ElapsedMs, lines );
+        LOG_INFO( "[{}/Startup] {} stage(s) in {:.1f} ms, slowest first:{}", m_Host, m_Stages.size(), m_ElapsedMs,
+                  lines );
     }
 
 } // namespace Desert::Core

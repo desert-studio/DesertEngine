@@ -50,8 +50,8 @@ namespace Desert::Graphic
         }
         else
         {
-            text += "device-local usage=" + Bytes( Device.DeviceLocalUsage() ) + " of budget=" +
-                    Bytes( Device.DeviceLocalBudget() );
+            text += "device-local usage=" + Bytes( Device.DeviceLocalUsage() ) +
+                    " of budget=" + Bytes( Device.DeviceLocalBudget() );
         }
         text += " over " + std::to_string( Device.Heaps.size() ) + " heap(s)";
 
@@ -151,8 +151,8 @@ namespace Desert::Graphic
         }
         else
         {
-            text += "\n  device-local usage: baseline " + Bytes( baseDevice ) + " -> peak " +
-                    Bytes( peakDevice ) + ", grew " + Bytes( peakDevice - baseDevice );
+            text += "\n  device-local usage: baseline " + Bytes( baseDevice ) + " -> peak " + Bytes( peakDevice ) +
+                    ", grew " + Bytes( peakDevice - baseDevice );
         }
         return text;
     }

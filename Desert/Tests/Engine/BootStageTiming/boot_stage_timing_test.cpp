@@ -22,6 +22,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <thread>
 
 #include <gtest/gtest.h>
@@ -51,6 +52,17 @@ namespace
         buffer << in.rdbuf();
         return buffer.str();
     }
+    /// One message naming every offender. A FREE FUNCTION and not the `<< [&] { ... }()` lambda it
+    /// replaces: a parameter-less multi-line lambda is the construct on which clang-format 18.1.3 (CI)
+    /// and 18.1.8 (this machine) disagree, so the changed-lines gate can go red for code that is
+    /// locally clean, and the repair people reach for is to hand-format until CI stops complaining.
+    std::string Listing( const char* lead, const std::vector<std::string>& names )
+    {
+        std::string message = lead;
+        for ( const std::string& name : names )
+            message += "\n  " + name;
+        return message;
+    }
 } // namespace
 
 TEST( BootTimelineType, TheElapsedTotalIsTheSumOfTheStagesAndNotWallClock )
@@ -75,10 +87,12 @@ TEST( BootTimelineType, RunTimesTheWorkAndKeepsItsResult )
     // the caller then checks; a timing wrapper that swallowed it would turn a refused scene into a game
     // that starts on an empty world — the silent substitution the contract's §1.4 forbids, introduced by
     // a detector.
-    const int answer = boot.Run( "with a result", [] {
-        std::this_thread::sleep_for( std::chrono::milliseconds( 12 ) );
-        return 42;
-    } );
+    const int answer = boot.Run( "with a result",
+                                 []
+                                 {
+                                     std::this_thread::sleep_for( std::chrono::milliseconds( 12 ) );
+                                     return 42;
+                                 } );
     EXPECT_EQ( answer, 42 );
 
     // And a void stage must compile and record too — nine of the runtime's thirteen preloads return void.
@@ -127,7 +141,7 @@ TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryPreloadInAStage )
          ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Assets/AssetPreloader.hpp" ) );
     ASSERT_FALSE( header.empty() );
 
-    static const std::regex declaration( R"(\bvoid\s+(Preload[A-Za-z0-9_]*)\s*\()" );
+    static const std::regex  declaration( R"(\bvoid\s+(Preload[A-Za-z0-9_]*)\s*\()" );
     std::vector<std::string> declared;
     for ( auto it = std::sregex_iterator( header.begin(), header.end(), declaration );
           it != std::sregex_iterator(); ++it )
@@ -161,12 +175,8 @@ TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryPreloadInAStage )
         }
     }
 
-    EXPECT_TRUE( unstaged.empty() ) << [&] {
-        std::string message = "these preloads are not wrapped in a timed stage in the shipping runtime:";
-        for ( const std::string& name : unstaged )
-            message += "\n  " + name;
-        return message;
-    }();
+    EXPECT_TRUE( unstaged.empty() ) << Listing(
+         "these preloads are not wrapped in a timed stage in the shipping runtime:", unstaged );
 }
 
 TEST( BootStageTimingCensus, BothHostsUseTheOneAccumulationRule )
@@ -176,12 +186,12 @@ TEST( BootStageTimingCensus, BothHostsUseTheOneAccumulationRule )
 
     for ( const char* layer : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
     {
-        const std::string text =
-             Desert::Tests::ConsumerText::StripComments( ReadAll( fs::path( root ) / layer ) );
+        const std::string text = Desert::Tests::ConsumerText::StripComments( ReadAll( fs::path( root ) / layer ) );
         ASSERT_FALSE( text.empty() ) << "could not read " << layer;
         EXPECT_NE( text.find( "m_Boot" ), std::string::npos )
-             << layer << " keeps its own startup timing instead of the shared BootTimeline, so its "
-                         "numbers are not comparable with the other host's";
+             << layer
+             << " keeps its own startup timing instead of the shared BootTimeline, so its "
+                "numbers are not comparable with the other host's";
         EXPECT_NE( text.find( "m_Boot.LogSummary" ), std::string::npos )
              << layer << " never prints the per-stage summary, so the stages are only in the scrollback";
     }

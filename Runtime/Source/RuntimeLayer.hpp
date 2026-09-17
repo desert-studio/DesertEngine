@@ -97,6 +97,10 @@ namespace Desert::Player
 
         Common::BoolResultStr InitPresent( const std::shared_ptr<Graphic::Framebuffer>& swapFb );
 
+        /// The render collectors and gameplay systems, in the order Play mode uses. Its own function so
+        /// the boot stage that times it stays a one-line lambda — see the note on the definition.
+        void BuildGameplaySystems();
+
         // Scene::Resize destroys GPU resources — deferred to the top of OnUpdate (same rule as the
         // editor's viewport panel).
         std::optional<std::pair<uint32_t, uint32_t>> m_PendingResize;

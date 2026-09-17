@@ -60,6 +60,22 @@ namespace Desert::Graphic
          */
         [[nodiscard]] static MemoryReadout Take();
 
+        /**
+         * @brief The two numbers that MOVE, for the per-frame path. Leaves the ledger fields at zero.
+         *
+         * WHY THERE ARE TWO TAKERS AND NOT ONE. `ResourceLedger`'s own header states the constraint:
+         * "the ledger is deliberately NOT consulted while drawing — it answers questions between
+         * frames." Its census is a locked walk over every live row (591 of them on the world scene),
+         * and the per-frame watch tracks neither of the two fields it would fill. So the first version
+         * of the frame path put an O(rows) mutexed traversal on the first instruction of every frame,
+         * in order to compute a number nothing read — a detector paying for itself out of the very
+         * budget it was built to measure.
+         *
+         * The ledger's value is ATTRIBUTION — whose object, which asset — and that question is asked at
+         * scene load, where `Take()` answers it in full.
+         */
+        [[nodiscard]] static MemoryReadout TakeFrameSample();
+
         /// One line per number, for the log and the control channel. Says "unknown" wherever a source
         /// declined to answer — never 0, which a reader would take for "empty".
         [[nodiscard]] std::string Report() const;

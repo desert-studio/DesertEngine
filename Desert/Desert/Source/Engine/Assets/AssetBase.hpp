@@ -58,7 +58,6 @@ namespace Desert::Assets
             return LoadFromFile();
         }
 
-
         // RELEASE THIS ASSET'S PAYLOAD, KEEPING ITS IDENTITY.
         //
         // The contract every implementation now obeys, and none of them did before there was a caller:

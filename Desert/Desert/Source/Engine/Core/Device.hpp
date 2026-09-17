@@ -140,9 +140,9 @@ namespace Desert::Engine
      */
     struct DeviceMemoryHeap
     {
-        uint64_t Size   = 0; ///< the heap's total size; invariant
-        uint64_t Budget = 0; ///< what the implementation will let us hold; 0 when unknown
-        uint64_t Usage  = 0; ///< estimated bytes this process holds in this heap; 0 when unknown
+        uint64_t Size        = 0; ///< the heap's total size; invariant
+        uint64_t Budget      = 0; ///< what the implementation will let us hold; 0 when unknown
+        uint64_t Usage       = 0; ///< estimated bytes this process holds in this heap; 0 when unknown
         bool     DeviceLocal = false;
     };
 

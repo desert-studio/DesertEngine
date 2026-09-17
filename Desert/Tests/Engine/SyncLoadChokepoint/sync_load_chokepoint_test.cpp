@@ -107,6 +107,17 @@ namespace
             SyncLoadLedger::ResetForTest();
         }
     };
+    /// One message naming every offender. A FREE FUNCTION and not the `<< [&] { ... }()` lambda it
+    /// replaces: a parameter-less multi-line lambda is the construct on which clang-format 18.1.3 (CI)
+    /// and 18.1.8 (this machine) disagree, so the changed-lines gate can go red for code that is
+    /// locally clean, and the repair people reach for is to hand-format until CI stops complaining.
+    std::string Listing( const char* lead, const std::vector<std::string>& names )
+    {
+        std::string message = lead;
+        for ( const std::string& name : names )
+            message += "\n  " + name;
+        return message;
+    }
 } // namespace
 
 // ── THE BEHAVIOUR ──────────────────────────────────────────────────────────────────────────────────
@@ -292,12 +303,8 @@ TEST( SyncLoadChokepointCensus, NoAssetTypeDeclaresItsOwnLoad )
             offenders.push_back( header.filename().string() );
     }
 
-    EXPECT_TRUE( offenders.empty() ) << [&] {
-        std::string message = "these headers declare a Load() of their own, shadowing the timed one:";
-        for ( const std::string& name : offenders )
-            message += "\n  " + name;
-        return message;
-    }();
+    EXPECT_TRUE( offenders.empty() ) << Listing(
+         "these headers declare a Load() of their own, shadowing the timed one:", offenders );
 }
 
 TEST( SyncLoadChokepointCensus, EveryConcreteAssetTypeImplementsTheTimedHalf )
@@ -349,13 +356,8 @@ TEST( SyncLoadChokepointCensus, EveryConcreteAssetTypeImplementsTheTimedHalf )
     EXPECT_GE( subclasses.size(), 10u )
          << "the scan found only " << subclasses.size()
          << " AssetBase subclasses, which means the scan broke rather than that the tree shrank";
-    EXPECT_TRUE( missing.empty() ) << [&] {
-        std::string message =
-             "these concrete AssetBase subclasses never name LoadFromFile, so their loads are untimed:";
-        for ( const std::string& name : missing )
-            message += "\n  " + name;
-        return message;
-    }();
+    EXPECT_TRUE( missing.empty() ) << Listing(
+         "these concrete AssetBase subclasses never name LoadFromFile, so their loads are untimed:", missing );
 }
 
 TEST( SyncLoadChokepointCensus, BothHostsCloseTheirBootSoAnInFrameLoadCanBeRecognisedAtAll )
@@ -368,8 +370,7 @@ TEST( SyncLoadChokepointCensus, BothHostsCloseTheirBootSoAnInFrameLoadCanBeRecog
     // in-frame loads as a boot load, which is a detector that is on and always answers "fine".
     for ( const char* layer : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
     {
-        const std::string text =
-             Desert::Tests::ConsumerText::StripComments( ReadAll( fs::path( root ) / layer ) );
+        const std::string text = Desert::Tests::ConsumerText::StripComments( ReadAll( fs::path( root ) / layer ) );
         ASSERT_FALSE( text.empty() ) << "could not read " << layer;
         EXPECT_NE( text.find( "SyncLoadLedger::NoteBootFinished" ), std::string::npos )
              << layer << " never closes its boot, so every load it makes afterwards counts as boot work";

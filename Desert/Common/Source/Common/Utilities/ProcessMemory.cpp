@@ -69,9 +69,9 @@ namespace Common::Utils
         // /proc/self/statm because statm carries no high-water mark.
         if ( std::FILE* status = std::fopen( "/proc/self/status", "r" ) )
         {
-            char        line[256];
-            long long   rssKb = -1;
-            long long   hwmKb = -1;
+            char      line[256];
+            long long rssKb = -1;
+            long long hwmKb = -1;
             while ( std::fgets( line, sizeof( line ), status ) != nullptr )
             {
                 long long value = 0;

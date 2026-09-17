@@ -107,7 +107,7 @@ TEST( ProcessFootprint, ThisPlatformAnswers )
     ASSERT_TRUE( footprint.Known ) << "the platform query failed: " << footprint.Describe();
     EXPECT_GT( footprint.Resident, 0u );
     EXPECT_GE( footprint.Peak, footprint.Resident ) << "a high-water mark below the current value is not a "
-                                                      "high-water mark";
+                                                       "high-water mark";
 }
 
 TEST( ProcessFootprint, AnUnknownReadingSaysSoInsteadOfPrintingZeroBytes )
@@ -162,7 +162,7 @@ TEST( DeviceMemoryReport, OnlyDeviceLocalHeapsAreSummed )
     host.DeviceLocal = false;
     host.Usage       = 90'000;
     host.Budget      = 99'000;
-    report.Heaps = { local, host };
+    report.Heaps     = { local, host };
 
     // A host-visible staging heap is not the budget the renderer spends against, and folding it in would
     // have hidden a device-local heap running out behind a system heap that never does.
@@ -275,8 +275,8 @@ TEST( MemoryDetectorCensus, TheExtensionIsEnabledOnTheDeviceAndGatesTheChainedSt
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string text = Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll(
-         fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" ) );
+    const std::string text = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" ) );
     ASSERT_FALSE( text.empty() );
 
     // THE LINE THAT DOES IT, NOT THE MENTION OF IT. The first version of this assertion looked for the
@@ -350,8 +350,33 @@ TEST( MemoryDetectorCensus, TheShippedFramePathTakesAReadingEveryFrame )
             "reading — and the refused frame is the interesting one";
 
     // A FRESH READING, not a stored one handed back in: the call site is what says so.
-    EXPECT_NE( renderer.find( "MemoryWatch::SampleFrame( MemoryReadout::Take() )" ), std::string::npos )
+    EXPECT_NE( renderer.find( "MemoryWatch::SampleFrame( MemoryReadout::TakeFrameSample() )" ), std::string::npos )
          << "the frame path no longer takes a fresh reading at the call site";
+}
+
+TEST( MemoryDetectorCensus, ThePerFrameSampleDoesNotWalkTheResourceLedger )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    // `ResourceLedger`'s header states the constraint this asserts: "the ledger is deliberately NOT
+    // consulted while drawing — it answers questions between frames". Its census is a locked traversal
+    // of every live row, and the watch tracks neither field it fills — so a frame path that took the
+    // full readout would be spending the frame budget it exists to measure. The first version of this
+    // detector did exactly that.
+    const std::string source = Desert::Tests::ConsumerText::StripComments(
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/MemoryReadoutSource.cpp" ) );
+    ASSERT_FALSE( source.empty() );
+
+    const std::size_t frameSample = source.find( "MemoryReadout::TakeFrameSample" );
+    ASSERT_NE( frameSample, std::string::npos ) << "there is no per-frame taker any more";
+    EXPECT_EQ( source.find( "ResourceLedger::Take", frameSample ), std::string::npos )
+         << "the per-frame sample walks the resource ledger under its mutex, once per frame";
+
+    // And the full readout still does ask — the attribution half must not disappear with the fix.
+    EXPECT_NE( source.find( "ResourceLedger::Take" ), std::string::npos )
+         << "nothing takes the ledger census any more, so the report lost its attribution half";
+    EXPECT_LT( source.find( "ResourceLedger::Take" ), frameSample );
 }
 
 int main( int argc, char** argv )

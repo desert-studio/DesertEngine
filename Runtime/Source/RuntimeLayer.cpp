@@ -103,8 +103,7 @@ namespace Desert::Player
         m_Boot.Run( "Preloading meshes, textures and materials",
                     [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } );
         m_Boot.Run( "Preloading skyboxes", [this] { m_AssetPreloader->PreloadSkyboxes(); } );
-        m_Boot.Run( "Preloading cloud noise volumes",
-                    [this] { m_AssetPreloader->PreloadCloudNoiseVolumes(); } );
+        m_Boot.Run( "Preloading cloud noise volumes", [this] { m_AssetPreloader->PreloadCloudNoiseVolumes(); } );
         // MUST follow the volumes: a type binds the one it names.
         m_Boot.Run( "Preloading cloud types", [this] { m_AssetPreloader->PreloadCloudTypes(); } );
         // order-free: a body names nothing and is named by nothing but a scene
@@ -133,15 +132,7 @@ namespace Desert::Player
         // Same system set + order as the editor's Play mode — and it is the SAME LIST, not a copy of it
         // (Engine/Core/SceneRenderCollectors.hpp). "Same as the editor" was a comment above a hand-copied
         // block, which is the arrangement that let a sixth caller omit the whole thing silently (Ю16).
-        m_Boot.Run( "Building the render collectors and gameplay systems", [this] {
-            Desert::Core::AddSceneRenderCollectors( *m_Scene );
-            m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
-            m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
-            m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
-            m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );
-            m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );
-            m_Scene->AddSystem<ECS::AudioECSSystem>( m_Scene.get() );
-        } );
+        m_Boot.Run( "Building the render collectors and gameplay systems", [this] { BuildGameplaySystems(); } );
 
         if ( const auto init = m_Boot.Run( "Initialising the systems", [this] { return m_Scene->Init(); } );
              !init )
@@ -163,16 +154,14 @@ namespace Desert::Player
             // two are the boot, and they fail for different reasons — one is the disk (or the pak), the
             // other is the JSON. A single "Loading scene" stage would have made the two indistinguishable
             // in the one log that gets sent back from a player's machine.
-            const auto sceneJson = m_Boot.Run( "Reading the scene file", [&scenePath] {
-                return Common::Utils::FileSystem::ReadFileContent( scenePath );
-            } );
+            const auto sceneJson =
+                 m_Boot.Run( "Reading the scene file",
+                             [&scenePath] { return Common::Utils::FileSystem::ReadFileContent( scenePath ); } );
             if ( !sceneJson )
                 return Common::MakeError( sceneJson.GetError() );
-            if ( const auto loaded = m_Boot.Run( "Deserialising the scene",
-                                                 [&] {
-                                                     return serializer.DeserializeFromJson(
-                                                          sceneJson.GetValue(), scenePath );
-                                                 } );
+            if ( const auto loaded =
+                      m_Boot.Run( "Deserialising the scene", [&]
+                                  { return serializer.DeserializeFromJson( sceneJson.GetValue(), scenePath ); } );
                  !loaded )
                 return Common::MakeError( loaded.GetError() );
             if ( const auto init =
@@ -201,6 +190,22 @@ namespace Desert::Player
         LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
         LOG_INFO( "[Memory] boot finished — {}", Graphic::MemoryReadout::Take().Report() );
         return BOOLSUCCESS;
+    }
+
+    void RuntimeLayer::BuildGameplaySystems()
+    {
+        // A METHOD RATHER THAN THE LAMBDA BODY IT WAS. A parameter-less multi-line lambda is the one
+        // construct on which clang-format 18.1.3 (what CI runs) and 18.1.8 (what this machine has)
+        // disagree — `[this] {` against `[this]\n{` — so the changed-lines gate goes red for code that
+        // is locally clean, and the repair anybody reaches for is to reformat by hand until CI stops
+        // complaining. A named method keeps the lambda on one line and says what the stage is.
+        Desert::Core::AddSceneRenderCollectors( *m_Scene );
+        m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
+        m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
+        m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
+        m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );
+        m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );
+        m_Scene->AddSystem<ECS::AudioECSSystem>( m_Scene.get() );
     }
 
     Common::BoolResultStr RuntimeLayer::OnDetach()

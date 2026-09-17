@@ -35,5 +35,19 @@ namespace Desert::Graphic
         return out;
     }
 
+    MemoryReadout MemoryReadout::TakeFrameSample()
+    {
+        MemoryReadout out;
+
+        if ( const std::shared_ptr<Engine::Device> device = EngineContext::GetInstance().GetDevice() )
+        {
+            out.Device = device->QueryMemory();
+        }
+        out.Process = Common::Utils::ReadProcessFootprint();
+
+        // AND NO `ResourceLedger::Take()` HERE, ON PURPOSE. See the declaration: a locked walk over
+        // every live device object, once a frame, for two fields the watch does not track.
+        return out;
+    }
 
 } // namespace Desert::Graphic

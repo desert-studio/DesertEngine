@@ -112,8 +112,7 @@ namespace Desert::Core
     private:
         static double Since( const std::chrono::steady_clock::time_point started )
         {
-            return std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started )
-                 .count();
+            return std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count();
         }
 
         std::string        m_Host;

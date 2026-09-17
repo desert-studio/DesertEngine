@@ -110,7 +110,7 @@ namespace Desert::Graphic
         //
         // BEFORE the backend call rather than after, so a frame the backend refuses still contributes
         // its reading. The refusal is the interesting frame.
-        MemoryWatch::SampleFrame( MemoryReadout::Take() );
+        MemoryWatch::SampleFrame( MemoryReadout::TakeFrameSample() );
 
         return s_RendererAPI->BeginFrame();
     }

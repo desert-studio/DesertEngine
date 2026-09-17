@@ -54,7 +54,7 @@ namespace Desert::Assets
         /// so is a log that is off by default. Sixteen is enough to name the offenders (they repeat) and
         /// few enough to read. The suppressed count still goes out, because "16 loads" and "16 logged of
         /// 4000" are different facts.
-        constexpr uint64_t kInFrameLogCap = 16;
+        constexpr uint64_t    kInFrameLogCap = 16;
         std::atomic<uint64_t> g_InFrameLogged{ 0 };
 
         double NowMs( const int64_t ns )
@@ -191,8 +191,7 @@ namespace Desert::Assets
         }
         if ( loads > 0 )
         {
-            text += "\n  slowest single load by its OWN time: " + Ms( g_SlowestMs ) + " — '" +
-                    g_SlowestPath + "'";
+            text += "\n  slowest single load by its OWN time: " + Ms( g_SlowestMs ) + " — '" + g_SlowestPath + "'";
         }
         return text;
     }
