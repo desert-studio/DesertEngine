@@ -1,6 +1,12 @@
 #pragma once
 
+#include <Common/Core/Logger.hpp>
+
+#include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <mutex>
 #include <string>
 
 namespace Desert::Assets
@@ -139,5 +145,272 @@ namespace Desert::Assets
         LoadTimingScope* m_Parent    = nullptr;
         bool             m_Outermost = false;
     };
+
+    // A NAMED DETAIL NAMESPACE AND INLINE ACCESSORS, NOT AN ANONYMOUS NAMESPACE, and
+    // `Graphic/ResourceLedger.hpp` states the reason beside its own copy of this shape: "an anonymous
+    // namespace in a header gives every translation unit its own copy of these statics — so the ledger
+    // would count per-TU and every number it reports would be a fraction of the truth, silently.
+    // `inline` in a named namespace is what gives the whole program one map."
+    //
+    // AND WHY THIS IS A HEADER AT ALL, WHICH IS A MEASUREMENT. It was a .cpp, and the full sweep turned
+    // FIVE suites red at the link step (`AssetEviction`, `AssetPathIdentity`, `AssetHandleStability`,
+    // `AssetMissingFile`, `AnimGraphAsset`): each of them compiles a handful of asset sources directly
+    // rather than linking libDesert — deliberately, because libDesert pulls in Vulkan and the whole
+    // renderer — and `AssetBase::Load()` is now inline in every one of them. A .cpp would mean every
+    // present and future suite that touches an asset has to list this file, which is the "fourteenth
+    // place to forget" the design of this detector exists to avoid.
+    namespace SyncLoadDetail
+    {
+        inline std::atomic<bool>& BootFinished()
+        {
+            static std::atomic<bool> finished{ false };
+            return finished;
+        }
+
+        inline std::atomic<uint64_t>& LoadCount()
+        {
+            static std::atomic<uint64_t> loads{ 0 };
+            return loads;
+        }
+
+        inline std::atomic<uint64_t>& InFrameCount()
+        {
+            static std::atomic<uint64_t> loads{ 0 };
+            return loads;
+        }
+
+        // THE DEPTH IS THREAD-LOCAL, the totals are not, and the split is load-bearing. The preloader
+        // runs staged work and hot reload runs off the watcher, so two threads can be inside a load at
+        // once; a shared depth counter would let thread B's nested load be attributed as thread A's
+        // outermost one, and the "outermost only" rule that keeps TotalMs under wall clock would break in
+        // a way that shows up as a boot spending 250 % of its own duration.
+        inline int& Depth()
+        {
+            static thread_local int depth = 0;
+            return depth;
+        }
+
+        /// The innermost open scope on THIS thread, so a closing scope can hand its duration to its
+        /// parent. Thread-local for the same reason the depth is: the preloader runs staged work and hot
+        /// reload runs off the watcher, and a shared pointer here would let one thread's load be
+        /// subtracted from another thread's.
+        inline LoadTimingScope*& OpenScope()
+        {
+            static thread_local LoadTimingScope* open = nullptr;
+            return open;
+        }
+
+        inline std::mutex& TotalsLock()
+        {
+            static std::mutex lock;
+            return lock;
+        }
+
+        /// The four figures the lock protects, in one struct so there is one static rather than four.
+        struct Totals
+        {
+            double      TotalMs   = 0.0;
+            double      InFrameMs = 0.0;
+            double      SlowestMs = 0.0;
+            std::string SlowestPath;
+        };
+
+        inline Totals& Sums()
+        {
+            static Totals totals;
+            return totals;
+        }
+
+        /// How many in-frame loads may log themselves per frame before the rest are counted silently.
+        ///
+        /// A CAP AND NOT A SWITCH. Fifty thousand entities touching their meshes in one frame would
+        /// produce fifty thousand WARN lines, and a log that cannot be read is the same as no log — but
+        /// so is a log that is off by default. Sixteen is enough to name the offenders (they repeat) and
+        /// few enough to read. The suppressed count still goes out, because "16 loads" and "16 logged of
+        /// 4000" are different facts.
+        constexpr uint64_t kInFrameLogCap = 16;
+
+        inline std::atomic<uint64_t>& InFrameLogged()
+        {
+            static std::atomic<uint64_t> logged{ 0 };
+            return logged;
+        }
+
+        inline double NowMs( const int64_t ns )
+        {
+            return static_cast<double>( ns ) / 1'000'000.0;
+        }
+
+        inline int64_t NowNs()
+        {
+            return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch() )
+                 .count();
+        }
+
+        inline std::string Ms( const double ms )
+        {
+            char text[32];
+            std::snprintf( text, sizeof( text ), "%.2f ms", ms );
+            return text;
+        }
+    } // namespace SyncLoadDetail
+
+    inline void SyncLoadLedger::NoteBootFinished()
+    {
+        SyncLoadDetail::BootFinished().store( true, std::memory_order_relaxed );
+    }
+
+    inline LoadPhase SyncLoadLedger::Phase()
+    {
+        return SyncLoadDetail::BootFinished().load( std::memory_order_relaxed ) ? LoadPhase::Frame : LoadPhase::Boot;
+    }
+
+    inline uint64_t SyncLoadLedger::Loads()
+    {
+        return SyncLoadDetail::LoadCount().load( std::memory_order_relaxed );
+    }
+
+    inline uint64_t SyncLoadLedger::InFrameLoads()
+    {
+        return SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed );
+    }
+
+    inline double SyncLoadLedger::TotalMs()
+    {
+        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        return SyncLoadDetail::Sums().TotalMs;
+    }
+
+    inline double SyncLoadLedger::InFrameMs()
+    {
+        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        return SyncLoadDetail::Sums().InFrameMs;
+    }
+
+    inline double SyncLoadLedger::SlowestMs()
+    {
+        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        return SyncLoadDetail::Sums().SlowestMs;
+    }
+
+    inline std::string SyncLoadLedger::SlowestPath()
+    {
+        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        return SyncLoadDetail::Sums().SlowestPath;
+    }
+
+    inline void SyncLoadLedger::Record( const std::string& path, const double totalMs, const double selfMs,
+                                 const bool outermost )
+    {
+        SyncLoadDetail::LoadCount().fetch_add( 1, std::memory_order_relaxed );
+
+        const bool inFrame = SyncLoadLedger::Phase() == LoadPhase::Frame;
+        if ( inFrame )
+        {
+            SyncLoadDetail::InFrameCount().fetch_add( 1, std::memory_order_relaxed );
+        }
+
+        {
+            std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+            if ( outermost )
+            {
+                SyncLoadDetail::Sums().TotalMs += totalMs;
+                if ( inFrame )
+                    SyncLoadDetail::Sums().InFrameMs += totalMs;
+            }
+            // RANKED BY SELF TIME, AT EVERY DEPTH. Wall time would name the outermost scope every time
+            // — a prefab always outlasts the meshes it loads — and send every investigation to the
+            // container instead of to the file that spent the milliseconds.
+            if ( selfMs > SyncLoadDetail::Sums().SlowestMs )
+            {
+                SyncLoadDetail::Sums().SlowestMs   = selfMs;
+                SyncLoadDetail::Sums().SlowestPath = path;
+            }
+        }
+
+        if ( !inFrame )
+            return;
+
+        // IN-FRAME LOADS NAME THEMSELVES, ALWAYS. This is the line the detector exists to print: the
+        // frame the player is looking at stopped to read a file off disk.
+        const uint64_t logged = SyncLoadDetail::InFrameLogged().fetch_add( 1, std::memory_order_relaxed );
+        if ( logged < SyncLoadDetail::kInFrameLogCap )
+        {
+            LOG_WARN( "[SyncLoad] IN A FRAME: '{}' blocked for {} (load #{} in-frame). A load after the "
+                      "first frame is a hitch the player feels — it belongs in the preload or behind a "
+                      "streamer.",
+                      path, SyncLoadDetail::Ms( totalMs ), SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed ) );
+        }
+        else if ( logged == SyncLoadDetail::kInFrameLogCap )
+        {
+            LOG_WARN( "[SyncLoad] {} in-frame loads logged; the rest are counted silently and reported by "
+                      "SyncLoadLedger::Report().",
+                      SyncLoadDetail::kInFrameLogCap );
+        }
+    }
+
+    inline std::string SyncLoadLedger::Report()
+    {
+        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+
+        const uint64_t loads   = SyncLoadDetail::LoadCount().load( std::memory_order_relaxed );
+        const uint64_t inFrame = SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed );
+
+        std::string text = "loads=" + std::to_string( loads ) + " in " + SyncLoadDetail::Ms( SyncLoadDetail::Sums().TotalMs ) +
+                           " (outermost scopes only; nested loads are counted, not re-timed)";
+        // BOTH HALVES NAMED SEPARATELY, and zero in-frame loads is a RESULT worth printing rather than a
+        // line to omit: "the preload caught everything" is the claim every later tier rests on, and a
+        // report that went quiet when it was true would make the good case indistinguishable from a
+        // detector that was not running.
+        text += "\n  in-frame: " + std::to_string( inFrame ) + " load(s) in " + SyncLoadDetail::Ms( SyncLoadDetail::Sums().InFrameMs );
+        if ( inFrame == 0 )
+        {
+            text += loads == 0 ? " — nothing loaded at all yet" : " — every load so far happened at boot";
+        }
+        if ( loads > 0 )
+        {
+            text += "\n  slowest single load by its OWN time: " + SyncLoadDetail::Ms( SyncLoadDetail::Sums().SlowestMs ) + " — '" + SyncLoadDetail::Sums().SlowestPath + "'";
+        }
+        return text;
+    }
+
+    inline void SyncLoadLedger::ResetForTest()
+    {
+        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        SyncLoadDetail::BootFinished().store( false, std::memory_order_relaxed );
+        SyncLoadDetail::LoadCount().store( 0, std::memory_order_relaxed );
+        SyncLoadDetail::InFrameCount().store( 0, std::memory_order_relaxed );
+        SyncLoadDetail::InFrameLogged().store( 0, std::memory_order_relaxed );
+        SyncLoadDetail::Sums().TotalMs   = 0.0;
+        SyncLoadDetail::Sums().InFrameMs = 0.0;
+        SyncLoadDetail::Sums().SlowestMs = 0.0;
+        SyncLoadDetail::Sums().SlowestPath.clear();
+        SyncLoadDetail::Depth() = 0;
+        SyncLoadDetail::OpenScope() = nullptr;
+    }
+
+    inline LoadTimingScope::LoadTimingScope( std::string path ) : m_Path( std::move( path ) )
+    {
+        m_Outermost = SyncLoadDetail::Depth() == 0;
+        m_Parent    = SyncLoadDetail::OpenScope();
+        SyncLoadDetail::OpenScope() = this;
+        ++SyncLoadDetail::Depth();
+        m_StartNs = SyncLoadDetail::NowNs();
+    }
+
+    inline LoadTimingScope::~LoadTimingScope()
+    {
+        const int64_t totalNs = SyncLoadDetail::NowNs() - m_StartNs;
+        --SyncLoadDetail::Depth();
+        SyncLoadDetail::OpenScope() = m_Parent;
+        // Handed UP before this scope's own row is written, so a parent that closes later already knows
+        // what its children cost. `m_ChildNs` is only ever touched by the thread that owns the stack.
+        if ( m_Parent != nullptr )
+        {
+            m_Parent->m_ChildNs += totalNs;
+        }
+        SyncLoadLedger::Record( m_Path, SyncLoadDetail::NowMs( totalNs ), SyncLoadDetail::NowMs( totalNs - m_ChildNs ), m_Outermost );
+    }
 
 } // namespace Desert::Assets

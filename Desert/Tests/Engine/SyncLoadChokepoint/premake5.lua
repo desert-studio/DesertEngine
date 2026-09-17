@@ -16,7 +16,6 @@ project(test_name)
 
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/SyncLoadLedger.cpp",
     }
 
     includedirs {
