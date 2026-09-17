@@ -58,6 +58,17 @@ namespace Desert::WorldGen
                    "[--name <scene name>] [--verify]";
         }
 
+        // ONE FIELD OF A .demat, NAMED AS A TYPE. The generator needs a material's identity and nothing
+        // else, and rfl ignores the keys it is not asked about - so this reads the number as a uint64_t
+        // through the parser, rather than through rfl::Generic's to_int()/to_double(), both of which are
+        // the wrong shape for this value: to_int() truncated 6418972230554417713 to 155908657 in the first
+        // run of this tool, and to_double() would round every handle above 2^53. Same defect
+        // SceneSerializer.cpp:159 names for SplashSprite, met again on the way in.
+        struct MaterialIdentityOnly
+        {
+            uint64_t MaterialId = 0;
+        };
+
         // The material's own file is the only place its identity is written down, so the generator READS
         // it rather than carrying a copy of the number. A hard-coded GUID here would be a second statement
         // of an asset's identity and would go stale silently the day the material is re-imported -
@@ -67,36 +78,16 @@ namespace Desert::WorldGen
         {
             const auto text = Common::Utils::FileSystem::ReadFileContent( assetsRoot / relative );
             if ( !text.IsSuccess() )
-                return Common::ResultStr<MaterialRef>::Error( "material '" + relative + "': " +
-                                                              text.GetError() );
+                return Common::MakeError<MaterialRef>( "material '" + relative + "': " + text.GetError() );
 
-            const auto parsed = rfl::json::read<rfl::Generic>( text.GetValue() );
+            const auto parsed = rfl::json::read<MaterialIdentityOnly>( text.GetValue() );
             if ( !parsed.has_value() )
-                return Common::ResultStr<MaterialRef>::Error( "material '" + relative + "' is not JSON" );
+                return Common::MakeError<MaterialRef>( "material '" + relative +
+                                                       "' states no readable MaterialId" );
+            if ( parsed.value().MaterialId == 0 )
+                return Common::MakeError<MaterialRef>( "material '" + relative + "' has MaterialId 0" );
 
-            const auto object = parsed.value().to_object();
-            if ( !object.has_value() )
-                return Common::ResultStr<MaterialRef>::Error( "material '" + relative +
-                                                              "' is not a JSON object" );
-
-            const auto id = object.value().get( "MaterialId" );
-            if ( !id.has_value() )
-                return Common::ResultStr<MaterialRef>::Error( "material '" + relative +
-                                                              "' states no MaterialId" );
-
-            // A .demat writes MaterialId as a bare JSON number, which rfl hands back as a double when it
-            // fits and as an integer otherwise. Both spellings occur in this repository's own materials
-            // (11800363237644377467 does not fit a double's integer range and 308002897746384934 does),
-            // so both are read - and reading only the double form would round every large handle, which
-            // is the same defect SceneSerializer.cpp:159 names for SplashSprite.
-            if ( const auto asInt = id->to_int(); asInt.has_value() )
-                return Common::ResultStr<MaterialRef>::Success( { relative, static_cast<uint64_t>( *asInt ) } );
-            if ( const auto asDouble = id->to_double(); asDouble.has_value() )
-                return Common::ResultStr<MaterialRef>::Success(
-                     { relative, static_cast<uint64_t>( *asDouble ) } );
-
-            return Common::ResultStr<MaterialRef>::Error( "material '" + relative +
-                                                          "': MaterialId is not a number" );
+            return Common::MakeSuccess<MaterialRef>( { relative, parsed.value().MaterialId } );
         }
 
         // THE WORLD'S PALETTE. Four untextured colours for the buildings and the one textured material
