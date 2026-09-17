@@ -279,25 +279,25 @@ namespace Desert::Assets
 
     inline double SyncLoadLedger::TotalMs()
     {
-        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
         return SyncLoadDetail::Sums().TotalMs;
     }
 
     inline double SyncLoadLedger::InFrameMs()
     {
-        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
         return SyncLoadDetail::Sums().InFrameMs;
     }
 
     inline double SyncLoadLedger::SlowestMs()
     {
-        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
         return SyncLoadDetail::Sums().SlowestMs;
     }
 
     inline std::string SyncLoadLedger::SlowestPath()
     {
-        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
         return SyncLoadDetail::Sums().SlowestPath;
     }
 
@@ -313,7 +313,7 @@ namespace Desert::Assets
         }
 
         {
-            std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+            const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
             if ( outermost )
             {
                 SyncLoadDetail::Sums().TotalMs += totalMs;
@@ -354,7 +354,7 @@ namespace Desert::Assets
 
     inline std::string SyncLoadLedger::Report()
     {
-        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
 
         const uint64_t loads   = SyncLoadDetail::LoadCount().load( std::memory_order_relaxed );
         const uint64_t inFrame = SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed );
@@ -383,7 +383,7 @@ namespace Desert::Assets
 
     inline void SyncLoadLedger::ResetForTest()
     {
-        std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
         SyncLoadDetail::BootFinished().store( false, std::memory_order_relaxed );
         SyncLoadDetail::LoadCount().store( 0, std::memory_order_relaxed );
         SyncLoadDetail::InFrameCount().store( 0, std::memory_order_relaxed );
@@ -396,6 +396,13 @@ namespace Desert::Assets
         SyncLoadDetail::OpenScope() = nullptr;
     }
 
+    // THE THREE ASSIGNMENTS BELOW CANNOT BECOME MEMBER INITIALISERS, and the reason is ORDER.
+    // Member initialisers run in DECLARATION order, and this constructor has two side effects that must
+    // happen between them: the thread's open-scope pointer may only be re-pointed at `this` AFTER
+    // `m_Parent` has read its old value, and the clock must be read LAST so that none of the bookkeeping
+    // is charged to the load being timed. A member initialiser list cannot interleave statements, so
+    // obeying the check here would either lose the parent link or start the timer before the bookkeeping.
+    // NOLINTBEGIN(cppcoreguidelines-prefer-member-initializer)
     inline LoadTimingScope::LoadTimingScope( std::string path ) : m_Path( std::move( path ) )
     {
         m_Outermost                 = SyncLoadDetail::Depth() == 0;
@@ -404,6 +411,7 @@ namespace Desert::Assets
         ++SyncLoadDetail::Depth();
         m_StartNs = SyncLoadDetail::NowNs();
     }
+    // NOLINTEND(cppcoreguidelines-prefer-member-initializer)
 
     inline LoadTimingScope::~LoadTimingScope()
     {
@@ -416,8 +424,20 @@ namespace Desert::Assets
         {
             m_Parent->m_ChildNs += totalNs;
         }
-        SyncLoadLedger::Record( m_Path, SyncLoadDetail::NowMs( totalNs ),
-                                SyncLoadDetail::NowMs( totalNs - m_ChildNs ), m_Outermost );
+
+        // A DETECTOR MUST NEVER BE THE REASON THE PROGRAM DIES. `Record` builds strings — the path, the
+        // report line — so it can throw `std::bad_alloc`, and an exception leaving a destructor calls
+        // `std::terminate`. That would turn "the machine is short of memory", which is EXACTLY the
+        // condition this instrument exists to observe, into a crash with the measurement lost. The catch
+        // is deliberately empty because there is nothing safe left to do: logging allocates too.
+        try
+        {
+            SyncLoadLedger::Record( m_Path, SyncLoadDetail::NowMs( totalNs ),
+                                    SyncLoadDetail::NowMs( totalNs - m_ChildNs ), m_Outermost );
+        }
+        catch ( ... ) // NOLINT(bugprone-empty-catch) -- see above: there is no safe action left
+        {
+        }
     }
 
 } // namespace Desert::Assets

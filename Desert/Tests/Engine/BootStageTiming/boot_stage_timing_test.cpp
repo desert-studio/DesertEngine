@@ -37,7 +37,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Core/BootTimeline.hpp" );
+            const std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Core/BootTimeline.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";

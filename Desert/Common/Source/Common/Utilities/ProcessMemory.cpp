@@ -57,6 +57,10 @@ namespace Common::Utils
         // with every process that forgot to.
         mach_task_basic_info_data_t info{};
         mach_msg_type_number_t      count = MACH_TASK_BASIC_INFO_COUNT;
+        // `task_info` takes a `task_info_t` (an `integer_t*`) and the flavour argument says which struct
+        // is really there. That is the kernel interface's own type erasure: there is no cast-free
+        // spelling, and `static_cast` between unrelated pointer types does not compile.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         if ( ::task_info( ::mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>( &info ),
                           &count ) == KERN_SUCCESS )
         {

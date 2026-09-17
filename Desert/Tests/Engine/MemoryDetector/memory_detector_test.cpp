@@ -46,7 +46,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Graphic/MemoryReadout.hpp" );
+            const std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Graphic/MemoryReadout.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -112,7 +112,7 @@ TEST( ProcessFootprint, ThisPlatformAnswers )
 
 TEST( ProcessFootprint, AnUnknownReadingSaysSoInsteadOfPrintingZeroBytes )
 {
-    Common::Utils::ProcessFootprint unknown;
+    const Common::Utils::ProcessFootprint unknown;
     ASSERT_FALSE( unknown.Known );
     const std::string text = unknown.Describe();
     EXPECT_NE( text.find( "unknown" ), std::string::npos ) << text;
@@ -127,13 +127,13 @@ TEST( ProcessFootprint, ItGrowsWhenTheProcessGrows )
     // reader of RSS is right to ignore it.
     const uint64_t before = Common::Utils::ReadProcessFootprint().Resident;
 
-    constexpr std::size_t kBytes = 64u * 1024u * 1024u;
+    constexpr std::size_t kBytes = std::size_t{ 64 } * 1024 * 1024;
     auto                  block  = std::make_unique<volatile unsigned char[]>( kBytes );
     for ( std::size_t at = 0; at < kBytes; at += 4096 )
         block[at] = static_cast<unsigned char>( at );
 
     const uint64_t after = Common::Utils::ReadProcessFootprint().Resident;
-    EXPECT_GT( after, before + ( 32u * 1024u * 1024u ) )
+    EXPECT_GT( after, before + ( uint64_t{ 32 } * 1024 * 1024 ) )
          << "touching 64 MiB moved resident from " << before << " to " << after;
 }
 
@@ -141,7 +141,7 @@ TEST( ProcessFootprint, ItGrowsWhenTheProcessGrows )
 
 TEST( DeviceMemoryReport, ADeviceThatDeclinedToAnswerReportsUnknownRatherThanAnEmptyDevice )
 {
-    MemoryReadout readout; // no device, as in every suite and during static initialisation
+    const MemoryReadout readout; // no device, as in every suite and during static initialisation
     ASSERT_FALSE( readout.Device.BudgetKnown );
 
     const std::string text = readout.Report();

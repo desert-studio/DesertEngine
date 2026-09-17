@@ -115,7 +115,7 @@ namespace Desert::Graphic
          * MemoryReadout::Take() )`, which also says at the call site that a fresh reading is taken every
          * frame.
          */
-        static void SampleFrame( const MemoryReadout& reading );
+        static void SampleFrame( const MemoryReadout& readout );
 
         /// Frames sampled so far. Zero means the detector never ran, which a report must distinguish
         /// from "nothing grew".

@@ -30,6 +30,7 @@
 #include <fstream>
 #include <regex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -46,7 +47,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Assets/AssetBase.hpp" );
+            const std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Assets/AssetBase.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -242,15 +243,22 @@ TEST_F( LedgerFixture, AScopeThatUNWINDSStillRecords )
     // Eleven of the eighteen `LoadFromFile` bodies have at least one early return, and several return an
     // error. A pair of Begin/End calls would have been skipped by every one of them; a destructor cannot
     // be. Exercised through the path that skips the most code there is.
+    // THE CATCH IS NOT EMPTY, and that is not only a lint: asserting the throw actually happened is
+    // what stops this test passing on a body that never threw at all, which would exercise the ordinary
+    // path under the name of the unwinding one.
+    bool unwound = false;
     try
     {
         const LoadTimingScope scope( "throws.demat" );
         Work( 5 );
         throw std::runtime_error( "a load that gave up" );
     }
-    catch ( const std::exception& )
+    catch ( const std::exception& thrown )
     {
+        unwound = std::string( thrown.what() ) == "a load that gave up";
     }
+    EXPECT_TRUE( unwound ) << "the throw this test is about did not happen";
+
     EXPECT_EQ( SyncLoadLedger::Loads(), 1u );
     EXPECT_GE( SyncLoadLedger::TotalMs(), 3.0 );
 }
@@ -322,10 +330,11 @@ TEST( SyncLoadChokepointCensus, EveryConcreteAssetTypeImplementsTheTimedHalf )
     // the reading). Demanding a `LoadFromFile` from them would have forced a body that cannot exist.
     // The exemption is DERIVED too: a type is intermediate when another asset header names it as a
     // base, so a real type that stopped implementing the function is not exempted by accident.
-    std::vector<std::string> subclasses;
-    std::vector<std::string> missing;
-    std::vector<std::string> allText;
-    std::vector<fs::path>    headers = AssetHeaders( root );
+    std::vector<std::string>    subclasses;
+    std::vector<std::string>    missing;
+    const std::vector<fs::path> headers = AssetHeaders( root );
+    std::vector<std::string>    allText;
+    allText.reserve( headers.size() );
     for ( const fs::path& header : headers )
         allText.push_back( Desert::Tests::ConsumerText::StripComments( ReadAll( header ) ) );
 
