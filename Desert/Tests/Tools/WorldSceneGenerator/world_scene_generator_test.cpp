@@ -48,10 +48,10 @@ using Desert::Core::kUnitVersion;
 using Desert::Core::ParseLoadableScene;
 using Desert::Core::SceneIsAtCurrentVersion;
 using Desert::Core::SceneSerialized;
-using Desert::Core::Serialize::MergeSceneDocument;
 using Desert::Core::Rules::PlanSceneStitch;
 using Desert::Core::Rules::PrefabRecordPolicy;
 using Desert::Core::Rules::StitchPlan;
+using Desert::Core::Serialize::MergeSceneDocument;
 
 namespace
 {
@@ -263,8 +263,8 @@ TEST( WorldSceneGenerator, EveryObjectSITSInTheCellItsNameClaims )
     const auto scene = rfl::json::read<SceneSerialized>( bytes );
     ASSERT_TRUE( scene.has_value() );
 
-    constexpr float kCell = 25600.0f;
-    constexpr int   kHalf = 2; // --cells 4
+    constexpr float kCell   = 25600.0f;
+    constexpr int   kHalf   = 2; // --cells 4
     int             checked = 0;
 
     for ( const auto& entity : scene->Entities )
@@ -482,8 +482,7 @@ TEST( WorldSceneGenerator, EveryMaterialTheSceneNamesResolvesAndItsGuidIsThatFil
             // Compared as TEXT, because a handle above 2^53 does not survive rfl::Generic's numeric
             // accessors - which is the defect this suite's own generator hit on its first run, when
             // to_int() turned 6418972230554417713 into 155908657.
-            EXPECT_EQ( rfl::json::write( ( *guidList )[i] ), rfl::json::write( stated.value() ) )
-                 << *relative;
+            EXPECT_EQ( rfl::json::write( ( *guidList )[i] ), rfl::json::write( stated.value() ) ) << *relative;
             ++checked;
         }
     }
@@ -496,7 +495,7 @@ TEST( WorldSceneGenerator, EveryMaterialTheSceneNamesResolvesAndItsGuidIsThatFil
 
 TEST( WorldSceneGenerator, RefusalsAreNamedAndNothingIsWritten )
 {
-    const auto  out = Scratch() / "never_written.desce";
+    const auto      out = Scratch() / "never_written.desce";
     std::error_code ignored;
     std::filesystem::remove( out, ignored );
 
@@ -510,7 +509,7 @@ TEST( WorldSceneGenerator, RefusalsAreNamedAndNothingIsWritten )
 
     // An assets root with no materials in it: the generator must say so rather than write a world whose
     // every object names a material that is not there.
-    std::vector<std::string> args{ "--out", out.string(), "--assets", "/nonexistent-assets-root",
+    std::vector<std::string> args{ "--out",    out.string(), "--assets", "/nonexistent-assets-root",
                                    "--preset", "smoke" };
     std::ostringstream       reported, refused;
     EXPECT_NE( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 );

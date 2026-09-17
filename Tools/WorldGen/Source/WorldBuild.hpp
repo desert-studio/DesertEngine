@@ -60,11 +60,11 @@ namespace Desert::WorldGen
     // What a generated world is made of, reported rather than recomputed by the caller.
     struct WorldStats
     {
-        int      Entities   = 0; // every record in the file, fixtures included
-        int      Cells      = 0;
-        int      Buildings  = 0;
-        int      GroundTiles = 0;
-        int64_t  ExtentCm   = 0; // edge of the square world
+        int     Entities    = 0; // every record in the file, fixtures included
+        int     Cells       = 0;
+        int     Buildings   = 0;
+        int     GroundTiles = 0;
+        int64_t ExtentCm    = 0; // edge of the square world
     };
 
     // THE GENERATOR. Deterministic: same spec and same material table give the same tree, on any machine

@@ -93,13 +93,13 @@ namespace Desert::WorldGen
                                       const MaterialRef& groundMaterial, WorldStats& stats )
     {
         Core::SceneSerialized scene;
-        scene.SceneName   = spec.Name;
+        scene.SceneName    = spec.Name;
         scene.SceneVersion = Core::kSceneVersion;
         scene.UnitVersion  = Core::kUnitVersion;
 
-        stats             = WorldStats{};
-        stats.Cells       = spec.Cells * spec.Cells;
-        stats.ExtentCm    = static_cast<int64_t>( spec.Cells ) * spec.CellSizeCm;
+        stats          = WorldStats{};
+        stats.Cells    = spec.Cells * spec.Cells;
+        stats.ExtentCm = static_cast<int64_t>( spec.Cells ) * spec.CellSizeCm;
 
         uint64_t nextId = 1000;
 
@@ -118,17 +118,17 @@ namespace Desert::WorldGen
             sun.Components["DirectionLight"] = rfl::Generic( std::move( light ) );
             scene.Entities.push_back( std::move( sun ) );
 
-            auto sky = MakeEntity( nextId++, "Sky", { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f },
-                                   { 1.0f, 1.0f, 1.0f } );
+            auto sky =
+                 MakeEntity( nextId++, "Sky", { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f } );
             rfl::Generic::Object skybox;
-            skybox["SkyboxHandle"] = rfl::Generic( std::string{} );
-            skybox["Intensity"]    = Num( 1.0 );
+            skybox["SkyboxHandle"]   = rfl::Generic( std::string{} );
+            skybox["Intensity"]      = Num( 1.0 );
             sky.Components["Skybox"] = rfl::Generic( std::move( skybox ) );
             rfl::Generic::Object atmosphere;
-            atmosphere["Enabled"]       = rfl::Generic( true );
-            atmosphere["SkyBrightness"] = Num( 1.0 );
-            atmosphere["SunIntensity"]  = Num( 22.0 );
-            atmosphere["TimeOfDay"]     = Num( 12.0 );
+            atmosphere["Enabled"]           = rfl::Generic( true );
+            atmosphere["SkyBrightness"]     = Num( 1.0 );
+            atmosphere["SunIntensity"]      = Num( 22.0 );
+            atmosphere["TimeOfDay"]         = Num( 12.0 );
             sky.Components["SkyAtmosphere"] = rfl::Generic( std::move( atmosphere ) );
             scene.Entities.push_back( std::move( sky ) );
 
@@ -144,7 +144,7 @@ namespace Desert::WorldGen
             // Far is the world's DIAGONAL and not a round number pulled from another scene: a far plane
             // shorter than the world silently culls the far half of it, which would look exactly like the
             // frustum culling this programme has not built yet and would be read as one.
-            cam["Far"]          = Num( static_cast<double>( stats.ExtentCm ) * 1.5 );
+            cam["Far"]                  = Num( static_cast<double>( stats.ExtentCm ) * 1.5 );
             camera.Components["Camera"] = rfl::Generic( std::move( cam ) );
             scene.Entities.push_back( std::move( camera ) );
         }
@@ -179,16 +179,16 @@ namespace Desert::WorldGen
                 // has to be a thing that can be present or absent on its own - that is what step 8 streams
                 // and what step 6 packs, and a single world-sized slab would be resident always.
                 {
-                    auto ground = MakeEntity(
-                         nextId++, std::string( cellTag ) + "_Ground",
-                         { static_cast<float>( originX + spec.CellSizeCm / 2 ), -25.0f,
-                           static_cast<float>( originZ + spec.CellSizeCm / 2 ) },
-                         { 0.0f, 0.0f, 0.0f }, BoxScale( spec.CellSizeCm, 50, spec.CellSizeCm ) );
+                    auto ground =
+                         MakeEntity( nextId++, std::string( cellTag ) + "_Ground",
+                                     { static_cast<float>( originX + spec.CellSizeCm / 2 ), -25.0f,
+                                       static_cast<float>( originZ + spec.CellSizeCm / 2 ) },
+                                     { 0.0f, 0.0f, 0.0f }, BoxScale( spec.CellSizeCm, 50, spec.CellSizeCm ) );
 
                     Assets::StaticMeshComponentSer mesh;
-                    mesh.MaterialPaths = std::vector<std::string>{ groundMaterial.Path };
-                    mesh.MaterialGuids = std::vector<uint64_t>{ groundMaterial.Guid };
-                    mesh.Primitive     = Geometry::PrimitiveType::Cube;
+                    mesh.MaterialPaths              = std::vector<std::string>{ groundMaterial.Path };
+                    mesh.MaterialGuids              = std::vector<uint64_t>{ groundMaterial.Guid };
+                    mesh.Primitive                  = Geometry::PrimitiveType::Cube;
                     ground.Components["StaticMesh"] = AsBlock( mesh );
                     scene.Entities.push_back( std::move( ground ) );
                     ++stats.GroundTiles;
@@ -222,23 +222,22 @@ namespace Desert::WorldGen
                     char tag[48];
                     std::snprintf( tag, sizeof( tag ), "%s_B%02d", cellTag, i );
 
-                    auto building = MakeEntity(
-                         nextId++, tag,
-                         { static_cast<float>( x ), static_cast<float>( heightCm ) / 2.0f,
-                           static_cast<float>( z ) },
-                         // Integer degrees, quarter turns: a box has fourfold symmetry, so a free yaw
-                         // changes the bytes without changing the silhouette or the overdraw.
-                         { 0.0f, static_cast<float>( Range( d5, 0, 3 ) * 90 ), 0.0f },
-                         BoxScale( widthCm, heightCm, depthCm ) );
+                    auto building =
+                         MakeEntity( nextId++, tag,
+                                     { static_cast<float>( x ), static_cast<float>( heightCm ) / 2.0f,
+                                       static_cast<float>( z ) },
+                                     // Integer degrees, quarter turns: a box has fourfold symmetry, so a free yaw
+                                     // changes the bytes without changing the silhouette or the overdraw.
+                                     { 0.0f, static_cast<float>( Range( d5, 0, 3 ) * 90 ), 0.0f },
+                                     BoxScale( widthCm, heightCm, depthCm ) );
 
                     Assets::StaticMeshComponentSer mesh;
-                    const auto& material =
-                         buildingMaterials[static_cast<size_t>( Range( Mix( d5 ), 0, static_cast<int>(
-                              buildingMaterials.size() ) - 1 ) )];
-                    mesh.MaterialPaths = std::vector<std::string>{ material.Path };
-                    mesh.MaterialGuids = std::vector<uint64_t>{ material.Guid };
-                    mesh.Primitive     = Geometry::PrimitiveType::Cube;
-                    building.Components["StaticMesh"] = AsBlock( mesh );
+                    const auto&                    material = buildingMaterials[static_cast<size_t>(
+                         Range( Mix( d5 ), 0, static_cast<int>( buildingMaterials.size() ) - 1 ) )];
+                    mesh.MaterialPaths                      = std::vector<std::string>{ material.Path };
+                    mesh.MaterialGuids                      = std::vector<uint64_t>{ material.Guid };
+                    mesh.Primitive                          = Geometry::PrimitiveType::Cube;
+                    building.Components["StaticMesh"]       = AsBlock( mesh );
                     scene.Entities.push_back( std::move( building ) );
                     ++stats.Buildings;
                 }

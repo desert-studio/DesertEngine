@@ -127,17 +127,17 @@ namespace Desert::WorldGen
 
     int RunWorldGen( const std::vector<std::string>& args, std::ostream& out, std::ostream& err )
     {
-        std::string           outPath;
-        std::string           assetsRoot = "Editor/Resources/Assets";
-        std::string           presetKey  = "world";
-        std::string           nameOverride;
-        std::optional<int>    cells, perCell, cellSize;
-        std::optional<int>    seed;
-        bool                  verify = false;
+        std::string        outPath;
+        std::string        assetsRoot = "Editor/Resources/Assets";
+        std::string        presetKey  = "world";
+        std::string        nameOverride;
+        std::optional<int> cells, perCell, cellSize;
+        std::optional<int> seed;
+        bool               verify = false;
 
         for ( size_t i = 0; i < args.size(); ++i )
         {
-            const std::string& a = args[i];
+            const std::string& a     = args[i];
             const auto         value = [&]( std::string& into ) -> bool
             {
                 if ( i + 1 >= args.size() )
@@ -275,9 +275,9 @@ namespace Desert::WorldGen
         const auto  started = std::chrono::steady_clock::now();
         if ( !build( json, stats ) )
             return 4;
-        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                    std::chrono::steady_clock::now() - started )
-                                    .count();
+        const auto elapsedMs =
+             std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() - started )
+                  .count();
 
         if ( verify )
         {
@@ -311,8 +311,8 @@ namespace Desert::WorldGen
             << "  cells        : " << stats.Cells << " of " << spec.CellSizeCm / 100 << " m\n"
             << "  extent       : " << stats.ExtentCm / 100 << " m square\n"
             << "  bytes        : " << json.size() << "\n"
-            << "  schema       : SceneVersion " << Core::kSceneVersion << ", UnitVersion "
-            << Core::kUnitVersion << "\n"
+            << "  schema       : SceneVersion " << Core::kSceneVersion << ", UnitVersion " << Core::kUnitVersion
+            << "\n"
             << "  generated in : " << elapsedMs << " ms\n";
         return 0;
     }
