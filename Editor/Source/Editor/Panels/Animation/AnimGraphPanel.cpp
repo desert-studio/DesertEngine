@@ -380,7 +380,25 @@ namespace Desert::Editor
         if ( const auto* cur = anim->GraphEvaluator ? anim->GraphEvaluator->CurrentState() : nullptr )
         {
             ImGui::SameLine();
-            ImGui::TextDisabled( "| Active: %s", cur->Name.c_str() );
+
+            // ЖИВОЙ ПЕРЕХОД, а не только его исход — строка макета §8.2. Пока кроссфейд идёт, состояние
+            // на экране («Run») не описывает того, что видит аниматор: поза в этот момент есть смесь
+            // двух, и без второго имени и доли заголовок утверждает больше, чем знает.
+            //
+            // Три источника, и каждый знает ровно свою часть: откуда пришли — вычислитель графа (он
+            // запоминает это там, где переход срабатывает); куда — он же; НАСКОЛЬКО — только Animator,
+            // потому что длительность объявлена в графе, а прогресс ведут часы проигрывания.
+            const float alpha = anim->Animator ? anim->Animator->BlendAlpha() : 0.0F;
+            const auto* prev  = anim->GraphEvaluator->PreviousState();
+            if ( alpha > 0.0F && prev != nullptr )
+            {
+                ImGui::TextDisabled( "| Live: %s " ICON_MDI_ARROW_RIGHT " %s  %.0f%%", prev->Name.c_str(),
+                                     cur->Name.c_str(), alpha * 100.0F );
+            }
+            else
+            {
+                ImGui::TextDisabled( "| Active: %s", cur->Name.c_str() );
+            }
         }
 
         // The window's ONE error channel — a save that failed, or an edit that reached no asset. It has to

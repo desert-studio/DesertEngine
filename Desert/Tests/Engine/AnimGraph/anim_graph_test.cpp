@@ -147,3 +147,33 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// ОТКУДА ПРИШЛИ — и почему это утверждается парой, а не одним «имя правильное».
+//
+// Заголовок панели показывает переход как «откуда → куда NN%», и без второго имени он утверждает
+// больше, чем знает: пока кроссфейд идёт, поза на экране есть СМЕСЬ двух состояний, а надпись
+// называет одно. Второе имя может дать только тот, кто помнит, где переход сработал.
+//
+// Обе половины нужны. «Называет Idle после перехода» проходит и на реализации, которая просто держит
+// первое состояние графа: в локомоционном графе вход и есть Idle. Поэтому здесь ДВА перехода подряд,
+// и второй обязан сдвинуть память — иначе это не память, а константа.
+TEST( AnimGraph, PreviousStateNamesWhereTheTransitionCameFrom )
+{
+    Evaluator eval( LocomotionGraph() );
+
+    // ДО первого перехода предыдущего нет — и это не «то же, что текущее». Состояние «переход ещё не
+    // случался» обязано быть отличимо, иначе панель нарисует «Idle -> Idle 0%» на нетронутом графе.
+    EXPECT_EQ( eval.PreviousState(), nullptr );
+
+    ASSERT_TRUE( eval.SetFloat( "Speed", 1.0f ).IsSuccess() );
+    ASSERT_EQ( eval.Update( 0.0f ).Current->Name, "Run" );
+    ASSERT_NE( eval.PreviousState(), nullptr );
+    EXPECT_EQ( eval.PreviousState()->Name, "Idle" );
+
+    // Второй переход: память обязана СДВИНУТЬСЯ. Это и есть положительный контроль — реализация,
+    // возвращающая вход графа, здесь покраснеет.
+    ASSERT_TRUE( eval.SetFloat( "Speed", 0.0f ).IsSuccess() );
+    ASSERT_EQ( eval.Update( 0.0f ).Current->Name, "Idle" );
+    ASSERT_NE( eval.PreviousState(), nullptr );
+    EXPECT_EQ( eval.PreviousState()->Name, "Run" );
+}

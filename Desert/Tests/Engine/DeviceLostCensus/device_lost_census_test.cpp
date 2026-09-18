@@ -205,6 +205,11 @@ namespace
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFeatures", 1, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFormatProperties", 3, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceMemoryProperties", 1, "void" },
+         // В2, шаг 2 программы по миру: чтение бюджета памяти устройства. Возвращает void — результат
+         // приходит через цепочку `pNext` (`VkPhysicalDeviceMemoryBudgetPropertiesEXT`), которую
+         // вызывающий и читает, так что «выброшенного результата» здесь нет. Строка нужна для полноты
+         // счёта: если в будущем заголовке эта функция станет возвращать VkResult, перепись это заметит.
+         { "VulkanDevice.cpp", "vkGetPhysicalDeviceMemoryProperties2", 1, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceQueueFamilyProperties", 2, "void" },
          { "VulkanDevice.cpp", "vkGetDeviceQueue", 3, "void" },
          { "VulkanGpuProfiler.cpp", "vkGetPhysicalDeviceQueueFamilyProperties", 2, "void" },

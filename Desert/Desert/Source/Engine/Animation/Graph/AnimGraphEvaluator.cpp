@@ -177,6 +177,13 @@ namespace Desert::Animation::Graph
                     : nullptr;
     }
 
+    const State* Evaluator::PreviousState() const
+    {
+        return ( m_Previous >= 0 && m_Previous < static_cast<int>( m_Graph.States.size() ) )
+                    ? &m_Graph.States[m_Previous]
+                    : nullptr;
+    }
+
     bool Evaluator::EvaluateCondition( const Condition& c ) const
     {
         const float v = GetFloat( c.Parameter );
@@ -234,6 +241,11 @@ namespace Desert::Animation::Graph
             if ( target < 0 || target == m_Current )
                 continue; // dangling target / self-loop -> ignore (never "changes")
 
+            // ОТКУДА ПРИШЛИ — запоминается здесь, в единственном месте, где переход срабатывает.
+            // Панель могла бы вывести это наблюдением («имя сменилось — значит был переход»), но она
+            // тикает, только когда открыта: закрыл окно на время перехода — и наблюдатель пропустил
+            // ровно то событие, ради которого он есть. Здесь же это факт, а не догадка.
+            m_Previous     = m_Current;
             m_Current      = target;
             result.Current = CurrentState();
             result.Changed = true;

@@ -173,6 +173,10 @@ namespace Desert::Animation::Graph
         }
         [[nodiscard]] const State* CurrentState() const;
 
+        /// Состояние, из которого пришёл последний сработавший переход, или nullptr до первого.
+        /// Нужно, чтобы показать переход как «откуда → куда», а не только «куда».
+        [[nodiscard]] const State* PreviousState() const;
+
     private:
         [[nodiscard]] int  FindState( const std::string& name ) const;
         [[nodiscard]] bool EvaluateCondition( const Condition& c ) const;
@@ -189,6 +193,7 @@ namespace Desert::Animation::Graph
         AnimGraph                              m_Graph;
         std::unordered_map<std::string, float> m_Params;
         int                                    m_Current = -1;
+        int m_Previous = -1; ///< см. PreviousState(): пишется там же, где срабатывает переход
         std::string                            m_StructureError;
     };
 } // namespace Desert::Animation::Graph

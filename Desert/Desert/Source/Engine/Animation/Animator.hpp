@@ -49,6 +49,17 @@ namespace Desert::Animation
     class Animator
     {
     public:
+
+        // ПУБЛИЧНО, И ЭТО НЕ ПОСЛАБЛЕНИЕ. Панель анимационного графа показывает переход как
+        // «откуда → куда NN%», и проценту неоткуда взяться, кроме как отсюда: длительность перехода
+        // знает граф, а его ПРОГРЕСС — только тот, кто ведёт часы. Читатель есть, и он один.
+        //
+        // Насколько прошёл кроссфейд, 0..1. Выводится, а не хранится: альфа и часы не могут разойтись,
+        // если они одни.
+        [[nodiscard]] float BlendAlpha() const
+        {
+            return m_IsBlending ? glm::clamp( m_BlendTime / m_BlendDuration, 0.0F, 1.0F ) : 0.0F;
+        }
         explicit Animator( const Skeleton& skeleton );
 
         void Play( const AnimationClip& clip, bool loop = true );
@@ -290,12 +301,6 @@ namespace Desert::Animation
         /// pipeline's fixed order. See the definition for why this is a rebuild and not an insert.
         void SyncStages();
 
-        // How far the crossfade has run, 0..1. Derived rather than stored: the alpha and the clock cannot
-        // disagree if there is only one of them.
-        [[nodiscard]] float BlendAlpha() const
-        {
-            return m_IsBlending ? glm::clamp( m_BlendTime / m_BlendDuration, 0.0F, 1.0F ) : 0.0F;
-        }
 
         /// Local (parent-relative) transform of `boneIndex` driven by `clip` at `time`, or the bind-pose
         /// local when the clip has no track for it. Straight from the clip's TRS keys — the matrix this

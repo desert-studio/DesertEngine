@@ -488,6 +488,48 @@ namespace
                     continue;
                 calls[code.substr( nameAt, at - nameAt )].push_back( fs::weakly_canonical( file ).string() );
             }
+
+            // AND THE UNQUALIFIED CALL, which this scan did not see until 2026-09-18 and therefore
+            // reported a live method as dead.
+            //
+            // `AssetBase::Load()` calls `LoadFromFile()` on the line below its own body — no `.`, no
+            // `->`, because a member calling its sibling needs neither. The loop above matches only
+            // member access, so the census answered "no translation unit able to see it ever calls it"
+            // about a method whose only caller sits five lines away. That is this project's most common
+            // defect shape wearing the census's own clothes: the instrument answered a different question
+            // than the one it asked.
+            //
+            // The name is looked up only for methods the census already knows to be pure virtual, so a
+            // free function that happens to share the name is the one ambiguity this can introduce — and
+            // that ambiguity is worth reporting rather than hiding, which is why it is not filtered out.
+            for ( std::size_t i = 0; i + 1 < code.size(); ++i )
+            {
+                if ( !IsIdentChar( code[i] ) )
+                {
+                    continue;
+                }
+                if ( i > 0 && ( IsIdentChar( code[i - 1] ) || code[i - 1] == '.' || code[i - 1] == '>' ||
+                                code[i - 1] == ':' ) )
+                {
+                    continue; // member access, qualified name, or the middle of an identifier
+                }
+                std::size_t at = i;
+                while ( at < code.size() && IsIdentChar( code[at] ) )
+                {
+                    ++at;
+                }
+                std::size_t paren = at;
+                while ( paren < code.size() && ( code[paren] == ' ' || code[paren] == '\n' ) )
+                {
+                    ++paren;
+                }
+                if ( paren >= code.size() || code[paren] != '(' )
+                {
+                    continue;
+                }
+                calls[code.substr( i, at - i )].push_back( fs::weakly_canonical( file ).string() );
+                i = at - 1;
+            }
         }
         return calls;
     }
