@@ -326,7 +326,6 @@ TEST( TeardownOrder, EverySiteThatDestroysASceneRendererIdlesTheDeviceFirst )
     }
 }
 
-
 // ── THE DEVICE'S OWN CHILDREN ────────────────────────────────────────────────────────────────────────
 //
 // WHAT THIS PAIR OF TESTS COST BEFORE THEY EXISTED. On a normal close the validation layer answered
@@ -391,8 +390,8 @@ TEST( TeardownOrder, TheDeviceTeardownReachesEveryVulkanOwner )
                                         "without checking anything -- fix the row or the code.";
 
         EXPECT_NE( body.find( link.Call ), std::string::npos )
-             << link.CallerSignature << " no longer calls " << link.Call << ", so nothing releases "
-             << link.What << ". This is not a crash and not a test failure anywhere else: it is "
+             << link.CallerSignature << " no longer calls " << link.Call << ", so nothing releases " << link.What
+             << ". This is not a crash and not a test failure anywhere else: it is "
              << "`vkDestroyDevice(): VkDevice has N leaked objects` and an otherwise clean exit.";
     }
 }
@@ -406,8 +405,8 @@ TEST( TeardownOrder, TheDeviceTeardownReachesEveryVulkanOwner )
 TEST( TeardownOrder, TheTeardownStepsAreOrderedAgainstTheThingTheyOutlive )
 {
     {
-        const std::string source = ReadFile(
-             RepoRoot() / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" );
+        const std::string source =
+             ReadFile( RepoRoot() / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" );
         const std::string body = FunctionBody( source, "void VulkanLogicalDevice::Destroy" );
         ASSERT_FALSE( body.empty() ) << "VulkanLogicalDevice::Destroy has no body";
 
@@ -422,13 +421,13 @@ TEST( TeardownOrder, TheTeardownStepsAreOrderedAgainstTheThingTheyOutlive )
     }
 
     {
-        const std::string source = ReadFile(
-             RepoRoot() / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanContext.cpp" );
+        const std::string source =
+             ReadFile( RepoRoot() / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanContext.cpp" );
         const std::string body = FunctionBody( source, "void VulkanContext::Shutdown" );
         ASSERT_FALSE( body.empty() ) << "VulkanContext::Shutdown has no body";
 
-        const size_t drain        = body.find( "DrainDeletionQueue()" );
-        const size_t destroyVma   = body.find( "m_VulkanAllocator->Shutdown()" );
+        const size_t drain      = body.find( "DrainDeletionQueue()" );
+        const size_t destroyVma = body.find( "m_VulkanAllocator->Shutdown()" );
         ASSERT_NE( drain, std::string::npos ) << "the deferred-deletion queue is never drained here";
         ASSERT_NE( destroyVma, std::string::npos ) << "the VMA allocator is never destroyed here";
         EXPECT_LT( drain, destroyVma )
@@ -516,8 +515,9 @@ TEST( TeardownOrder, EveryVulkanObjectTheEngineCreatesHasADestroyCall )
             ++files;
         }
     }
-    ASSERT_GT( files, 20u ) << "read only " << files << " backend sources -- the walk, not the engine, is "
-                                                        "what is wrong";
+    ASSERT_GT( files, 20u ) << "read only " << files
+                            << " backend sources -- the walk, not the engine, is "
+                               "what is wrong";
 
     for ( const Pair& pair : pairs )
     {

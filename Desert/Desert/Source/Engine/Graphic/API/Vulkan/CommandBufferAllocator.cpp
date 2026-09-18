@@ -178,7 +178,8 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( cmdBuffer );
     }
 
-    Common::ResultStr<VkResult> CommandBufferAllocator::FlushOneShot( VkCommandBuffer commandBuffer, VkQueue queue )
+    Common::ResultStr<VkResult> CommandBufferAllocator::FlushOneShot( VkCommandBuffer commandBuffer,
+                                                                      VkQueue         queue )
     {
         const auto entry = m_OneShotPools.find( commandBuffer );
         if ( entry == m_OneShotPools.end() )
@@ -200,12 +201,14 @@ namespace Desert::Graphic::API::Vulkan
         return FlushCommandBuffer( m_LogicalDevice, pool, commandBuffer, queue );
     }
 
-    Common::ResultStr<VkResult> CommandBufferAllocator::RT_FlushCommandBufferCompute( VkCommandBuffer commandBuffer )
+    Common::ResultStr<VkResult>
+    CommandBufferAllocator::RT_FlushCommandBufferCompute( VkCommandBuffer commandBuffer )
     {
         return FlushOneShot( commandBuffer, m_ComputeQueue );
     }
 
-    Common::ResultStr<VkResult> CommandBufferAllocator::RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer )
+    Common::ResultStr<VkResult>
+    CommandBufferAllocator::RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer )
     {
         return FlushOneShot( commandBuffer, m_GraphicsQueue );
     }

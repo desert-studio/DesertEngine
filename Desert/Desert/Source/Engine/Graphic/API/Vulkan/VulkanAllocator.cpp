@@ -3,7 +3,6 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 
-
 namespace Desert::Graphic::API::Vulkan
 {
     namespace
@@ -38,7 +37,8 @@ namespace Desert::Graphic::API::Vulkan
 
     std::size_t VulkanAllocator::LiveAllocationCount()
     {
-        if ( s_VmaAllocator == VK_NULL_HANDLE ) return 0;
+        if ( s_VmaAllocator == VK_NULL_HANDLE )
+            return 0;
         VmaTotalStatistics stats{};
         vmaCalculateStatistics( s_VmaAllocator, &stats );
         return static_cast<std::size_t>( stats.total.statistics.allocationCount );
@@ -216,10 +216,12 @@ namespace Desert::Graphic::API::Vulkan
 
     std::size_t VulkanAllocator::DestroyQueued( const std::function<bool( uint32_t )>& takeFrame )
     {
-        if ( s_VmaAllocator == VK_NULL_HANDLE ) return 0;
+        if ( s_VmaAllocator == VK_NULL_HANDLE )
+            return 0;
 
         const VkDevice device = m_Device;
-        if ( device == VK_NULL_HANDLE ) return 0;
+        if ( device == VK_NULL_HANDLE )
+            return 0;
 
         std::size_t destroyed = 0;
 
@@ -276,8 +278,8 @@ namespace Desert::Graphic::API::Vulkan
 
     std::size_t VulkanAllocator::QueuedCount() const
     {
-        return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() +
-               m_FramebufferDeletionQueue.size() + m_RenderPassDeletionQueue.size();
+        return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
+               m_RenderPassDeletionQueue.size();
     }
 
     VulkanAllocator::~VulkanAllocator()
