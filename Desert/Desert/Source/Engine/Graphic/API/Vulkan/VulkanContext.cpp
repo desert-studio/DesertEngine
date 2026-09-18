@@ -5,7 +5,6 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
-#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
 #include <string_view>
@@ -228,13 +227,6 @@ namespace Desert::Graphic::API::Vulkan
                 LOG_INFO( "[Allocator] drained {} deferred GPU object destruction(s) at teardown; these had "
                           "no frame left to be collected on.",
                           drained );
-            }
-            const std::size_t live = VulkanAllocator::LiveAllocationCount();
-            if ( live > 0 )
-            {
-                LOG_ERROR( "[Allocator] {} VMA allocation(s) are still live at teardown; their owners never "
-                           "released them at all.\n{}",
-                           live, ResourceLedger::Report() );
             }
             m_VulkanAllocator->Shutdown();
         }

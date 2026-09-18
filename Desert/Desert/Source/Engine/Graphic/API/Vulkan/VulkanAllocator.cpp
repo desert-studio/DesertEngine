@@ -35,15 +35,6 @@ namespace Desert::Graphic::API::Vulkan
         m_Device = device->GetVulkanLogicalDevice();
     }
 
-    std::size_t VulkanAllocator::LiveAllocationCount()
-    {
-        if ( s_VmaAllocator == VK_NULL_HANDLE )
-            return 0;
-        VmaTotalStatistics stats{};
-        vmaCalculateStatistics( s_VmaAllocator, &stats );
-        return static_cast<std::size_t>( stats.total.statistics.allocationCount );
-    }
-
     void VulkanAllocator::Shutdown()
     {
         if ( s_VmaAllocator != VK_NULL_HANDLE )

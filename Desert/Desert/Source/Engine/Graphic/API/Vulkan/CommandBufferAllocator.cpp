@@ -186,6 +186,13 @@ namespace Desert::Graphic::API::Vulkan
         {
             // A buffer this allocator did not hand out, or one already flushed. Freeing it against a
             // guessed pool is undefined; saying so is the only honest answer, and it names the handle.
+            //
+            // LOGGED AS WELL AS RETURNED, and that is not belt-and-braces: seventeen of the nineteen call
+            // sites throw this result away, so a refusal that only travelled in the return value would be
+            // a dropped upload with nothing anywhere to say it happened.
+            LOG_ERROR( "[CommandBuffers] flush of command buffer {} refused: it was not allocated here, or "
+                       "was already flushed. Nothing was submitted.",
+                       static_cast<const void*>( commandBuffer ) );
             return Common::MakeFormattedError<VkResult>(
                  "command buffer {} was not allocated by CommandBufferAllocator (or was already flushed); "
                  "it cannot be submitted and freed here.",
