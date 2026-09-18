@@ -1,4 +1,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+
+#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -210,7 +212,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( s_VmaAllocator == VK_NULL_HANDLE )
             return 0;
 
-        const VkDevice device = m_Device;
+        VkDevice device = m_Device;
         if ( device == VK_NULL_HANDLE )
             return 0;
 
@@ -274,6 +276,7 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanAllocator::~VulkanAllocator()
+    try
     {
         // SAYS SO RATHER THAN DESTROYING. By the time this runs the VkDevice may already be gone — the
         // context is the last of Application's three members to die — so destroying anything here is the
@@ -290,5 +293,6 @@ namespace Desert::Graphic::API::Vulkan
                        stranded );
         }
     }
+    DESERT_DESTRUCTOR_GUARD( "~VulkanAllocator" )
 
 } // namespace Desert::Graphic::API::Vulkan

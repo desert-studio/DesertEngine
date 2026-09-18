@@ -199,7 +199,7 @@ namespace Desert::Graphic::API::Vulkan
                  static_cast<const void*>( commandBuffer ) );
         }
 
-        const VkCommandPool pool = entry->second;
+        VkCommandPool pool = entry->second;
         // Erased BEFORE the flush, not after: FlushCommandBuffer has four early returns and the buffer is
         // freed on the success path only, so leaving the row in place on a refusal would make the next
         // flush of a recycled handle free a buffer that is still being recorded into.
@@ -280,8 +280,8 @@ namespace Desert::Graphic::API::Vulkan
         // anyway (see the header). Destroying a pool frees every command buffer allocated from it, which
         // is how the per-frame draw and compute buffers VulkanQueue::Init takes out of these same pools
         // are released too.
-        for ( auto& pools : { std::ref( m_CommandGraphicPool ), std::ref( m_ComputeCommandPool ),
-                              std::ref( m_TransferOpsCommandPool ) } )
+        for ( const auto& pools : { std::ref( m_CommandGraphicPool ), std::ref( m_ComputeCommandPool ),
+                                    std::ref( m_TransferOpsCommandPool ) } )
         {
             for ( VkCommandPool& pool : pools.get() )
             {
