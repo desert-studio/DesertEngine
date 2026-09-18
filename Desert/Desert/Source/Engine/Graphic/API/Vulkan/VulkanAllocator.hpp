@@ -90,6 +90,10 @@ namespace Desert::Graphic::API::Vulkan
 
         void Shutdown();
 
+        /// How many VMA allocations are still live. Nonzero after DrainDeletionQueue means an owner never
+        /// gave its buffer or image back at all — a different fault from one whose destruction was queued.
+        [[nodiscard]] static std::size_t LiveAllocationCount();
+
         static VmaAllocator& GetVMAAllocator();
 
         VulkanAllocator() = default;
@@ -108,6 +112,9 @@ namespace Desert::Graphic::API::Vulkan
         std::size_t DestroyQueued( const std::function<bool( uint32_t )>& takeFrame );
 
         friend class Common::Singleton<VulkanAllocator>;
+
+        /// The device this allocator was created for. See Init() for why it is held rather than looked up.
+        VkDevice m_Device = VK_NULL_HANDLE;
 
         std::vector<BufferDeletionEntry>      m_BufferDeletionQueue;
         std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;

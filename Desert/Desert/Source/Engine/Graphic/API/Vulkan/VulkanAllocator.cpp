@@ -3,6 +3,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 
+
 namespace Desert::Graphic::API::Vulkan
 {
     namespace
@@ -25,6 +26,22 @@ namespace Desert::Graphic::API::Vulkan
         allocatorInfo.instance               = instance;
 
         VK_CHECK_RESULT( vmaCreateAllocator( &allocatorInfo, &s_VmaAllocator ) );
+
+        // HELD, NOT LOOKED UP. Every destroy below used to reach the VkDevice through
+        // EngineContext::GetDevice(), which is a weak_ptr::lock() — and the one moment this class most
+        // needs a device is INSIDE ~VulkanLogicalDevice, where that lock() answers null because the
+        // shared_ptr is already expiring. The teardown drain therefore destroyed nothing and said nothing,
+        // which is the silent-empty-success shape the contract forbids. The allocator was created for
+        // exactly one device; holding its handle is the single source of truth for which one.
+        m_Device = device->GetVulkanLogicalDevice();
+    }
+
+    std::size_t VulkanAllocator::LiveAllocationCount()
+    {
+        if ( s_VmaAllocator == VK_NULL_HANDLE ) return 0;
+        VmaTotalStatistics stats{};
+        vmaCalculateStatistics( s_VmaAllocator, &stats );
+        return static_cast<std::size_t>( stats.total.statistics.allocationCount );
     }
 
     void VulkanAllocator::Shutdown()
@@ -201,10 +218,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( s_VmaAllocator == VK_NULL_HANDLE ) return 0;
 
-        const auto context = EngineContext::GetInstance().GetRendererContext();
-        const auto engineDevice = EngineContext::GetInstance().GetDevice();
-        if ( !context || !engineDevice ) return 0;
-        auto device = SP_CAST( VulkanLogicalDevice, engineDevice )->GetVulkanLogicalDevice();
+        const VkDevice device = m_Device;
         if ( device == VK_NULL_HANDLE ) return 0;
 
         std::size_t destroyed = 0;
