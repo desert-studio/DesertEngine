@@ -7,6 +7,8 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
+#include <Common/Core/DestructorGuard.hpp>
+
 namespace Desert::Graphic::API::Vulkan
 {
     namespace
@@ -264,10 +266,33 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( VK_SUCCESS );
     }
 
+    VulkanQueue::~VulkanQueue()
+    try
+    {
+        Release();
+    }
+    DESERT_DESTRUCTOR_GUARD( "~VulkanQueue" )
+
     void VulkanQueue::Release()
     {
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                               ->GetVulkanLogicalDevice();
+        // The engine's device is reached through EngineContext rather than held, and at teardown it can
+        // already be gone: dropping the handles is then the correct answer, because vkDestroyDevice takes
+        // its own children with it and a destroyed device cannot be passed to vkDestroySemaphore.
+        const auto engineDevice = EngineContext::GetInstance().GetDevice();
+        if ( !engineDevice )
+        {
+            m_FrameSemaphores.clear();
+            m_WaitFences.clear();
+            return;
+        }
+
+        VkDevice device = SP_CAST( VulkanLogicalDevice, engineDevice )->GetVulkanLogicalDevice();
+        if ( device == VK_NULL_HANDLE )
+        {
+            m_FrameSemaphores.clear();
+            m_WaitFences.clear();
+            return;
+        }
 
         for ( auto& sem : m_FrameSemaphores )
         {
@@ -284,5 +309,6 @@ namespace Desert::Graphic::API::Vulkan
                 fence = VK_NULL_HANDLE;
             }
         }
+        m_WaitFences.clear();
     }
 } // namespace Desert::Graphic::API::Vulkan

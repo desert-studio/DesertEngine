@@ -326,6 +326,218 @@ TEST( TeardownOrder, EverySiteThatDestroysASceneRendererIdlesTheDeviceFirst )
     }
 }
 
+// ── THE DEVICE'S OWN CHILDREN ────────────────────────────────────────────────────────────────────────
+//
+// WHAT THIS PAIR OF TESTS COST BEFORE THEY EXISTED. On a normal close the validation layer answered
+// `vkDestroyDevice(): VkDevice has 6599 leaked objects that have not been destroyed`
+// (VUID-vkDestroyDevice-device-05137), and the census by type was not one kind but eleven:
+//
+//     VkBuffer 5716, VkImageView 265, VkCommandBuffer 211, VkImage 104, VkSampler 100,
+//     VkDeviceMemory 86, VkRenderPass 66, VkFramebuffer 33, VkCommandPool 9, VkSemaphore 6, VkFence 3.
+//
+// Three owners, and NOT ONE of them was a forgotten line inside a release function:
+//
+//   * 5919 sat in VulkanAllocator's deferred-deletion queue. RT_Destroy* only ENQUEUES, and the queue is
+//     drained from exactly one place -- VulkanQueue::Present. Shutdown releases the engine's entire
+//     content AFTER the last frame, so there was no frame left to collect any of it on.
+//   * 220 were CommandBufferAllocator's nine command pools and the one-off buffers taken from them. That
+//     class had no teardown at all, and FlushCommandBuffer's pool parameter was commented out.
+//   * 9 were VulkanQueue's semaphores and fences. `VulkanQueue::Release()` existed, was public, was
+//     correct -- and was called from nowhere.
+//
+// The last one is the shape worth naming: a release function that is right and unreachable looks exactly
+// like a release function that runs. `RendererContext::Shutdown()` was the same, one level up: a pure
+// virtual with a working Vulkan body and no caller anywhere in the tree.
+
+// RELATION: every teardown entry point in the Vulkan backend is REACHED, and the one root that reaches
+// them is VulkanLogicalDevice::Destroy -- the last moment at which the VkDevice is still alive.
+//
+// A NAMED REGISTER and not a count, for the reason `pin a register, not a count` gives: a number can be
+// satisfied by editing the number, and each row here is a decision about who releases what.
+TEST( TeardownOrder, TheDeviceTeardownReachesEveryVulkanOwner )
+{
+    struct Link
+    {
+        const char* CallerFile;
+        const char* CallerSignature;
+        const char* Call;
+        const char* What;
+    };
+
+    const Link links[] = {
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp", "void VulkanLogicalDevice::Destroy",
+           "Shutdown()", "the renderer context, and through it everything below" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanContext.cpp", "void VulkanContext::Shutdown",
+           "DrainDeletionQueue()", "every destruction that was deferred and has no frame left to run on" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanContext.cpp", "void VulkanContext::Shutdown",
+           "CommandBufferAllocator::GetInstance().Destroy()", "the nine command pools and their buffers" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanContext.cpp", "void VulkanContext::Shutdown",
+           "m_VulkanAllocator->Shutdown()", "the VMA allocator itself" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.cpp", "VulkanQueue::~VulkanQueue",
+           "Release()", "the frame semaphores and the wait fences" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.cpp", "void VulkanQueue::Present",
+           "ProcessDeletionQueue()", "the per-frame drain, which is what makes the queue bounded at all" },
+    };
+
+    for ( const Link& link : links )
+    {
+        const std::string source = ReadFile( RepoRoot() / link.CallerFile );
+        ASSERT_FALSE( source.empty() ) << link.CallerFile << " not found or empty";
+
+        const std::string body = FunctionBody( source, link.CallerSignature );
+        ASSERT_FALSE( body.empty() ) << link.CallerSignature << " is not in " << link.CallerFile
+                                     << " any more. A row naming a function that no longer exists passes "
+                                        "without checking anything -- fix the row or the code.";
+
+        EXPECT_NE( body.find( link.Call ), std::string::npos )
+             << link.CallerSignature << " no longer calls " << link.Call << ", so nothing releases " << link.What
+             << ". This is not a crash and not a test failure anywhere else: it is "
+             << "`vkDestroyDevice(): VkDevice has N leaked objects` and an otherwise clean exit.";
+    }
+}
+
+// RELATION: the order INSIDE the two teardown bodies, which is where "it is called" stops being enough.
+//
+// Both of these are silent when wrong. Releasing children after vkDestroyDevice is undefined behaviour
+// against a destroyed device; destroying the VMA allocator before the queue is drained takes the
+// allocations with it and leaves the VkBuffer and VkImage handles built on them behind, which is the
+// original leak with an extra step.
+TEST( TeardownOrder, TheTeardownStepsAreOrderedAgainstTheThingTheyOutlive )
+{
+    {
+        const std::string source =
+             ReadFile( RepoRoot() / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" );
+        const std::string body = FunctionBody( source, "void VulkanLogicalDevice::Destroy" );
+        ASSERT_FALSE( body.empty() ) << "VulkanLogicalDevice::Destroy has no body";
+
+        const size_t releaseChildren = body.find( "Shutdown()" );
+        const size_t destroyDevice   = body.find( "vkDestroyDevice" );
+        ASSERT_NE( releaseChildren, std::string::npos ) << "nothing releases the device's children here";
+        ASSERT_NE( destroyDevice, std::string::npos ) << "VulkanLogicalDevice::Destroy no longer destroys "
+                                                         "the device; this test pins nothing";
+        EXPECT_LT( releaseChildren, destroyDevice )
+             << "the device's children are released AFTER vkDestroyDevice, which is the same as not "
+                "releasing them -- every handle passed is a child of a device that no longer exists";
+    }
+
+    {
+        const std::string source =
+             ReadFile( RepoRoot() / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanContext.cpp" );
+        const std::string body = FunctionBody( source, "void VulkanContext::Shutdown" );
+        ASSERT_FALSE( body.empty() ) << "VulkanContext::Shutdown has no body";
+
+        const size_t drain      = body.find( "DrainDeletionQueue()" );
+        const size_t destroyVma = body.find( "m_VulkanAllocator->Shutdown()" );
+        ASSERT_NE( drain, std::string::npos ) << "the deferred-deletion queue is never drained here";
+        ASSERT_NE( destroyVma, std::string::npos ) << "the VMA allocator is never destroyed here";
+        EXPECT_LT( drain, destroyVma )
+             << "vmaDestroyAllocator runs before the deletion queue is drained: it frees the allocations "
+                "and leaves the VkBuffer/VkImage handles built on them for vkDestroyDevice to report";
+    }
+}
+
+// RELATION: every kind of device object the engine's OWN Vulkan backend creates has, somewhere in that
+// same backend, the call that destroys that kind.
+//
+// DERIVED FROM THE SOURCE, NOT TYPED. A new `vkCreateX` introduces the obligation by existing, so this
+// cannot fall behind the way a hand-kept list of owners does -- and it is the check that would have
+// caught the command pools on the day they were written: `vkCreateCommandPool` appeared three times in
+// this tree and `vkDestroyCommandPool` zero, for as long as the engine has had a Vulkan backend.
+//
+// The exemptions below are OBJECTS THAT ARE FREED BY DESTROYING SOMETHING ELSE, or that outlive the
+// device on purpose. Each is a decision with a reason, which is why they are rows rather than a filter.
+TEST( TeardownOrder, EveryVulkanObjectTheEngineCreatesHasADestroyCall )
+{
+    struct Pair
+    {
+        const char* Create;
+        const char* Destroy; ///< nullptr: exempt, and Why says by what
+        const char* Why;
+    };
+
+    // Ordered as the Vulkan header orders them; the value is the obligation, not the order.
+    const Pair pairs[] = {
+         { "vkCreateCommandPool", "vkDestroyCommandPool", "" },
+         { "vkAllocateCommandBuffers", "vkFreeCommandBuffers", "" },
+         { "vkCreateFence", "vkDestroyFence", "" },
+         { "vkCreateSemaphore", "vkDestroySemaphore", "" },
+         { "vkCreateQueryPool", "vkDestroyQueryPool", "" },
+         { "vkCreateRenderPass", "vkDestroyRenderPass", "" },
+         { "vkCreateFramebuffer", "vkDestroyFramebuffer", "" },
+         { "vkCreateImageView", "vkDestroyImageView", "" },
+         { "vkCreateSampler", "vkDestroySampler", "" },
+         { "vkCreateShaderModule", "vkDestroyShaderModule", "" },
+         { "vkCreatePipelineLayout", "vkDestroyPipelineLayout", "" },
+         { "vkCreateGraphicsPipelines", "vkDestroyPipeline", "" },
+         { "vkCreateComputePipelines", "vkDestroyPipeline", "" },
+         { "vkCreatePipelineCache", "vkDestroyPipelineCache", "" },
+         { "vkCreateDescriptorPool", "vkDestroyDescriptorPool", "" },
+         { "vkCreateDescriptorSetLayout", "vkDestroyDescriptorSetLayout", "" },
+         { "vkCreateSwapchainKHR", "vkDestroySwapchainKHR", "" },
+         { "vkCreateDevice", "vkDestroyDevice", "" },
+
+         { "vkAllocateDescriptorSets", nullptr,
+           "descriptor sets are freed by vkDestroyDescriptorPool; the pools are created without "
+           "VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT, so vkFreeDescriptorSets is not even legal "
+           "on them" },
+         { "vkCreateImage", nullptr,
+           "every VkImage in this backend is created through vmaCreateImage's own path or handed over to "
+           "the allocator, and released by vmaDestroyImage" },
+         { "vkCreateInstance", nullptr,
+           "THE INSTANCE OUTLIVES EVERYTHING ON PURPOSE and is never destroyed: it is a process-lifetime "
+           "static (VulkanContext::s_VulkanInstance). It is not a child of the device, so it is invisible "
+           "to VUID-vkDestroyDevice-device-05137 -- a separate, deliberate remainder, not this one" },
+         { "vkCreateDebugReportCallbackEXT", nullptr,
+           "a child of the instance above and with the same lifetime; destroying it before the instance "
+           "would silence the validation output during the very teardown it is there to watch" },
+    };
+
+    // The engine's OWN backend. VulkanUtils/lightweightvk is vendored third-party code sitting inside
+    // this tree, and its create/destroy pairing is not this repository's to answer for.
+    const std::vector<std::filesystem::path> trees = {
+         RepoRoot() / "Desert/Desert/Source/Engine/Graphic/API/Vulkan",
+         RepoRoot() / "Desert/Desert/Source/Engine/ShaderResources/API/Vulkan" };
+
+    std::string backend;
+    size_t      files = 0;
+    for ( const auto& tree : trees )
+    {
+        ASSERT_TRUE( std::filesystem::exists( tree ) ) << tree.string() << " does not exist";
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( tree ) )
+        {
+            const auto& p = entry.path();
+            if ( !entry.is_regular_file() || ( p.extension() != ".cpp" && p.extension() != ".hpp" ) )
+                continue;
+            if ( p.string().find( "lightweightvk" ) != std::string::npos )
+                continue;
+            backend += StripLineComments( ReadFile( p ) );
+            backend += '\n';
+            ++files;
+        }
+    }
+    ASSERT_GT( files, 20u ) << "read only " << files
+                            << " backend sources -- the walk, not the engine, is "
+                               "what is wrong";
+
+    for ( const Pair& pair : pairs )
+    {
+        const bool created = backend.find( std::string( pair.Create ) + "(" ) != std::string::npos;
+        if ( !created )
+            continue; // the engine stopped creating this kind; nothing is owed
+
+        if ( pair.Destroy == nullptr )
+        {
+            EXPECT_STRNE( pair.Why, "" ) << pair.Create << " is exempt with no reason given";
+            continue;
+        }
+
+        EXPECT_NE( backend.find( std::string( pair.Destroy ) + "(" ), std::string::npos )
+             << pair.Create << " is called in the engine's Vulkan backend and " << pair.Destroy
+             << " is called nowhere in it. Every object of that kind outlives the device, and the only "
+                "thing that says so is the validation layer's leak report at vkDestroyDevice.";
+    }
+}
+
 // Only gtest is linked, not gtest_main — every suite in this tree brings its own entry point.
 int main( int argc, char** argv )
 {

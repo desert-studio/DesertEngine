@@ -2,6 +2,9 @@
 
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
+#include <cstddef>
+#include <unordered_map>
+
 namespace Desert::Graphic::API::Vulkan
 {
     // Must be >= the swapchain image count (set later by VulkanSwapChain).
@@ -18,11 +21,19 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VkCommandBuffer> RT_AllocateCommandBufferGraphic( bool begin = false );
         Common::ResultStr<VkCommandBuffer> RT_AllocateCommandBufferTransferOps( bool begin = false );
 
-        Common::ResultStr<VkCommandBuffer> RT_AllocateSecondCommandBufferGraphic();
-
         Common::ResultStr<VkResult> RT_FlushCommandBufferCompute( VkCommandBuffer commandBuffer );
         Common::ResultStr<VkResult> RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer );
         Common::ResultStr<VkResult> RT_FlushCommandBufferTransferOps( VkCommandBuffer commandBuffer );
+
+        /// Destroys the nine command pools, and with them every command buffer ever allocated from one.
+        /// EXPLICIT, because this object is a Common::Singleton: its unique_ptr is a namespace-scope
+        /// static, so a destructor would run at __cxa_finalize, long after vkDestroyDevice. Called from
+        /// VulkanContext::Shutdown, which the device's own teardown reaches while the device is alive.
+        void Destroy();
+
+        /// How many one-off command buffers are out — handed to a caller and not yet flushed back.
+        /// Nonzero at teardown means a caller took one and never returned it.
+        [[nodiscard]] std::size_t OutstandingOneShotCount() const;
 
         const auto& GetCommandGraphicPool() const
         {
@@ -35,6 +46,16 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     private:
+        /// Frees @p commandBuffer from the pool it was actually allocated from, after its fence.
+        Common::ResultStr<VkResult> FlushOneShot( VkCommandBuffer commandBuffer, VkQueue queue );
+
+        /// WHICH POOL EACH ONE-OFF BUFFER CAME FROM. Not recomputed at flush time from the current frame
+        /// index, which is what the three Flush functions used to do: the index can advance between the
+        /// allocation and the flush, and vkFreeCommandBuffers against a pool that did not allocate the
+        /// buffer is undefined behaviour, not a diagnosable mistake. Recording it is also what lets a
+        /// flush of a buffer this allocator never handed out be REFUSED by name instead of guessed at.
+        std::unordered_map<VkCommandBuffer, VkCommandPool> m_OneShotPools;
+
         std::vector<VkCommandPool> m_CommandGraphicPool;
         std::vector<VkCommandPool> m_ComputeCommandPool;
         std::vector<VkCommandPool> m_TransferOpsCommandPool;

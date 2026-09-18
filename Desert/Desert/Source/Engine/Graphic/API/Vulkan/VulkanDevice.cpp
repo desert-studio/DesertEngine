@@ -405,6 +405,22 @@ namespace Desert::Graphic::API::Vulkan
             // a lost device, which is what makes an orderly close possible at all.
             if ( Graphic::DeviceLost::AllowWork() )
                 vkDeviceWaitIdle( m_LogicalDevice );
+
+            // THE LAST MOMENT AT WHICH THIS DEVICE IS STILL ALIVE, and therefore the only place from which
+            // every one of its children can be released. The order below this line was already correct and
+            // the leak was never in it: `vkDestroyDevice(): VkDevice has 6599 leaked objects` on a normal
+            // close, of which 6 370 were sitting in the renderer context's deferred-deletion queue (drained
+            // only from VulkanQueue::Present, and shutdown releases the engine's whole content AFTER the
+            // last frame) and 220 were the command pools and their one-off buffers, which nothing had ever
+            // been written to destroy.
+            //
+            // It is called from HERE rather than from ~VulkanContext because Application's members die
+            // window -> device -> context: by the time the context is destroyed this device is already
+            // gone, so a release there would free device children through a destroyed device. Every owner
+            // that queues work — the swapchain included — has already run by the time we get here.
+            if ( const auto context = EngineContext::GetInstance().GetRendererContext() )
+                context->Shutdown();
+
             if ( m_PipelineCache != VK_NULL_HANDLE )
             {
                 SavePipelineCache(); // persist the driver's accumulated pipeline binaries for next run
