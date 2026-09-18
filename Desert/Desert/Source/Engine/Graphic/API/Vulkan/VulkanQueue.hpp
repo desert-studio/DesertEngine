@@ -15,12 +15,17 @@ namespace Desert::Graphic::API::Vulkan
     public:
         VulkanQueue( VulkanSwapChain* swapChain );
 
+        /// Release() was PUBLIC AND CALLED FROM NOWHERE — six VkSemaphores and three VkFences of this
+        /// engine's every session ended their life inside vkDestroyDevice's leak report. It is a
+        /// destructor's job and it is one now: VulkanSwapChain owns this object and dies before the
+        /// device, so the handles below are still valid here.
+        ~VulkanQueue();
+
         void PrepareFrame();
         void Submit();
         void Present();
 
         Common::ResultStr<VkResult> Init();
-        void                     Release();
 
         const auto& GetDrawCommandBuffers() const
         {
@@ -36,6 +41,8 @@ namespace Desert::Graphic::API::Vulkan
         VkCommandBuffer GetDrawCommandBuffer() const;
 
     private:
+        void Release();
+
         Common::ResultStr<VkResult> QueuePresent( VkQueue queue, uint32_t imageIndex, VkSemaphore waitSemaphore );
 
     private:

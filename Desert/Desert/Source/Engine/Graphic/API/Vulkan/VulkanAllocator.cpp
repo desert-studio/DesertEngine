@@ -175,24 +175,54 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanAllocator::ProcessDeletionQueue()
     {
-        if ( s_VmaAllocator == VK_NULL_HANDLE ) return;
+        // The per-frame drain: an entry queued on frame f is destroyed the next time the ring comes back
+        // round to f, which is the point at which the GPU has demonstrably finished with it.
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        (void)DestroyQueued( [frameIndex]( uint32_t queued ) { return queued == frameIndex; } );
+    }
 
-        uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-        auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+    std::size_t VulkanAllocator::DrainDeletionQueue()
+    {
+        // WHY AN UNCONDITIONAL DRAIN EXISTS AT ALL, in the numbers that produced it. ProcessDeletionQueue
+        // above is reached from exactly one place — VulkanQueue::Present — so it runs only while frames
+        // run. Shutdown releases the whole content of the engine AFTER the last frame: Renderer::Shutdown
+        // clears every resource service, the scene renderers drop their passes and the swapchain gives its
+        // capture buffer back, and every one of those calls RT_Destroy*, which QUEUES. Nothing ever came
+        // back to drain it, so all of it was still queued when vkDestroyDevice ran: 6 370 of the 6 599
+        // objects the validation layer reported leaking on a normal close, VkBuffer alone being 5 716.
+        //
+        // The frame condition is dropped deliberately rather than approximated with "any frame": there is
+        // no next frame to wait for, and the caller has already idled the device, so every entry here is
+        // finished with by construction.
+        return DestroyQueued( []( uint32_t ) { return true; } );
+    }
+
+    std::size_t VulkanAllocator::DestroyQueued( const std::function<bool( uint32_t )>& takeFrame )
+    {
+        if ( s_VmaAllocator == VK_NULL_HANDLE ) return 0;
+
+        const auto context = EngineContext::GetInstance().GetRendererContext();
+        const auto engineDevice = EngineContext::GetInstance().GetDevice();
+        if ( !context || !engineDevice ) return 0;
+        auto device = SP_CAST( VulkanLogicalDevice, engineDevice )->GetVulkanLogicalDevice();
+        if ( device == VK_NULL_HANDLE ) return 0;
+
+        std::size_t destroyed = 0;
 
         for ( auto it = m_BufferDeletionQueue.begin(); it != m_BufferDeletionQueue.end(); )
         {
-            if ( it->FrameIndex == frameIndex )
+            if ( takeFrame( it->FrameIndex ) )
             {
                 vmaDestroyBuffer( s_VmaAllocator, it->Buffer, it->Allocation );
                 it = m_BufferDeletionQueue.erase( it );
+                ++destroyed;
             }
             else ++it;
         }
 
         for ( auto it = m_ImageDeletionQueue.begin(); it != m_ImageDeletionQueue.end(); )
         {
-            if ( it->FrameIndex == frameIndex )
+            if ( takeFrame( it->FrameIndex ) )
             {
                 if ( it->ImageView != VK_NULL_HANDLE ) vkDestroyImageView( device, it->ImageView, nullptr );
                 if ( it->Sampler != VK_NULL_HANDLE )   vkDestroySampler( device, it->Sampler, nullptr );
@@ -200,35 +230,58 @@ namespace Desert::Graphic::API::Vulkan
 
                 vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );
                 it = m_ImageDeletionQueue.erase( it );
+                ++destroyed;
             }
             else ++it;
         }
 
         for ( auto it = m_FramebufferDeletionQueue.begin(); it != m_FramebufferDeletionQueue.end(); )
         {
-            if ( it->FrameIndex == frameIndex )
+            if ( takeFrame( it->FrameIndex ) )
             {
                 vkDestroyFramebuffer( device, it->Framebuffer, nullptr );
                 it = m_FramebufferDeletionQueue.erase( it );
+                ++destroyed;
             }
             else ++it;
         }
 
         for ( auto it = m_RenderPassDeletionQueue.begin(); it != m_RenderPassDeletionQueue.end(); )
         {
-            if ( it->FrameIndex == frameIndex )
+            if ( takeFrame( it->FrameIndex ) )
             {
                 vkDestroyRenderPass( device, it->RenderPass, nullptr );
                 it = m_RenderPassDeletionQueue.erase( it );
+                ++destroyed;
             }
             else ++it;
         }
+
+        return destroyed;
     }
 
-#ifdef DESERT_CONFIG_DEBUG
-    void VulkanAllocator::CheckResourceLeaks() {}
-#endif
+    std::size_t VulkanAllocator::QueuedCount() const
+    {
+        return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() +
+               m_FramebufferDeletionQueue.size() + m_RenderPassDeletionQueue.size();
+    }
 
-    VulkanAllocator::~VulkanAllocator() {}
+    VulkanAllocator::~VulkanAllocator()
+    {
+        // SAYS SO RATHER THAN DESTROYING. By the time this runs the VkDevice may already be gone — the
+        // context is the last of Application's three members to die — so destroying anything here is the
+        // very fault this file's drain exists to prevent. What a destructor CAN do is refuse to be silent:
+        // a non-empty queue at this point means the teardown path in VulkanLogicalDevice::Destroy did not
+        // run, and that is the state in which the validation layer reported 6 599 leaked objects with
+        // nothing in the engine's own log to explain them.
+        const std::size_t stranded = QueuedCount();
+        if ( stranded > 0 )
+        {
+            LOG_ERROR( "[Allocator] {} deferred GPU object(s) were still queued when the allocator was "
+                       "destroyed; VulkanLogicalDevice::Destroy did not drain them and the device has "
+                       "already taken them with it.",
+                       stranded );
+        }
+    }
 
 } // namespace Desert::Graphic::API::Vulkan

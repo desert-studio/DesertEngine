@@ -210,7 +210,26 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanContext::Shutdown()
     {
-        m_VulkanAllocator->Shutdown();
+        // WHAT INIT CREATED, IN REVERSE, AND IT IS REACHED NOW. `RendererContext::Shutdown` is pure
+        // virtual and, until this commit, was called from NOWHERE: this body existed, destroyed the VMA
+        // allocator, and never ran. VulkanLogicalDevice::Destroy calls it — the last moment at which the
+        // VkDevice is still alive — because every object released below is a child of that device.
+        CommandBufferAllocator::GetInstance().Destroy();
+
+        if ( m_VulkanAllocator )
+        {
+            // The deferred-deletion queue is drained BEFORE the allocator is destroyed, for the obvious
+            // reason: vmaDestroyAllocator takes the allocations with it without ever touching the VkBuffer
+            // and VkImage handles built on them.
+            const std::size_t drained = m_VulkanAllocator->DrainDeletionQueue();
+            if ( drained > 0 )
+            {
+                LOG_INFO( "[Allocator] drained {} deferred GPU object destruction(s) at teardown; these had "
+                          "no frame left to be collected on.",
+                          drained );
+            }
+            m_VulkanAllocator->Shutdown();
+        }
     }
 
     void VulkanContext::Init()

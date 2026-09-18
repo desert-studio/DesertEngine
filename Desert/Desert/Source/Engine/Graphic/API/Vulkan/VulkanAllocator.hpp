@@ -7,6 +7,9 @@
 
 #include <VulkanAllocator/vk_mem_alloc.h>
 
+#include <cstddef>
+#include <functional>
+
 namespace Desert::Graphic::API::Vulkan
 {
     struct AllocatedData
@@ -64,7 +67,15 @@ namespace Desert::Graphic::API::Vulkan
         void RT_DestroyFramebuffer( VkFramebuffer framebuffer );
         void RT_DestroyRenderPass( VkRenderPass renderPass );
 
+        /// The per-frame drain, called once per present: destroys what the ring has come back round to.
         void ProcessDeletionQueue();
+
+        /// Destroys EVERYTHING still queued, whatever frame it was queued on, and answers how many.
+        /// For teardown only — see the argument at the definition. The caller must have idled the device.
+        std::size_t DrainDeletionQueue();
+
+        /// How many deferred destructions are still owed. Nonzero after the last frame means leaked.
+        [[nodiscard]] std::size_t QueuedCount() const;
 
         /// A mapping you cannot write through without having asked whether it exists — see
         /// Engine/Graphic/MappedMemory.hpp for the whole argument, and for the ten `memcpy`s into a
@@ -79,10 +90,6 @@ namespace Desert::Graphic::API::Vulkan
 
         void Shutdown();
 
-#ifdef DESERT_CONFIG_DEBUG
-        void CheckResourceLeaks();
-#endif
-
         static VmaAllocator& GetVMAAllocator();
 
         VulkanAllocator() = default;
@@ -94,6 +101,11 @@ namespace Desert::Graphic::API::Vulkan
         // behaviour in VMA. It takes `void*` rather than `VmaAllocation` so that MappedMemory — which
         // lives in Engine/Graphic and must not know Vulkan — can hold its address.
         static void UnmapAllocation( void* allocation );
+
+        /// The one body behind ProcessDeletionQueue and DrainDeletionQueue. They differ ONLY in which
+        /// queued frames they take, and that is the whole reason they share this: two copies of four
+        /// erase loops is where a fifth resource kind gets destroyed on one path and leaked on the other.
+        std::size_t DestroyQueued( const std::function<bool( uint32_t )>& takeFrame );
 
         friend class Common::Singleton<VulkanAllocator>;
 
