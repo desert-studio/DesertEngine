@@ -388,8 +388,8 @@ namespace Desert::Graphic::API::Vulkan
                     continue;
                 }
 
-                DrawIndexedCounted( drawCount, instanceCount, drawOffset,
-                                    (int32_t)submesh.VertexOffset, firstInstance );
+                DrawIndexedCounted( drawCount, instanceCount, drawOffset, (int32_t)submesh.VertexOffset,
+                                    firstInstance );
             }
             else
             {
@@ -812,17 +812,16 @@ namespace Desert::Graphic::API::Vulkan
     //
     // Счёт идёт ДО вызова: если драйвер упадёт на этом вызове, число уже названо, и последний кадр
     // скажет, сколько успел. Обратный порядок терял бы ровно тот кадр, который надо объяснить.
-    void VulkanRendererAPI::DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount,
-                                                uint32_t firstIndex, int32_t vertexOffset,
-                                                uint32_t firstInstance )
+    void VulkanRendererAPI::DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
+                                                int32_t vertexOffset, uint32_t firstInstance )
     {
         DrawCounter::Record( instanceCount );
         vkCmdDrawIndexed( m_CurrentCommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset,
                           firstInstance );
     }
 
-    void VulkanRendererAPI::DrawCounted( uint32_t vertexCount, uint32_t instanceCount,
-                                         uint32_t firstVertex, uint32_t firstInstance )
+    void VulkanRendererAPI::DrawCounted( uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
+                                         uint32_t firstInstance )
     {
         DrawCounter::Record( instanceCount );
         vkCmdDraw( m_CurrentCommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance );

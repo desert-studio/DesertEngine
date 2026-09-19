@@ -43,8 +43,7 @@ namespace Desert::Editor
         const float     lineH   = ImGui::GetTextLineHeightWithSpacing();
         // +lineH для строки отрисовок: рамка считается по тому, ЧТО рисуется, иначе новая строка
         // вылезает за подложку — и это видно только на кадре, чего ни один тест не скажет.
-        const float     height =
-             kPad * 2.0f + lineH /*fps*/ + kGraphH + 4.0f + lineH /*draws*/ + scopeRows * lineH;
+        const float height = kPad * 2.0f + lineH /*fps*/ + kGraphH + 4.0f + lineH /*draws*/ + scopeRows * lineH;
 
         const ImVec2 p0( viewportMax.x - kWidth - 12.0f, viewportMin.y + 12.0f );
         const ImVec2 p1( p0.x + kWidth, p0.y + height );

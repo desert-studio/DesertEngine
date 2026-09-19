@@ -76,8 +76,8 @@ TEST( DrawCounterFunnel, NoDrawEscapesTheCountedFunnels )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "дерево не найдено — эта перепись не осмотрела ничего";
 
-    const fs::path renderer = root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "API" /
-                              "Vulkan" / "VulkanRenderer.cpp";
+    const fs::path renderer =
+         root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "API" / "Vulkan" / "VulkanRenderer.cpp";
     ASSERT_TRUE( fs::exists( renderer ) ) << renderer.generic_string();
 
     const std::vector<std::string> lines = ReadLines( renderer );
@@ -132,7 +132,7 @@ TEST( DrawCounterFunnel, TheFunnelsThemselvesStillRecord )
                                                       "Graphic" / "API" / "Vulkan" / "VulkanRenderer.cpp" );
     ASSERT_FALSE( lines.empty() );
 
-    int draws = 0;
+    int draws   = 0;
     int records = 0;
     for ( const std::string& line : lines )
     {

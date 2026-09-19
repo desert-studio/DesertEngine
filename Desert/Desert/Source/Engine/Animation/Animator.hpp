@@ -49,7 +49,6 @@ namespace Desert::Animation
     class Animator
     {
     public:
-
         // ПУБЛИЧНО, И ЭТО НЕ ПОСЛАБЛЕНИЕ. Панель анимационного графа показывает переход как
         // «откуда → куда NN%», и проценту неоткуда взяться, кроме как отсюда: длительность перехода
         // знает граф, а его ПРОГРЕСС — только тот, кто ведёт часы. Читатель есть, и он один.
@@ -300,7 +299,6 @@ namespace Desert::Animation
         /// Rebuilds m_Stages so its MEMBERSHIP matches the lists that feed the optional stages, in the
         /// pipeline's fixed order. See the definition for why this is a rebuild and not an insert.
         void SyncStages();
-
 
         /// Local (parent-relative) transform of `boneIndex` driven by `clip` at `time`, or the bind-pose
         /// local when the clip has no track for it. Straight from the clip's TRS keys — the matrix this
