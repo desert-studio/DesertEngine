@@ -90,6 +90,28 @@ FORBIDDEN=(
     # row that will be deleted as a false alarm — taking the real check with it.
     "6Common9Profiling"    # Common::Profiling — the in-engine CPU aggregator
     "Optick"               # the external profiler
+
+    # ── THE DEVELOPER-ONLY GRAPHICS PIPELINES (В12) ─────────────────────────────────────────────────
+    #
+    # Four of the 67 pipelines a Shipping boot used to create were reachable ONLY through
+    # Graphic::DebugViewState, which nothing in the player's source set writes: StaticMeshWireframe,
+    # DebugLinePipeline, OverdrawPipeline and OverdrawResolvePipeline. Their creation sites now sit
+    # behind DESERT_DEV_INSTRUMENTS; Desert/Tests/Runtime/ShippingPipelines is the source-side census
+    # and these rows are the linked-artifact half of the same claim.
+    #
+    # MANGLED, AND THAT IS NOT PEDANTRY. The plain word "DebugLine" matches THREE symbols of vendored
+    # SPIRV-Tools and spirv-cross in this very binary (spv::Function::setDebugLineInfo,
+    # spvtools::opt::Instruction::AddDebugLine, ::IsDebugLineInst) — a row that matches somebody else's
+    # symbol is a row that gets deleted as a false alarm, taking the real check with it, and this
+    # script's header already carries one instance of exactly that. "7Graphic" pins the namespace, and
+    # the Itanium length prefixes ("17", "16", "23") pin the whole identifier, so
+    # "7Graphic16MaterialOverdraw" cannot match MaterialOverdrawResolve.
+    "7Graphic17MaterialDebugLine"         # the AABB-wireframe material
+    "7Graphic16MaterialOverdraw"          # the overdraw accumulation material
+    "7Graphic23MaterialOverdrawResolve"   # its fullscreen heat-map resolve
+    "MeshRenderer18SetupDebugLinePass"    # the debug-line pipeline's builder
+    "MeshRenderer17SetupOverdrawPass"     # the two overdraw pipelines' builder
+    "MeshRenderer20RenderOverdrawManual"  # the pass that would draw them
 )
 
 FOUND=0
