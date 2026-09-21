@@ -94,10 +94,12 @@ namespace Desert::Animation::Retarget
     Common::BoolResultStr Retargeter::Initialize( const Skeleton& source, const Skeleton& target,
                                                   RetargetSetup setup )
     {
-        m_Initialized = false;
-        m_Source      = &source;
-        m_Target      = &target;
-        m_Setup       = std::move( setup );
+        m_Initialized      = false;
+        m_Setup            = std::move( setup );
+        m_SourceSignature  = source.GetSignature();
+        m_TargetSignature  = target.GetSignature();
+        m_SourceBoneCount  = source.GetBones().size();
+        m_TargetBoneCount  = target.GetBones().size();
 
         const auto sourcePelvis = source.FindBoneIndex( m_Setup.SourcePelvisBone );
         if ( !sourcePelvis.has_value() )
@@ -165,12 +167,12 @@ namespace Desert::Animation::Retarget
         m_RunIndexOfTarget.assign( target.GetBones().size(), 0 );
         m_SourceOfTarget.assign( target.GetBones().size(), NO_SOURCE );
 
-        auto chains = ResolveChains();
+        auto chains = ResolveChains( source, target );
         if ( !chains.IsSuccess() )
         {
             return chains;
         }
-        auto pairings = BuildPairings();
+        auto pairings = BuildPairings( source, target );
         if ( !pairings.IsSuccess() )
         {
             return pairings;
@@ -183,17 +185,17 @@ namespace Desert::Animation::Retarget
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr Retargeter::ResolveChains()
+    Common::BoolResultStr Retargeter::ResolveChains( const Skeleton& source, const Skeleton& target )
     {
         m_Chains.clear();
         m_Chains.reserve( m_Setup.Chains.size() );
 
         for ( const RetargetChain& authored : m_Setup.Chains )
         {
-            const auto sourceStart = m_Source->FindBoneIndex( authored.SourceStartBone );
-            const auto sourceEnd   = m_Source->FindBoneIndex( authored.SourceEndBone );
-            const auto targetStart = m_Target->FindBoneIndex( authored.TargetStartBone );
-            const auto targetEnd   = m_Target->FindBoneIndex( authored.TargetEndBone );
+            const auto sourceStart = source.FindBoneIndex( authored.SourceStartBone );
+            const auto sourceEnd   = source.FindBoneIndex( authored.SourceEndBone );
+            const auto targetStart = target.FindBoneIndex( authored.TargetStartBone );
+            const auto targetEnd   = target.FindBoneIndex( authored.TargetEndBone );
             if ( !sourceStart || !sourceEnd || !targetStart || !targetEnd )
             {
                 return Common::MakeFormattedError<bool>(
@@ -208,8 +210,8 @@ namespace Desert::Animation::Retarget
             ResolvedChain resolved;
             resolved.Name        = authored.Name;
             resolved.DriveWithIK = authored.DriveWithIK;
-            resolved.SourceRun   = BoneRun( *m_Source, *sourceStart, *sourceEnd );
-            resolved.TargetRun   = BoneRun( *m_Target, *targetStart, *targetEnd );
+            resolved.SourceRun   = BoneRun( source, *sourceStart, *sourceEnd );
+            resolved.TargetRun   = BoneRun( target, *targetStart, *targetEnd );
 
             if ( resolved.SourceRun.empty() )
             {
@@ -261,7 +263,7 @@ namespace Desert::Animation::Retarget
                          "chains '{}' and '{}' both claim target bone '{}'; which of them writes it has no "
                          "answer that is not invented here.",
                          m_Chains[static_cast<size_t>( m_ChainOfTarget[bone] )].Name, authored.Name,
-                         m_Target->GetBones()[bone].Name );
+                         target.GetBones()[bone].Name );
                 }
                 m_ChainOfTarget[bone]    = chainIndex;
                 m_ParamOfTarget[bone]    = resolved.TargetParams[i];
@@ -273,7 +275,7 @@ namespace Desert::Animation::Retarget
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr Retargeter::BuildPairings()
+    Common::BoolResultStr Retargeter::BuildPairings( const Skeleton& source, const Skeleton& target )
     {
         m_Pairings.clear();
 
@@ -286,7 +288,7 @@ namespace Desert::Animation::Retarget
             m_Pairings.push_back( BonePairing{ targetBone, sourceBone } );
         };
 
-        for ( const uint32_t targetBone : m_Target->GetResolveOrder() )
+        for ( const uint32_t targetBone : target.GetResolveOrder() )
         {
             if ( m_ChainOfTarget[targetBone] != NO_CHAIN )
             {
@@ -295,19 +297,19 @@ namespace Desert::Animation::Retarget
                 continue;
             }
 
-            const std::string& targetName = m_Target->GetBones()[targetBone].Name;
+            const std::string& targetName = target.GetBones()[targetBone].Name;
             const auto         renamed    = m_Setup.BoneRenames.find( targetName );
             const std::string& sourceName = renamed == m_Setup.BoneRenames.end() ? targetName : renamed->second;
 
-            if ( renamed != m_Setup.BoneRenames.end() && !m_Source->FindBoneIndex( sourceName ).has_value() )
+            if ( renamed != m_Setup.BoneRenames.end() && !source.FindBoneIndex( sourceName ).has_value() )
             {
                 return Common::MakeFormattedError<bool>(
                      "the setup maps target bone '{}' onto source bone '{}', and the source rig of {} bones "
                      "has no such bone.",
-                     targetName, sourceName, m_Source->GetBones().size() );
+                     targetName, sourceName, source.GetBones().size() );
             }
 
-            if ( const auto sourceBone = m_Source->FindBoneIndex( sourceName ) )
+            if ( const auto sourceBone = source.FindBoneIndex( sourceName ) )
             {
                 pairBone( targetBone, *sourceBone );
             }
@@ -320,10 +322,10 @@ namespace Desert::Animation::Retarget
             // still be correct (the pass is over the resolve order, not over this list) but a caller
             // reading GetBonePairings() for a measurement deserves the order it was promised.
             std::sort( m_Pairings.begin(), m_Pairings.end(),
-                       [this]( const BonePairing& a, const BonePairing& b )
+                       [&target]( const BonePairing& a, const BonePairing& b )
                        {
-                           return m_Target->GetResolveRank( a.TargetBone ) <
-                                  m_Target->GetResolveRank( b.TargetBone );
+                           return target.GetResolveRank( a.TargetBone ) <
+                                  target.GetResolveRank( b.TargetBone );
                        } );
         }
 
@@ -338,7 +340,7 @@ namespace Desert::Animation::Retarget
                  "nothing but the pelvis is mapped between a source rig of {} bones and a target rig of {}: "
                  "no bone names match, no rename was authored and no chain was declared. This retargeter "
                  "could only ever emit the target's rest pose.",
-                 m_Source->GetBones().size(), m_Target->GetBones().size() );
+                 source.GetBones().size(), target.GetBones().size() );
         }
         return Common::MakeSuccess( true );
     }
@@ -385,12 +387,12 @@ namespace Desert::Animation::Retarget
              glm::slerp( deltaOf( chain.SourceRun[segment] ), deltaOf( chain.SourceRun[segment + 1] ), alpha ) );
     }
 
-    Common::BoolResultStr Retargeter::StageFKChains( const ModelPose& sourceModel,
+    Common::BoolResultStr Retargeter::StageFKChains( const Skeleton& target, const ModelPose& sourceModel,
                                                      const glm::vec3& pelvisModelTranslation )
     {
-        for ( const uint32_t bone : m_Target->GetResolveOrder() )
+        for ( const uint32_t bone : target.GetResolveOrder() )
         {
-            const uint32_t       parent = m_Target->ResolveParent( bone );
+            const uint32_t       parent = target.ResolveParent( bone );
             const BoneTransform& initial = m_TargetInitialLocal[bone];
 
             // THE DELTA GOES ON THE ROTATION AND NOWHERE ELSE. Translation and scale below are the
@@ -457,8 +459,8 @@ namespace Desert::Animation::Retarget
             if ( !relative.IsSuccess() )
             {
                 return Common::MakeFormattedError<bool>( "placing pelvis '{}' under '{}': {}",
-                                                         m_Target->GetBones()[bone].Name,
-                                                         m_Target->GetBones()[parent].Name,
+                                                         target.GetBones()[bone].Name,
+                                                         target.GetBones()[parent].Name,
                                                          relative.GetError() );
             }
             m_WorkLocal[bone].Translation = relative.ExtractValue().Translation;
@@ -466,7 +468,7 @@ namespace Desert::Animation::Retarget
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr Retargeter::StageIKChains( const ModelPose& sourceModel )
+    Common::BoolResultStr Retargeter::StageIKChains( const Skeleton& target, const ModelPose& sourceModel )
     {
         for ( const ResolvedChain& chain : m_Chains )
         {
@@ -513,7 +515,7 @@ namespace Desert::Animation::Retarget
             const glm::quat jointModel =
                  glm::normalize( jointDelta * rootDelta * m_WorkModel[joint].Rotation );
 
-            const uint32_t rootParent = m_Target->ResolveParent( root );
+            const uint32_t rootParent = target.ResolveParent( root );
             m_WorkLocal[root].Rotation =
                  rootParent == Skeleton::NO_PARENT
                       ? rootModel
@@ -523,7 +525,7 @@ namespace Desert::Animation::Retarget
             // Re-resolve the root bone and everything under it. Descendants of the tip -- fingers on a
             // hand, a foot's toes -- are exactly what a chain solved in isolation would leave behind.
             auto propagated =
-                 m_WorkModel.PropagateFrom( *m_Target, m_WorkLocal, m_Target->GetResolveRank( root ) );
+                 m_WorkModel.PropagateFrom( target, m_WorkLocal, target.GetResolveRank( root ) );
             if ( !propagated.IsSuccess() )
             {
                 return Common::MakeFormattedError<bool>( "chain '{}' after its IK solve: {}", chain.Name,
@@ -533,7 +535,28 @@ namespace Desert::Animation::Retarget
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr Retargeter::Retarget( const LocalPose& sourceLocal, LocalPose& targetPose )
+    Common::BoolResultStr Retargeter::RefuseAForeignRig( const Skeleton& rig, uint64_t signature,
+                                                         size_t boneCount, const char* which ) const
+    {
+        // THE CACHE IS A PILE OF BONE INDICES RESOLVED AGAINST ONE PARTICULAR RIG. Handed a different
+        // one, every index means a different bone and the result is a pose, not an error -- which is the
+        // failure a downstream test cannot see. The signature is FNV-1a over names and parents, so it
+        // catches a rig of a different STRUCTURE; it is deliberately blind to proportions (T6.1 measured
+        // a rig scaled x3 carrying the same signature), and it does not need to see them: a rig with the
+        // same names and the same parents is one this cache's indices are correct for, which is the only
+        // thing being claimed here.
+        if ( rig.GetSignature() == signature && rig.GetBones().size() == boneCount )
+        {
+            return Common::MakeSuccess( true );
+        }
+        return Common::MakeFormattedError<bool>(
+             "this retargeter was built for a {} rig of {} bones with signature {}, and was handed one of "
+             "{} bones with signature {}. Every cached bone index would name a different bone.",
+             which, boneCount, signature, rig.GetBones().size(), rig.GetSignature() );
+    }
+
+    Common::BoolResultStr Retargeter::Retarget( const Skeleton& source, const Skeleton& target,
+                                                const LocalPose& sourceLocal, LocalPose& targetPose )
     {
         if ( !m_Initialized )
         {
@@ -541,7 +564,18 @@ namespace Desert::Animation::Retarget
                  "this retargeter was never initialised, or its last Initialize() was refused." );
         }
 
-        auto sourceModel = ModelPose::FromLocal( *m_Source, sourceLocal );
+        auto sameSource = RefuseAForeignRig( source, m_SourceSignature, m_SourceBoneCount, "source" );
+        if ( !sameSource.IsSuccess() )
+        {
+            return sameSource;
+        }
+        auto sameTarget = RefuseAForeignRig( target, m_TargetSignature, m_TargetBoneCount, "target" );
+        if ( !sameTarget.IsSuccess() )
+        {
+            return sameTarget;
+        }
+
+        auto sourceModel = ModelPose::FromLocal( source, sourceLocal );
         if ( !sourceModel.IsSuccess() )
         {
             return Common::MakeFormattedError<bool>( "the source pose: {}", sourceModel.GetError() );
@@ -551,13 +585,13 @@ namespace Desert::Animation::Retarget
         // THE PIPELINE. Three stages, one order, no dispatch (R8).
         const glm::vec3 pelvis = StagePelvisMotion( model );
 
-        auto fk = StageFKChains( model, pelvis );
+        auto fk = StageFKChains( target, model, pelvis );
         if ( !fk.IsSuccess() )
         {
             return fk;
         }
 
-        auto ik = StageIKChains( model );
+        auto ik = StageIKChains( target, model );
         if ( !ik.IsSuccess() )
         {
             return ik;

@@ -181,7 +181,8 @@ namespace Desert::Animation::Retarget
          * collapsed to a point puts the IK goal on the chain root, and `SolveTwoBoneIK` reports
          * `GoalAtRoot` and leaves the chain exactly as FK placed it.
          */
-        [[nodiscard]] Common::BoolResultStr Retarget( const LocalPose& sourceLocal, LocalPose& targetPose );
+        [[nodiscard]] Common::BoolResultStr Retarget( const Skeleton& source, const Skeleton& target,
+                                                      const LocalPose& sourceLocal, LocalPose& targetPose );
 
         /// target pelvis height / source pelvis height, both measured in their own retarget poses.
         [[nodiscard]] float GetPelvisHeightScale() const
@@ -212,18 +213,23 @@ namespace Desert::Animation::Retarget
         }
 
     private:
-        [[nodiscard]] Common::BoolResultStr ResolveChains();
-        [[nodiscard]] Common::BoolResultStr BuildPairings();
+        [[nodiscard]] Common::BoolResultStr ResolveChains( const Skeleton& source, const Skeleton& target );
+        [[nodiscard]] Common::BoolResultStr BuildPairings( const Skeleton& source, const Skeleton& target );
+
+        /// Refuses a rig this cache's bone indices were not resolved against.
+        [[nodiscard]] Common::BoolResultStr RefuseAForeignRig( const Skeleton& rig, uint64_t signature,
+                                                               size_t boneCount, const char* which ) const;
 
         /// STAGE 1. The target pelvis's model-space translation for this frame.
         [[nodiscard]] glm::vec3 StagePelvisMotion( const ModelPose& sourceModel ) const;
 
         /// STAGE 2. Rotations for every target bone, and the pelvis translation stage 1 decided.
-        [[nodiscard]] Common::BoolResultStr StageFKChains( const ModelPose& sourceModel,
+        [[nodiscard]] Common::BoolResultStr StageFKChains( const Skeleton& target, const ModelPose& sourceModel,
                                                            const glm::vec3& pelvisModelTranslation );
 
         /// STAGE 3. Normalised limb extension, solved onto the target's own reach.
-        [[nodiscard]] Common::BoolResultStr StageIKChains( const ModelPose& sourceModel );
+        [[nodiscard]] Common::BoolResultStr StageIKChains( const Skeleton& target,
+                                                           const ModelPose& sourceModel );
 
         /// The source chain's FK delta for a target bone in the run.
         ///
@@ -241,8 +247,17 @@ namespace Desert::Animation::Retarget
         static constexpr uint32_t NO_SOURCE = UINT32_MAX;
         static constexpr int32_t  NO_CHAIN  = -1;
 
-        const Skeleton* m_Source = nullptr;
-        const Skeleton* m_Target = nullptr;
+        // BOTH RIGS ARE TAKEN PER CALL, NOT HELD. An `Animation::Skeleton` is owned by a `SkeletonAsset`
+        // and an asset unload frees it; a retargeter holding one across frames would owe the pointer
+        // census an argument about outliving that unload, and the honest form of that argument is "it
+        // does not". It is the same answer `ControlKeyer` and `ControlHierarchy::Evaluate` reached, and
+        // the pointer register states the principle outright: "a raw pointer deleted is worth more than
+        // a raw pointer argued for". What is kept instead is enough to REFUSE a rig this cache was not
+        // built for -- see `RefuseAForeignRig`.
+        uint64_t m_SourceSignature = 0;
+        uint64_t m_TargetSignature = 0;
+        size_t   m_SourceBoneCount = 0;
+        size_t   m_TargetBoneCount = 0;
 
         RetargetSetup m_Setup;
 

@@ -391,7 +391,7 @@ TEST( RetargetPipeline, ARigRetargetedOntoItselfIsTheIdentity )
     for ( const double tick : SampleTicks( clip ) )
     {
         const LocalPose source = PoseAt( rig, clip, tick );
-        const auto      done   = retargeter.Retarget( source, out );
+        const auto      done   = retargeter.Retarget( rig, rig, source, out );
         ASSERT_TRUE( done.IsSuccess() ) << done.GetError();
 
         const ModelPose want = ModelOf( rig, source );
@@ -446,7 +446,7 @@ TEST( RetargetPipeline, LimbLengthSurvivesEveryProportionRatio )
         LocalPose out;
         for ( const double tick : SampleTicks( clip ) )
         {
-            const auto done = retargeter.Retarget( PoseAt( source, clip, tick ), out );
+            const auto done = retargeter.Retarget( source, target, PoseAt( source, clip, tick ), out );
             ASSERT_TRUE( done.IsSuccess() ) << done.GetError();
             worst = std::max( worst, WorstSegmentErrorPercent( target, rest, out ) );
         }
@@ -503,7 +503,7 @@ TEST( RetargetPipeline, ADifferentRestOrientationIsAbsorbedExactly )
     for ( const double tick : SampleTicks( clip ) )
     {
         const LocalPose sourcePose = PoseAt( source, clip, tick );
-        ASSERT_TRUE( retargeter.Retarget( sourcePose, out ).IsSuccess() );
+        ASSERT_TRUE( retargeter.Retarget( source, target, sourcePose, out ).IsSuccess() );
         worstLength = std::max( worstLength, WorstSegmentErrorPercent( target, targetRest, out ) );
 
         const ModelPose sourceModel = ModelOf( source, sourcePose );
@@ -609,7 +609,7 @@ TEST( RetargetPipeline, ThePelvisRisesByTheRatioOfTheTwoRigsHeights )
         for ( const double tick : SampleTicks( clip ) )
         {
             const LocalPose sourcePose = PoseAt( source, clip, tick );
-            ASSERT_TRUE( retargeter.Retarget( sourcePose, out ).IsSuccess() );
+            ASSERT_TRUE( retargeter.Retarget( source, target, sourcePose, out ).IsSuccess() );
 
             const float sourceRise = ModelOf( source, sourcePose )[sourcePelvis].Translation.y -
                                      sourceRestModel[sourcePelvis].Translation.y;
@@ -650,7 +650,7 @@ TEST( RetargetPipeline, APelvisAtZeroHeightIsRefused )
     // And the refusal is load-bearing rather than decorative: a retargeter that refused still refuses
     // when asked to run, instead of quietly emitting a rest pose.
     LocalPose  out;
-    const auto ran = retargeter.Retarget( BindPose( flat ), out );
+    const auto ran = retargeter.Retarget( flat, normal, BindPose( flat ), out );
     EXPECT_FALSE( ran.IsSuccess() );
 }
 
@@ -706,7 +706,7 @@ TEST( RetargetPipeline, AChainRetargetsAlongItsWholeLengthAndNotOnlyItsStart )
     ASSERT_GT( spread, 5.0F ) << "a chain whose ends agree cannot show a parameterisation";
 
     LocalPose out;
-    ASSERT_TRUE( retargeter.Retarget( sourcePose, out ).IsSuccess() );
+    ASSERT_TRUE( retargeter.Retarget( source, target, sourcePose, out ).IsSuccess() );
     const ModelPose targetModel = ModelOf( target, out );
 
     std::vector<float> applied;
@@ -777,8 +777,8 @@ TEST( RetargetPipeline, AChainOverEquallyLongRunsAgreesWithTheNameMap )
     for ( const double tick : SampleTicks( clip ) )
     {
         const LocalPose sourcePose = PoseAt( source, clip, tick );
-        ASSERT_TRUE( plain.Retarget( sourcePose, a ).IsSuccess() );
-        ASSERT_TRUE( withChain.Retarget( sourcePose, b ).IsSuccess() );
+        ASSERT_TRUE( plain.Retarget( source, target, sourcePose, a ).IsSuccess() );
+        ASSERT_TRUE( withChain.Retarget( source, target, sourcePose, b ).IsSuccess() );
 
         const ModelPose ma = ModelOf( target, a );
         const ModelPose mb = ModelOf( target, b );
@@ -836,8 +836,8 @@ TEST( RetargetPipeline, TheNormalisedLimbExtensionIsRestoredOnUnevenProportions 
     for ( const double tick : SampleTicks( clip ) )
     {
         const LocalPose sourcePose = PoseAt( source, clip, tick );
-        ASSERT_TRUE( fkOnly.Retarget( sourcePose, fk ).IsSuccess() );
-        ASSERT_TRUE( withIK.Retarget( sourcePose, ik ).IsSuccess() );
+        ASSERT_TRUE( fkOnly.Retarget( source, target, sourcePose, fk ).IsSuccess() );
+        ASSERT_TRUE( withIK.Retarget( source, target, sourcePose, ik ).IsSuccess() );
 
         const ModelPose sourceModel = ModelOf( source, sourcePose );
         const float     sourceExtension =
@@ -974,9 +974,35 @@ TEST( RetargetPipeline, ASourcePoseOfTheWrongSizeIsRefused )
 
     LocalPose  tooShort( 2 );
     LocalPose  out;
-    const auto ran = retargeter.Retarget( tooShort, out );
+    const auto ran = retargeter.Retarget( source, target, tooShort, out );
     ASSERT_FALSE( ran.IsSuccess() );
     std::cout << "[ REFUSED ] " << ran.GetError() << "\n";
+}
+
+TEST( RetargetPipeline, ARigTheCacheWasNotBuiltForIsRefused )
+{
+    // The cache is bone INDICES. Handed a structurally different rig it would produce a pose rather than
+    // an error, which is the one failure mode nothing downstream can see.
+    const auto     bones  = BonesFrom( kRigPath );
+    const Skeleton source = MakeRig( bones );
+    const Skeleton target = MakeRig( bones );
+    const Skeleton other  = MakeRig( RigWithTwist( bones ) );
+
+    Retargeter retargeter;
+    ASSERT_TRUE( retargeter.Initialize( source, target, SetupFor( kRoot, kRoot ) ).IsSuccess() );
+
+    LocalPose  out;
+    const auto ran = retargeter.Retarget( source, other, BindPose( source ), out );
+    ASSERT_FALSE( ran.IsSuccess() );
+    std::cout << "[ REFUSED ] " << ran.GetError() << "\n";
+
+    // And the signature is deliberately blind to PROPORTIONS -- T6.1 measured a rig scaled x3 carrying
+    // the same signature -- because a rig with the same names and parents is one these indices are
+    // correct for. Retargeting onto a differently proportioned rig is the whole point of the task, not
+    // a mistake to refuse.
+    const Skeleton taller = MakeRig( Scaled( bones, 3.0F ) );
+    EXPECT_EQ( taller.GetSignature(), target.GetSignature() );
+    EXPECT_TRUE( retargeter.Retarget( source, taller, BindPose( source ), out ).IsSuccess() );
 }
 
 TEST( RetargetPipeline, AnUninitialisedRetargeterRefuses )
@@ -985,7 +1011,7 @@ TEST( RetargetPipeline, AnUninitialisedRetargeterRefuses )
 
     Retargeter retargeter;
     LocalPose  out;
-    const auto ran = retargeter.Retarget( BindPose( rig ), out );
+    const auto ran = retargeter.Retarget( rig, rig, BindPose( rig ), out );
     ASSERT_FALSE( ran.IsSuccess() );
     std::cout << "[ REFUSED ] " << ran.GetError() << "\n";
 }
@@ -1008,7 +1034,7 @@ TEST( RetargetPipeline, SourceScaleIsNotCarriedOntoTheTarget )
     sourcePose[BoneIndex( source, kMid )].Scale = glm::vec3( 2.0F );
 
     LocalPose out;
-    ASSERT_TRUE( retargeter.Retarget( sourcePose, out ).IsSuccess() );
+    ASSERT_TRUE( retargeter.Retarget( source, target, sourcePose, out ).IsSuccess() );
 
     const glm::vec3 elbowScale = out[BoneIndex( target, kMid )].Scale;
     std::cout << "[ MEASURED ] source elbow scale 2.0 -> target elbow scale (" << elbowScale.x << ", "
