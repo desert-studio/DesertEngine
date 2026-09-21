@@ -57,8 +57,14 @@ namespace Desert::Assets
         ++m_Revision;
         m_Ready = true;
 
-        LOG_INFO( "[Animation] Control rig '{}' loaded: {} controls, {} bone drives.", m_DisplayName,
-                  m_Data.Controls.size(), m_Data.Drives.size() );
+        // THE FORWARDS SOLVE IS PART OF WHAT WAS LOADED, so it is part of the line that says what was
+        // loaded. Without it the log cannot tell a rig whose graph the loader silently dropped from one
+        // that never had a graph — which is the only observation a person makes on a headless run.
+        LOG_INFO( "[Animation] Control rig '{}' loaded: {} controls, {} bone drives, {}.", m_DisplayName,
+                  m_Data.Controls.size(), m_Data.Drives.size(),
+                  m_Data.Graph.has_value()
+                       ? fmt::format( "a forwards solve of {} node(s)", m_Data.Graph->Nodes.size() )
+                       : std::string( "no forwards solve (each control's own composition drives its bone)" ) );
         return BOOLSUCCESS;
     }
 
@@ -88,8 +94,9 @@ namespace Desert::Assets
             return ok;
         }
 
-        LOG_INFO( "[Animation] Control rig written: '{}', {} controls, {} bone drives.", filepath.string(),
-                  data.Controls.size(), data.Drives.size() );
+        LOG_INFO( "[Animation] Control rig written: '{}', {} controls, {} bone drives, {} graph node(s).",
+                  filepath.string(), data.Controls.size(), data.Drives.size(),
+                  data.Graph.has_value() ? data.Graph->Nodes.size() : 0U );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Assets

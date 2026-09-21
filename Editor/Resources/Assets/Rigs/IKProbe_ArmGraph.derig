@@ -1,0 +1,208 @@
+{
+  "FormatVersion": 1,
+  "Name": "IKProbe Arm (graphed)",
+  "Controls": [
+    {
+      "Name": "Elbow_CTRL",
+      "ShapeName": "Diamond",
+      "ShapeTransform": {
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Rotation": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          10.0,
+          10.0,
+          10.0
+        ]
+      },
+      "Offset": {
+        "Translation": [
+          -70.0,
+          0.0,
+          0.0
+        ],
+        "Rotation": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "Pose": {
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Rotation": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "Parents": [
+        {
+          "Kind": "Bone",
+          "Target": "IK_Shoulder",
+          "Weight": 1.0
+        }
+      ]
+    },
+    {
+      "Name": "Hand_CTRL",
+      "ShapeName": "CircleXY",
+      "ShapeTransform": {
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Rotation": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          18.0,
+          18.0,
+          18.0
+        ]
+      },
+      "Offset": {
+        "Translation": [
+          -140.0,
+          170.0,
+          0.0
+        ],
+        "Rotation": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "Pose": {
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Rotation": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "Parents": [
+        {
+          "Kind": "Component",
+          "Target": "",
+          "Weight": 1.0
+        }
+      ]
+    }
+  ],
+  "Drives": [
+    {
+      "Control": "Elbow_CTRL",
+      "Bone": "IK_Elbow"
+    },
+    {
+      "Control": "Hand_CTRL",
+      "Bone": "IK_Hand"
+    }
+  ],
+  "Graph": {
+    "Nodes": [
+      {
+        "Name": "elbowControl",
+        "Kind": "GetControl",
+        "Target": "Elbow_CTRL",
+        "Space": "Global",
+        "Inputs": []
+      },
+      {
+        "Name": "reach",
+        "Kind": "MultiplyTransform",
+        "Target": "",
+        "Space": "",
+        "Inputs": [
+          {
+            "Pin": "A",
+            "Link": {
+              "Node": "elbowControl",
+              "Pin": "Transform"
+            }
+          },
+          {
+            "Pin": "B",
+            "Transform": {
+              "Translation": [
+                -70.0,
+                90.0,
+                0.0
+              ],
+              "Rotation": [
+                1.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "Scale": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "Name": "placeHand",
+        "Kind": "SetControl",
+        "Target": "Hand_CTRL",
+        "Space": "Global",
+        "Inputs": [
+          {
+            "Pin": "Transform",
+            "Link": {
+              "Node": "reach",
+              "Pin": "Transform"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

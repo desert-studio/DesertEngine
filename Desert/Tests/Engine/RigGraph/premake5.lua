@@ -10,21 +10,19 @@ project(test_name)
 
     files {
         test_files,
-        -- The stage under test, the control layer it owns, the override arithmetic it writes THROUGH (the
-        -- output hop is `ApplyBoneOverrides` and not a second copy of it), and the Animator whose pipeline
-        -- it joins. `TwoBoneIKControl` + the solver are here for ONE assertion — the four-stage order —
-        -- because "the rig is last" is only a statement when there is a Controls stage for it to be last of.
+        -- The walk under test; the stage that runs it and decides what reaches a bone; the hierarchy it
+        -- reads and writes; and the FORMAT, because the graph's refusals have to be askable from a file as
+        -- well as from a built rig — one walk, two callers, and this suite is where they are made to agree.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
-        -- T5.5: the stage now owns a forwards solve, so the walk links with the stage that runs it.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp",
+        -- The pipeline the rig joins: without it the suite could say "the stage ran" and not "the skinning
+        -- matrices came out different", which is the only statement that means the graph reached a frame.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
-        -- The tick grid every clip time lives on (A5).
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
     }
@@ -33,6 +31,14 @@ project(test_name)
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
     }
+
+    -- LINKED for ControlRigAsset's reason: the format's file half goes through Common's atomic write, and
+    -- Common carries Objective-C (the macOS file dialog), which is what the two frameworks are for.
+    links { "Common", "Optick" }
+
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
 
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }

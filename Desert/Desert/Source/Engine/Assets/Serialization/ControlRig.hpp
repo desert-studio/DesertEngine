@@ -183,6 +183,80 @@ namespace Desert::Assets::Serialization
     };
 
     /**
+     * @brief One end of a wire: a node's name and one of its OUTPUT pins, both spelled.
+     *
+     * The pin is a NAME and not an ordinal for the reason the whole file uses names: an ordinal is right
+     * until a node kind grows a pin, and then every file written before that silently means something
+     * else. `BreakTransform` has three outputs and a rigger reading a diff wants to see "Rotation", not 1.
+     */
+    struct RigLinkData
+    {
+        std::string Node;
+        std::string Pin;
+
+        [[nodiscard]] bool operator==( const RigLinkData& ) const = default;
+    };
+
+    /**
+     * @brief One input pin of one node: what it is wired to, OR what constant sits on it.
+     *
+     * EXACTLY ONE of the five payloads is present, and the other four must be absent. The alternative —
+     * a `Value` field of a union type — is what reflect-cpp would need a tagged variant for anyway, and
+     * five named optionals say the same thing in a form a person can hand-edit and a diff can read. Two
+     * present at once is refused rather than resolved by precedence: a precedence rule is a second fact
+     * about which one wins, and the loser is invisible.
+     */
+    struct RigGraphInputData
+    {
+        std::string                     Pin;
+        std::optional<RigLinkData>      Link;
+        std::optional<float>            Float;
+        std::optional<glm::vec3>        Vec3;
+        std::optional<glm::quat>        Quat;
+        std::optional<RigTransformData> Transform;
+
+        [[nodiscard]] bool operator==( const RigGraphInputData& ) const = default;
+    };
+
+    /**
+     * @brief One node of the forwards solve.
+     *
+     * `Kind` is the spelling from `Animation::RigNodeDescriptors()` — the SAME table the walk dispatches
+     * on, so a kind cannot exist in one and not the other. An unrecognised word is refused by name.
+     *
+     * `Target` is the control name or the bone name the kind reads or writes, and MUST BE EMPTY for the
+     * kinds that name nothing; `Space` is "Local" or "Global" and must be empty for the kinds that have
+     * no control space. Both follow `ControlSpaceData::Target`'s rule and for its reason: a field that
+     * says something its kind cannot mean is two statements about one fact, and the one that loses is
+     * invisible.
+     *
+     * THE ORDER OF THIS ARRAY IS THE ORDER OF EXECUTION. See `RigGraph`'s file note: a topological sort
+     * over the links cannot see the hierarchy, which every node reads and a sink writes, so it is free to
+     * swap a read and a write that the author wrote down in a particular order. A link may therefore only
+     * name an EARLIER node, which is also why no cycle check appears in this format.
+     */
+    struct RigGraphNodeData
+    {
+        std::string                    Name;
+        std::string                    Kind;
+        std::string                    Target;
+        std::string                    Space;
+        std::vector<RigGraphInputData> Inputs;
+
+        [[nodiscard]] bool operator==( const RigGraphNodeData& ) const = default;
+    };
+
+    /// The rig's forwards solve — T5.5. A struct of one field rather than a bare array, because the graph
+    /// is where the next authored thing (a comment, an editor node position) will want to live and a bare
+    /// array has nowhere to put it.
+    struct RigGraphData
+    {
+        std::vector<RigGraphNodeData> Nodes;
+
+        [[nodiscard]] bool operator==( const RigGraphData& ) const = default;
+    };
+
+    /**
      * @brief One rig on disk, and in memory — the same struct, because there is nothing to convert.
      *
      * `Drives` is NOT optional in the sense that matters. `Animator::AttachRig` refuses a rig that drives no
@@ -196,6 +270,23 @@ namespace Desert::Assets::Serialization
         std::string                     Name;
         std::vector<ControlElementData> Controls;
         std::vector<ControlDriveData>   Drives;
+
+        /**
+         * @brief The forwards solve, if this rig has one — T5.5.
+         *
+         * OPTIONAL, AND ABSENT MEANS "no graph", WHICH IS WHY `kControlRigVersion` DID NOT MOVE. The same
+         * test `ShapeTransform` had to pass: is there a generation-1 file whose bytes now mean something
+         * else? No — a rig written before this field had no graph, `ControlRigStage` without a graph runs
+         * exactly the identity solve it ran before the field existed, and the suite asserts that in bytes.
+         * Bumping would make the number LIE about files this build reads exactly right, and hard-refuse
+         * every `.derig` a rigger saved yesterday. The counter moves the first time a file written today
+         * cannot be read as written.
+         *
+         * A PRESENT-BUT-EMPTY GRAPH IS NOT A SECOND SPELLING OF ABSENT — it is refused. "This rig has a
+         * forwards solve" and "that solve is nothing" cannot both be true, and the writer emits the field
+         * only when there is a graph, so a round trip is stable in either direction.
+         */
+        std::optional<RigGraphData> Graph;
 
         [[nodiscard]] bool operator==( const ControlRigData& ) const = default;
     };
@@ -215,6 +306,18 @@ namespace Desert::Assets::Serialization
      * scale component (a control drawn flat is one an animator cannot grab, which is the same symptom as
      * a typo'd shape name and must not be reachable by writing a number); an empty drive; a drive naming
      * a control this file does not define; and two drives on the same bone.
+     *
+     * AND, WHEN A GRAPH IS PRESENT: a graph with no nodes; a node with an empty or duplicate name; an
+     * unknown kind; a Target that is required and missing or present and meaningless for the kind; a
+     * Target naming a control this file does not define; a Space that is required and missing, spelled
+     * something other than Local or Global, or present on a kind that has none; the wrong number of
+     * inputs; an input naming a pin the kind does not have, or naming one twice; an input carrying none
+     * of the five payloads or more than one; a payload whose TYPE is not the pin's; a non-finite number;
+     * a link naming a node this graph does not define, or one that is not EARLIER (which is how a cycle
+     * is refused, since it cannot be written); a link naming an output pin the producing kind does not
+     * have, or one of the wrong type; a graph with no sink; and a node that feeds no sink. The last two
+     * are asked through `Animation::RefuseDiscardedWork`, the same function the loader asks, so this
+     * cannot come to disagree with it.
      *
      * THE CYCLE AND THE UNKNOWN-CONTROL CHECKS ARE HERE AS WELL AS IN `ControlHierarchy::Add`, and that is
      * not duplication of the rule but of the MOMENT: `Add` can only see what has been added so far, so a

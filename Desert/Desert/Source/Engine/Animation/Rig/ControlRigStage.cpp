@@ -62,8 +62,93 @@ namespace Desert::Animation
             }
         }
 
-        m_Drives = std::move( drives );
+        // THE GRAPH IS RE-CHECKED AGAINST THE NEW LIST, BEFORE IT IS COMMITTED. Reachability is a statement
+        // about a PAIR — these writes, those drives — so either half changing can falsify it, and a rig
+        // that silently stopped being able to move the pose the moment its drives were rewritten is the
+        // exact failure `SetGraph` exists to refuse. Checked against `drives` rather than `m_Drives` so a
+        // refusal leaves the stage as it was.
+        std::vector<ControlBoneDrive> previous = std::move( m_Drives );
+        m_Drives                               = std::move( drives );
+
+        if ( !m_Graph.Empty() )
+        {
+            if ( auto reaches = RefuseUnreachableGraph( m_Graph ); !reaches )
+            {
+                m_Drives = std::move( previous );
+                return reaches;
+            }
+        }
         return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr ControlRigStage::SetGraph( RigGraph graph )
+    {
+        if ( graph.Empty() )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "an empty graph is not a forwards solve to install; a rig without one is spelled by never "
+                 "calling this, and it behaves as T5.4 shipped — a control reaches its bone by identity" );
+        }
+        if ( m_Drives.empty() )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "declare the rig's drives before its graph: whether a graph can change the pose is a "
+                 "question about which bones the rig writes, and with no drives it has no answer" );
+        }
+
+        if ( auto reaches = RefuseUnreachableGraph( graph ); !reaches )
+        {
+            return reaches;
+        }
+
+        m_Graph = std::move( graph );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr ControlRigStage::RefuseUnreachableGraph( const RigGraph& graph ) const
+    {
+        // Every control the graph's writes can move: the write itself, then everything parented to it,
+        // transitively. ONE FORWARD SWEEP AND NO STACK, because `ControlHierarchy::Add` refuses a parent
+        // that is not already present — so a dependent's index is always greater than its parent's, and
+        // visiting in ascending order visits every parent before its child.
+        std::vector<uint8_t> moved( m_Hierarchy.Size(), 0 );
+        for ( const uint32_t control : graph.WrittenControls() )
+        {
+            moved[control] = 1;
+        }
+        for ( uint32_t control = 0; control < static_cast<uint32_t>( moved.size() ); ++control )
+        {
+            if ( moved[control] == 0 )
+            {
+                continue;
+            }
+            for ( const uint32_t dependent : m_Hierarchy.Dependents( control ) )
+            {
+                moved[dependent] = 1;
+            }
+        }
+
+        for ( const ControlBoneDrive& drive : m_Drives )
+        {
+            if ( moved[drive.Control] != 0 )
+            {
+                return Common::MakeSuccess( true );
+            }
+        }
+
+        std::string written;
+        for ( const uint32_t control : graph.WrittenControls() )
+        {
+            written += written.empty() ? "'" : "', '";
+            written += m_Hierarchy.Get( control ).Name;
+        }
+        written += "'";
+
+        return Common::MakeFormattedError<bool>(
+             "this graph writes {} and none of them, nor anything parented to them, drives a bone. It would "
+             "run every frame and the pose would come out of the rig exactly as it went in, which is a stage "
+             "no assertion downstream can tell from one that works",
+             written );
     }
 
     Common::BoolResultStr ControlRigStage::Evaluate( const Skeleton& skeleton, LocalPose& pose,
@@ -89,11 +174,26 @@ namespace Desert::Animation
             return Common::MakeError<bool>( m_LastError );
         }
 
-        // ---- the solve would be here (report 05 §642) ---------------------------------------------------
+        // ---- the solve (report 05 §642, `Evaluate_AnyThread`) -------------------------------------------
         //
-        // T5.5. Today a control reaches its bone through identity — `m_Global` composed by T5.1 IS the
-        // bone's new transform — which is a rig whose forwards event is one "set transform" per control.
-        // The seam does not change when the graph arrives; the body of the loop below does.
+        // T5.5, AND THE SEAM DID NOT MOVE. Without a graph a control still reaches its bone through
+        // identity — the composition T5.1 builds IS the bone's new transform — and that path is byte-for-
+        // byte what it was, which is what the suite's positive control compares against. With a graph, the
+        // walk writes control poses; the hierarchy dirties what depends on them, the output hop below reads
+        // the resolved globals, and the drive list is untouched by any of it.
+        if ( !m_Graph.Empty() )
+        {
+            if ( auto ran = m_Graph.Execute( m_Hierarchy, component ); !ran )
+            {
+                // The rig contributes NOTHING on a refused solve rather than its half-written state. A
+                // graph that failed at node seven has already written nodes one to six into the hierarchy,
+                // and carrying those to the skeleton would be a pose no author ever asked for; leaving the
+                // pose as the previous stage produced it is the only answer that is somebody's.
+                m_LastError = ran.GetError();
+                ReportErrorOnChange();
+                return Common::MakeError<bool>( m_LastError );
+            }
+        }
 
         // ---- the output hop: rig hierarchy -> pose (report 05 §643, `UpdateOutput`) ---------------------
         m_Overrides.clear();

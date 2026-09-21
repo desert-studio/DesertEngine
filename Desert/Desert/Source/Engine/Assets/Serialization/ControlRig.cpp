@@ -1,6 +1,7 @@
 #include <Engine/Assets/Serialization/ControlRig.hpp>
 
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
+#include <Engine/Animation/Rig/RigGraph.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -11,6 +12,7 @@
 #include <cmath>
 #include <optional>
 #include <unordered_map>
+#include <span>
 #include <unordered_set>
 
 #include <rflcpp/rfl/json.hpp>
@@ -249,6 +251,320 @@ namespace Desert::Assets::Serialization
             }
             return order;
         }
+        // ---- the graph's file form ------------------------------------------------------------------
+        //
+        // Every rule below asks `Animation::RigNodeDescriptors()` — the same table the walk dispatches on.
+        // There is no list of kinds, pin names or pin types in this file, and that is deliberate: the third
+        // paragraph of `RigGraph.hpp` says why the pin table had to be data rather than a virtual, and this
+        // is the caller it had to be data FOR.
+
+        [[nodiscard]] std::optional<Animation::RigValueKind> PayloadKind( const RigGraphInputData& input )
+        {
+            int                                    present = 0;
+            std::optional<Animation::RigValueKind> kind;
+
+            if ( input.Link.has_value() )
+            {
+                ++present;
+            }
+            if ( input.Float.has_value() )
+            {
+                ++present;
+                kind = Animation::RigValueKind::Float;
+            }
+            if ( input.Vec3.has_value() )
+            {
+                ++present;
+                kind = Animation::RigValueKind::Vec3;
+            }
+            if ( input.Quat.has_value() )
+            {
+                ++present;
+                kind = Animation::RigValueKind::Quat;
+            }
+            if ( input.Transform.has_value() )
+            {
+                ++present;
+                kind = Animation::RigValueKind::Transform;
+            }
+
+            if ( present != 1 )
+            {
+                return std::nullopt;
+            }
+            // A link's type is the producing pin's, which only the caller can look up.
+            return input.Link.has_value() ? std::optional<Animation::RigValueKind>{} : kind;
+        }
+
+        [[nodiscard]] int PayloadCount( const RigGraphInputData& input )
+        {
+            return static_cast<int>( input.Link.has_value() ) + static_cast<int>( input.Float.has_value() ) +
+                   static_cast<int>( input.Vec3.has_value() ) + static_cast<int>( input.Quat.has_value() ) +
+                   static_cast<int>( input.Transform.has_value() );
+        }
+
+        [[nodiscard]] std::optional<size_t> FindPin( std::span<const Animation::RigPin> pins,
+                                                     const std::string&                 name )
+        {
+            for ( size_t i = 0; i < pins.size(); ++i )
+            {
+                if ( pins[i].Name == name )
+                {
+                    return i;
+                }
+            }
+            return std::nullopt;
+        }
+
+        [[nodiscard]] Common::BoolResultStr
+        ValidateRigGraphData( const RigGraphData&                            graph,
+                              const std::unordered_map<std::string, size_t>& controlsByName )
+        {
+            if ( graph.Nodes.empty() )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "the rig declares a graph with no nodes; a rig without a forwards solve is spelled by "
+                     "leaving the Graph field out, not by writing an empty one" );
+            }
+
+            // EVERY NAME IS COLLECTED BEFORE ANY LINK IS RESOLVED, and that is a diagnostic decision rather
+            // than a structural one. Building the map as the loop went made a FORWARD link report "this
+            // graph does not define 'place'" — true of the map at that instant, false of the file, and
+            // exactly the kind of message that sends a rigger looking for a typo in a name that is right
+            // there three lines below. With every name known, "does not define" means absent and "comes
+            // later" means later.
+            std::unordered_map<std::string, size_t> byName;
+            byName.reserve( graph.Nodes.size() );
+
+            for ( size_t i = 0; i < graph.Nodes.size(); ++i )
+            {
+                if ( graph.Nodes[i].Name.empty() )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "graph node {} has an empty name; the name is what a link, a refusal and an editor "
+                         "row all bind on",
+                         i );
+                }
+                if ( !byName.emplace( graph.Nodes[i].Name, i ).second )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "two graph nodes are named '{}'; a link naming it would have two answers",
+                         graph.Nodes[i].Name );
+                }
+            }
+
+            std::vector<std::string>            names;
+            std::vector<Animation::RigNodeKind> kinds;
+            std::vector<std::vector<uint32_t>>  producers( graph.Nodes.size() );
+
+            for ( size_t i = 0; i < graph.Nodes.size(); ++i )
+            {
+                const RigGraphNodeData& node = graph.Nodes[i];
+
+                const auto kind = Animation::RigNodeKindFromText( node.Kind );
+                if ( !kind.has_value() )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "graph node '{}' is of kind '{}', which this build does not know", node.Name, node.Kind );
+                }
+
+                const Animation::RigNodeDescriptor& desc = Animation::DescribeRigNode( *kind );
+
+                switch ( desc.Target )
+                {
+                    case Animation::RigNodeTargetKind::Control:
+                        if ( node.Target.empty() )
+                        {
+                            return Common::MakeFormattedError<bool>( "graph node '{}' ({}) names no control",
+                                                                     node.Name, node.Kind );
+                        }
+                        if ( controlsByName.find( node.Target ) == controlsByName.end() )
+                        {
+                            return Common::MakeFormattedError<bool>(
+                                 "graph node '{}' names control '{}', which this rig does not define", node.Name,
+                                 node.Target );
+                        }
+                        break;
+                    case Animation::RigNodeTargetKind::Bone:
+                        // The BONE's existence is a question for a skeleton, and this function has none;
+                        // `BuildControlRig` refuses an unknown bone by name, as it already does for a space.
+                        if ( node.Target.empty() )
+                        {
+                            return Common::MakeFormattedError<bool>( "graph node '{}' ({}) names no bone",
+                                                                     node.Name, node.Kind );
+                        }
+                        break;
+                    case Animation::RigNodeTargetKind::None:
+                        if ( !node.Target.empty() )
+                        {
+                            return Common::MakeFormattedError<bool>(
+                                 "graph node '{}' is a {}, which names nothing, yet it targets '{}'", node.Name,
+                                 node.Kind, node.Target );
+                        }
+                        break;
+                }
+
+                if ( desc.UsesSpace )
+                {
+                    if ( !Animation::RigControlSpaceFromText( node.Space ).has_value() )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "graph node '{}' ({}) has space '{}', which is neither Local nor Global", node.Name,
+                             node.Kind, node.Space );
+                    }
+                }
+                else if ( !node.Space.empty() )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "graph node '{}' is a {}, which has no control space, yet it asks for '{}'", node.Name,
+                         node.Kind, node.Space );
+                }
+
+                if ( node.Inputs.size() != desc.Inputs.size() )
+                {
+                    return Common::MakeFormattedError<bool>( "graph node '{}' ({}) has {} inputs and the kind "
+                                                             "takes {}",
+                                                             node.Name, node.Kind, node.Inputs.size(),
+                                                             desc.Inputs.size() );
+                }
+
+                std::vector<uint8_t> filled( desc.Inputs.size(), 0 );
+
+                for ( const RigGraphInputData& input : node.Inputs )
+                {
+                    const auto pin = FindPin( desc.Inputs, input.Pin );
+                    if ( !pin.has_value() )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "graph node '{}' ({}) has an input for pin '{}', which the kind does not have",
+                             node.Name, node.Kind, input.Pin );
+                    }
+                    if ( filled[*pin] != 0 )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "graph node '{}' fills pin '{}' twice; which of the two the walk would read has "
+                             "no answer that is not invented here",
+                             node.Name, input.Pin );
+                    }
+                    filled[*pin] = 1;
+
+                    const int payloads = PayloadCount( input );
+                    if ( payloads == 0 )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "graph node '{}' pin '{}' carries neither a link nor a value", node.Name, input.Pin );
+                    }
+                    if ( payloads > 1 )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "graph node '{}' pin '{}' carries {} payloads; a precedence rule would be a "
+                             "second fact about which one wins, and the loser would be invisible",
+                             node.Name, input.Pin, payloads );
+                    }
+
+                    const Animation::RigValueKind expected = desc.Inputs[*pin].Type;
+
+                    if ( !input.Link.has_value() )
+                    {
+                        const Animation::RigValueKind actual = *PayloadKind( input );
+                        if ( actual != expected )
+                        {
+                            return Common::MakeFormattedError<bool>(
+                                 "graph node '{}' has a {} value on pin '{}', which is a {}", node.Name,
+                                 Animation::ToString( actual ), input.Pin, Animation::ToString( expected ) );
+                        }
+                        if ( input.Float.has_value() && !std::isfinite( *input.Float ) )
+                        {
+                            return Common::MakeFormattedError<bool>(
+                                 "graph node '{}' has a non-finite value on pin '{}'", node.Name, input.Pin );
+                        }
+                        if ( input.Vec3.has_value() )
+                        {
+                            for ( int c = 0; c < 3; ++c )
+                            {
+                                if ( !std::isfinite( ( *input.Vec3 )[c] ) )
+                                {
+                                    return Common::MakeFormattedError<bool>(
+                                         "graph node '{}' has a non-finite value on pin '{}'", node.Name,
+                                         input.Pin );
+                                }
+                            }
+                        }
+                        if ( input.Quat.has_value() )
+                        {
+                            for ( int c = 0; c < 4; ++c )
+                            {
+                                if ( !std::isfinite( ( *input.Quat )[c] ) )
+                                {
+                                    return Common::MakeFormattedError<bool>(
+                                         "graph node '{}' has a non-finite value on pin '{}'", node.Name,
+                                         input.Pin );
+                                }
+                            }
+                        }
+                        if ( input.Transform.has_value() )
+                        {
+                            if ( auto ok = FiniteTransform( node.Name, "graph value", *input.Transform,
+                                                            "a transform scaled to zero on an axis cannot be "
+                                                            "inverted and reaches a bone as a basis that "
+                                                            "will not decompose" );
+                                 !ok )
+                            {
+                                return ok;
+                            }
+                        }
+                        continue;
+                    }
+
+                    const RigLinkData& link  = *input.Link;
+                    const auto         found = byName.find( link.Node );
+                    if ( found == byName.end() )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "graph node '{}' pin '{}' links to '{}', which this graph does not define", node.Name,
+                             input.Pin, link.Node );
+                    }
+                    if ( found->second >= i )
+                    {
+                        // THE RULE THAT REPLACES CYCLE DETECTION. A graph runs in the order it is written,
+                        // because the hierarchy it reads and writes is state no sort can see; a link
+                        // therefore points backwards or not at all, and a cycle cannot be spelled.
+                        return Common::MakeFormattedError<bool>(
+                             "graph node '{}' pin '{}' links to '{}', which is itself or comes later in the "
+                             "file; a graph runs in the order it is written and a link points backwards",
+                             node.Name, input.Pin, link.Node );
+                    }
+
+                    const auto producerKind = Animation::RigNodeKindFromText( graph.Nodes[found->second].Kind );
+                    const Animation::RigNodeDescriptor& producer = Animation::DescribeRigNode( *producerKind );
+
+                    const auto outPin = FindPin( producer.Outputs, link.Pin );
+                    if ( !outPin.has_value() )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "graph node '{}' pin '{}' reads output '{}' of '{}' ({}), which it does not have",
+                             node.Name, input.Pin, link.Pin, link.Node, producer.Name );
+                    }
+                    if ( producer.Outputs[*outPin].Type != expected )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "graph node '{}' wires '{}' of '{}', a {}, into pin '{}', which is a {}", node.Name,
+                             link.Pin, link.Node, Animation::ToString( producer.Outputs[*outPin].Type ), input.Pin,
+                             Animation::ToString( expected ) );
+                    }
+
+                    producers[i].push_back( static_cast<uint32_t>( found->second ) );
+                }
+
+                names.push_back( node.Name );
+                kinds.push_back( *kind );
+            }
+
+            // THE SAME FUNCTION THE LOADER ASKS. See its comment: one walk, two callers, so a rig editor
+            // cannot save a file the loader would refuse.
+            return Animation::RefuseDiscardedWork( names, kinds, producers );
+        }
+
     } // namespace
 
     Common::BoolResultStr ValidateControlRigData( const ControlRigData& data )
@@ -411,6 +727,14 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>(
                      "two drives write bone '{}'; which control wins has no answer that is not invented here",
                      drive.Bone );
+            }
+        }
+
+        if ( data.Graph.has_value() )
+        {
+            if ( auto ok = ValidateRigGraphData( *data.Graph, byName ); !ok )
+            {
+                return Common::MakeFormattedError<bool>( "rig '{}': {}", data.Name, ok.GetError() );
             }
         }
 
@@ -610,6 +934,108 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "rig '{}': {}", data.Name, ok.GetError() );
         }
 
+        if ( !data.Graph.has_value() )
+        {
+            // NO GRAPH IS A WHOLE RIG. `ControlRigStage` without one runs the identity solve T5.4 shipped,
+            // which is what a generation-1 `.derig` has always meant, and the byte-for-byte proof of that
+            // is what lets `kControlRigVersion` stay at 1.
+            return Common::MakeSuccess( true );
+        }
+
+        // ---- file form -> the walk ------------------------------------------------------------------
+        //
+        // The order of `Nodes` becomes the order of execution, and `Validate` has already established that
+        // every link points at an earlier one, so the index of a link's target is simply its position here.
+        std::unordered_map<std::string, uint32_t> nodeIndex;
+        nodeIndex.reserve( data.Graph->Nodes.size() );
+
+        std::vector<Animation::RigNode> nodes;
+        nodes.reserve( data.Graph->Nodes.size() );
+
+        for ( const RigGraphNodeData& file : data.Graph->Nodes )
+        {
+            Animation::RigNode node;
+            node.Name = file.Name;
+            // Validate has established the spelling, the target, the space, the pins and the types.
+            node.Kind = *Animation::RigNodeKindFromText( file.Kind );
+
+            const Animation::RigNodeDescriptor& desc = Animation::DescribeRigNode( node.Kind );
+
+            if ( desc.Target == Animation::RigNodeTargetKind::Control )
+            {
+                node.Target = controlIndex.at( file.Target );
+            }
+            else if ( desc.Target == Animation::RigNodeTargetKind::Bone )
+            {
+                const auto bone = skeleton.FindBoneIndex( file.Target );
+                if ( !bone.has_value() )
+                {
+                    // REFUSED, NOT RESOLVED TO IDENTITY, for the reason every other bone name here is.
+                    return Common::MakeFormattedError<bool>(
+                         "rig '{}': graph node '{}' reads bone '{}', which this skeleton (signature {}) does "
+                         "not have",
+                         data.Name, file.Name, file.Target, skeleton.GetSignature() );
+                }
+                node.Target = *bone;
+            }
+
+            if ( desc.UsesSpace )
+            {
+                node.Space = *Animation::RigControlSpaceFromText( file.Space );
+            }
+
+            // BY THE DESCRIPTOR'S PIN ORDER, NOT THE FILE'S. The walk indexes `Inputs` positionally, and a
+            // rigger who lists Alpha before A has written a legal file that means what it says.
+            node.Inputs.assign( desc.Inputs.size(), Animation::RigNodeInput{} );
+
+            for ( const RigGraphInputData& input : file.Inputs )
+            {
+                const size_t            pin = *FindPin( desc.Inputs, input.Pin );
+                Animation::RigNodeInput wired;
+
+                if ( input.Link.has_value() )
+                {
+                    const auto&                         link     = *input.Link;
+                    const uint32_t                      producer = nodeIndex.at( link.Node );
+                    const Animation::RigNodeDescriptor& from = Animation::DescribeRigNode( nodes[producer].Kind );
+                    wired.Node                               = producer;
+                    wired.Pin = static_cast<uint8_t>( *FindPin( from.Outputs, link.Pin ) );
+                }
+                else if ( input.Float.has_value() )
+                {
+                    wired.Literal = Animation::RigValue{ *input.Float };
+                }
+                else if ( input.Vec3.has_value() )
+                {
+                    wired.Literal = Animation::RigValue{ *input.Vec3 };
+                }
+                else if ( input.Quat.has_value() )
+                {
+                    wired.Literal = Animation::RigValue{ *input.Quat };
+                }
+                else
+                {
+                    wired.Literal = Animation::RigValue{ ToBoneTransform( *input.Transform ) };
+                }
+
+                node.Inputs[pin] = wired;
+            }
+
+            nodeIndex.emplace( file.Name, static_cast<uint32_t>( nodes.size() ) );
+            nodes.push_back( std::move( node ) );
+        }
+
+        Animation::RigGraph graph;
+        if ( auto built = graph.SetNodes( out.GetHierarchy(), skeleton.GetBones().size(), std::move( nodes ) );
+             !built )
+        {
+            return Common::MakeFormattedError<bool>( "rig '{}': {}", data.Name, built.GetError() );
+        }
+        if ( auto installed = out.SetGraph( std::move( graph ) ); !installed )
+        {
+            return Common::MakeFormattedError<bool>( "rig '{}': {}", data.Name, installed.GetError() );
+        }
+
         return Common::MakeSuccess( true );
     }
 
@@ -706,6 +1132,95 @@ namespace Desert::Assets::Serialization
             file.Control = hierarchy.Get( drive.Control ).Name;
             file.Bone    = named.GetValue();
             data.Drives.push_back( std::move( file ) );
+        }
+
+        if ( rig.HasGraph() )
+        {
+            RigGraphData graph;
+            graph.Nodes.reserve( rig.GetGraph().GetNodes().size() );
+
+            const std::vector<Animation::RigNode>& nodes = rig.GetGraph().GetNodes();
+            for ( const Animation::RigNode& node : nodes )
+            {
+                const Animation::RigNodeDescriptor& desc = Animation::DescribeRigNode( node.Kind );
+
+                RigGraphNodeData file;
+                file.Name = node.Name;
+                file.Kind = std::string( desc.Name );
+
+                if ( desc.Target == Animation::RigNodeTargetKind::Control )
+                {
+                    if ( node.Target >= hierarchy.Size() )
+                    {
+                        return Common::MakeFormattedError<ControlRigData>(
+                             "graph node '{}' names control index {}, which this rig does not have", node.Name,
+                             node.Target );
+                    }
+                    file.Target = hierarchy.Get( node.Target ).Name;
+                }
+                else if ( desc.Target == Animation::RigNodeTargetKind::Bone )
+                {
+                    auto named = boneName( node.Target );
+                    if ( !named )
+                    {
+                        return Common::MakeFormattedError<ControlRigData>( "graph node '{}': {}", node.Name,
+                                                                           named.GetError() );
+                    }
+                    file.Target = named.GetValue();
+                }
+
+                // EMPTY IS THE CANONICAL SPELLING OF "this kind has no space", chosen once and here — the
+                // same rule `ShapeTransform`'s absent field follows, and what makes the round trip stable.
+                if ( desc.UsesSpace )
+                {
+                    file.Space = std::string( Animation::ToString( node.Space ) );
+                }
+
+                file.Inputs.reserve( node.Inputs.size() );
+                for ( size_t pin = 0; pin < node.Inputs.size(); ++pin )
+                {
+                    const Animation::RigNodeInput& wired = node.Inputs[pin];
+
+                    RigGraphInputData input;
+                    input.Pin = std::string( desc.Inputs[pin].Name );
+
+                    if ( wired.Node == Animation::RigNodeInput::LITERAL )
+                    {
+                        switch ( static_cast<Animation::RigValueKind>( wired.Literal.index() ) )
+                        {
+                            case Animation::RigValueKind::Float:
+                                input.Float = std::get<float>( wired.Literal );
+                                break;
+                            case Animation::RigValueKind::Vec3:
+                                input.Vec3 = std::get<glm::vec3>( wired.Literal );
+                                break;
+                            case Animation::RigValueKind::Quat:
+                                input.Quat = std::get<glm::quat>( wired.Literal );
+                                break;
+                            case Animation::RigValueKind::Transform:
+                                input.Transform =
+                                     FromBoneTransform( std::get<Animation::BoneTransform>( wired.Literal ) );
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        const Animation::RigNodeDescriptor& from =
+                             Animation::DescribeRigNode( nodes[wired.Node].Kind );
+
+                        RigLinkData link;
+                        link.Node  = nodes[wired.Node].Name;
+                        link.Pin   = std::string( from.Outputs[wired.Pin].Name );
+                        input.Link = std::move( link );
+                    }
+
+                    file.Inputs.push_back( std::move( input ) );
+                }
+
+                graph.Nodes.push_back( std::move( file ) );
+            }
+
+            data.Graph = std::move( graph );
         }
 
         if ( auto valid = ValidateControlRigData( data ); !valid )
