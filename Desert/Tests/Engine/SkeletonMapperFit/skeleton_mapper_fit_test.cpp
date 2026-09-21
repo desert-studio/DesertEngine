@@ -77,9 +77,9 @@ namespace
 
     // The probe limb. IK_Shoulder -> IK_Elbow -> IK_Hand is the only three-bone chain in the corpus, and
     // a limb is the thing a retargeter is judged on.
-    constexpr const char* kRoot  = "IK_Shoulder";
-    constexpr const char* kMid   = "IK_Elbow";
-    constexpr const char* kTip   = "IK_Hand";
+    constexpr const char* kRoot = "IK_Shoulder";
+    constexpr const char* kMid  = "IK_Elbow";
+    constexpr const char* kTip  = "IK_Hand";
 
     std::string RepoRoot()
     {
@@ -108,7 +108,8 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + kRigPath );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kRigPath;
-        auto data = rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
+        auto data =
+             rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
         EXPECT_TRUE( data.has_value() );
         return data.has_value() ? data.value().Bones : std::vector<BoneInfo>{};
     }
@@ -151,10 +152,9 @@ namespace
 
     JPH::Mat44 ToJolt( const glm::mat4& m )
     {
-        return JPH::Mat44( JPH::Vec4( m[0][0], m[0][1], m[0][2], m[0][3] ),
-                           JPH::Vec4( m[1][0], m[1][1], m[1][2], m[1][3] ),
-                           JPH::Vec4( m[2][0], m[2][1], m[2][2], m[2][3] ),
-                           JPH::Vec4( m[3][0], m[3][1], m[3][2], m[3][3] ) );
+        return JPH::Mat44(
+             JPH::Vec4( m[0][0], m[0][1], m[0][2], m[0][3] ), JPH::Vec4( m[1][0], m[1][1], m[1][2], m[1][3] ),
+             JPH::Vec4( m[2][0], m[2][1], m[2][2], m[2][3] ), JPH::Vec4( m[3][0], m[3][1], m[3][2], m[3][3] ) );
     }
 
     glm::vec3 TranslationOf( const JPH::Mat44& m )
@@ -177,7 +177,8 @@ namespace
     {
         const auto& bones = rig.GetBones();
         for ( const BoneInfo& b : bones )
-            out.AddJoint( b.Name, b.IsRoot() ? JPH::string_view() : JPH::string_view( bones[b.GetParentID()].Name ) );
+            out.AddJoint( b.Name,
+                          b.IsRoot() ? JPH::string_view() : JPH::string_view( bones[b.GetParentID()].Name ) );
         out.CalculateParentJointIndices();
     }
 
@@ -211,8 +212,8 @@ namespace
     // layers and the crossfade neither of which this measurement needs.
     LocalPose PoseAt( const Skeleton& rig, const Desert::Animation::AnimationClip& clip, double ticks )
     {
-        LocalPose        local = BindPose( rig );
-        const FrameTime  at{ Desert::Animation::FrameNumber{ static_cast<int32_t>( ticks ) }, 0.0F };
+        LocalPose       local = BindPose( rig );
+        const FrameTime at{ Desert::Animation::FrameNumber{ static_cast<int32_t>( ticks ) }, 0.0F };
         for ( const auto& track : clip.Tracks )
         {
             if ( !track.HasKeys() )
@@ -261,9 +262,9 @@ TEST( SkeletonMapperFit, OurRigMapsOntoItselfUnchanged )
     FillJoltSkeleton( rig, joltRig );
     ASSERT_EQ( joltRig.GetJointCount(), 5 );
 
-    const auto bind        = BindPose( rig );
-    const auto bindModel   = ModelSpace( rig, bind );
-    const auto bindJolt    = ToJoltArray( bindModel );
+    const auto bind      = BindPose( rig );
+    const auto bindModel = ModelSpace( rig, bind );
+    const auto bindJolt  = ToJoltArray( bindModel );
 
     // Local-space matrices for skeleton 2, which Map() needs for the joints it cannot map directly.
     std::vector<JPH::Mat44> localJolt;
@@ -334,7 +335,8 @@ TEST( SkeletonMapperFit, OurClipDrivesTheMappedRig )
         std::vector<JPH::Mat44> out( src.size(), JPH::Mat44::sIdentity() );
         mapper.Map( src.data(), localJolt.data(), out.data() );
 
-        maxTravel = std::max( maxTravel, Distance( TranslationOf( out[*tipIdx] ), glm::vec3( bindModel[*tipIdx][3] ) ) );
+        maxTravel =
+             std::max( maxTravel, Distance( TranslationOf( out[*tipIdx] ), glm::vec3( bindModel[*tipIdx][3] ) ) );
     }
 
     // The corpus suite pins this clip as one that MOVES; 10 cm is far above the 1e-3 cm floor measurement
@@ -470,8 +472,8 @@ TEST( SkeletonMapperFit, LimbLengthErrorGrowsWithTheRestPoseDifference )
         const Skeleton  target = ScaledRig( bones, k );
         const LimbError err    = MeasureLimbError( source, target, clip );
 
-        std::cout << "[ MEASURED ] proportion factor k=" << k << "  worst limb-length error "
-                  << err.Worst * 100.0F << " %  (at rest " << err.WorstAtRest * 100.0F << " %)\n";
+        std::cout << "[ MEASURED ] proportion factor k=" << k << "  worst limb-length error " << err.Worst * 100.0F
+                  << " %  (at rest " << err.WorstAtRest * 100.0F << " %)\n";
 
         // CORRECT AT REST, AT EVERY k. This is the half that makes the defect dangerous: a bind-pose
         // screenshot of a retarget built on this mapper is perfect no matter how badly proportioned the
@@ -571,8 +573,8 @@ TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
 
     const glm::vec3 mappedTip = TranslationOf( out[*tipIdx] );
     const glm::vec3 sourceTip = glm::vec3( srcModel[*tipIdx][3] );
-    const glm::vec3 wanted    = glm::vec3(
-         ( srcModel[*tipIdx] * glm::inverse( srcBindModel[*tipIdx] ) * tgtBindModel[*tipIdx] )[3] );
+    const glm::vec3 wanted =
+         glm::vec3( ( srcModel[*tipIdx] * glm::inverse( srcBindModel[*tipIdx] ) * tgtBindModel[*tipIdx] )[3] );
 
     EXPECT_LT( Distance( mappedTip, wanted ), 1e-2F )
          << "the mapped tip is not D[j] * neutral2[j]; the formula this whole document rests on is wrong";
@@ -705,9 +707,9 @@ TEST( SkeletonMapperFit, ScaleSurvivesADirectMapping )
     const auto midIdx = rig.FindBoneIndex( kMid );
     ASSERT_TRUE( midIdx.has_value() );
 
-    LocalPose scaled       = bind;
-    scaled[*midIdx].Scale  = glm::vec3( 2.0F );
-    const auto scaledJolt  = ToJoltArray( ModelSpace( rig, scaled ) );
+    LocalPose scaled      = bind;
+    scaled[*midIdx].Scale = glm::vec3( 2.0F );
+    const auto scaledJolt = ToJoltArray( ModelSpace( rig, scaled ) );
 
     std::vector<JPH::Mat44> out( bindJolt.size(), JPH::Mat44::sIdentity() );
     mapper.Map( scaledJolt.data(), localJolt.data(), out.data() );
@@ -758,8 +760,8 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
             // that does not redden may be equivalent IN THE SCENARIO rather than harmless, which is
             // exactly what happened here.
             twist.LocalBindTransform =
-                 twist.LocalBindTransform * glm::rotate( glm::mat4( 1.0F ), glm::radians( 30.0F ),
-                                                         glm::vec3( 0, 0, 1 ) );
+                 twist.LocalBindTransform *
+                 glm::rotate( glm::mat4( 1.0F ), glm::radians( 30.0F ), glm::vec3( 0, 0, 1 ) );
             extended.push_back( twist );
 
             BoneInfo hand     = bones[*srcTip];
@@ -813,8 +815,8 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
 
         std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
         mapper.Map( src.data(), tgtLocalJolt.data(), out.data() );
-        moved = std::max(
-             moved, Distance( TranslationOf( out[*twistIdx] ), glm::vec3( tgtBindModel[*twistIdx][3] ) ) );
+        moved = std::max( moved,
+                          Distance( TranslationOf( out[*twistIdx] ), glm::vec3( tgtBindModel[*twistIdx][3] ) ) );
     }
 
     std::cout << "[ MEASURED ] the unmapped intermediate joint travelled " << moved
@@ -833,7 +835,7 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
     std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
     mapper.Map( ToJoltArray( srcModel ).data(), tgtLocalJolt.data(), out.data() );
 
-    const auto srcBindModel = ModelSpace( source, BindPose( source ) );
+    const auto      srcBindModel = ModelSpace( source, BindPose( source ) );
     const glm::mat4 directOnly =
          srcModel[*srcMid] * glm::inverse( srcBindModel[*srcMid] ) * tgtBindModel[*elbowIdx];
 
