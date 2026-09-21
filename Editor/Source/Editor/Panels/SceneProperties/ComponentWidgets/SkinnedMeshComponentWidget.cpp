@@ -356,7 +356,7 @@ namespace Desert::Editor
                     m_Authoring.Entity = entityId;
                     Core::ActiveAuthoringContext().Focus( BoneTreeOwner(), m_Authoring );
                     if ( const auto set = Core::ActiveAuthoringContext().SetSelectedBone(
-                              BoneTreeOwner(), static_cast<uint32_t>( boneIndex ) );
+                              BoneTreeOwner(), m_Authoring, static_cast<uint32_t>( boneIndex ) );
                          !set.IsSuccess() )
                     {
                         // Unreachable while Focus() above succeeds, and logged rather than dropped because

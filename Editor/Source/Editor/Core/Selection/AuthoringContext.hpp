@@ -310,9 +310,17 @@ namespace Desert::Editor::Core
         // is a VALUE and not a log line: the call sites that can be refused are UI events, and an event
         // that is dropped without the caller being able to see it is the shape §1.4 of the contract
         // forbids.
-        NO_DISCARD Common::BoolResultStr SetMode( const AuthoringOwner& owner, AuthoringMode mode )
+        // @p mine is the owner's own storage again, and it is not a convenience: THE OWNER'S COPY IS THE
+        // DURABLE ONE and the host's is the publication. A mutation that reached only the publication
+        // would be lost the moment another character's document took the context, because the owner
+        // republishes from `mine` when it comes back — a Sequencer would return to its window and find
+        // its pose mode and its selected bone gone. Naming both here is what makes them unable to drift;
+        // the alternative (the host keeping a pointer into a document's member) is a dangling pointer the
+        // frame that document closes.
+        NO_DISCARD Common::BoolResultStr SetMode( const AuthoringOwner& owner, AuthoringContext& mine,
+                                                  AuthoringMode mode )
         {
-            return Write( owner, "set mode",
+            return Write( owner, mine, "set mode",
                           [mode]( AuthoringContext& context )
                           {
                               if ( mode == AuthoringMode::Object )
@@ -322,15 +330,17 @@ namespace Desert::Editor::Core
                           } );
         }
 
-        NO_DISCARD Common::BoolResultStr SetSelectedBone( const AuthoringOwner&   owner,
+        NO_DISCARD Common::BoolResultStr SetSelectedBone( const AuthoringOwner& owner, AuthoringContext& mine,
                                                           std::optional<uint32_t> bone )
         {
-            return Write( owner, "select bone", [bone]( AuthoringContext& context ) { context.SelectedBone = bone; } );
+            return Write( owner, mine, "select bone",
+                          [bone]( AuthoringContext& context ) { context.SelectedBone = bone; } );
         }
 
-        NO_DISCARD Common::BoolResultStr SetShowBoneNames( const AuthoringOwner& owner, bool show )
+        NO_DISCARD Common::BoolResultStr SetShowBoneNames( const AuthoringOwner& owner, AuthoringContext& mine,
+                                                           bool show )
         {
-            return Write( owner, "show bone names",
+            return Write( owner, mine, "show bone names",
                           [show]( AuthoringContext& context ) { context.ShowBoneNames = show; } );
         }
 
@@ -340,7 +350,8 @@ namespace Desert::Editor::Core
         // somebody who is not the holder tried to write. A single "failed" would tell the caller which
         // of the two to fix in neither case.
         template <typename Mutation>
-        NO_DISCARD Common::BoolResultStr Write( const AuthoringOwner& owner, const char* what, Mutation&& mutate )
+        NO_DISCARD Common::BoolResultStr Write( const AuthoringOwner& owner, AuthoringContext& mine,
+                                                const char* what, Mutation&& mutate )
         {
             if ( !m_Context )
                 return Common::MakeError<bool>( std::string( "cannot " ) + what +
@@ -352,6 +363,7 @@ namespace Desert::Editor::Core
                                                 " does)" );
 
             mutate( *m_Context );
+            mine = *m_Context; // the owner's durable copy and the publication, in one step
             return Common::MakeSuccess<bool>( true );
         }
 

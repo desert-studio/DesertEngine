@@ -175,8 +175,8 @@ namespace Desert::Editor
     ViewportPanel::ViewportPanel( const std::shared_ptr<Desert::Core::Scene>& scene,
                                   const Assets::AssetManager* assetManager, std::string title,
                                   uint64_t sceneViewId )
-         : IPanel( std::move( title ) ), m_Scene( scene ), m_AssetManager( assetManager ),
-           m_SceneViewId( sceneViewId ), m_AuthoringOwner( Core::AuthoringOwner::ForSceneView( sceneViewId ) )
+         : IPanel( std::move( title ) ), m_Scene( scene ), m_SceneViewId( sceneViewId ),
+           m_AuthoringOwner( Core::AuthoringOwner::ForSceneView( sceneViewId ) ), m_AssetManager( assetManager )
     {
         m_UIHelper = std::make_unique<Editor::UI::UIHelper>();
         m_UIHelper->Init();
@@ -338,7 +338,8 @@ namespace Desert::Editor
         // authored as; a Sequencer authoring its own character is not this view's business, and forcing it
         // back to Object from here is precisely the "everybody writes one global" shape that was removed.
         if ( !canEditSkeleton || Core::ViewportMode::Get() != Core::EditorMode::Select )
-            (void)Core::ActiveAuthoringContext().SetMode( m_AuthoringOwner, Core::AuthoringMode::Object );
+            (void)Core::ActiveAuthoringContext().SetMode( m_AuthoringOwner, m_Authoring,
+                                                          Core::AuthoringMode::Object );
 
         // While bones are being authored, ask the engine to render the selected mesh in BIND pose so
         // bone-gizmo edits are visible (an auto-playing clip would otherwise override them).
@@ -452,7 +453,8 @@ namespace Desert::Editor
                 // the ImGui focus flag can still be describing the previous frame on the click itself.
                 ClaimAuthoringContext();
                 const auto changed = Core::ActiveAuthoringContext().SetMode(
-                     m_AuthoringOwner, active ? Core::AuthoringMode::Object : Core::AuthoringMode::Skeleton );
+                     m_AuthoringOwner, m_Authoring,
+                     active ? Core::AuthoringMode::Object : Core::AuthoringMode::Skeleton );
                 if ( !changed.IsSuccess() )
                     LOG_WARN( "[Viewport] skeleton mode refused: {}", changed.GetError() );
             }
@@ -465,8 +467,8 @@ namespace Desert::Editor
                 if ( ImGui::Checkbox( "Names", &showNames ) )
                 {
                     ClaimAuthoringContext();
-                    const auto changed =
-                         Core::ActiveAuthoringContext().SetShowBoneNames( m_AuthoringOwner, showNames );
+                    const auto changed = Core::ActiveAuthoringContext().SetShowBoneNames(
+                         m_AuthoringOwner, m_Authoring, showNames );
                     if ( !changed.IsSuccess() )
                         LOG_WARN( "[Viewport] bone-name labels refused: {}", changed.GetError() );
                 }
@@ -1879,7 +1881,7 @@ namespace Desert::Editor
                 {
                     ClaimAuthoringContext();
                     const auto picked = Core::ActiveAuthoringContext().SetSelectedBone(
-                         m_AuthoringOwner, static_cast<uint32_t>( bone ) );
+                         m_AuthoringOwner, m_Authoring, static_cast<uint32_t>( bone ) );
                     if ( !picked.IsSuccess() )
                         LOG_WARN( "[Viewport] bone pick refused: {}", picked.GetError() );
                 }

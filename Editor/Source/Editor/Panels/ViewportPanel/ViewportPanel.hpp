@@ -213,12 +213,9 @@ namespace Desert::Editor
         void TakeAuthoringContextIfFocused();
 
         // WHO THIS VIEWPORT IS when it writes the context. Built once from the id, because the owner is
-        // compared by value on every write.
-        NO_DISCARD const Core::AuthoringOwner& AuthoringOwnerId() const
-        {
-            return m_AuthoringOwner;
-        }
-        Core::AuthoringOwner m_AuthoringOwner;
+        // compared by value on every write and a value rebuilt per call would be two owners that merely
+        // look alike.
+        const Core::AuthoringOwner m_AuthoringOwner;
 
         std::function<void()>                 m_OnActivate; // fired while this viewport window is focused
         const Assets::AssetManager*           m_AssetManager = nullptr; // for prefab drag-drop instantiate

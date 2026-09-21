@@ -405,7 +405,8 @@ namespace Desert::Editor
         // the viewport had is carried over untouched.
         Core::ActiveAuthoringContext().Focus( m_AuthoringOwner, m_Authoring );
 
-        const auto picked = Core::ActiveAuthoringContext().SetSelectedBone( m_AuthoringOwner, bone );
+        const auto picked =
+             Core::ActiveAuthoringContext().SetSelectedBone( m_AuthoringOwner, m_Authoring, bone );
         if ( !picked.IsSuccess() )
             LOG_WARN( "[Sequencer] bone selection refused: {}", picked.GetError() );
     }
@@ -583,8 +584,9 @@ namespace Desert::Editor
             // says "not your turn", not "something went wrong".
             if ( authoring.ShowsBones() )
             {
-                (void)authoring.SetMode( m_AuthoringOwner, editClip != nullptr ? Core::AuthoringMode::Pose
-                                                                               : Core::AuthoringMode::Skeleton );
+                (void)authoring.SetMode( m_AuthoringOwner, m_Authoring,
+                                         editClip != nullptr ? Core::AuthoringMode::Pose
+                                                             : Core::AuthoringMode::Skeleton );
             }
 
             // Record toggle (red when armed) — auto-keys while the gizmo moves the selected bone.
