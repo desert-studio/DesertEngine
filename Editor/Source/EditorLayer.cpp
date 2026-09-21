@@ -1,6 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
 
@@ -5514,6 +5515,17 @@ namespace Desert::Editor
         LOG_INFO( "[Profiler] GPU self times sum to {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %); the "
                   "remainder is device work no pass is marked around.",
                   gpuSumMs, gpuFrameMs, gpuFrameMs > 0.0001 ? gpuSumMs / gpuFrameMs * 100.0 : 0.0 );
+
+        // THE DRAW-CALL DETECTOR, READ WITHOUT A WINDOW. The counter itself landed with step 2 of
+        // `Docs/World/PROGRAMME.md`, and its only reader was the viewport's perf HUD — which is ImGui,
+        // which is drawn into the swapchain, which `--shot` does not read. So the one number step 3 is
+        // judged on was unreadable in exactly the mode a measurement is taken in. It joins the profiler
+        // dump rather than getting a flag of its own because it answers the same question the dump does
+        // — what did this frame cost — and because a second flag would be a second thing to remember.
+        const Graphic::DrawCounters drawCounters = Graphic::DrawCounter::LastFrame();
+        LOG_INFO( "[Profiler] draws {} / instances {} (an instanced batch is ONE draw and many instances; "
+                  "the two are printed apart because culling moves them in different proportions)",
+                  drawCounters.Draws, drawCounters.Instances );
         LOG_INFO( "[Profiler] ---- end ----" );
     }
 
