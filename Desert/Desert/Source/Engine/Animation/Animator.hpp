@@ -345,8 +345,12 @@ namespace Desert::Animation
         /// Local (parent-relative) transform of `boneIndex` driven by `clip` at `time`, or the bind-pose
         /// local when the clip has no track for it. Straight from the clip's TRS keys — the matrix this
         /// used to build, only to be decomposed again by the next step, is gone.
-        [[nodiscard]] BoneTransform SampleLocalTransform( const RigSampling& rig, const AnimationClip* clip,
-                                                          uint32_t boneIndex, FrameTime time ) const;
+        /// STATIC SINCE A25, for `ResolveTrack`'s reason: the rest pose an untracked bone falls back to
+        /// is `rig.Rest` now and not `m_BindPose`, so nothing here reads a member. `BlendedBaseLocal`
+        /// below is NOT static and must not become so — it reads the playheads, which are the Animator's.
+        [[nodiscard]] static BoneTransform SampleLocalTransform( const RigSampling& rig,
+                                                                 const AnimationClip* clip,
+                                                                 uint32_t boneIndex, FrameTime time );
 
         /// The base pose's local transform for one bone: the current clip, or current -> next blended by
         /// BlendAlpha(). The ONE answer to "what is the base pose right now", shared by the source stage
@@ -357,8 +361,13 @@ namespace Desert::Animation
         /// clip's own bone index). This lets a clip authored against a differently-ordered or skinless
         /// export of the same rig still drive the correct bones. Built lazily per clip, and rebuilt whenever
         /// the clip's own track storage has been replaced under it — see TrackBinding.
-        const BoneTrack* ResolveTrack( const RigSampling& rig, const AnimationClip* clip,
-                                       uint32_t boneIndex ) const;
+        /// STATIC SINCE A25, AND THAT IS THE SHAPE OF THE CHANGE RATHER THAN AN ANNOTATION. It used to
+        /// read `m_Skeleton` and `m_TrackBinding` directly; both now arrive in `rig`, so the function
+        /// touches no member and the analyser said so. Leaving it non-static would have hidden the one
+        /// property that makes two rigs safe to sample in the same frame: this lookup depends on nothing
+        /// but its arguments.
+        static const BoneTrack* ResolveTrack( const RigSampling& rig, const AnimationClip* clip,
+                                              uint32_t boneIndex );
 
         /// The rig the pipeline's own stages read: this Animator's skeleton, its bind pose and its clip
         /// binding cache.

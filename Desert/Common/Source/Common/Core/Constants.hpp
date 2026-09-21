@@ -364,7 +364,7 @@ namespace Common::Constants
         inline const std::filesystem::path& CONTROL_RIG_PATH    = Dir( ContentDir::ControlRig );
         inline const std::filesystem::path& SHADER_GRAPH_PATH   = Dir( ContentDir::ShaderGraph );
         inline const std::filesystem::path& ANIM_GRAPH_PATH     = Dir( ContentDir::AnimGraph );
-        inline const std::filesystem::path& RETARGET_PATH        = Dir( ContentDir::Retarget );
+        inline const std::filesystem::path& RETARGET_PATH       = Dir( ContentDir::Retarget );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
         inline const std::filesystem::path& TEXTURE_PATH_COOKED = Dir( ContentDir::TextureCooked );

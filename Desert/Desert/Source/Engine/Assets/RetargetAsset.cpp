@@ -49,8 +49,7 @@ namespace Desert::Assets
         if ( !parsed )
         {
             m_Ready = false;
-            return Common::MakeFormattedError<bool>( "retarget '{}' is not usable: {}", path,
-                                                     parsed.GetError() );
+            return Common::MakeFormattedError<bool>( "retarget '{}' is not usable: {}", path, parsed.GetError() );
         }
 
         m_Data        = parsed.ExtractValue();
@@ -63,9 +62,8 @@ namespace Desert::Assets
         // whose rig is simply cold — and that is the only observation a person makes on a headless run.
         LOG_INFO( "[Animation] Retarget '{}' loaded: source rig '{}', {} chain(s), {} rename(s), "
                   "{}+{} retarget-pose offset(s).",
-                  m_DisplayName, m_Data.SourceSkeleton, m_Data.Chains.size(),
-                  m_Data.BoneRenames.size(), m_Data.SourceRetargetPose.BoneOffsets.size(),
-                  m_Data.TargetRetargetPose.BoneOffsets.size() );
+                  m_DisplayName, m_Data.SourceSkeleton, m_Data.Chains.size(), m_Data.BoneRenames.size(),
+                  m_Data.SourceRetargetPose.BoneOffsets.size(), m_Data.TargetRetargetPose.BoneOffsets.size() );
         return BOOLSUCCESS;
     }
 
@@ -104,8 +102,8 @@ namespace Desert::Assets
         // twelve seconds and no character drawn.
         if ( const auto loaded = skeleton->EnsureLoaded( manager ); !loaded )
         {
-            LOG_ERROR( "RetargetAsset '{}': source rig '{}' could not be read: {}",
-                       m_Metadata.Filepath.string(), full.string(), loaded.GetError() );
+            LOG_ERROR( "RetargetAsset '{}': source rig '{}' could not be read: {}", m_Metadata.Filepath.string(),
+                       full.string(), loaded.GetError() );
             return;
         }
 
@@ -115,8 +113,8 @@ namespace Desert::Assets
 
     Common::BoolResultStr RetargetAsset::Unload()
     {
-        m_Data        = Serialization::RetargetAssetData{};
-        m_DisplayName = m_Metadata.Filepath.stem().string();
+        m_Data                  = Serialization::RetargetAssetData{};
+        m_DisplayName           = m_Metadata.Filepath.stem().string();
         m_SourceSkeleton.Handle = Common::AssetHandle::Null();
         m_SourceSkeleton.Cached.reset();
         m_Ready = false;
@@ -142,8 +140,7 @@ namespace Desert::Assets
         }
 
         LOG_INFO( "[Animation] Retarget written: '{}', source rig '{}', {} chain(s), {} rename(s).",
-                  filepath.string(), data.SourceSkeleton, data.Chains.size(),
-                  data.BoneRenames.size() );
+                  filepath.string(), data.SourceSkeleton, data.Chains.size(), data.BoneRenames.size() );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Assets

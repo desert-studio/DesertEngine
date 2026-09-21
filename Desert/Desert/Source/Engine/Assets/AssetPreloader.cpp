@@ -385,9 +385,8 @@ namespace Desert::Assets
         //
         // There is no service register loop beside this call: a retarget has no process-wide runtime form
         // — the retargeter is per ENTITY, against that entity's own skeleton, built by AnimationECSSystem.
-        ProcessAssetFiles<RetargetAsset>( Common::Constants::Path::RETARGET_PATH,
-                                          SUPPORTED_RETARGET_EXTENSIONS, m_AssetManager,
-                                          AssetPriority::Medium );
+        ProcessAssetFiles<RetargetAsset>( Common::Constants::Path::RETARGET_PATH, SUPPORTED_RETARGET_EXTENSIONS,
+                                          m_AssetManager, AssetPriority::Medium );
     }
 
     void AssetPreloader::PreloadCloudModellingVolumes()

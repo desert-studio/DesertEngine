@@ -1263,6 +1263,21 @@ namespace Desert::Tests::PointerCensus
           "is the SAME clip address whose Tracks vector has been freed and reallocated under it by an asset "
           "unload + reload (D34, a segfault in lower_bound). The value type now carries the storage it was "
           "built from and is rebuilt when that storage moves; see TrackBinding::TracksData below" },
+        { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
+          "Animator", "m_SourceTrackBinding", Guard::IdentityOnly,
+          "A25: the same memo, built against the SOURCE rig when a retarget is attached. A SECOND MAP and "
+          "not a second entry in the first, because the key is the clip and one clip is legally sampled on "
+          "both rigs in the same frame; one map would hand back a binding built for the wrong bone order. "
+          "Every word of m_TrackBinding's row above applies to it unchanged -- same key, same value type, "
+          "same storage check -- and it is additionally cleared by AttachRetarget/DetachRetarget, because "
+          "the rig it was built against is exactly what those two change" },
+        { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
+          "RigSampling", "Binding", Guard::HostOutlivesUs,
+          "A25: a REFERENCE to one of the two maps above, inside a struct that exists only as a function "
+          "argument. It is a parameter pack in the shape of a type -- constructed by TargetSampling() or "
+          "SourceSampling(), passed down the three sampling functions, destroyed when they return -- so the "
+          "Animator that owns the map is, by construction, the caller several frames of stack below it. The "
+          "scanner reads the map's KEY as the raw pointer; the reference itself cannot outlive the call" },
         // TrackBinding::ByBone HAS NO ROW ANY MORE, and its removal is the point. It was a
         // `std::vector<const BoneTrack*>` guarded by ReboundBeforeEveryUse — a discipline, and disciplines
         // are what the two questions at the top of this file exist to be suspicious of. It now holds track

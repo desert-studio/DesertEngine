@@ -1596,8 +1596,8 @@ namespace Desert::Core::Serialize
                                                                               &ECS::TwoBoneIKComponent::Data ) );
         Register( MakeReflected<ECS::ControlRigComponent, ECS::ControlRigData>(
              "ControlRig", "ControlRigData", &ECS::ControlRigComponent::Data ) );
-        Register( MakeReflected<ECS::RetargetComponent, ECS::RetargetData>(
-             "Retarget", "RetargetData", &ECS::RetargetComponent::Data ) );
+        Register( MakeReflected<ECS::RetargetComponent, ECS::RetargetData>( "Retarget", "RetargetData",
+                                                                            &ECS::RetargetComponent::Data ) );
         Register( MakeReflected<ECS::ColliderComponent, ECS::ColliderData>( "Collider", "ColliderData",
                                                                             &ECS::ColliderComponent::Data ) );
         Register( MakeReflected<ECS::RigidBodyComponent, ECS::RigidBodyData>( "RigidBody", "RigidBodyData",

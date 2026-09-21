@@ -4,11 +4,9 @@
 
 namespace Desert::Animation::Retarget
 {
-    Common::ResultStr<std::unique_ptr<RetargetSource>> RetargetSource::Create( Skeleton        source,
-                                                                               const Skeleton& target,
-                                                                               RetargetSetup   setup,
-                                                                               uint64_t        assetHandle,
-                                                                               uint32_t        assetRevision )
+    Common::ResultStr<std::unique_ptr<RetargetSource>>
+    RetargetSource::Create( Skeleton source, const Skeleton& target, RetargetSetup setup, uint64_t assetHandle,
+                            uint32_t assetRevision )
     {
         // The signatures are read BEFORE the move, from the two rigs actually being used, rather than
         // taken as parameters. A stamp that could disagree with the thing it stamps is the defect the
@@ -39,9 +37,8 @@ namespace Desert::Animation::Retarget
         // of `Create`: everything `Retarget` can refuse about a source pose of the source rig's own size
         // was already settled by `Initialize`, so a refusal at this point means the pair is not usable and
         // saying so now is better than saying it on the first additive layer.
-        if ( auto ok = built->m_Retargeter.Retarget( built->m_Source, target,
-                                                     built->m_Retargeter.GetSourceInitialPose(),
-                                                     built->m_RetargetedRest );
+        if ( auto ok = built->m_Retargeter.Retarget(
+                  built->m_Source, target, built->m_Retargeter.GetSourceInitialPose(), built->m_RetargetedRest );
              !ok )
         {
             return Common::MakeFormattedError<std::unique_ptr<RetargetSource>>( "{}", ok.GetError() );

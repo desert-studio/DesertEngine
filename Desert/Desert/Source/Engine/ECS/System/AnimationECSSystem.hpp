@@ -653,9 +653,8 @@ namespace Desert::ECS
             }
 
             if ( const auto* current = animator.GetRetarget();
-                 current != nullptr && current->IsBuiltFrom( static_cast<uint64_t>( wanted ),
-                                                             asset->GetRevision(), source->GetSignature(),
-                                                             skeleton.GetSignature() ) )
+                 current != nullptr && current->IsBuiltFrom( static_cast<uint64_t>( wanted ), asset->GetRevision(),
+                                                             source->GetSignature(), skeleton.GetSignature() ) )
             {
                 return;
             }
@@ -670,8 +669,7 @@ namespace Desert::ECS
             }
 
             auto built = Animation::Retarget::RetargetSource::Create(
-                 *source, skeleton, setup.ExtractValue(), static_cast<uint64_t>( wanted ),
-                 asset->GetRevision() );
+                 *source, skeleton, setup.ExtractValue(), static_cast<uint64_t>( wanted ), asset->GetRevision() );
             if ( !built )
             {
                 forget();

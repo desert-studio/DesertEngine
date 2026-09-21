@@ -303,7 +303,7 @@ namespace Desert::Assets::Serialization
      * needs a rig and the one that follows it owns every such refusal.
      */
     NO_DISCARD Common::ResultStr<Animation::Retarget::RetargetSetup>
-    BuildRetargetSetup( const RetargetAssetData& data );
+               BuildRetargetSetup( const RetargetAssetData& data );
 
     // THERE IS DELIBERATELY NO `BuildRetargeter` HERE. Building one needs the SOURCE RIG KEPT, which is a
     // lifetime decision rather than a format one: `Animation::Retarget::RetargetSource::Create` owns it,

@@ -1147,7 +1147,12 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // is the only place an authored rig handle becomes a pipeline stage — and before A12 there was no such
     // place at all, which is the whole of what that task was. Read off THIS branch's run; per the rule
     // above the TOTAL does not survive a merge, the DELTA does.
-    EXPECT_EQ( all.size(), 44u );
+    //
+    // -> 45 with A25's RetargetData. Its one field is WIRED to AnimationECSSystem::SyncRetarget, which is
+    // the only place an authored retarget handle becomes a source rig on the Animator — and before A25
+    // there was no such place at all, which is the whole of what that task was. Read off THIS branch's
+    // run; per the rule above the TOTAL does not survive a merge, the DELTA does.
+    EXPECT_EQ( all.size(), 45u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

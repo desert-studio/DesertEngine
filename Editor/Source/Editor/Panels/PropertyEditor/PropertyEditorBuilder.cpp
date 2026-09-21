@@ -1083,8 +1083,7 @@ namespace Desert::Editor
                         }
                         if ( assetMgr != nullptr )
                         {
-                            for ( const auto& [h, retarget] :
-                                  assetMgr->FindAllByType<Assets::RetargetAsset>() )
+                            for ( const auto& [h, retarget] : assetMgr->FindAllByType<Assets::RetargetAsset>() )
                             {
                                 const bool selected = ( static_cast<uint64_t>( h ) == *retargetHandle );
                                 if ( ImGui::Selectable( retarget->GetDisplayName().c_str(), selected ) )

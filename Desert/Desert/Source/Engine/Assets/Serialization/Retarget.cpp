@@ -59,8 +59,8 @@ namespace Desert::Assets::Serialization
                 const auto& row = pose.BoneOffsets[i];
                 if ( row.Bone.empty() )
                 {
-                    return Common::MakeFormattedError<bool>(
-                         "the {} retarget pose's offset {} names no bone", side, i );
+                    return Common::MakeFormattedError<bool>( "the {} retarget pose's offset {} names no bone",
+                                                             side, i );
                 }
                 if ( !IsFinite( row.Rotation ) )
                 {
@@ -161,14 +161,14 @@ namespace Desert::Assets::Serialization
             {
                 return Common::MakeFormattedError<bool>( "retarget '{}': chain {} has no name", data.Name, i );
             }
-            if ( chain.SourceStartBone.empty() || chain.SourceEndBone.empty() ||
-                 chain.TargetStartBone.empty() || chain.TargetEndBone.empty() )
+            if ( chain.SourceStartBone.empty() || chain.SourceEndBone.empty() || chain.TargetStartBone.empty() ||
+                 chain.TargetEndBone.empty() )
             {
                 return Common::MakeFormattedError<bool>(
                      "retarget '{}': chain '{}' leaves a bone unnamed (source '{}'..'{}', target "
                      "'{}'..'{}'). A chain is a run on EACH rig and half of one is not a run",
-                     data.Name, chain.Name, chain.SourceStartBone, chain.SourceEndBone,
-                     chain.TargetStartBone, chain.TargetEndBone );
+                     data.Name, chain.Name, chain.SourceStartBone, chain.SourceEndBone, chain.TargetStartBone,
+                     chain.TargetEndBone );
             }
             if ( !chainNames.insert( chain.Name ).second )
             {
@@ -187,8 +187,8 @@ namespace Desert::Assets::Serialization
             if ( row.TargetBone.empty() || row.SourceBone.empty() )
             {
                 return Common::MakeFormattedError<bool>(
-                     "retarget '{}': rename {} leaves a side unnamed (target '{}' -> source '{}')",
-                     data.Name, i, row.TargetBone, row.SourceBone );
+                     "retarget '{}': rename {} leaves a side unnamed (target '{}' -> source '{}')", data.Name, i,
+                     row.TargetBone, row.SourceBone );
             }
             if ( !renamed.insert( row.TargetBone ).second )
             {
@@ -241,8 +241,8 @@ namespace Desert::Assets::Serialization
         if ( version != kRetargetVersion )
         {
             return Common::MakeFormattedError<RetargetAssetData>(
-                 "retarget format version {} was written by a different build; this one reads version {}",
-                 version, kRetargetVersion );
+                 "retarget format version {} was written by a different build; this one reads version {}", version,
+                 kRetargetVersion );
         }
 
         if ( auto valid = ValidateRetargetData( data ); !valid )
@@ -266,8 +266,8 @@ namespace Desert::Assets::Serialization
         auto text = Common::Utils::FileSystem::ReadFileContent( path );
         if ( !text )
         {
-            return Common::MakeFormattedError<RetargetAssetData>( "cannot read retarget '{}': {}",
-                                                                  path.string(), text.GetError() );
+            return Common::MakeFormattedError<RetargetAssetData>( "cannot read retarget '{}': {}", path.string(),
+                                                                  text.GetError() );
         }
 
         auto parsed = ParseRetarget( text.GetValue() );
@@ -326,10 +326,10 @@ namespace Desert::Assets::Serialization
         out.FormatVersion      = kRetargetVersion;
         out.Name               = name;
         out.SourceSkeleton     = sourceSkeleton;
-        out.SourcePelvisBone        = setup.SourcePelvisBone;
-        out.TargetPelvisBone        = setup.TargetPelvisBone;
-        out.SourceRetargetPose      = PoseDataFrom( setup.SourceRetargetPose );
-        out.TargetRetargetPose      = PoseDataFrom( setup.TargetRetargetPose );
+        out.SourcePelvisBone   = setup.SourcePelvisBone;
+        out.TargetPelvisBone   = setup.TargetPelvisBone;
+        out.SourceRetargetPose = PoseDataFrom( setup.SourceRetargetPose );
+        out.TargetRetargetPose = PoseDataFrom( setup.TargetRetargetPose );
 
         out.Chains.reserve( setup.Chains.size() );
         for ( const auto& chain : setup.Chains )

@@ -302,8 +302,7 @@ namespace Desert::Animation
                 const BoneTransform layerLocal =
                      retargeted != nullptr
                           ? ( *retargeted )[i]
-                          : SampleLocalTransform( TargetSampling(), layer.Playback.Clip, i,
-                                                  layer.Playback.Time );
+                          : SampleLocalTransform( TargetSampling(), layer.Playback.Clip, i, layer.Playback.Time );
                 const BoneTransform& base = pose[i];
 
                 if ( layer.Additive )
@@ -446,7 +445,7 @@ namespace Desert::Animation
     // ============================================================
 
     BoneTransform Animator::SampleLocalTransform( const RigSampling& rig, const AnimationClip* clip,
-                                                  uint32_t boneIndex, FrameTime time ) const
+                                                  uint32_t boneIndex, FrameTime time )
     {
         if ( const BoneTrack* track = ResolveTrack( rig, clip, boneIndex ) )
             if ( track->HasKeys() )
@@ -497,8 +496,8 @@ namespace Desert::Animation
     {
         // The source rig's REST is its retarget pose applied to its bind pose — `SourceInitial`, which is
         // what the retarget equation measures a delta against. See SampleLocalTransform.
-        return RigSampling{ m_Retarget->GetSourceSkeleton(),
-                            m_Retarget->GetRetargeter().GetSourceInitialPose(), m_SourceTrackBinding };
+        return RigSampling{ m_Retarget->GetSourceSkeleton(), m_Retarget->GetRetargeter().GetSourceInitialPose(),
+                            m_SourceTrackBinding };
     }
 
     const LocalPose& Animator::AdditiveReference() const
@@ -507,7 +506,7 @@ namespace Desert::Animation
     }
 
     const BoneTrack* Animator::ResolveTrack( const RigSampling& rig, const AnimationClip* clip,
-                                             uint32_t boneIndex ) const
+                                             uint32_t boneIndex )
     {
         if ( !clip )
         {
@@ -850,8 +849,8 @@ namespace Desert::Animation
     {
         if ( !retarget )
         {
-            return Common::MakeFormattedError<bool>(
-                 "refusing to attach a null retarget to rig (signature {}).", m_Skeleton.GetSignature() );
+            return Common::MakeFormattedError<bool>( "refusing to attach a null retarget to rig (signature {}).",
+                                                     m_Skeleton.GetSignature() );
         }
 
         // REFUSED, NOT ACCEPTED-AND-IGNORED, and it is the same load-bearing refusal `AttachRig` makes one

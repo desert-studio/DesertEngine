@@ -20,6 +20,15 @@ project(test_name)
         -- The pipeline the rig joins: without it the suite could say "the stage ran" and not "the skinning
         -- matrices came out different", which is the only statement that means the graph reached a frame.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        -- A25: `Animator` owns an optional retarget, so every suite that compiles Animator.cpp links the
+        -- retarget layer with it. Listed here rather than discovered at link time because premake
+        -- enumerates sources EXPLICITLY: a dependency that is real but unlisted fails as an undefined
+        -- symbol naming a function sitting in the working tree, which reads as a defect in the merge.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetSource.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",

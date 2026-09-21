@@ -84,9 +84,11 @@ namespace
     constexpr const char* kSourceClip   = "Editor/Cooked/Meshes/ForeignArm_Swing.anim";
     constexpr const char* kRetargetFile = "Editor/Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget";
 
-    /// The clip is 48000 ticks long and its motion is one full sine, so tick 0 and tick 48000 are the REST
-    /// and tick 12000 is the extreme. Every measurement below names which of the two it is at.
-    constexpr int32_t kRestTick   = 0;
+    /// The clip is 48000 ticks long and its motion is one full sine, so tick 0 and tick 48000 are the rest
+    /// and tick 12000 is the extreme. EVERY measurement in this file is taken at the extreme, and there is
+    /// deliberately no `kRestTick` beside this one: the rest tick is where a retarget cannot be observed
+    /// (see `ABindPoseSnapshotCannotSeeAProportionDifferenceAtAll`, which builds its rest pose from the
+    /// RIG rather than from a tick), so a named constant for it would be an invitation to measure there.
     constexpr int32_t kMovingTick = 12000;
 
     std::string RepoRoot()
@@ -205,8 +207,8 @@ namespace
             const uint32_t parent = rig.ResolveParent( bone );
             if ( parent == Skeleton::NO_PARENT )
                 continue;
-            const float restLength = glm::length( restModel.GetValue()[bone].Translation -
-                                                  restModel.GetValue()[parent].Translation );
+            const float restLength =
+                 glm::length( restModel.GetValue()[bone].Translation - restModel.GetValue()[parent].Translation );
             if ( restLength < 1.0e-3F )
                 continue;
             const float length =
@@ -235,8 +237,7 @@ namespace
             return 0.0F;
         float worst = 0.0F;
         for ( uint32_t i = 0; i < rig.GetBones().size(); ++i )
-            worst = std::max( worst,
-                              glm::length( ma.GetValue()[i].Translation - mb.GetValue()[i].Translation ) );
+            worst = std::max( worst, glm::length( ma.GetValue()[i].Translation - mb.GetValue()[i].Translation ) );
         return worst;
     }
 
@@ -245,8 +246,7 @@ namespace
     struct ScopedFile
     {
         std::filesystem::path Path;
-        explicit ScopedFile( const char* stem )
-             : Path( std::filesystem::temp_directory_path() / stem )
+        explicit ScopedFile( const char* stem ) : Path( std::filesystem::temp_directory_path() / stem )
         {
         }
         ~ScopedFile()
@@ -324,18 +324,14 @@ TEST( RetargetAssetTest, EveryShapeOfUnusableRetargetIsRefusedAndTheMessageNames
     // ONE ROW PER REFUSAL, each naming the substring the message owes the author. A refusal that does not
     // say WHICH row is wrong sends a rigger to read the whole file.
     const Case cases[] = {
-         { "no source rig", "source rig",
-           []( File::RetargetAssetData& d ) { d.SourceSkeleton.clear(); } },
+         { "no source rig", "source rig", []( File::RetargetAssetData& d ) { d.SourceSkeleton.clear(); } },
          { "an absolute source rig", "relative",
            []( File::RetargetAssetData& d ) { d.SourceSkeleton = "/Users/someone/ForeignArm.skeleton"; } },
          { "an escaping source rig", "relative",
            []( File::RetargetAssetData& d ) { d.SourceSkeleton = "../../elsewhere/ForeignArm.skeleton"; } },
-         { "no source pelvis", "pelvis",
-           []( File::RetargetAssetData& d ) { d.SourcePelvisBone.clear(); } },
-         { "no target pelvis", "pelvis",
-           []( File::RetargetAssetData& d ) { d.TargetPelvisBone.clear(); } },
-         { "an offset naming no bone", "offset",
-           []( File::RetargetAssetData& d )
+         { "no source pelvis", "pelvis", []( File::RetargetAssetData& d ) { d.SourcePelvisBone.clear(); } },
+         { "no target pelvis", "pelvis", []( File::RetargetAssetData& d ) { d.TargetPelvisBone.clear(); } },
+         { "an offset naming no bone", "offset", []( File::RetargetAssetData& d )
            { d.SourceRetargetPose.BoneOffsets.push_back( File::RetargetBoneOffsetData{} ); } },
          { "a zero-length rotation offset", "cannot be a rotation",
            []( File::RetargetAssetData& d )
@@ -347,13 +343,10 @@ TEST( RetargetAssetTest, EveryShapeOfUnusableRetargetIsRefusedAndTheMessageNames
            []( File::RetargetAssetData& d )
            {
                const glm::quat identity( 1.0F, 0.0F, 0.0F, 0.0F );
-               d.SourceRetargetPose.BoneOffsets.push_back(
-                    File::RetargetBoneOffsetData{ "IK_Elbow", identity } );
-               d.SourceRetargetPose.BoneOffsets.push_back(
-                    File::RetargetBoneOffsetData{ "IK_Elbow", identity } );
+               d.SourceRetargetPose.BoneOffsets.push_back( File::RetargetBoneOffsetData{ "IK_Elbow", identity } );
+               d.SourceRetargetPose.BoneOffsets.push_back( File::RetargetBoneOffsetData{ "IK_Elbow", identity } );
            } },
-         { "a non-finite pelvis offset", "finite",
-           []( File::RetargetAssetData& d )
+         { "a non-finite pelvis offset", "finite", []( File::RetargetAssetData& d )
            { d.SourceRetargetPose.PelvisOffset.y = std::numeric_limits<float>::quiet_NaN(); } },
          { "a chain with no name", "has no name",
            []( File::RetargetAssetData& d ) { d.Chains.front().Name.clear(); } },
@@ -400,7 +393,7 @@ TEST( RetargetAssetTest, ABindPoseSnapshotCannotSeeAProportionDifferenceAtAll )
     // proportion — the single variable a bind-pose observation would have to be sensitive to in order to
     // be evidence about retargeting. It is not: for every k, the retargeted rest pose is the target's own
     // rest pose to the last bit the float can carry, and the SAME pair one tick-window later is not.
-    const Skeleton target = RigFrom( kTargetRig );
+    const Skeleton  target     = RigFrom( kTargetRig );
     const LocalPose targetRest = [&]
     {
         auto rest = LocalPose::FromBindPose( target );
@@ -439,9 +432,9 @@ TEST( RetargetAssetTest, ABindPoseSnapshotCannotSeeAProportionDifferenceAtAll )
         ASSERT_TRUE( built->Run( target, sourceRest.GetValue(), out ) ) << built->GetLastError();
 
         const float restDelta = WorstModelDelta( target, out, targetRest );
-        EXPECT_LT( restDelta, 1.0e-3F )
-             << "at rest a k=" << k << " proportion difference is invisible; if this fails the trap has "
-                "changed shape and the suite's argument needs re-deriving";
+        EXPECT_LT( restDelta, 1.0e-3F ) << "at rest a k=" << k
+                                        << " proportion difference is invisible; if this fails the trap has "
+                                           "changed shape and the suite's argument needs re-deriving";
 
         // AND THE SAME PAIR, MOVING, IS NOT INVISIBLE. Without this half the assertion above would be
         // satisfied by a retargeter that does nothing at all.
@@ -471,8 +464,8 @@ TEST( RetargetAssetTest, AnUNEVENProportionDifferenceIsVisibleAtRest )
     // This is recorded because it is the exact kind of claim that gets over-generalised into "a bind-pose
     // frame is always useless here". The honest statement is narrower and this test holds both halves of
     // it side by side.
-    const Skeleton  source = RigFrom( kSourceRig );
-    const Skeleton  target = RigFrom( kTargetRig );
+    const Skeleton  source     = RigFrom( kSourceRig );
+    const Skeleton  target     = RigFrom( kTargetRig );
     const LocalPose targetRest = [&]
     {
         auto rest = LocalPose::FromBindPose( target );
@@ -497,8 +490,8 @@ TEST( RetargetAssetTest, AnUNEVENProportionDifferenceIsVisibleAtRest )
     // IS blind at rest. Both statements are true at once, and confusing them is the whole hazard.
     EXPECT_LT( WorstSegmentErrorPercent( target, out ), 0.01F );
 
-    std::cout << "[A25] uneven source, rest pose: tip moves " << restDelta
-              << " cm, limb-length error " << WorstSegmentErrorPercent( target, out ) << " %" << std::endl;
+    std::cout << "[A25] uneven source, rest pose: tip moves " << restDelta << " cm, limb-length error "
+              << WorstSegmentErrorPercent( target, out ) << " %" << std::endl;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -559,8 +552,8 @@ TEST( RetargetAssetTest, ARetargetedCharacterHasDifferentSkinningMatricesAndTheD
     // lengths. The naive path imports the SOURCE's translations, so the target's bones stretch by the
     // proportion difference; the retargeted path writes rotations only and the lengths are inviolable by
     // construction (see Retargeter.hpp).
-    const float naiveError     = WorstSegmentErrorPercent( target, naivePose );
-    const float retargetError  = WorstSegmentErrorPercent( target, retargetedPose );
+    const float naiveError    = WorstSegmentErrorPercent( target, naivePose );
+    const float retargetError = WorstSegmentErrorPercent( target, retargetedPose );
     EXPECT_GT( naiveError, 10.0F ) << "the naive path is supposed to be wrong; if it is not, this "
                                       "corpus no longer differs in proportion and proves nothing";
     EXPECT_LT( retargetError, 0.01F ) << "the retargeted target must keep its own bones";
@@ -571,10 +564,9 @@ TEST( RetargetAssetTest, ARetargetedCharacterHasDifferentSkinningMatricesAndTheD
     with.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     EXPECT_TRUE( SameBytes( with.GetPose().Matrices, naive ) );
 
-    std::cout << "[A25] tick " << kMovingTick << " shoulder delta " << shoulderDelta << ", elbow "
-              << elbowDelta << ", hand " << handDelta << "; unreached-bone floor 0 (exact). Worst limb "
-              << "length error: naive " << naiveError << " %, retargeted " << retargetError << " %"
-              << std::endl;
+    std::cout << "[A25] tick " << kMovingTick << " shoulder delta " << shoulderDelta << ", elbow " << elbowDelta
+              << ", hand " << handDelta << "; unreached-bone floor 0 (exact). Worst limb "
+              << "length error: naive " << naiveError << " %, retargeted " << retargetError << " %" << std::endl;
 }
 
 TEST( RetargetAssetTest, TheRenamedBoneIsDrivenOnlyBecauseTheFileSaysSo )
@@ -653,9 +645,9 @@ TEST( RetargetAssetTest, AClipThatDrivesNothingLeavesTheTargetInItsOwnRetargetRe
 
     // AND THAT REST IS NOT THE TARGET'S OWN, which is what makes the assertion above discriminating on
     // this corpus rather than trivially true — see `RetargetSource::GetRetargetedRest`.
-    EXPECT_GT( WorstModelDelta( target, retargetedRest,
-                                animator.GetRetarget()->GetRetargeter().GetTargetInitialPose() ),
-               0.1F );
+    EXPECT_GT(
+         WorstModelDelta( target, retargetedRest, animator.GetRetarget()->GetRetargeter().GetTargetInitialPose() ),
+         0.1F );
 }
 
 TEST( RetargetAssetTest, AnAdditiveLayerOfNothingIsANoOpOnlyBecauseItsReferenceIsTheRetargetPose )
@@ -805,8 +797,8 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
          << "clearing the layers must leave the base exactly as it was";
 
     std::cout << "[A25] worst limb-length error with a layer: un-retargeted fold " << naiveError
-              << " %, retargeted override " << overrideError << " %, retargeted additive " << additiveError
-              << " %" << std::endl;
+              << " %, retargeted override " << overrideError << " %, retargeted additive " << additiveError << " %"
+              << std::endl;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -825,8 +817,8 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     // `MESH_PATH_COOKED / SourceSkeleton`; checking it here is what stops the corpus from shipping a
     // retarget whose source rig is a typo, which loads perfectly and does nothing.
     const std::string rig = root + "Editor/Cooked/Meshes/" + data.SourceSkeleton;
-    EXPECT_FALSE( ReadFile( rig ).empty() ) << "the shipped retarget names " << data.SourceSkeleton
-                                            << ", which is not in the cooked meshes";
+    EXPECT_FALSE( ReadFile( rig ).empty() )
+         << "the shipped retarget names " << data.SourceSkeleton << ", which is not in the cooked meshes";
 
     // AND THE TWO RIGS MUST NOT SHARE A SIGNATURE, or `SkinnedMeshAsset::ResolveDependencies` could bind
     // IKProbe.skmesh to the source rig — see this file's header.
@@ -894,8 +886,7 @@ TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
            "a retarget that works in the editor and not in the packaged runtime is worse than no retarget" },
          { "Editor/Source/Editor/Panels/PropertyEditor/PropertyEditorBuilder.cpp", "\"RetargetAsset\"",
            "without this the Details page draws a raw handle number instead of a picker" },
-         { "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp",
-           "RetargetComponent",
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp", "RetargetComponent",
            "without this the component has no Details page and cannot be added to an entity at all" },
     };
 

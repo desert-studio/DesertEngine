@@ -1388,6 +1388,13 @@ namespace
              // entity's AnimationComponent names a `.danimgraph` and AnimationECSSystem resolves it at
              // scene load. Leaving it out would ship characters that stand still.
              { "ANIM_GRAPH_PATH", &P::ANIM_GRAPH_PATH, RootVerdict::Packaged, "" },
+             // PACKAGED, for the anim graph's reason and with the same consequence for leaving it out: a
+             // shipped build genuinely READS these. An entity's RetargetComponent names a `.retarget`,
+             // AnimationECSSystem resolves it at scene load, and RuntimeLayer preloads the folder at boot
+             // — a game without them plays every foreign clip on the wrong proportions, silently, which is
+             // the exact defect the asset was built to end. Covered by the ASSETS_PATH tree, since
+             // Retargets/ lives under it.
+             { "RETARGET_PATH", &P::RETARGET_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
              { "MESH_PATH_COOKED", &P::MESH_PATH_COOKED, RootVerdict::Packaged, "" },
              { "TEXTURE_PATH_COOKED", &P::TEXTURE_PATH_COOKED, RootVerdict::Packaged, "" },
