@@ -9,7 +9,9 @@
 #endif
 
 #include <Common/Core/Core.hpp>
+#include <Common/Utilities/ContentScanLedger.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <unordered_set>
@@ -242,6 +244,12 @@ namespace Common::Utils
     {
         std::vector<fs::path> result;
 
+        // TIMED AND COUNTED, and this is the ONE place it can be. This function is the engine's only
+        // content-enumeration primitive, so a counter here sees every directory walk there is — which
+        // is what makes "the cooked registry removed the walk" an observation rather than an argument
+        // from the source. See Common/Utilities/ContentScanLedger.hpp.
+        const auto walkStart = std::chrono::steady_clock::now();
+
         // Dedup key = absolute, symlink-resolved path — the same canonical spelling the VFS resolves
         // against — so a relative disk spelling and the pak's absolute one collapse into ONE
         // candidate, and the loose file (pushed first) is the spelling that survives. weakly_canonical
@@ -275,6 +283,11 @@ namespace Common::Utils
         }
         for ( const auto& packed : VFS::ListFiles( root ) )
             push( packed );
+
+        ContentScanLedger::NoteWalk(
+             result.size(),
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - walkStart ).count() );
+
         return result;
     }
 

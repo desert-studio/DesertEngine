@@ -1,6 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Common/Core/AssetPathIndex.hpp>
+#include <Common/Utilities/ContentScanLedger.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
@@ -1083,6 +1084,10 @@ namespace Desert::Editor
                     // answers the same question they do: what did the boot buy.
                     LOG_INFO( "[AssetPathIndex] boot finished — {} handle(s) can name their own path",
                               Common::AssetPathIndex::Size() );
+                    // AND WHAT IT COST TO MINT THEM. The line above is only an achievement next to this
+                    // one: the same count reached with directory walks and reached without them are two
+                    // different boots, and nothing else in the process can tell them apart (§T2.4).
+                    LOG_INFO( "[ContentScan] boot finished — {}", Common::Utils::ContentScanLedger::Report() );
                 }
             }
             SampleFrameQuiescence();
