@@ -35,6 +35,7 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <filesystem>
 #include <functional>
 #include <set>
 #include <string>
@@ -1347,6 +1348,59 @@ TEST( RigGraphTest, ABoneNameTheSkeletonDoesNotHaveIsRefusedAtBuildAndNamesTheSi
     ASSERT_FALSE( built.IsSuccess() );
     EXPECT_NE( built.GetError().find( "Tentacle" ), std::string::npos ) << built.GetError();
     EXPECT_NE( built.GetError().find( "elbowBone" ), std::string::npos ) << built.GetError();
+}
+
+TEST( RigGraphTest, EveryRigThisBuildShipsParsesAndAtLeastOneOfThemCarriesAGraph )
+{
+    // THE DEFECT THIS EXISTS FOR IS A HAND-AUTHORED CORPUS FILE NOBODY LOADS. Every assertion above is
+    // over a rig this file constructs in C++, and every one of them would stay green while the `.derig`
+    // on disk was unreadable — which is `PreloadCloudLayouts` again: a format tested, a corpus shipped,
+    // and no test that ran the layer joining them.
+    //
+    // The repository root is found by walking up for a marker, the same trick the AnimGraphScript census
+    // uses, because a corpus census has to read the tree it is testing.
+    std::filesystem::path here = std::filesystem::current_path();
+    std::filesystem::path root;
+    for ( int i = 0; i < 12; ++i )
+    {
+        if ( std::filesystem::exists( here / "Desert" / "Desert" / "Source" / "Engine" ) )
+        {
+            root = here;
+            break;
+        }
+        if ( !here.has_parent_path() || here.parent_path() == here )
+        {
+            break;
+        }
+        here = here.parent_path();
+    }
+    ASSERT_FALSE( root.empty() ) << "could not find the repository root from " << std::filesystem::current_path();
+
+    const std::filesystem::path rigs = root / "Editor" / "Resources" / "Assets" / "Rigs";
+    ASSERT_TRUE( std::filesystem::exists( rigs ) ) << rigs.string();
+
+    size_t read    = 0;
+    size_t graphed = 0;
+    for ( const auto& entry : std::filesystem::directory_iterator( rigs ) )
+    {
+        if ( entry.path().extension() != ".derig" )
+        {
+            continue;
+        }
+        const auto rig = Serialization::LoadControlRigFile( entry.path() );
+        ASSERT_TRUE( rig.IsSuccess() ) << entry.path().filename().string() << ": " << rig.GetError();
+        ++read;
+        if ( rig.GetValue().Graph.has_value() )
+        {
+            ++graphed;
+        }
+    }
+
+    EXPECT_GT( read, 0U ) << "the corpus is empty, so this census proves nothing";
+    // AND AT LEAST ONE OF THEM USES THE FEATURE. A format the corpus never exercises is a format whose
+    // first real file is written by somebody with no example to copy — and the reachability of T5.5 from
+    // content is the whole reason the `.derig` half of it was in scope at all.
+    EXPECT_GE( graphed, 1U ) << "no shipped rig carries a graph, so nothing on disk runs T5.5";
 }
 
 int main( int argc, char** argv )
