@@ -98,7 +98,7 @@ namespace Desert::Graphic::API::Vulkan
         /// Whether presented frames can be copied off the device at all — the surface offered
         /// TRANSFER_SRC when the swapchain was created. Exposed so a capture can REFUSE by name instead
         /// of quietly photographing something else; see the usage flags in CreateSwapChain.
-        [[nodiscard]] bool SupportsFrameReadback() const noexcept
+        [[nodiscard]] bool SupportsFrameReadback() const noexcept override
         {
             return m_SupportsFrameReadback;
         }
@@ -126,7 +126,7 @@ namespace Desert::Graphic::API::Vulkan
 
         /// Record the copy into the frame's command buffer. Call after the last render pass of the frame
         /// and before PresentFinalImage. Fails, naming the reason, if the surface cannot be read at all.
-        [[nodiscard]] Common::BoolResultStr RecordFrameCapture();
+        [[nodiscard]] Common::BoolResultStr RecordFrameCapture() override;
 
         [[nodiscard]] bool HasPendingCapture() const noexcept
         {
@@ -136,8 +136,8 @@ namespace Desert::Graphic::API::Vulkan
         /// Collect what RecordFrameCapture asked for, as tightly packed 8-bit RGBA. Call after the present
         /// that carried the copy; it waits for the device first. Releases the staging buffer either way,
         /// so a failed capture cannot leak one per attempt.
-        [[nodiscard]] Common::ResultStr<std::vector<uint8_t>> TakeCapturedFrameRGBA8( uint32_t& outWidth,
-                                                                                      uint32_t& outHeight );
+        [[nodiscard]] Common::ResultStr<std::vector<uint8_t>> TakeCapturedFrameRGBA8(
+             uint32_t& outWidth, uint32_t& outHeight ) override;
 
         [[nodiscard]] std::shared_ptr<::Desert::Graphic::Framebuffer> GetCompositeFramebuffer() const
         {

@@ -47,7 +47,7 @@
 
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/Image.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
+#include <Engine/Graphic/SwapChain.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -333,11 +333,10 @@ namespace Desert::Player
         if ( m_PresentedFrames + 1 != shot.Frames )
             return;
 
-        auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
-             EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() );
+        const auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
         if ( !swapChain )
         {
-            LOG_ERROR( "[Shot] there is no Vulkan swapchain to capture the presented frame from." );
+            LOG_ERROR( "[Shot] there is no swapchain to capture the presented frame from." );
             m_ShotRecorded = true; // refused, but decided: OnFramePresented ends the run with a status
             return;
         }
@@ -360,8 +359,7 @@ namespace Desert::Player
 
         int exitCode = 0;
 
-        auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
-             EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() );
+        const auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
         if ( !swapChain )
         {
             LOG_ERROR( "[Shot] the swapchain went away before the captured frame could be collected." );
