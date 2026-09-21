@@ -44,8 +44,10 @@
 //      positive control, and that its two ends agree where the binary is. A gate nobody runs is the same
 //      promise as "we will remember to cut it".
 //
-// Two further rows sit beside them and are not relations between instruments, so they are not numbered:
-// the packager's default configuration must be one the workspace declares, and the test projects must
+// Three further rows sit beside them and are not relations between instruments, so they are not
+// numbered: the packager's default configuration must be one the workspace declares; BOTH platform
+// build wrappers must accept every configuration it declares (derived from Workspace.lua — Windows
+// refused the word `Shipping` outright on the platform the game ships for); and the test projects must
 // stay OUT of the Shipping configuration — a suite whose subject is the draw-call counter cannot be
 // built in the configuration that removes the draw-call counter, and the cheapest way to make it build
 // would be to weaken the test.
@@ -710,6 +712,67 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
          << "both `Run tests` steps must be guarded — the Shipping build creates no "
             "build/Bin/Tests/Shipping at all, so those steps have nothing to run. Unguarded they go red "
             "on a missing directory and a missing run_tests.bat, which is a whole CI leg spent saying so.";
+}
+
+// ── BOTH BUILD WRAPPERS ACCEPT EVERY CONFIGURATION THE WORKSPACE DECLARES ───────────────────────────
+//
+// DERIVED FROM Workspace.lua, NOT LISTED HERE. A fourth configuration added tomorrow is covered the day
+// it exists, which is the shape PackagedContentTrees established and the reason this file prefers it.
+//
+// WHAT IT CAUGHT THE DAY IT WAS WRITTEN. `Shipping` landed with scripts/MacOS/BuildMacOS.sh taught the
+// word and scripts/Windows/BuildWindows.bat not, so on the platform the game actually ships for the
+// documented wrapper answered "[ERROR] Unknown argument: Shipping" and exited 1. The packager's own
+// "Runtime binary not found" message is what sends a person to that wrapper, so the two dead ends were
+// in series: the editor told you to run a command that refused to run.
+//
+// A configuration the workspace declares but no wrapper will build is a configuration that gets built
+// by nobody, and a configuration built by nobody rots in exactly the way this suite exists to prevent.
+TEST( ShippingBoundary, BothPlatformWrappersAcceptEveryDeclaredConfiguration )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string workspace = Read( root / "BuildScripts/Workspace.lua" );
+    ASSERT_FALSE( workspace.empty() );
+
+    // The declaration line, not the prose around it: Workspace.lua explains at length what the third
+    // configuration is for and names it repeatedly while doing so.
+    const size_t at = workspace.find( "configurations {" );
+    ASSERT_NE( at, std::string::npos ) << "BuildScripts/Workspace.lua no longer declares configurations";
+    const size_t close = workspace.find( '}', at );
+    ASSERT_NE( close, std::string::npos );
+
+    std::vector<std::string> declared;
+    for ( size_t i = at; i < close; ++i )
+    {
+        if ( workspace[i] != '"' )
+            continue;
+        const size_t end = workspace.find( '"', i + 1 );
+        if ( end == std::string::npos || end > close )
+            break;
+        declared.push_back( workspace.substr( i + 1, end - i - 1 ) );
+        i = end;
+    }
+    ASSERT_GE( declared.size(), 3u ) << "expected at least Debug, Release and Shipping";
+
+    const std::string unix    = Read( root / "scripts/MacOS/BuildMacOS.sh" );
+    const std::string windows = Read( root / "scripts/Windows/BuildWindows.bat" );
+    ASSERT_FALSE( unix.empty() );
+    ASSERT_FALSE( windows.empty() );
+
+    // What "accepts" means is each wrapper's own argument parser, not its usage text: the usage line is
+    // prose and can agree with the workspace while the parser rejects the word, which is the half of
+    // this defect that would have survived a comment-shaped check.
+    for ( const std::string& config : declared )
+    {
+        EXPECT_NE( unix.find( config + ")" ), std::string::npos )
+             << "scripts/MacOS/BuildMacOS.sh has no case arm for the '" << config
+             << "' configuration, so it exits 1 on a configuration the workspace declares.";
+        EXPECT_NE( windows.find( "\"%~1\"==\"" + config + "\"" ), std::string::npos )
+             << "scripts/Windows/BuildWindows.bat has no argument arm for the '" << config
+             << "' configuration. Windows is the platform the game ships for; a wrapper that refuses the "
+                "shipping configuration there is the same as not having one.";
+    }
 }
 
 // ── THE PACKAGER'S DEFAULT IS A CONFIGURATION THAT EXISTS ───────────────────────────────────────────

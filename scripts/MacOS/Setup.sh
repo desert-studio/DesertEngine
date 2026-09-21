@@ -347,7 +347,7 @@ fi
 echo ""
 if [ ${#FAILED_STEPS[@]} -eq 0 ] && [ ${#MISSING_PATHS[@]} -eq 0 ]; then
     echo "=== Setup complete ==="
-    echo "Build with:  scripts/MacOS/BuildMacOS.sh [Debug|Release]"
+    echo "Build with:  scripts/MacOS/BuildMacOS.sh [Debug|Release|Shipping]"
     exit 0
 fi
 
