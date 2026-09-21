@@ -139,6 +139,7 @@ DesertAssetRegistry 1
 933 Material 44d056a9359b4d1c - assets:Materials/base/model.demat
 1016 Material f92eb79deac06342 235a4677ab990d51,4935766ceb333c40,f4458fd2d2ef1866 assets:Materials/base_basic_pbr/model.demat
 937 Material 194232c86369b0cb c6ff26d3abf50030 assets:Materials/base_basic_shaded/model.demat
+674 Retarget - - assets:Retargets/ForeignArm_To_IKProbe.retarget
 1393 ControlRig - - assets:Rigs/IKProbe_Arm.derig
 3549 ControlRig - - assets:Rigs/IKProbe_ArmGraph.derig
 32816 Skybox - - assets:Textures/HDR/PreviewCheck.hdr
@@ -146,6 +147,8 @@ DesertAssetRegistry 1
 11081 UITheme - - assets:UI/Themes/Desert_Light.detheme
 778 Animation - - cooked:Meshes/A6Curve_Cubic.anim
 779 Animation - - cooked:Meshes/A6Curve_Linear.anim
+1306 Skeleton - - cooked:Meshes/ForeignArm.skeleton
+16514 Animation - - cooked:Meshes/ForeignArm_Swing.anim
 3465 Animation - - cooked:Meshes/Foreign_Hips.anim
 1671 Skeleton - - cooked:Meshes/IKProbe.skeleton
 25770 SkinnedMesh - - cooked:Meshes/IKProbe.skmesh
