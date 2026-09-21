@@ -1,7 +1,10 @@
 #include "RuntimeLayer.hpp"
 #include "RuntimeShot.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
+
 #include <Common/Core/AssetPathIndex.hpp>
+#include <Common/Utilities/ContentScanLedger.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 
@@ -151,6 +154,23 @@ namespace Desert::Player
         // not grow with the size of the map" one of four acceptance criteria, so the host the criterion
         // is about was the host nobody could measure. The stage LABELS deliberately match the editor's
         // wording where the work is the same, so two logs can be put side by side.
+        // FIRST, AND IT IS THE STAGE EVERY OTHER ONE NOW DEPENDS ON. The preloads below used to begin
+        // with a `recursive_directory_iterator` over a content root — sixteen of them, every boot — and
+        // that walk was the only thing in this process that minted handles wholesale. It reads one file
+        // instead, and publishes every row's identity into `Common::AssetPathIndex` before a single
+        // asset exists, so a handle read out of a `.desce` names its file with nothing having been
+        // walked. `[ContentScan] boot finished` at the tail of this function is what says so.
+        //
+        // RETURNED, not logged and stepped over: a cooked game whose registry will not parse has no
+        // content it can find, and starting with an empty project would be the silent substitution §1.4
+        // forbids — a black screen whose reason is one line up in a log the player does not have.
+        const auto registry =
+             m_Boot.Run( "Reading the cooked asset registry", [] { return Assets::ContentRegistry::Load(); } );
+        if ( !registry )
+            return Common::MakeError( registry.GetError() );
+        LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
+                  Assets::ContentRegistry::Get().Count(), registry.GetValue() );
+
         m_Boot.Run( "Preloading shaders", [this] { m_AssetPreloader->PreloadShaders(); } );
         m_Boot.Run( "Preloading meshes, textures and materials",
                     [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } );
@@ -262,6 +282,10 @@ namespace Desert::Player
         // lines above because it answers the same question they do: what did the boot buy.
         LOG_INFO( "[AssetPathIndex] boot finished — {} handle(s) can name their own path",
                   Common::AssetPathIndex::Size() );
+        // AND WHAT IT COST TO MINT THEM. The line above is only an achievement next to this one: the
+        // same count reached with directory walks and reached without them are two different boots, and
+        // nothing else in the process can tell them apart (§T2.4).
+        LOG_INFO( "[ContentScan] boot finished — {}", Common::Utils::ContentScanLedger::Report() );
         return BOOLSUCCESS;
     }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/ContentRegistry.hpp>
+
 #include <Common/Core/Core.hpp> // BOOLSUCCESS
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -52,6 +54,18 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "cooked metadata '{}' ({} bytes) was not written: {}",
                                                      fixedPath.string(), json.size(), written.GetError() );
         }
+
+        // THE COOKED FILE ENTERS THE CONTENT REGISTRY THE MOMENT IT EXISTS, and this is the only place
+        // a `.stmesh`, `.skmesh`, `.skeleton`, `.anim` or `.tex` ever comes into being. Since T2.4 the
+        // boot no longer walks the cooked tree, so a file written here and not entered here would be a
+        // file the next session does not have — which is precisely the "on disk no longer means
+        // shipped" hazard GAP_ANALYSIS T2.7 names. Recording it at the write, rather than by a scan
+        // somebody has to remember to run, is the same argument `AssetHandle::FromCookedPath` makes for
+        // recording its own inverse where the number is derived.
+        //
+        // AFTER the write and only on success: a row naming a file that was not written would send the
+        // loader to a path it cannot read, once per boot, for ever.
+        Assets::ContentRegistry::NoteFile( fixedPath );
 
         return BOOLSUCCESS;
     }

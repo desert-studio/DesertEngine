@@ -24,10 +24,13 @@
 //   * Its answer needs the asset to be REGISTERED in the AssetManager, and the only thing that
 //     registers assets wholesale is the preloader's directory walk. The walk is precisely what the
 //     demand-driven model removes.
-//   * The three SERVICE types (font, video, icon) do not go through the AssetManager at all; each
-//     owns a private `m_HandleToPath`, and `FontService::Clear()` wipes its one. THAT is where the
-//     lookup-key-dies-with-the-payload shape actually lives in this tree — a `.ttf`'s handle stops
-//     naming its file the moment the service is cleared and rescanned.
+//   * The three SERVICE types (font, video, icon) did not go through the AssetManager at all; each
+//     owned a private `m_HandleToPath`, and `FontService::Clear()` wiped its one. THAT was where the
+//     lookup-key-dies-with-the-payload shape actually lived in this tree — a `.ttf`'s handle stopped
+//     naming its file the moment the service was cleared and rescanned. PAST TENSE SINCE T2.4: all
+//     three tables are deleted and all three `PathForHandle` implementations answer from here, so
+//     `Clear()` can no longer take a binding with it. `Desert/Tests/Engine/AssetHandleInverse`
+//     asserts that no service declares such a table again.
 //
 // WHAT IS NOT WRONG WITH `ToPath`, AND THE NATURAL ASSUMPTION SAYS OTHERWISE: eviction does NOT
 // unregister. `AssetEviction` calls `Unload()` and leaves `m_HandleLookup` and the metadata's
@@ -59,6 +62,15 @@
 // that nothing ever derived — a number read out of a `.desce` on a cold start still needs
 // SOMETHING to have hashed that path first. Inverting the hash is the precondition for the cooked
 // registry (GAP_ANALYSIS T2.4) that removes the directory walk; it is not that registry.
+//
+// AND THAT SOMETHING IS NOW THE REGISTRY, which closes the sentence above rather than contradicting
+// it. `Common::Utils::AssetRegistry::PublishIdentities` hashes every row's key at boot, so on a cold
+// start this table is full before one asset exists and no walk happened. What the registry does NOT
+// put here is a DECLARED identity — the number a `.tex` or a `.demat` carries inside itself. This
+// index answers "which string was this number hashed from", which for a cooked texture is its SOURCE
+// image; "which file does this number name" is the registry's own `FindByHandle`. Publishing the
+// declared identity here made the collision refusal below fire on two perfectly ordinary cooked
+// textures on the first run that tried it, which is how the distinction came to be written down.
 namespace Common::AssetPathIndex
 {
     // Binds `handle` to `stableKey`. Idempotent: re-recording the same pair is a success and does

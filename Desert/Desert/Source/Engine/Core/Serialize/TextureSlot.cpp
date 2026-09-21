@@ -1,6 +1,7 @@
 #include <Engine/Core/Serialize/TextureSlot.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -12,22 +13,31 @@
 
 namespace Desert::Core::Serialize
 {
-    std::string TextureSlotToPath( const Assets::AssetManager& manager, uint64_t handle )
+    std::string TextureSlotToPath( uint64_t handle )
     {
         if ( handle == 0 )
             return "";
 
-        const auto asset = manager.FindByHandle<Assets::TextureAsset>( Common::UUID( handle ) );
-        if ( !asset )
+        // THE MANAGER PARAMETER IS GONE, and its absence is what T2.4 bought here. This used to be
+        // `manager.FindByHandle<TextureAsset>( h )->GetMetadata().Filepath` put back through
+        // `StableKeyForPath` — i.e. it recovered the key by finding the asset, and an asset is only
+        // findable if something REGISTERED it, which until this slice meant the boot's directory walk.
+        // The registry answers the same question from a file, so a texture nothing has loaded still
+        // names itself, and the answer is the row's own key rather than a reconstruction of it.
+        // NOT `const`: this string is returned, and a const local cannot be moved out of — the copy
+        // would be silent.
+        std::string key = Assets::ContentRegistry::KeyForHandle( handle );
+        if ( key.empty() )
         {
-            LOG_ERROR( "[Textures] Handle {0} is set on a texture slot and no texture with that handle is "
-                       "registered, so the slot is being written out EMPTY and the reference is lost. "
-                       "Cooked textures are scanned from '{1}'.",
+            LOG_ERROR( "[Textures] Handle {0} is set on a texture slot and the cooked asset registry has "
+                       "no row for it, so the slot is being written out EMPTY and the reference is lost. "
+                       "Cooked textures live under '{1}'; if the file is there, the registry is stale — "
+                       "run 'AssetRegistryTool cook'.",
                        handle, Common::Constants::Path::TEXTURE_PATH_COOKED.string() );
             return "";
         }
 
-        return Common::AssetHandle::StableKeyForPath( asset->GetMetadata().Filepath );
+        return key;
     }
 
     uint64_t TextureSlotFromPath( Assets::AssetManager& manager, const std::string& stored )

@@ -94,6 +94,13 @@ Cooked/
 # files (shader cache, pipeline cache, mesh cooks) ignored.
 !Editor/Cooked/
 Editor/Cooked/*
+# THE COOKED ASSET REGISTRY IS COMMITTED CONTENT, not a build intermediate, and that is a decision
+# rather than an oversight. Since T2.4 neither host walks the content roots at boot: this file IS the
+# list of what the project has, so a checkout without it is a checkout with no content, and the editor
+# cannot write one on the way up (its own shader preload is the first thing that reads it). It is 20 KB
+# of sorted text, one line per asset, so it diffs and merges like source. `AssetRegistryTool check`
+# fails the build when it disagrees with the tree.
+!Editor/Cooked/AssetRegistry.dreg
 !Editor/Cooked/Textures/
 Editor/Cooked/Textures/*
 !Editor/Cooked/Textures/T_Checker.tex

@@ -30,7 +30,8 @@ namespace Desert::Assets
         return text;
     }
 
-    void AssetEviction::Expand( AssetManager& manager, AssetRootSet& closure )
+    void AssetEviction::EdgesOf( AssetManager& manager, const Common::AssetHandle& handle,
+                                 const std::function<void( const Common::UUID&, const std::string& )>& visit )
     {
         // THE EDGES OF THE GRAPH, IN ONE PLACE. Every asset class that names another asset is listed here
         // and nowhere else, so `Desert/Tests/Engine/AssetEviction` can hold the list against the classes
@@ -41,7 +42,65 @@ namespace Desert::Assets
         // it — the exact work the lazy registration exists to avoid — and it is harmless: an asset that is
         // not loaded is protecting nothing, and when it does load, `EnsureLoaded` re-resolves and whatever
         // it needs is rebuilt through the same build-on-miss path a first use takes.
+        if ( const auto mesh = manager.ProbeByHandle<MeshAsset>( handle ) )
+        {
+            if ( mesh->IsReadyForUse() )
+            {
+                for ( const Common::UUID& material : mesh->GetMaterialHandles() )
+                    visit( material, "a submesh of a reachable mesh names it" );
+            }
+
+            // The skinned mesh's rig. Held as a resolved dependency rather than as a plain field, so it
+            // is read through the dependency's handle and not through the signature it was matched by —
+            // the signature names a shape, the handle names the file.
+            if ( const auto skinned = manager.ProbeByHandle<SkinnedMeshAsset>( handle ) )
+            {
+                if ( skinned->IsReadyForUse() )
+                    visit( skinned->GetSkeletonDependency().Handle, "a reachable skinned mesh is rigged to it" );
+            }
+        }
+
+        if ( const auto material = manager.ProbeByHandle<SurfaceMaterialAsset>( handle ) )
+        {
+            if ( material->IsReadyForUse() )
+            {
+                // EVERY entry of the map, not the three PBR slots. `MaterialData::Textures` is the
+                // material's generic name -> handle table and the shader schema is what says which
+                // KIND of asset each name stands for: seventeen of the twenty-two distinct
+                // references in this repository's materials are cloud types and layouts reached
+                // through `CloudType1..4` and `CloudLayout`, not textures at all. Marking them all
+                // is correct precisely because this loop does not need to know what they are.
+                for ( const auto& texture : material->Data().Textures )
+                    visit( Common::AssetHandle( texture.TextureHandle ),
+                           "a reachable material names it in its '" + texture.Name + "' slot" );
+            }
+        }
+
+        // THE RETARGET'S SOURCE RIG, and without this row it is unreachable by construction: a source
+        // `.skeleton` is named by no component and by no mesh in the scene — only by the `.retarget`
+        // that plays clips from it. The first sweep recorded what the equivalent missing row did to the
+        // mesh's rig (410 x "Skeleton dependency invalid" in twelve seconds, and no character drawn);
+        // this is the same hole one content kind over.
         //
+        // It reached this function through a MERGE, not through the branch that extracted it: the edge
+        // was added to the inline body on `dev` while `EdgesOf` was being lifted out of it, so taking
+        // either side whole would have dropped it in silence — no compiler and no gate names it.
+        if ( const auto retarget = manager.ProbeByHandle<RetargetAsset>( handle ) )
+        {
+            if ( retarget->IsReadyForUse() )
+                visit( retarget->GetSourceSkeletonDependency().Handle,
+                       "a reachable retarget plays its clips from it" );
+        }
+
+        if ( const auto cloudType = manager.ProbeByHandle<CloudTypeAsset>( handle ) )
+        {
+            if ( cloudType->IsReadyForUse() )
+                visit( cloudType->GetNoiseVolume(), "a reachable cloud type cuts its edge from it" );
+        }
+    }
+
+    void AssetEviction::Expand( AssetManager& manager, AssetRootSet& closure )
+    {
         // Iterated to a fixpoint because the graph has depth: an entity names a mesh, the mesh names a
         // material, the material names a texture. Three passes is the depth of the deepest chain in this
         // engine today and the loop below stops when nothing new was marked, so a fourth level added
@@ -52,60 +111,8 @@ namespace Desert::Assets
 
             for ( const Common::AssetHandle& handle : closure.Handles() )
             {
-                if ( const auto mesh = manager.ProbeByHandle<MeshAsset>( handle ) )
-                {
-                    if ( mesh->IsReadyForUse() )
-                    {
-                        for ( const Common::UUID& material : mesh->GetMaterialHandles() )
-                            closure.Mark( material, "a submesh of a reachable mesh names it" );
-                    }
-
-                    // The skinned mesh's rig. Held as a resolved dependency rather than as a plain field,
-                    // so it is read through the dependency's handle and not through the signature it was
-                    // matched by — the signature names a shape, the handle names the file.
-                    if ( const auto skinned = manager.ProbeByHandle<SkinnedMeshAsset>( handle ) )
-                    {
-                        if ( skinned->IsReadyForUse() )
-                            closure.Mark( skinned->GetSkeletonDependency().Handle,
-                                          "a reachable skinned mesh is rigged to it" );
-                    }
-                }
-
-                if ( const auto material = manager.ProbeByHandle<SurfaceMaterialAsset>( handle ) )
-                {
-                    if ( material->IsReadyForUse() )
-                    {
-                        // EVERY entry of the map, not the three PBR slots. `MaterialData::Textures` is the
-                        // material's generic name -> handle table and the shader schema is what says which
-                        // KIND of asset each name stands for: seventeen of the twenty-two distinct
-                        // references in this repository's materials are cloud types and layouts reached
-                        // through `CloudType1..4` and `CloudLayout`, not textures at all. Marking them all
-                        // is correct precisely because this loop does not need to know what they are.
-                        for ( const auto& texture : material->Data().Textures )
-                            closure.Mark( Common::AssetHandle( texture.TextureHandle ),
-                                          "a reachable material names it in its '" + texture.Name + "' slot" );
-                    }
-                }
-
-                // THE RETARGET'S SOURCE RIG, and without this row it is unreachable by construction: a
-                // source `.skeleton` is named by no component and by no mesh in the scene — only by the
-                // `.retarget` that plays clips from it. `SkeletonAsset::GetSignature` records what the
-                // first sweep did to the mesh's rig when the equivalent row was missing (410 x "Skeleton
-                // dependency invalid" in twelve seconds, and no character drawn); this is the same hole
-                // one content kind over.
-                if ( const auto retarget = manager.ProbeByHandle<RetargetAsset>( handle ) )
-                {
-                    if ( retarget->IsReadyForUse() )
-                        closure.Mark( retarget->GetSourceSkeletonDependency().Handle,
-                                      "a reachable retarget plays its clips from it" );
-                }
-
-                if ( const auto cloudType = manager.ProbeByHandle<CloudTypeAsset>( handle ) )
-                {
-                    if ( cloudType->IsReadyForUse() )
-                        closure.Mark( cloudType->GetNoiseVolume(),
-                                      "a reachable cloud type cuts its edge from it" );
-                }
+                EdgesOf( manager, handle, [&closure]( const Common::UUID& edge, const std::string& why )
+                         { closure.Mark( edge, why ); } );
             }
 
             if ( closure.Size() == before )

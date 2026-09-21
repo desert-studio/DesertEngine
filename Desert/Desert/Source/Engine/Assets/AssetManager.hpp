@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetBase.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 
 #include <algorithm>
@@ -131,6 +132,22 @@ namespace Desert::Assets
             // both spellings resolve here either way. Using the record's own key would be the same
             // string; using the lookup's says plainly which question this map answers.
             m_PathLookup.emplace( key, m_AssetsCache.size() - 1 );
+
+            // AND THE COOKED REGISTRY LEARNS ABOUT THE FILE HERE, at the moment it becomes an asset.
+            //
+            // The same argument `AssetHandle::FromCookedPath` makes for recording its own inverse where
+            // the number is derived: this is the one place a content file becomes a thing the engine
+            // has, so a row written here is TOTAL by construction and there is no middle link to drop
+            // it. Every other way of building the list — a walk somebody must remember to run, a
+            // per-type table somebody must remember to extend — is a SECOND list, and this repository
+            // has paid for that twice (the packager's hand-typed tree list that forgot fonts and icons,
+            // and the twelve-branch ToPath that returns "" for a type nobody added a branch for).
+            //
+            // AFTER `Load()` above, which is what makes the DECLARED identity reach the row: a `.tex`
+            // and a `.demat` replace their path-derived handle with the id inside the file, and the row
+            // has to carry the number a scene reference actually holds. A path that names no content
+            // kind (`procedural://`, a `.dgraph` document) is ignored by NoteAsset, not refused.
+            ContentRegistry::NoteAsset( metadata.Filepath, static_cast<uint64_t>( metadata.Handle ) );
 
             if constexpr ( std::is_base_of_v<AssetBase, AssetType> )
             {

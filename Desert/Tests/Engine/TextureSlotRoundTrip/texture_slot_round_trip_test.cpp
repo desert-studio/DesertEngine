@@ -32,9 +32,11 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Serialize/TextureSlot.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
@@ -71,11 +73,22 @@ namespace
     public:
         ProjectRootGuard() : m_Saved( Common::Constants::Path::CurrentProjectRoot() )
         {
+            // AND THE TWO PROCESS-WIDE TABLES THAT KEY ON THE ROOTS. Since T2.4 the write side of a
+            // texture reference answers from the cooked asset registry rather than from an
+            // AssetManager, and both the registry and the path index are per PROCESS while the roots
+            // this suite moves are too: a case that re-roots the project mints the same relative keys
+            // behind new absolute roots, and without these two lines the second case would be judged
+            // against the first case's rows. This is the arrangement each of those files' own Clear /
+            // ResetForTest was written for, and it is named there.
+            Common::AssetPathIndex::Clear();
+            Desert::Assets::ContentRegistry::ResetForTest();
         }
 
         ~ProjectRootGuard()
         {
             Common::Constants::Path::SetProjectRoot( m_Saved.ProjectDir, m_Saved.AssetsRoot );
+            Common::AssetPathIndex::Clear();
+            Desert::Assets::ContentRegistry::ResetForTest();
         }
 
         ProjectRootGuard( const ProjectRootGuard& )            = delete;
@@ -173,7 +186,7 @@ TEST( TextureSlotRoundTrip, AHandleStoredOnOneMachineNamesTheSameTextureOnAnothe
     const uint64_t saved = static_cast<uint64_t>( annsTexture->GetMetadata().Handle );
     ASSERT_EQ( saved, kProbeHandle ) << "a texture's identity comes from its own file; the fixture is wrong";
 
-    const std::string stored = TextureSlotToPath( annsManager, saved );
+    const std::string stored = TextureSlotToPath( saved );
 
     // What actually goes into the file. Asserted as a VALUE and not merely as "not absolute", because
     // "not absolute" is also true of the empty string this branch used to produce for an unknown type.
@@ -217,8 +230,7 @@ TEST( TextureSlotRoundTrip, TheStoredFormCarriesNoPartOfTheMachineItWasWrittenOn
          AssetPriority::Medium, Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
     ASSERT_NE( texture, nullptr );
 
-    const std::string stored =
-         TextureSlotToPath( manager, static_cast<uint64_t>( texture->GetMetadata().Handle ) );
+    const std::string stored = TextureSlotToPath( static_cast<uint64_t>( texture->GetMetadata().Handle ) );
 
     EXPECT_EQ( stored.find( ann.Dir.generic_string() ), std::string::npos )
          << "the stored reference '" << stored << "' contains the checkout directory";
@@ -248,8 +260,8 @@ TEST( TextureSlotRoundTrip, AContentTextureAndACookedOneTakeDifferentRootsAndBot
               AssetPriority::Medium, Common::Filepath( ann.Dir / "Content" / "Textures" / "T_Content.tex" ) ),
          nullptr );
 
-    EXPECT_EQ( TextureSlotToPath( manager, kProbeHandle ), "cooked:Textures/T_Cooked.tex" );
-    EXPECT_EQ( TextureSlotToPath( manager, kOtherHandle ), "assets:Textures/T_Content.tex" );
+    EXPECT_EQ( TextureSlotToPath( kProbeHandle ), "cooked:Textures/T_Cooked.tex" );
+    EXPECT_EQ( TextureSlotToPath( kOtherHandle ), "assets:Textures/T_Content.tex" );
 
     // And back, in a manager that knows nothing, which is what a cold start is.
     AssetManager fresh;
@@ -279,8 +291,8 @@ TEST( TextureSlotRoundTrip, TwoTexturesDoNotCollapseOntoOneReference )
                                                   Common::Filepath( ann.Dir / "Cooked" / "Textures" / "B.tex" ) ),
                nullptr );
 
-    const std::string a = TextureSlotToPath( manager, kProbeHandle );
-    const std::string b = TextureSlotToPath( manager, kOtherHandle );
+    const std::string a = TextureSlotToPath( kProbeHandle );
+    const std::string b = TextureSlotToPath( kOtherHandle );
     EXPECT_NE( a, b );
     EXPECT_EQ( TextureSlotFromPath( manager, a ), kProbeHandle );
     EXPECT_EQ( TextureSlotFromPath( manager, b ), kOtherHandle );
@@ -333,7 +345,7 @@ TEST( TextureSlotRoundTrip, AnUnsetSlotIsEmptyAndStaysUnset )
     AssetManager     manager;
 
     LogCapture log;
-    EXPECT_EQ( TextureSlotToPath( manager, 0 ), "" );
+    EXPECT_EQ( TextureSlotToPath( 0 ), "" );
     EXPECT_EQ( TextureSlotFromPath( manager, "" ), 0u );
     EXPECT_EQ( log.Text(), "" ) << "an empty slot logged something; every scene has dozens of them";
 }
@@ -380,7 +392,7 @@ TEST( TextureSlotRoundTrip, AHandleWithNoRegisteredTextureSaysSoRatherThanWritin
     std::string stored = "unset";
     {
         LogCapture log;
-        stored = TextureSlotToPath( manager, kProbeHandle );
+        stored = TextureSlotToPath( kProbeHandle );
         text   = log.Text();
     }
 

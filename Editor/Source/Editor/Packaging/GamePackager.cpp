@@ -11,6 +11,8 @@
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Content/ContentScan.hpp>
+#include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
 #include <algorithm>
@@ -126,12 +128,75 @@ namespace Desert::Editor
         }
     } // namespace
 
+    // THE SHIPPING GATE — refused here, at the moment a build is made, and not only in CI.
+    //
+    // Since GAP_ANALYSIS T2.4 neither host scans the content roots at boot: `Cooked/AssetRegistry.dreg`
+    // IS the list of what a project has. So a content file with no row does not reach the packaged
+    // game, and the failure is PACKAGED-BUILD-ONLY — the editor that made the build had the file open
+    // a second earlier. That is the exact class `PackagedContentTrees.hpp` exists for: a hand-typed
+    // tree list forgot fonts and icons, a built game contained not one `.ttf`, and the first frame with
+    // text died.
+    //
+    // CI holds the same relation (`Desert/Tests/Editor/CookedRegistryGate`) and that is not enough on
+    // its own: a developer packages from a working tree, which is not what CI saw. Both ends, one
+    // comparison — `Common::Content::CompareWithDisk`.
+    //
+    // IT REFUSES RATHER THAN REPAIRING, deliberately. Re-cooking here would mean a package whose
+    // content differs from the registry the repository holds, i.e. a build nobody else can reproduce;
+    // and repairing a staleness nobody was told about is how "on disk means shipped" stopped being
+    // true in the first place. The message names the command.
+    std::string ContentRegistryDisagreement()
+    {
+        // A MISSING REGISTRY IS AN EMPTY ONE, NOT A REFUSAL, and the distinction is the difference
+        // between a gate and an obstacle. A project with no content of any census kind — a fresh one,
+        // or the minimal fixture `Desert/Tests/Editor/PackagedContent` builds — has nothing to record
+        // and must package fine; an empty registry against an empty tree is AGREEMENT. The same
+        // comparison then reports every file as a missing row when there IS content, which is exactly
+        // the message that case needs. (Measured: the first version refused outright and turned three
+        // PackagedContent cases red over a project that was correct.)
+        //
+        // A file that EXISTS and will not parse is still a hard refusal: that is a broken registry,
+        // not an absent one, and packaging against it would ship whatever it managed to read.
+        Common::Utils::AssetRegistry registry;
+        if ( Common::Utils::FileSystem::Exists( Common::Utils::AssetRegistry::DefaultPath() ) )
+        {
+            auto loaded = Common::Utils::AssetRegistry::LoadFrom( Common::Utils::AssetRegistry::DefaultPath() );
+            if ( !loaded )
+            {
+                return "this project's cooked asset registry cannot be read (" +
+                       Common::Utils::AssetRegistry::DefaultPath().string() + "): " + loaded.GetError() +
+                       "\nA package built now would contain whatever of it happened to parse. Run "
+                       "'Rebuild Content Registry' from the command palette, or "
+                       "`AssetRegistryTool cook <project>.deproj`.";
+            }
+            registry = loaded.GetValue(); // GetValue() is a const reference; a move here would be a copy
+        }
+
+        const auto problems = Common::Content::CompareWithDisk( registry, Common::Content::ScanContentRoots() );
+        if ( problems.empty() )
+            return {};
+
+        std::string text = std::to_string( problems.size() ) +
+                           " disagreement(s) between the cooked asset registry and the content tree; a "
+                           "package built now would not match this project:";
+        // EVERY one of them, not the first: one re-cook fixes them all, and a message that reports one
+        // per attempt turns one command into as many attempts as there are files.
+        for ( const Common::Content::RegistryDisagreement& problem : problems )
+            text += "\n  " + problem.Detail;
+        return text;
+    }
+
     PackageResult PackageGame( const PackageOptions& options )
     {
         using Project::ProjectContext;
 
         if ( !ProjectContext::HasProject() )
             return { false, "No project is open.", "" };
+
+        // BEFORE ANYTHING IS WRITTEN. A refusal after the output directory exists leaves half a
+        // package behind, and half a package is the thing somebody ships by accident.
+        if ( const std::string stale = ContentRegistryDisagreement(); !stale.empty() )
+            return { false, stale, "" };
 
         const std::string projectName = ProjectContext::Current().Name;
         const std::string safeName    = SanitizeName( projectName );
@@ -454,6 +519,11 @@ namespace Desert::Editor
         using Project::ProjectContext;
         if ( !ProjectContext::HasProject() )
             return { false, "No project is open.", "" };
+
+        // The same refusal PackageGame makes, for the same reason: this archive is what a developer's
+        // Runtime mounts, so a stale registry here is a dev build that silently lacks content.
+        if ( const std::string stale = ContentRegistryDisagreement(); !stale.empty() )
+            return { false, stale, "" };
 
         std::error_code ec;
         const fs::path pakPath = fs::path( ProjectContext::Directory() ) / "Content.dpak";

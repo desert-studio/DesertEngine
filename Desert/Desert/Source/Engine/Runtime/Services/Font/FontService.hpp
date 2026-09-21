@@ -68,7 +68,6 @@ namespace Desert::Runtime
         // against the old one (and ImGui caches descriptors by image view). Retired atlases are therefore
         // held until Clear(), never freed mid-frame — the set settles after the first frames of a scene.
         std::vector<std::shared_ptr<Graphic::Image2D>>         m_Retired;
-        std::unordered_map<uint64_t, std::string>              m_HandleToPath; // font asset handle -> ttf path
         std::vector<std::string>                               m_Available;    // registered paths (for the picker)
         bool                                                   m_Scanned = false;
     };

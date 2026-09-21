@@ -7,6 +7,7 @@
 #include <Engine/Vector/VectorImage.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -34,8 +35,16 @@ namespace Desert::Runtime
         // FromCookedPath, not FromKey -- one file is one handle whatever spelling registered it. See the
         // note in FontService::RegisterFont; the three path-keyed services agree on this.
         const uint64_t handle = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( svgPath ) );
-        if ( m_HandleToPath.emplace( handle, svgPath ).second )
-            m_Available.push_back( svgPath ); // first sighting -> offer it in the picker
+
+        // Deduplicated on the CANONICAL path, for the reason FontService::RegisterFont states beside
+        // the same line: the handle map that used to answer "have I seen this file" is gone, and the
+        // index that replaced it answers it through the key the call above has just recorded.
+        const std::string canonical = Common::AssetPathIndex::PathFor( handle ).generic_string();
+        if ( !canonical.empty() &&
+             std::find( m_Available.begin(), m_Available.end(), canonical ) == m_Available.end() )
+        {
+            m_Available.push_back( canonical );
+        }
         return handle;
     }
 
@@ -43,13 +52,18 @@ namespace Desert::Runtime
     {
         if ( handle == 0 )
             return "";
-        if ( const auto it = m_HandleToPath.find( handle ); it != m_HandleToPath.end() )
-            return it->second;
-        // A saved scene may reference an icon we haven't scanned yet — fill the registry and retry; the
-        // deterministic handle matches as long as the .svg is discoverable.
+
+        // From `Common::AssetPathIndex`, which `FromCookedPath` records; the private second table this
+        // replaces died with `Clear()`, exactly as the font service's did.
+        if ( const std::string known = Common::AssetPathIndex::PathFor( handle ).generic_string(); !known.empty() )
+        {
+            return known;
+        }
+
+        // A saved scene may reference an icon nothing has derived a handle for yet. Scanning is what
+        // mints those handles, and minting is what records the inverse.
         EnsurePreloaded();
-        const auto it = m_HandleToPath.find( handle );
-        return it == m_HandleToPath.end() ? "" : it->second;
+        return Common::AssetPathIndex::PathFor( handle ).generic_string();
     }
 
     Icon* IconService::Get( uint64_t handle )
@@ -236,8 +250,10 @@ namespace Desert::Runtime
 
     void IconService::Clear()
     {
+        // `m_HandleToPath.clear()` stood here — see FontService::Clear for the defect shape both
+        // services carried: a payload cache that also owned the only handle -> path binding, so
+        // clearing the payloads destroyed the identity.
         m_Icons.clear();
-        m_HandleToPath.clear();
         m_Bitmaps.clear();
         m_Available.clear();
         m_Atlas.reset();

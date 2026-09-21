@@ -44,6 +44,8 @@ include "Tools/LatticePeak/"
 -- move above Editor/: nothing here links the Editor project, and duplicating those two objects into a
 -- tool is the point (see Tools/AssetClosure/premake5.lua).
 include "Tools/AssetClosure/"
+-- AssetRegistryTool writes the file both hosts now boot from, and checks it in CI (T2.4/T2.7).
+include "Tools/AssetRegistryTool/"
 group ""
 
 include "Editor/"
