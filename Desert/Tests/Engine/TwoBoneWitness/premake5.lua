@@ -31,6 +31,8 @@ project(test_name)
         -- symbol whose source is sitting in the tree. Adding it does not weaken the note above —
         -- Animator.cpp is still absent, so what is asserted is still a property of the rig.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        -- The cooked-mesh container the fixtures are written in (B11).
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
     }
 
     includedirs {

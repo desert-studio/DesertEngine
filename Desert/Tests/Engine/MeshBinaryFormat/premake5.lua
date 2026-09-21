@@ -8,14 +8,14 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- The unit under test is the COOKED STATIC MESH LOADER, so StaticMeshAsset.cpp is listed as a source
-    -- rather than linked: libDesert pulls in Vulkan and the whole renderer, and none of it is needed to
-    -- read a .stmesh off disk -- that the asset layer still compiles free of GPU types is itself worth
-    -- keeping true. Same shape as Desert/Tests/Engine/SkinnedMeshDependency.
+    -- The unit under test is the COOKED MESH CONTAINER and the two asset classes that read through it.
+    -- Listed as sources rather than linked for the reason StaticMeshCooked gives: libDesert pulls in
+    -- Vulkan and the whole renderer, and none of it is needed to turn bytes into a MeshAssetData --
+    -- that this layer still compiles free of GPU types is itself worth keeping true.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp",
     }
 
     includedirs {
@@ -47,12 +47,8 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
-    -- Common: the filesystem helper the loader reads through, the logger, the Result type and UUID.
-    -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick" }
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialog) and the asset loader reaches
-    -- Common::Utils::FileSystem, so the ObjC runtime + AppKit have to link as well.
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }
     filter {}

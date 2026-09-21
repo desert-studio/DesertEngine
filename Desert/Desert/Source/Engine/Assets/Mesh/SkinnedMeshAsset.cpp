@@ -1,12 +1,9 @@
 #include "SkinnedMeshAsset.hpp"
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
-#include <Engine/Assets/Serialization/Mesh.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
-
-#include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 namespace Desert::Assets
 {
@@ -24,16 +21,19 @@ namespace Desert::Assets
         if ( !raw )
             return Common::MakeError( raw.GetError() );
 
-        // DefaultIfMissing: meshes cooked before a field existed (e.g. MorphTargets) still load.
+        // ONE READER FOR BOTH FORMS, AND IT IS THE MIGRATION (B11). A cooked mesh is a binary container
+        // now; a file that does not carry the magic is read as the retired JSON form, which is what lets
+        // a clone's own older cooks — the whole `Cooked/` tree is gitignored and machine-local — still
+        // open. Neither this class nor its skinned twin knows which arm ran, and that is the point:
+        // there is one place that decides, and it is testable without a filesystem.
         const auto dataReflected =
-             rfl::json::read<Serialization::MeshAssetData, rfl::DefaultIfMissing>( raw.GetValue() );
-
-        if ( !dataReflected.has_value() )
+             Serialization::ReadMeshAssetData( raw.GetValue(), m_Metadata.Filepath.string() );
+        if ( !dataReflected )
         {
-            return Common::MakeError( dataReflected.error().what() );
+            return Common::MakeError( dataReflected.GetError() );
         }
 
-        const auto& data = dataReflected.value();
+        const auto& data = dataReflected.GetValue();
 
         if ( !data.IsSkinned )
         {

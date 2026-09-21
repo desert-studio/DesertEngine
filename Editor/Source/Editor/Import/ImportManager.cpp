@@ -5,6 +5,8 @@
 #include "Blend/BlendImporter.hpp"
 #include "CookPaths.hpp"
 #include "CookedJsonWrite.hpp"
+
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include "LODFold.hpp"
 
 #include <Common/Core/Constants.hpp>
@@ -244,7 +246,12 @@ namespace Desert::Editor
         {
             cookedPath = BuildCookedPath( sourcePath, ".stmesh" );
         }
-        return WriteCookedJson( data, cookedPath );
+
+        // THE ONE PLACE A COOKED MESH IS WRITTEN, and since B11 it writes the binary container rather
+        // than JSON. The sibling cooked kinds beside this one (.skeleton, .anim, .demat, .tex metadata)
+        // are unchanged: they are kilobytes of structure, not megabytes of floats, and the argument
+        // that moved this one does not reach them.
+        return WriteCookedBytes( Desert::Assets::Serialization::EncodeMeshBinary( data ), cookedPath );
     }
 
     Common::BoolResultStr
