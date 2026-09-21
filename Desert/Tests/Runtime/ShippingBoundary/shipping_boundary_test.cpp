@@ -44,8 +44,10 @@
 //      positive control, and that its two ends agree where the binary is. A gate nobody runs is the same
 //      promise as "we will remember to cut it".
 //
-// Three further rows sit beside them and are not relations between instruments, so they are not
-// numbered: the packager's default configuration must be one the workspace declares; BOTH platform
+// Four further rows sit beside them and are not relations between instruments, so they are not
+// numbered: every project the shipping configuration BUILDS must also select its third-party libraries
+// in it (Editor/premake5.lua did not, and linked nothing at all); the packager's default configuration
+// must be one the workspace declares; BOTH platform
 // build wrappers must accept every configuration it declares (derived from Workspace.lua — Windows
 // refused the word `Shipping` outright on the platform the game ships for); and the test projects must
 // stay OUT of the Shipping configuration — a suite whose subject is the draw-call counter cannot be
@@ -739,6 +741,84 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
          << "both `Run tests` steps must be guarded — the Shipping build creates no "
             "build/Bin/Tests/Shipping at all, so those steps have nothing to run. Unguarded they go red "
             "on a missing directory and a missing run_tests.bat, which is a whole CI leg spent saying so.";
+}
+
+// ── EVERY PROJECT THAT SHIPS LINKS ITS LIBRARIES IN THE SHIPPING CONFIGURATION ──────────────────────
+//
+// WHAT THIS COST, MEASURED RATHER THAN IMAGINED. The `Shipping` configuration arrived with the
+// `filter "configurations:Release or Shipping"` arm taught to Desert/Desert/premake5.lua,
+// Runtime/premake5.lua and every test script — and not to Editor/premake5.lua, whose arm still read
+// `filter "configurations:Release"`. A premake filter that matches no configuration contributes nothing
+// and says nothing, so the Editor project in `Shipping` linked against NO third-party library at all.
+// `make config=shipping` — which is what `scripts/MacOS/BuildMacOS.sh Shipping` runs, and what the
+// packager's own "Runtime binary not found" message sends people to — died on the whole of Vulkan, the
+// whole of shaderc and the whole of spirv-cross.
+//
+// AND NOTHING IN THE SOURCES COULD HAVE POINTED HERE: the entire tree COMPILED. Only the link failed,
+// on the one project the shipping configuration had never been asked to produce. This is the shape the
+// project files it under "a middle link drops a property" — both ends look right, the link in between
+// loses something — and the answer is the same: assert the RELATION.
+//
+// DERIVED, NOT LISTED. Every premake5.lua outside Desert/Tests/ that selects a per-configuration library
+// set must name Shipping on the filter that governs the Release set. The test scripts are excluded from
+// the scan for the same reason they are excluded from the configuration (see
+// TheTestProjectsAreRemovedFromTheShippingConfiguration): a filter naming a configuration its project
+// does not have is inert, so requiring it there would be noise rather than a check.
+TEST( ShippingBoundary, EveryShippedProjectSelectsItsLibrariesInTheShippingConfiguration )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    std::vector<std::string> offenders;
+    std::size_t              scanned = 0;
+
+    for ( const fs::directory_entry& entry : fs::recursive_directory_iterator( root ) )
+    {
+        if ( !entry.is_regular_file() || entry.path().filename() != "premake5.lua" )
+            continue;
+
+        const std::string rel = fs::relative( entry.path(), root ).generic_string();
+        if ( rel.find( "ThirdParty/" ) != std::string::npos || rel.find( "build/" ) == 0 ||
+             rel.find( "Desert/Tests/" ) == 0 )
+            continue;
+
+        const std::string text = Read( entry.path() );
+
+        // EVERY occurrence, not the first — and that distinction is not hypothetical. Editor/premake5.lua
+        // selects a Release library set TWICE: once from its own (currently empty) list and once, the one
+        // that carries Vulkan on macOS, from the engine's. The first draft of this loop stopped at the
+        // first hit, passed on a tree whose Editor still could not link, and had to be caught by building
+        // it. A census that examines one of two identical constructs is a census that reports on half a
+        // file.
+        for ( size_t use = text.find( "Libraries.Release" ); use != std::string::npos;
+              use       = text.find( "Libraries.Release", use + 1 ) )
+        {
+            ++scanned;
+
+            // The filter in force at that line is the nearest one ABOVE it. Both spellings count:
+            // `filter "configurations:..."` and the table form `filter { "system:...", "configurations:..." }`.
+            const size_t governing = text.rfind( "configurations:", use );
+            if ( governing == std::string::npos )
+            {
+                offenders.push_back( rel + " (no configuration filter governs a Release library set)" );
+                continue;
+            }
+            const size_t eol = text.find( '\n', governing );
+            if ( text.substr( governing, eol - governing ).find( "Shipping" ) == std::string::npos )
+                offenders.push_back( rel + "  (the arm at offset " + std::to_string( governing ) + ")" );
+        }
+    }
+
+    ASSERT_GT( scanned, 0u ) << "this census found no project scripts to read — it is checking nothing";
+
+    std::string report;
+    for ( const std::string& o : offenders )
+        report += "\n  " + o;
+    EXPECT_TRUE( offenders.empty() )
+         << "these projects select their third-party libraries for Release and NOT for Shipping, so in "
+            "the shipping configuration they link nothing and fail at the linker with the whole of "
+            "Vulkan undefined:"
+         << report;
 }
 
 // ── BOTH BUILD WRAPPERS ACCEPT EVERY CONFIGURATION THE WORKSPACE DECLARES ───────────────────────────
