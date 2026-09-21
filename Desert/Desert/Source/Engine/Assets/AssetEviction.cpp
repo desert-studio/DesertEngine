@@ -1,5 +1,6 @@
 #include <Engine/Assets/AssetEviction.hpp>
 
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
@@ -150,6 +151,30 @@ namespace Desert::Assets
 
             if ( sink.DropBuiltMesh( handle ) )
                 outcome.MeshesDropped++;
+
+            // A READ IS IN FLIGHT FOR THIS HANDLE, OR ITS COMPLETION HAS NOT BEEN PUMPED YET.
+            //
+            // Releasing here is not merely wasteful, it DESTROYS THE READ: the worker has filled the
+            // asset and the completion delegate has not run, so the bytes this sweep is about to free
+            // are the only copy, and the delegate finds `IsReadyForUse()` false and refuses to upload.
+            // Measured on `Clouds_HeroTrio`: the read finished at 04.671, this sweep ran at 04.761, and
+            // the frame drew no clouds at all while the log said "was read but could not be uploaded".
+            //
+            // It is not reachability that is wrong -- a noise volume genuinely is unreachable from a
+            // scene root, it is named by a cloud TYPE -- it is that "unreachable" says nothing about an
+            // asset somebody is in the middle of loading. The eager model could not hit this because the
+            // read and the upload were one call with no sweep between them.
+            if ( AsyncAssetLoader::Get().IsRequested( handle ) )
+            {
+                outcome.Refused++;
+                outcome.Refusals.push_back(
+                     "'" + asset->GetMetadata().Filepath.string() +
+                     "' has a read in flight (or a completion not yet pumped). Releasing it would throw "
+                     "away the bytes a worker has just finished reading, and the consumer that asked for "
+                     "them would be told the file 'is not loaded'. The asset stays resident; the next "
+                     "sweep after the completion will reconsider it." );
+                continue;
+            }
 
             if ( !asset->IsReadyForUse() )
             {

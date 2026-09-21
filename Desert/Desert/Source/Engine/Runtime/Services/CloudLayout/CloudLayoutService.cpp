@@ -38,16 +38,17 @@ namespace Desert::Runtime
         // pixels differ". Re-saving a painting without changing it therefore does NOT invalidate the baked
         // volume, and re-baking two million voxels is a stall an artist feels.
         if ( auto it = m_Layouts.find( handle );
-             it != m_Layouts.end() && it->second.ContentHash == hash && it->second.ContentHash != 0 )
+             it != m_Layouts.end() && it->second.Loaded && it->second.ContentHash == hash )
             return BOOLSUCCESS;
 
         // UPDATED, NOT REPLACED: replacing would drop the `LoadRequest` this call is very likely running
         // inside the completion of, and destroying a request from within its own delegate is the
         // reentrancy the deferred-completion rule exists to keep out of this code.
-        Entry& entry       = m_Layouts[handle];
-        entry.Asset        = asset;
-        entry.ContentHash  = hash;
-        entry.Failed       = false;
+        Entry& entry      = m_Layouts[handle];
+        entry.Asset       = asset;
+        entry.ContentHash = hash;
+        entry.Loaded      = true;
+        entry.Failed      = false;
 
         const Assets::CloudLayoutData& layout = asset->GetLayout();
         LOG_INFO( "[Clouds] Cloud layout '{}' registered as {} ({}x{}, pattern {}, mask {}, content {:08x}).",
@@ -125,7 +126,7 @@ namespace Desert::Runtime
             return Assets::AssetRef<const Assets::CloudLayoutData>::Null();
         }
 
-        if ( it->second.Asset && it->second.Asset->IsReadyForUse() )
+        if ( it->second.Loaded && it->second.Asset )
         {
             // The aliasing constructor: a share of the ASSET's lifetime, addressing its layout member. See
             // the header for why the bake must not be handed a borrowed pointer.
@@ -160,7 +161,7 @@ namespace Desert::Runtime
         size_t resident = 0;
         for ( const auto& [handle, entry] : m_Layouts )
         {
-            if ( entry.Asset && entry.Asset->IsReadyForUse() )
+            if ( entry.Loaded )
                 ++resident;
         }
         return resident;

@@ -164,6 +164,24 @@ namespace Desert::Assets
         /// How many requests ended in the cancel delegate rather than the completion one.
         [[nodiscard]] uint64_t CancelledCount() const;
 
+        /**
+         * @brief Does a LIVE request name @p handle? Asked by anything that would take the payload away.
+         *
+         * WHAT THIS FIXES, FOUND BY RUNNING IT. The request handle owns a `shared_ptr` to the asset, so
+         * the OBJECT cannot die under a worker. That is not the same as the PAYLOAD surviving, and the
+         * difference cost a scene its whole sky: on `Clouds_HeroTrio` the read of `CloudNoise_Default`
+         * finished at 04.671, `AssetEviction` swept at 04.761 and called `Unload()` on it -- the volume
+         * is reached from a cloud TYPE, and no live scene root named that type -- and the completion
+         * delegate pumped afterwards found `IsReadyForUse()` false and logged *"was read but could not be
+         * uploaded: ... is not loaded"*. The frame drew no clouds at all.
+         *
+         * The eager model could not have this defect because the upload happened in the same call as the
+         * read, with no sweep in between; deferral is what opens the window, and closing it is part of
+         * the deferral rather than an extra. "The request handle IS the keep-alive" has to mean the
+         * payload too, or it means very little.
+         */
+        [[nodiscard]] bool IsRequested( const AssetHandle& handle ) const;
+
         /// Drops every live request WITHOUT firing a delegate, and waits for any worker still inside a
         /// read to leave. For teardown and for tests; a scene close uses `Cancel()` on its own handles
         /// so the owners hear about it.

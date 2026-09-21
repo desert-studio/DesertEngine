@@ -96,6 +96,13 @@ namespace Desert::Runtime
             /// Announced, possibly unread. The source of the request: a handle cannot be read.
             std::shared_ptr<Assets::CloudLayoutAsset> Asset;
             uint32_t                                  ContentHash = 0;
+            /// SET BY `Register`, AND THE READINESS THIS SERVICE ANSWERS ON — deliberately not
+            /// `Asset->IsReadyForUse()`. `AssetEviction` may `Unload()` an unreachable layout after it
+            /// was registered, and asking the asset would then flip this entry back to Pending and start
+            /// a fresh read on every sweep: a file re-read forever, at the frame rate of the sweep. The
+            /// pointer handed out is the same one the version before this change handed out under the
+            /// same conditions, so this flag preserves that behaviour rather than inventing one.
+            bool Loaded = false;
             /// Live while a worker is reading. See CloudNoiseService for why it is cancelled rather than
             /// dropped in `Clear()`.
             Assets::LoadRequest Request;

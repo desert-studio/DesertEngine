@@ -314,6 +314,18 @@ namespace Desert::Assets
         return State().Cancels.load( std::memory_order_relaxed );
     }
 
+    bool AsyncAssetLoader::IsRequested( const AssetHandle& handle ) const
+    {
+        const LoaderState&                state = State();
+        const std::lock_guard<std::mutex> guard( state.Lock );
+        for ( const auto& [id, record] : state.Live )
+        {
+            if ( record->Handle == handle )
+                return true;
+        }
+        return false;
+    }
+
     void AsyncAssetLoader::CancelById( const uint64_t id )
     {
         LoaderState& state = State();
