@@ -10,30 +10,35 @@ project(test_name)
 
     files {
         test_files,
-        -- Units under test (pure CPU: no Vulkan symbols are referenced, only declaration-only headers).
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
-        -- Animator.cpp runs the Controls stage, so it needs the control base it calls through. The base is
-        -- two functions and no Vulkan; no suite here adds a control, which is what makes "a rig with no
-        -- controls behaves exactly as before" a thing these suites stillmeasure.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
-        -- Animator.cpp also runs the Rig stage (T5.4), which is a link edge and not a behaviour these
-        -- suites exercise: none of them attaches a rig, which is what keeps "a pipeline with no rig
-        -- produces exactly what it produced before" measurable HERE rather than only in the rig suite.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
-        -- T5.5: the stage owns a forwards solve, so the walk links with the stage that runs it.
+        -- The walk under test; the stage that runs it and decides what reaches a bone; the hierarchy it
+        -- reads and writes; and the FORMAT, because the graph's refusals have to be askable from a file as
+        -- well as from a built rig — one walk, two callers, and this suite is where they are made to agree.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp",
+        -- The pipeline the rig joins: without it the suite could say "the stage ran" and not "the skinning
+        -- matrices came out different", which is the only statement that means the graph reached a frame.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
-        -- The tick grid every clip time now lives on (A5).
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
     }
+
+    -- LINKED for ControlRigAsset's reason: the format's file half goes through Common's atomic write, and
+    -- Common carries Objective-C (the macOS file dialog), which is what the two frameworks are for.
+    links { "Common", "Optick" }
+
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
 
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }

@@ -135,6 +135,10 @@ namespace Desert::Animation
 
     [[nodiscard]] std::string_view ToString( RigControlSpace space );
 
+    /// The inverse, and it shares `ToString`'s table. A format that can write a word it cannot read is the
+    /// defect `kSpaceKinds` in the `.derig` layer already has a comment about.
+    [[nodiscard]] std::optional<RigControlSpace> RigControlSpaceFromText( std::string_view text );
+
     /// What a node's `Target` names, if anything. Data, so the format can refuse `"GetBone"` naming a
     /// control without a second table of its own.
     enum class RigNodeTargetKind : uint8_t
@@ -204,6 +208,23 @@ namespace Desert::Animation
     /// The file's spelling -> the kind. `std::nullopt` for a word this build does not know, which the
     /// format refuses by name rather than taking as the first row.
     [[nodiscard]] std::optional<RigNodeKind> RigNodeKindFromText( std::string_view text );
+
+    /**
+     * @brief Refuses a node list that writes nothing, or that computes something nobody keeps.
+     *
+     * FREE, AND TAKING THE THREE THINGS THE RULE IS ACTUALLY ABOUT — names for the message, kinds to know
+     * which node is a sink, and who feeds whom. It needs no hierarchy, no skeleton and no resolved index,
+     * and that is the point: `ValidateControlRigData` must be able to refuse a `.derig` for the same
+     * reason the loader refuses it, so a rig editor cannot save a file it will not be able to open. A
+     * second copy of this walk living in the format layer is the "both ends of the chain look right"
+     * defect, so there is one walk and two callers.
+     *
+     * @param producers for each node, the indices of the nodes its inputs read. Literals contribute
+     *        nothing, which is why this is not simply the inputs.
+     */
+    [[nodiscard]] Common::BoolResultStr RefuseDiscardedWork( std::span<const std::string>           names,
+                                                             std::span<const RigNodeKind>           kinds,
+                                                             std::span<const std::vector<uint32_t>> producers );
 
     /**
      * @brief One input pin, wired to an earlier node's output OR carrying a literal.

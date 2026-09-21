@@ -57,6 +57,8 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/ControlRigAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
+        -- T5.5: the stage owns a forwards solve, so the walk links with the stage that runs it.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",

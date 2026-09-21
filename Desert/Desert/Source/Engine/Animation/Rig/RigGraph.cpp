@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
+#include <utility>
 
 namespace Desert::Animation
 {
@@ -95,6 +96,13 @@ namespace Desert::Animation
                        "every RigNodeKind needs a row: a kind without one is a node the walk can hold and "
                        "neither the format nor the validator can describe" );
 
+        /// The one table for the two spellings. Two of them — one for reading and one for writing — is how
+        /// a format ends up able to write a word it cannot read.
+        constexpr std::array<std::pair<std::string_view, RigControlSpace>, 2> kSpaces = { {
+             { "Local", RigControlSpace::Local },
+             { "Global", RigControlSpace::Global },
+        } };
+
         [[nodiscard]] bool IsFinite( const RigValue& value )
         {
             switch ( static_cast<RigValueKind>( value.index() ) )
@@ -163,7 +171,80 @@ namespace Desert::Animation
 
     std::string_view ToString( RigControlSpace space )
     {
-        return space == RigControlSpace::Local ? "Local" : "Global";
+        for ( const auto& row : kSpaces )
+        {
+            if ( row.second == space )
+            {
+                return row.first;
+            }
+        }
+        return kSpaces[0].first;
+    }
+
+    std::optional<RigControlSpace> RigControlSpaceFromText( std::string_view text )
+    {
+        for ( const auto& row : kSpaces )
+        {
+            if ( row.first == text )
+            {
+                return row.second;
+            }
+        }
+        return std::nullopt;
+    }
+
+    Common::BoolResultStr RefuseDiscardedWork( std::span<const std::string>           names,
+                                               std::span<const RigNodeKind>           kinds,
+                                               std::span<const std::vector<uint32_t>> producers )
+    {
+        std::vector<uint8_t> live( kinds.size(), 0 );
+        bool                 anySink = false;
+
+        for ( size_t i = 0; i < kinds.size(); ++i )
+        {
+            if ( DescribeRigNode( kinds[i] ).IsSink() )
+            {
+                live[i] = 1;
+                anySink = true;
+            }
+        }
+
+        if ( !anySink )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "this graph writes nothing: none of its {} nodes is a sink, so it computes values and "
+                 "discards them. A forwards solve that cannot change a control is a stage that passes every "
+                 "assertion a working one passes",
+                 kinds.size() );
+        }
+
+        // ONE BACKWARDS PASS, because a link may only name an earlier node — the rule that also makes a
+        // cycle inexpressible. Walking descending indices therefore sees every consumer before its producer.
+        for ( size_t i = kinds.size(); i-- > 0; )
+        {
+            if ( live[i] == 0 )
+            {
+                continue;
+            }
+            for ( const uint32_t producer : producers[i] )
+            {
+                live[producer] = 1;
+            }
+        }
+
+        for ( size_t i = 0; i < kinds.size(); ++i )
+        {
+            if ( live[i] == 0 )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "node '{}' ({}) feeds no sink: its result is computed and thrown away. The honest "
+                     "reading of that is a pin wired to the wrong place, which is why it is refused rather "
+                     "than skipped",
+                     names[i], DescribeRigNode( kinds[i] ).Name );
+            }
+        }
+
+        return Common::MakeSuccess( true );
     }
 
     std::span<const RigNodeDescriptor> RigNodeDescriptors()
@@ -324,54 +405,30 @@ namespace Desert::Animation
 
         // ---- THE TWO REFUSALS THAT KEEP A SILENT GRAPH OUT (see the header) ---------------------------
         //
-        // A sink is a node with no outputs, so "this graph changes nothing" and "this graph has no sink"
-        // are the same sentence, and liveness is one backwards pass because links already point backwards.
-        std::vector<uint8_t> live( nodes.size(), 0 );
-        bool                 anySink = false;
+        // Asked through the free function so the `.derig` layer can ask the identical question about a file
+        // it has not built yet, and a rig editor cannot save what the loader would refuse.
+        std::vector<std::string>           names;
+        std::vector<RigNodeKind>           kinds;
+        std::vector<std::vector<uint32_t>> producers( nodes.size() );
 
+        names.reserve( nodes.size() );
+        kinds.reserve( nodes.size() );
         for ( size_t i = 0; i < nodes.size(); ++i )
         {
-            if ( DescribeRigNode( nodes[i].Kind ).IsSink() )
-            {
-                live[i] = 1;
-                anySink = true;
-            }
-        }
-
-        if ( !anySink )
-        {
-            return Common::MakeFormattedError<bool>(
-                 "this graph writes nothing: none of its {} nodes is a sink, so it computes values and "
-                 "discards them. A forwards solve that cannot change a control is a stage that passes every "
-                 "assertion a working one passes",
-                 nodes.size() );
-        }
-
-        for ( size_t i = nodes.size(); i-- > 0; )
-        {
-            if ( live[i] == 0 )
-            {
-                continue;
-            }
+            names.push_back( nodes[i].Name );
+            kinds.push_back( nodes[i].Kind );
             for ( const RigNodeInput& input : nodes[i].Inputs )
             {
                 if ( input.Node != RigNodeInput::LITERAL )
                 {
-                    live[input.Node] = 1;
+                    producers[i].push_back( input.Node );
                 }
             }
         }
 
-        for ( size_t i = 0; i < nodes.size(); ++i )
+        if ( auto kept = RefuseDiscardedWork( names, kinds, producers ); !kept )
         {
-            if ( live[i] == 0 )
-            {
-                return Common::MakeFormattedError<bool>(
-                     "node '{}' ({}) feeds no sink: its result is computed and thrown away. The honest "
-                     "reading of that is a pin wired to the wrong place, which is why it is refused rather "
-                     "than skipped",
-                     nodes[i].Name, DescribeRigNode( nodes[i].Kind ).Name );
-            }
+            return kept;
         }
 
         // ---- storage, derived from the table so a count and its slots cannot disagree -----------------

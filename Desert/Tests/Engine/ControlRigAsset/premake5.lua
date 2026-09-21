@@ -15,6 +15,8 @@ project(test_name)
         -- — it is "a rig reaches the SKINNING MATRICES", which needs the whole pose pipeline compiled.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
+        -- T5.5: the stage owns a forwards solve, so the walk links with the stage that runs it.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
