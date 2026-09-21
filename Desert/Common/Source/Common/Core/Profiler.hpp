@@ -241,12 +241,12 @@ namespace Common::Profiling
 // as an expression, which these never are.
 #if !DESERT_DEV_INSTRUMENTS
 
-    #define DESERT_PROFILE_SCOPE( NAME )
-    #define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )
-    #define DESERT_PROFILE_FUNC()
-    #define DESERT_PROFILE_PASS( NAME )
-    #define DESERT_PROFILE_PASS_DYNAMIC( CSTR )
-    #define DESERT_PROFILE_FRAME( NAME )
+#define DESERT_PROFILE_SCOPE( NAME )
+#define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )
+#define DESERT_PROFILE_FUNC()
+#define DESERT_PROFILE_PASS( NAME )
+#define DESERT_PROFILE_PASS_DYNAMIC( CSTR )
+#define DESERT_PROFILE_FRAME( NAME )
 
 #else
 

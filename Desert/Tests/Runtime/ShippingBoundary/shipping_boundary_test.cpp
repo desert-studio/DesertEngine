@@ -227,25 +227,34 @@ namespace
         const char*              What;   ///< what a person would call it
         const char*              Header; ///< the header other files name it by (matched on basename)
         Gating                   Where;
-        std::vector<std::string> Own;    ///< the files that are the instrument itself
+        std::vector<std::string> Own; ///< the files that are the instrument itself
     };
 
     const std::vector<Instrument>& Register()
     {
         static const std::vector<Instrument> rows = {
-             { "the runtime frame capture (--shot / --shot-frames)", "RuntimeShot.hpp",
-               Gating::AtEveryCallSite, { "Runtime/Source/RuntimeShot.hpp" } },
-             { "the draw-call counter", "DrawCounters.hpp", Gating::InItsOwnHeader,
+             { "the runtime frame capture (--shot / --shot-frames)",
+               "RuntimeShot.hpp",
+               Gating::AtEveryCallSite,
+               { "Runtime/Source/RuntimeShot.hpp" } },
+             { "the draw-call counter",
+               "DrawCounters.hpp",
+               Gating::InItsOwnHeader,
                { "Desert/Desert/Source/Engine/Graphic/DrawCounters.hpp",
                  "Desert/Desert/Source/Engine/Graphic/DrawCounters.cpp" } },
-             { "the memory readout and the per-frame memory watch", "MemoryReadout.hpp",
+             { "the memory readout and the per-frame memory watch",
+               "MemoryReadout.hpp",
                Gating::AtEveryCallSite,
                { "Desert/Desert/Source/Engine/Graphic/MemoryReadout.hpp",
                  "Desert/Desert/Source/Engine/Graphic/MemoryReadout.cpp",
                  "Desert/Desert/Source/Engine/Graphic/MemoryReadoutSource.cpp" } },
-             { "the synchronous-load ledger", "SyncLoadLedger.hpp", Gating::InItsOwnHeader,
+             { "the synchronous-load ledger",
+               "SyncLoadLedger.hpp",
+               Gating::InItsOwnHeader,
                { "Desert/Desert/Source/Engine/Assets/SyncLoadLedger.hpp" } },
-             { "the GPU timestamp profiler", "VulkanGpuProfiler.hpp", Gating::AtEveryCallSite,
+             { "the GPU timestamp profiler",
+               "VulkanGpuProfiler.hpp",
+               Gating::AtEveryCallSite,
                { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp",
                  "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanGpuProfiler.cpp" } },
         };
@@ -276,8 +285,8 @@ namespace
     const std::vector<std::string>& DeclaredExceptions()
     {
         static const std::vector<std::string> rows = {
-             "Engine/Graphic/ResourceLedger.hpp",  // the OWNERSHIP mechanism, not only a readout
-             "Engine/Graphic/DebugViewState.hpp",  // SceneRenderer chooses its render path from it
+             "Engine/Graphic/ResourceLedger.hpp", // the OWNERSHIP mechanism, not only a readout
+             "Engine/Graphic/DebugViewState.hpp", // SceneRenderer chooses its render path from it
         };
         return rows;
     }
@@ -339,7 +348,8 @@ TEST( ShippingBoundary, TheBoundaryMacroHasExactlyOneDefinitionAndNoSiteSpellsTh
         offenders += "\n  " + s;
     EXPECT_TRUE( spellers.empty() )
          << "these files ask which CONFIGURATION they are in instead of asking the one question the "
-            "census can count (" << kBoundaryToken << "):" << offenders;
+            "census can count ("
+         << kBoundaryToken << "):" << offenders;
 }
 
 // ── RELATION 3 ──────────────────────────────────────────────────────────────────────────────────────
@@ -458,12 +468,13 @@ TEST( ShippingBoundary, EveryPlayerSideConsumerOfAnInstrumentCarriesTheBoundary 
     EXPECT_TRUE( stale.empty() )
          << "these registered instruments have no consumer anywhere in the player's source set, so their "
             "rows check nothing. Either the instrument is gone and the row must go with it, or its header "
-            "was renamed and the row did not follow:" << stale;
+            "was renamed and the row did not follow:"
+         << stale;
 
     EXPECT_TRUE( offenders.empty() )
          << "these player-side files use a development instrument with no boundary around the use, so "
-            "the instrument is in the shipping binary:" << offenders
-         << "\n\nPut the use behind `#if " << kBoundaryToken
+            "the instrument is in the shipping binary:"
+         << offenders << "\n\nPut the use behind `#if " << kBoundaryToken
          << "`, or move the gate into the instrument's own header where its call sites need not change.";
 }
 
@@ -513,14 +524,16 @@ TEST( ShippingBoundary, EveryProfilingMacroHasAShippingTwinNameForName )
 
     EXPECT_TRUE( missing.empty() )
          << "these profiling macros have no no-op twin in the Shipping branch, so a shipping build still "
-            "pays for them and still drags Optick into the binary:" << missing;
+            "pays for them and still drags Optick into the binary:"
+         << missing;
 
     std::string stale;
     for ( const std::string& name : shipping )
         if ( development.count( name ) == 0 )
             stale += "\n  " + name;
     EXPECT_TRUE( stale.empty() ) << "these macros exist only in the Shipping branch — a no-op with nothing "
-                                    "to be a no-op of:" << stale;
+                                    "to be a no-op of:"
+                                 << stale;
 }
 
 // ── THE PACKAGER'S DEFAULT IS A CONFIGURATION THAT EXISTS ───────────────────────────────────────────

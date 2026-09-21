@@ -642,8 +642,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::TakeCapturedFrameRGBA8( uint32_t&, uint32_t& )
     {
-        return Common::MakeError<std::vector<uint8_t>>(
-             "frame capture is not compiled into a Shipping build." );
+        return Common::MakeError<std::vector<uint8_t>>( "frame capture is not compiled into a Shipping build." );
     }
 
 #endif // DESERT_DEV_INSTRUMENTS

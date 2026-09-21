@@ -64,7 +64,7 @@
 
 // Set by BuildScripts/Configurations.lua at WORKSPACE scope, so no project can fail to receive it.
 #if defined( DESERT_CONFIG_SHIPPING )
-    #define DESERT_DEV_INSTRUMENTS 0
+#define DESERT_DEV_INSTRUMENTS 0
 #else
-    #define DESERT_DEV_INSTRUMENTS 1
+#define DESERT_DEV_INSTRUMENTS 1
 #endif

@@ -4185,7 +4185,7 @@ namespace Desert::Editor
         commands.push_back(
              { "Build", "Package Game", []() -> Common::BoolResultStr
                {
-                   const auto&   prefs = EditorPreferences::Get();
+                   const auto&    prefs = EditorPreferences::Get();
                    PackageOptions options;
                    options.OutputDir    = prefs.PackageOutputDir;
                    options.Config       = prefs.PackageConfig;

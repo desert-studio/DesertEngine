@@ -42,7 +42,7 @@
 // STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); declare only.
 // Only the capture writes a PNG from this host, so a shipping build does not need the declaration either.
 #if DESERT_DEV_INSTRUMENTS
-    #include <stb_image/stb_image_write.h>
+#include <stb_image/stb_image_write.h>
 #endif
 
 #include <Common/Utilities/FileSystem.hpp>
