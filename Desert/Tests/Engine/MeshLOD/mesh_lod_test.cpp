@@ -507,7 +507,7 @@ namespace
 
 TEST( MeshLOD, AMeshWithNoLODChainReportsLevelZeroAsItsCoarsest )
 {
-    std::vector<Desert::Submesh> submeshes( 2 );
+    const std::vector<Desert::Submesh> submeshes( 2 );
     EXPECT_EQ( Desert::Geometry::MaxAvailableLOD( submeshes ), 0u )
          << "a primitive or procedural mesh draws its base index range whatever level it is asked for; "
             "reporting anything else splits its instanced batch into identical draws";
@@ -543,8 +543,7 @@ TEST( MeshLOD, TheBoundsTakingAndSubmeshTakingSelectorsAreOnePolicy )
     // One policy, two spellings: the ISM path asks per instance against bounds it computed once, the
     // rest asks with the submeshes in hand. A second implementation of the coverage curve is exactly
     // the drift this pair exists to make impossible.
-    std::vector<Desert::Submesh> submeshes;
-    submeshes.push_back( SubmeshWithLevels( 4 ) );
+    const std::vector<Desert::Submesh> submeshes{ SubmeshWithLevels( 4 ) };
 
     for ( float distance = 100.0f; distance < 200000.0f; distance *= 2.0f )
     {
@@ -568,9 +567,9 @@ TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
     }
     ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) );
 
-    std::ifstream in( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" / "Mesh" /
-                      "MeshRenderer.cpp" );
-    std::stringstream buffer;
+    const std::ifstream in( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /
+                            "Mesh" / "MeshRenderer.cpp" );
+    std::stringstream   buffer;
     buffer << in.rdbuf();
     const std::string source = buffer.str();
     ASSERT_FALSE( source.empty() );

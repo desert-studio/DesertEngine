@@ -91,7 +91,9 @@ namespace Desert::Graphic::System
         // Rendered through the SAME instanced pipeline/SSBO as the auto-batched static meshes.
         struct InstancedMeshRenderData
         {
-            class Desert::StaticMesh*                     Mesh = nullptr;
+            // A Mesh, not a StaticMesh: a primitive ISM carries a DynamicMesh, and so does one the
+            // Foliage tool builds. See SceneRenderer::SubmitInstancedMesh for the cast this replaced.
+            class Desert::Mesh*                           Mesh = nullptr;
             MaterialInstancePtr                           Material;   // slot 0 (PBR)
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
@@ -524,7 +526,9 @@ namespace Desert::Graphic::System
         };
         struct InstancedDraw
         {
-            Desert::StaticMesh* Mesh          = nullptr;
+            // Fed by BOTH the auto-batched statics (a StaticMesh) and the ISM queue (any Mesh), so it
+            // is the wider of the two — a draw call only ever needs what Mesh already carries.
+            Desert::Mesh*       Mesh          = nullptr;
             uint32_t            InstanceCount = 0;
             uint32_t            FirstInstance = 0;
             uint32_t            MaterialIndex = 0;
@@ -553,7 +557,7 @@ namespace Desert::Graphic::System
         };
         struct ShadowBatch
         {
-            Desert::StaticMesh* Mesh  = nullptr;
+            Desert::Mesh*       Mesh     = nullptr; ///< see InstancedDraw::Mesh — the same two producers
             uint32_t            Count = 0;
             uint32_t            First = 0;
             uint32_t            LodLevel = 0; ///< see InstancedDraw::LodLevel — same omission, same fix

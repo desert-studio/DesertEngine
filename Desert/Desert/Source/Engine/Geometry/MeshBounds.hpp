@@ -55,9 +55,9 @@ namespace Desert::Geometry
         Common::Math::AABB out{ glm::vec3( kNoBoundsSentinel ), glm::vec3( -kNoBoundsSentinel ) };
         for ( int corner = 0; corner < 8; ++corner )
         {
-            const glm::vec3 localCorner( ( corner & 1 ) ? local.Max.x : local.Min.x,
-                                         ( corner & 2 ) ? local.Max.y : local.Min.y,
-                                         ( corner & 4 ) ? local.Max.z : local.Min.z );
+            const glm::vec3 localCorner( ( corner & 1 ) != 0 ? local.Max.x : local.Min.x,
+                                         ( corner & 2 ) != 0 ? local.Max.y : local.Min.y,
+                                         ( corner & 4 ) != 0 ? local.Max.z : local.Min.z );
             const glm::vec3 worldCorner = glm::vec3( transform * glm::vec4( localCorner, 1.0f ) );
             out.Min                     = glm::min( out.Min, worldCorner );
             out.Max                     = glm::max( out.Max, worldCorner );

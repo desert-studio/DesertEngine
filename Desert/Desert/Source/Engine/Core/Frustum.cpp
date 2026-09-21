@@ -1,5 +1,7 @@
 #include "Frustum.hpp"
 
+#include <algorithm>
+
 namespace Desert::Core
 {
 
@@ -22,19 +24,18 @@ namespace Desert::Core
 
     bool Frustum::Intersects( const Common::Math::AABB& worldBox ) const
     {
-        for ( const auto& plane : m_Planes )
-        {
-            // The corner farthest along this plane's normal. Written per axis rather than with a select
-            // over the whole vector because that is exactly what the test is: three independent choices.
-            const glm::vec3 positiveVertex( plane.Normal.x >= 0.0f ? worldBox.Max.x : worldBox.Min.x,
-                                            plane.Normal.y >= 0.0f ? worldBox.Max.y : worldBox.Min.y,
-                                            plane.Normal.z >= 0.0f ? worldBox.Max.z : worldBox.Min.z );
-            if ( plane.GetDistance( positiveVertex ) < 0.0f )
-            {
-                return false;
-            }
-        }
-        return true;
+        return std::all_of( m_Planes.begin(), m_Planes.end(),
+                            [&worldBox]( const Plane& plane )
+                            {
+                                // The corner farthest along this plane's normal. Written per axis rather
+                                // than with a select over the whole vector because that is exactly what
+                                // the test is: three independent choices.
+                                const glm::vec3 positiveVertex(
+                                     plane.Normal.x >= 0.0f ? worldBox.Max.x : worldBox.Min.x,
+                                     plane.Normal.y >= 0.0f ? worldBox.Max.y : worldBox.Min.y,
+                                     plane.Normal.z >= 0.0f ? worldBox.Max.z : worldBox.Min.z );
+                                return plane.GetDistance( positiveVertex ) >= 0.0f;
+                            } );
     }
 
     void Frustum::Rebuild( const glm::mat4& projection, const glm::mat4& view )

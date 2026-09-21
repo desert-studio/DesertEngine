@@ -25,8 +25,12 @@ namespace Desert::Core
     public:
         struct Plane
         {
-            glm::vec3 Normal;
-            float     Distance;
+            // INITIALIZED, because `Frustum() = default` is a legal way to make one and a plane read
+            // before Rebuild would otherwise decide visibility from whatever was on the stack. A zero
+            // normal makes every distance 0, so an unbuilt frustum accepts everything — the same
+            // direction every other failure in this file is made to fall.
+            glm::vec3 Normal   = glm::vec3( 0.0f );
+            float     Distance = 0.0f;
 
             float GetDistance( const glm::vec3& point ) const
             {

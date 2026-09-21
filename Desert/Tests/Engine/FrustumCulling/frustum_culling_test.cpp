@@ -73,8 +73,8 @@ namespace
 
     std::string ReadFile( const fs::path& file )
     {
-        std::ifstream     in( file );
-        std::stringstream ss;
+        const std::ifstream in( file );
+        std::stringstream   ss;
         ss << in.rdbuf();
         return ss.str();
     }
@@ -298,8 +298,7 @@ TEST( FrustumCulling, TheBoxTestHoldsForTheCascadesStandardZOrthographicMatrix )
     const glm::mat4 view =
          glm::lookAt( glm::vec3( 0.0f, radius * 2.0f, 0.0f ), glm::vec3( 0.0f ), glm::vec3( 0, 0, 1 ) );
 
-    Frustum cascade;
-    cascade.Rebuild( proj, view );
+    const Frustum cascade( proj, view );
 
     EXPECT_TRUE( cascade.Intersects( UnitBoxAt( glm::vec3( 0.0f ), 100.0f ) ) )
          << "the slice's own centre must rasterize";

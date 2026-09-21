@@ -315,7 +315,7 @@ namespace Desert::Graphic::System
             // generated include (Common/GraphVertex.glslh) that transforms a_Position and nothing else,
             // and Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in
             // the tree. The day a vertex-offset node exists, that census goes red before this does.
-            if ( g.Mesh &&
+            if ( g.Mesh != nullptr &&
                  !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                 continue;
 
@@ -964,7 +964,7 @@ namespace Desert::Graphic::System
 
                     for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                     {
-                        const uint32_t firstInstance = static_cast<uint32_t>( instTransforms.size() );
+                        const auto firstInstance = static_cast<uint32_t>( instTransforms.size() );
                         for ( std::size_t i = 0; i < batchable.size(); ++i )
                             if ( levels[i] == level )
                                 instTransforms.push_back( batchable[i].Obj->Transform );
@@ -1192,7 +1192,7 @@ namespace Desert::Graphic::System
 
                 // ONE material row for the whole ISM, named by every one of its per-level draws: the
                 // level splits the geometry, not the material.
-                const uint32_t materialIndex = static_cast<uint32_t>( instMaterials.size() );
+                const auto materialIndex = static_cast<uint32_t>( instMaterials.size() );
                 instMaterials.push_back( BuildEffectiveMaterial( mat, ism.Material.get() ) );
 
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
@@ -2072,16 +2072,16 @@ namespace Desert::Graphic::System
                      // cascades are deliberately STANDARD-Z while the camera is reversed-Z, which swaps
                      // which of the two derived planes is "near" and which is "far" — the SET of six
                      // half-spaces is the same one either way, and Intersects tests all six by value.
-                     Core::Frustum cascadeFrustum;
-                     cascadeFrustum.Rebuild( m_CascadeVP[c], glm::mat4( 1.0f ) );
+                     const Core::Frustum cascadeFrustum( m_CascadeVP[c], glm::mat4( 1.0f ) );
 
                      // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
                      // deliberate rather than convenient: a caster drawn into the cascade at a coarser
                      // level than the object the camera sees casts a silhouette that does not match the
                      // object it belongs to. The per-object caster loop below has always asked it this
                      // way (ComputeLOD reads the main camera); the batched paths simply did not ask.
-                     const auto      lodCamera       = m_SceneRenderer->GetMainCamera();
-                     const glm::vec3 lodViewPosition = lodCamera ? lodCamera->GetPosition() : glm::vec3( 0.0f );
+                     const auto*     lodCamera = m_SceneRenderer->GetMainCamera();
+                     const glm::vec3 lodViewPosition =
+                          lodCamera != nullptr ? lodCamera->GetPosition() : glm::vec3( 0.0f );
 
                      std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
                      const auto bucketFor =
@@ -2094,7 +2094,7 @@ namespace Desert::Graphic::System
                          return byMesh.back().second;
                      };
                      for ( const auto& rd : m_StaticQueue )
-                         if ( rd.Mesh && rd.CastShadows &&
+                         if ( rd.Mesh != nullptr && rd.CastShadows &&
                               IsVisibleInView( cascadeFrustum, rd.Transform,
                                                Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                              bucketFor( rd.Mesh ).push_back( &rd );
@@ -2127,7 +2127,7 @@ namespace Desert::Graphic::System
 
                              for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                              {
-                                 const uint32_t first = static_cast<uint32_t>( instTransforms.size() );
+                                 const auto first = static_cast<uint32_t>( instTransforms.size() );
                                  for ( std::size_t i = 0; i < bucket.size(); ++i )
                                      if ( levels[i] == level )
                                          instTransforms.push_back( bucket[i]->Transform );
@@ -2161,7 +2161,8 @@ namespace Desert::Graphic::System
                              // engine whose shadow could not be turned off: the static and skinned
                              // components both carry CastShadows and this pass read both, while the ISM
                              // branch had no condition at all.
-                             if ( !ism.Mesh || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms ||
+                                  ism.Transforms->empty() )
                                  continue;
 
                              // Per-instance, against this cascade. A cascade covers a slice of the view,
@@ -2191,7 +2192,7 @@ namespace Desert::Graphic::System
 
                              for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                              {
-                                 const uint32_t first = static_cast<uint32_t>( instTransforms.size() );
+                                 const auto first = static_cast<uint32_t>( instTransforms.size() );
                                  for ( std::size_t i = 0; i < visible.size(); ++i )
                                      if ( levels[i] == level )
                                          instTransforms.push_back( visible[i] );
@@ -2227,7 +2228,7 @@ namespace Desert::Graphic::System
                      // split, so honouring the mask here would carve the PBR half out of the silhouette
                      // while the PBR record was already casting the whole of it.
                      for ( const auto& g : m_GenericQueue )
-                         if ( g.Mesh && g.CastShadows &&
+                         if ( g.Mesh != nullptr && g.CastShadows &&
                               IsVisibleInView( cascadeFrustum, g.Transform,
                                                Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                              renderer.RenderMesh( m_ShadowPipeline.get(), g.Mesh, g.Transform,
@@ -2428,13 +2429,13 @@ namespace Desert::Graphic::System
             // shape this repository keeps finding rather than a conservative choice.
             const Core::Frustum overdrawFrustum = camera->GetFrustum();
             for ( const auto& rd : m_StaticQueue )
-                if ( rd.Mesh && IsVisibleInView( overdrawFrustum, rd.Transform,
-                                                 Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+                if ( rd.Mesh != nullptr && IsVisibleInView( overdrawFrustum, rd.Transform,
+                                                            Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                     renderer.RenderMesh( m_OverdrawPipeline.get(), rd.Mesh, rd.Transform,
                                          m_OverdrawMaterial->GetMaterialExecutor() );
             for ( const auto& g : m_GenericQueue )
-                if ( g.Mesh && IsVisibleInView( overdrawFrustum, g.Transform,
-                                                Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+                if ( g.Mesh != nullptr && IsVisibleInView( overdrawFrustum, g.Transform,
+                                                           Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                     renderer.RenderMesh( m_OverdrawPipeline.get(), g.Mesh, g.Transform,
                                          m_OverdrawMaterial->GetMaterialExecutor() );
             renderer.EndRenderPass();

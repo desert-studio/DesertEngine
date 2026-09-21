@@ -185,7 +185,9 @@ namespace Desert::Graphic
         // binding is (A8-3).
         // `castShadows` is NOT defaulted: a default here is a place for a caller to forget the flag,
         // and the one this replaces was an unconditional append in the cascade pass.
-        void SubmitInstancedMesh( const Mesh* mesh, const MaterialInstancePtr& material,
+        // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
+        // only caller holds a non-const mesh, and the queue this reaches needs one too.
+        void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool                                                 castShadows );
 
