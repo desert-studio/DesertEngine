@@ -28,6 +28,7 @@
 // both are written into files that no compiler reads. Pinning them here is what makes a rename or a
 // re-cook fail loudly instead of silently emptying the one scene that covers this path.
 
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <gtest/gtest.h>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -158,7 +159,9 @@ namespace
         std::string WriteMesh( std::uint64_t signature, const char* stem = "SkinProbe" ) const
         {
             const auto path = m_Dir / ( std::string( stem ) + ".skmesh" );
-            WriteText( path, rfl::json::write( ProbeMeshData( signature ) ) );
+            // The mesh is a binary container; the skeleton beside it is still JSON, and that asymmetry
+            // is the point of the two lines rather than an oversight — only the MESH form moved.
+            WriteText( path, Desert::Assets::Serialization::EncodeMeshBinary( ProbeMeshData( signature ) ) );
             return path.generic_string();
         }
 

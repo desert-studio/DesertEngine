@@ -528,6 +528,39 @@ namespace Desert::Assets::Serialization
                      "'{}' submesh {} names bytes [{}, {}) of a {}-byte string section.", who, i, rec.NameOffset,
                      static_cast<uint64_t>( rec.NameOffset ) + rec.NameLength, strings.size() );
             }
+            // THE SUBMESH'S OWN RANGES, against the arrays they index. B11 left this out and called it
+            // asset semantics on the grounds that the JSON form did not check it either — but the JSON
+            // form could not produce this failure. There, a corrupted file stopped being parseable
+            // text; here it stays perfectly valid bytes and the mesh loads with a range that walks off
+            // the end of the vertex or index array at DRAW time, in the renderer, with the file long
+            // since closed. The decoder is the last place that still knows both numbers.
+            //
+            // Written as `count > size - offset` rather than `offset + count > size`: both operands are
+            // uint32_t widened to uint64_t above for the same reason, and the subtraction form cannot
+            // overflow at all once `offset <= size` is established.
+            // THE TWO NUMBERS ARE IN DIFFERENT UNITS, and the first draft of this check got it wrong in
+            // exactly the way the check exists to catch. `SecIndices` counts `IndexData` records, and an
+            // `IndexData` is a FACE — three `uint32_t`. `SubmeshData::IndexCount` counts INDICES. So the
+            // shipped 24-face probe was refused for "names indices [0, 36) of 24" while being perfectly
+            // valid: 24 faces are 72 indices and its two submeshes hold 36 each. Convert, once, here.
+            const uint64_t indexCount = N( SecIndices ) * 3;
+
+            // Static and skinned vertices are summed because a file carries one array or the other and
+            // the empty one contributes zero; summing keeps this from having to know which kind it is.
+            const uint64_t vertexCount = N( SecStaticVertices ) + N( SecSkinnedVertices );
+            if ( rec.VertexOffset > vertexCount || rec.VertexCount > vertexCount - rec.VertexOffset )
+            {
+                return Common::MakeFormattedError<MeshAssetData>(
+                     "'{}' submesh {} names vertices [{}, {}) of {}.", who, i, rec.VertexOffset,
+                     static_cast<uint64_t>( rec.VertexOffset ) + rec.VertexCount, vertexCount );
+            }
+            if ( rec.IndexOffset > indexCount || rec.IndexCount > indexCount - rec.IndexOffset )
+            {
+                return Common::MakeFormattedError<MeshAssetData>(
+                     "'{}' submesh {} names indices [{}, {}) of {} ({} faces).", who, i, rec.IndexOffset,
+                     static_cast<uint64_t>( rec.IndexOffset ) + rec.IndexCount, indexCount, N( SecIndices ) );
+            }
+
             out.VertexOffset = rec.VertexOffset;
             out.VertexCount  = rec.VertexCount;
             out.IndexOffset  = rec.IndexOffset;
@@ -605,21 +638,22 @@ namespace Desert::Assets::Serialization
         if ( LooksLikeMeshBinary( bytes ) )
             return DecodeMeshBinary( bytes, whatFor );
 
-        // VERSION 0: THE JSON FORM THAT PREDATES THE CONTAINER. Nothing writes it any more — the
-        // importer emits the container and the committed fixtures were converted with it — but the
-        // cooked tree is gitignored and machine-local, so every clone in existence still holds JSON
-        // meshes from its own earlier cooks. This arm is what makes them open; it is a migration, not
-        // a second live format, and it is the only reader of JSON mesh bytes left in the tree.
+        // THE JSON ARM IS GONE, BY OWNER DECISION 2026-09-22: "if the cook is deprecated the user just
+        // deletes it — we are still in development, there is nothing to migrate".
         //
-        // `DefaultIfMissing` for the reason it was added: a mesh cooked before `MorphTargets` or
-        // `LODs` existed takes the struct's default for the absent field instead of failing the read.
-        auto parsed = rfl::json::read<MeshAssetData, rfl::DefaultIfMissing>( std::string( bytes ) );
-        if ( !parsed.has_value() )
-        {
-            return Common::MakeFormattedError<MeshAssetData>(
-                 "'{}' is neither a cooked-mesh container nor readable as the retired JSON form: {}",
-                 std::string( whatFor ), parsed.error().what() );
-        }
-        return Common::MakeSuccess( MeshAssetData( std::move( parsed.value() ) ) );
+        // The argument is stronger than the timing. `Cooked/` is DERIVED data: gitignored,
+        // machine-local, and reproducible for free by re-cooking. Keeping a second reader alive to
+        // migrate something that can be regenerated is a second source of truth bought with nothing —
+        // and a second reader for one structure is exactly what this container replaced. Every cooked
+        // mesh this repository TRACKS carries the magic, so no clone loses a file it cannot rebuild.
+        //
+        // The refusal therefore names the remedy rather than the parse error: a stale cook is not a
+        // corrupt file and must not read like one.
+        return Common::MakeFormattedError<MeshAssetData>(
+             "'{}' does not carry the cooked-mesh magic, so it predates the binary container. Cooked "
+             "content is derived and is not migrated: delete it and cook again "
+             "(`cd Editor && ../build/Bin/Debug/AssetRegistryTool cook Desert.deproj`, or re-import the "
+             "source mesh).",
+             std::string( whatFor ) );
     }
 } // namespace Desert::Assets::Serialization

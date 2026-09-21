@@ -147,8 +147,11 @@ namespace
 
         std::string Write( const char* stem, const MeshAssetData& data ) const
         {
+            // THE CONTAINER, NOT JSON. The JSON arm of the reader was removed — cooked content is
+            // derived, so a stale one is deleted and cooked again rather than migrated — and a fixture
+            // written in a form nothing reads any more tests nothing.
             const auto path = m_Dir / ( std::string( stem ) + ".stmesh" );
-            WriteText( path, rfl::json::write( data ) );
+            WriteText( path, Desert::Assets::Serialization::EncodeMeshBinary( data ) );
             return path.generic_string();
         }
 
@@ -286,9 +289,13 @@ TEST( StaticMeshCooked, ARefusedLoadDoesNotDestroyWhatTheAssetAlreadyHeld )
     ASSERT_GT( submeshes, 0u );
 
     // The file goes bad underneath it — a truncated cook, a half-written re-import.
+    // A VALID CONTAINER THAT CARRIES NO SUBMESH, which is what a truncated cook or a half-written
+    // re-import leaves behind now that the form is binary. The point of the test is the ASSET's
+    // reaction — it must keep what it already had rather than half-replace it — so the file has to be
+    // one the reader accepts and the asset rejects, not one the reader cannot parse at all.
     MeshAssetData broken = ProbeFileContents();
     broken.Submeshes.clear();
-    WriteText( path, rfl::json::write( broken ) );
+    WriteText( path, Desert::Assets::Serialization::EncodeMeshBinary( broken ) );
 
     EXPECT_FALSE( asset.Load().IsSuccess() );
     EXPECT_EQ( asset.GetSubmeshes().size(), submeshes );

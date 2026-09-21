@@ -21,11 +21,11 @@ namespace Desert::Assets
         if ( !raw )
             return Common::MakeError( raw.GetError() );
 
-        // ONE READER FOR BOTH FORMS, AND IT IS THE MIGRATION (B11). A cooked mesh is a binary container
-        // now; a file that does not carry the magic is read as the retired JSON form, which is what lets
-        // a clone's own older cooks — the whole `Cooked/` tree is gitignored and machine-local — still
-        // open. Neither this class nor its skinned twin knows which arm ran, and that is the point:
-        // there is one place that decides, and it is testable without a filesystem.
+        // ONE READER, ONE FORM. A cooked mesh is a binary container; the JSON arm that used to open a
+        // clone's older cooks was removed by owner decision — cooked content is DERIVED, so a stale one
+        // is deleted and cooked again rather than migrated. Neither this class nor its skinned twin
+        // knows how the bytes are laid out, and that is the point: one place decides, and it is
+        // testable without a filesystem.
         const auto dataReflected =
              Serialization::ReadMeshAssetData( raw.GetValue(), m_Metadata.Filepath.string() );
         if ( !dataReflected )
