@@ -13,6 +13,7 @@
 // any scope you want timed. Names must be string literals (so Optick can cache its descriptors).
 
 #include <Common/Core/DestructorGuard.hpp>
+#include <Common/Core/DevInstruments.hpp>
 #include <optick.h>
 
 #include <chrono>
@@ -220,6 +221,35 @@ namespace Common::Profiling
     };
 } // namespace Common::Profiling
 
+// ── THE SHIPPING BOUNDARY, AND IT IS HERE BECAUSE THE MACROS ARE THE ONLY DOOR ──────────────────────
+//
+// Every timed scope in this engine goes through one of the six macros below — there is no second way in,
+// which is what makes a single `#if` enough to remove the whole instrument. Under `Shipping` they expand
+// to nothing, so:
+//
+//   * no `ScopedTimer` is constructed, so `Common::Profiling::Profiler` has no caller and `Profiler.o`
+//     is never pulled out of libCommon.a — the aggregator is not in the binary, not merely idle;
+//   * no `GpuScopedTimer` is constructed, so the backend's timestamp sink has no caller either;
+//   * no `OPTICK_*` expands, so Optick is not linked (the premakes drop both the library and
+//     `USE_OPTICK` under this configuration).
+//
+// `do {} while(0)` is NOT used: every one of these is a declaration-shaped statement whose whole job is
+// to create an object with a lifetime, and four of the six are used at the top of a function body where
+// a trailing semicolon after an empty expansion is what the call site already writes. An empty expansion
+// leaves exactly that semicolon, which is a null statement and is legal in every position these are used
+// in. A `do {} while(0)` would be legal in the same positions but would also silently accept being used
+// as an expression, which these never are.
+#if !DESERT_DEV_INSTRUMENTS
+
+    #define DESERT_PROFILE_SCOPE( NAME )
+    #define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )
+    #define DESERT_PROFILE_FUNC()
+    #define DESERT_PROFILE_PASS( NAME )
+    #define DESERT_PROFILE_PASS_DYNAMIC( CSTR )
+    #define DESERT_PROFILE_FRAME( NAME )
+
+#else
+
 #define DESERT_PROF_CONCAT_( a, b ) a##b
 #define DESERT_PROF_CONCAT( a, b ) DESERT_PROF_CONCAT_( a, b )
 
@@ -262,3 +292,5 @@ namespace Common::Profiling
 #define DESERT_PROFILE_FRAME( NAME )                                                                        \
     OPTICK_FRAME( NAME );                                                                                   \
     ::Common::Profiling::Profiler::Get().BeginFrame()
+
+#endif // DESERT_DEV_INSTRUMENTS

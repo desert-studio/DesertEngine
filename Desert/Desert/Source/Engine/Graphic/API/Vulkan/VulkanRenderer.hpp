@@ -122,7 +122,12 @@ namespace Desert::Graphic::API::Vulkan
         /// Owned outright rather than reached through a global: there is one renderer API and the query
         /// pool's lifetime is exactly its lifetime. The profiling macros find it through the sink the
         /// profiler holds, so nothing else needs a pointer to it.
+        ///
+        /// Absent in a Shipping build, together with the four calls into it — see
+        /// Common/Core/DevInstruments.hpp.
+#if DESERT_DEV_INSTRUMENTS
         VulkanGpuProfiler m_GpuProfiler;
+#endif
 
         std::weak_ptr<Framebuffer> m_CompositeFramebuffer;
     };

@@ -1,3 +1,4 @@
+#include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -110,7 +111,16 @@ namespace Desert::Graphic
         //
         // BEFORE the backend call rather than after, so a frame the backend refuses still contributes
         // its reading. The refusal is the interesting frame.
+        //
+        // AND IT IS GATED AT THE CALL SITE, unlike the draw counter and the load ledger, because the
+        // ARGUMENT is the instrument: `TakeFrameSample()` asks the device for its heap budgets and reads
+        // the process's resident set. An empty `SampleFrame` would still pay for the query every frame.
+        // The paragraph above says this reading is taken "in the shipped path" — it was written when
+        // there was no configuration in which anything was NOT in the shipped path. A player's frame does
+        // not pay for a number no player can read.
+#if DESERT_DEV_INSTRUMENTS
         MemoryWatch::SampleFrame( MemoryReadout::TakeFrameSample() );
+#endif
 
         return s_RendererAPI->BeginFrame();
     }

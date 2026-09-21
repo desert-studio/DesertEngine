@@ -40,7 +40,10 @@
 #include <Engine/ECS/System/AudioECSSystem.hpp>
 
 // STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); declare only.
-#include <stb_image/stb_image_write.h>
+// Only the capture writes a PNG from this host, so a shipping build does not need the declaration either.
+#if DESERT_DEV_INSTRUMENTS
+    #include <stb_image/stb_image_write.h>
+#endif
 
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
@@ -245,8 +248,10 @@ namespace Desert::Player
         // boots, and a phase keyed on the first frame would have marked the whole preload as in-frame.
         // See Engine/Assets/SyncLoadLedger.hpp.
         Assets::SyncLoadLedger::NoteBootFinished();
+#if DESERT_DEV_INSTRUMENTS
         LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
         LOG_INFO( "[Memory] boot finished — {}", Graphic::MemoryReadout::Take().Report() );
+#endif
         // HOW MANY HANDLES CAN NAME THEIR OWN FILE BY THE TIME THE BOOT IS OVER. The eager preloader's
         // directory walk is what mints them, so this number IS the size of the path->handle inverse the
         // engine has at that moment — and therefore the exact quantity the demand-driven model has to
@@ -363,6 +368,7 @@ namespace Desert::Player
         }
     }
 
+#if DESERT_DEV_INSTRUMENTS
     void RuntimeLayer::RecordShotIfDue()
     {
         const auto& shot = RuntimeShot::Get();
@@ -388,10 +394,18 @@ namespace Desert::Player
         m_ShotRecorded = true;
     }
 
+#endif // DESERT_DEV_INSTRUMENTS
+
     void RuntimeLayer::OnFramePresented()
     {
         ++m_PresentedFrames;
 
+#if !DESERT_DEV_INSTRUMENTS
+        // A shipping player counts its presented frames and does nothing else here: the capture that used
+        // to end the process on a chosen frame is not in this binary. Early-returning keeps the counter
+        // above as the only statement, rather than leaving a function whose body is all preprocessor.
+        return;
+#else
         const auto& shot = RuntimeShot::Get();
         if ( !shot.Active() || !m_ShotRecorded )
             return;
@@ -448,6 +462,7 @@ namespace Desert::Player
         }
 
         m_Application->Close( exitCode );
+#endif // DESERT_DEV_INSTRUMENTS
     }
 
     void RuntimeLayer::OnContentReady()
@@ -782,7 +797,9 @@ namespace Desert::Player
         // is a Vulkan violation that looks perfect in the resulting PNG -- only the validation layer
         // objects. So the copy goes into THIS frame's command buffer, and the bytes are collected in
         // OnFramePresented once the present that carried it has gone out.
+#if DESERT_DEV_INSTRUMENTS
         RecordShotIfDue();
+#endif
 
         // Dispatch the clicked button's action AFTER the pass (scene switch queued for next OnUpdate; quit /
         // URL are process-level). Same encoding the UI walker produces.

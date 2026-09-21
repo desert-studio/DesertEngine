@@ -1,5 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
 
+#include <Common/Core/DevInstruments.hpp>
+
 #include <algorithm> // std::find — present-mode support probe
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
@@ -455,6 +457,20 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
+// ── THE FRAME CAPTURE'S BODIES, AND WHY ONLY THE BODIES ─────────────────────────────────────────────
+//
+// These two functions ARE the screenshot machinery: a blit of the presented image into a GPU_TO_CPU
+// staging buffer, a device wait, a map and a repack. Roughly 150 lines that exist so a developer can
+// photograph a frame, and their only two callers are the editor's `shot.window` and the runtime's
+// `--shot` — neither of which is in a shipping build.
+//
+// WHAT IS NOT CUT, AND THAT IS DELIBERATE. `SupportsFrameReadback()` and the usage flags the swapchain
+// images are created with stay exactly as they are in every configuration. Taking
+// VK_IMAGE_USAGE_TRANSFER_SRC_BIT off the shipping swapchain would change how the swapchain is CREATED,
+// which is a change to the picture's own path — and a boundary that changes the picture is not a
+// boundary, it is a second renderer nobody verified. That flag is a task with an argument of its own.
+#if DESERT_DEV_INSTRUMENTS
+
     Common::BoolResultStr VulkanSwapChain::RecordFrameCapture()
     {
         // EVERY refusal below is named, and none of them falls back to another image. The caller asked for
@@ -612,6 +628,25 @@ namespace Desert::Graphic::API::Vulkan
         outHeight = h;
         return Common::MakeSuccess( std::move( out ) );
     }
+
+#else
+
+    // The overrides still exist, because the base class declares them pure virtual for a host that must
+    // not know about Vulkan (SwapChain.hpp). They REFUSE, with the reason, rather than returning an empty
+    // buffer: an empty success here is a blank PNG, and this project has already spent a day on the fact
+    // that two blank PNGs are byte-identical and a diff over them reports "no change".
+    Common::BoolResultStr VulkanSwapChain::RecordFrameCapture()
+    {
+        return Common::MakeError( "frame capture is not compiled into a Shipping build." );
+    }
+
+    Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::TakeCapturedFrameRGBA8( uint32_t&, uint32_t& )
+    {
+        return Common::MakeError<std::vector<uint8_t>>(
+             "frame capture is not compiled into a Shipping build." );
+    }
+
+#endif // DESERT_DEV_INSTRUMENTS
 
     Common::ResultStr<VkResult> VulkanSwapChain::CreateSwapChainFramebuffers()
     {
