@@ -26,9 +26,11 @@
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 
 #include <ImGui/imgui.h>
@@ -38,6 +40,7 @@
 #include <Editor/Import/TextureDnD.hpp>
 #include <Editor/Core/ColliderFit.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
@@ -56,6 +59,7 @@
 #include <Common/Core/Constants.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -1196,11 +1200,30 @@ namespace Desert::Editor
         };
         return e;
     }
-    // UE-style Instanced Static Mesh editor: pick a primitive (or drop an asset mesh) + add/clear instances.
-    // Instances are WORLD-space; all of them render as ONE instanced draw (+1 per shadow cascade).
+    // ============================================================================================
+    // INSTANCED STATIC MESH — the panel that makes one entity able to stand for five hundred props.
+    //
+    // WHY THIS IS A LEVER AND NOT A COSMETIC. Measured on the world-scale scene (Tools/WorldGen,
+    // 50 179 entities): the ECS mesh walk costs ~55 ms a frame against 22.6 ms of GPU, because it
+    // visits every entity. Auto-batching already folds those draws into ~25 — it saves DRAW CALLS,
+    // and the walk has already happened by the time it runs. An ISM is the other saving: N repeated
+    // props become ONE entity carrying N world matrices, so the walk visits one.
+    //
+    // WHAT IS DELIBERATELY NOT DRAWN HERE, so the next reader does not take it for forgetfulness:
+    //   * per-instance custom data — the instanced shader reads gl_InstanceIndex into the transform
+    //     SSBO and nothing else; there is no consumer, so the field would be a knob moving nothing;
+    //   * cull distances — culling in this engine is frustum-only (MeshRenderer::IsVisibleInView);
+    //     there is no distance test to feed;
+    //   * per-instance collision presets — Jolt is wired for box, sphere and capsule on a Collider
+    //     COMPONENT, which is per entity; an ISM has one entity for N instances and no per-instance
+    //     body exists to configure.
+    // Each of the three would be a row that writes a field nobody reads. §1.3 of the contract.
+    // ============================================================================================
     static ComponentEditorEntry MakeInstancedStaticMeshEntry()
     {
-        using ISMC = ::Desert::ECS::InstancedStaticMeshComponent;
+        using ISMC  = ::Desert::ECS::InstancedStaticMeshComponent;
+        namespace GG = ::Desert::Geometry;
+
         ComponentEditorEntry e;
         e.Name      = "Instanced Static Mesh";
         e.CanRemove = true;
@@ -1208,24 +1231,44 @@ namespace Desert::Editor
         e.Add       = []( ::Desert::ECS::Entity& en )
         {
             auto& c     = en.AddComponent<ISMC>();
-            c.Primitive = ::Desert::Geometry::PrimitiveType::Cube; // renders immediately
+            c.Primitive = GG::PrimitiveType::Cube; // renders immediately
             if ( c.InstanceTransforms.empty() )
-                c.InstanceTransforms.push_back( glm::mat4( 1.0f ) );
+                c.InstanceTransforms.emplace_back( 1.0f );
         };
         e.Remove = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<ISMC>(); };
-        e.Draw   = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
+        e.Draw   = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
         {
-            auto& c = en.GetComponent<ISMC>();
+            namespace U = ::Desert::Editor::Utils;
+            auto& c     = en.GetComponent<ISMC>();
 
-            // Mesh source: a built-in primitive, or an asset mesh dropped from the browser.
-            static const char* kPrims[] = { "Cube", "Sphere", "Plane", "Pyramid" };
-            int                cur      = c.Primitive.has_value() ? static_cast<int>( c.Primitive.value() ) : 0;
-            if ( !c.MeshHandle && ::ImGui::Combo( "Primitive", &cur, kPrims, IM_ARRAYSIZE( kPrims ) ) )
+            // ── MESH SOURCE ───────────────────────────────────────────────────────────────────────
+            U::ImGuiUtilities::ResetPropertyRows();
+
+            if ( !c.MeshHandle )
             {
-                c.Primitive = static_cast<::Desert::Geometry::PrimitiveType>( cur );
-                c.RuntimeMesh.reset();
+                // OFFERED LIST AND STORED VALUE BOTH FROM Geometry::kAuthorablePrimitives. The hand-typed
+                // list that stood here was { "Cube", "Sphere", "Plane", "Pyramid" } against an enum that
+                // runs Cube, Sphere, Pyramid, Plane — so picking "Plane" built a pyramid, and Cylinder and
+                // Capsule could not be picked at all. Nothing in a frame says which enumerator a combo
+                // meant, which is how that lived for as long as this editor has.
+                std::array<const char*, GG::kAuthorablePrimitives.size()> shapes{};
+                int                                                       current = 0;
+                for ( size_t i = 0; i < GG::kAuthorablePrimitives.size(); ++i )
+                {
+                    shapes[i] = GG::PrimitiveTypeName( GG::kAuthorablePrimitives[i] );
+                    if ( c.Primitive.has_value() && GG::kAuthorablePrimitives[i] == *c.Primitive )
+                        current = static_cast<int>( i );
+                }
+                U::ImGuiUtilities::BeginPropertyRow( "Shape", "The built-in mesh every instance draws" );
+                if ( ::ImGui::Combo( "##ism_shape", &current, shapes.data(), static_cast<int>( shapes.size() ) ) )
+                {
+                    c.Primitive = GG::kAuthorablePrimitives[static_cast<size_t>( current )];
+                    c.RuntimeMesh.reset();
+                }
+                U::ImGuiUtilities::EndPropertyRow();
             }
 
+            U::ImGuiUtilities::BeginPropertyRow( "Mesh", "Drop a .stmesh here to instance an asset mesh" );
             ::ImGui::Button( c.MeshHandle ? "Mesh: <asset> (drop to replace)"
                                           : "Drop a .stmesh to use an asset mesh",
                              ImVec2( -1.0f, 0.0f ) );
@@ -1247,46 +1290,209 @@ namespace Desert::Editor
                 }
                 ::ImGui::EndDragDropTarget();
             }
+            U::ImGuiUtilities::EndPropertyRow();
+
             if ( c.MeshHandle && ::ImGui::SmallButton( "Use Primitive Instead" ) )
             {
                 c.MeshHandle = {};
-                c.Primitive  = ::Desert::Geometry::PrimitiveType::Cube;
+                c.Primitive  = GG::PrimitiveType::Cube;
+                c.RuntimeMesh.reset();
             }
 
-            ::ImGui::Separator();
-            ::ImGui::Text( "Instances: %d", static_cast<int>( c.InstanceTransforms.size() ) );
-
-            if ( ::ImGui::Button( "Add Instance" ) )
+            // ── MATERIAL SLOTS ────────────────────────────────────────────────────────────────────
+            //
+            // The SAME widget the static and skinned meshes use, reached through MaterialHost — which
+            // was built as "a view rather than a component type" for exactly this. An ISM's slots feed
+            // MeshECSSystem's RuntimeMaterialInstances identically; until this call existed they could
+            // only be written by editing the scene file.
             {
-                const float n = static_cast<float>( c.InstanceTransforms.size() );
-                c.InstanceTransforms.push_back( glm::translate( glm::mat4( 1.0f ), glm::vec3( n * 2.0f, 0, 0 ) ) );
-            }
-            ::ImGui::SameLine();
-            if ( ::ImGui::Button( "Add 10x10 Grid" ) )
-            {
-                for ( int z = 0; z < 10; ++z )
-                    for ( int x = 0; x < 10; ++x )
-                        c.InstanceTransforms.push_back(
-                             glm::translate( glm::mat4( 1.0f ), glm::vec3( x * 2.0f, 0.0f, z * 2.0f ) ) );
-            }
-            ::ImGui::SameLine();
-            if ( ::ImGui::Button( "Clear" ) )
-            {
-                c.InstanceTransforms.clear();
+                static ::Desert::Editor::MaterialComponentWidget s_InstancedMaterials( ctx.AssetMgr() );
+                s_InstancedMaterials.Render( en, scene );
             }
 
-            // CAST SHADOWS, and it is the knob an ISM was the only mesh kind not to have. The cascade
-            // pass read StaticMeshComponent::CastShadows and SkinnedMeshComponent::CastShadows and
-            // appended every instanced batch unconditionally, so a scattered field of grass — the very
-            // thing an ISM is for — could not be taken out of the shadow maps at any price. Same
-            // wording and same place as on the other two kinds.
-            namespace U = ::Desert::Editor::Utils;
-            ::ImGui::Separator();
-            U::ImGuiUtilities::ResetPropertyRows();
-            U::ImGuiUtilities::BeginPropertyRow( "Cast Shadows",
-                                                 "Skip every instance in the shadow (depth) passes" );
-            ::ImGui::Checkbox( "##ism_castshadows", &c.CastShadows );
-            U::ImGuiUtilities::EndPropertyRow();
+            // ── WHAT IT COSTS, COMPUTED ───────────────────────────────────────────────────────────
+            //
+            // EVERY NUMBER HERE IS DERIVED FROM THE THING IT DESCRIBES, never from the frame counters.
+            // DrawCounter::LastFrame() answers for the WHOLE frame; a per-component panel quoting it
+            // would be an instrument answering a different question than the one asked — the shape this
+            // project keeps finding. The instance count is the array's size, the triangle count is the
+            // mesh's own index counts, and the draw figure is the batch rule stated as a rule.
+            const size_t instanceCount = c.InstanceTransforms.size();
+
+            ::Desert::Mesh* mesh =
+                 c.RuntimeMesh ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
+                               : ( c.MeshHandle
+                                        ? ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle )
+                                        : ( c.Primitive.has_value()
+                                                 ? GG::PrimitiveMeshFactory::GetShared( *c.Primitive )
+                                                 : nullptr ) );
+            uint64_t trianglesEach = 0;
+            if ( mesh )
+                for ( const auto& submesh : mesh->GetSubmeshes() )
+                    if ( !submesh.LODs.empty() )
+                        trianglesEach += submesh.LODs.front().IndexCount / 3;
+
+            uint32_t cascades = 0;
+            if ( c.CastShadows && scene && scene->GetSceneRenderer() )
+                cascades = scene->GetSceneRenderer()->GetShadowCascadeCount();
+
+            if ( U::ImGuiUtilities::SectionHeader( ICON_MDI_CHART_BAR "  Statistics", true ) )
+            {
+                U::ImGuiUtilities::ResetPropertyRows();
+
+                U::ImGuiUtilities::BeginPropertyRow( "Instances", "World transforms in this component" );
+                ::ImGui::Text( "%zu", instanceCount );
+                U::ImGuiUtilities::EndPropertyRow();
+
+                U::ImGuiUtilities::BeginPropertyRow( "Triangles",
+                                                     "Instances x the mesh's LOD 0 triangles, before "
+                                                     "per-instance culling and LOD" );
+                if ( mesh )
+                    ::ImGui::Text( "%llu  (%llu each)",
+                                   static_cast<unsigned long long>( trianglesEach * instanceCount ),
+                                   static_cast<unsigned long long>( trianglesEach ) );
+                else
+                    ::ImGui::TextDisabled( "mesh not resolved" );
+                U::ImGuiUtilities::EndPropertyRow();
+
+                // THE ROW THIS PANEL EXISTS FOR. One batch against one entity apiece, with the cascades
+                // counted on both sides — the shadow passes are where the difference is largest, and the
+                // measurement that added CastShadows to this component (25/62 draws -> 21/26) is exactly
+                // this arithmetic seen from the other end.
+                U::ImGuiUtilities::BeginPropertyRow( "Draw calls",
+                                                     "One instanced batch per pass, whatever the instance "
+                                                     "count; the alternative is one draw per entity" );
+                ::ImGui::Text( "%u  vs %zu as separate entities", 1u + cascades,
+                               instanceCount * ( 1u + cascades ) );
+                U::ImGuiUtilities::EndPropertyRow();
+
+                U::ImGuiUtilities::BeginPropertyRow( "ECS entities", "What the per-frame mesh walk visits" );
+                ::ImGui::Text( "1  vs %zu as separate entities", instanceCount );
+                U::ImGuiUtilities::EndPropertyRow();
+            }
+
+            // ── RENDERING ─────────────────────────────────────────────────────────────────────────
+            //
+            // CAST SHADOWS is the knob an ISM was the only mesh kind not to have. The cascade pass read
+            // StaticMeshComponent::CastShadows and SkinnedMeshComponent::CastShadows and appended every
+            // instanced batch unconditionally, so a scattered field of grass — the very thing an ISM is
+            // for — could not be taken out of the shadow maps at any price. Same wording and same place
+            // as on the other two kinds.
+            if ( U::ImGuiUtilities::SectionHeader( ICON_MDI_EYE "  Rendering", false ) )
+            {
+                U::ImGuiUtilities::ResetPropertyRows();
+                U::ImGuiUtilities::BeginPropertyRow( "Cast Shadows",
+                                                     "Skip every instance in the shadow (depth) passes" );
+                ::ImGui::Checkbox( "##ism_castshadows", &c.CastShadows );
+                U::ImGuiUtilities::EndPropertyRow();
+            }
+
+            // ── THE INSTANCE LIST ─────────────────────────────────────────────────────────────────
+            //
+            // WORLD-SPACE, AND THE HEADER SAYS SO because it is the one thing about this component that
+            // surprises everybody: MeshECSSystem hands InstanceTransforms to the draw command untouched,
+            // so the entity's own transform does NOT move its instances.
+            //
+            // THE ROWS ARE VIRTUALISED (ImGuiListClipper). A field folded from five hundred props is the
+            // normal case, not the extreme one, and five hundred three-vector rows a frame is what turns
+            // a panel into the frame's most expensive window.
+            //
+            // AND A ROW IS WRITTEN BACK ONLY WHEN IT CHANGED. Decompose-then-recompose does not return
+            // the matrix it was given (euler angles are not unique, and a scale-carrying matrix comes
+            // back a few ULPs away), so re-composing every row every frame would walk the instances off
+            // their placements without anybody touching a control.
+            if ( U::ImGuiUtilities::SectionHeader( ICON_MDI_FORMAT_LIST_NUMBERED "  Instances (world space)",
+                                                   true ) )
+            {
+                if ( ::ImGui::Button( "Add" ) )
+                {
+                    // Beside the last one rather than at the origin: an instance added on top of an
+                    // existing one is invisible, and "the button did nothing" is what that looks like.
+                    glm::mat4 seed( 1.0f );
+                    if ( !c.InstanceTransforms.empty() )
+                        seed = glm::translate( c.InstanceTransforms.back(), glm::vec3( 200.0f, 0.0f, 0.0f ) );
+                    c.InstanceTransforms.push_back( seed );
+                }
+                ::ImGui::SameLine();
+                if ( ::ImGui::Button( "Add 10x10 Grid" ) )
+                {
+                    for ( int z = 0; z < 10; ++z )
+                        for ( int x = 0; x < 10; ++x )
+                            c.InstanceTransforms.push_back( glm::translate(
+                                 glm::mat4( 1.0f ), glm::vec3( x * 200.0f, 0.0f, z * 200.0f ) ) );
+                }
+                ::ImGui::SameLine();
+                if ( ::ImGui::Button( "Clear" ) )
+                    c.InstanceTransforms.clear();
+
+                // Deferred so the vector is not resized while the clipper is walking it.
+                int duplicateIndex = -1;
+                int removeIndex    = -1;
+
+                U::ImGuiUtilities::ResetPropertyRows();
+                ImGuiListClipper clipper;
+                clipper.Begin( static_cast<int>( c.InstanceTransforms.size() ) );
+                while ( clipper.Step() )
+                {
+                    for ( int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i )
+                    {
+                        ::ImGui::PushID( i );
+
+                        const auto decomposed =
+                             ::Desert::ECS::Rules::DecomposeTransform( c.InstanceTransforms[static_cast<size_t>( i )] );
+                        glm::vec3 translation = decomposed.Translation;
+                        glm::vec3 degrees     = glm::degrees( decomposed.Rotation );
+                        glm::vec3 scale       = decomposed.Scale;
+
+                        bool              moved = false;
+                        const std::string label = "[" + std::to_string( i ) + "]";
+
+                        U::ImGuiUtilities::BeginPropertyRow( label.c_str(), "World position, in centimetres" );
+                        moved |= U::ImGuiUtilities::VectorField( "pos", &translation.x, 3, 1.0f, "%.1f" );
+                        U::ImGuiUtilities::EndPropertyRow();
+
+                        // Stored as a matrix, shown in degrees like every other rotation in the editor.
+                        U::ImGuiUtilities::BeginPropertyRow( "  Rotation", "World rotation, in degrees" );
+                        moved |= U::ImGuiUtilities::VectorField( "rot", &degrees.x, 3, 0.5f, "%.1f\xc2\xb0" );
+                        U::ImGuiUtilities::EndPropertyRow();
+
+                        U::ImGuiUtilities::BeginPropertyRow( "  Scale", nullptr );
+                        moved |= U::ImGuiUtilities::VectorField( "scl", &scale.x, 3, 0.01f, "%.3f" );
+                        U::ImGuiUtilities::EndPropertyRow();
+
+                        U::ImGuiUtilities::BeginPropertyRow( "  ", nullptr );
+                        if ( ::ImGui::SmallButton( "Duplicate" ) )
+                            duplicateIndex = i;
+                        ::ImGui::SameLine();
+                        if ( ::ImGui::SmallButton( "Delete" ) )
+                            removeIndex = i;
+                        U::ImGuiUtilities::EndPropertyRow();
+
+                        if ( moved )
+                        {
+                            c.InstanceTransforms[static_cast<size_t>( i )] =
+                                 glm::translate( glm::mat4( 1.0f ), translation ) *
+                                 glm::toMat4( glm::quat( glm::radians( degrees ) ) ) *
+                                 glm::scale( glm::mat4( 1.0f ), scale );
+                        }
+
+                        ::ImGui::PopID();
+                    }
+                }
+                clipper.End();
+
+                if ( duplicateIndex >= 0 )
+                {
+                    // Offset like Add, and for the same reason: a duplicate exactly on top of its source
+                    // is a button that appears to do nothing.
+                    c.InstanceTransforms.insert(
+                         c.InstanceTransforms.begin() + duplicateIndex + 1,
+                         glm::translate( c.InstanceTransforms[static_cast<size_t>( duplicateIndex )],
+                                         glm::vec3( 200.0f, 0.0f, 0.0f ) ) );
+                }
+                if ( removeIndex >= 0 )
+                    c.InstanceTransforms.erase( c.InstanceTransforms.begin() + removeIndex );
+            }
         };
         return e;
     }

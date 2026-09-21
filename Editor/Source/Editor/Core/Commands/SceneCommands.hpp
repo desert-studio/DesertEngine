@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
 #include <glm/glm.hpp>
@@ -95,6 +96,42 @@ namespace Desert::Editor::Commands
     // Replaces the instance subtree with a fresh instantiation of its source prefab (same world position,
     // same parent). ONE undo step (undo brings the modified instance back). Returns the new root UUID.
     Common::UUID RevertPrefabInstance( const Common::UUID& uuid );
+
+    /**
+     * @brief Select every entity in the scene whose static mesh matches @p like's, @p like included.
+     *
+     * UE's "Select ▸ Matching", and here it is what makes a fold reachable at all: the collapse below
+     * takes a SELECTION, and nothing in this editor could build a five-hundred-entity one without five
+     * hundred ctrl-clicks — which is also a gesture no unattended run can make.
+     *
+     * THE MATCH IS THE FOLD'S OWN RULE (Commands::FoldMeshIdentity::SameAs), not a second one written
+     * beside it: mesh, material slots and the shadow flag. A "select matching" that matched on less than
+     * the fold requires would hand back a selection the fold then refuses, and the person would have no
+     * way to see which member was the odd one.
+     *
+     * @return how many entities are now selected (0 = @p like carries no static mesh, or no scene).
+     */
+    size_t SelectMatchingStaticMeshes( const Common::UUID& like );
+
+    // ---- Collapse a selection into ONE instanced draw (UE's "Merge Actors -> Instanced") ----
+
+    /**
+     * @brief Replace N identically-meshed entities with ONE carrying an InstancedStaticMeshComponent.
+     *
+     * THE POINT IS THE ENTITY COUNT, NOT THE DRAW COUNT. Auto-batching already folds repeated static
+     * draws (50 179 entities of the world-scale scene collapse to ~25 draws) — but the ECS mesh walk
+     * has already visited all 50 179 by the time it runs, and that walk is the frame's most expensive
+     * line at ~55 ms against 22.6 ms of GPU. One ISM entity holding N world matrices is visited once.
+     *
+     * REFUSES RATHER THAN FOLDING WHAT FITS, and the reason is in Commands::PlanInstanceFold: this
+     * DESTROYS its sources, so anything they carry that an ISM cannot (a script, a collider, children,
+     * a forced LOD, a hidden submesh) would be gone with no message. The refusal names the entity and
+     * the property.
+     *
+     * One undo step: undo brings every source back with its original UUID and removes the ISM.
+     * @return the new entity's UUID, or the refusal.
+     */
+    [[nodiscard]] Common::ResultStr<Common::UUID> CollapseIntoInstancedMesh( const std::vector<Common::UUID>& uuids );
 
     // Runs `mutate` (a component add/remove from the Details panel) undoably: the entity subtree is
     // snapshotted before and after, and undo/redo swap between the two serialized states (delete +

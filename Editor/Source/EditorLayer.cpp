@@ -3661,6 +3661,47 @@ namespace Desert::Editor
             }
         }
 
+        // SELECT EVERY PROP THAT MATCHES THIS ONE — UE's "Select > Matching", and the step without which
+        // the collapse below has no input. A five-hundred-entity selection is five hundred ctrl-clicks,
+        // which is also a gesture no unattended run can make; this turns "pick one crate" into "pick every
+        // crate like it". The match is the FOLD'S OWN identity rule, so a selection this builds is never a
+        // selection the fold then refuses for a reason nobody can see.
+        if ( m_MainScene )
+        {
+            if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
+            {
+                const Common::UUID seed = *primary;
+                commands.push_back( { "Entity", "Select all with the same static mesh", [seed]
+                                      {
+                                          const size_t selected = Commands::SelectMatchingStaticMeshes( seed );
+                                          return PaletteCommandOutcome(
+                                               selected > 0,
+                                               "The selected entity carries no static mesh to match." );
+                                      } } );
+            }
+        }
+
+        // COLLAPSE THE SELECTION INTO ONE INSTANCED DRAW. Offered ONCE, not per entity, because its
+        // subject is the selection and not an entity — the same reason the snap entries below are not
+        // repeated per viewport.
+        //
+        // WHY IT IS A COMMAND AND NOT ONLY A BUTTON. Five hundred transforms are not typed by hand, so
+        // the Details panel's instance list has no author without this; and a control that exists only
+        // as a mouse click cannot be photographed or checked on this machine, where synthetic input is
+        // closed at the OS. Save, "+ State" and the warning-strip rows are here for the same reason.
+        //
+        // It returns the planner's own refusal rather than PaletteCommandDone: a fold that would have
+        // destroyed a collider must say so to whoever asked, on the channel and in the toast alike.
+        commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh",
+                              []
+                              {
+                                  const auto folded = Commands::CollapseIntoInstancedMesh(
+                                       Core::SelectionManager::GetSelection() );
+                                  if ( !folded.IsSuccess() )
+                                      return Common::MakeError<bool>( folded.GetError() );
+                                  return Common::MakeSuccess( true );
+                              } } );
+
         // THE MENU BAR. `--open-menu` is gone and this is where its capability went: a menu can be opened,
         // photographed and closed again, as many times as a session likes, instead of being pinned open
         // for a whole run by a flag with no way to say "now let go".

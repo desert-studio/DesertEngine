@@ -1,9 +1,12 @@
 #include "SceneCommands.hpp"
 
+#include "InstanceFold.hpp"
+
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -931,6 +934,176 @@ namespace Desert::Editor::Commands
         OnStructuralChange();
         Core::SelectionManager::SetSelected( freshId );
         return freshId;
+    }
+
+    namespace
+    {
+        // The fold's identity, read off a live entity. One reader, two callers — the selector below and
+        // the fold itself — so "what matches" and "what folds" are one answer.
+        std::optional<FoldMeshIdentity> StaticMeshIdentityOf( ECS::Entity entity )
+        {
+            if ( !entity.HasComponent<ECS::StaticMeshComponent>() )
+                return std::nullopt;
+            const auto&      mesh = entity.GetComponent<ECS::StaticMeshComponent>();
+            FoldMeshIdentity identity;
+            identity.Mesh        = mesh.MeshHandle;
+            identity.Primitive   = mesh.Primitive;
+            identity.Materials   = mesh.MaterialSlots;
+            identity.CastShadows = mesh.CastShadows;
+            return identity;
+        }
+    } // namespace
+
+    size_t SelectMatchingStaticMeshes( const Common::UUID& like )
+    {
+        if ( !Ready() )
+            return 0;
+        auto seed = FindEntity( like );
+        if ( !seed )
+            return 0;
+        const auto wanted = StaticMeshIdentityOf( *seed );
+        if ( !wanted )
+            return 0;
+
+        std::vector<Common::UUID> matching;
+        for ( const auto& entity : s_Scene->GetAllEntities() )
+        {
+            ECS::Entity candidate = entity;
+            const auto  identity  = StaticMeshIdentityOf( candidate );
+            if ( !identity || !identity->SameAs( *wanted ) )
+                continue;
+            const Common::UUID uuid = UUIDOf( candidate );
+            if ( !uuid.IsNull() )
+                matching.push_back( uuid );
+        }
+        if ( matching.empty() )
+            return 0;
+
+        Core::SelectionManager::SetSelection( matching );
+        return matching.size();
+    }
+
+    Common::ResultStr<Common::UUID> CollapseIntoInstancedMesh( const std::vector<Common::UUID>& uuids )
+    {
+        if ( !Ready() )
+            return Common::MakeError<Common::UUID>( "No scene is open." );
+
+        // WHAT THE PLANNER IS NOT ALLOWED TO GUESS. Everything below gathers FACTS about the selection
+        // and hands them over; the decision (and every refusal message) lives in the std-only planner,
+        // which is what lets a suite ask it without a device.
+        std::vector<FoldCandidate> candidates;
+        size_t                     withoutAMesh = 0;
+        for ( const Common::UUID& uuid : uuids )
+        {
+            auto entity = FindEntity( uuid );
+            if ( !entity )
+                continue;
+            if ( !entity->HasComponent<ECS::StaticMeshComponent>() )
+            {
+                ++withoutAMesh;
+                continue;
+            }
+
+            const auto& mesh = entity->GetComponent<ECS::StaticMeshComponent>();
+
+            FoldCandidate candidate;
+            candidate.Entity = uuid;
+            candidate.Name   = entity->HasComponent<ECS::TagComponent>()
+                                    ? entity->GetComponent<ECS::TagComponent>().Tag
+                                    : std::string( "Entity" );
+            candidate.World  = entity->GetWorldTransform();
+
+            candidate.Identity = *StaticMeshIdentityOf( *entity );
+
+            // The static component's own fields that an ISM has no room for. Each one is a knob somebody
+            // deliberately moved, so losing it silently is losing an authoring decision.
+            if ( mesh.OutlineDraw )
+                candidate.Blockers.emplace_back( "a persistent outline" );
+            if ( mesh.ForcedLOD >= 0 )
+                candidate.Blockers.emplace_back( "a forced LOD" );
+            if ( mesh.LODBias != 0 )
+                candidate.Blockers.emplace_back( "a LOD bias" );
+            if ( !mesh.ReceiveShadows )
+                candidate.Blockers.emplace_back( "receive-shadows off" );
+            if ( mesh.HiddenSubmeshes != 0 )
+                candidate.Blockers.emplace_back( "hidden submeshes" );
+            if ( mesh.RuntimeMesh )
+                candidate.Blockers.emplace_back( "a mesh edited in the editor and not yet saved" );
+
+            if ( entity->HasComponent<ECS::RelationshipComponent>() &&
+                 !entity->GetComponent<ECS::RelationshipComponent>().Children.empty() )
+                candidate.Blockers.emplace_back( "children" );
+
+            // AND EVERY OTHER COMPONENT, ASKED OF THE SERIALIZATION REGISTRY RATHER THAN LISTED HERE.
+            // A hand-written list of "things a prop must not carry" is a list that is wrong the day
+            // somebody adds a component — and wrong in the direction that destroys data. The registry is
+            // the census of everything an entity can carry across a save, so it is the honest source.
+            // `Visibility` is the one exception, and only while it says VISIBLE: dropping a component
+            // that changes nothing is not a loss, while dropping a HIDDEN flag would put a prop back on
+            // screen.
+            for ( const auto& serializer : ::Desert::Core::Serialize::ComponentRegistry::Get().All() )
+            {
+                if ( serializer.Key == "StaticMesh" || !serializer.Has || !serializer.Has( *entity ) )
+                    continue;
+                if ( serializer.Key == "Visibility" &&
+                     ( !entity->HasComponent<ECS::VisibilityComponent>() ||
+                       entity->GetComponent<ECS::VisibilityComponent>().Visible ) )
+                    continue;
+                candidate.Blockers.push_back( "a " + serializer.Key + " component" );
+            }
+
+            candidates.push_back( std::move( candidate ) );
+        }
+
+        auto planned = PlanInstanceFold( candidates );
+        if ( !planned.IsSuccess() )
+        {
+            // The count of selected entities that carry no mesh at all is knowledge the planner does not
+            // have and the person needs: "two of the seven you picked are lights" is a different problem
+            // from "these two cubes are different cubes".
+            std::string message = planned.GetError();
+            if ( withoutAMesh > 0 )
+                message += " (" + std::to_string( withoutAMesh ) + " of the " +
+                           std::to_string( uuids.size() ) + " selected carry no static mesh)";
+            return Common::MakeError<Common::UUID>( message );
+        }
+        const FoldPlan& plan = planned.GetValue();
+
+        // The name comes from the first source, because that is the prop a person recognises in the
+        // Outliner; the count is appended so the row says what happened without being opened.
+        std::string name = "Instanced Mesh";
+        if ( auto first = FindEntity( plan.Sources.front() ); first && first->HasComponent<ECS::TagComponent>() )
+            name = first->GetComponent<ECS::TagComponent>().Tag;
+        name += " x" + std::to_string( plan.InstanceTransforms.size() );
+
+        auto composite = std::make_unique<CompositeCommand>();
+        for ( const Common::UUID& source : plan.Sources )
+        {
+            auto entity = FindEntity( source );
+            if ( !entity )
+                continue;
+            auto snapshot = CaptureSubtree( *entity );
+            DestroyByUUID( source );
+            composite->Add( std::make_unique<DeleteCommand>( std::move( snapshot ) ) );
+        }
+
+        const Common::UUID folded  = Common::UUID::Generate();
+        ECS::Entity&       created = s_Scene->CreateEntityWithUUID( folded, name );
+        auto&              ism     = created.AddComponent<ECS::InstancedStaticMeshComponent>();
+        ism.MeshHandle             = plan.Identity.Mesh;
+        ism.Primitive              = plan.Identity.Primitive;
+        ism.MaterialSlots          = plan.Identity.Materials;
+        ism.CastShadows            = plan.Identity.CastShadows;
+        ism.InstanceTransforms     = plan.InstanceTransforms;
+        composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ folded } ) );
+
+        CommandHistory::Get().PushCommand( std::move( composite ) );
+        OnStructuralChange();
+        Core::SelectionManager::SetSelected( folded );
+
+        LOG_INFO( "[Collapse] {0} entities -> 1 instanced mesh with {1} instances.", plan.Sources.size(),
+                  ism.InstanceTransforms.size() );
+        return Common::MakeSuccess( Common::UUID( folded ) );
     }
 
     void MutateEntityUndoable( const Common::UUID& uuid, const std::function<void()>& mutate )
