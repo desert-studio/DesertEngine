@@ -391,9 +391,8 @@ namespace Desert::Player
             {
                 stbi_flip_vertically_on_write( 0 );
                 const bool written =
-                     stbi_write_png( shot.Output.c_str(), static_cast<int>( width ),
-                                     static_cast<int>( height ), 4, pixels.GetValue().data(),
-                                     static_cast<int>( width ) * 4 ) != 0;
+                     stbi_write_png( shot.Output.c_str(), static_cast<int>( width ), static_cast<int>( height ), 4,
+                                     pixels.GetValue().data(), static_cast<int>( width ) * 4 ) != 0;
                 if ( !written )
                 {
                     LOG_ERROR( "[Shot] stb_image_write refused to write '{}'.", shot.Output );
@@ -478,8 +477,7 @@ namespace Desert::Player
 
         // A ping-pong rather than a wrap, so the block is never cut in half at the ends of the track.
         const float phase = std::fmod( static_cast<float>( m_LoadingFramesPresented ), kPeriodFrames * 2.0f );
-        const float tri   = phase < kPeriodFrames ? phase / kPeriodFrames
-                                                  : 2.0f - phase / kPeriodFrames;
+        const float tri   = phase < kPeriodFrames ? phase / kPeriodFrames : 2.0f - phase / kPeriodFrames;
         const float bx    = x0 + tri * ( trackW - blockW );
         dl.AddRectFilled( { bx, y0 }, { bx + blockW, y0 + thick }, glm::vec4( 1.0f, 1.0f, 1.0f, 0.85f ) );
     }
@@ -692,13 +690,13 @@ namespace Desert::Player
                     // menu opens on is computed in one place.
                     input.MouseRightDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Right );
                     input.Escape         = m_EscapePressed;
-                    input.ScrollDelta   = m_ScrollAccum;
-                    input.TypedText     = m_TypedText;
-                    input.Backspace     = m_Backspace;
-                    input.Tab           = m_TabPressed;
-                    input.Submit        = m_SubmitPressed;
-                    m_PrevMouseDown     = down;
-                    m_ScrollAccum       = 0.0f;
+                    input.ScrollDelta    = m_ScrollAccum;
+                    input.TypedText      = m_TypedText;
+                    input.Backspace      = m_Backspace;
+                    input.Tab            = m_TabPressed;
+                    input.Submit         = m_SubmitPressed;
+                    m_PrevMouseDown      = down;
+                    m_ScrollAccum        = 0.0f;
                     m_TypedText.clear();
                     m_Backspace     = false;
                     m_TabPressed    = false;
@@ -716,7 +714,7 @@ namespace Desert::Player
                     // canvas only; Ю4 keys that state by (canvas x view), so a HUD and a pause menu are simply
                     // two canvases and both are drawn. A level with none draws nothing and says nothing — a
                     // game without UI is legitimate, and it was only ever a refusal because of the limit.
-                    m_UIView.Materials = &m_Render2D->Materials();
+                    m_UIView.Materials      = &m_Render2D->Materials();
                     m_UIView.RenderTextures = m_UIRenderTextures.get();
                     UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
                     for ( const entt::entity canvas : UI::CanvasesInDrawOrder( m_Scene->GetRegistry() ) )

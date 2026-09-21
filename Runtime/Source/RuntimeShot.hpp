@@ -74,8 +74,8 @@ namespace Desert::Player
                     return Common::MakeError<bool>( "--shot-frames needs a frame count" );
                 const std::string& value = args[++i];
                 if ( value.empty() || value.find_first_not_of( "0123456789" ) != std::string::npos )
-                    return Common::MakeFormattedError<bool>(
-                         "--shot-frames '{}' is not a whole number of frames", value );
+                    return Common::MakeFormattedError<bool>( "--shot-frames '{}' is not a whole number of frames",
+                                                             value );
                 const unsigned long long parsed = std::stoull( value );
                 if ( parsed == 0 || parsed > 100000 )
                     return Common::MakeFormattedError<bool>(

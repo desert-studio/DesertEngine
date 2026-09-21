@@ -109,11 +109,11 @@ namespace Desert::Assets
         ContentState m_State = ContentState::Ready;
         /// `StartedCount()` as it stood at the beginning of the frame just ticked. A change across a
         /// frame means that frame asked for something, so the chain has not closed.
-        uint64_t                              m_StartedAtFrameBegin = 0;
-        uint32_t                              m_Frames              = 0;
+        uint64_t m_StartedAtFrameBegin = 0;
+        uint32_t m_Frames              = 0;
         /// Consecutive ticks that saw an empty queue and a frame that asked for nothing.
-        uint32_t                              m_QuietStreak         = 0;
-        std::chrono::steady_clock::time_point m_Began               = std::chrono::steady_clock::now();
-        double                                m_OpenedAfterMs       = 0.0;
+        uint32_t                              m_QuietStreak   = 0;
+        std::chrono::steady_clock::time_point m_Began         = std::chrono::steady_clock::now();
+        double                                m_OpenedAfterMs = 0.0;
     };
 } // namespace Desert::Assets

@@ -128,11 +128,11 @@ TEST( ContentGate, AStreakOfOneIsResetByAnyTrafficAtAll )
     // again must pay the full two quiet ticks over again -- counting quiet ticks anywhere in the wait
     // would let a long busy load open on the strength of two unrelated lulls.
     ContentGate gate( ContentState::Loading );
-    EXPECT_FALSE( gate.Tick( 0, 0 ) );   // quiet, streak 1
-    EXPECT_FALSE( gate.Tick( 1, 1 ) );   // traffic, streak 0
-    EXPECT_FALSE( gate.Tick( 0, 1 ) );   // quiet, streak 1 -- NOT 2
+    EXPECT_FALSE( gate.Tick( 0, 0 ) ); // quiet, streak 1
+    EXPECT_FALSE( gate.Tick( 1, 1 ) ); // traffic, streak 0
+    EXPECT_FALSE( gate.Tick( 0, 1 ) ); // quiet, streak 1 -- NOT 2
     EXPECT_TRUE( gate.Loading() );
-    EXPECT_TRUE( gate.Tick( 0, 1 ) );    // quiet, streak 2
+    EXPECT_TRUE( gate.Tick( 0, 1 ) ); // quiet, streak 2
 }
 
 TEST( ContentGate, OpensExactlyOnce )

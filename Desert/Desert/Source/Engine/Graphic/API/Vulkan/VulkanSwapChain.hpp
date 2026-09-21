@@ -136,8 +136,8 @@ namespace Desert::Graphic::API::Vulkan
         /// Collect what RecordFrameCapture asked for, as tightly packed 8-bit RGBA. Call after the present
         /// that carried the copy; it waits for the device first. Releases the staging buffer either way,
         /// so a failed capture cannot leak one per attempt.
-        [[nodiscard]] Common::ResultStr<std::vector<uint8_t>> TakeCapturedFrameRGBA8(
-             uint32_t& outWidth, uint32_t& outHeight ) override;
+        [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
+        TakeCapturedFrameRGBA8( uint32_t& outWidth, uint32_t& outHeight ) override;
 
         [[nodiscard]] std::shared_ptr<::Desert::Graphic::Framebuffer> GetCompositeFramebuffer() const
         {

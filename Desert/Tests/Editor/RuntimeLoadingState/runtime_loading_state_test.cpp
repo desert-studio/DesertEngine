@@ -181,8 +181,7 @@ TEST( RuntimeLoadingState, TheSceneBlitSitsInsideTheBranchOnTheGate )
     const std::regex blit( R"(SubmitFullscreenQuad\s*\()" );
     const auto       begin = std::sregex_iterator( runtime.begin(), runtime.end(), blit );
     const auto       count = std::distance( begin, std::sregex_iterator() );
-    ASSERT_EQ( count, 1 ) << "there are " << count
-                          << " fullscreen blits in " << kRuntimeLayer
+    ASSERT_EQ( count, 1 ) << "there are " << count << " fullscreen blits in " << kRuntimeLayer
                           << "; this census pins ONE, so a second one would be an unguarded path to the "
                              "swapchain that it silently stopped covering.";
 
@@ -224,8 +223,7 @@ TEST( RuntimeLoadingState, BothHostsTickTheGateWithBothCounters )
     // THE ARGUMENT LIST IS THE SECOND CONDITION. Asserted on the values passed and not on a name, for
     // the reason AsyncAssetPump records next door: the obvious spelling of a check like this reads a
     // COMMENT, which WithoutComments has already deleted.
-    const std::regex tick(
-         R"(m_Content\.Tick\(\s*loader\.Outstanding\(\)\s*,\s*loader\.StartedCount\(\)\s*\))" );
+    const std::regex tick( R"(m_Content\.Tick\(\s*loader\.Outstanding\(\)\s*,\s*loader\.StartedCount\(\)\s*\))" );
 
     for ( const char* layer : { kEditorLayer, kRuntimeLayer } )
     {
