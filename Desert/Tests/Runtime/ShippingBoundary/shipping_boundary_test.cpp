@@ -747,10 +747,10 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
 //
 // WHAT THIS COST, MEASURED RATHER THAN IMAGINED. The `Shipping` configuration arrived with the
 // `filter "configurations:Release or Shipping"` arm taught to Desert/Desert/premake5.lua,
-// Runtime/premake5.lua and every test script — and not to Editor/premake5.lua, whose arm still read
-// `filter "configurations:Release"`. A premake filter that matches no configuration contributes nothing
-// and says nothing, so the Editor project in `Shipping` linked against NO third-party library at all.
-// `make config=shipping` — which is what `scripts/MacOS/BuildMacOS.sh Shipping` runs, and what the
+// Runtime/premake5.lua and exactly ONE of the 258 test scripts — and not to Editor/premake5.lua,
+// whose arm still read `filter "configurations:Release"`. A premake filter that matches no configuration
+// contributes nothing and says nothing, so the Editor project in `Shipping` linked against NO third-party library
+// at all. `make config=shipping` — which is what `scripts/MacOS/BuildMacOS.sh Shipping` runs, and what the
 // packager's own "Runtime binary not found" message sends people to — died on the whole of Vulkan, the
 // whole of shaderc and the whole of spirv-cross.
 //

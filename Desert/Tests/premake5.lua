@@ -16,8 +16,19 @@ end
 -- SyncLoadChokepoint. Building them in the one configuration that removes what they test is a category
 -- error with a cost attached in both directions:
 --
---   * the cost now: 258 optimised links per platform per CI run, for a binary nobody ever executes. The
---     Windows job already measures 93 minutes against a 150-minute ceiling.
+--   * THE COST NOW, MEASURED ON WINDOWS RATHER THAN ESTIMATED (probe run 35633136353, the throwaway
+--     workflow this decision was taken with): `msbuild Desert.sln -p:Configuration=Shipping` over the
+--     WHOLE solution ran 1 h 36 min 41 s and then FAILED TO LINK. Without the suites the same
+--     configuration builds green in 45 minutes (CI run 35635711944, Windows Shipping). So the suites
+--     cost roughly an hour per platform per run and do not produce a binary at the end of it.
+--
+--     WHY IT FAILED IS THE SECOND HALF OF THE ARGUMENT, and it is not a defect to go and fix. Exactly
+--     ONE of the 258 test scripts -- Desert/Tests/Runtime/ShippingBoundary's own -- names Shipping on
+--     the filter that selects its libraries. The other 257 still read
+--     `filter "configurations:Release"`, and a premake filter that matches no configuration
+--     contributes nothing, so those 257 link no reflect-cpp and no gtest: the log is thousands of
+--     LNK2001 lines for `rfl::json::Writer` and `yyjson`. Teaching 257 scripts to link a configuration
+--     they should never be built in is work spent to make a category error compile.
 --   * the cost later, which is worse: it puts a standing obligation on every future suite to compile
 --     without the facility it is about, and the cheapest way to satisfy that obligation is to weaken
 --     the test. A gate that pushes on tests in that direction is a gate that will eventually be paid.
