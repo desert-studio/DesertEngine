@@ -1,5 +1,4 @@
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/ContentRegistryInternals.hpp>
 
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/AssetManager.hpp>

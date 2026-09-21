@@ -19,6 +19,10 @@ project(test_name)
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Editor/Source", -- <Editor/Import/CookedJsonWrite.hpp>
+        -- The cook enters every file it writes into the content registry the moment it exists (T2.4),
+        -- so the header under test now reaches <Engine/Assets/ContentRegistry.hpp>. That header is
+        -- deliberately header-only and reaches Common and nothing else, so this costs no Vulkan.
+        "%{wks.location}/Desert/Desert/Source",
     }
     externalincludedirs {
         "%{wks.location}/ThirdParty/reflect-cpp/include", -- the cooked metadata IS rfl::json

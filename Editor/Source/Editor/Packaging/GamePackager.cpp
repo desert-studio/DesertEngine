@@ -147,18 +147,32 @@ namespace Desert::Editor
     // true in the first place. The message names the command.
     std::string ContentRegistryDisagreement()
     {
-        const auto loaded = Common::Utils::AssetRegistry::LoadFrom( Common::Utils::AssetRegistry::DefaultPath() );
-        if ( !loaded )
+        // A MISSING REGISTRY IS AN EMPTY ONE, NOT A REFUSAL, and the distinction is the difference
+        // between a gate and an obstacle. A project with no content of any census kind — a fresh one,
+        // or the minimal fixture `Desert/Tests/Editor/PackagedContent` builds — has nothing to record
+        // and must package fine; an empty registry against an empty tree is AGREEMENT. The same
+        // comparison then reports every file as a missing row when there IS content, which is exactly
+        // the message that case needs. (Measured: the first version refused outright and turned three
+        // PackagedContent cases red over a project that was correct.)
+        //
+        // A file that EXISTS and will not parse is still a hard refusal: that is a broken registry,
+        // not an absent one, and packaging against it would ship whatever it managed to read.
+        Common::Utils::AssetRegistry registry;
+        if ( Common::Utils::FileSystem::Exists( Common::Utils::AssetRegistry::DefaultPath() ) )
         {
-            return "this project has no readable cooked asset registry (" +
-                   Common::Utils::AssetRegistry::DefaultPath().string() + "): " + loaded.GetError() +
-                   "\nA package built now would contain no content at all. Run "
-                   "'Rebuild Content Registry' from the command palette, or "
-                   "`AssetRegistryTool cook <project>.deproj`.";
+            auto loaded = Common::Utils::AssetRegistry::LoadFrom( Common::Utils::AssetRegistry::DefaultPath() );
+            if ( !loaded )
+            {
+                return "this project's cooked asset registry cannot be read (" +
+                       Common::Utils::AssetRegistry::DefaultPath().string() + "): " + loaded.GetError() +
+                       "\nA package built now would contain whatever of it happened to parse. Run "
+                       "'Rebuild Content Registry' from the command palette, or "
+                       "`AssetRegistryTool cook <project>.deproj`.";
+            }
+            registry = std::move( loaded.GetValue() );
         }
 
-        const auto problems =
-             Common::Content::CompareWithDisk( loaded.GetValue(), Common::Content::ScanContentRoots() );
+        const auto problems = Common::Content::CompareWithDisk( registry, Common::Content::ScanContentRoots() );
         if ( problems.empty() )
             return {};
 

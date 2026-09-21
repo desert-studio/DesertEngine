@@ -271,8 +271,14 @@ TEST( AssetPreloadCensus, ThePopulationIsGivenTheScansOwnCountAndSoCannotPrecede
 
     // The variable the `.anim` scan's result is bound to. `[\s\S]` rather than `.` because the assignment
     // is wrapped across lines by the formatter.
+    //
+    // `ProcessAssetKind` SINCE T2.4, and the rename is the whole of what changed here: the scan takes
+    // its candidates from the cooked asset registry instead of from a directory walk, so the function
+    // no longer needs a root or an extension list — but it still RETURNS the count, and that count is
+    // still the only thing that can tell "this project has no clips" from "the clips never reached the
+    // library".
     std::smatch      scan;
-    const std::regex scanPattern( R"((\w+)\s*=\s*ProcessAssetFiles<\s*AnimationAsset\s*>)" );
+    const std::regex scanPattern( R"((\w+)\s*=\s*[\s\S]{0,40}?ProcessAssetKind<\s*AnimationAsset\s*>)" );
     ASSERT_TRUE( std::regex_search( source, scan, scanPattern ) )
          << "the `.anim` scan in " << kPreloaderSource
          << " no longer assigns its result to anything. That count is the only thing that can tell 'this "

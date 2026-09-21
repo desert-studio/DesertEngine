@@ -363,11 +363,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   all static is a namespace wearing a class. The state is the loader's now, held behind a pointer
     //   only so the header carries no mutex and no map. One owner with a known lifetime, which is Q1's
     //   unique answer.
-    EXPECT_EQ( CountOf( Form::Raw ), 365 );
+    //   and +1 Raw with T2.4 (365 -> 366, 849 -> 850): `ContentKindSpec::Root`. The content census
+    //   that replaced sixteen hand-written (root, extension) pairs in AssetPreloader holds the live
+    //   path constant by ADDRESS, not by value, so a row follows a `SetProjectRoot` remap — the same
+    //   choice, for the same reason, as `PackagedTree::Tree`, which is the row above it in the
+    //   register.
+    EXPECT_EQ( CountOf( Form::Raw ), 366 );
     EXPECT_EQ( CountOf( Form::Shared ), 330 );
     EXPECT_EQ( CountOf( Form::Unique ), 116 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 849 )
+    EXPECT_EQ( (int)Members().size(), 850 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
