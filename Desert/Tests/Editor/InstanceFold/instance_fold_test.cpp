@@ -30,7 +30,7 @@ namespace
                       FoldMeshIdentity identity = CubeIdentity() )
     {
         FoldCandidate candidate;
-        candidate.Entity   = Desert::Common::UUID( id );
+        candidate.Entity   = ::Common::UUID( id );
         candidate.Name     = name;
         candidate.Identity = std::move( identity );
         candidate.World    = glm::translate( glm::mat4( 1.0f ), position );
@@ -106,7 +106,7 @@ TEST( InstanceFold, DifferentMaterialSlotsAreADifferentIdentityEvenOnTheSameMesh
     // An ISM has ONE material list for every instance it holds. Two cubes with different materials
     // folded together would take one of the two looks, silently.
     FoldMeshIdentity painted   = CubeIdentity();
-    painted.Materials          = { Desert::Common::AssetHandle::FromKey( "Materials/Red.demat" ) };
+    painted.Materials          = { ::Common::AssetHandle::FromKey( "Materials/Red.demat" ) };
 
     const auto planned = PlanInstanceFold( { At( "A", 1, { 0.0f, 0.0f, 0.0f } ),
                                              At( "B", 2, { 0.0f, 0.0f, 0.0f }, painted ) } );
@@ -192,4 +192,10 @@ TEST( InstanceFold, TheAuthorablePrimitivesAreAPrefixOfTheEnumAndExcludeTheGener
         EXPECT_NE( shape, Geometry::PrimitiveType::Terrain );
         EXPECT_NE( shape, Geometry::PrimitiveType::LightCube );
     }
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
