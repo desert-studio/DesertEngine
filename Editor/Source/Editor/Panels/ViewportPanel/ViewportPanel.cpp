@@ -7,7 +7,7 @@
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/Assets/Prefab/PrefabPlacement.hpp>
 #include <Editor/Core/Selection/UIPreview.hpp>
-#include <Editor/Core/Selection/SkeletonEditMode.hpp>
+#include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
@@ -173,8 +173,10 @@ namespace Desert::Editor
     std::vector<ViewportPanel*> ViewportPanel::s_Live;
 
     ViewportPanel::ViewportPanel( const std::shared_ptr<Desert::Core::Scene>& scene,
-                                  const Assets::AssetManager* assetManager, std::string title )
-         : IPanel( std::move( title ) ), m_Scene( scene ), m_AssetManager( assetManager )
+                                  const Assets::AssetManager* assetManager, std::string title,
+                                  uint64_t sceneViewId )
+         : IPanel( std::move( title ) ), m_Scene( scene ), m_AssetManager( assetManager ),
+           m_SceneViewId( sceneViewId ), m_AuthoringOwner( Core::AuthoringOwner::ForSceneView( sceneViewId ) )
     {
         m_UIHelper = std::make_unique<Editor::UI::UIHelper>();
         m_UIHelper->Init();
@@ -190,6 +192,12 @@ namespace Desert::Editor
     ViewportPanel::~ViewportPanel()
     {
         s_Live.erase( std::remove( s_Live.begin(), s_Live.end(), this ), s_Live.end() );
+
+        // A CLOSED VIEW GIVES THE AUTHORING CONTEXT BACK. Ignoring the result is correct and the only
+        // correct thing here: Release refuses when this view is not the holder, which is the ordinary case
+        // (the user closed a viewport they were not authoring in) and not a fault. The refusal exists so
+        // that the closing view cannot take bone authoring away from the surface the user IS working in.
+        (void)Core::ActiveAuthoringContext().Release( m_AuthoringOwner );
     }
 
     Graphic::DebugViewState ViewportPanel::EffectiveDebugView( const Graphic::DebugViewState& user,
@@ -285,6 +293,33 @@ namespace Desert::Editor
         }
     }
 
+    void ViewportPanel::ClaimAuthoringContext()
+    {
+        const auto&        selected = Core::SelectionManager::GetSelected();
+        const Common::UUID entity   = selected.has_value() ? *selected : Common::UUID::Null();
+
+        // A DIFFERENT CHARACTER IS A DIFFERENT CONTEXT. The bone index is an index into ONE skeleton, and
+        // the global this replaced carried it across a change of selection — pointing at bone 47 of a rig
+        // that may not have 47 bones. The mode survives, because "I am posing" is about the user, not the
+        // entity; the selection does not.
+        if ( !( m_Authoring.Entity == entity ) )
+        {
+            m_Authoring.Entity = entity;
+            m_Authoring.SelectedBone.reset();
+        }
+
+        Core::ActiveAuthoringContext().Focus( m_AuthoringOwner, m_Authoring );
+    }
+
+    void ViewportPanel::TakeAuthoringContextIfFocused()
+    {
+        if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) ||
+             Core::ActiveAuthoringContext().Holder().IsNone() )
+        {
+            ClaimAuthoringContext();
+        }
+    }
+
     void ViewportPanel::DrawViewportToolbar()
     {
         // Godot-style strip directly ABOVE the image. Left cluster = how you EDIT (mode, transform
@@ -295,13 +330,23 @@ namespace Desert::Editor
             if ( auto ref = m_Scene->FindEntityByID( *sel ); ref )
                 canEditSkeleton = ref->get().HasComponent<ECS::SkinnedMeshComponent>();
 
-        // Skeleton edit only makes sense in Select mode on a skinned mesh.
-        if ( !canEditSkeleton || Core::ViewportMode::Get() != Core::EditorMode::Select )
-            Core::SkeletonEditMode::SetActive( false );
+        TakeAuthoringContextIfFocused();
 
-        // While Skeleton Edit is active, ask the engine to render the selected mesh in BIND pose so
+        // Skeleton edit only makes sense in Select mode on a skinned mesh.
+        //
+        // ONLY WHILE THIS VIEW HOLDS THE CONTEXT. The guard is about what THIS viewport's selection can be
+        // authored as; a Sequencer authoring its own character is not this view's business, and forcing it
+        // back to Object from here is precisely the "everybody writes one global" shape that was removed.
+        if ( !canEditSkeleton || Core::ViewportMode::Get() != Core::EditorMode::Select )
+            (void)Core::ActiveAuthoringContext().SetMode( m_AuthoringOwner, Core::AuthoringMode::Object );
+
+        // While bones are being authored, ask the engine to render the selected mesh in BIND pose so
         // bone-gizmo edits are visible (an auto-playing clip would otherwise override them).
-        if ( Core::SkeletonEditMode::IsActive() )
+        //
+        // BOTH AUTHORING MODES, exactly as before. Pose authoring wants the opposite (07 §1.3) and the
+        // four-way mode switcher of §14.2 is the change that unties them; this change moves ownership and
+        // nothing else, so the defect is preserved rather than quietly half-fixed here.
+        if ( Core::ActiveAuthoringContext().ShowsBones() )
             Runtime::SelectionContext::SetBindPosePreview( Core::SelectionManager::GetSelected() );
         else
             Runtime::SelectionContext::SetBindPosePreview( std::nullopt );
@@ -396,20 +441,35 @@ namespace Desert::Editor
         // --- Select mode: contextual Skeleton-Edit toggle (skinned mesh only) ---
         if ( Core::ViewportMode::Get() == Core::EditorMode::Select && canEditSkeleton )
         {
-            const bool active = Core::SkeletonEditMode::IsActive();
+            auto&      authoring = Core::ActiveAuthoringContext();
+            const bool active    = authoring.ShowsBones();
             ImGui::SameLine();
             if ( active )
                 ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.85f, 0.45f, 0.1f, 1.0f ) );
             if ( ImGui::Button( ICON_MDI_BONE "  Skeleton" ) )
-                Core::SkeletonEditMode::Toggle();
+            {
+                // Pressing the button IS the user working in this viewport, so take the context first —
+                // the ImGui focus flag can still be describing the previous frame on the click itself.
+                ClaimAuthoringContext();
+                const auto changed = Core::ActiveAuthoringContext().SetMode(
+                     m_AuthoringOwner, active ? Core::AuthoringMode::Object : Core::AuthoringMode::Skeleton );
+                if ( !changed.IsSuccess() )
+                    LOG_WARN( "[Viewport] skeleton mode refused: {}", changed.GetError() );
+            }
             if ( active )
                 ImGui::PopStyleColor();
             if ( active )
             {
                 ImGui::SameLine();
-                bool showNames = Core::SkeletonEditMode::ShowAllNames();
+                bool showNames = authoring.ShowBoneNames();
                 if ( ImGui::Checkbox( "Names", &showNames ) )
-                    Core::SkeletonEditMode::SetShowAllNames( showNames );
+                {
+                    ClaimAuthoringContext();
+                    const auto changed =
+                         Core::ActiveAuthoringContext().SetShowBoneNames( m_AuthoringOwner, showNames );
+                    if ( !changed.IsSuccess() )
+                        LOG_WARN( "[Viewport] bone-name labels refused: {}", changed.GetError() );
+                }
             }
         }
 
@@ -1099,9 +1159,9 @@ namespace Desert::Editor
         m_Gizmo.ResetHovered();
         if ( !foliageMode && !modelingMode )
         {
-            if ( Core::SkeletonEditMode::IsActive() )
+            if ( Core::ActiveAuthoringContext().ShowsBones() )
             {
-                // skeleton edit owns the gizmo (edits the selected bone, not the object)
+                // bone authoring owns the gizmo (edits the selected bone, not the object)
                 m_Gizmo.RenderBone( *m_Scene, m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
             else if ( m_Gizmo.IsActive() && !painting && !selectedIsUI )
@@ -1810,13 +1870,19 @@ namespace Desert::Editor
                 }
             }
 
-            // Skeleton Edit mode: LMB selects the nearest bone joint under the cursor (keeping the skinned
+            // Bone authoring: LMB selects the nearest bone joint under the cursor (keeping the skinned
             // mesh selected) rather than picking a new entity — unless the bone gizmo is being interacted with.
-            if ( Core::SkeletonEditMode::IsActive() && !m_Gizmo.IsHovered() )
+            if ( Core::ActiveAuthoringContext().ShowsBones() && !m_Gizmo.IsHovered() )
             {
                 const int bone = m_LightGizmoRenderer->PickBone( ::ImGui::GetMousePos() );
                 if ( bone >= 0 )
-                    Core::SkeletonEditMode::SetSelectedBone( bone );
+                {
+                    ClaimAuthoringContext();
+                    const auto picked = Core::ActiveAuthoringContext().SetSelectedBone(
+                         m_AuthoringOwner, static_cast<uint32_t>( bone ) );
+                    if ( !picked.IsSuccess() )
+                        LOG_WARN( "[Viewport] bone pick refused: {}", picked.GetError() );
+                }
             }
             else
             {

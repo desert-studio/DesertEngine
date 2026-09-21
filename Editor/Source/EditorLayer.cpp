@@ -2418,7 +2418,7 @@ namespace Desert::Editor
         // Keyed on the document id so a closed window's saved imgui.ini entry (position, dock node, size) is
         // never inherited by an unrelated later view.
         const std::string title = doc->Name + "###sceneview" + std::to_string( id );
-        auto              vp = std::make_unique<Editor::ViewportPanel>( doc->Scene, m_AssetManager.get(), title );
+        auto vp = std::make_unique<Editor::ViewportPanel>( doc->Scene, m_AssetManager.get(), title, id );
         // Captures the ID, never the index. See Editor/Core/SceneViewIdentity.hpp.
         vp->SetOnActivate( [this, id] { SetActiveScene( id ); } );
         vp->GetVisibility() = true;

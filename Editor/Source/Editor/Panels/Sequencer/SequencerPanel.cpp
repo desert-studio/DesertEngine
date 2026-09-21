@@ -6,9 +6,14 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/ToastManager.hpp>
 // SelectionManager and PanelContext are gone from this file with the selection it used to follow. What is
-// left of Selection here is SkeletonEditMode, which is not a selection at all: it is the viewport MODE the
-// bone gizmo runs in, and keying by manipulation reads it.
-#include <Editor/Core/Selection/SkeletonEditMode.hpp>
+// left of Selection here is the AUTHORING CONTEXT: the mode the bone gizmo runs in and the bone it runs on,
+// which keying by manipulation reads and — while this window is the one the user is working in — writes.
+//
+// THIS WINDOW IS WHY THAT TYPE EXISTS. The line below used to be
+// `SkeletonEditMode::SetPoseMode( IsActive() && editClip != nullptr )`, written unconditionally every frame
+// by EVERY open Sequencer into one process-wide bit; two characters open side by side (the thing making
+// this a document bought) therefore decided each other's pose mode by draw order.
+#include <Editor/Core/Selection/AuthoringContext.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -138,8 +143,26 @@ namespace Desert::Editor
                                     const Timeline timeline, const std::shared_ptr<::Desert::Core::Scene>& scene,
                                     Animation::AnimationLibrary* library, Assets::AssetManager* assetManager )
          : ISubjectDocument( displayName, subject ), m_Scene( scene ), m_Library( library ),
-           m_AssetManager( assetManager ), m_Timeline( timeline )
+           m_AssetManager( assetManager ), m_Timeline( timeline ),
+           m_AuthoringOwner( Core::AuthoringOwner::ForDocument( subject ) )
     {
+        // THE DOCUMENT'S CONTEXT IS ABOUT ITS OWN SUBJECT, fixed for its whole life exactly as the subject
+        // is. This is the field that keeps two characters apart: the host adopts an incoming context only
+        // when the entity matches, so a second Sequencer never inherits the first one's selected bone.
+        m_Authoring.Entity = subject.Owner;
+    }
+
+    SequencerPanel::~SequencerPanel()
+    {
+        // Closing gives bone authoring back. Refused — and correctly ignored — when this window was not the
+        // one holding it; see the note in ViewportPanel's destructor.
+        (void)Core::ActiveAuthoringContext().Release( m_AuthoringOwner );
+    }
+
+    void SequencerPanel::TakeAuthoringContextIfFocused()
+    {
+        if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) )
+            Core::ActiveAuthoringContext().Focus( m_AuthoringOwner, m_Authoring );
     }
 
     std::optional<std::reference_wrapper<const ECS::Entity>> SequencerPanel::ResolveEntity() const
@@ -373,8 +396,24 @@ namespace Desert::Editor
         DrawSkeletalTimeline( entity );
     }
 
+    void SequencerPanel::SelectBoneFromTrack( uint32_t bone )
+    {
+        // CLICKING A TRACK IS THE USER WORKING IN THIS WINDOW, so take the context before writing rather
+        // than waiting for the focus flag: on the click itself ImGui's focus can still be describing the
+        // previous frame, and a selection dropped for one frame reads as "clicking that lane does nothing".
+        // Focus() adopts the live context when it is about the same entity, so the mode and everything else
+        // the viewport had is carried over untouched.
+        Core::ActiveAuthoringContext().Focus( m_AuthoringOwner, m_Authoring );
+
+        const auto picked = Core::ActiveAuthoringContext().SetSelectedBone( m_AuthoringOwner, bone );
+        if ( !picked.IsSuccess() )
+            LOG_WARN( "[Sequencer] bone selection refused: {}", picked.GetError() );
+    }
+
     void SequencerPanel::DrawSkeletalTimeline( ECS::Entity& entity )
     {
+        TakeAuthoringContextIfFocused();
+
         auto&       anim = entity.GetComponent<ECS::AnimationComponent>();
         const auto& smc  = entity.GetComponent<ECS::SkinnedMeshComponent>();
         // Editor-built runtime rig (Convert to Skinned) has no MeshHandle — prefer it (mirrors the render /
@@ -530,12 +569,23 @@ namespace Desert::Editor
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — see the note at the other cast below
             auto*      editClip = const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() );
-            const int  selBone  = Core::SkeletonEditMode::GetSelectedBone();
-            const bool canKey   = editClip && Core::SkeletonEditMode::IsActive() && selBone >= 0;
+            auto&      authoring = Core::ActiveAuthoringContext();
+            const int  selBone   = authoring.SelectedBoneIndex();
+            const bool canKey    = editClip && authoring.ShowsBones() && selBone >= 0;
 
-            // Author-by-posing: while a clip is open in Skeleton Edit, the bone gizmo edits the Animator's
-            // editable pose buffer (not the rig's bind pose), and keying captures that buffer.
-            Core::SkeletonEditMode::SetPoseMode( Core::SkeletonEditMode::IsActive() && editClip != nullptr );
+            // Author-by-posing: while a clip is open and bones are being authored, the bone gizmo edits the
+            // Animator's editable pose buffer (not the rig's bind pose), and keying captures that buffer.
+            //
+            // ONLY THIS WINDOW, AND ONLY WHILE IT HOLDS THE CONTEXT. The write is refused otherwise, which
+            // is the entire point: the unconditional version of this line, multiplied by every open
+            // Sequencer, is what made two characters impossible to author side by side. A refusal here is
+            // the ORDINARY case (the user is working in another window) and is therefore not logged — it
+            // says "not your turn", not "something went wrong".
+            if ( authoring.ShowsBones() )
+            {
+                (void)authoring.SetMode( m_AuthoringOwner, editClip != nullptr ? Core::AuthoringMode::Pose
+                                                                               : Core::AuthoringMode::Skeleton );
+            }
 
             // Record toggle (red when armed) — auto-keys while the gizmo moves the selected bone.
             if ( m_Record )
@@ -830,7 +880,7 @@ namespace Desert::Editor
                     m_SelChannel = ch;
                     if ( bone.has_value() )
                     {
-                        Core::SkeletonEditMode::SetSelectedBone( static_cast<int>( bone.value() ) );
+                        SelectBoneFromTrack( bone.value() );
                     }
                     animator->SetTime( animator->GetCurrentTime() );
                 }
@@ -867,9 +917,9 @@ namespace Desert::Editor
                         m_SelChannel = ch;
                         m_SelKey     = k;
                         // Selecting a bone's track also selects that bone on the skeleton (viewport highlight
-                        // + gizmo), so Sequencer <-> Skeleton Edit stay in sync.
+                        // + gizmo), so the Sequencer and the viewport overlay stay in sync.
                         if ( auto bi = animator->GetSkeleton().FindBoneIndex( tr.BoneName ); bi.has_value() )
-                            Core::SkeletonEditMode::SetSelectedBone( static_cast<int>( bi.value() ) );
+                            SelectBoneFromTrack( bi.value() );
                     }
                     if ( ImGui::IsItemActive() && laneW > 0.0f )
                     {

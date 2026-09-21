@@ -2,7 +2,7 @@
 #include "GizmoTransformMath.hpp"
 
 #include <Editor/Core/Selection/SelectionManager.hpp>
-#include <Editor/Core/Selection/SkeletonEditMode.hpp>
+#include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/CommandHistory.hpp>
 
@@ -266,7 +266,7 @@ namespace Desert::Editor::Tools
         if ( !mainCamera )
             return;
 
-        const int boneIdx = Core::SkeletonEditMode::GetSelectedBone();
+        const int boneIdx = Core::ActiveAuthoringContext().SelectedBoneIndex();
         if ( boneIdx < 0 )
             return;
 
@@ -291,9 +291,9 @@ namespace Desert::Editor::Tools
 
         // Pose mode (Sequencer authoring): the gizmo edits the Animator's EDITABLE pose buffer instead of the
         // rig's bind pose, so posing to key a clip never mutates the shared rest pose. Falls back to bind
-        // editing when there's no animator. See SkeletonEditMode::PoseMode / Animator::SetBoneLocalPose.
+        // editing when there is no animator. See AuthoringMode::Pose / Animator::SetBoneLocalPose.
         Animation::Animator* animator = nullptr;
-        if ( Core::SkeletonEditMode::PoseMode() && entity.HasComponent<ECS::AnimationComponent>() )
+        if ( Core::ActiveAuthoringContext().IsPoseAuthoring() && entity.HasComponent<ECS::AnimationComponent>() )
             animator = entity.GetComponent<ECS::AnimationComponent>().Animator.get();
         const bool usePose = ( animator != nullptr );
 
