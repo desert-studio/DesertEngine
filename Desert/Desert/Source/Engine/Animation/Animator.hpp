@@ -7,6 +7,7 @@
 #include "BoneControl.hpp"
 #include "Pose.hpp"
 #include "Rig/ControlRigStage.hpp"
+#include "Retarget/RetargetSource.hpp"
 
 #include <Common/Core/Timestep.hpp>
 
@@ -249,6 +250,38 @@ namespace Desert::Animation
         [[nodiscard]] ControlRigStage*       GetRig();
         [[nodiscard]] const ControlRigStage* GetRig() const;
 
+        // --- The retarget (T6.2) ------------------------------------------------------------------------
+        //
+        // NOT A STAGE, AND THAT IS THE DECISION. Every other optional step of this pipeline is an
+        // enumerator in `m_Stages` because it has an ORDER to be decided against the others. A retarget has
+        // none: it does not add a step, it changes WHICH RIG the source step samples and which rig the
+        // layer stack folds its clips on. An enumerator that could only ever sit at exactly one place is a
+        // second spelling of `m_Retarget != nullptr`, and two spellings of one fact is how they come to
+        // disagree.
+        //
+        // WHAT IT DOES TO THE PIPELINE, in full:
+        //   Source   the base clip (and the crossfade's second clip) is sampled on the SOURCE rig, then
+        //            retargeted onto this one. Both clips, because both come from the same library through
+        //            the same component and are therefore on the same rig by construction.
+        //   Layers   each layer's clip is sampled and retargeted the same way before it is folded. Not
+        //            retargeting them would fold source-rig local transforms straight onto target bones —
+        //            exactly the proportion defect this tier exists to remove — and there is no third
+        //            possibility, because one component names one source rig for the whole entity.
+        //   Controls, Rig   untouched. Both operate on the target rig's own pose and always did.
+        //
+        // AND THE ADDITIVE REFERENCE MOVES WITH IT. An additive layer's delta is measured against the rest
+        // pose its clips are expressed relative to; under a retarget that is the target's RETARGET POSE
+        // (`Retargeter::GetTargetInitialPose`), not the bind pose, because a retargeted clip at rest emits
+        // exactly that. Measuring against bind would add the authored retarget-pose correction into every
+        // additive layer as an offset nobody wrote.
+        //
+        // AT MOST ONE, for `AttachRig`'s reason: a second source rig is an ordering question nobody has
+        // asked, and the component authors one handle.
+        [[nodiscard]] Common::BoolResultStr AttachRetarget( std::unique_ptr<Retarget::RetargetSource> retarget );
+        void                                DetachRetarget();
+        [[nodiscard]] Retarget::RetargetSource*       GetRetarget();
+        [[nodiscard]] const Retarget::RetargetSource* GetRetarget() const;
+
     private:
         struct ClipPlayback
         {
@@ -274,16 +307,23 @@ namespace Desert::Animation
         };
 
     private:
+        // DEFINED BELOW, next to the `TrackBinding` it names. Declared here because the sampling functions
+        // take it by reference and a reference needs no complete type — which is what lets the definition
+        // stay beside the cache it is a view of, rather than being dragged up here away from it.
+        struct RigSampling;
+
         void UpdatePlayback( ClipPlayback& playback, float deltaTime );
 
         /// Runs every stage in m_Stages over m_EvaluatedPose, then resolves it into m_Skinning.
         void EvaluatePipeline();
 
-        /// PoseStage::Source — the base clip, or the crossfade of current and next.
-        void EvaluateSource( LocalPose& pose ) const;
+        /// PoseStage::Source — the base clip, or the crossfade of current and next. NOT const: under a
+        /// retarget this samples into the source scratch and runs the retargeter, both of which are state.
+        void EvaluateSource( LocalPose& pose );
 
-        /// PoseStage::Layers — folds each active layer over `pose`, in LOCAL space, per masked bone.
-        void EvaluateLayers( LocalPose& pose ) const;
+        /// PoseStage::Layers — folds each active layer over `pose`, in LOCAL space, per masked bone. NOT
+        /// const for EvaluateSource's reason.
+        void EvaluateLayers( LocalPose& pose );
 
         /// PoseStage::Controls — runs each control over `pose`. NOT const: a control reads the pose in
         /// component space, which is a cache fill on m_Component, and writes back through the blend.
@@ -303,19 +343,31 @@ namespace Desert::Animation
         /// Local (parent-relative) transform of `boneIndex` driven by `clip` at `time`, or the bind-pose
         /// local when the clip has no track for it. Straight from the clip's TRS keys — the matrix this
         /// used to build, only to be decomposed again by the next step, is gone.
-        [[nodiscard]] BoneTransform SampleLocalTransform( const AnimationClip* clip, uint32_t boneIndex,
-                                                          FrameTime time ) const;
+        [[nodiscard]] BoneTransform SampleLocalTransform( const RigSampling& rig, const AnimationClip* clip,
+                                                          uint32_t boneIndex, FrameTime time ) const;
 
         /// The base pose's local transform for one bone: the current clip, or current -> next blended by
         /// BlendAlpha(). The ONE answer to "what is the base pose right now", shared by the source stage
         /// and by layer composition, so the two cannot have different opinions.
-        [[nodiscard]] BoneTransform BlendedBaseLocal( uint32_t boneIndex ) const;
+        [[nodiscard]] BoneTransform BlendedBaseLocal( const RigSampling& rig, uint32_t boneIndex ) const;
 
         /// Returns the clip track that drives skeleton bone `boneIndex`, matched by bone NAME (not by the
         /// clip's own bone index). This lets a clip authored against a differently-ordered or skinless
         /// export of the same rig still drive the correct bones. Built lazily per clip, and rebuilt whenever
         /// the clip's own track storage has been replaced under it — see TrackBinding.
-        const BoneTrack* ResolveTrack( const AnimationClip* clip, uint32_t boneIndex ) const;
+        const BoneTrack* ResolveTrack( const RigSampling& rig, const AnimationClip* clip,
+                                       uint32_t boneIndex ) const;
+
+        /// The rig the pipeline's own stages read: this Animator's skeleton, its bind pose and its clip
+        /// binding cache.
+        [[nodiscard]] RigSampling TargetSampling() const;
+
+        /// The rig the CLIPS are on when a retarget is attached. Must not be called without one.
+        [[nodiscard]] RigSampling SourceSampling() const;
+
+        /// What an additive layer's delta is measured against — the bind pose, or the target's retarget
+        /// pose when a retarget is attached. See the AttachRetarget comment above.
+        [[nodiscard]] const LocalPose& AdditiveReference() const;
 
     private:
         /**
@@ -344,10 +396,35 @@ namespace Desert::Animation
             std::vector<uint32_t> ByBone;               ///< skeleton bone index -> track INDEX, or NO_TRACK
         };
 
+        /**
+         * @brief WHICH RIG A CLIP IS BEING SAMPLED AGAINST, and the two things that answer needs.
+         *
+         * A retarget makes the Animator sample clips on a rig that is NOT its own, and the three functions
+         * that do the sampling — track resolution, the untracked-bone fallback, and the crossfade blend —
+         * each needed the rig to be a parameter rather than `m_Skeleton`. Passing this one struct instead
+         * of a mode flag is what keeps `BlendedBaseLocal` the ONE answer to "what is the base pose right
+         * now" (see its comment) while letting it be asked about two rigs: a second copy of the blend for
+         * the source rig is exactly how the source stage and layer composition would come to have
+         * different opinions about a crossfade.
+         */
+        struct RigSampling
+        {
+            const Skeleton&  Rig;
+            const LocalPose& Rest; ///< what a bone with no track in this clip reads
+            std::unordered_map<const AnimationClip*, TrackBinding>& Binding;
+        };
+
         const Skeleton& m_Skeleton;
 
         // clip -> its binding. See ResolveTrack and TrackBinding.
         mutable std::unordered_map<const AnimationClip*, TrackBinding> m_TrackBinding;
+
+        // The same cache, built against the SOURCE rig. A SECOND MAP AND NOT A SECOND ENTRY IN THE FIRST:
+        // the key is the clip, and one clip is legally sampled on both rigs in the same frame (the base on
+        // the source, an editor's authoring sample on the target), so one map would hand back a binding
+        // built for the wrong rig's bone order. Cleared by Attach/DetachRetarget, because the rig it was
+        // built against is exactly what those two change.
+        mutable std::unordered_map<const AnimationClip*, TrackBinding> m_SourceTrackBinding;
 
         ClipPlayback m_Current;
         ClipPlayback m_Next;
@@ -373,6 +450,11 @@ namespace Desert::Animation
         // ControlHierarchy's four vectors; null IS the answer to "is there a rig", with no second flag to
         // disagree with it.
         std::unique_ptr<ControlRigStage> m_Rig;
+
+        // The source rig and its retargeter, when this Animator's clips are authored on another rig. Null
+        // IS the answer to "is there a retarget", with no second flag to disagree with it — and null costs
+        // nothing, which a `Skeleton` value member would not.
+        std::unique_ptr<Retarget::RetargetSource> m_Retarget;
 
         std::vector<PoseStage> m_Stages;
 

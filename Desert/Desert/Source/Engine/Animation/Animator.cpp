@@ -103,7 +103,7 @@ namespace Desert::Animation
         if ( m_AuthoringPose.Size() != n )
             m_AuthoringPose = m_BindPose;
         for ( uint32_t i = 0; i < n; ++i )
-            m_AuthoringPose[i] = SampleLocalTransform( &clip, i, time );
+            m_AuthoringPose[i] = SampleLocalTransform( TargetSampling(), &clip, i, time );
     }
 
     void Animator::ApplyLocalPose()
@@ -234,16 +234,38 @@ namespace Desert::Animation
         PublishPose();
     }
 
-    void Animator::EvaluateSource( LocalPose& pose ) const
+    void Animator::EvaluateSource( LocalPose& pose )
     {
-        for ( uint32_t i = 0; i < pose.Size(); ++i )
-            pose[i] = BlendedBaseLocal( i );
+        if ( !m_Retarget )
+        {
+            const RigSampling rig = TargetSampling();
+            for ( uint32_t i = 0; i < pose.Size(); ++i )
+                pose[i] = BlendedBaseLocal( rig, i );
+            return;
+        }
+
+        // THE CLIPS ARE ON ANOTHER RIG. Sample the whole base pose there — through the same
+        // `BlendedBaseLocal`, so a crossfade is blended once and identically on either rig — and let the
+        // retargeter say what it is on this one.
+        const RigSampling rig        = SourceSampling();
+        LocalPose&        sourcePose = m_Retarget->SourceScratch();
+        for ( uint32_t i = 0; i < sourcePose.Size(); ++i )
+            sourcePose[i] = BlendedBaseLocal( rig, i );
+
+        // A REFUSAL LEAVES `pose` AS THE LAST FRAME LEFT IT, and `Run` has already said why, once per
+        // distinct message. Falling back to the bind pose instead would look like a character snapping to
+        // rest for one frame — which reads as a physics glitch rather than as the configuration error it
+        // is — and re-running the stage cannot help, because every refusal `Retarget` makes is structural.
+        static_cast<void>( m_Retarget->Run( m_Skeleton, sourcePose, pose ) );
     }
 
-    void Animator::EvaluateLayers( LocalPose& pose ) const
+    void Animator::EvaluateLayers( LocalPose& pose )
     {
         const auto&    bones = m_Skeleton.GetBones();
         const uint32_t n     = static_cast<uint32_t>( bones.size() );
+
+        // THE REST A LAYER'S CLIPS ARE EXPRESSED RELATIVE TO, which a retarget moves. See AttachRetarget.
+        const LocalPose& additiveReference = AdditiveReference();
 
         for ( const auto& layer : m_Layers )
         {
@@ -251,19 +273,43 @@ namespace Desert::Animation
                 continue;
             const float w = glm::clamp( layer.Weight, 0.0F, 1.0F );
 
+            // UNDER A RETARGET THE LAYER IS RETARGETED WHOLE, BEFORE THE FOLD, and it has to be whole:
+            // the retarget equation reads a bone's chain to place it, so retargeting the masked bones
+            // alone would place them against a source pose that had never been resolved.
+            const LocalPose* retargeted = nullptr;
+            if ( m_Retarget )
+            {
+                const RigSampling rig        = SourceSampling();
+                LocalPose&        sourcePose = m_Retarget->SourceScratch();
+                for ( uint32_t b = 0; b < sourcePose.Size(); ++b )
+                    sourcePose[b] = SampleLocalTransform( rig, layer.Playback.Clip, b, layer.Playback.Time );
+
+                if ( !m_Retarget->Run( m_Skeleton, sourcePose, m_Retarget->LayerScratch() ) )
+                {
+                    // SKIPPED, NOT FOLDED FROM THE SOURCE RIG. `Run` has reported the reason; folding the
+                    // un-retargeted pose would be this tier's own defect — source-rig local transforms
+                    // written onto target bones — introduced by the error path of the fix for it.
+                    continue;
+                }
+                retargeted = &m_Retarget->LayerScratch();
+            }
+
             for ( uint32_t i = 0; i < n; ++i )
             {
                 if ( !layer.BoneMask.empty() && ( i >= layer.BoneMask.size() || layer.BoneMask[i] == 0 ) )
                     continue;
 
                 const BoneTransform layerLocal =
-                     SampleLocalTransform( layer.Playback.Clip, i, layer.Playback.Time );
+                     retargeted != nullptr
+                          ? ( *retargeted )[i]
+                          : SampleLocalTransform( TargetSampling(), layer.Playback.Clip, i,
+                                                  layer.Playback.Time );
                 const BoneTransform& base = pose[i];
 
                 if ( layer.Additive )
                 {
                     // Additive: apply the layer's delta from the BIND pose, scaled by weight, on top of base.
-                    const BoneTransform& bind = m_BindPose[i];
+                    const BoneTransform& bind = additiveReference[i];
                     BoneTransform        out;
                     out.Translation    = base.Translation + w * ( layerLocal.Translation - bind.Translation );
                     const glm::quat dR = layerLocal.Rotation * glm::inverse( bind.Rotation );
@@ -399,20 +445,25 @@ namespace Desert::Animation
     // Sampling
     // ============================================================
 
-    BoneTransform Animator::SampleLocalTransform( const AnimationClip* clip, uint32_t boneIndex,
-                                                  FrameTime time ) const
+    BoneTransform Animator::SampleLocalTransform( const RigSampling& rig, const AnimationClip* clip,
+                                                  uint32_t boneIndex, FrameTime time ) const
     {
-        if ( const BoneTrack* track = ResolveTrack( clip, boneIndex ) )
+        if ( const BoneTrack* track = ResolveTrack( rig, clip, boneIndex ) )
             if ( track->HasKeys() )
             {
                 return track->Sample( time, clip->TickRate );
             }
-        return m_BindPose[boneIndex];
+        // THE REST OF THE RIG BEING SAMPLED, NOT OF THIS ANIMATOR. Under a retarget that is the source
+        // rig's retarget pose (`SourceInitial`), which is the ONE value that makes an untracked bone a
+        // no-op: the equation is `sourceCurrent * sourceInitial^-1`, so `sourceInitial` gives the identity
+        // delta and the target keeps its own rest. Feeding the source's BIND pose here instead would hand
+        // every untracked bone the inverse of the authored retarget-pose offset.
+        return rig.Rest[boneIndex];
     }
 
-    BoneTransform Animator::BlendedBaseLocal( uint32_t boneIndex ) const
+    BoneTransform Animator::BlendedBaseLocal( const RigSampling& rig, uint32_t boneIndex ) const
     {
-        const BoneTransform a = SampleLocalTransform( m_Current.Clip, boneIndex, m_Current.Time );
+        const BoneTransform a = SampleLocalTransform( rig, m_Current.Clip, boneIndex, m_Current.Time );
         if ( !m_IsBlending || !m_Next.IsValid() )
         {
             return a;
@@ -428,7 +479,7 @@ namespace Desert::Animation
             return a;
         }
 
-        const BoneTransform b = SampleLocalTransform( m_Next.Clip, boneIndex, m_Next.Time );
+        const BoneTransform b = SampleLocalTransform( rig, m_Next.Clip, boneIndex, m_Next.Time );
         if ( alpha >= 1.0F )
         {
             return b;
@@ -437,14 +488,33 @@ namespace Desert::Animation
         return Blend( a, b, alpha );
     }
 
-    const BoneTrack* Animator::ResolveTrack( const AnimationClip* clip, uint32_t boneIndex ) const
+    Animator::RigSampling Animator::TargetSampling() const
+    {
+        return RigSampling{ m_Skeleton, m_BindPose, m_TrackBinding };
+    }
+
+    Animator::RigSampling Animator::SourceSampling() const
+    {
+        // The source rig's REST is its retarget pose applied to its bind pose — `SourceInitial`, which is
+        // what the retarget equation measures a delta against. See SampleLocalTransform.
+        return RigSampling{ m_Retarget->GetSourceSkeleton(),
+                            m_Retarget->GetRetargeter().GetSourceInitialPose(), m_SourceTrackBinding };
+    }
+
+    const LocalPose& Animator::AdditiveReference() const
+    {
+        return m_Retarget ? m_Retarget->GetRetargeter().GetTargetInitialPose() : m_BindPose;
+    }
+
+    const BoneTrack* Animator::ResolveTrack( const RigSampling& rig, const AnimationClip* clip,
+                                             uint32_t boneIndex ) const
     {
         if ( !clip )
         {
             return nullptr;
         }
 
-        auto& binding = m_TrackBinding[clip];
+        auto& binding = rig.Binding[clip];
 
         // REBUILT WHEN THE CLIP'S TRACK STORAGE HAS MOVED, not only when the cache is empty. An unload +
         // reload of the clip's asset leaves the AnimationClip at the same address holding a freshly
@@ -453,7 +523,7 @@ namespace Desert::Animation
         if ( binding.ByBone.empty() || binding.TracksData != clip->Tracks.data() ||
              binding.TrackCount != clip->Tracks.size() || binding.Revision != clip->TrackRevision )
         {
-            const auto& bones = m_Skeleton.GetBones();
+            const auto& bones = rig.Rig.GetBones();
             binding.ByBone.assign( bones.size(), TrackBinding::NO_TRACK );
             binding.TracksData = clip->Tracks.data();
             binding.TrackCount = clip->Tracks.size();
@@ -468,7 +538,7 @@ namespace Desert::Animation
                 {
                     continue;
                 }
-                if ( const auto bone = m_Skeleton.FindBoneIndex( track.BoneName ) )
+                if ( const auto bone = rig.Rig.FindBoneIndex( track.BoneName ) )
                 {
                     binding.ByBone[*bone] = t;
                 }
@@ -770,6 +840,58 @@ namespace Desert::Animation
     const ControlRigStage* Animator::GetRig() const
     {
         return m_Rig.get();
+    }
+
+    // ============================================================
+    // The retarget
+    // ============================================================
+
+    Common::BoolResultStr Animator::AttachRetarget( std::unique_ptr<Retarget::RetargetSource> retarget )
+    {
+        if ( !retarget )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "refusing to attach a null retarget to rig (signature {}).", m_Skeleton.GetSignature() );
+        }
+
+        // REFUSED, NOT ACCEPTED-AND-IGNORED, and it is the same load-bearing refusal `AttachRig` makes one
+        // function up. `RetargetSource::Create` has already refused a setup that could only ever emit the
+        // rest pose; this one refuses the other way a retarget can be a no-op that passes every assertion a
+        // working one passes — being built for a rig that is not the one it would run on. The suite's
+        // positive control ("the skinning matrices came out different, by this much") only means something
+        // because these two states cannot be reached.
+        if ( retarget->GetRetargeter().GetTargetInitialPose().Size() != m_Skeleton.GetBones().size() )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "refusing to attach a retarget built for a {}-bone target to this {}-bone rig (signature "
+                 "{}).",
+                 retarget->GetRetargeter().GetTargetInitialPose().Size(), m_Skeleton.GetBones().size(),
+                 m_Skeleton.GetSignature() );
+        }
+
+        m_Retarget = std::move( retarget );
+
+        // THE BINDING CACHE IS BUILT AGAINST A RIG, and this call is exactly the moment that rig changes.
+        // Keeping it would hand the next frame a bone -> track map built for the other skeleton's bone
+        // order: every clip would play, on the wrong bones, with nothing refused.
+        m_SourceTrackBinding.clear();
+        return Common::MakeSuccess( true );
+    }
+
+    void Animator::DetachRetarget()
+    {
+        m_Retarget.reset();
+        m_SourceTrackBinding.clear();
+    }
+
+    Retarget::RetargetSource* Animator::GetRetarget()
+    {
+        return m_Retarget.get();
+    }
+
+    const Retarget::RetargetSource* Animator::GetRetarget() const
+    {
+        return m_Retarget.get();
     }
 
 } // namespace Desert::Animation
