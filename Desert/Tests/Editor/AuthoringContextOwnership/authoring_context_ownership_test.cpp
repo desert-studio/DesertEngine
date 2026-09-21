@@ -44,6 +44,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -492,6 +493,48 @@ namespace
         std::vector<std::string> Hits;      // "<repo-relative path>:<line>"
     };
 
+    // DOES THIS FILE MUTATE THE AUTHORING CONTEXT? Matched on the TYPE'S OWN CONTRACT — every mutating
+    // entry point takes the owner FIRST — rather than on the method name alone.
+    //
+    // THE NAME ALONE IS NOT ENOUGH, AND THAT IS MEASURED, NOT FEARED. This used to be "the file contains
+    // `.Focus(` (etc.) AND the word ActiveAuthoringContext somewhere", two independent substrings over a
+    // whole translation unit. EditorLayer.cpp went red the day it began READING the context for the
+    // control channel's snapshot, because 2000 lines away a viewport camera has a `Focus()` of its own.
+    // A census that fires on an innocent file is a census somebody switches off — and it would have
+    // taken a real finding with it (07 §8.3).
+    NO_DISCARD bool WritesTheAuthoringContext( const std::string& code )
+    {
+        static const std::vector<std::string> kMutators = {
+             ".Focus(", ".SetMode(", ".SetSelectedBone(", ".SetShowBoneNames(", ".SetSelectedControl(",
+             ".SetControlRotate(",
+        };
+
+        for ( const std::string& mutator : kMutators )
+        {
+            for ( std::size_t at = code.find( mutator ); at != std::string::npos;
+                  at             = code.find( mutator, at + 1 ) )
+            {
+                // The first argument, as written. `AuthoringContextHost` accepts a mutation only from an
+                // owner, so an owner in that position IS the signature of a write to it.
+                std::size_t first = at + mutator.size();
+                while ( first < code.size() && std::isspace( static_cast<unsigned char>( code[first] ) ) )
+                    ++first;
+                std::size_t end = first;
+                while ( end < code.size() &&
+                        ( std::isalnum( static_cast<unsigned char>( code[end] ) ) || code[end] == '_' ||
+                          code[end] == ':' ) )
+                    ++end;
+
+                std::string argument = code.substr( first, end - first );
+                std::transform( argument.begin(), argument.end(), argument.begin(),
+                                []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+                if ( argument.size() >= 5 && argument.compare( argument.size() - 5, 5, "owner" ) == 0 )
+                    return true;
+            }
+        }
+        return false;
+    }
+
     // Every occurrence of @p word as a whole identifier in the code (not the prose) under @p roots.
     Walk CountIdentifier( const std::string& repoRoot, const std::vector<std::string>& roots,
                           const std::string& word )
@@ -638,6 +681,22 @@ TEST( AuthoringContextCensus, EveryModesOwnReaderExistsOutsideThisHeader )
     }
 }
 
+TEST( AuthoringContextCensus, TheWriteScannerSeesAWriteAndNotSomebodyElsesFocus )
+{
+    // POSITIVE AND NEGATIVE CONTROL FOR THE SECOND SCANNER. The register below derives its answer from
+    // this function, and a scanner that sees nothing reports "only the allowed surfaces write it" in
+    // exactly the voice it uses when that is true.
+    EXPECT_TRUE( WritesTheAuthoringContext( "host.SetMode( m_AuthoringOwner, m_Authoring, mode );" ) );
+    EXPECT_TRUE( WritesTheAuthoringContext( "ctx.Focus( BoneTreeOwner(), mine );" ) );
+    EXPECT_TRUE( WritesTheAuthoringContext( "authoring.SetSelectedControl( owner, mine, control );" ) );
+
+    // The exact line that made the old scanner red: a viewport camera framing a point, in a file that
+    // reads the authoring context for the control channel two thousand lines away.
+    EXPECT_FALSE( WritesTheAuthoringContext(
+         "camera.Focus( ViewportCameraFocalPoint( position, forward ), distance );\n"
+         "ActiveAuthoringContext().Mode();" ) );
+}
+
 TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
 {
     // A REGISTER OF NAMED ROWS, NOT A NUMBER. A census pinning a count can be satisfied by editing the
@@ -671,16 +730,8 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
 
         // The mutating half of the surface. Reads (`ShowsBones`, `SelectedBoneIndex`, ...) are deliberately
         // NOT here: anybody may read, and the overlay and the gizmo do.
-        const bool writes = code.find( ".Focus(" ) != std::string::npos ||
-                            code.find( ".SetMode(" ) != std::string::npos ||
-                            code.find( ".SetSelectedBone(" ) != std::string::npos ||
-                            code.find( ".SetShowBoneNames(" ) != std::string::npos ||
-                            code.find( ".SetSelectedControl(" ) != std::string::npos ||
-                            code.find( ".SetControlRotate(" ) != std::string::npos;
-        if ( !writes )
+        if ( !WritesTheAuthoringContext( code ) )
             continue;
-        if ( code.find( "ActiveAuthoringContext" ) == std::string::npos )
-            continue; // some other type's Focus/SetMode
 
         writers.insert( fs::relative( entry.path(), root ).string() );
     }
