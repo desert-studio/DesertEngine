@@ -232,6 +232,20 @@ namespace Desert::Editor
         // forgotten on the strip.
         void DrawAuthoringModeSwitch();
 
+        // ── WHERE THE TOOLBAR'S RIGHT-HAND CLUSTER BEGINS ────────────────────────────────────────
+        //
+        // The show-flags eye, the view-mode combo and the camera gear are PINNED to the right edge with
+        // absolute `SameLine( x )` calls, so the left-hand run of the strip does not end at the panel's
+        // edge — it ends here, and anything drawn past it is painted UNDER them. Measured, not feared:
+        // §14.2's fourth segment landed beneath the eye button at the editor's default layout, drawn and
+        // highlighted and unclickable, which is the worst of the three possible outcomes because it looks
+        // like a rendering glitch rather than a missing control.
+        //
+        // One derivation, read by both sides. Two copies of this arithmetic is exactly how it happened.
+        NO_DISCARD static float ToolbarGearX();
+        NO_DISCARD static float ToolbarViewModeX();
+        NO_DISCARD static float ToolbarRightClusterX();
+
         // Take the context and put this viewport into @p mode, saying so if it is refused.
         void EnterAuthoringMode( Core::AuthoringMode mode );
 

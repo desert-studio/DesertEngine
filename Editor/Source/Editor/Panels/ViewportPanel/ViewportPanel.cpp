@@ -320,6 +320,21 @@ namespace Desert::Editor
         }
     }
 
+    float ViewportPanel::ToolbarGearX()
+    {
+        return ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight() - 6.0f;
+    }
+
+    float ViewportPanel::ToolbarViewModeX()
+    {
+        return ToolbarGearX() - 160.0f;
+    }
+
+    float ViewportPanel::ToolbarRightClusterX()
+    {
+        return ToolbarViewModeX() - ImGui::GetFrameHeight() - 8.0f;
+    }
+
     Common::BoolResultStr ViewportPanel::ModeAvailability( Core::AuthoringMode mode ) const
     {
         // WHAT EACH MODE NEEDS, AND THE SENTENCE THAT SAYS WHAT IS MISSING. Derived from the entity rather
@@ -411,12 +426,36 @@ namespace Desert::Editor
              ICON_MDI_HUMAN_HANDSUP "  Pose",
              ICON_MDI_RHOMBUS_OUTLINE "  Control",
         };
-        static_assert( std::size( kLabels ) == Core::kAuthoringModes.size(),
+        // THE SAME SEGMENTS WITHOUT THEIR WORDS, for a narrow viewport. MEASURED, not guessed: at the
+        // editor's default layout on a 4112 px screen the Scene panel is about 1420 px wide and the four
+        // written-out segments run off its right edge — "Control" was clipped to "Co", which is a mode
+        // the user can neither read nor click. Dropping the words is what a toolbar can give up; dropping
+        // a segment is not, because three of the four modes have no other door.
+        static constexpr const char* kIcons[] = {
+             ICON_MDI_CUBE_OUTLINE,
+             ICON_MDI_BONE,
+             ICON_MDI_HUMAN_HANDSUP,
+             ICON_MDI_RHOMBUS_OUTLINE,
+        };
+        static_assert( std::size( kLabels ) == Core::kAuthoringModes.size() &&
+                            std::size( kIcons ) == Core::kAuthoringModes.size(),
                        "every authoring mode needs a segment: the strip is the only way into three of "
                        "them, so a mode without one is a mode the user cannot reach" );
 
         ImGui::SameLine();
         ImGui::TextUnformatted( "|" );
+
+        const ImGuiStyle& style = ImGui::GetStyle();
+        float             wanted = 0.0f;
+        for ( const char* label : kLabels )
+            wanted += ImGui::CalcTextSize( label ).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
+
+        // Measured AFTER the separator has been placed on the row, against the RIGHT-HAND CLUSTER's own
+        // x and not against the panel's edge — that is the difference between "it fits in the window" and
+        // "it fits before the eye button is painted over it", and the second is the one that is true.
+        // SameLine() only moves the cursor; the loop's own SameLine() lands in the same place.
+        ImGui::SameLine();
+        const bool compact = ImGui::GetCursorPosX() + wanted > ToolbarRightClusterX();
 
         for ( std::size_t i = 0; i < Core::kAuthoringModes.size(); ++i )
         {
@@ -428,7 +467,7 @@ namespace Desert::Editor
             if ( active )
                 ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.85f, 0.45f, 0.1f, 1.0f ) );
             ImGui::BeginDisabled( !available );
-            if ( ImGui::Button( kLabels[i] ) )
+            if ( ImGui::Button( compact ? kIcons[i] : kLabels[i] ) )
                 EnterAuthoringMode( mode );
             ImGui::EndDisabled();
             if ( active )
@@ -436,6 +475,7 @@ namespace Desert::Editor
 
             // ImGuiHoveredFlags_AllowWhenDisabled: the tooltip on a DISABLED segment is the only place the
             // reason is ever shown, so suppressing it there would hide exactly the message that matters.
+            // And in the compact strip it is the only place the mode's NAME is shown at all.
             if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
             {
                 ImGui::SetTooltip( "%s", available ? Core::AuthoringModeName( mode ) : available.GetError().c_str() );
@@ -882,8 +922,7 @@ namespace Desert::Editor
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
-            const float gearW = ImGui::GetFrameHeight();
-            const float vmX   = ImGui::GetWindowContentRegionMax().x - gearW - 6.0f - 160.0f;
+            const float vmX = ToolbarViewModeX();
 
             // The "Show" flags. Every toggle here edits the USER's view state and is written to
             // editor.json on the spot — these are single clicks scattered through a session, and losing
@@ -894,7 +933,7 @@ namespace Desert::Editor
             // not a debug overlay, and it belongs to the group SceneSettings names as awaiting a decision
             // about who owns quality. It is drawn here because this is where a user looks for it, under a
             // separator that says which side of the fence it is on.
-            ImGui::SameLine( vmX - gearW - 8.0f );
+            ImGui::SameLine( ToolbarRightClusterX() );
             if ( ImGui::Button( ICON_MDI_EYE_OUTLINE "##DebugShowFlags" ) )
                 ImGui::OpenPopup( "##DebugShowFlagsPopup" );
             if ( ImGui::IsItemHovered() )
@@ -1020,7 +1059,7 @@ namespace Desert::Editor
         }
 
         // --- Right edge: editor camera settings (speed) behind a gear button ---
-        ImGui::SameLine( ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight() - 6.0f );
+        ImGui::SameLine( ToolbarGearX() );
         if ( ImGui::Button( ICON_MDI_COG "##CamSettings" ) )
             ImGui::OpenPopup( "##EditorCameraSettings" );
         if ( ImGui::IsItemHovered() )
