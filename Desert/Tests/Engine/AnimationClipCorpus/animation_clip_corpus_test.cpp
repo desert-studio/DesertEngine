@@ -374,6 +374,54 @@ TEST( AnimationClipCorpus, EveryKeyInEveryClipSTATESItsShapeRatherThanInheriting
                             << " clip(s); the corpus is 267";
 }
 
+TEST( AnimationClipCorpus, EveryClipInTheRepositorySTATESTheSectionItsValuesAreReadUnder )
+{
+    // THE CONDITION GENERATION 3 WAS TAKEN ON, and the same one generation 2 was: a step that only
+    // changes the number a file states about ITSELF is a relabelling. A generation-3 file says something
+    // its predecessor could not — what its values MEAN — and this census reads the shipped bytes back to
+    // check that the migration actually wrote it rather than leaving `DefaultIfMissing` to invent it.
+    //
+    // A clip whose `Sections` were silent would still load, still play and still look right, because an
+    // empty list is the identity of the blend. That is exactly why it has to be checked HERE and not by
+    // a behavioural test: the failure is invisible in every frame and only visible in the file.
+    ASSERT_FALSE( RepoRoot().empty() );
+
+    std::size_t clips = 0;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( RepoRoot() ) )
+    {
+        if ( !entry.is_regular_file() || entry.path().extension() != ".anim" )
+        {
+            continue;
+        }
+        if ( entry.path().generic_string().find( "/build/" ) != std::string::npos )
+        {
+            continue;
+        }
+        ++clips;
+
+        const std::string raw = ReadFile( entry.path().string() );
+        ASSERT_FALSE( raw.empty() ) << entry.path().string();
+        const auto parsed =
+             rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( raw );
+        ASSERT_TRUE( parsed.has_value() ) << entry.path().string();
+        const auto& data = parsed.value();
+
+        ASSERT_FALSE( data.Sections.empty() )
+             << entry.path().string()
+             << " states no section. It would play correctly and say nothing about why — which is the "
+                "state this step exists to end.";
+        EXPECT_EQ( data.Sections[0].StartTick, 0 ) << entry.path().string();
+        EXPECT_EQ( data.Sections[0].EndTick, data.DurationTicks )
+             << entry.path().string() << " has a section that does not reach its own stated length";
+        EXPECT_EQ( data.Sections[0].Blend, 0 )
+             << entry.path().string()
+             << " migrated to something other than Absolute. A migration states the behaviour a file "
+                "already had; it does not choose a new one.";
+    }
+
+    EXPECT_GE( clips, 6u ) << "this census is measuring the wrong tree";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

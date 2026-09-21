@@ -29,23 +29,44 @@ namespace Desert::Assets::Serialization
         // is what the version field says. They live here rather than in the live schema for the reason
         // SceneFormat.hpp gives for its own steps: the runtime must know nothing about the old format, and
         // the only code in this engine that can read one is the code whose job is to delete it.
+        // THE SHAPE A GENERATION-2 FILE ALREADY STATES, AND IT IS OPTIONAL BECAUSE GENERATIONS 0 AND 1
+        // DO NOT HAVE IT. This half of the mirror was added with the step to generation 3 and it is not a
+        // nicety: until that step, generation 2 WAS the current one, so no file carrying a shape could
+        // ever reach this function and the conversion was free to write `Linear` over everything. The
+        // moment 3 exists, `A6Curve_Cubic.anim` — a corpus file whose whole purpose is to hold `Cubic`
+        // keys — becomes a file this function converts, and a migration that relabels a file while
+        // silently flattening its curves is worse than no migration at all.
+        struct LegacyKeyShape
+        {
+            int   Interp       = 1;
+            int   Mode         = 0;
+            float ArriveWeight = 0.0f;
+            float LeaveWeight  = 0.0f;
+        };
         struct LegacyKeyPosition
         {
-            std::optional<float>   Time;
-            std::optional<int32_t> Tick;
-            glm::vec3              Value = glm::vec3( 0.0f );
+            std::optional<float>     Time;
+            std::optional<int32_t>   Tick;
+            glm::vec3                Value = glm::vec3( 0.0f );
+            std::optional<LegacyKeyShape> Shape;
+            std::optional<glm::vec3>      ArriveTangent;
+            std::optional<glm::vec3>      LeaveTangent;
         };
         struct LegacyKeyRotation
         {
-            std::optional<float>   Time;
-            std::optional<int32_t> Tick;
-            glm::quat              Value = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+            std::optional<float>          Time;
+            std::optional<int32_t>        Tick;
+            glm::quat                     Value = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+            std::optional<LegacyKeyShape> Shape;
         };
         struct LegacyKeyScale
         {
-            std::optional<float>   Time;
-            std::optional<int32_t> Tick;
-            glm::vec3              Value = glm::vec3( 1.0f );
+            std::optional<float>          Time;
+            std::optional<int32_t>        Tick;
+            glm::vec3                     Value = glm::vec3( 1.0f );
+            std::optional<LegacyKeyShape> Shape;
+            std::optional<glm::vec3>      ArriveTangent;
+            std::optional<glm::vec3>      LeaveTangent;
         };
         struct LegacyChannel
         {
@@ -232,6 +253,20 @@ namespace Desert::Assets::Serialization
         statedShape.Interp = static_cast<int>( Animation::KeyInterp::Linear );
         statedShape.Mode   = static_cast<int>( Animation::TangentMode::Auto );
 
+        // AND A FILE THAT ALREADY STATES ONE KEEPS IT. `ShapesWritten` counts what this step ADDED, so a
+        // generation-2 file converting to 3 reports zero — which is the honest answer and the one that
+        // makes the number mean something across two different steps.
+        const auto shapeOf = [&]( const std::optional<Legacy::LegacyKeyShape>& authored ) -> KeyShape
+        {
+            if ( !authored.has_value() )
+            {
+                ++report.ShapesWritten;
+                return statedShape;
+            }
+            return KeyShape{ authored->Interp, authored->Mode, authored->ArriveWeight, authored->LeaveWeight };
+        };
+        constexpr glm::vec3 FLAT( 0.0f );
+
         constexpr Animation::FrameRate TICKS = Animation::PROJECT_TICK_RATE;
 
         AnimationAssetData out;
@@ -250,22 +285,22 @@ namespace Desert::Assets::Serialization
             converted.Positions.reserve( channel.Positions.size() );
             for ( const auto& k : channel.Positions )
             {
-                converted.Positions.push_back( KeyPosition{ toTick( k.Time, k.Tick ), k.Value, statedShape,
-                                                            glm::vec3( 0.0f ), glm::vec3( 0.0f ) } );
-                ++report.ShapesWritten;
+                converted.Positions.push_back( KeyPosition{ toTick( k.Time, k.Tick ), k.Value, shapeOf( k.Shape ),
+                                                            k.ArriveTangent.value_or( FLAT ),
+                                                            k.LeaveTangent.value_or( FLAT ) } );
             }
             converted.Rotations.reserve( channel.Rotations.size() );
             for ( const auto& k : channel.Rotations )
             {
-                converted.Rotations.push_back( KeyRotation{ toTick( k.Time, k.Tick ), k.Value, statedShape } );
-                ++report.ShapesWritten;
+                converted.Rotations.push_back(
+                     KeyRotation{ toTick( k.Time, k.Tick ), k.Value, shapeOf( k.Shape ) } );
             }
             converted.Scales.reserve( channel.Scales.size() );
             for ( const auto& k : channel.Scales )
             {
-                converted.Scales.push_back( KeyScale{ toTick( k.Time, k.Tick ), k.Value, statedShape,
-                                                      glm::vec3( 0.0f ), glm::vec3( 0.0f ) } );
-                ++report.ShapesWritten;
+                converted.Scales.push_back( KeyScale{ toTick( k.Time, k.Tick ), k.Value, shapeOf( k.Shape ),
+                                                      k.ArriveTangent.value_or( FLAT ),
+                                                      k.LeaveTangent.value_or( FLAT ) } );
             }
             out.Channels.push_back( std::move( converted ) );
         }

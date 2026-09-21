@@ -69,11 +69,17 @@ TEST( AnimationClipFormat, AssetFieldCensus )
     // A5: `Duration`/`TicksPerSecond` (float seconds under a rate every shipped clip set to 1) are gone;
     // the file now states its own generation, the grid its ticks are counted on, the grid an artist edits
     // on, and a length in ticks.
+    // A28 (generation 3): `Sections` — a clip now states the range, blend type and weight its values are
+    // read under, which is report 05 §938's "from day one".
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
                ( std::vector<std::string>{ "Channels", "DisplayRate", "DurationTicks", "Name", "Notifies",
-                                           "SkeletonSignature", "TickRate", "Version" } ) );
+                                           "Sections", "SkeletonSignature", "TickRate", "Version" } ) );
     EXPECT_EQ( FieldNames<Ser::NotifyData>(), ( std::vector<std::string>{ "Name", "Tick" } ) );
     EXPECT_EQ( FieldNames<Ser::FrameRateData>(), ( std::vector<std::string>{ "Denominator", "Numerator" } ) );
+    EXPECT_EQ( FieldNames<Ser::SectionData>(),
+               ( std::vector<std::string>{ "Blend", "EndTick", "Name", "StartTick", "Tracks", "Weight" } ) );
+    EXPECT_EQ( FieldNames<Ser::SectionWeightKey>(),
+               ( std::vector<std::string>{ "ArriveTangent", "LeaveTangent", "Shape", "Tick", "Value" } ) );
 }
 
 TEST( AnimationClipFormat, SkeletonFieldCensus )
@@ -455,4 +461,164 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── GENERATION 2 -> 3: THE SECTION IS ADDED AND NOTHING ELSE MOVES (A28) ────────────────────────────
+//
+// THE TRAP THIS CLOSES, AND IT WAS LIVE FOR THE LENGTH OF ONE COMMIT. `MigrateAnimationJson` wrote a
+// constant `Linear`/`Auto` shape over EVERY key, which was harmless while generation 2 was current —
+// no file carrying a shape could reach the function, because one at the current generation is refused.
+// The moment generation 3 existed, `A6Curve_Cubic.anim` — a corpus file whose entire purpose is to hold
+// `Cubic` keys with authored tangents — became a file the migrator converts, and the conversion would
+// have flattened it while reporting success. A migration that relabels a file and loses its contents is
+// worse than none, so the shape is carried and this is the test that says so.
+
+namespace
+{
+    /// A generation-2 clip with a CUBIC position key and non-zero tangents — the shape a naive conversion
+    /// would overwrite.
+    std::string GenerationTwoJson()
+    {
+        Ser::AnimationAssetData data;
+        data.Version       = 2;
+        data.Name          = "curve";
+        data.TickRate      = { 24000, 1 };
+        data.DisplayRate   = { 30, 1 };
+        data.DurationTicks = 24000;
+
+        Ser::KeyPosition key;
+        key.Tick                = 12000;
+        key.Value               = glm::vec3( 7.0f, 8.0f, 9.0f );
+        key.Shape.Interp        = 2; // Cubic
+        key.Shape.Mode          = 1; // not Auto
+        key.ArriveTangent       = glm::vec3( 1.5f, 0.0f, 0.0f );
+        key.LeaveTangent        = glm::vec3( -2.5f, 0.0f, 0.0f );
+
+        Ser::ChannelData channel;
+        channel.BoneName = "hips";
+        channel.Positions.push_back( key );
+        data.Channels.push_back( channel );
+
+        // Written WITHOUT the sections field, which is what a real generation-2 file on disk looks like.
+        std::string json = rfl::json::write( data );
+        const auto  at   = json.find( ",\"Sections\":[]" );
+        if ( at != std::string::npos )
+        {
+            json.erase( at, std::string( ",\"Sections\":[]" ).size() );
+        }
+        return json;
+    }
+} // namespace
+
+TEST( AnimationClipFormat, TheMigrationToGenerationThreeKeepsEveryAuthoredKeySHAPE )
+{
+    Desert::Assets::Serialization::AnimationMigrationReport report;
+    const auto migrated = Desert::Assets::Serialization::MigrateAnimationJson( GenerationTwoJson(), report );
+    ASSERT_TRUE( migrated ) << migrated.GetError();
+    EXPECT_EQ( report.FromVersion, 2 );
+    EXPECT_EQ( report.ShapesWritten, 0U )
+         << "this step ADDS no shapes — a non-zero count here means it overwrote authored ones";
+    EXPECT_EQ( report.SectionsWritten, 1 ) << "…and it is not a relabelling: the file gained a section";
+
+    const auto reread = rfl::json::read<Ser::AnimationAssetData, rfl::DefaultIfMissing>( migrated.GetValue() );
+    ASSERT_TRUE( reread.has_value() );
+    const auto& out = reread.value();
+    ASSERT_EQ( out.Channels.size(), 1U );
+    ASSERT_EQ( out.Channels[0].Positions.size(), 1U );
+
+    const auto& key = out.Channels[0].Positions[0];
+    EXPECT_EQ( key.Tick, 12000 ) << "every tick kept";
+    EXPECT_EQ( key.Shape.Interp, 2 ) << "CUBIC, not the Linear a constant shape would have written";
+    EXPECT_EQ( key.Shape.Mode, 1 );
+    EXPECT_FLOAT_EQ( key.ArriveTangent.x, 1.5f );
+    EXPECT_FLOAT_EQ( key.LeaveTangent.x, -2.5f );
+}
+
+TEST( AnimationClipFormat, AMigratedClipSTATESOneWholeClipAbsoluteSectionAtFullWeight )
+{
+    Desert::Assets::Serialization::AnimationMigrationReport report;
+    const auto migrated = Desert::Assets::Serialization::MigrateAnimationJson( GenerationTwoJson(), report );
+    ASSERT_TRUE( migrated ) << migrated.GetError();
+
+    const auto reread = rfl::json::read<Ser::AnimationAssetData, rfl::DefaultIfMissing>( migrated.GetValue() );
+    ASSERT_TRUE( reread.has_value() );
+    const auto& out = reread.value();
+
+    EXPECT_EQ( out.Version, Desert::Assets::Serialization::kAnimationVersion );
+    ASSERT_EQ( out.Sections.size(), 1U );
+    EXPECT_EQ( out.Sections[0].StartTick, 0 );
+    EXPECT_EQ( out.Sections[0].EndTick, out.DurationTicks ) << "the whole clip, to its stated length";
+    EXPECT_EQ( out.Sections[0].Blend, 0 ) << "Absolute — the behaviour the file already had";
+    EXPECT_TRUE( out.Sections[0].Tracks.empty() ) << "empty = every track; a list of names would go stale";
+    EXPECT_TRUE( out.Sections[0].Weight.empty() ) << "empty = full weight, which is NOT a key of zero";
+}
+
+TEST( AnimationClipFormat, AClipWithABackwardsOrUnknownSectionIsRefusedRatherThanRepaired )
+{
+    Ser::AnimationAssetData data;
+    data.Version       = Desert::Assets::Serialization::kAnimationVersion;
+    data.Name          = "broken";
+    data.TickRate      = { 24000, 1 };
+    data.DisplayRate   = { 30, 1 };
+    data.DurationTicks = 24000;
+    data.Channels.push_back( Channel( "hips" ) );
+
+    Ser::SectionData backwards;
+    backwards.Name      = "backwards";
+    backwards.StartTick = 100;
+    backwards.EndTick   = 10;
+    data.Sections.push_back( backwards );
+    EXPECT_FALSE( Desert::Assets::Serialization::BuildClipFromAssetData( data ) )
+         << "a section covering no tick at all would make its tracks silently play unsectioned";
+
+    data.Sections.clear();
+    Ser::SectionData unknown;
+    unknown.Name      = "future";
+    unknown.EndTick   = 24000;
+    unknown.Blend     = 7;
+    data.Sections.push_back( unknown );
+    EXPECT_FALSE( Desert::Assets::Serialization::BuildClipFromAssetData( data ) )
+         << "reading an unknown blend as Absolute turns an offset into a pose";
+
+    // POSITIVE CONTROL: the same data with a sane section loads.
+    data.Sections[0].Blend = 1; // Additive
+    EXPECT_TRUE( Desert::Assets::Serialization::BuildClipFromAssetData( data ) );
+}
+
+TEST( AnimationClipFormat, AScaleKeysSHAPEAndTANGENTSSurviveARoundTrip )
+{
+    // THE WRITER WROTE THEM AND THE READER DROPPED THEM. `BuildClipFromAssetData`'s scale branch built
+    // `{ Tick, Value }` and stopped while `BuildAssetDataFromClip` wrote the shape and both tangents, so
+    // a save, a load and a second save silently flattened every authored scale curve in the project.
+    // Both ends of the chain looked right; the middle link dropped a property.
+    Ser::AnimationAssetData data;
+    data.Version       = Desert::Assets::Serialization::kAnimationVersion;
+    data.Name          = "scaled";
+    data.TickRate      = { 24000, 1 };
+    data.DisplayRate   = { 30, 1 };
+    data.DurationTicks = 24000;
+
+    Ser::KeyScale key;
+    key.Tick          = 6000;
+    key.Value         = glm::vec3( 2.0f, 3.0f, 4.0f );
+    key.Shape.Interp  = 2; // Cubic
+    key.Shape.Mode    = 1; // not Auto
+    key.ArriveTangent = glm::vec3( 0.25f, 0.0f, 0.0f );
+    key.LeaveTangent  = glm::vec3( -0.75f, 0.0f, 0.0f );
+
+    Ser::ChannelData channel;
+    channel.BoneName = "hips";
+    channel.Scales.push_back( key );
+    data.Channels.push_back( channel );
+
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
+    ASSERT_TRUE( built ) << built.GetError();
+    ASSERT_EQ( built.GetValue().Tracks.size(), 1U );
+    ASSERT_EQ( built.GetValue().Tracks[0].ScaleKeys.size(), 1U );
+
+    const auto& loaded = built.GetValue().Tracks[0].ScaleKeys[0];
+    EXPECT_EQ( static_cast<int>( loaded.Interp ), 2 );
+    EXPECT_EQ( static_cast<int>( loaded.Mode ), 1 );
+    EXPECT_FLOAT_EQ( loaded.ArriveTangent.x, 0.25f );
+    EXPECT_FLOAT_EQ( loaded.LeaveTangent.x, -0.75f );
 }
