@@ -128,8 +128,7 @@ namespace Desert::Editor
         {
             const Core::AuthoringMode wanted =
                  overlay ? Core::AuthoringMode::Control : Core::AuthoringMode::Object;
-            Author( entityId, "the control overlay",
-                    [&]( Core::AuthoringContext& context )
+            Author( entityId, "the control overlay", [&]( Core::AuthoringContext& context )
                     { return authoring.SetMode( m_AuthoringOwner, context, wanted ); } );
         }
         ImGui::SameLine();
@@ -143,15 +142,13 @@ namespace Desert::Editor
         const bool rotate = mine && authoring.ControlRotate();
         if ( ImGui::RadioButton( "Translate", !rotate ) )
         {
-            Author( entityId, "the manipulator mode",
-                    [&]( Core::AuthoringContext& context )
+            Author( entityId, "the manipulator mode", [&]( Core::AuthoringContext& context )
                     { return authoring.SetControlRotate( m_AuthoringOwner, context, false ); } );
         }
         ImGui::SameLine();
         if ( ImGui::RadioButton( "Rotate", rotate ) )
         {
-            Author( entityId, "the manipulator mode",
-                    [&]( Core::AuthoringContext& context )
+            Author( entityId, "the manipulator mode", [&]( Core::AuthoringContext& context )
                     { return authoring.SetControlRotate( m_AuthoringOwner, context, true ); } );
         }
         ImGui::SameLine();
@@ -180,8 +177,7 @@ namespace Desert::Editor
             // The stage was rebuilt under the selection (the file changed, the slot was re-pointed, or the
             // mesh was swapped). An index into a hierarchy that no longer has it is the stale-handle defect
             // with a smaller name.
-            Author( entityId, "forgetting a stale control",
-                    [&]( Core::AuthoringContext& context )
+            Author( entityId, "forgetting a stale control", [&]( Core::AuthoringContext& context )
                     { return authoring.SetSelectedControl( m_AuthoringOwner, context, std::nullopt ); } );
             selected = Animation::ControlHierarchy::INVALID;
         }
@@ -194,8 +190,7 @@ namespace Desert::Editor
                 const bool                       isSel   = ( i == selected );
                 if ( ImGui::Selectable( control.Name.c_str(), isSel ) )
                 {
-                    Author( entityId, "the control selection",
-                            [&]( Core::AuthoringContext& context )
+                    Author( entityId, "the control selection", [&]( Core::AuthoringContext& context )
                             { return authoring.SetSelectedControl( m_AuthoringOwner, context, i ); } );
                     selected = i;
                 }

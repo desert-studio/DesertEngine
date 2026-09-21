@@ -2241,9 +2241,9 @@ namespace Desert::Editor
 
         // 07 §14.2's mode, so a window capture of the overlay can be read with a number beside it.
         {
-            const auto& authoring        = Core::ActiveAuthoringContext();
-            snapshot.Authoring.Mode      = Core::AuthoringModeName( authoring.Mode() );
-            snapshot.Authoring.Holder    = authoring.Holder().Describe();
+            const auto& authoring     = Core::ActiveAuthoringContext();
+            snapshot.Authoring.Mode   = Core::AuthoringModeName( authoring.Mode() );
+            snapshot.Authoring.Holder = authoring.Holder().Describe();
             snapshot.Authoring.Entity =
                  authoring.Entity().IsNull() ? std::string() : authoring.Entity().ToString();
             snapshot.Authoring.SelectedBone = authoring.SelectedBoneIndex();

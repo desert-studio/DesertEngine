@@ -83,12 +83,12 @@ namespace Desert::Editor::Control
     /// put the number beside the frame; `holder` is here for the same reason the refusals name an owner.
     struct AuthoringSnapshot
     {
-        std::string Mode   = "Object"; ///< AuthoringModeName: "Object" | "Skeleton" | "Pose" | "Control"
-        std::string Entity;            ///< the character the mode is about; empty when nothing is published
-        std::string Holder = "nobody"; ///< AuthoringOwner::Describe()
-        int         SelectedBone    = -1; ///< index into Skeleton::GetBones(), -1 for none
-        int         SelectedControl = -1; ///< index into the live ControlHierarchy, -1 for none
-        bool        ShowBoneNames   = false;
+        std::string Mode = "Object"; ///< AuthoringModeName: "Object" | "Skeleton" | "Pose" | "Control"
+        std::string Entity;          ///< the character the mode is about; empty when nothing is published
+        std::string Holder           = "nobody"; ///< AuthoringOwner::Describe()
+        int         SelectedBone     = -1;       ///< index into Skeleton::GetBones(), -1 for none
+        int         SelectedControl  = -1;       ///< index into the live ControlHierarchy, -1 for none
+        bool        ShowBoneNames    = false;
         bool        PreviewsBindPose = false; ///< Skeleton only — 07 §1.3; the scene render shows it
     };
 

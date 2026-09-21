@@ -421,8 +421,8 @@ TEST( AuthoringContextOwnership, OneCharacterKeepsItsControlAcrossThePanelAndThe
     // two halves unusable together — which is the arrangement the panel's own header promises.
     AuthoringContextHost host;
 
-    const Common::UUID hero  = Character( 31 );
-    const auto         panel = AuthoringOwner::ForPanel( "Control Rig" );
+    const Common::UUID hero     = Character( 31 );
+    const auto         panel    = AuthoringOwner::ForPanel( "Control Rig" );
     AuthoringContext   panelCtx = ContextFor( hero );
 
     host.Focus( panel, panelCtx );
@@ -505,7 +505,11 @@ namespace
     NO_DISCARD bool WritesTheAuthoringContext( const std::string& code )
     {
         static const std::vector<std::string> kMutators = {
-             ".Focus(", ".SetMode(", ".SetSelectedBone(", ".SetShowBoneNames(", ".SetSelectedControl(",
+             ".Focus(",
+             ".SetMode(",
+             ".SetSelectedBone(",
+             ".SetShowBoneNames(",
+             ".SetSelectedControl(",
              ".SetControlRotate(",
         };
 
@@ -520,9 +524,8 @@ namespace
                 while ( first < code.size() && std::isspace( static_cast<unsigned char>( code[first] ) ) )
                     ++first;
                 std::size_t end = first;
-                while ( end < code.size() &&
-                        ( std::isalnum( static_cast<unsigned char>( code[end] ) ) || code[end] == '_' ||
-                          code[end] == ':' ) )
+                while ( end < code.size() && ( std::isalnum( static_cast<unsigned char>( code[end] ) ) ||
+                                               code[end] == '_' || code[end] == ':' ) )
                     ++end;
 
                 std::string argument = code.substr( first, end - first );
@@ -714,9 +717,9 @@ TEST( AuthoringContextCensus, TheWriteScannerSeesAWriteAndNotSomebodyElsesFocus 
 
     // The exact line that made the old scanner red: a viewport camera framing a point, in a file that
     // reads the authoring context for the control channel two thousand lines away.
-    EXPECT_FALSE( WritesTheAuthoringContext(
-         "camera.Focus( ViewportCameraFocalPoint( position, forward ), distance );\n"
-         "ActiveAuthoringContext().Mode();" ) );
+    EXPECT_FALSE(
+         WritesTheAuthoringContext( "camera.Focus( ViewportCameraFocalPoint( position, forward ), distance );\n"
+                                    "ActiveAuthoringContext().Mode();" ) );
 }
 
 TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )

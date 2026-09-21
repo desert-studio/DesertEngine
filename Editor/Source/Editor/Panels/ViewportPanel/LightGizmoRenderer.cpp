@@ -234,8 +234,7 @@ namespace Desert::Editor
         ImDrawList* const drawList = ImGui::GetWindowDrawList();
 
         const Animation::ManipulatorHit hover = Animation::HitTest( m_ControlFrame, pointerV, 10.0f );
-        const uint32_t                  chosen =
-             authoring.SelectedControl().value_or( Animation::ControlHierarchy::INVALID );
+        const uint32_t chosen = authoring.SelectedControl().value_or( Animation::ControlHierarchy::INVALID );
 
         for ( const Animation::ControlShapeDraw& shape : m_ControlFrame.Shapes )
         {

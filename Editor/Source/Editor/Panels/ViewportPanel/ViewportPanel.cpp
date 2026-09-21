@@ -445,7 +445,7 @@ namespace Desert::Editor
         ImGui::SameLine();
         ImGui::TextUnformatted( "|" );
 
-        const ImGuiStyle& style = ImGui::GetStyle();
+        const ImGuiStyle& style  = ImGui::GetStyle();
         float             wanted = 0.0f;
         for ( const char* label : kLabels )
             wanted += ImGui::CalcTextSize( label ).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
@@ -478,7 +478,8 @@ namespace Desert::Editor
             // And in the compact strip it is the only place the mode's NAME is shown at all.
             if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
             {
-                ImGui::SetTooltip( "%s", available ? Core::AuthoringModeName( mode ) : available.GetError().c_str() );
+                ImGui::SetTooltip( "%s",
+                                   available ? Core::AuthoringModeName( mode ) : available.GetError().c_str() );
             }
         }
 
@@ -490,9 +491,8 @@ namespace Desert::Editor
             if ( ImGui::Checkbox( "Names", &showNames ) )
             {
                 ClaimAuthoringContext();
-                if ( const auto changed =
-                          Core::ActiveAuthoringContext().SetShowBoneNames( m_AuthoringOwner, m_Authoring,
-                                                                           showNames );
+                if ( const auto changed = Core::ActiveAuthoringContext().SetShowBoneNames(
+                          m_AuthoringOwner, m_Authoring, showNames );
                      !changed )
                 {
                     LOG_WARN( "[Viewport] bone-name labels refused: {}", changed.GetError() );
