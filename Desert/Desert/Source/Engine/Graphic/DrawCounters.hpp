@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/DevInstruments.hpp>
+
 #include <cstdint>
 
 namespace Desert::Graphic
@@ -27,9 +29,23 @@ namespace Desert::Graphic
     // counter would show a number that grows while it is being looked at, and two panels reading it in the
     // same frame would disagree — which is the defect shape this project keeps finding, an instrument
     // answering a different question than the one asked.
+    // THE SHIPPING BOUNDARY IS HERE, IN THE INSTRUMENT'S OWN HEADER, AND NOT AT THE SIX CALL SITES.
+    //
+    // Putting it at the call sites would have been the obvious move and it is the wrong one twice over.
+    // First, `Desert/Tests/Engine/DrawCounterFunnel` is a census over the SOURCE TEXT of
+    // VulkanRenderer.cpp asserting that both funnels still call `Record` — an `#if` around those calls
+    // reads to it as the funnel being removed, so the guard on the counter would have broken the guard
+    // on the draws. Second, the funnel argument above says there must be ONE place that knows about the
+    // counter; a boundary spelled at every call site is the same six-places problem in a new coat.
+    //
+    // Empty inline bodies rather than a removed declaration: the callers keep compiling unchanged, the
+    // calls optimise to nothing, and `DrawCounters.cpp` is never referenced, so it is not pulled out of
+    // the archive. The name does not reach the shipping binary at all, which is what
+    // scripts/CI/ShippingSymbols.sh checks.
     class DrawCounter
     {
     public:
+#if DESERT_DEV_INSTRUMENTS
         /// Called by BeginFrame: the frame being closed becomes the readable one.
         static void Roll();
 
@@ -38,5 +54,17 @@ namespace Desert::Graphic
 
         /// The finished frame. Zero before the first Roll, which is honest: nothing has finished yet.
         [[nodiscard]] static DrawCounters LastFrame();
+#else
+        static void Roll()
+        {
+        }
+        static void Record( uint32_t )
+        {
+        }
+        [[nodiscard]] static DrawCounters LastFrame()
+        {
+            return {};
+        }
+#endif
     };
 } // namespace Desert::Graphic

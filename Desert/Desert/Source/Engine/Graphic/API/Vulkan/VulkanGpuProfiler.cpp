@@ -5,6 +5,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/GpuTimestampLayout.hpp>
 
+#if DESERT_DEV_INSTRUMENTS
+
 namespace Desert::Graphic::API::Vulkan
 {
     namespace
@@ -323,3 +325,5 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 } // namespace Desert::Graphic::API::Vulkan
+
+#endif // DESERT_DEV_INSTRUMENTS

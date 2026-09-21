@@ -2,11 +2,12 @@
 # Generate project files (premake5 gmake2) and build Desert Engine on macOS.
 #
 # Usage:
-#   scripts/MacOS/BuildMacOS.sh [Debug|Release] [--with-tests] [--gen-only] [--no-analyze]
+#   scripts/MacOS/BuildMacOS.sh [Debug|Release|Shipping] [--with-tests] [--gen-only] [--no-analyze]
 #
 # Examples:
 #   scripts/MacOS/BuildMacOS.sh              # Debug build, static analysis on
 #   scripts/MacOS/BuildMacOS.sh Release      # Release build
+#   scripts/MacOS/BuildMacOS.sh Shipping     # what a player gets: no capture, no profiler, no counters
 #   scripts/MacOS/BuildMacOS.sh Debug --with-tests
 #   scripts/MacOS/BuildMacOS.sh Debug --no-analyze   # skip clang-tidy, and SAY so
 set -euo pipefail
@@ -27,7 +28,10 @@ ANALYZER="scripts/CI/CheckTidy.sh"
 
 for arg in "$@"; do
     case "$arg" in
-        Debug|Release) CONFIG="$arg" ;;
+        # Shipping is accepted here because the packager's own "Runtime binary not found" message tells
+        # people to run `scripts/MacOS/BuildMacOS.sh Shipping` — advice a script that refused the word
+        # would turn into a second dead end.
+        Debug|Release|Shipping) CONFIG="$arg" ;;
         --with-tests)  PREMAKE_ARGS+=("--with-tests") ;;
         --gen-only)    GEN_ONLY=1 ;;
         --no-analyze)  ANALYZE=0 ;;

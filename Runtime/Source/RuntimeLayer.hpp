@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Engine/Assets/ContentGate.hpp>
 #include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Desert.hpp>
@@ -45,7 +46,8 @@ namespace Desert::Player
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
         [[nodiscard]] Common::BoolResultStr OnImGuiRender() override;
         void                                OnEvent( Common::Event& event ) override;
-        /// The frame is out. The half of the unattended capture that COLLECTS — see RuntimeShot.hpp.
+        /// The frame is out. It counts presented frames in every build; in a development build it is also
+        /// the half of the unattended capture that COLLECTS — see RuntimeShot.hpp.
         void OnFramePresented() override;
 
     private:
@@ -139,13 +141,18 @@ namespace Desert::Player
         /// Everything that must happen exactly once, on the tick the gate opens: the game starts.
         void OnContentReady();
 
+        // Counted in frames this host has PRESENTED, from 1. NOT part of the capture: the loading-state
+        // log line reports it in every configuration, which is why it stays outside the guard below.
+        uint32_t m_PresentedFrames = 0;
+
         // ===== Unattended capture of the PRESENTED frame (--shot / --shot-frames) =====
         // The copy is recorded into this frame's command buffer at the tail of OnImGuiRender and
-        // collected in OnFramePresented. Counted in frames this host has PRESENTED, from 1.
-        uint32_t m_PresentedFrames = 0;
-        bool     m_ShotRecorded    = false;
+        // collected in OnFramePresented. Absent from a Shipping build — see RuntimeShot.hpp.
+#if DESERT_DEV_INSTRUMENTS
+        bool m_ShotRecorded = false;
         /// Recorded into the command buffer if this frame is the one asked for. Nothing otherwise.
         void RecordShotIfDue();
+#endif
 
         // Splash screen (SceneSettings.Splash*): a full-screen image shown when a scene loads, fading in/out.
         // Armed by TriggerSplash() on load; m_SplashTimer counts down each frame.

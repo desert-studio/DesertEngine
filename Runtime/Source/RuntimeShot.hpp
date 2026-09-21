@@ -1,5 +1,15 @@
 #pragma once
 
+#include <Common/Core/DevInstruments.hpp>
+
+// THIS FILE IS THE FEATURE, SO THIS FILE IS THE BOUNDARY. `--shot` exists to photograph the process a
+// player starts, which is a development need; shipping it means shipping a flag that makes the game
+// render a fixed number of frames, write a PNG and exit. The owner's instruction was to cut the capture
+// out of the shipping build, and "off unless you pass --shot" is not cutting it — it is a flag, and a
+// flag belongs to whoever runs the binary. Under `Shipping` there is no parser, no singleton and no
+// `--shot` to pass; Main.cpp and RuntimeLayer.cpp drop their halves with it.
+#if DESERT_DEV_INSTRUMENTS
+
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -86,3 +96,5 @@ namespace Desert::Player
         return BOOLSUCCESS;
     }
 } // namespace Desert::Player
+
+#endif // DESERT_DEV_INSTRUMENTS

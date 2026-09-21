@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <atomic>
@@ -148,7 +149,11 @@ namespace Desert::Assets
         LoadTimingScope( LoadTimingScope&& )                 = delete;
         LoadTimingScope& operator=( LoadTimingScope&& )      = delete;
 
+        // THE STATE IS THE INSTRUMENT TOO, so it goes with the bodies. Left standing under Shipping it is
+        // 40 bytes per asset load that nothing reads — and clang says so, five times per build
+        // (-Wunused-private-field), which is a warning the tree is at zero for and must stay at zero for.
     private:
+#if DESERT_DEV_INSTRUMENTS
         std::string m_Path;
         int64_t     m_StartNs = 0;
         /// Nanoseconds this scope's CHILDREN spent, added by each of them as it closes. Subtracting it
@@ -157,6 +162,7 @@ namespace Desert::Assets
         int64_t          m_ChildNs   = 0;
         LoadTimingScope* m_Parent    = nullptr;
         bool             m_Outermost = false;
+#endif
     };
 
     /**
@@ -488,6 +494,37 @@ namespace Desert::Assets
     // `m_Parent` has read its old value, and the clock must be read LAST so that none of the bookkeeping
     // is charged to the load being timed. A member initialiser list cannot interleave statements, so
     // obeying the check here would either lose the parent link or start the timer before the bookkeeping.
+    // ── THE SHIPPING BOUNDARY, AND IT IS ON THE TWO SCOPES ONLY ─────────────────────────────────────
+    //
+    // Everything else in this header is an `inline` function in a named namespace, so it costs a shipping
+    // binary nothing on its own: an inline definition with no caller is never emitted. The whole ledger
+    // reaches the player through exactly two objects — `LoadTimingScope`, constructed by `AssetBase::Load`
+    // on EVERY asset read, and `AsyncLoadMarker` on every worker read — and emptying those two is what
+    // removes the clock read, the thread-local stack and the locked totals from the player's load path.
+    //
+    // The declarations and the signatures are untouched on purpose. `Desert/Tests/Engine/
+    // SyncLoadChokepoint` asserts over the SOURCE TEXT of `AssetBase.hpp` that `Load()` still takes a
+    // `LoadTimingScope`; a boundary drawn at that call site would have read to the census as the
+    // chokepoint being removed. Here the call site is identical in every configuration and only the body
+    // differs.
+    //
+    // ONE RESIDUAL, NAMED RATHER THAN HIDDEN: the argument is still built by the caller
+    // (`m_Metadata.Filepath.string()`), so a shipping build still pays one std::string per asset load.
+    // Removing that means changing the call site, which is the census's text — a separate change with a
+    // separate argument to make.
+#if !DESERT_DEV_INSTRUMENTS
+
+    inline LoadTimingScope::LoadTimingScope( std::string )
+    {
+    }
+    inline LoadTimingScope::~LoadTimingScope() = default;
+    inline AsyncLoadMarker::AsyncLoadMarker()
+    {
+    }
+    inline AsyncLoadMarker::~AsyncLoadMarker() = default;
+
+#else
+
     // NOLINTBEGIN(cppcoreguidelines-prefer-member-initializer)
     inline LoadTimingScope::LoadTimingScope( std::string path ) : m_Path( std::move( path ) )
     {
@@ -535,4 +572,6 @@ namespace Desert::Assets
     {
         --SyncLoadDetail::AsyncDepth();
     }
+
+#endif // DESERT_DEV_INSTRUMENTS
 } // namespace Desert::Assets

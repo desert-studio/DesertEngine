@@ -1,3 +1,4 @@
+#include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
@@ -79,6 +80,11 @@ namespace Desert::Graphic
         // successive loads, and until now the only instrument for it was the process's RSS, which mixes
         // device memory, the asset layer's CPU copies and the allocator's own slack. A line per load makes
         // the growth attributable to an owner instead of merely visible. See Graphic/ResourceLedger.hpp.
+        // THE FOUR READOUTS BELOW ARE THE INSTRUMENT; the ledgers they read are not all of them (see
+        // Common/Core/DevInstruments.hpp: ResourceLedger is the OWNERSHIP mechanism and stays). What a
+        // shipping build drops is the reporting — four multi-line strings built and formatted at every
+        // scene load for a reader who is not there.
+#if DESERT_DEV_INSTRUMENTS
         LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
 
         // THE OTHER TWO NUMBERS, BESIDE IT, AT THE SAME MOMENT — because the line above was measured
@@ -93,6 +99,7 @@ namespace Desert::Graphic
         // is the case this line was written for: the boot's total is expected and large, and an in-frame
         // count that is not zero after it names a hitch.
         LOG_INFO( "[SyncLoad] {}", Assets::SyncLoadLedger::Report() );
+#endif
     }
 
     bool SceneRenderer::EnsureRendererResources()

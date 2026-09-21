@@ -7,7 +7,17 @@ workspace "Desert"
     -- belong at the repo root, same as before the config split.
     location ( _MAIN_SCRIPT_DIR )
 
-    configurations { "Debug", "Release" }
+    -- THREE CONFIGURATIONS, AND THE THIRD IS THE ONE A PLAYER GETS.
+    --
+    -- Debug and Release are both DEVELOPMENT builds: the frame capture, the profiler, the draw-call
+    -- counter, the memory watch and the synchronous-load ledger are compiled into the player binary in
+    -- both of them, because until now there was no configuration in which they were not. `Shipping` is
+    -- that configuration. It is a BUILD CONFIGURATION and not a runtime flag on purpose: a flag can be
+    -- turned back on by whoever runs the game, and code that is not in the binary cannot be.
+    --
+    -- See BuildScripts/Configurations.lua for what it means, and
+    -- Desert/Tests/Runtime/ShippingBoundary for the census that keeps the list from growing silently.
+    configurations { "Debug", "Release", "Shipping" }
     startproject "Editor"
 
     language "C++"

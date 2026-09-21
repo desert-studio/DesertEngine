@@ -2,12 +2,20 @@
 
 #include <vulkan/vulkan.h>
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Graphic/GpuTimestampLayout.hpp>
 
 #include <cstdint>
 #include <string>
 #include <vector>
+
+// THE WHOLE CLASS IS THE INSTRUMENT, so the whole class is behind the boundary — there is no useful
+// "empty VulkanGpuProfiler" to leave standing. Under Shipping `VulkanRendererAPI` has no member of this
+// type and makes none of the four calls (VulkanRenderer.hpp / .cpp), which is what keeps a query pool
+// from being created and 64 timestamp pairs per (frame x slot) from being written on a player's machine
+// for a panel that is not in the binary either.
+#if DESERT_DEV_INSTRUMENTS
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -125,3 +133,5 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<int32_t> m_Parents;
     };
 } // namespace Desert::Graphic::API::Vulkan
+
+#endif // DESERT_DEV_INSTRUMENTS

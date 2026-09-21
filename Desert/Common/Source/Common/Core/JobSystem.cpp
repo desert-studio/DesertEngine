@@ -1,7 +1,12 @@
 #include "JobSystem.hpp"
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Logger.hpp>
 
+// Optick is on the shipping link line and contributes nothing to it, because after the two guards below
+// no translation unit in this engine references a single Optick symbol — the profiling macros are empty
+// (Common/Core/Profiler.hpp) and these are the only other two uses in the tree. That absence is not
+// asserted by reading premake; scripts/CI/ShippingSymbols.sh reads the linked binary.
 #include <optick.h>
 
 #include <algorithm>
@@ -32,7 +37,10 @@ namespace Common
         // this defect written down as a workaround. Six cloud suites that had never touched the pool
         // started a bake on it and crashed at exit with all their tests passed — the exact shape §1.4
         // warns about, a run that reports success and then dies.
-#if USE_OPTICK
+        //
+        // The workaround is only needed while Optick exists in the binary at all: with the profiler cut
+        // out there is no `Optick::Core` to be destroyed early, so there is nothing to order against.
+#if USE_OPTICK && DESERT_DEV_INSTRUMENTS
         (void)::Optick::IsActive();
 #endif
 
@@ -54,7 +62,9 @@ namespace Common
     {
         // Register with Optick so job scopes (e.g. parallel ECS systems) show on their own timeline
         // rows instead of being silently dropped for an unknown thread.
+#if DESERT_DEV_INSTRUMENTS
         OPTICK_THREAD( "JobSystem Worker" );
+#endif
         for ( ;; )
         {
             InlineJob job;

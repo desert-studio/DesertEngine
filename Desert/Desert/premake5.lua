@@ -69,7 +69,9 @@ project "Desert"
             links { path }
         end
 
-    filter "configurations:Release"
+    -- `or Shipping`: the shipping build links the SAME third-party flavour Release does. There is no
+    -- third set of prebuilt libraries and inventing one would mean pinning Vulkan and reflect-cpp twice.
+    filter "configurations:Release or Shipping"
         for name, path in pairs(deps.DesertSpecific.Libraries.Release) do
             links { path }
         end

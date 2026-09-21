@@ -99,12 +99,17 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // argv in this loop because the parse is then a pure function with a test of its own; a refusal is
     // FATAL rather than a warning, since an unattended capture that silently did not happen leaves a
     // windowed game running with nobody watching it. See RuntimeShot.hpp.
+    //
+    // NOT IN A SHIPPING BUILD. `--shot` is then not an unrecognised flag that is politely ignored — it is
+    // a flag that does not exist, because the code that would read it was not compiled.
+#if DESERT_DEV_INSTRUMENTS
     const std::vector<std::string> shotArgs( argv + ( argc > 0 ? 1 : 0 ), argv + argc );
     if ( const auto parsed = Desert::Player::ParseRuntimeShot( shotArgs, Desert::Player::RuntimeShot::Get() );
          !parsed )
     {
         FailStartup( parsed.GetError(), 2 );
     }
+#endif
 
     // DEV: an explicit --project opens the loose on-disk descriptor (overrides packaged discovery).
     if ( !projectArg.empty() && !Desert::Project::ProjectContext::Open( projectArg ) )

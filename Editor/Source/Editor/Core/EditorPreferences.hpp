@@ -168,7 +168,10 @@ namespace Desert::Editor
         // for its own host and nothing else (Editor/Packaging/PackageTarget.hpp), so storing an answer
         // would be storing the only value it can have. П6 deleted the chooser that pretended otherwise.
         std::string PackageOutputDir = "Build/Output"; // relative to the editor cwd, or absolute
-        std::string PackageConfig    = "Release";      // which Runtime binary to bundle: "Debug" | "Release"
+        // Which Runtime binary to bundle; one of Editor/Packaging/GamePackager.hpp's kPackageConfigs,
+        // and the same default PackageOptions carries. Not that header's constant directly: this struct
+        // is serialised by reflect-cpp and must stay a plain data type with no editor includes in it.
+        std::string PackageConfig    = "Shipping";
         bool        PackageAppBundle = true;           // macOS: <Name>.app with MoltenVK inside
 
         // --- Details panel ------------------------------------------------------------------------
