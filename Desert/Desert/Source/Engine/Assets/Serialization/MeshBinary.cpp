@@ -386,7 +386,16 @@ namespace Desert::Assets::Serialization
         SectionRow table[kSectionCount] = {};
         std::memcpy( table, bytes.data() + sizeof( FileHeader ), sizeof( table ) );
 
-        const uint64_t tableEnd = sizeof( FileHeader ) + sizeof( table );
+        // THE LAYOUT IS DERIVED, NOT TRUSTED. Version 1 packs the sections in table order, each starting
+        // at the next 8-byte boundary after the last, so the offset a row SHOULD carry follows from the
+        // counts alone — and a row that carries a different one is refused rather than followed.
+        //
+        // Checking only that an offset lies inside the file is not enough, and this is not theoretical:
+        // flipping one byte of the first row's offset moved it 96 bytes forward, which was still inside
+        // the file, still 8-aligned and still left room for the declared count. The decode succeeded and
+        // handed back a mesh of shifted floats. That is the silent wrong answer §1.4 forbids, produced
+        // by a single corrupt byte.
+        uint64_t       expectedOffset = sizeof( FileHeader ) + sizeof( table );
         for ( uint32_t i = 0; i < kSectionCount; ++i )
         {
             const SectionRow& row      = table[i];
@@ -407,11 +416,18 @@ namespace Desert::Assets::Serialization
                      who, SectionName( row.Id ), row.ElementSize, expectSize );
             }
 
-            if ( row.Offset < tableEnd || ( row.Offset % 8 ) != 0 || row.Offset > header.FileSize )
+            if ( row.Offset != expectedOffset )
             {
                 return Common::MakeFormattedError<MeshAssetData>(
-                     "'{}' section '{}' starts at {}, which is outside the file or misaligned.", who,
-                     SectionName( row.Id ), row.Offset );
+                     "'{}' section '{}' starts at {}, and the counts before it put it at {}. The section "
+                     "table does not describe this file.",
+                     who, SectionName( row.Id ), row.Offset, expectedOffset );
+            }
+            if ( row.Offset > header.FileSize )
+            {
+                return Common::MakeFormattedError<MeshAssetData>(
+                     "'{}' section '{}' starts at {}, past the end of a {}-byte file.", who,
+                     SectionName( row.Id ), row.Offset, header.FileSize );
             }
 
             // Division rather than multiplication, so a count chosen to overflow the product cannot
@@ -423,6 +439,18 @@ namespace Desert::Assets::Serialization
                      "end of a {}-byte file.",
                      who, SectionName( row.Id ), row.Count, expectSize, row.Offset, header.FileSize );
             }
+
+            expectedOffset += expectSize * row.Count;
+            expectedOffset = ( expectedOffset + 7u ) & ~static_cast<uint64_t>( 7u );
+        }
+
+        // And the declared size must be exactly where the last section ends: trailing bytes nobody reads
+        // would be a file the writer could not have produced.
+        if ( expectedOffset != header.FileSize )
+        {
+            return Common::MakeFormattedError<MeshAssetData>(
+                 "'{}' declares {} bytes and its own section table accounts for {}.", who, header.FileSize,
+                 expectedOffset );
         }
 
         const auto At = [&]( const uint32_t id ) { return bytes.data() + table[id - 1].Offset; };
