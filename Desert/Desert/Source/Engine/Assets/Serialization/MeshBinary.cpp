@@ -270,22 +270,35 @@ namespace Desert::Assets::Serialization
             morphTargets.push_back( rec );
         }
 
+        // A VIEW AND NOT A POINTER, and the census that made it one is right: `Desert/Tests/Engine/
+        // PointerOwnership` refuses a raw pointer member that cannot say who destroys the pointee and
+        // what keeps it alive. Here both answers are "the vectors above, for the length of this
+        // function", and a `string_view` says so in the type instead of in a comment — it carries the
+        // length with the address, so nothing downstream can read past the run it describes.
         struct Payload
         {
-            uint32_t    Id;
-            const void* Bytes;
-            uint64_t    Count;
+            uint32_t         Id;
+            std::string_view Bytes;
+            uint64_t         Count;
+        };
+        const auto AsBytes = []( const auto* first, const size_t count ) -> std::string_view
+        {
+            if ( count == 0 )
+                return {}; // an empty vector's data() may be null, and a view over null is not one
+            return { reinterpret_cast<const char*>( first ), count * sizeof( *first ) };
         };
         const Payload payloads[kSectionCount] = {
-             { SecStaticVertices, data.StaticVertices.data(), data.StaticVertices.size() },
-             { SecSkinnedVertices, data.SkinnedVertices.data(), data.SkinnedVertices.size() },
-             { SecIndices, data.Indices.data(), data.Indices.size() },
-             { SecSubmeshes, submeshes.data(), submeshes.size() },
-             { SecLODRanges, lodRanges.data(), lodRanges.size() },
-             { SecLODIndices, lodIndices.data(), lodIndices.size() },
-             { SecMorphTargets, morphTargets.data(), morphTargets.size() },
-             { SecMorphDeltas, morphDeltas.data(), morphDeltas.size() },
-             { SecStrings, strings.data(), strings.size() },
+             { SecStaticVertices, AsBytes( data.StaticVertices.data(), data.StaticVertices.size() ),
+               data.StaticVertices.size() },
+             { SecSkinnedVertices, AsBytes( data.SkinnedVertices.data(), data.SkinnedVertices.size() ),
+               data.SkinnedVertices.size() },
+             { SecIndices, AsBytes( data.Indices.data(), data.Indices.size() ), data.Indices.size() },
+             { SecSubmeshes, AsBytes( submeshes.data(), submeshes.size() ), submeshes.size() },
+             { SecLODRanges, AsBytes( lodRanges.data(), lodRanges.size() ), lodRanges.size() },
+             { SecLODIndices, AsBytes( lodIndices.data(), lodIndices.size() ), lodIndices.size() },
+             { SecMorphTargets, AsBytes( morphTargets.data(), morphTargets.size() ), morphTargets.size() },
+             { SecMorphDeltas, AsBytes( morphDeltas.data(), morphDeltas.size() ), morphDeltas.size() },
+             { SecStrings, AsBytes( strings.data(), strings.size() ), strings.size() },
         };
 
         // Offsets are computed before anything is written, because the table sits in front of the
@@ -323,8 +336,9 @@ namespace Desert::Assets::Serialization
         for ( uint32_t i = 0; i < kSectionCount; ++i )
         {
             PadToEight( out );
-            Append( out, payloads[i].Bytes,
-                    static_cast<size_t>( table[i].ElementSize ) * static_cast<size_t>( payloads[i].Count ) );
+            // The view's own length rather than a recomputed product: the two must agree, and the one
+            // that cannot drift is the one the view was built with.
+            Append( out, payloads[i].Bytes.data(), payloads[i].Bytes.size() );
         }
         PadToEight( out );
         return out;
