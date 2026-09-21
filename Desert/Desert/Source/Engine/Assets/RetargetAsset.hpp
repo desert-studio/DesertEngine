@@ -68,6 +68,14 @@ namespace Desert::Assets
             return asset != nullptr ? asset->GetSkeleton() : nullptr;
         }
 
+        /// The source rig's dependency, by HANDLE — which is what the eviction closure marks. Read
+        /// through the handle and not through the signature it was matched by, for the reason
+        /// `SkinnedMeshAsset`'s does: the signature names a shape, the handle names the file.
+        [[nodiscard]] const AssetDependency<SkeletonAsset>& GetSourceSkeletonDependency() const
+        {
+            return m_SourceSkeleton;
+        }
+
         /// What to show in a slot. The file's `Name` when it has one, the file's stem when it does not.
         [[nodiscard]] const std::string& GetDisplayName() const
         {

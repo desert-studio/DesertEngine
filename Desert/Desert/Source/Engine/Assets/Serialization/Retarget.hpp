@@ -291,17 +291,11 @@ namespace Desert::Assets::Serialization
     NO_DISCARD Common::ResultStr<Animation::Retarget::RetargetSetup>
     BuildRetargetSetup( const RetargetAssetData& data );
 
-    /**
-     * @brief Build the retargeter this file describes, resolved against THESE two rigs.
-     *
-     * The one place a name becomes an index, and every refusal that needs a rig comes out of
-     * `Retargeter::Initialize` underneath it rather than being re-decided here. The message names the
-     * retarget so the reason arrives attached to the file it is about.
-     */
-    NO_DISCARD Common::BoolResultStr BuildRetargeter( const RetargetAssetData&             data,
-                                                      const Animation::Skeleton&           source,
-                                                      const Animation::Skeleton&           target,
-                                                      Animation::Retarget::Retargeter&     out );
+    // THERE IS DELIBERATELY NO `BuildRetargeter` HERE. Building one needs the SOURCE RIG KEPT, which is a
+    // lifetime decision rather than a format one: `Animation::Retarget::RetargetSource::Create` owns it,
+    // takes this setup and `SourceSkeletonSignature`, and is the ONE place a `Retargeter` is initialised.
+    // A second initialiser in this layer would be a second answer to "is this the right rig", and the
+    // engine would call one of them while the suites called the other.
 
     /// The exact mirror of `BuildRetargetSetup`, and it lives beside it for `BuildDataFromControlRig`'s
     /// reason: a format whose two directions are not testable together is a format whose round trip is an

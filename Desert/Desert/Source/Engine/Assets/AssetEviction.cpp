@@ -5,6 +5,7 @@
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/RetargetAsset.hpp>
 
 #include <Engine/Graphic/ResourceLedger.hpp>
 
@@ -84,6 +85,18 @@ namespace Desert::Assets
                             closure.Mark( Common::AssetHandle( texture.TextureHandle ),
                                           "a reachable material names it in its '" + texture.Name + "' slot" );
                     }
+                }
+
+                // THE RETARGET'S SOURCE RIG, and without this row it is unreachable by construction: a
+                // source `.skeleton` is named by no component and no mesh — only by the `.retarget` that
+                // plays clips from it. `SkeletonAsset::GetSignature` records what the first sweep did to
+                // the mesh's rig when the equivalent row was missing (410 x "Skeleton dependency invalid"
+                // in twelve seconds, and no character drawn); this is the same hole one content kind over.
+                if ( const auto retarget = manager.ProbeByHandle<RetargetAsset>( handle ) )
+                {
+                    if ( retarget->IsReadyForUse() )
+                        closure.Mark( retarget->GetSourceSkeletonDependency().Handle,
+                                      "a reachable retarget plays its clips from it" );
                 }
 
                 if ( const auto cloudType = manager.ProbeByHandle<CloudTypeAsset>( handle ) )

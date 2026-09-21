@@ -24,6 +24,7 @@
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
+#include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
@@ -433,6 +434,29 @@ namespace Desert::Core::Serialize
                 }
                 return relStr;
             }
+            if ( type == "RetargetAsset" )
+            {
+                auto a = mgr.FindByHandle<Assets::RetargetAsset>( Common::UUID( handle ) );
+                if ( !a )
+                {
+                    return "";
+                }
+
+                // RELATIVE, on exactly the terms the rig above is relative: a retarget is content that
+                // ships WITH the project, and an absolute path would carry one developer's home directory
+                // into every scene that names one.
+                std::error_code ec;
+                const auto      rel = std::filesystem::relative( a->GetMetadata().Filepath,
+                                                                 Common::Constants::Path::ASSETS_PATH, ec );
+                // generic_string() rather than native(): native() is a WIDE string on Windows and a
+                // narrow one here, so a narrow ".." literal only compiles on this platform.
+                auto relStr = rel.generic_string();
+                if ( ec || rel.empty() || relStr.starts_with( ".." ) )
+                {
+                    return a->GetMetadata().Filepath.string(); // outside the project — say so plainly
+                }
+                return relStr;
+            }
             if ( type == "AnimGraphAsset" )
             {
                 auto a = mgr.FindByHandle<Assets::AnimGraphAsset>( Common::UUID( handle ) );
@@ -659,6 +683,39 @@ namespace Desert::Core::Serialize
                     if ( const auto loaded = a->Load(); !loaded )
                     {
                         LOG_ERROR( "[Animation] Control rig '{}' named by the scene could not be loaded: {}",
+                                   full.string(), loaded.GetError() );
+                        return 0;
+                    }
+                }
+                return static_cast<uint64_t>( a->GetMetadata().Handle );
+            }
+            if ( type == "RetargetAsset" )
+            {
+                // Both forms accepted, for the reason the branches above give.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+
+                auto a = mgr.FindByPath<Assets::RetargetAsset>( full );
+                if ( !a )
+                {
+                    a = m.CreateAsset<Assets::RetargetAsset>( Assets::AssetPriority::Medium, full );
+                }
+                if ( !a )
+                {
+                    return 0;
+                }
+                // LOADED HERE AND NOT LEFT TO THE FIRST FRAME, for the rig's reason one branch up — and
+                // with one more reason of its own: loading is what runs `ResolveDependencies`, and that is
+                // what binds the SOURCE rig. A retarget whose source rig is unbound is a retarget
+                // AnimationECSSystem cannot build, and the character would pose from its clip on the wrong
+                // proportions while the scene file plainly names a retarget.
+                if ( !a->IsReadyForUse() )
+                {
+                    if ( const auto loaded = a->EnsureLoaded( m ); !loaded )
+                    {
+                        LOG_ERROR( "[Animation] Retarget '{}' named by the scene could not be loaded: {}",
                                    full.string(), loaded.GetError() );
                         return 0;
                     }
@@ -1539,6 +1596,8 @@ namespace Desert::Core::Serialize
                                                                               &ECS::TwoBoneIKComponent::Data ) );
         Register( MakeReflected<ECS::ControlRigComponent, ECS::ControlRigData>(
              "ControlRig", "ControlRigData", &ECS::ControlRigComponent::Data ) );
+        Register( MakeReflected<ECS::RetargetComponent, ECS::RetargetData>(
+             "Retarget", "RetargetData", &ECS::RetargetComponent::Data ) );
         Register( MakeReflected<ECS::ColliderComponent, ECS::ColliderData>( "Collider", "ColliderData",
                                                                             &ECS::ColliderComponent::Data ) );
         Register( MakeReflected<ECS::RigidBodyComponent, ECS::RigidBodyData>( "RigidBody", "RigidBodyData",

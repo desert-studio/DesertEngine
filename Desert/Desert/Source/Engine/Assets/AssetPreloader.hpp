@@ -92,6 +92,15 @@ namespace Desert::Assets
         // named by a component slot, so nothing orders it against the rigs or the clips.
         void PreloadAnimGraphs();
 
+        // Retargets (`.retarget`). AFTER the cooked scan in both layers, and that ordering is the one thing
+        // this preload has that the two above do not: a `.retarget` names its SOURCE RIG by signature, and
+        // `RetargetAsset::ResolveDependencies` can only find that rig among the `SkeletonAsset`s the cooked
+        // scan has registered. Run before it, and every retarget in the project binds to nothing — and
+        // because the dependency is only re-resolved on a later `EnsureLoaded`, it would recover only by
+        // accident. That is the `PreloadCloudLayouts` shape one step along: not an uncalled function, but a
+        // function called at a moment that cannot work.
+        void PreloadRetargets();
+
     private:
         std::weak_ptr<AssetManager> m_AssetManager;
 

@@ -57,18 +57,25 @@ namespace Desert::Animation::Retarget
         /**
          * @brief Builds the pair, or says why it could not.
          *
-         * @param source        the rig the clips are authored on, BY VALUE — see the file note.
-         * @param target        the rig being posed. Not kept: the Animator already holds it.
-         * @param assetHandle   the `.retarget` this was built from, as a stamp. Never dereferenced.
-         * @param assetRevision that asset's revision at build time.
+         * @param source          the rig the clips are authored on, BY VALUE — see the file note.
+         * @param target          the rig being posed. Not kept: the Animator already holds it.
+         * @param expectedSource  the signature the setup was AUTHORED against, or 0 to accept any rig.
+         * @param assetHandle     the `.retarget` this was built from, as a stamp. Never dereferenced.
+         * @param assetRevision   that asset's revision at build time.
          *
          * Every structural refusal comes out of `Retargeter::Initialize` underneath — a setup that could
          * only ever emit the rest pose, a pelvis at zero height, a chain whose end does not descend from
          * its start, an IK run that is not two bones, two chains on one target bone.
+         *
+         * AND ONE REFUSAL THAT `Initialize` CANNOT MAKE: being handed the wrong source rig. Initialize can
+         * only notice a rig whose bone NAMES do not resolve, and two exports of one character at different
+         * proportions have identical names — they would resolve perfectly and retarget from the wrong
+         * proportions, silently. The signature is the one fact that separates them, and this is the only
+         * place that holds both halves of it.
          */
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<RetargetSource>>
-        Create( Skeleton source, const Skeleton& target, RetargetSetup setup, uint64_t assetHandle,
-                uint32_t assetRevision );
+        Create( Skeleton source, const Skeleton& target, RetargetSetup setup, uint64_t expectedSource,
+                uint64_t assetHandle, uint32_t assetRevision );
 
         [[nodiscard]] const Skeleton& GetSourceSkeleton() const
         {

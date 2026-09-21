@@ -95,6 +95,17 @@ namespace Desert::Core
             roots.Mark( registry.get<ECS::ControlRigComponent>( entity ).Data.Rig, "an entity is posed by it" );
         }
 
+        // THE RETARGET IS A ROOT FOR THE RIG'S REASON AND BY THE SAME MECHANISM. Nothing else names a
+        // `.retarget`. It is also the row that keeps the SOURCE rig alive: the source `SkeletonAsset` is
+        // reachable only through `RetargetAsset`'s own dependency, exactly as a `.skeleton` is reachable
+        // only through the `.skmesh` that names it, so dropping the retarget drops the rig behind it and
+        // nothing can bring either back.
+        for ( const auto entity : registry.view<ECS::RetargetComponent>() )
+        {
+            roots.Mark( registry.get<ECS::RetargetComponent>( entity ).Data.Retarget,
+                        "an entity plays a foreign clip through it" );
+        }
+
         // THE ANIM GRAPH IS A ROOT FOR THE RIG'S REASON AND BY THE SAME MECHANISM. Nothing else names a
         // `.danimgraph` — a graph is named only by an entity's AnimationComponent — so without this row the
         // first eviction sweep after a scene load drops it, AnimationECSSystem finds a handle the manager

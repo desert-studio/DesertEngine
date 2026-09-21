@@ -786,6 +786,13 @@ namespace
          { "Rig", kAnimationSystem },
     };
 
+    // The retarget slot is ONE authored value, and the consumer is the per-frame sync that turns the
+    // handle into the Animator's source rig. Deliberately no source-rig handle beside it: the pair lives
+    // in the file, so there is no second value here that could disagree with it.
+    constexpr Row kRetargetRows[] = {
+         { "Retarget", kAnimationSystem },
+    };
+
     constexpr Row kRenderTextureRows[] = {
          { "ScenePath", kCanvasRenderer },
          { "Tint", kCanvasRenderer },
@@ -956,6 +963,7 @@ namespace
          { "UIRenderTextureData", "UIRenderTextureComponent", nullptr, CENSUS_ROWS( kRenderTextureRows ) },
          { "TwoBoneIKData", "TwoBoneIKComponent", nullptr, CENSUS_ROWS( kTwoBoneIKRows ) },
          { "ControlRigData", "ControlRigComponent", nullptr, CENSUS_ROWS( kControlRigRows ) },
+         { "RetargetData", "RetargetComponent", nullptr, CENSUS_ROWS( kRetargetRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },

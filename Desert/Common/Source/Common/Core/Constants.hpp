@@ -67,6 +67,7 @@ namespace Common::Constants
             ControlRig,
             ShaderGraph,
             AnimGraph,
+            Retarget,
             Cooked,
             MeshCooked,
             TextureCooked,
@@ -138,6 +139,11 @@ namespace Common::Constants
              // separately so no other kind can be offered in an entity's graph slot. Beside Rigs/ rather
              // than inside Animations/ because a graph is not a clip — it is what CHOOSES one.
              /* AnimGraph     */ { "AnimGraphs/", DirRoot::Assets },
+             // Retargets (`.retarget`) get their own folder for the rig's reason: a retarget is scanned
+             // separately so no other kind can be offered in an entity's retarget slot. Beside Rigs/
+             // because it is the same kind of thing one level up — a `.derig` is a statement about one rig,
+             // a `.retarget` is a statement about a PAIR of them.
+             /* Retarget      */ { "Retargets/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
              /* MeshCooked    */ { "Meshes/", DirRoot::Cooked },
              /* TextureCooked */ { "Textures/", DirRoot::Cooked },
@@ -358,6 +364,7 @@ namespace Common::Constants
         inline const std::filesystem::path& CONTROL_RIG_PATH    = Dir( ContentDir::ControlRig );
         inline const std::filesystem::path& SHADER_GRAPH_PATH   = Dir( ContentDir::ShaderGraph );
         inline const std::filesystem::path& ANIM_GRAPH_PATH     = Dir( ContentDir::AnimGraph );
+        inline const std::filesystem::path& RETARGET_PATH        = Dir( ContentDir::Retarget );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
         inline const std::filesystem::path& TEXTURE_PATH_COOKED = Dir( ContentDir::TextureCooked );

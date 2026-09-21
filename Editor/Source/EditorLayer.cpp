@@ -376,6 +376,12 @@ namespace Desert::Editor
         // the project's `.danimgraph` files, and it does that by asking the manager for every one of them.
         m_StartupStages.push_back(
              { "Preloading anim graphs...", [this] { m_AssetPreloader->PreloadAnimGraphs(); } } );
+        // AND THE RETARGETS, WHICH ARE NOT ORDER-FREE the way the two above are. A `.retarget` names its
+        // source rig by signature and binds it while loading, so it has to run after the cooked scan that
+        // registers the project's `.skeleton` files — which is the very first content stage. Placed here,
+        // beside the other two animation preloads, that ordering holds by construction.
+        m_StartupStages.push_back(
+             { "Preloading retargets...", [this] { m_AssetPreloader->PreloadRetargets(); } } );
         // Order-free, and early among the optional stages on purpose: a missing translation shows up on
         // the very first frame drawn, and its log line is far easier to read before the rest of the
         // content's lines arrive.

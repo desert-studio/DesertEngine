@@ -7,6 +7,7 @@ namespace Desert::Animation::Retarget
     Common::ResultStr<std::unique_ptr<RetargetSource>> RetargetSource::Create( Skeleton        source,
                                                                                const Skeleton& target,
                                                                                RetargetSetup   setup,
+                                                                               uint64_t        expectedSource,
                                                                                uint64_t        assetHandle,
                                                                                uint32_t        assetRevision )
     {
@@ -15,6 +16,15 @@ namespace Desert::Animation::Retarget
         // stamp exists to prevent.
         const uint64_t sourceSignature = source.GetSignature();
         const uint64_t targetSignature = target.GetSignature();
+
+        if ( expectedSource != 0 && sourceSignature != expectedSource )
+        {
+            return Common::MakeFormattedError<std::unique_ptr<RetargetSource>>(
+                 "this retarget is authored against source rig signature {}, and was handed rig signature "
+                 "{} ({} bone(s)). Retargeting from the wrong rig is a silently wrong pose, not a failed "
+                 "one",
+                 expectedSource, sourceSignature, source.GetBones().size() );
+        }
 
         auto built = std::unique_ptr<RetargetSource>( new RetargetSource( std::move( source ) ) );
 

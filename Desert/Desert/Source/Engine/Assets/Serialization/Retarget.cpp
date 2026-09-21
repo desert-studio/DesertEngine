@@ -304,37 +304,6 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( std::move( setup ) );
     }
 
-    Common::BoolResultStr BuildRetargeter( const RetargetAssetData& data, const Animation::Skeleton& source,
-                                           const Animation::Skeleton&       target,
-                                           Animation::Retarget::Retargeter& out )
-    {
-        auto setup = BuildRetargetSetup( data );
-        if ( !setup )
-        {
-            return Common::MakeFormattedError<bool>( "{}", setup.GetError() );
-        }
-
-        // THE SOURCE RIG IS CHECKED AGAINST THE ONE THE FILE NAMES, HERE, AND NOT LEFT TO `Initialize`.
-        // `Initialize` refuses a setup it cannot resolve, which catches a wrong rig only when the names
-        // happen to differ; two rigs of the same character at different proportions have identical bone
-        // names and would resolve perfectly while being the wrong pair. The signature is the one fact that
-        // distinguishes them, and this is the only place that has both halves of it.
-        if ( source.GetSignature() != data.SourceSkeletonSignature )
-        {
-            return Common::MakeFormattedError<bool>(
-                 "retarget '{}' is authored against source rig signature {}, and was handed rig signature "
-                 "{} ({} bone(s)). Retargeting from the wrong rig is a silently wrong pose, not a failed "
-                 "one",
-                 data.Name, data.SourceSkeletonSignature, source.GetSignature(), source.GetBones().size() );
-        }
-
-        if ( auto ok = out.Initialize( source, target, setup.ExtractValue() ); !ok )
-        {
-            return Common::MakeFormattedError<bool>( "retarget '{}': {}", data.Name, ok.GetError() );
-        }
-        return BOOLSUCCESS;
-    }
-
     RetargetAssetData BuildDataFromRetargetSetup( const std::string& name, uint64_t sourceSignature,
                                                   const RetargetSetup& setup )
     {

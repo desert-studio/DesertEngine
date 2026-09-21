@@ -10,6 +10,7 @@
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
+#include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
@@ -1038,6 +1039,104 @@ namespace Desert::Editor
                                            "\"None\" means this entity is posed by its animation clips "
                                            "alone — which is not a failure, it is how a character behaves "
                                            "with no rig." );
+                    }
+                    break;
+                }
+
+                if ( field.Meta.AssetType == "RetargetAsset" )
+                {
+                    auto* retargetHandle = static_cast<uint64_t*>( p );
+
+                    // "None" IS A MEANINGFUL STATE AND SAYS SO, on the rig slot's terms one branch up: an
+                    // entity with no retarget plays its clips on its own rig, which is what every
+                    // character authored before retargeting existed does. "(missing)" is the other state —
+                    // a handle whose file the asset scan did not find — and the two look identical on
+                    // screen unless they are named apart.
+                    std::string preview = "None (clips play on this rig)";
+                    if ( *retargetHandle != 0 )
+                    {
+                        preview = "(missing)";
+                        if ( assetMgr != nullptr )
+                        {
+                            if ( auto retarget = assetMgr->FindByHandle<Assets::RetargetAsset>(
+                                      Common::UUID( *retargetHandle ) ) )
+                            {
+                                // AND A THIRD STATE, which the rig slot has no equivalent of: the file is
+                                // here and its SOURCE RIG is not. The retarget then does nothing at all,
+                                // and without this the slot would show a perfectly ordinary name while the
+                                // character played un-retargeted — the silent shape this whole task exists
+                                // to end, reappearing in the one place an author would look for it.
+                                preview = retarget->GetSourceSkeleton() != nullptr
+                                               ? retarget->GetDisplayName()
+                                               : retarget->GetDisplayName() + "  (source rig not loaded)";
+                            }
+                        }
+                    }
+
+                    ImGui::SetNextItemWidth( -1.0f );
+                    if ( ImGui::BeginCombo( "##retarget", preview.c_str() ) )
+                    {
+                        if ( ImGui::Selectable( "None (clips play on this rig)", *retargetHandle == 0 ) )
+                        {
+                            *retargetHandle = 0;
+                            changed         = true;
+                        }
+                        if ( assetMgr != nullptr )
+                        {
+                            for ( const auto& [h, retarget] :
+                                  assetMgr->FindAllByType<Assets::RetargetAsset>() )
+                            {
+                                const bool selected = ( static_cast<uint64_t>( h ) == *retargetHandle );
+                                if ( ImGui::Selectable( retarget->GetDisplayName().c_str(), selected ) )
+                                {
+                                    *retargetHandle = static_cast<uint64_t>( h );
+                                    changed         = true;
+                                }
+                                if ( selected )
+                                {
+                                    ImGui::SetItemDefaultFocus();
+                                }
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    if ( ImGui::BeginDragDropTarget() )
+                    {
+                        if ( const ImGuiPayload* payload =
+                                  ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                        {
+                            const std::string path( static_cast<const char*>( payload->Data ),
+                                                    payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
+                            // The extension is checked HERE for the rig slot's reason: the Content Browser
+                            // emits one generic AssetFile payload for every type it has no icon for.
+                            if ( assetMgr != nullptr && !path.empty() &&
+                                 std::filesystem::path( path ).extension() ==
+                                      Assets::Serialization::kRetargetExtension )
+                            {
+                                auto retarget = assetMgr->FindByPath<Assets::RetargetAsset>( path );
+                                if ( retarget && retarget->IsReadyForUse() )
+                                {
+                                    *retargetHandle = static_cast<uint64_t>( retarget->GetMetadata().Handle );
+                                    changed         = true;
+                                }
+                                else
+                                {
+                                    LOG_WARN( "[Animation] '{}' is not a retarget this project has loaded; "
+                                              "put it under the project's Retargets/ folder and restart, "
+                                              "or pick one from the list.",
+                                              path );
+                                }
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if ( ImGui::IsItemHovered() )
+                    {
+                        ImGui::SetTooltip( "Pick a retarget or drop a .retarget from the project here. It "
+                                           "names the rig this entity's CLIPS are authored on; the target "
+                                           "rig is this entity's own mesh. \"None\" means the clips are "
+                                           "already on this rig." );
                     }
                     break;
                 }
