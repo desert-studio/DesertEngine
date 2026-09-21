@@ -8,6 +8,35 @@ for _, premake_file in ipairs(test_premake_files) do
     include(path.getdirectory(premake_file))
 end
 
+-- ── THE TEST SUITES ARE NOT PART OF THE SHIPPING CONFIGURATION ──────────────────────────────────────
+--
+-- Shipping's defining property is that the development instruments are not in the binary. A test suite
+-- IS a development instrument, and several of these suites exist specifically to hold one of the
+-- instruments to its contract -- DrawCounterFunnel, MemoryDetector, GpuTimestampLayout,
+-- SyncLoadChokepoint. Building them in the one configuration that removes what they test is a category
+-- error with a cost attached in both directions:
+--
+--   * the cost now: 258 optimised links per platform per CI run, for a binary nobody ever executes. The
+--     Windows job already measures 93 minutes against a 150-minute ceiling.
+--   * the cost later, which is worse: it puts a standing obligation on every future suite to compile
+--     without the facility it is about, and the cheapest way to satisfy that obligation is to weaken
+--     the test. A gate that pushes on tests in that direction is a gate that will eventually be paid.
+--
+-- Nothing is left unguarded by this. The half of the boundary that a test CAN prove is
+-- Desert/Tests/Runtime/ShippingBoundary, which compiles no engine code at all (see its premake5.lua) --
+-- it reads the sources as text, so its verdict is the same in every configuration and it runs on every
+-- sweep. The other half needs a linked Shipping binary, which no test binary can produce, and that is
+-- scripts/CI/ShippingSymbols.sh.
+--
+-- `removeconfigurations` and not `kind "None"`: the project must be ABSENT from the Shipping build
+-- graph, not present-and-empty. A present-and-empty project is still a node the solution builds, still
+-- a name in run_tests.bat's manifest, and still something a future `filter "configurations:Shipping"`
+-- can accidentally bring back.
+for _, premake_file in ipairs(test_premake_files) do
+    project( path.getname( path.getdirectory( premake_file ) ) )
+        removeconfigurations { "Shipping" }
+end
+
 -- THE LIST OF EXPECTED TEST BINARIES IS A FILE, WRITTEN HERE, AT GENERATION TIME.
 --
 -- It used to be ~1900 `echo` lines in a postbuild event, one per line of a batch file this script
@@ -36,6 +65,8 @@ io.writefile(currentDir .. "/build/TestManifest.txt", table.concat(test_names, "
 group "Tests"
     project "BuildAllTests"
         kind "Utility"
+        -- Same reason as the loop above: an aggregate over projects that do not exist in Shipping.
+        removeconfigurations { "Shipping" }
         targetdir "%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}"
         objdir "%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}"
 
@@ -47,6 +78,10 @@ group "Tests"
 
     project "RunAllTests"
         kind "Utility"
+        -- Same reason as the loop above -- and one consequence worth naming: its postbuild is what
+        -- writes run_tests.bat, so a Shipping build no longer produces a runner at all. That is the
+        -- honest state. A runner that existed and ran nothing would be Ф4's shape: a silent pass.
+        removeconfigurations { "Shipping" }
 
         -- These edges were added because this project's postbuild used to RUN the suite as well as
         -- write the runner, and without them MSBuild was free to schedule it alongside the test
