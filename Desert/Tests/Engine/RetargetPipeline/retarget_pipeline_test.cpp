@@ -62,10 +62,10 @@ namespace
     using Desert::Animation::Retarget::Retargeter;
     using Desert::Animation::Retarget::RetargetSetup;
 
-    constexpr const char* kRigPath      = "Editor/Cooked/Meshes/IKProbe.skeleton";
-    constexpr const char* kClipPath     = "Editor/Cooked/Meshes/IKProbe_Swing.anim";
-    constexpr const char* kTwoBoneRig   = "Editor/Cooked/Meshes/TwoBoneProbe.skeleton";
-    constexpr const char* kTwoBoneClip  = "Editor/Cooked/Meshes/TwoBoneProbe_Wave.anim";
+    constexpr const char* kRigPath     = "Editor/Cooked/Meshes/IKProbe.skeleton";
+    constexpr const char* kClipPath    = "Editor/Cooked/Meshes/IKProbe_Swing.anim";
+    constexpr const char* kTwoBoneRig  = "Editor/Cooked/Meshes/TwoBoneProbe.skeleton";
+    constexpr const char* kTwoBoneClip = "Editor/Cooked/Meshes/TwoBoneProbe_Wave.anim";
 
     // The probe limb, and the only three-bone chain in the corpus. A limb is what a retargeter is judged
     // on, and IK_Shoulder is also the rig's root, so it doubles as the pelvis.
@@ -235,8 +235,7 @@ namespace
             const uint32_t parent = rig.ResolveParent( bone );
             if ( parent == Skeleton::NO_PARENT )
                 continue;
-            const float restLength =
-                 glm::length( restModel[bone].Translation - restModel[parent].Translation );
+            const float restLength = glm::length( restModel[bone].Translation - restModel[parent].Translation );
             if ( restLength < 1.0e-3F )
                 continue;
             const float length = glm::length( model[bone].Translation - model[parent].Translation );
@@ -287,10 +286,10 @@ namespace
         const glm::vec3 offset( handLocal[3][0], handLocal[3][1], handLocal[3][2] );
 
         BoneInfo twist;
-        twist.Name               = "IK_Twist";
-        twist.ParentBoneID       = elbow;
-        twist.LocalBindTransform = glm::rotate( glm::mat4( 1.0F ), glm::radians( 30.0F ),
-                                                glm::vec3( 0.0F, 1.0F, 0.0F ) );
+        twist.Name         = "IK_Twist";
+        twist.ParentBoneID = elbow;
+        twist.LocalBindTransform =
+             glm::rotate( glm::mat4( 1.0F ), glm::radians( 30.0F ), glm::vec3( 0.0F, 1.0F, 0.0F ) );
         twist.LocalBindTransform[3][0] = offset.x * 0.5F;
         twist.LocalBindTransform[3][1] = offset.y * 0.5F;
         twist.LocalBindTransform[3][2] = offset.z * 0.5F;
@@ -298,7 +297,7 @@ namespace
         bones.push_back( twist );
         const auto twistIndex = static_cast<uint32_t>( bones.size() - 1 );
 
-        bones[hand].ParentBoneID          = twistIndex;
+        bones[hand].ParentBoneID             = twistIndex;
         bones[hand].LocalBindTransform[3][0] = offset.x * 0.5F;
         bones[hand].LocalBindTransform[3][1] = offset.y * 0.5F;
         bones[hand].LocalBindTransform[3][2] = offset.z * 0.5F;
@@ -314,8 +313,8 @@ TEST( RetargetPipeline, ModelPoseAgreesWithComponentPose )
 {
     // TWO RESOLVERS FOR ONE QUESTION IS HOW TWO ANSWERS COME TO EXIST. ComponentPose resolves to mat4,
     // ModelPose resolves to TRS, and this is the relation assert that keeps them the same resolver.
-    const Skeleton rig   = MakeRig( BonesFrom( kRigPath ) );
-    const auto     clip  = ClipFrom( kClipPath );
+    const Skeleton  rig   = MakeRig( BonesFrom( kRigPath ) );
+    const auto      clip  = ClipFrom( kClipPath );
     const LocalPose local = PoseAt( rig, clip, 12000.0 );
 
     const ModelPose trs = ModelOf( rig, local );
@@ -343,7 +342,7 @@ TEST( RetargetPipeline, AMirroredBoneRoundTripsWhereTheMatrixRouteRefuses )
     // us a pipeline that can refuse EVERY FRAME where today there is nothing to refuse."
     const Skeleton rig = MakeRig( BonesFrom( kRigPath ) );
 
-    LocalPose local = BindPose( rig );
+    LocalPose local                     = BindPose( rig );
     local[BoneIndex( rig, kMid )].Scale = glm::vec3( -1.0F, 1.0F, 1.0F );
 
     ComponentPose mats( rig, local );
@@ -480,9 +479,8 @@ TEST( RetargetPipeline, ADifferentRestOrientationIsAbsorbedExactly )
             continue;
         const glm::vec3 offset( b.LocalBindTransform[3][0], b.LocalBindTransform[3][1],
                                 b.LocalBindTransform[3][2] );
-        b.LocalBindTransform = b.LocalBindTransform *
-                               glm::rotate( glm::mat4( 1.0F ), glm::radians( 45.0F ),
-                                            glm::vec3( 1.0F, 0.0F, 0.0F ) );
+        b.LocalBindTransform       = b.LocalBindTransform * glm::rotate( glm::mat4( 1.0F ), glm::radians( 45.0F ),
+                                                                         glm::vec3( 1.0F, 0.0F, 0.0F ) );
         b.LocalBindTransform[3][0] = offset.x;
         b.LocalBindTransform[3][1] = offset.y;
         b.LocalBindTransform[3][2] = offset.z;
@@ -492,7 +490,7 @@ TEST( RetargetPipeline, ADifferentRestOrientationIsAbsorbedExactly )
     Retargeter retargeter;
     ASSERT_TRUE( retargeter.Initialize( source, target, SetupFor( kRoot, kRoot ) ).IsSuccess() );
 
-    const LocalPose targetRest = retargeter.GetTargetInitialPose();
+    const LocalPose targetRest      = retargeter.GetTargetInitialPose();
     const ModelPose targetRestModel = ModelOf( target, targetRest );
     const ModelPose sourceRestModel = ModelOf( source, retargeter.GetSourceInitialPose() );
 
@@ -510,13 +508,11 @@ TEST( RetargetPipeline, ADifferentRestOrientationIsAbsorbedExactly )
         const ModelPose targetModel = ModelOf( target, out );
         for ( const char* name : { kRoot, kMid, kTip } )
         {
-            const uint32_t s = BoneIndex( source, name );
-            const uint32_t t = BoneIndex( target, name );
-            const glm::quat sourceDelta =
-                 sourceModel[s].Rotation * glm::inverse( sourceRestModel[s].Rotation );
-            const glm::quat targetDelta =
-                 targetModel[t].Rotation * glm::inverse( targetRestModel[t].Rotation );
-            worstDelta = std::max( worstDelta, DegreesBetween( sourceDelta, targetDelta ) );
+            const uint32_t  s           = BoneIndex( source, name );
+            const uint32_t  t           = BoneIndex( target, name );
+            const glm::quat sourceDelta = sourceModel[s].Rotation * glm::inverse( sourceRestModel[s].Rotation );
+            const glm::quat targetDelta = targetModel[t].Rotation * glm::inverse( targetRestModel[t].Rotation );
+            worstDelta                  = std::max( worstDelta, DegreesBetween( sourceDelta, targetDelta ) );
         }
     }
     // The negative control for "absorbed": the two rest poses really do differ, so the instrument is
@@ -524,9 +520,8 @@ TEST( RetargetPipeline, ADifferentRestOrientationIsAbsorbedExactly )
     restSpread = DegreesBetween( sourceRestModel[BoneIndex( source, kMid )].Rotation,
                                  targetRestModel[BoneIndex( target, kMid )].Rotation );
 
-    std::cout << "[ MEASURED ] rest orientations differ by " << restSpread
-              << " deg; worst limb-length error " << worstLength << " %, worst FK delta disagreement "
-              << worstDelta << " deg\n";
+    std::cout << "[ MEASURED ] rest orientations differ by " << restSpread << " deg; worst limb-length error "
+              << worstLength << " %, worst FK delta disagreement " << worstDelta << " deg\n";
     EXPECT_GT( restSpread, 30.0F );
     EXPECT_LT( worstLength, 1.0e-3F );
     EXPECT_LT( worstDelta, 1.0e-2F );
@@ -551,8 +546,8 @@ TEST( RetargetPipeline, AnAuthoredRetargetPoseMovesTheRestItIsAppliedTo )
          DegreesBetween( moved[BoneIndex( rig, kMid )].Rotation, bind[BoneIndex( rig, kMid )].Rotation );
     const float pelvisRise = moved[pelvis].Translation.y - bind[pelvis].Translation.y;
 
-    std::cout << "[ MEASURED ] retarget pose: elbow turned " << elbowTurn << " deg, pelvis raised "
-              << pelvisRise << " cm\n";
+    std::cout << "[ MEASURED ] retarget pose: elbow turned " << elbowTurn << " deg, pelvis raised " << pelvisRise
+              << " cm\n";
     EXPECT_NEAR( elbowTurn, 40.0F, 1.0e-2F );
     EXPECT_NEAR( pelvisRise, 25.0F, 1.0e-3F );
 
@@ -613,8 +608,8 @@ TEST( RetargetPipeline, ThePelvisRisesByTheRatioOfTheTwoRigsHeights )
 
             const float sourceRise = ModelOf( source, sourcePose )[sourcePelvis].Translation.y -
                                      sourceRestModel[sourcePelvis].Translation.y;
-            const float targetRise = ModelOf( target, out )[targetPelvis].Translation.y -
-                                     targetRestModel[targetPelvis].Translation.y;
+            const float targetRise =
+                 ModelOf( target, out )[targetPelvis].Translation.y - targetRestModel[targetPelvis].Translation.y;
             if ( std::abs( sourceRise ) > std::abs( bestSourceRise ) )
             {
                 bestSourceRise = sourceRise;
@@ -692,7 +687,7 @@ TEST( RetargetPipeline, AChainRetargetsAlongItsWholeLengthAndNotOnlyItsStart )
     // delta" for a reason that had nothing to do with the parameterisation. That is character for
     // character the equivalence trap T6.1 §4 recorded against its own first draft. Turning the source's
     // hand makes the three source deltas genuinely distinct.
-    LocalPose sourcePose                             = PoseAt( source, clip, 12000.0 );
+    LocalPose sourcePose = PoseAt( source, clip, 12000.0 );
     sourcePose[BoneIndex( source, kTip )].Rotation =
          glm::normalize( sourcePose[BoneIndex( source, kTip )].Rotation *
                          glm::angleAxis( glm::radians( 25.0F ), glm::vec3( 0.0F, 0.0F, 1.0F ) ) );
@@ -715,8 +710,8 @@ TEST( RetargetPipeline, AChainRetargetsAlongItsWholeLengthAndNotOnlyItsStart )
         const uint32_t  bone  = chain.TargetRun[i];
         const glm::quat delta = targetModel[bone].Rotation * glm::inverse( targetRest[bone].Rotation );
         applied.push_back( AngleDegrees( delta ) );
-        std::cout << "[ MEASURED ]   " << target.GetBones()[bone].Name << " param "
-                  << chain.TargetParams[i] << " re-aimed " << applied.back() << " deg\n";
+        std::cout << "[ MEASURED ]   " << target.GetBones()[bone].Name << " param " << chain.TargetParams[i]
+                  << " re-aimed " << applied.back() << " deg\n";
     }
 
     // EVERY bone in the run moves, and the intermediate one -- which has NO 1:1 partner on the source
@@ -819,17 +814,17 @@ TEST( RetargetPipeline, TheNormalisedLimbExtensionIsRestoredOnUnevenProportions 
     const auto ready = withIK.Initialize( source, target, build( true ) );
     ASSERT_TRUE( ready.IsSuccess() ) << ready.GetError();
 
-    const auto&    chain        = withIK.GetChains().front();
-    const uint32_t sourceStart  = BoneIndex( source, kRoot );
-    const uint32_t  sourceEnd   = BoneIndex( source, kTip );
-    const uint32_t  targetStart = BoneIndex( target, kRoot );
-    const uint32_t  targetEnd   = BoneIndex( target, kTip );
+    const auto&    chain       = withIK.GetChains().front();
+    const uint32_t sourceStart = BoneIndex( source, kRoot );
+    const uint32_t sourceEnd   = BoneIndex( source, kTip );
+    const uint32_t targetStart = BoneIndex( target, kRoot );
+    const uint32_t targetEnd   = BoneIndex( target, kTip );
 
     std::cout << "[ MEASURED ] rest chain length: source " << chain.SourceRestLength << " cm, target "
               << chain.TargetRestLength << " cm\n";
 
-    float     worstFK = 0.0F;
-    float     worstIK = 0.0F;
+    float     worstFK     = 0.0F;
+    float     worstIK     = 0.0F;
     float     worstLength = 0.0F;
     LocalPose fk;
     LocalPose ik;
@@ -853,12 +848,12 @@ TEST( RetargetPipeline, TheNormalisedLimbExtensionIsRestoredOnUnevenProportions 
 
         worstFK = std::max( worstFK, std::abs( extensionOf( fk ) - sourceExtension ) / sourceExtension );
         worstIK = std::max( worstIK, std::abs( extensionOf( ik ) - sourceExtension ) / sourceExtension );
-        worstLength = std::max(
-             worstLength, WorstSegmentErrorPercent( target, withIK.GetTargetInitialPose(), ik ) );
+        worstLength =
+             std::max( worstLength, WorstSegmentErrorPercent( target, withIK.GetTargetInitialPose(), ik ) );
     }
 
-    std::cout << "[ MEASURED ] worst normalised-extension error: FK alone " << ( worstFK * 100.0F )
-              << " %, FK+IK " << ( worstIK * 100.0F ) << " %\n";
+    std::cout << "[ MEASURED ] worst normalised-extension error: FK alone " << ( worstFK * 100.0F ) << " %, FK+IK "
+              << ( worstIK * 100.0F ) << " %\n";
     std::cout << "[ MEASURED ] worst limb-length error with IK running: " << worstLength << " %\n";
 
     // The positive control for the stage, stated as a number rather than as a mutation: FK alone has a
@@ -893,7 +888,7 @@ TEST( RetargetPipeline, ARetargeterThatCouldOnlyEmitTheRestPoseIsRefused )
 
     // One authored rename is enough to make it a working retargeter -- the refusal is about "nothing is
     // mapped", not about names being different.
-    RetargetSetup setup = SetupFor( kRoot, "T_IK_Shoulder" );
+    RetargetSetup setup             = SetupFor( kRoot, "T_IK_Shoulder" );
     setup.BoneRenames["T_IK_Elbow"] = kMid;
     Retargeter fixed;
     const auto second = fixed.Initialize( source, target, setup );
@@ -906,8 +901,8 @@ TEST( RetargetPipeline, ARenameOntoAMissingSourceBoneIsRefused )
     const Skeleton source = MakeRig( bones );
     const Skeleton target = MakeRig( bones );
 
-    RetargetSetup setup      = SetupFor( kRoot, kRoot );
-    setup.BoneRenames[kMid]  = "IK_Elbwo";
+    RetargetSetup setup     = SetupFor( kRoot, kRoot );
+    setup.BoneRenames[kMid] = "IK_Elbwo";
 
     Retargeter retargeter;
     const auto ready = retargeter.Initialize( source, target, setup );
@@ -1030,7 +1025,7 @@ TEST( RetargetPipeline, SourceScaleIsNotCarriedOntoTheTarget )
     Retargeter retargeter;
     ASSERT_TRUE( retargeter.Initialize( source, target, SetupFor( kRoot, kRoot ) ).IsSuccess() );
 
-    LocalPose sourcePose                       = BindPose( source );
+    LocalPose sourcePose                        = BindPose( source );
     sourcePose[BoneIndex( source, kMid )].Scale = glm::vec3( 2.0F );
 
     LocalPose out;

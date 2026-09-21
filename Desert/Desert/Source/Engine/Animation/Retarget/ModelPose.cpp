@@ -107,10 +107,9 @@ namespace Desert::Animation::Retarget
             auto relative = Relative( m_Bones[parent], m_Bones[bone] );
             if ( !relative.IsSuccess() )
             {
-                return Common::MakeFormattedError<LocalPose>( "bone '{}' under '{}': {}",
-                                                              skeleton.GetBones()[bone].Name,
-                                                              skeleton.GetBones()[parent].Name,
-                                                              relative.GetError() );
+                return Common::MakeFormattedError<LocalPose>(
+                     "bone '{}' under '{}': {}", skeleton.GetBones()[bone].Name, skeleton.GetBones()[parent].Name,
+                     relative.GetError() );
             }
             out[bone] = relative.ExtractValue();
         }

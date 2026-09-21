@@ -228,8 +228,7 @@ namespace Desert::Animation::Retarget
                                                            const glm::vec3& pelvisModelTranslation );
 
         /// STAGE 3. Normalised limb extension, solved onto the target's own reach.
-        [[nodiscard]] Common::BoolResultStr StageIKChains( const Skeleton& target,
-                                                           const ModelPose& sourceModel );
+        [[nodiscard]] Common::BoolResultStr StageIKChains( const Skeleton& target, const ModelPose& sourceModel );
 
         /// The source chain's FK delta for a target bone in the run.
         ///
@@ -266,7 +265,7 @@ namespace Desert::Animation::Retarget
         ModelPose m_SourceInitialModel;
         ModelPose m_TargetInitialModel;
 
-        std::vector<BonePairing> m_Pairings;
+        std::vector<BonePairing>   m_Pairings;
         std::vector<ResolvedChain> m_Chains;
 
         /// Per target bone, so stage 2 is one pass over the resolve order rather than a lookup per bone.
@@ -275,8 +274,8 @@ namespace Desert::Animation::Retarget
         std::vector<float>    m_ParamOfTarget;
         std::vector<uint32_t> m_RunIndexOfTarget;
 
-        uint32_t m_SourcePelvis = 0;
-        uint32_t m_TargetPelvis = 0;
+        uint32_t m_SourcePelvis      = 0;
+        uint32_t m_TargetPelvis      = 0;
         float    m_PelvisHeightScale = 1.0F;
 
         /// Scratch, kept so a per-frame retarget allocates nothing after the first.

@@ -76,7 +76,7 @@ namespace Desert::Animation::Retarget
         /// Resolve `local` through `skeleton`'s parent chain, in its cached parent-before-child order.
         /// Refuses when the pose and the skeleton disagree about how many bones there are — the one
         /// mistake that would otherwise read every bone of a rig against the wrong bone of a pose.
-        [[nodiscard]] static Common::ResultStr<ModelPose> FromLocal( const Skeleton& skeleton,
+        [[nodiscard]] static Common::ResultStr<ModelPose> FromLocal( const Skeleton&  skeleton,
                                                                      const LocalPose& local );
 
         /// Re-resolve only the tail of the resolve order, from `startRank` onwards. Every descendant of a
