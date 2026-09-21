@@ -162,6 +162,7 @@ namespace Desert::Animation::Retarget
 
         m_ChainOfTarget.assign( target.GetBones().size(), NO_CHAIN );
         m_ParamOfTarget.assign( target.GetBones().size(), 0.0F );
+        m_RunIndexOfTarget.assign( target.GetBones().size(), 0 );
         m_SourceOfTarget.assign( target.GetBones().size(), NO_SOURCE );
 
         auto chains = ResolveChains();
@@ -262,8 +263,9 @@ namespace Desert::Animation::Retarget
                          m_Chains[static_cast<size_t>( m_ChainOfTarget[bone] )].Name, authored.Name,
                          m_Target->GetBones()[bone].Name );
                 }
-                m_ChainOfTarget[bone] = chainIndex;
-                m_ParamOfTarget[bone] = resolved.TargetParams[i];
+                m_ChainOfTarget[bone]    = chainIndex;
+                m_ParamOfTarget[bone]    = resolved.TargetParams[i];
+                m_RunIndexOfTarget[bone] = static_cast<uint32_t>( i );
             }
 
             m_Chains.push_back( std::move( resolved ) );
@@ -351,7 +353,7 @@ namespace Desert::Animation::Retarget
         return m_TargetInitialModel[m_TargetPelvis].Translation + ( sourceRise * m_PelvisHeightScale );
     }
 
-    glm::quat Retargeter::SourceChainDeltaAt( const ResolvedChain& chain, float param,
+    glm::quat Retargeter::SourceChainDeltaAt( const ResolvedChain& chain, size_t runIndex, float param,
                                               const ModelPose& sourceModel ) const
     {
         const auto deltaOf = [&]( uint32_t bone )
@@ -360,6 +362,10 @@ namespace Desert::Animation::Retarget
                                    glm::inverse( m_SourceInitialModel[bone].Rotation ) );
         };
 
+        if ( chain.SourceRun.size() == chain.TargetRun.size() )
+        {
+            return deltaOf( chain.SourceRun[runIndex] );
+        }
         if ( chain.SourceRun.size() == 1 )
         {
             return deltaOf( chain.SourceRun.front() );
@@ -393,7 +399,8 @@ namespace Desert::Animation::Retarget
             if ( const int32_t chain = m_ChainOfTarget[bone]; chain != NO_CHAIN )
             {
                 modelRotation = SourceChainDeltaAt( m_Chains[static_cast<size_t>( chain )],
-                                                    m_ParamOfTarget[bone], sourceModel ) *
+                                                    m_RunIndexOfTarget[bone], m_ParamOfTarget[bone],
+                                                    sourceModel ) *
                                 m_TargetInitialModel[bone].Rotation;
             }
             else if ( const uint32_t sourceBone = m_SourceOfTarget[bone]; sourceBone != NO_SOURCE )

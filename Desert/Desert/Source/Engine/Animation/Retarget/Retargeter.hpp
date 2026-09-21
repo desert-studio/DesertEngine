@@ -225,10 +225,17 @@ namespace Desert::Animation::Retarget
         /// STAGE 3. Normalised limb extension, solved onto the target's own reach.
         [[nodiscard]] Common::BoolResultStr StageIKChains( const ModelPose& sourceModel );
 
-        /// The source chain's FK delta at normalised position `param` along it — UE's
-        /// `GetTransformAtChainParam`, and the one thing that lets a 3-bone source arm drive a 5-bone
-        /// target arm instead of only re-aiming the first bone (`08_retarget_measurement.md` §4).
-        [[nodiscard]] glm::quat SourceChainDeltaAt( const ResolvedChain& chain, float param,
+        /// The source chain's FK delta for a target bone in the run.
+        ///
+        /// TWO BRANCHES, AND THE FIRST ONE IS WHAT KEEPS A CHAIN FROM CHANGING AN ANSWER IT SHOULD NOT.
+        /// Runs of EQUAL length pair bone for bone: declaring a chain over bones whose names already match
+        /// must give exactly what the name map gives, or "should I declare a chain here" becomes a
+        /// question with a silently different answer. Only when the counts DIFFER is the delta read at a
+        /// normalised position along the source run — UE's `GetTransformAtChainParam`, and the one thing
+        /// that lets a 3-bone source arm drive a 5-bone target arm instead of only re-aiming the first
+        /// bone (`08_retarget_measurement.md` §4: Jolt "re-aims the START of the chain and rolls the
+        /// target's own local transforms down it; there is no parameterisation along the chain").
+        [[nodiscard]] glm::quat SourceChainDeltaAt( const ResolvedChain& chain, size_t runIndex, float param,
                                                     const ModelPose& sourceModel ) const;
 
         static constexpr uint32_t NO_SOURCE = UINT32_MAX;
@@ -251,6 +258,7 @@ namespace Desert::Animation::Retarget
         std::vector<uint32_t> m_SourceOfTarget;
         std::vector<int32_t>  m_ChainOfTarget;
         std::vector<float>    m_ParamOfTarget;
+        std::vector<uint32_t> m_RunIndexOfTarget;
 
         uint32_t m_SourcePelvis = 0;
         uint32_t m_TargetPelvis = 0;
