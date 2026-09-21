@@ -618,6 +618,91 @@ TEST( RetargetAssetTest, TheRenamedBoneIsDrivenOnlyBecauseTheFileSaysSo )
               << std::endl;
 }
 
+TEST( RetargetAssetTest, AClipThatDrivesNothingLeavesTheTargetInItsOwnRetargetRest )
+{
+    // THE UNTRACKED-BONE FALLBACK, AND THE SCENARIO EXISTS ONLY BECAUSE A MUTATION WENT GREEN. Swapping
+    // `rig.Rest` for the Animator's own bind pose in `SampleLocalTransform` changed nothing measurable,
+    // because the corpus clip drives EVERY bone of the source rig — the line was never reached. A green
+    // mutation means the test does not reach the code or does not check it, and both need work rather
+    // than a tick (§8.4).
+    //
+    // The property: a source bone with no track must read `SourceInitial`, which is the ONE value that
+    // makes it a no-op — the equation is `sourceCurrent * sourceInitial^-1`, so `sourceInitial` gives the
+    // identity delta and the target keeps its own rest. Feed the whole rig that state at once, with a
+    // clip that drives nothing, and the answer must be the target's retarget rest EXACTLY.
+    const Skeleton source = RigFrom( kSourceRig );
+    const Skeleton target = RigFrom( kTargetRig );
+
+    AnimationClip empty;
+    empty.AnimationName = "A25_Empty";
+    empty.DurationTicks = FrameNumber{ 48000 };
+    empty.TickRate      = Desert::Animation::FrameRate{ 24000, 1 };
+
+    Animator animator( target );
+    animator.Play( empty, false );
+    auto built = BuildSource( ShippedRetarget(), source, target );
+    ASSERT_NE( built, nullptr );
+    const LocalPose retargetedRest = built->GetRetargetedRest();
+    ASSERT_TRUE( animator.AttachRetarget( std::move( built ) ).IsSuccess() );
+    animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
+
+    // EXACTLY, not nearly: every step between the source rest and this is the same arithmetic on the same
+    // inputs, so any epsilon here would be hiding work that should not be happening.
+    EXPECT_EQ( WorstModelDelta( target, animator.GetLocalPose(), retargetedRest ), 0.0F )
+         << "a clip that drives nothing must leave the target where a source clip at rest puts it";
+
+    // AND THAT REST IS NOT THE TARGET'S OWN, which is what makes the assertion above discriminating on
+    // this corpus rather than trivially true — see `RetargetSource::GetRetargetedRest`.
+    EXPECT_GT( WorstModelDelta( target, retargetedRest,
+                                animator.GetRetarget()->GetRetargeter().GetTargetInitialPose() ),
+               0.1F );
+}
+
+TEST( RetargetAssetTest, AnAdditiveLayerOfNothingIsANoOpOnlyBecauseItsReferenceIsTheRetargetPose )
+{
+    // THE ADDITIVE REFERENCE, AND THIS SCENARIO ALSO EXISTS BECAUSE A MUTATION WENT GREEN — for the OTHER
+    // reason §8.4 names. Replacing `GetTargetInitialPose()` with the bind pose was not unreached; it was
+    // EQUIVALENT, because the shipped `.retarget` authors an empty target retarget pose and the two are
+    // then the same object by value. A mutation that rewrites a value as itself proves nothing.
+    //
+    // So this test authors a retarget pose that is NOT identity, and then asks the one question whose
+    // answer separates the candidates: an additive layer whose clip drives nothing must be a no-op.
+    // Under a retarget an untracked bone comes out at the pair's RETARGETED rest, so the delta against
+    // that is identity — and the delta against either the bind pose or the target's own retarget pose is
+    // a correction nobody wrote, injected into every bone by a layer the author set to add nothing. Both
+    // of those were tried here; the second is the one that had to be measured to be ruled out.
+    const Skeleton source = RigFrom( kSourceRig );
+    const Skeleton target = RigFrom( kTargetRig );
+
+    File::RetargetAssetData posed = ShippedRetarget();
+    posed.TargetRetargetPose.BoneOffsets.push_back( File::RetargetBoneOffsetData{
+         "IK_Elbow", glm::angleAxis( glm::radians( 20.0F ), glm::vec3( 1.0F, 0.0F, 0.0F ) ) } );
+    ASSERT_TRUE( File::ValidateRetargetData( posed ).IsSuccess() );
+
+    AnimationClip empty;
+    empty.AnimationName = "A25_Empty";
+    empty.DurationTicks = FrameNumber{ 48000 };
+    empty.TickRate      = Desert::Animation::FrameRate{ 24000, 1 };
+
+    Animator animator( target );
+    animator.Play( ClipFrom( kSourceClip ), false );
+    ASSERT_TRUE( animator.AttachRetarget( BuildSource( posed, source, target ) ).IsSuccess() );
+    animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
+    const std::vector<glm::mat4> withoutLayer = animator.GetPose().Matrices;
+
+    ASSERT_GE( animator.AddLayer( empty, 1.0F, /*additive=*/true, /*loop=*/false ), 0 );
+    animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
+
+    float worst = 0.0F;
+    for ( size_t i = 0; i < withoutLayer.size(); ++i )
+        worst = std::max( worst, MaxAbsDelta( animator.GetPose().Matrices[i], withoutLayer[i] ) );
+    EXPECT_LT( worst, 1.0e-3F ) << "an additive layer that adds nothing moved the character by " << worst
+                                << "; its reference is not the rest its clips are expressed against";
+
+    std::cout << "[A25] additive layer of an empty clip, against a 20 deg authored retarget pose: worst "
+              << "skinning-matrix delta " << worst << std::endl;
+}
+
 TEST( RetargetAssetTest, ARetargetIsRebuiltWhenAnySideOfThePairMoves )
 {
     // FOUR FACTS, AND THE SUITE ASKS ABOUT EACH ONE. `SyncRetarget` skips the rebuild only when all four

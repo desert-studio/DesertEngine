@@ -503,7 +503,7 @@ namespace Desert::Animation
 
     const LocalPose& Animator::AdditiveReference() const
     {
-        return m_Retarget ? m_Retarget->GetRetargeter().GetTargetInitialPose() : m_BindPose;
+        return m_Retarget ? m_Retarget->GetRetargetedRest() : m_BindPose;
     }
 
     const BoneTrack* Animator::ResolveTrack( const RigSampling& rig, const AnimationClip* clip,

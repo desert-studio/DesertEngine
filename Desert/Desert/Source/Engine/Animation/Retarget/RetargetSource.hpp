@@ -92,6 +92,26 @@ namespace Desert::Animation::Retarget
             return m_Retargeter;
         }
 
+        /**
+         * @brief What this pipeline emits when the SOURCE clip is at rest — the pose everything a layer
+         *        adds is relative to.
+         *
+         * NOT `Retargeter::GetTargetInitialPose()`, AND THE DIFFERENCE WAS MEASURED RATHER THAN ARGUED.
+         * The obvious answer is the target's own retarget rest, and it is wrong whenever stage 3 is not
+         * the identity at rest: the IK stage places the tip at the SOURCE's normalised chain extension,
+         * and that ratio is scale-invariant only under a UNIFORM proportion difference. On this project's
+         * own corpus rig (x1.5 / x1.75 / x1.3) the retargeted rest sits 4.29 cm from the target's rest,
+         * so an additive layer measured against `TargetInitial` injects that 4.29 cm into every frame —
+         * and an additive layer of a clip that drives NOTHING moves the character, which is the shape a
+         * one-line test catches and a reasoned-about reference does not.
+         *
+         * Computed once, in `Create`, because it is a constant of the pair.
+         */
+        [[nodiscard]] const LocalPose& GetRetargetedRest() const
+        {
+            return m_RetargetedRest;
+        }
+
         /// The buffer the base clip is sampled into before it is retargeted. Sized to the SOURCE rig and
         /// kept, so a per-frame retarget allocates nothing.
         [[nodiscard]] LocalPose& SourceScratch()
@@ -155,6 +175,7 @@ namespace Desert::Animation::Retarget
         Retargeter m_Retargeter;
         LocalPose  m_SourceScratch;
         LocalPose  m_LayerScratch;
+        LocalPose  m_RetargetedRest;
 
         std::string m_LastError;
         std::string m_LastLoggedError;

@@ -270,10 +270,12 @@ namespace Desert::Animation
         //   Controls, Rig   untouched. Both operate on the target rig's own pose and always did.
         //
         // AND THE ADDITIVE REFERENCE MOVES WITH IT. An additive layer's delta is measured against the rest
-        // pose its clips are expressed relative to; under a retarget that is the target's RETARGET POSE
-        // (`Retargeter::GetTargetInitialPose`), not the bind pose, because a retargeted clip at rest emits
-        // exactly that. Measuring against bind would add the authored retarget-pose correction into every
-        // additive layer as an offset nobody wrote.
+        // pose its clips are expressed relative to, and under a retarget that is neither the bind pose nor
+        // the target's retarget pose: it is `RetargetSource::GetRetargetedRest()`, what this PAIR emits
+        // from a source clip at rest. The second of those three was the first answer here and it is wrong
+        // by a measured 4.29 cm on this project's own corpus, because stage 3 is not the identity at rest
+        // unless the proportion difference is uniform. The test that caught it is the cheapest one
+        // available: an additive layer of a clip that drives nothing must move the character by zero.
         //
         // AT MOST ONE, for `AttachRig`'s reason: a second source rig is an ordering question nobody has
         // asked, and the component authors one handle.

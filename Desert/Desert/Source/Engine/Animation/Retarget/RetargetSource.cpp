@@ -35,6 +35,18 @@ namespace Desert::Animation::Retarget
         built->m_SourceScratch = built->m_Retargeter.GetSourceInitialPose();
         built->m_LayerScratch.Resize( target.GetBones().size() );
 
+        // THE REST THIS PAIR EMITS, computed once — see `GetRetargetedRest`. A failure here is a failure
+        // of `Create`: everything `Retarget` can refuse about a source pose of the source rig's own size
+        // was already settled by `Initialize`, so a refusal at this point means the pair is not usable and
+        // saying so now is better than saying it on the first additive layer.
+        if ( auto ok = built->m_Retargeter.Retarget( built->m_Source, target,
+                                                     built->m_Retargeter.GetSourceInitialPose(),
+                                                     built->m_RetargetedRest );
+             !ok )
+        {
+            return Common::MakeFormattedError<std::unique_ptr<RetargetSource>>( "{}", ok.GetError() );
+        }
+
         return Common::MakeSuccess( std::move( built ) );
     }
 
