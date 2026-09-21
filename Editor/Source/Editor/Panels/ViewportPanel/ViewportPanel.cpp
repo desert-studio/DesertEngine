@@ -320,34 +320,252 @@ namespace Desert::Editor
         }
     }
 
+    float ViewportPanel::ToolbarGearX()
+    {
+        return ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight() - 6.0f;
+    }
+
+    float ViewportPanel::ToolbarViewModeX()
+    {
+        return ToolbarGearX() - 160.0f;
+    }
+
+    float ViewportPanel::ToolbarRightClusterX()
+    {
+        return ToolbarViewModeX() - ImGui::GetFrameHeight() - 8.0f;
+    }
+
+    Common::BoolResultStr ViewportPanel::ModeAvailability( Core::AuthoringMode mode ) const
+    {
+        // WHAT EACH MODE NEEDS, AND THE SENTENCE THAT SAYS WHAT IS MISSING. Derived from the entity rather
+        // than from a remembered flag, because the answer changes under the user: a component is added in
+        // Details, a rig is pointed at a `.derig`, a different character is picked.
+        if ( mode != Core::AuthoringMode::Object && Core::ViewportMode::Get() != Core::EditorMode::Select )
+        {
+            return Common::MakeError<bool>( "rig authoring needs Select mode; Foliage, Modeling and "
+                                            "Terrain give the left button to their own tools." );
+        }
+        if ( mode == Core::AuthoringMode::Object )
+            return Common::MakeSuccess<bool>( true );
+
+        const auto& sel = Core::SelectionManager::GetSelected();
+        if ( !sel.has_value() )
+            return Common::MakeError<bool>( "nothing is selected; a rig mode is about one character." );
+
+        const auto ref = m_Scene->FindEntityByID( *sel );
+        if ( !ref )
+            return Common::MakeError<bool>( "the selected entity is not in this viewport's scene." );
+
+        const ECS::Entity& entity = ref->get();
+        if ( !entity.HasComponent<ECS::SkinnedMeshComponent>() )
+            return Common::MakeError<bool>( "the selected entity has no Skinned Mesh, so it has no rig." );
+
+        switch ( mode )
+        {
+            case Core::AuthoringMode::Skeleton:
+                return Common::MakeSuccess<bool>( true );
+
+            case Core::AuthoringMode::Pose:
+                // THE GIZMO WRITES `Animator::SetBoneLocalPose` IN THIS MODE, and there is no animator
+                // without the component. Offering it anyway would be a segment that lights up and moves
+                // nothing — see GizmoController::RenderBone, which refuses for the same reason.
+                if ( !entity.HasComponent<ECS::AnimationComponent>() )
+                {
+                    return Common::MakeError<bool>( "posing writes the ANIMATOR's pose buffer and this "
+                                                    "entity has no Animation component." );
+                }
+                return Common::MakeSuccess<bool>( true );
+
+            case Core::AuthoringMode::Control:
+                if ( !entity.HasComponent<ECS::ControlRigComponent>() )
+                {
+                    return Common::MakeError<bool>( "this entity has no Control Rig component; add one in "
+                                                    "Details and point it at a .derig." );
+                }
+                if ( !entity.HasComponent<ECS::AnimationComponent>() )
+                {
+                    return Common::MakeError<bool>( "a control rig is the last stage of the pose pipeline "
+                                                    "and the pipeline lives in the Animation component." );
+                }
+                return Common::MakeSuccess<bool>( true );
+
+            case Core::AuthoringMode::Object:
+                break;
+        }
+        return Common::MakeSuccess<bool>( true );
+    }
+
+    void ViewportPanel::EnterAuthoringMode( Core::AuthoringMode mode )
+    {
+        // Pressing a segment IS the user working in this viewport, so take the context first — the ImGui
+        // focus flag can still be describing the previous frame on the click itself.
+        ClaimAuthoringContext();
+        if ( const auto changed = Core::ActiveAuthoringContext().SetMode( m_AuthoringOwner, m_Authoring, mode );
+             !changed )
+        {
+            LOG_WARN( "[Viewport] {} mode refused: {}", Core::AuthoringModeName( mode ), changed.GetError() );
+        }
+    }
+
+    void ViewportPanel::DrawAuthoringModeSwitch()
+    {
+        // 07 §14.2. ONE control with four segments, not a toggle plus whatever else grew beside it: the
+        // strip this replaced could say "Skeleton on" and had no way at all to say "Pose", because pose
+        // authoring was a second bit only the Sequencer could write. The four states are one value now,
+        // so the strip shows the value.
+        //
+        // ALWAYS DRAWN, and the unavailable segments are DISABLED rather than absent. A segment that
+        // vanishes tells the user nothing; a greyed one with its own reason under the pointer tells them
+        // what to add to the entity, which is the whole difference between a missing feature and a
+        // missing component.
+        auto& authoring = Core::ActiveAuthoringContext();
+
+        static constexpr const char* kLabels[] = {
+             ICON_MDI_CUBE_OUTLINE "  Object",
+             ICON_MDI_BONE "  Skeleton",
+             ICON_MDI_HUMAN_HANDSUP "  Pose",
+             ICON_MDI_RHOMBUS_OUTLINE "  Control",
+        };
+        // THE SAME SEGMENTS WITHOUT THEIR WORDS, for a narrow viewport. MEASURED, not guessed: at the
+        // editor's default layout on a 4112 px screen the Scene panel is about 1420 px wide and the four
+        // written-out segments run off its right edge — "Control" was clipped to "Co", which is a mode
+        // the user can neither read nor click. Dropping the words is what a toolbar can give up; dropping
+        // a segment is not, because three of the four modes have no other door.
+        static constexpr const char* kIcons[] = {
+             ICON_MDI_CUBE_OUTLINE,
+             ICON_MDI_BONE,
+             ICON_MDI_HUMAN_HANDSUP,
+             ICON_MDI_RHOMBUS_OUTLINE,
+        };
+        static_assert( std::size( kLabels ) == Core::kAuthoringModes.size() &&
+                            std::size( kIcons ) == Core::kAuthoringModes.size(),
+                       "every authoring mode needs a segment: the strip is the only way into three of "
+                       "them, so a mode without one is a mode the user cannot reach" );
+
+        ImGui::SameLine();
+        ImGui::TextUnformatted( "|" );
+
+        const ImGuiStyle& style  = ImGui::GetStyle();
+        float             wanted = 0.0f;
+        for ( const char* label : kLabels )
+            wanted += ImGui::CalcTextSize( label ).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
+
+        // Measured AFTER the separator has been placed on the row, against the RIGHT-HAND CLUSTER's own
+        // x and not against the panel's edge — that is the difference between "it fits in the window" and
+        // "it fits before the eye button is painted over it", and the second is the one that is true.
+        // SameLine() only moves the cursor; the loop's own SameLine() lands in the same place.
+        ImGui::SameLine();
+        const bool compact = ImGui::GetCursorPosX() + wanted > ToolbarRightClusterX();
+
+        for ( std::size_t i = 0; i < Core::kAuthoringModes.size(); ++i )
+        {
+            const Core::AuthoringMode mode      = Core::kAuthoringModes[i];
+            const auto                available = ModeAvailability( mode );
+            const bool                active    = ( authoring.Mode() == mode );
+
+            ImGui::SameLine();
+            if ( active )
+                ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.85f, 0.45f, 0.1f, 1.0f ) );
+            ImGui::BeginDisabled( !available );
+            if ( ImGui::Button( compact ? kIcons[i] : kLabels[i] ) )
+                EnterAuthoringMode( mode );
+            ImGui::EndDisabled();
+            if ( active )
+                ImGui::PopStyleColor();
+
+            // ImGuiHoveredFlags_AllowWhenDisabled: the tooltip on a DISABLED segment is the only place the
+            // reason is ever shown, so suppressing it there would hide exactly the message that matters.
+            // And in the compact strip it is the only place the mode's NAME is shown at all.
+            if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+            {
+                ImGui::SetTooltip( "%s",
+                                   available ? Core::AuthoringModeName( mode ) : available.GetError().c_str() );
+            }
+        }
+
+        // Bone labels belong to the two modes that draw bones, and to no others.
+        if ( authoring.ShowsBones() )
+        {
+            ImGui::SameLine();
+            bool showNames = authoring.ShowBoneNames();
+            if ( ImGui::Checkbox( "Names", &showNames ) )
+            {
+                ClaimAuthoringContext();
+                if ( const auto changed = Core::ActiveAuthoringContext().SetShowBoneNames(
+                          m_AuthoringOwner, m_Authoring, showNames );
+                     !changed )
+                {
+                    LOG_WARN( "[Viewport] bone-name labels refused: {}", changed.GetError() );
+                }
+            }
+        }
+    }
+
+    Common::BoolResultStr ViewportPanel::RequestAuthoringMode( Core::AuthoringMode mode )
+    {
+        if ( s_Live.empty() )
+            return Common::MakeError<bool>( "there is no viewport to put into a rig mode." );
+
+        // THE VIEWPORT THAT ALREADY HOLDS THE CONTEXT, or the first live one. Picking "the first" blindly
+        // would move the mode off whichever view the user is in the moment a second viewport exists, and
+        // several viewports at once is a shipped feature here, not a corner case.
+        ViewportPanel* target = s_Live.front();
+        for ( ViewportPanel* panel : s_Live )
+        {
+            if ( Core::ActiveAuthoringContext().Holder() == panel->m_AuthoringOwner )
+            {
+                target = panel;
+                break;
+            }
+        }
+
+        if ( const auto available = target->ModeAvailability( mode ); !available )
+        {
+            return Common::MakeFormattedError<bool>( "cannot enter {} mode: {}", Core::AuthoringModeName( mode ),
+                                                     available.GetError() );
+        }
+
+        target->EnterAuthoringMode( mode );
+        if ( Core::ActiveAuthoringContext().Mode() != mode )
+        {
+            // SAYS SO INSTEAD OF REPORTING A SUCCESS IT DID NOT HAVE. The write can be refused by the
+            // election — another surface holds the context — and over the wire a silent success is
+            // indistinguishable from the mode actually being entered.
+            return Common::MakeFormattedError<bool>(
+                 "the viewport could not take the authoring context; {} holds it.",
+                 Core::ActiveAuthoringContext().Holder().Describe() );
+        }
+        return Common::MakeSuccess<bool>( true );
+    }
+
     void ViewportPanel::DrawViewportToolbar()
     {
         // Godot-style strip directly ABOVE the image. Left cluster = how you EDIT (mode, transform
         // tools, snap, contextual skeleton toggle); right edge = the camera gear. Small icons —
         // the viewport pixels are the star, the tools are furniture.
-        bool canEditSkeleton = false;
-        if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
-            if ( auto ref = m_Scene->FindEntityByID( *sel ); ref )
-                canEditSkeleton = ref->get().HasComponent<ECS::SkinnedMeshComponent>();
-
         TakeAuthoringContextIfFocused();
 
-        // Skeleton edit only makes sense in Select mode on a skinned mesh.
+        // THE MODE FALLS BACK WHEN WHAT IT NEEDS IS GONE, and the same predicate that greys a segment out
+        // decides it — one derivation, so a mode can never be enterable by the strip and un-fallen-back by
+        // this guard, or the other way round.
         //
         // ONLY WHILE THIS VIEW HOLDS THE CONTEXT. The guard is about what THIS viewport's selection can be
         // authored as; a Sequencer authoring its own character is not this view's business, and forcing it
-        // back to Object from here is precisely the "everybody writes one global" shape that was removed.
-        if ( !canEditSkeleton || Core::ViewportMode::Get() != Core::EditorMode::Select )
+        // back to Object from here is precisely the "everybody writes one global" shape that was removed —
+        // SetMode refuses it for us rather than this call site having to remember.
+        if ( !ModeAvailability( Core::ActiveAuthoringContext().Mode() ) )
             (void)Core::ActiveAuthoringContext().SetMode( m_AuthoringOwner, m_Authoring,
                                                           Core::AuthoringMode::Object );
 
-        // While bones are being authored, ask the engine to render the selected mesh in BIND pose so
-        // bone-gizmo edits are visible (an auto-playing clip would otherwise override them).
+        // ── 07 §1.3, FIXED HERE ───────────────────────────────────────────────────────────────────
         //
-        // BOTH AUTHORING MODES, exactly as before. Pose authoring wants the opposite (07 §1.3) and the
-        // four-way mode switcher of §14.2 is the change that unties them; this change moves ownership and
-        // nothing else, so the defect is preserved rather than quietly half-fixed here.
-        if ( Core::ActiveAuthoringContext().ShowsBones() )
+        // While the RIG is edited the mesh must be drawn in BIND pose, or a clip playing on the entity
+        // overwrites every bone-gizmo edit before it can be seen. While a CLIP is authored the opposite is
+        // true — the animator's pose buffer is what the gizmo writes and what the user is looking at — and
+        // this asked `ShowsBones()`, which is true for both, so Pose mode got the rig's answer and the
+        // edit under the cursor was hidden by the preview. `PreviewsBindPose()` is Skeleton alone, and it
+        // has a name so the decision is asserted in a suite: this file is compiled by none.
+        if ( Core::ActiveAuthoringContext().PreviewsBindPose() )
             Runtime::SelectionContext::SetBindPosePreview( Core::SelectionManager::GetSelected() );
         else
             Runtime::SelectionContext::SetBindPosePreview( std::nullopt );
@@ -439,41 +657,8 @@ namespace Desert::Editor
             }
         }
 
-        // --- Select mode: contextual Skeleton-Edit toggle (skinned mesh only) ---
-        if ( Core::ViewportMode::Get() == Core::EditorMode::Select && canEditSkeleton )
-        {
-            auto&      authoring = Core::ActiveAuthoringContext();
-            const bool active    = authoring.ShowsBones();
-            ImGui::SameLine();
-            if ( active )
-                ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.85f, 0.45f, 0.1f, 1.0f ) );
-            if ( ImGui::Button( ICON_MDI_BONE "  Skeleton" ) )
-            {
-                // Pressing the button IS the user working in this viewport, so take the context first —
-                // the ImGui focus flag can still be describing the previous frame on the click itself.
-                ClaimAuthoringContext();
-                const auto changed = Core::ActiveAuthoringContext().SetMode(
-                     m_AuthoringOwner, m_Authoring,
-                     active ? Core::AuthoringMode::Object : Core::AuthoringMode::Skeleton );
-                if ( !changed.IsSuccess() )
-                    LOG_WARN( "[Viewport] skeleton mode refused: {}", changed.GetError() );
-            }
-            if ( active )
-                ImGui::PopStyleColor();
-            if ( active )
-            {
-                ImGui::SameLine();
-                bool showNames = authoring.ShowBoneNames();
-                if ( ImGui::Checkbox( "Names", &showNames ) )
-                {
-                    ClaimAuthoringContext();
-                    const auto changed = Core::ActiveAuthoringContext().SetShowBoneNames( m_AuthoringOwner,
-                                                                                          m_Authoring, showNames );
-                    if ( !changed.IsSuccess() )
-                        LOG_WARN( "[Viewport] bone-name labels refused: {}", changed.GetError() );
-                }
-            }
-        }
+        // --- 07 §14.2: Object / Skeleton / Pose / Control, one switcher ---
+        DrawAuthoringModeSwitch();
 
         // --- In-scene UI authoring (Godot/UE-style): create + parent UI elements without the UI Editor panel.
         // New elements parent under the selected UI element if one is selected, else under the canvas. ---
@@ -737,8 +922,7 @@ namespace Desert::Editor
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
-            const float gearW = ImGui::GetFrameHeight();
-            const float vmX   = ImGui::GetWindowContentRegionMax().x - gearW - 6.0f - 160.0f;
+            const float vmX = ToolbarViewModeX();
 
             // The "Show" flags. Every toggle here edits the USER's view state and is written to
             // editor.json on the spot — these are single clicks scattered through a session, and losing
@@ -749,7 +933,7 @@ namespace Desert::Editor
             // not a debug overlay, and it belongs to the group SceneSettings names as awaiting a decision
             // about who owns quality. It is drawn here because this is where a user looks for it, under a
             // separator that says which side of the fence it is on.
-            ImGui::SameLine( vmX - gearW - 8.0f );
+            ImGui::SameLine( ToolbarRightClusterX() );
             if ( ImGui::Button( ICON_MDI_EYE_OUTLINE "##DebugShowFlags" ) )
                 ImGui::OpenPopup( "##DebugShowFlagsPopup" );
             if ( ImGui::IsItemHovered() )
@@ -875,7 +1059,7 @@ namespace Desert::Editor
         }
 
         // --- Right edge: editor camera settings (speed) behind a gear button ---
-        ImGui::SameLine( ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight() - 6.0f );
+        ImGui::SameLine( ToolbarGearX() );
         if ( ImGui::Button( ICON_MDI_COG "##CamSettings" ) )
             ImGui::OpenPopup( "##EditorCameraSettings" );
         if ( ImGui::IsItemHovered() )
@@ -1234,7 +1418,8 @@ namespace Desert::Editor
         // running game view is clean.
         if ( m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit )
             m_LightGizmoRenderer->Render( m_ViewportData.Size.x, m_ViewportData.Size.y,
-                                          m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y );
+                                          m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y,
+                                          m_AuthoringOwner, m_Authoring );
 
         // Corner XYZ orientation triad — a 3D aid, so hide it in 2D UI mode (like Unity's 2D scene view).
         // THE MODEL THE GRID NOW FOLLOWS: the mode decides what it draws at the moment it draws it and

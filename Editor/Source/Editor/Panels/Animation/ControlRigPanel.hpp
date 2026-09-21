@@ -2,6 +2,9 @@
 
 #include "../IPanel.hpp"
 
+#include <Editor/Core/Selection/AuthoringContext.hpp>
+
+#include <functional>
 #include <memory>
 
 namespace Desert::Core
@@ -50,6 +53,16 @@ namespace Desert::Editor
         [[nodiscard]] bool IsRelevant() const override;
 
     private:
+        // WHO THIS PANEL IS when it writes the context, and its own durable copy of it. Built once for
+        // the same reason the viewport's is: the owner is compared by value on every write.
+        const Core::AuthoringOwner m_AuthoringOwner = Core::AuthoringOwner::ForPanel( "Control Rig" );
+        Core::AuthoringContext     m_Authoring;
+
+        // Take the context for @p entity and run @p write against it, logging a refusal rather than
+        // dropping it. One place, because all four of this panel's controls do exactly this.
+        void Author( const Common::UUID& entity, const char* what,
+                     const std::function<Common::BoolResultStr( Core::AuthoringContext& )>& write );
+
         std::shared_ptr<::Desert::Core::Scene> m_Scene;
     };
 } // namespace Desert::Editor

@@ -1,6 +1,5 @@
 #include "LightGizmoRenderer.hpp"
 
-#include <Editor/Core/Selection/ControlRigEditMode.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>
@@ -67,7 +66,8 @@ namespace Desert::Editor
     {
     }
 
-    void LightGizmoRenderer::Render( float width, float height, float xpos, float ypos )
+    void LightGizmoRenderer::Render( float width, float height, float xpos, float ypos,
+                                     const Core::AuthoringOwner& owner, Core::AuthoringContext& mine )
     {
         const auto camera = m_Scene->GetMainCamera().lock();
         if ( !camera )
@@ -96,13 +96,18 @@ namespace Desert::Editor
         // Rig placement overlay (Convert-to-Skinned) — draws the bones being placed on a static mesh.
         RenderRigBuilder( camera, width, height );
 
-        // Control Rig overlay — the caller ControlManipulator never had. Gated by the mode rather than by
+        // Control Rig overlay — the caller ControlManipulator never had. Gated by the MODE rather than by
         // the selection alone: a character with a rig is a character you usually want to see UNRIGGED while
         // dressing the scene, and every control drawn on top of every skinned mesh is a viewport full of
         // circles nobody asked for.
-        if ( Core::ControlRigEditMode::IsActive() )
+        //
+        // The mode is the authoring context's, so `Control` reaches here from wherever the user declared
+        // it — the viewport's own switcher or the Control Rig panel's checkbox — and a second character
+        // being authored elsewhere does not turn this viewport's controls on, because the context carries
+        // the entity and RenderControlRig checks it.
+        if ( Core::ActiveAuthoringContext().ShowsControls() )
         {
-            RenderControlRig( camera, width, height, xpos, ypos );
+            RenderControlRig( camera, width, height, xpos, ypos, owner, mine );
         }
         else if ( m_ControlDrag.Active() )
         {
@@ -113,31 +118,60 @@ namespace Desert::Editor
     }
 
     void LightGizmoRenderer::RenderControlRig( const std::shared_ptr<Desert::Core::Camera>& camera, float width,
-                                               float height, float xpos, float ypos )
+                                               float height, float xpos, float ypos,
+                                               const Core::AuthoringOwner& owner, Core::AuthoringContext& mine )
     {
+        auto& authoring = Core::ActiveAuthoringContext();
+
+        // FORGETTING A SELECTION IS ITSELF A WRITE, so it goes through the same gate as a click — and it
+        // is only ours to make while we hold the context. When somebody else does (a Control Rig panel,
+        // another view), the stale index is theirs and clearing it from here is the shape that made the
+        // process-wide statics unusable: a surface reaching into another surface's state.
+        const auto forgetSelection = [&]
+        {
+            if ( authoring.Holder() == owner && authoring.SelectedControl().has_value() )
+            {
+                (void)authoring.SetSelectedControl( owner, mine, std::nullopt );
+            }
+        };
+
         const auto& selected = Core::SelectionManager::GetSelected();
         if ( !selected )
         {
-            Core::ControlRigEditMode::Clear();
+            forgetSelection();
             return;
         }
         const auto& entOpt = m_Scene->FindEntityByID( *selected );
         if ( !entOpt )
         {
-            Core::ControlRigEditMode::Clear();
+            forgetSelection();
             return;
         }
         const ECS::Entity& entity = entOpt->get();
+
+        // THE CONTEXT IS ABOUT ONE CHARACTER, AND THIS VIEWPORT IS LOOKING AT ANOTHER ONE. Drawing here
+        // anyway would put character B's control shapes on screen because character A is in Control mode
+        // somewhere else, and — worse — the selected index would be an index into A's hierarchy read
+        // against B's. Refusing to draw is the honest answer; the mode belongs to the entity it names.
+        if ( !( authoring.Entity() == *selected ) )
+        {
+            if ( m_ControlDrag.Active() )
+            {
+                m_ControlDrag.End();
+            }
+            return;
+        }
+
         if ( !entity.HasComponent<ECS::AnimationComponent>() )
         {
-            Core::ControlRigEditMode::Clear();
+            forgetSelection();
             return;
         }
 
         auto& anim = entity.GetComponent<ECS::AnimationComponent>();
         if ( !anim.Animator )
         {
-            Core::ControlRigEditMode::Clear();
+            forgetSelection();
             return;
         }
 
@@ -147,7 +181,7 @@ namespace Desert::Editor
             // The entity has no rig ATTACHED — either it names none, or the one it names refused to build.
             // AnimationECSSystem has already said which, once; drawing nothing here is the honest answer
             // and the selection must not survive it.
-            Core::ControlRigEditMode::Clear();
+            forgetSelection();
             if ( m_ControlDrag.Active() )
             {
                 m_ControlDrag.End();
@@ -199,8 +233,8 @@ namespace Desert::Editor
         const glm::vec2   pointerV = glm::vec2( pointer.x, pointer.y );
         ImDrawList* const drawList = ImGui::GetWindowDrawList();
 
-        const Animation::ManipulatorHit hover  = Animation::HitTest( m_ControlFrame, pointerV, 10.0f );
-        const uint32_t                  chosen = Core::ControlRigEditMode::GetSelected();
+        const Animation::ManipulatorHit hover = Animation::HitTest( m_ControlFrame, pointerV, 10.0f );
+        const uint32_t chosen = authoring.SelectedControl().value_or( Animation::ControlHierarchy::INVALID );
 
         for ( const Animation::ControlShapeDraw& shape : m_ControlFrame.Shapes )
         {
@@ -268,9 +302,18 @@ namespace Desert::Editor
 
             if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
             {
-                Core::ControlRigEditMode::SetSelected( hover.Control );
+                // CLICKING IN THIS VIEWPORT IS THE USER WORKING IN IT, so the context is taken first —
+                // the same reason the toolbar's buttons do it, and the same reason the bone tree does.
+                // Without it a click here would be refused whenever a panel happened to hold the context,
+                // which reads as "the control does not select" with nothing else to see.
+                mine.Entity = *selected;
+                (void)authoring.Focus( owner, mine );
+                if ( const auto picked = authoring.SetSelectedControl( owner, mine, hover.Control ); !picked )
+                {
+                    LOG_WARN( "[Animation] Control selection refused: {}", picked.GetError() );
+                }
 
-                const Animation::ManipulatorMode mode = Core::ControlRigEditMode::RotateMode()
+                const Animation::ManipulatorMode mode = authoring.ControlRotate()
                                                              ? Animation::ManipulatorMode::Rotate
                                                              : Animation::ManipulatorMode::Translate;
 
@@ -758,17 +801,41 @@ namespace Desert::Editor
         // raw-vertex scale (thousands of units) while the mesh renders at the chain scale — hence "bones much
         // bigger than the mesh".
         //
-        // THE OVERLAY IS DRAWN IN BIND POSE, ALWAYS, and that is deliberate — it used to be six lines of
-        // comment promising "the SAME pose the mesh is RENDERED with" above a `const std::vector<glm::mat4>*
-        // poseMatrices = nullptr;` that was never assigned, so the branch reading it was unreachable and the
-        // overlay had never once followed an animated pose. The reason the bind chain is the right answer
-        // here: Skeleton Edit renders the mesh itself in BIND pose (SelectionContext's bind-pose preview), so
-        // an animated overlay would sit off both the mesh and the gizmo. When that preview goes away, this is
-        // the line that has to change with it, and it should change by reading the animator — not by
-        // reviving a pointer nothing sets.
+        // THE OVERLAY DRAWS THE POSE THE MESH IS DRAWN IN, AND ONE PREDICATE DECIDES BOTH.
+        //
+        // This used to take the bind chain unconditionally, and that WAS right while it was true that the
+        // mesh is always drawn in bind pose during bone authoring. 07 §1.3 ended that: the bind-pose
+        // preview is now `AuthoringContext::PreviewsBindPose()` — Skeleton alone — so in Pose mode the
+        // mesh moves with the animator and a bind-chain overlay would sit off both the mesh and the
+        // gizmo, which is 07 §3.4's complaint. The two sides are therefore asked the SAME question rather
+        // than each being told the answer: whatever `PreviewsBindPose()` says the renderer is showing is
+        // what the joints are resolved from.
+        //
+        // (The previous shape here was worse than a wrong answer: six lines of comment promising "the
+        // SAME pose the mesh is RENDERED with" above a `const std::vector<glm::mat4>* poseMatrices =
+        // nullptr;` that nothing ever assigned, so the branch reading it was unreachable. It is read out
+        // of the animator now, which is where the pose actually is.)
+        const Animation::Animator* animator = nullptr;
+        if ( entity.HasComponent<ECS::AnimationComponent>() )
+        {
+            animator = entity.GetComponent<ECS::AnimationComponent>().Animator.get();
+        }
+
         std::vector<glm::mat4> chainGlobal;
-        skeleton.ResolveComponentSpace( [&bones]( uint32_t i ) { return bones[i].LocalBindTransform; },
-                                        chainGlobal );
+        if ( Core::ActiveAuthoringContext().PreviewsBindPose() || animator == nullptr )
+        {
+            skeleton.ResolveComponentSpace( [&bones]( uint32_t i ) { return bones[i].LocalBindTransform; },
+                                            chainGlobal );
+        }
+        else
+        {
+            // Component space, already resolved by the pipeline — the same values the skinning matrices
+            // were built from this frame, so the joints cannot lag the mesh by a frame the way a copy
+            // taken anywhere else would.
+            chainGlobal.resize( bones.size() );
+            for ( uint32_t i = 0; i < static_cast<uint32_t>( bones.size() ); ++i )
+                chainGlobal[i] = animator->GetBoneModelMatrix( i );
+        }
 
         std::vector<glm::vec3> heads( bones.size() );
         for ( size_t i = 0; i < bones.size(); ++i )

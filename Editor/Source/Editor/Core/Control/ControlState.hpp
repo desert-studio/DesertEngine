@@ -75,6 +75,23 @@ namespace Desert::Editor::Control
         std::string Uuid;
     };
 
+    /// WHAT IS BEING AUTHORED ON THE SELECTED RIG, AND BY WHOM (07 §14.2 / Core::AuthoringContext).
+    ///
+    /// On the wire because the viewport's four modes are drawn as ImGui overlays — bone octahedra,
+    /// control shapes — so a window capture is the ONLY picture of them, and a picture of an overlay
+    /// cannot say which mode produced it when two modes draw bones. These fields are what let a report
+    /// put the number beside the frame; `holder` is here for the same reason the refusals name an owner.
+    struct AuthoringSnapshot
+    {
+        std::string Mode = "Object"; ///< AuthoringModeName: "Object" | "Skeleton" | "Pose" | "Control"
+        std::string Entity;          ///< the character the mode is about; empty when nothing is published
+        std::string Holder           = "nobody"; ///< AuthoringOwner::Describe()
+        int         SelectedBone     = -1;       ///< index into Skeleton::GetBones(), -1 for none
+        int         SelectedControl  = -1;       ///< index into the live ControlHierarchy, -1 for none
+        bool        ShowBoneNames    = false;
+        bool        PreviewsBindPose = false; ///< Skeleton only — 07 §1.3; the scene render shows it
+    };
+
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
     /// the documents most-recently-used first, exactly as Ctrl+Tab walks them — so a client reading this
     /// and a person reading the screen are reading the same sequence.
@@ -99,6 +116,8 @@ namespace Desert::Editor::Control
         std::size_t              LogErrorCount   = 0;
         std::vector<std::string> LogTail; ///< oldest first
 
+        AuthoringSnapshot Authoring;
+
         EditorQuiescence Quiescence;
     };
 
@@ -106,7 +125,7 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "documents", "panels", "renderer_slots", "log", "quiescence",
+         "scene", "selection", "authoring", "documents", "panels", "renderer_slots", "log", "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
@@ -203,6 +222,19 @@ namespace Desert::Editor::Control
                 selection.push_back( rfl::Generic( item ) );
             }
             root["selection"] = rfl::Generic( selection );
+        }
+
+        if ( Wanted( sections, "authoring" ) )
+        {
+            rfl::Generic::Object authoring;
+            authoring["mode"]             = Str( snapshot.Authoring.Mode );
+            authoring["entity"]           = Str( snapshot.Authoring.Entity );
+            authoring["holder"]           = Str( snapshot.Authoring.Holder );
+            authoring["selectedBone"]     = Num( snapshot.Authoring.SelectedBone );
+            authoring["selectedControl"]  = Num( snapshot.Authoring.SelectedControl );
+            authoring["showBoneNames"]    = rfl::Generic( snapshot.Authoring.ShowBoneNames );
+            authoring["previewsBindPose"] = rfl::Generic( snapshot.Authoring.PreviewsBindPose );
+            root["authoring"]             = rfl::Generic( authoring );
         }
 
         if ( Wanted( sections, "documents" ) )

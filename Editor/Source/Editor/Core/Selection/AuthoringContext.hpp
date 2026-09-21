@@ -39,14 +39,25 @@
 // one character on screen that makes the behaviour identical to the single global it replaces; with
 // two, the contexts stay apart because the entities differ.
 //
-// ── WHY THERE IS NO `Mode::Control` HERE ──────────────────────────────────────────────────────────
+// ── `Mode::Control` IS HERE NOW, AND WHAT MADE IT ADMISSIBLE ──────────────────────────────────────
 //
-// §9.3's sketch lists four modes and a `SelectedControl`. Control rigs have their own live selection
-// (`Editor/Core/Selection/ControlRigEditMode.hpp`) and nothing in this tree would read a `Control`
-// value from here today, so adding one now would ship a knob that moves nothing — contract §3. The
-// viewport's four-way mode switcher (§14.2) is the change that gives `Control` a reader, and it is the
-// change that should add it, together with dissolving `ControlRigEditMode` the same way this dissolves
-// `SkeletonEditMode`. What §14.2 gets from here is listed at the bottom of this header.
+// It was deliberately absent until the viewport's four-way switcher existed, because a mode nothing
+// reads is a knob that moves nothing (contract §3). §14.2 is that switcher, so the readers now exist
+// and are named rather than assumed:
+//
+//   * `LightGizmoRenderer::Render` draws the control shapes and runs the drag for `Control` alone;
+//   * `LightGizmoRenderer::Render` / `ViewportPanel` draw the bone overlay and hand the gizmo to the
+//     bone for `ShowsBones()` — Skeleton and Pose;
+//   * `GizmoController::RenderBone` writes the ANIMATOR's pose for `Pose` and the rig's bind
+//     transform otherwise;
+//   * `ViewportPanel::DrawViewportToolbar` asks the bind-pose preview for `PreviewsBindPose()` —
+//     Skeleton ONLY, which is 07 §1.3 and the reason that predicate has a name of its own.
+//
+// The same change dissolved `Editor::Core::ControlRigEditMode` — three more `static inline` values on
+// the process (`s_Active`, `s_Selected`, `s_Rotate`) written by the panel and the viewport overlay —
+// into `Mode::Control`, `SelectedControl` and `ControlRotate` below. It had the identical defect for
+// the identical reason: two characters on screen shared one selected-control index, which is an index
+// into ONE hierarchy.
 
 #include <Editor/Core/EditorSubject.hpp>
 
@@ -54,6 +65,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -70,6 +82,7 @@ namespace Desert::Editor::Core
         Object,   // ordinary scene editing: no bone overlay, the gizmo moves the entity
         Skeleton, // editing the RIG: bone overlay + bone gizmo writing LocalBindTransform
         Pose,     // authoring a CLIP: bone overlay + bone gizmo writing the animator's pose buffer
+        Control,  // posing through the CONTROL RIG: control shapes drawn and grabbed, no bone overlay
     };
 
     NO_DISCARD inline const char* AuthoringModeName( AuthoringMode mode ) noexcept
@@ -82,9 +95,22 @@ namespace Desert::Editor::Core
                 return "Skeleton";
             case AuthoringMode::Pose:
                 return "Pose";
+            case AuthoringMode::Control:
+                return "Control";
         }
         return "Object";
     }
+
+    // EVERY MODE, ONCE. The viewport's §14.2 switcher draws its segments from this and the control
+    // channel's palette entries are generated from it, so a fifth mode appears on both surfaces by being
+    // added to the enum — which is the opposite of what a hand-written strip does, and the opposite of
+    // what the two booleans did (there was no list of the states they could be in at all).
+    inline constexpr std::array<AuthoringMode, 4> kAuthoringModes = {
+         AuthoringMode::Object,
+         AuthoringMode::Skeleton,
+         AuthoringMode::Pose,
+         AuthoringMode::Control,
+    };
 
     // ONE RIG BEING AUTHORED, AND HOW.
     //
@@ -97,21 +123,57 @@ namespace Desert::Editor::Core
         Common::UUID            Entity; // whose rig; null = none
         AuthoringMode           Mode = AuthoringMode::Object;
         std::optional<uint32_t> SelectedBone;          // index into Skeleton::GetBones()
+        std::optional<uint32_t> SelectedControl;       // index into the live ControlHierarchy
         bool                    ShowBoneNames = false; // label every bone, not just the selected one
 
-        // Leaving bone authoring drops what only made sense inside it. The old type did this inside
-        // `SetActive(false)` and it is kept because the alternative is a stale selected bone index
-        // surviving into Object mode, where nothing clears it and the next entry starts on a bone the
-        // user did not pick.
-        void LeaveBoneAuthoring() noexcept
+        // WHAT THE CONTROL MANIPULATOR DOES WITH A GRAB. One bit because `ManipulatorMode` has exactly
+        // two values — scale is deliberately absent from it (ControlManipulator.hpp) — and it lives here
+        // rather than in `GizmoState` because it is about ONE rig: GizmoState's W/E/R is one answer for
+        // the whole editor by construction, and this is per character like everything else in this type.
+        bool ControlRotate = false;
+
+        // THE ONE WRITER OF `Mode`, and it drops the selections the new mode cannot mean.
+        //
+        // An index only means something inside the mode that produced it: a bone index is an index into
+        // `Skeleton::GetBones()`, a control index into the live `ControlHierarchy`, and carrying either
+        // into a mode that does not draw it leaves a stale highlight the user cannot see to clear. The
+        // rule is DERIVED from the two predicates below rather than written out per mode, so a fifth mode
+        // cannot be added with the clearing half forgotten — which is exactly how the bone index used to
+        // survive into Object mode before `SetActive(false)` was taught to reset it.
+        void EnterMode( AuthoringMode mode ) noexcept
         {
-            Mode = AuthoringMode::Object;
-            SelectedBone.reset();
+            Mode = mode;
+            if ( !ShowsBones() )
+                SelectedBone.reset();
+            if ( !ShowsControls() )
+                SelectedControl.reset();
         }
 
         NO_DISCARD bool ShowsBones() const noexcept
         {
             return Mode == AuthoringMode::Skeleton || Mode == AuthoringMode::Pose;
+        }
+
+        NO_DISCARD bool ShowsControls() const noexcept
+        {
+            return Mode == AuthoringMode::Control;
+        }
+
+        // ── 07 §1.3, AND THE REASON IT IS A NAMED PREDICATE ───────────────────────────────────────
+        //
+        // While the RIG is being edited the mesh must be drawn in its bind pose, or a clip playing on the
+        // entity overwrites every bone edit before it can be seen. While a CLIP is being authored the
+        // opposite is true: the animator's pose buffer IS the thing under the cursor, and forcing bind
+        // pose hides the very edit the user is making. The viewport asked `ShowsBones()` for both and so
+        // got the rig answer in both — 07 §1.3's defect, and it survived the move to this type on purpose
+        // so that that change stayed a move of ownership.
+        //
+        // Named here rather than spelled at the call site because `ViewportPanel.cpp` is compiled by no
+        // test suite (scripts/CI/UnreachedSources.sh): as a predicate the DECISION is reachable and its
+        // truth table is asserted, which an `if` inside the toolbar could never be.
+        NO_DISCARD bool PreviewsBindPose() const noexcept
+        {
+            return Mode == AuthoringMode::Skeleton;
         }
     };
 
@@ -244,6 +306,30 @@ namespace Desert::Editor::Core
             return Mode() == AuthoringMode::Pose;
         }
 
+        // "Draw the control shapes and let one be grabbed" — what `ControlRigEditMode::IsActive()`
+        // answered, and the reader that made `Mode::Control` admissible.
+        NO_DISCARD bool ShowsControls() const noexcept
+        {
+            return m_Context && m_Context->ShowsControls();
+        }
+
+        // 07 §1.3. Skeleton only — see AuthoringContext::PreviewsBindPose.
+        NO_DISCARD bool PreviewsBindPose() const noexcept
+        {
+            return m_Context && m_Context->PreviewsBindPose();
+        }
+
+        NO_DISCARD std::optional<uint32_t> SelectedControl() const noexcept
+        {
+            return m_Context ? m_Context->SelectedControl : std::nullopt;
+        }
+
+        // What `ControlRigEditMode::RotateMode()` answered.
+        NO_DISCARD bool ControlRotate() const noexcept
+        {
+            return m_Context && m_Context->ControlRotate;
+        }
+
         NO_DISCARD std::optional<uint32_t> SelectedBone() const noexcept
         {
             return m_Context ? m_Context->SelectedBone : std::nullopt;
@@ -321,13 +407,7 @@ namespace Desert::Editor::Core
                                                   AuthoringMode mode )
         {
             return Write( owner, mine, "set mode",
-                          [mode]( AuthoringContext& context )
-                          {
-                              if ( mode == AuthoringMode::Object )
-                                  context.LeaveBoneAuthoring();
-                              else
-                                  context.Mode = mode;
-                          } );
+                          [mode]( AuthoringContext& context ) { context.EnterMode( mode ); } );
         }
 
         NO_DISCARD Common::BoolResultStr SetSelectedBone( const AuthoringOwner& owner, AuthoringContext& mine,
@@ -342,6 +422,23 @@ namespace Desert::Editor::Core
         {
             return Write( owner, mine, "show bone names",
                           [show]( AuthoringContext& context ) { context.ShowBoneNames = show; } );
+        }
+
+        // THE CONTROL SIDE OF THE SAME GATE. `ControlRigEditMode::SetSelected` was a public static any
+        // file could call and none could be refused; the two surfaces that call this — the Control Rig
+        // panel and the viewport's overlay — now have to say they are the one the user is working in.
+        NO_DISCARD Common::BoolResultStr SetSelectedControl( const AuthoringOwner& owner, AuthoringContext& mine,
+                                                             std::optional<uint32_t> control )
+        {
+            return Write( owner, mine, "select control",
+                          [control]( AuthoringContext& context ) { context.SelectedControl = control; } );
+        }
+
+        NO_DISCARD Common::BoolResultStr SetControlRotate( const AuthoringOwner& owner, AuthoringContext& mine,
+                                                           bool rotate )
+        {
+            return Write( owner, mine, "set control manipulator mode",
+                          [rotate]( AuthoringContext& context ) { context.ControlRotate = rotate; } );
         }
 
     private:
@@ -383,17 +480,19 @@ namespace Desert::Editor::Core
         return s_Host;
     }
 
-    // ── WHAT THE §14.2 MODE SWITCHER GETS FROM HERE, ALREADY DONE ─────────────────────────────────
+    // ── WHAT THE §14.2 MODE SWITCHER TOOK FROM HERE, AND WHAT IT ADDED ───────────────────────────
     //
-    //   * a MODE rather than two booleans, so "Object / Skeleton / Pose" is one value with one writer
-    //     and the switcher is a `SetMode` call rather than two toggles that can disagree;
+    // Taken, and it is why the switcher is small:
+    //
+    //   * a MODE rather than two booleans, so "Object / Skeleton / Pose / Control" is one value with one
+    //     writer and the switcher is a `SetMode` call rather than toggles that can disagree;
     //   * an OWNER, so "the document in focus declares the mode" (§14.2) is enforced and not merely
     //     intended — the switcher does not have to police who writes it;
     //   * the entity the mode is about, so switching viewports or documents carries the mode with the
     //     character instead of leaking it onto the next one.
     //
-    // What it still has to do, and why it is not done here: `Mode::Control` needs a reader (see the top
-    // of this header), and untying the bind-pose preview from `ShowsBones()` — today
-    // ViewportPanel::DrawViewportToolbar sets the preview for BOTH authoring modes, which is 07 §1.3's
-    // defect and stays exactly as it was so that this change is a move of ownership and nothing else.
+    // Added by it, both because a reader arrived for them: `Mode::Control` with `SelectedControl` and
+    // `ControlRotate` (see the top of this header), and `PreviewsBindPose()` — which is 07 §1.3's fix and
+    // the one behaviour the previous change deliberately left broken so that it stayed a move of
+    // ownership and nothing else.
 } // namespace Desert::Editor::Core

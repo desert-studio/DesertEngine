@@ -1,7 +1,7 @@
 #include "ControlRigPanel.hpp"
 #include <Editor/Panels/PanelContext.hpp>
 
-#include <Editor/Core/Selection/ControlRigEditMode.hpp>
+#include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <Engine/Animation/Animator.hpp>
@@ -15,6 +15,7 @@
 
 #include <ImGui/imgui.h>
 
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -25,6 +26,23 @@ namespace Desert::Editor
     ControlRigPanel::ControlRigPanel( std::shared_ptr<::Desert::Core::Scene> scene )
          : IPanel( "Control Rig", /*showPanel=*/false ), m_Scene( std::move( scene ) )
     {
+    }
+
+    void ControlRigPanel::Author( const Common::UUID& entity, const char* what,
+                                  const std::function<Common::BoolResultStr( Core::AuthoringContext& )>& write )
+    {
+        // Focus() ADOPTS when the live context is about the same entity, so taking it over here keeps the
+        // mode and the selections whatever window the user came from had. With one character on screen
+        // that is indistinguishable from the statics this replaced; with two, the other one keeps its own.
+        m_Authoring.Entity = entity;
+        (void)Core::ActiveAuthoringContext().Focus( m_AuthoringOwner, m_Authoring );
+
+        if ( const auto done = write( m_Authoring ); !done )
+        {
+            // Unreachable while the Focus() above succeeds, and logged rather than dropped because the day
+            // it IS reachable the symptom is "the control does nothing" with no other trace at all.
+            LOG_WARN( "[Control Rig] {} refused: {}", what, done.GetError() );
+        }
     }
 
     void ControlRigPanel::OnUIRender()
@@ -98,10 +116,20 @@ namespace Desert::Editor
 
         Animation::ControlHierarchy& hierarchy = rig->GetHierarchy();
 
-        bool overlay = Core::ControlRigEditMode::IsActive();
+        auto&              authoring = Core::ActiveAuthoringContext();
+        const Common::UUID entityId  = *sel;
+
+        // THE PANEL SHOWS THIS ENTITY'S AUTHORING STATE OR NONE AT ALL. The context names the character
+        // it is about, so a Control mode declared over a DIFFERENT character must not light this panel's
+        // checkbox or highlight a row — the index would be an index into the other rig's hierarchy.
+        const bool mine    = authoring.Entity() == entityId;
+        bool       overlay = mine && authoring.ShowsControls();
         if ( ImGui::Checkbox( "Show controls in viewport", &overlay ) )
         {
-            Core::ControlRigEditMode::SetActive( overlay );
+            const Core::AuthoringMode wanted =
+                 overlay ? Core::AuthoringMode::Control : Core::AuthoringMode::Object;
+            Author( entityId, "the control overlay", [&]( Core::AuthoringContext& context )
+                    { return authoring.SetMode( m_AuthoringOwner, context, wanted ); } );
         }
         ImGui::SameLine();
         ImGui::TextDisabled( "(?)" );
@@ -111,15 +139,17 @@ namespace Desert::Editor
                                "a control selects it here too." );
         }
 
-        const bool rotate = Core::ControlRigEditMode::RotateMode();
+        const bool rotate = mine && authoring.ControlRotate();
         if ( ImGui::RadioButton( "Translate", !rotate ) )
         {
-            Core::ControlRigEditMode::SetRotateMode( false );
+            Author( entityId, "the manipulator mode", [&]( Core::AuthoringContext& context )
+                    { return authoring.SetControlRotate( m_AuthoringOwner, context, false ); } );
         }
         ImGui::SameLine();
         if ( ImGui::RadioButton( "Rotate", rotate ) )
         {
-            Core::ControlRigEditMode::SetRotateMode( true );
+            Author( entityId, "the manipulator mode", [&]( Core::AuthoringContext& context )
+                    { return authoring.SetControlRotate( m_AuthoringOwner, context, true ); } );
         }
         ImGui::SameLine();
         ImGui::TextDisabled( "(no scale)" );
@@ -140,13 +170,15 @@ namespace Desert::Editor
         ImGui::Separator();
         ImGui::Text( "Controls (%zu)", hierarchy.Size() );
 
-        uint32_t selected = Core::ControlRigEditMode::GetSelected();
+        uint32_t selected = mine ? authoring.SelectedControl().value_or( Animation::ControlHierarchy::INVALID )
+                                 : Animation::ControlHierarchy::INVALID;
         if ( selected != Animation::ControlHierarchy::INVALID && selected >= hierarchy.Size() )
         {
             // The stage was rebuilt under the selection (the file changed, the slot was re-pointed, or the
             // mesh was swapped). An index into a hierarchy that no longer has it is the stale-handle defect
             // with a smaller name.
-            Core::ControlRigEditMode::Clear();
+            Author( entityId, "forgetting a stale control", [&]( Core::AuthoringContext& context )
+                    { return authoring.SetSelectedControl( m_AuthoringOwner, context, std::nullopt ); } );
             selected = Animation::ControlHierarchy::INVALID;
         }
 
@@ -158,7 +190,8 @@ namespace Desert::Editor
                 const bool                       isSel   = ( i == selected );
                 if ( ImGui::Selectable( control.Name.c_str(), isSel ) )
                 {
-                    Core::ControlRigEditMode::SetSelected( i );
+                    Author( entityId, "the control selection", [&]( Core::AuthoringContext& context )
+                            { return authoring.SetSelectedControl( m_AuthoringOwner, context, i ); } );
                     selected = i;
                 }
                 if ( ImGui::IsItemHovered() && !control.ShapeName.empty() )
