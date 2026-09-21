@@ -103,6 +103,15 @@ namespace Desert::ECS
                 // below. Attaching after the update would put the rig one frame behind the pose it operates on.
                 SyncControlRig( registry, entity, anim, *anim.Animator, skeleton );
 
+                // THE RIG A CLIP IS LOOKED UP AGAINST, which a retarget changes and which every clip
+                // lookup below has to use. `ClipDrivesRig` binds on the clip's bone NAMES, so asking the
+                // TARGET rig about a foreign clip refuses exactly the clips a retarget exists to play —
+                // the middle-link defect, introduced by the change that makes retargeting reachable.
+                // SyncRetarget above has already attached or detached, so this is settled for the frame.
+                const Animation::Skeleton& clipRig = anim.Animator->GetRetarget() != nullptr
+                                                          ? anim.Animator->GetRetarget()->GetSourceSkeleton()
+                                                          : skeleton;
+
                 // BEFORE the graph path, because it is what puts a graph there: the entity names a
                 // `.danimgraph` and this is where that handle becomes the object below.
                 const uint32_t graphRevision = SyncAnimGraph( anim );
@@ -154,7 +163,7 @@ namespace Desert::ECS
                         const auto res = anim.GraphEvaluator->Update( norm );
                         if ( res.Current )
                         {
-                            const auto found = m_AnimationLibrary->FindForSkeleton( skeleton, res.Current->Clip );
+                            const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, res.Current->Clip );
                             if ( found )
                             {
                                 const auto& clip = found.GetValue()->GetClip();
@@ -169,7 +178,7 @@ namespace Desert::ECS
                             }
                             else
                             {
-                                ReportUnplayableState( skeleton, res.Current->Name, res.Current->Clip,
+                                ReportUnplayableState( clipRig, res.Current->Name, res.Current->Clip,
                                                        found.GetError() );
                             }
                             anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed * res.Current->Speed );
@@ -186,7 +195,7 @@ namespace Desert::ECS
                     // SAME RULE AS THE PICKER that wrote this name into the component. It used to be an
                     // exact-signature scan here against a tolerant one in the Details panel, so a clip an
                     // artist had just chosen could fail to play with nothing said.
-                    const auto found = m_AnimationLibrary->FindForSkeleton( skeleton, anim.CurrentClip );
+                    const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, anim.CurrentClip );
                     if ( found )
                     {
                         const auto& clip    = found.GetValue()->GetClip();
@@ -201,14 +210,14 @@ namespace Desert::ECS
                     }
                     else
                     {
-                        ReportUnplayableState( skeleton, "AnimationComponent.CurrentClip", anim.CurrentClip,
+                        ReportUnplayableState( clipRig, "AnimationComponent.CurrentClip", anim.CurrentClip,
                                                found.GetError() );
                     }
                 }
 
                 else
                 {
-                    const auto animations = m_AnimationLibrary->GetForSkeleton( skeleton );
+                    const auto animations = m_AnimationLibrary->GetForSkeleton( clipRig );
 
                     if ( !animations.empty() )
                     {
@@ -226,7 +235,7 @@ namespace Desert::ECS
                         // from "the library was never filled", which is exactly the state a packaged game
                         // shipped in. Deduped by the same reporter as the named-clip failures above, so
                         // it costs one line per rig rather than sixty a second.
-                        ReportUnplayableState( skeleton, "AnimationComponent (no clip named)", "<any>",
+                        ReportUnplayableState( clipRig, "AnimationComponent (no clip named)", "<any>",
                                                "the library offers no clip for this rig at all." );
                     }
                 }
