@@ -450,7 +450,11 @@ namespace Desert::Animation
         if ( const BoneTrack* track = ResolveTrack( rig, clip, boneIndex ) )
             if ( track->HasKeys() )
             {
-                return track->Sample( time, clip->TickRate );
+                // THROUGH THE CLIP'S SECTIONS, not straight off the curve. The rest pose is handed in
+                // because it is what a partially weighted section blends against, and it is the SAME
+                // value the untracked case returns below — so a section at weight 0 and a bone with no
+                // track agree, which they would not if this reached for the bind pose instead.
+                return clip->SampleTrack( *track, time, rig.Rest[boneIndex] );
             }
         // THE REST OF THE RIG BEING SAMPLED, NOT OF THIS ANIMATOR. Under a retarget that is the source
         // rig's retarget pose (`SourceInitial`), which is the ONE value that makes an untracked bone a

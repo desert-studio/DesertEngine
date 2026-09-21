@@ -25,6 +25,11 @@ namespace Desert::Assets::Serialization
         /// this is the number that says whether it did.
         std::size_t ShapesWritten = 0;
 
+        /// How many SECTIONS the converted file states. The generation-2 -> 3 step's equivalent of
+        /// `ShapesWritten`, and granted on the same condition: a file that only claims a newer number has
+        /// not been migrated, it has been relabelled. One is the expected answer for every legacy clip.
+        int SectionsWritten = 0;
+
         int32_t     DisplayRateNumerator   = 0;
         int32_t     DisplayRateDenominator = 1;
         bool        DisplayRateIsAFallback = false;

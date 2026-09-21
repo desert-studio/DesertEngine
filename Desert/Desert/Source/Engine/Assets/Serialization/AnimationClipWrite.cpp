@@ -49,9 +49,31 @@ namespace Desert::Assets::Serialization
             data.Channels.push_back( std::move( channel ) );
         }
 
+        data.Sections.reserve( clip.Sections.size() );
+        for ( const auto& section : clip.Sections )
+        {
+            SectionData out;
+            out.Name      = section.Name;
+            out.StartTick = section.Start.Value;
+            out.EndTick   = section.End.Value;
+            out.Blend     = static_cast<int32_t>( section.Blend );
+            out.Tracks    = section.Tracks;
+            out.Weight.reserve( section.Weight.size() );
+            for ( const auto& k : section.Weight )
+                out.Weight.push_back( SectionWeightKey{
+                     k.Tick.Value, k.Value,
+                     KeyShape{ static_cast<int>( k.Interp ), static_cast<int>( k.Mode ), 0.0f, 0.0f },
+                     k.ArriveTangent, k.LeaveTangent } );
+            data.Sections.push_back( std::move( out ) );
+        }
+
         data.Notifies.reserve( clip.Notifies.size() );
         for ( const auto& notify : clip.Notifies )
             data.Notifies.push_back( NotifyData{ notify.Name, notify.Tick.Value } );
+
+        // An in-memory clip that never got a section is written with the one it behaves as, so no
+        // generation-3 file can be silent about what its values mean. One producer for all three writers.
+        EnsureStatedSections( data );
 
         return data;
     }

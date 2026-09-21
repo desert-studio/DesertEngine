@@ -118,9 +118,71 @@ namespace Desert::Assets::Serialization
 
             track.ScaleKeys.reserve( channel.Scales.size() );
             for ( const auto& s : channel.Scales )
-                track.ScaleKeys.push_back( Animation::ScaleKeyFrame{ Animation::FrameNumber{ s.Tick }, s.Value } );
+            {
+                // THE SHAPE AND BOTH TANGENTS ARE READ, and until A28 they were not — the scale branch
+                // built `{ Tick, Value }` and stopped, while `AnimationClipWrite` wrote all three. A
+                // scale channel authored as Cubic with hand-set tangents therefore came back Linear/Auto
+                // with flat slopes, and the file still held the numbers that said otherwise: a save, a
+                // load and a second save silently rewrote the animator's curve. Both ends of the chain
+                // looked right; the middle link dropped a property.
+                Animation::ScaleKeyFrame key;
+                key.Tick          = Animation::FrameNumber{ s.Tick };
+                key.Scale         = s.Value;
+                key.Interp        = static_cast<Animation::KeyInterp>( s.Shape.Interp );
+                key.Mode          = static_cast<Animation::TangentMode>( s.Shape.Mode );
+                key.ArriveTangent = s.ArriveTangent;
+                key.LeaveTangent  = s.LeaveTangent;
+                track.ScaleKeys.push_back( key );
+            }
 
             clip.Tracks.push_back( std::move( track ) );
+        }
+
+        // ---- sections (generation 3) -----------------------------------------------------------------
+        //
+        // REFUSED RATHER THAN REPAIRED when a section makes no sense, for the reason every refusal in this
+        // function exists: a clip that loads with a section nothing can evaluate animates wrongly and
+        // silently, and "the character moved oddly" is the most expensive kind of bug report.
+        clip.Sections.reserve( data.Sections.size() );
+        for ( size_t i = 0; i < data.Sections.size(); ++i )
+        {
+            const SectionData& section = data.Sections[i];
+            if ( section.EndTick < section.StartTick )
+            {
+                return Common::MakeFormattedError<Animation::AnimationClip>(
+                     "clip '{}': section {} ('{}') runs from tick {} to {}, which is backwards. A section "
+                     "covers no tick at all then, and the tracks it speaks for would silently play "
+                     "unsectioned.",
+                     data.Name, i, section.Name, section.StartTick, section.EndTick );
+            }
+            if ( section.Blend < 0 || section.Blend > static_cast<int32_t>( Animation::SectionBlendType::Additive ) )
+            {
+                return Common::MakeFormattedError<Animation::AnimationClip>(
+                     "clip '{}': section {} ('{}') states blend type {}, which this build does not have. "
+                     "Reading it as Absolute would turn an offset into a pose, which is wrong by the whole "
+                     "rest pose rather than by a little.",
+                     data.Name, i, section.Name, section.Blend );
+            }
+
+            Animation::ClipSection built;
+            built.Name  = section.Name;
+            built.Start = Animation::FrameNumber{ section.StartTick };
+            built.End   = Animation::FrameNumber{ section.EndTick };
+            built.Blend = static_cast<Animation::SectionBlendType>( section.Blend );
+            built.Tracks = section.Tracks;
+            built.Weight.reserve( section.Weight.size() );
+            for ( const auto& w : section.Weight )
+            {
+                Animation::ScalarKey key;
+                key.Tick          = Animation::FrameNumber{ w.Tick };
+                key.Value         = w.Value;
+                key.Interp        = static_cast<Animation::KeyInterp>( w.Shape.Interp );
+                key.Mode          = static_cast<Animation::TangentMode>( w.Shape.Mode );
+                key.ArriveTangent = w.ArriveTangent;
+                key.LeaveTangent  = w.LeaveTangent;
+                built.Weight.push_back( key );
+            }
+            clip.Sections.push_back( std::move( built ) );
         }
 
         // Notifies sorted by time so the Animator's crossing test is a simple ordered scan.

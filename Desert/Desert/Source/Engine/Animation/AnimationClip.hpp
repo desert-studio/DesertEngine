@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/KeyInterpolation.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/TimeModel.hpp>
@@ -326,6 +327,61 @@ namespace Desert::Animation
         uint32_t TrackRevision = 0;
 
         std::vector<AnimationNotify> Notifies; // sorted-by-tick markers fired during playback
+
+        /**
+         * @brief The clip's sections. EMPTY IS LEGAL AND MEANS "one Absolute section at full weight".
+         *
+         * Every `.anim` of generation 3 states at least one; empty is what an in-memory clip built by an
+         * importer or a test has, and it is the IDENTITY of the section blend rather than a second answer
+         * beside it — `SampleTrack` below returns the authored value in both cases, and the suite pins
+         * that the two are bit-identical rather than trusting this sentence.
+         */
+        std::vector<ClipSection> Sections;
+
+        /**
+         * @brief The section speaking for @p track at @p at, or null when none does.
+         *
+         * THE LATER SECTION WINS. Two sections covering one track at one tick are two statements about a
+         * single stored value, and there is no composition to do because they share this clip's flat
+         * `Tracks` list — see ClipSection.hpp for why real layering is the format step after this one.
+         */
+        [[nodiscard]] const ClipSection* SectionFor( const std::string& trackName, FrameNumber at ) const
+        {
+            const ClipSection* found = nullptr;
+            for ( const ClipSection& section : Sections )
+            {
+                if ( section.Covers( at ) && section.Speaks( trackName ) )
+                {
+                    found = &section;
+                }
+            }
+            return found;
+        }
+
+        /**
+         * @brief The track's value at @p at AS THE CLIP'S SECTIONS SAY IT REACHES THE POSE.
+         *
+         * THE ONE SEAM. `BoneTrack::Sample` answers "what does this curve say"; this answers "what does
+         * the clip put on the bone", and those stopped being the same question the moment a section could
+         * carry a blend type. Playback calls this one (`Animator::SampleLocalTransform`); the curve view
+         * and the keyer call `Sample`, because they are editing the curve and not watching the character.
+         *
+         * @param reference what an unanimated bone would hold — see `ApplySection`.
+         */
+        [[nodiscard]] BoneTransform SampleTrack( const BoneTrack& track, FrameTime at,
+                                                 const BoneTransform& reference ) const
+        {
+            const BoneTransform authored = track.Sample( at, TickRate );
+            const ClipSection*  section  = SectionFor( track.BoneName, at.Frame );
+            if ( section == nullptr )
+            {
+                // NO SECTION SPEAKS FOR IT, so nothing has said what its value means and the only honest
+                // reading is the one the format had before sections existed. This is also the path every
+                // sectionless in-memory clip takes, which is why it must return `authored` itself.
+                return authored;
+            }
+            return ApplySection( *section, authored, reference, section->WeightAt( at, TickRate ) );
+        }
 
         /// The clip's length in seconds, for the callers whose question really is about seconds — a
         /// crossfade duration, a UI readout, the normalized fraction the AnimGraph gates exit time on.

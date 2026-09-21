@@ -276,6 +276,15 @@ namespace Desert::Assets::Serialization
             out.Notifies.push_back( NotifyData{ n.Name, toTick( n.Time, n.Tick ) } );
         }
 
+        // ---- generation 3: the clip STATES what its values mean ---------------------------------------
+        //
+        // One Absolute section over the whole clip at full weight, which is exactly what every file of
+        // every earlier generation did. §938's point is that the file should SAY it: an implicit reading
+        // and an authored one are indistinguishable for ever after, and the step after this one — a
+        // section owning its own keys — converts files that say what they meant rather than guessing.
+        EnsureStatedSections( out );
+        report.SectionsWritten = static_cast<int>( out.Sections.size() );
+
         return Common::MakeSuccess( rfl::json::write( out ) );
     }
 } // namespace Desert::Assets::Serialization

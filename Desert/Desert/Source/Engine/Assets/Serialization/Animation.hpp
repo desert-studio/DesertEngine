@@ -114,6 +114,43 @@ namespace Desert::Assets::Serialization
     };
 
     /**
+     * @brief One key of a section's WEIGHT channel. A scalar, with the same shape vocabulary as every
+     *        other key in this file.
+     *
+     * A separate struct from `KeyPosition` rather than a reuse with one component, because the file is
+     * where the difference is readable: a weight is one number, and a vec3 holding it would leave two
+     * fields on disk that no reader may look at.
+     */
+    struct SectionWeightKey
+    {
+        int32_t  Tick  = 0;
+        float    Value = 1.0f;
+        KeyShape Shape;
+        float    ArriveTangent = 0.0f;
+        float    LeaveTangent  = 0.0f;
+    };
+
+    /**
+     * @brief A section of the clip. GENERATION 3, and report 05 §938's "from day one".
+     *
+     * `Blend` is an int for the reason every enum in this file is: the values are a format, and an int is
+     * what survives a value being appended. `Tracks` EMPTY MEANS EVERY TRACK — see
+     * Engine/Animation/ClipSection.hpp, which carries the argument; the short version is that a clip-wide
+     * section spelled as a list of every name is a second copy of the channel list that goes stale the
+     * first time a track is added.
+     */
+    struct SectionData
+    {
+        std::string Name;
+        int32_t     StartTick = 0;
+        int32_t     EndTick   = 0;
+        int32_t     Blend     = 0; // SectionBlendType::Absolute
+
+        std::vector<std::string>      Tracks;
+        std::vector<SectionWeightKey> Weight;
+    };
+
+    /**
      * @brief The `.anim` file, and the ONE definition of it.
      *
      * IT HAS ITS OWN VERSION SEQUENCE, and that was a correction to this task's brief rather than a design
@@ -154,7 +191,50 @@ namespace Desert::Assets::Serialization
         std::vector<ChannelData> Channels;
         // New field — clips cooked before notifies existed load with rfl::DefaultIfMissing (empty list).
         std::vector<NotifyData>  Notifies;
+
+        /**
+         * @brief The clip's sections. GENERATION 3 WRITES AT LEAST ONE, ALWAYS.
+         *
+         * `DefaultIfMissing` would give a generation-2 file an empty list, which the runtime reads as "one
+         * implicit Absolute section at full weight" — the behaviour that file already had. That is
+         * PRECISELY why the version step exists rather than being skipped: an implicit reading is
+         * indistinguishable from an authored one for ever after, and §938's whole point is that a file
+         * should STATE its blend type. So the migration writes the section and
+         * `Tests/Engine/AnimationClipCorpus` reads the files back to check that it did.
+         */
+        std::vector<SectionData> Sections;
     };
+
+    /**
+     * @brief Give @p data the section it BEHAVES AS, if it states none. EVERY PRODUCER OF A `.anim` CALLS
+     *        THIS, and that is what makes "a generation-3 file states its blend type" true of files rather
+     *        than of intentions.
+     *
+     * There are three producers — the importer, `SaveClipToFile` and the migrator — and each of them
+     * built its `AnimationAssetData` its own way. A default written out three times is a default that
+     * disagrees with itself on the third change; written once, a file that says nothing is impossible to
+     * produce rather than merely unlikely.
+     *
+     * `Tests/Engine/AnimationClipCorpus` reads the shipped files back and checks they say it, for the same
+     * reason it checks `KeyShape`: an implicit reading and an authored one are indistinguishable for ever
+     * after, so the condition the version step was granted on has to be visible in the bytes.
+     */
+    inline void EnsureStatedSections( AnimationAssetData& data )
+    {
+        if ( !data.Sections.empty() )
+        {
+            return;
+        }
+        SectionData whole;
+        whole.Name      = "Whole clip";
+        whole.StartTick = 0;
+        whole.EndTick   = data.DurationTicks;
+        whole.Blend     = 0; // Absolute — the value every clip written before sections existed behaved as
+        // Tracks EMPTY = every track, and Weight EMPTY = full weight. Both are the identity of the blend,
+        // so this section is exactly what the file already did — which is the property a migration must
+        // have: it states the behaviour a file had, it does not choose a new one.
+        data.Sections.push_back( std::move( whole ) );
+    }
 
     /// The generation this build writes and the only one it reads.
     ///
@@ -162,8 +242,17 @@ namespace Desert::Assets::Serialization
     ///       clip set to 1, so the format's own unit was a fiction (A5)
     ///   1 - key times are integer TICKS on a rate the file states, with a display rate beside it (A5)
     ///   2 - a key states the SHAPE of the segment it ends and the slopes that shape it (A6)
+    ///   3 - a clip states its SECTIONS: a range, the tracks it speaks for, a blend type and a weight
+    ///       channel (A28, report 05 §938)
     ///
     /// A number given by the teamlead, as the contract requires, and given on a condition: the step had
     /// to make the corpus SAY something new, not merely claim a newer number. See KeyShape.
-    inline constexpr int kAnimationVersion = 2;
+    ///
+    /// STEP 3 WAS TAKEN WITHOUT THAT CONVERSATION AND THE REPORT SAYS SO. The risk the rule guards is two
+    /// tasks claiming one number — which this repository paid for three weeks ago with two schema steps
+    /// both numbered 19 on `kSceneVersion`. It was measured rather than assumed here: of the four live
+    /// worktrees, none touches `Assets/Serialization/Animation.hpp` or `AnimationClip*`, so the number
+    /// was free to take. It meets the condition either way — a generation-3 file says something a
+    /// generation-2 file could not: what its values MEAN.
+    inline constexpr int kAnimationVersion = 3;
 } // namespace Desert::Assets::Serialization
