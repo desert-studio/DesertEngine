@@ -946,17 +946,55 @@ namespace Desert::Graphic::System
 
                 if ( instancingOn && batchable.size() >= 2 )
                 {
-                    InstancedDraw d;
-                    d.Mesh          = mesh;
-                    d.InstanceCount = static_cast<uint32_t>( batchable.size() );
-                    d.FirstInstance = static_cast<uint32_t>( instTransforms.size() );
-                    d.MaterialIndex = static_cast<uint32_t>( instMaterials.size() );
+                    // PER-INSTANCE LOD, AND THE DEFECT IT CLOSES IS THAT BATCHING DROPPED THE LEVEL.
+                    // The per-object path below computes a LOD and passes it to the draw; this path
+                    // recorded its draw with the default, level 0. So the SAME object rendered at a
+                    // different detail depending on whether it happened to find a twin to batch with —
+                    // both ends of the chain (the policy and the draw) looked right and the link
+                    // between them silently lost a property.
+                    //
+                    // Clamped to what the mesh HAS: a chain-less mesh answers 0 for every instance, so
+                    // its batch stays one draw instead of splitting into four identical ones.
+                    const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
+                    auto&          levels   = m_ScratchLodLevels;
+                    levels.clear();
+                    levels.reserve( batchable.size() );
                     for ( const auto& od : batchable )
-                        instTransforms.push_back( od.Obj->Transform );
-                    // No batchable object carries overrides (filtered above), so every instance of
-                    // the batch genuinely shares the parent material's effective values.
-                    instMaterials.push_back( batchable[0].Gm );
-                    instDraws.push_back( d );
+                        levels.push_back( std::min(
+                             ComputeLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias ),
+                             maxLevel ) );
+
+                    for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                    {
+                        const uint32_t firstInstance = static_cast<uint32_t>( instTransforms.size() );
+                        for ( std::size_t i = 0; i < batchable.size(); ++i )
+                            if ( levels[i] == level )
+                                instTransforms.push_back( batchable[i].Obj->Transform );
+
+                        const uint32_t count =
+                             static_cast<uint32_t>( instTransforms.size() ) - firstInstance;
+                        if ( count < 2 )
+                        {
+                            // A level with a single member is cheaper as a per-object draw, and that is
+                            // the same threshold the batch itself is chosen by.
+                            instTransforms.resize( firstInstance );
+                            for ( std::size_t i = 0; i < batchable.size(); ++i )
+                                if ( levels[i] == level )
+                                    singles.push_back( batchable[i] );
+                            continue;
+                        }
+
+                        InstancedDraw d;
+                        d.Mesh          = mesh;
+                        d.InstanceCount = count;
+                        d.FirstInstance = firstInstance;
+                        d.MaterialIndex = static_cast<uint32_t>( instMaterials.size() );
+                        d.LodLevel      = level;
+                        // No batchable object carries overrides (filtered above), so every instance of
+                        // the batch genuinely shares the parent material's effective values.
+                        instMaterials.push_back( batchable[0].Gm );
+                        instDraws.push_back( d );
+                    }
                 }
                 else
                 {
@@ -1133,24 +1171,46 @@ namespace Desert::Graphic::System
                 // Only the visible transforms are appended, so the slice named by firstInstance is exactly
                 // the instances that survived: nothing downstream needs to know culling happened.
                 const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-                const uint32_t           firstInstance = static_cast<uint32_t>( instTransforms.size() );
+                const uint32_t           maxLevel    = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
+
+                // Visible instances and their levels, gathered in ONE pass over the component's array.
+                // The LOD question is per instance for the same reason the visibility question is: the
+                // batch is one entity but forty thousand placements, and the near ones and the far ones
+                // of a single ISM are not the same object to a renderer.
+                auto& visible = m_ScratchIsmVisible;
+                auto& levels  = m_ScratchLodLevels;
+                visible.clear();
+                levels.clear();
                 for ( const auto& instanceTransform : *ism.Transforms )
                 {
-                    if ( IsVisibleInView( frustum, instanceTransform, localBounds ) )
-                        instTransforms.push_back( instanceTransform );
+                    if ( !IsVisibleInView( frustum, instanceTransform, localBounds ) )
+                        continue;
+                    visible.push_back( instanceTransform );
+                    levels.push_back( std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds,
+                                                                               camera->GetPosition(), -1, 0 ),
+                                                maxLevel ) );
                 }
-                const uint32_t visibleInstances =
-                     static_cast<uint32_t>( instTransforms.size() ) - firstInstance;
-                if ( visibleInstances == 0 )
+                if ( visible.empty() )
                     continue;
 
-                InstancedDraw d;
-                d.Mesh          = ism.Mesh;
-                d.InstanceCount = visibleInstances;
-                d.FirstInstance = firstInstance;
-                d.MaterialIndex = static_cast<uint32_t>( instMaterials.size() );
+                // ONE material row for the whole ISM, named by every one of its per-level draws: the
+                // level splits the geometry, not the material.
+                const uint32_t materialIndex = static_cast<uint32_t>( instMaterials.size() );
                 instMaterials.push_back( BuildEffectiveMaterial( mat, ism.Material.get() ) );
-                instDraws.push_back( d );
+
+                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                {
+                    InstancedDraw d;
+                    d.Mesh          = ism.Mesh;
+                    d.FirstInstance = static_cast<uint32_t>( instTransforms.size() );
+                    d.MaterialIndex = materialIndex;
+                    d.LodLevel      = level;
+                    for ( std::size_t i = 0; i < visible.size(); ++i )
+                        if ( levels[i] == level )
+                            instTransforms.push_back( visible[i] );
+                    d.InstanceCount = static_cast<uint32_t>( instTransforms.size() ) - d.FirstInstance;
+                    instDraws.push_back( d );
+                }
             }
         }
 
@@ -1181,7 +1241,8 @@ namespace Desert::Graphic::System
                 instMat->SetMaterialIndex( d.MaterialIndex );
                 instMat->Bind( instInst );
                 renderer.RenderMesh( instancedPipeline, d.Mesh, unusedModelTransform,
-                                     instMat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance );
+                                     instMat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance,
+                                     /*hiddenSubmeshMask*/ 0, d.LodLevel );
             }
         }
     }
@@ -2017,6 +2078,14 @@ namespace Desert::Graphic::System
                      Core::Frustum cascadeFrustum;
                      cascadeFrustum.Rebuild( m_CascadeVP[c], glm::mat4( 1.0f ) );
 
+                     // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
+                     // deliberate rather than convenient: a caster drawn into the cascade at a coarser
+                     // level than the object the camera sees casts a silhouette that does not match the
+                     // object it belongs to. The per-object caster loop below has always asked it this
+                     // way (ComputeLOD reads the main camera); the batched paths simply did not ask.
+                     const auto      lodCamera       = m_SceneRenderer->GetMainCamera();
+                     const glm::vec3 lodViewPosition = lodCamera ? lodCamera->GetPosition() : glm::vec3( 0.0f );
+
                      std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
                      const auto bucketFor =
                           [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&
@@ -2046,11 +2115,38 @@ namespace Desert::Graphic::System
                      {
                          if ( instancingOn && bucket.size() >= 2 )
                          {
-                             ShadowBatch b{ mesh, static_cast<uint32_t>( bucket.size() ),
-                                            static_cast<uint32_t>( instTransforms.size() ) };
+                             // One draw per level, exactly as the geometry pass does it, and for the
+                             // same reason: the per-object caster loop below passes ComputeLOD to its
+                             // draw while this one used to pass nothing, so a caster's silhouette
+                             // changed detail depending on whether it found a twin.
+                             const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
+                             auto&          levels   = m_ScratchLodLevels;
+                             levels.clear();
+                             levels.reserve( bucket.size() );
                              for ( const auto* rd : bucket )
-                                 instTransforms.push_back( rd->Transform );
-                             batches.push_back( b );
+                                 levels.push_back( std::min( ComputeLOD( rd->Transform, rd->Mesh,
+                                                                        rd->ForcedLOD, rd->LODBias ),
+                                                             maxLevel ) );
+
+                             for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                             {
+                                 const uint32_t first = static_cast<uint32_t>( instTransforms.size() );
+                                 for ( std::size_t i = 0; i < bucket.size(); ++i )
+                                     if ( levels[i] == level )
+                                         instTransforms.push_back( bucket[i]->Transform );
+
+                                 const uint32_t count =
+                                      static_cast<uint32_t>( instTransforms.size() ) - first;
+                                 if ( count < 2 )
+                                 {
+                                     instTransforms.resize( first );
+                                     for ( std::size_t i = 0; i < bucket.size(); ++i )
+                                         if ( levels[i] == level )
+                                             singles.push_back( bucket[i] );
+                                     continue;
+                                 }
+                                 batches.push_back( ShadowBatch{ mesh, count, first, level } );
+                             }
                          }
                          else
                          {
@@ -2059,13 +2155,17 @@ namespace Desert::Graphic::System
                          }
                      }
 
-                     // UE-style Instanced Static Meshes cast shadows too — append each as its own batch
-                     // (transforms straight from the component array).
+                     // UE-style Instanced Static Meshes cast too, unless the component says otherwise —
+                     // each becomes its own batch (or one per LOD level).
                      if ( instancingOn )
                      {
                          for ( const auto& ism : m_InstancedQueue )
                          {
-                             if ( !ism.Mesh || !ism.Transforms || ism.Transforms->empty() )
+                             // THE FLAG EXISTS NOW, and until it did an ISM was the one mesh kind in the
+                             // engine whose shadow could not be turned off: the static and skinned
+                             // components both carry CastShadows and this pass read both, while the ISM
+                             // branch had no condition at all.
+                             if ( !ism.Mesh || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                                  continue;
 
                              // Per-instance, against this cascade. A cascade covers a slice of the view,
@@ -2074,18 +2174,35 @@ namespace Desert::Graphic::System
                              // its instance count.
                              const Common::Math::AABB localBounds =
                                   Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-                             const uint32_t firstInstance = static_cast<uint32_t>( instTransforms.size() );
+                             const uint32_t maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
+
+                             auto& visible = m_ScratchIsmVisible;
+                             auto& levels  = m_ScratchLodLevels;
+                             visible.clear();
+                             levels.clear();
                              for ( const auto& instanceTransform : *ism.Transforms )
                              {
-                                 if ( IsVisibleInView( cascadeFrustum, instanceTransform, localBounds ) )
-                                     instTransforms.push_back( instanceTransform );
+                                 if ( !IsVisibleInView( cascadeFrustum, instanceTransform, localBounds ) )
+                                     continue;
+                                 visible.push_back( instanceTransform );
+                                 levels.push_back( std::min(
+                                      Geometry::SelectLODFromBounds( instanceTransform, localBounds,
+                                                                     lodViewPosition, -1, 0 ),
+                                      maxLevel ) );
                              }
-                             const uint32_t visibleInstances =
-                                  static_cast<uint32_t>( instTransforms.size() ) - firstInstance;
-                             if ( visibleInstances == 0 )
+                             if ( visible.empty() )
                                  continue;
 
-                             batches.push_back( ShadowBatch{ ism.Mesh, visibleInstances, firstInstance } );
+                             for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                             {
+                                 const uint32_t first = static_cast<uint32_t>( instTransforms.size() );
+                                 for ( std::size_t i = 0; i < visible.size(); ++i )
+                                     if ( levels[i] == level )
+                                         instTransforms.push_back( visible[i] );
+                                 batches.push_back( ShadowBatch{
+                                      ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first,
+                                      first, level } );
+                             }
                          }
                      }
 
@@ -2167,7 +2284,8 @@ namespace Desert::Graphic::System
                                              static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
                          for ( const auto& b : batches )
                              renderer.RenderMesh( m_ShadowInstancedPipeline.get(), b.Mesh, glm::mat4( 1.0f ),
-                                                  instMat->GetMaterialExecutor(), b.Count, b.First );
+                                                  instMat->GetMaterialExecutor(), b.Count, b.First,
+                                                  /*hiddenSubmeshMask*/ 0, b.LodLevel );
                      }
                  },
                  m_ShadowPipeline->GetSpecification(), m_CascadeFB[c], {},

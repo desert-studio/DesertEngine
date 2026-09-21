@@ -57,17 +57,20 @@ namespace Desert::Graphic::Render
         Desert::Mesh*                                 Mesh;
         Graphic::MaterialInstancePtr                  Material;
         std::shared_ptr<const std::vector<glm::mat4>> Transforms;
+        bool                                          CastShadows;
 
         DrawInstancedStaticMeshCommand( Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
-                                        std::shared_ptr<const std::vector<glm::mat4>> transforms )
-             : Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) )
+                                        std::shared_ptr<const std::vector<glm::mat4>> transforms,
+                                        bool castShadows )
+             : Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) ),
+               CastShadows( castShadows )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
             if ( Mesh && Material && Transforms )
-                renderer.SubmitInstancedMesh( Mesh, Material, Transforms );
+                renderer.SubmitInstancedMesh( Mesh, Material, Transforms, CastShadows );
         }
     };
 } // namespace Desert::Graphic::Render

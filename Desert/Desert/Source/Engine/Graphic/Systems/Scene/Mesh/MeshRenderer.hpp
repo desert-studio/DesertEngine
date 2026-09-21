@@ -94,6 +94,7 @@ namespace Desert::Graphic::System
             class Desert::StaticMesh*                     Mesh = nullptr;
             MaterialInstancePtr                           Material;   // slot 0 (PBR)
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
+            bool                                          CastShadows = true;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -527,6 +528,10 @@ namespace Desert::Graphic::System
             uint32_t            InstanceCount = 0;
             uint32_t            FirstInstance = 0;
             uint32_t            MaterialIndex = 0;
+            // A draw call carries ONE index range, so a batch carries ONE level. Before this field the
+            // batched path drew at the default 0 while the per-object path next to it computed a level
+            // and passed it — the same object at two detail levels depending on whether it batched.
+            uint32_t LodLevel = 0;
         };
 
         // One recorded generic draw, resolved in DrawGenericMeshes' first pass and executed in its third.
@@ -551,6 +556,7 @@ namespace Desert::Graphic::System
             Desert::StaticMesh* Mesh  = nullptr;
             uint32_t            Count = 0;
             uint32_t            First = 0;
+            uint32_t            LodLevel = 0; ///< see InstancedDraw::LodLevel — same omission, same fix
         };
 
         // Every skinned pose drawn in one pass, packed end to end; each draw names its slice with a
@@ -558,6 +564,11 @@ namespace Desert::Graphic::System
         // which is what makes a shared skinned material correct — see MaterialPBR.hpp.
         std::vector<glm::mat4>                   m_ScratchBones;
         std::vector<glm::mat4>      m_ScratchInstTransforms; // geometry + shadow instanced SSBOs
+        // Per-batch LOD levels and the surviving ISM transforms. Members rather than locals for the
+        // reason every accumulator in this file is one: their capacity persists, so a frame that culls
+        // 49 000 instances out of 49 152 allocates nothing.
+        std::vector<uint32_t>       m_ScratchLodLevels;
+        std::vector<glm::mat4>      m_ScratchIsmVisible;
         std::vector<PBRGpuMaterial> m_ScratchInstMaterials;
         std::vector<InstancedDraw>  m_ScratchInstDraws;
         std::vector<PBRGpuMaterial> m_ScratchGpuMaterials; // per-object Materials[] SSBO

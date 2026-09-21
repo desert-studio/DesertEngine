@@ -183,6 +183,13 @@ namespace Desert::ECS
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<glm::mat4>           InstanceTransforms; // per-instance world matrices
 
+        // false = skipped by the shadow (depth) passes, exactly like the static and skinned twins.
+        // Until this existed an ISM was the ONE mesh kind whose shadow could not be turned off: the
+        // cascade pass read StaticMeshComponent::CastShadows and SkinnedMeshComponent::CastShadows and
+        // appended every ISM unconditionally. A UE-style foliage field of grass is the first thing a
+        // scene wants to take out of the cascades, and it was the only thing that could not be.
+        bool CastShadows = true;
+
         // Transient runtime state (not serialized): generated mesh for primitives, the material instance,
         // and a dirty flag so the renderer re-uploads the instance SSBO only when the transforms change.
         std::optional<Geometry::PrimitiveType>    Primitive;

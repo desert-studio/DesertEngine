@@ -21,6 +21,35 @@ namespace Desert::Geometry
     //
     // Takes the submeshes rather than the Mesh so the policy stays pure CPU code (no GPU buffers) —
     // that is what makes it testable and callable from the editor.
+    // THE DISTINCT LEVELS IN A BATCH, ascending. A draw call carries ONE index range and therefore ONE
+    // level, so a batch whose members want different levels becomes one draw per level.
+    //
+    // In the policy header and not inside the renderer because it has three call sites — batched
+    // statics, ISM instances, shadow casters — and the rule they share is exactly the one all three
+    // were missing. Three inline copies is how one of them ends up disagreeing with the other two.
+    inline std::vector<uint32_t> DistinctLODs( const std::vector<uint32_t>& levels )
+    {
+        std::vector<uint32_t> out;
+        for ( const uint32_t level : levels )
+            if ( std::find( out.begin(), out.end(), level ) == out.end() )
+                out.push_back( level );
+        std::sort( out.begin(), out.end() );
+        return out;
+    }
+
+    // THE COARSEST LEVEL THESE SUBMESHES CAN ACTUALLY DRAW, and it exists to stop an "optimization"
+    // that costs draw calls and changes nothing. A mesh with no LOD chain (a primitive, a procedural
+    // mesh, anything not imported) draws its base index range whatever level it is asked for — see
+    // VulkanRendererAPI::RenderMesh. Splitting an instanced batch of such a mesh by the level the
+    // policy computed would turn one draw into four that rasterize identical geometry.
+    inline uint32_t MaxAvailableLOD( const std::vector<Submesh>& submeshes )
+    {
+        std::size_t levels = 1;
+        for ( const auto& sm : submeshes )
+            levels = std::max( levels, sm.LODs.size() );
+        return static_cast<uint32_t>( levels - 1 );
+    }
+
     // THE POLICY, taking bounds that were already computed. An Instanced Static Mesh asks this question
     // once per INSTANCE against one shared mesh; walking that mesh's submeshes 49 152 times to rebuild
     // the same box is the difference between per-instance LOD being affordable and not being.

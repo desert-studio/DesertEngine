@@ -1327,12 +1327,14 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::SubmitInstancedMesh( const Mesh* mesh, const MaterialInstancePtr& material,
-                                             const std::shared_ptr<const std::vector<glm::mat4>>& transforms )
+                                             const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                             bool castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Mesh       = static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) ),
-                                      .Material   = material,
-                                      .Transforms = transforms } );
+             ->SubmitInstancedMesh( { .Mesh        = static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) ),
+                                      .Material    = material,
+                                      .Transforms  = transforms,
+                                      .CastShadows = castShadows } );
     }
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )

@@ -448,7 +448,7 @@ namespace Desert::ECS
                                   std::make_shared<const std::vector<glm::mat4>>( ism.InstanceTransforms );
 
                          renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                              targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot );
+                              targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows );
                      } );
             }
 

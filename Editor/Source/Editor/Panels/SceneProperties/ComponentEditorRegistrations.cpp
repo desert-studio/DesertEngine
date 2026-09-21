@@ -1274,6 +1274,19 @@ namespace Desert::Editor
             {
                 c.InstanceTransforms.clear();
             }
+
+            // CAST SHADOWS, and it is the knob an ISM was the only mesh kind not to have. The cascade
+            // pass read StaticMeshComponent::CastShadows and SkinnedMeshComponent::CastShadows and
+            // appended every instanced batch unconditionally, so a scattered field of grass — the very
+            // thing an ISM is for — could not be taken out of the shadow maps at any price. Same
+            // wording and same place as on the other two kinds.
+            namespace U = ::Desert::Editor::Utils;
+            ::ImGui::Separator();
+            U::ImGuiUtilities::ResetPropertyRows();
+            U::ImGuiUtilities::BeginPropertyRow( "Cast Shadows",
+                                                 "Skip every instance in the shadow (depth) passes" );
+            ::ImGui::Checkbox( "##ism_castshadows", &c.CastShadows );
+            U::ImGuiUtilities::EndPropertyRow();
         };
         return e;
     }

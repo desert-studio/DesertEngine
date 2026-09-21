@@ -1140,6 +1140,8 @@ namespace Desert::Core::Serialize
                     }
                 }
                 ser.Primitive = ism.Primitive;
+                if ( !ism.CastShadows )
+                    ser.CastShadows = ism.CastShadows;
                 if ( !ism.InstanceTransforms.empty() )
                 {
                     std::vector<std::array<float, 16>> flat;
@@ -1194,7 +1196,8 @@ namespace Desert::Core::Serialize
                              ResolveSlotRef( resolver, data.MaterialGuids, data.MaterialPaths, i ) );
                     }
                 }
-                ism.Primitive = data.Primitive;
+                ism.Primitive   = data.Primitive;
+                ism.CastShadows = data.CastShadows.value_or( ism.CastShadows );
                 if ( data.InstanceTransforms.has_value() )
                 {
                     ism.InstanceTransforms.clear();
