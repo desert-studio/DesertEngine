@@ -49,7 +49,7 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
-#include <Engine/Assets/Serialization/Mesh.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
 
 #include <rflcpp/rfl.hpp>
 #include <rflcpp/rfl/json.hpp>
@@ -105,11 +105,15 @@ namespace
     {
         static const MeshAssetData data = []
         {
-            const auto parsed = rfl::json::read<MeshAssetData, rfl::DefaultIfMissing>( ReadFile( ProbeFile() ) );
-            EXPECT_TRUE( parsed.has_value() )
+            // THROUGH THE SAME READER THE ENGINE USES (B11). The probe is a binary container now, so a
+            // bare `rfl::json::read` here would fail on the shipped file while the engine loaded it
+            // perfectly — a suite reading the fixture by a route the engine does not take.
+            const auto parsed = Desert::Assets::Serialization::ReadMeshAssetData(
+                 ReadFile( ProbeFile() ), ProbeFile().string() );
+            EXPECT_TRUE( parsed.IsSuccess() )
                  << "the shipped probe does not parse as a cooked mesh: "
-                 << ( parsed.has_value() ? std::string{} : std::string( parsed.error().what() ) );
-            return parsed.has_value() ? parsed.value() : MeshAssetData{};
+                 << ( parsed.IsSuccess() ? std::string{} : parsed.GetError() );
+            return parsed.IsSuccess() ? parsed.GetValue() : MeshAssetData{};
         }();
         return data;
     }

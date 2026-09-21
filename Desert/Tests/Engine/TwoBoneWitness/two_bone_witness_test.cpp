@@ -35,7 +35,7 @@
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
-#include <Engine/Assets/Serialization/Mesh.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -146,9 +146,11 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + kCookedDir + stem + ".skmesh" );
         EXPECT_FALSE( raw.empty() ) << "could not read " << stem << ".skmesh";
-        auto data = rfl::json::read<Desert::Assets::Serialization::MeshAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        return data.has_value() ? data.value() : Desert::Assets::Serialization::MeshAssetData{};
+        // Through the engine's own reader (B11): a cooked mesh is a binary container, and a suite that
+        // parsed the fixture as JSON would be reading it by a route the engine does not take.
+        auto data = Desert::Assets::Serialization::ReadMeshAssetData( raw, stem + ".skmesh" );
+        EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? std::string{} : data.GetError() );
+        return data.IsSuccess() ? data.GetValue() : Desert::Assets::Serialization::MeshAssetData{};
     }
 
     // Built exactly as AnimationAsset::Load builds it: the same reader with the same policy, then the same

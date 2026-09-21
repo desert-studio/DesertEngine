@@ -42,6 +42,8 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
         "%{wks.location}/Desert/Common/Source/Common/Core/Timestep.cpp",
+        -- The cooked-mesh container the fixtures are written in (B11).
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
     }
 
     includedirs {
