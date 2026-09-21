@@ -78,6 +78,9 @@ namespace Desert::Assets
         std::optional<std::vector<uint64_t>>              MaterialGuids;
         std::optional<Geometry::PrimitiveType>           Primitive;
         std::optional<std::vector<std::array<float, 16>>> InstanceTransforms;
+        // Absent = component default (true), and written only when false — the same shape the static
+        // and skinned mirrors use, so no existing `.desce` changes a byte and no schema version moves.
+        std::optional<bool> CastShadows;
     };
 
     // MaterialComponent (generic data-driven material) mirror. Param values reflect directly (glm::vec4 via

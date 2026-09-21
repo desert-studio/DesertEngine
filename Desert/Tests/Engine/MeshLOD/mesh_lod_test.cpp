@@ -6,7 +6,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
 #include <set>
+#include <sstream>
 #include <tuple>
 
 using Desert::Index;
@@ -477,6 +480,124 @@ TEST( ShapeGen, DegenerateInputsAreClampedNotCrashed )
     ExpectWellFormed( Desert::Geometry::MakeCylinder( -1.0f, 0.0f, 0 ) );
     ExpectWellFormed( Desert::Geometry::MakeCone( 0.0f, -1.0f, 2 ) );
     ExpectWellFormed( Desert::Geometry::MakeStairs( 0.0f, 0.0f, 0.0f, 0 ) );
+}
+
+// ═══ PER-INSTANCE LOD: a batch is ONE draw and therefore ONE level ═══════════════════════════════
+//
+// Until В4 the batched draw paths passed no level at all. The per-object path beside them computed one
+// and handed it to the draw; the instanced path recorded its draw with the default, level 0. So the
+// SAME object rendered at a different detail depending only on whether it happened to find a twin to
+// batch with — both ends of the chain looked right and the link between them dropped a property.
+//
+// Two rules make the fix safe, and both are asserted here rather than described in a comment:
+//   * a batch splits into one draw per DISTINCT level, ascending;
+//   * a mesh with no LOD chain reports level 0 for everything, so its batch does NOT split — otherwise
+//     the "optimization" turns one draw into four that rasterize identical geometry.
+
+namespace
+{
+    Desert::Submesh SubmeshWithLevels( std::size_t levelCount )
+    {
+        Desert::Submesh sm;
+        sm.BoundingBox = Common::Math::AABB{ glm::vec3( -100.0f ), glm::vec3( 100.0f ) };
+        sm.LODs.resize( levelCount );
+        return sm;
+    }
+} // namespace
+
+TEST( MeshLOD, AMeshWithNoLODChainReportsLevelZeroAsItsCoarsest )
+{
+    const std::vector<Desert::Submesh> submeshes( 2 );
+    EXPECT_EQ( Desert::Geometry::MaxAvailableLOD( submeshes ), 0u )
+         << "a primitive or procedural mesh draws its base index range whatever level it is asked for; "
+            "reporting anything else splits its instanced batch into identical draws";
+}
+
+TEST( MeshLOD, TheCoarsestAvailableLevelIsTheLongestChainsLastLevel )
+{
+    std::vector<Desert::Submesh> submeshes;
+    submeshes.push_back( SubmeshWithLevels( 4 ) );
+    submeshes.push_back( SubmeshWithLevels( 2 ) );
+    EXPECT_EQ( Desert::Geometry::MaxAvailableLOD( submeshes ), 3u );
+}
+
+TEST( MeshLOD, ABatchOfMixedLevelsBecomesOneDrawPerLevelAscending )
+{
+    const std::vector<uint32_t> levels = { 2, 0, 2, 3, 0, 0 };
+    const auto                  groups = Desert::Geometry::DistinctLODs( levels );
+    ASSERT_EQ( groups.size(), 3u ) << "three distinct levels among six instances";
+    EXPECT_EQ( groups[0], 0u );
+    EXPECT_EQ( groups[1], 2u );
+    EXPECT_EQ( groups[2], 3u );
+}
+
+TEST( MeshLOD, ABatchThatAgreesOnOneLevelStaysASingleDraw )
+{
+    const std::vector<uint32_t> levels( 4096, 0u );
+    EXPECT_EQ( Desert::Geometry::DistinctLODs( levels ).size(), 1u )
+         << "a chain-less mesh answers 0 for every instance, and its batch must not split";
+}
+
+TEST( MeshLOD, TheBoundsTakingAndSubmeshTakingSelectorsAreOnePolicy )
+{
+    // One policy, two spellings: the ISM path asks per instance against bounds it computed once, the
+    // rest asks with the submeshes in hand. A second implementation of the coverage curve is exactly
+    // the drift this pair exists to make impossible.
+    const std::vector<Desert::Submesh> submeshes{ SubmeshWithLevels( 4 ) };
+
+    for ( float distance = 100.0f; distance < 200000.0f; distance *= 2.0f )
+    {
+        const glm::mat4 transform = glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, -distance ) );
+        EXPECT_EQ( Desert::Geometry::SelectLOD( transform, submeshes, glm::vec3( 0.0f ), -1, 0 ),
+                   Desert::Geometry::SelectLODFromBounds( transform, Desert::Geometry::LocalBounds( submeshes ),
+                                                          glm::vec3( 0.0f ), -1, 0 ) )
+             << "at " << distance << " cm";
+    }
+}
+
+// THE CENSUS: every INSTANCED draw names its level. A batch recorded without one is invisible on a
+// frame — it renders, at the wrong detail, and looks exactly like a batch rendered at the right one.
+TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
+{
+    namespace fs  = std::filesystem;
+    fs::path root = fs::current_path();
+    for ( int i = 0; i < 8 && !( fs::exists( root / "Desert" / "Common" ) && fs::exists( root / "Editor" ) ); ++i )
+    {
+        root = root.parent_path();
+    }
+    ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) );
+
+    const std::ifstream in( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /
+                            "Mesh" / "MeshRenderer.cpp" );
+    std::stringstream   buffer;
+    buffer << in.rdbuf();
+    const std::string source = buffer.str();
+    ASSERT_FALSE( source.empty() );
+
+    struct Row
+    {
+        const char* Pipeline; ///< the instanced pipeline the call binds
+        const char* Level;    ///< the expression that must appear as its lodLevel argument
+        const char* Why;
+    };
+
+    const Row rows[] = {
+         { "renderer.RenderMesh( instancedPipeline", "d.LodLevel",
+           "the opaque instanced batch — auto-batched statics and ISM instances" },
+         { "renderer.RenderMesh( m_ShadowInstancedPipeline.get()", "b.LodLevel",
+           "the cascade's instanced casters; a caster at a coarser level than the object the camera "
+           "sees casts a silhouette that does not match it" },
+    };
+
+    for ( const auto& row : rows )
+    {
+        const std::size_t at = source.find( row.Pipeline );
+        ASSERT_NE( at, std::string::npos ) << row.Pipeline << " — the call was renamed or removed";
+        const std::size_t end = source.find( ");", at );
+        ASSERT_NE( end, std::string::npos );
+        EXPECT_NE( source.substr( at, end - at ).find( row.Level ), std::string::npos )
+             << row.Pipeline << " records its draw without a LOD level (" << row.Why << ")";
+    }
 }
 
 int main( int argc, char** argv )

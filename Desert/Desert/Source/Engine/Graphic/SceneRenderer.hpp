@@ -183,8 +183,13 @@ namespace Desert::Graphic
         // UE-style Instanced Static Mesh: one mesh + one PBR material drawn for every transform in
         // @p transforms. Material and transforms are both co-owned handles for the reason SubmitMesh's
         // binding is (A8-3).
-        void SubmitInstancedMesh( const Mesh* mesh, const MaterialInstancePtr& material,
-                                  const std::shared_ptr<const std::vector<glm::mat4>>& transforms );
+        // `castShadows` is NOT defaulted: a default here is a place for a caller to forget the flag,
+        // and the one this replaces was an unconditional append in the cascade pass.
+        // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
+        // only caller holds a non-const mesh, and the queue this reaches needs one too.
+        void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+                                  const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                  bool                                                 castShadows );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, float intensity = 1.0f );
 

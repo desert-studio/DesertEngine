@@ -1326,13 +1326,19 @@ namespace Desert::Graphic
                                     .VisibleSubmeshMask = visibleSubmeshMask } );
     }
 
-    void SceneRenderer::SubmitInstancedMesh( const Mesh* mesh, const MaterialInstancePtr& material,
-                                             const std::shared_ptr<const std::vector<glm::mat4>>& transforms )
+    void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+                                             const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                             bool                                                 castShadows )
     {
+        // NO CAST, AND THAT IS THE POINT. This used to read
+        // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie
+        // the type told: an ISM's mesh is very often a DynamicMesh — every primitive one is, and the
+        // component's own `RuntimeMesh` member is a `shared_ptr<DynamicMesh>`. The queue never used it
+        // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
+        // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Mesh       = static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) ),
-                                      .Material   = material,
-                                      .Transforms = transforms } );
+             ->SubmitInstancedMesh(
+                  { .Mesh = mesh, .Material = material, .Transforms = transforms, .CastShadows = castShadows } );
     }
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )

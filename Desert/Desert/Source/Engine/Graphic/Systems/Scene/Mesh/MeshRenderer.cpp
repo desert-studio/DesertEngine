@@ -7,6 +7,8 @@
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
+#include <Engine/Geometry/MeshBounds.hpp>
+#include <Engine/Graphic/VisibilityCulling.hpp>
 // MeshShaderFor / MeshVertexPath / MeshPass — the (path x pass) table this file asks for its pipelines.
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -278,6 +280,8 @@ namespace Desert::Graphic::System
         // do not declare them nothing.
         const PBRSceneFrame frameState = CaptureFrameState( camera );
 
+        const Core::Frustum frustum = camera->GetFrustum();
+
         const VertexBufferLayout meshLayout = { { Graphic::ShaderDataType::Float3, "a_Position" },
                                                 { Graphic::ShaderDataType::Float3, "a_Normal" },
                                                 { Graphic::ShaderDataType::Float3, "a_Tangent" },
@@ -303,6 +307,18 @@ namespace Desert::Graphic::System
 
         for ( const auto& g : m_GenericQueue )
         {
+            // CULLED ON THE AUTHORED BOX, and that is only sound because no vertex stage in this tree
+            // moves a vertex off it. A data-driven material whose vertex stage displaced geometry — a
+            // world-position offset, the thing UE hands a "bounds scale" knob for — would be culled on
+            // a box it is allowed to leave, and would pop out of existence for reasons invisible in the
+            // scene. The shader graph emits a FRAGMENT body only; its vertex stage is one shared
+            // generated include (Common/GraphVertex.glslh) that transforms a_Position and nothing else,
+            // and Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in
+            // the tree. The day a vertex-offset node exists, that census goes red before this does.
+            if ( g.Mesh != nullptr &&
+                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+                continue;
+
             // Per-slot draws carry their own material (asset params already applied at build);
             // Shader Override draws use a shader-keyed shared material + per-frame overrides.
             DataDrivenMaterial* material   = nullptr;
@@ -641,11 +657,15 @@ namespace Desert::Graphic::System
         // Collect the transparent (Transmission > 0) objects + their effective GPU material entries. Uses a
         // DEDICATED material so the opaque passes' per-frame UBs are untouched (the double-write-per-frame that
         // hung the GPU).
+        const Core::Frustum frustum = camera->GetFrustum();
+
         std::vector<const StaticMeshRenderData*> glassObjs;
         std::vector<PBRGpuMaterial>              gpuMats;
         for ( const auto& data : m_StaticQueue )
         {
             if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
             if ( !pbrInst )
@@ -786,6 +806,18 @@ namespace Desert::Graphic::System
         // transform is per-object, and it rides a push constant.
         const PBRSceneFrame frameState = CaptureFrameState( camera );
 
+        // FRUSTUM CULLING, AND IT LIVES IN THE PASS RATHER THAN AT SUBMIT. The queues this pass reads are
+        // read by FIVE passes, and three of them look at the scene from somewhere else: the four shadow
+        // cascades and the RSM rasterize from the SUN. An object behind the camera casts a shadow into
+        // the frame it is not itself in, so dropping it at submit would delete shadows to save draws —
+        // a "culling win" measured as a picture that is missing something. The camera's frustum is only
+        // ever applied where the camera is what rasterizes.
+        //
+        // Rebuilt per pass rather than cached on the renderer: it is six normalized planes out of two
+        // matrices the camera already holds, and a cached frustum is a second answer to "where is the
+        // camera" that can disagree with the matrices the same pass draws with.
+        const Core::Frustum frustum = camera->GetFrustum();
+
         // Group draws by material so each material's per-object data fills ONE storage buffer, indexed
         // per draw (GPU-scene style). Objects of the same material that wrote a shared buffer per-draw
         // would otherwise collapse to the last writer.
@@ -803,6 +835,9 @@ namespace Desert::Graphic::System
         {
             if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() ||
                  !data.MaterialSlots->Slots[0] )
+                continue;
+
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
 
             // First PBR slot drives the batch. Slots holding a custom-shader material
@@ -909,17 +944,54 @@ namespace Desert::Graphic::System
 
                 if ( instancingOn && batchable.size() >= 2 )
                 {
-                    InstancedDraw d;
-                    d.Mesh          = mesh;
-                    d.InstanceCount = static_cast<uint32_t>( batchable.size() );
-                    d.FirstInstance = static_cast<uint32_t>( instTransforms.size() );
-                    d.MaterialIndex = static_cast<uint32_t>( instMaterials.size() );
+                    // PER-INSTANCE LOD, AND THE DEFECT IT CLOSES IS THAT BATCHING DROPPED THE LEVEL.
+                    // The per-object path below computes a LOD and passes it to the draw; this path
+                    // recorded its draw with the default, level 0. So the SAME object rendered at a
+                    // different detail depending on whether it happened to find a twin to batch with —
+                    // both ends of the chain (the policy and the draw) looked right and the link
+                    // between them silently lost a property.
+                    //
+                    // Clamped to what the mesh HAS: a chain-less mesh answers 0 for every instance, so
+                    // its batch stays one draw instead of splitting into four identical ones.
+                    const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
+                    auto&          levels   = m_ScratchLodLevels;
+                    levels.clear();
+                    levels.reserve( batchable.size() );
                     for ( const auto& od : batchable )
-                        instTransforms.push_back( od.Obj->Transform );
-                    // No batchable object carries overrides (filtered above), so every instance of
-                    // the batch genuinely shares the parent material's effective values.
-                    instMaterials.push_back( batchable[0].Gm );
-                    instDraws.push_back( d );
+                        levels.push_back( std::min(
+                             ComputeLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias ),
+                             maxLevel ) );
+
+                    for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                    {
+                        const auto firstInstance = static_cast<uint32_t>( instTransforms.size() );
+                        for ( std::size_t i = 0; i < batchable.size(); ++i )
+                            if ( levels[i] == level )
+                                instTransforms.push_back( batchable[i].Obj->Transform );
+
+                        const uint32_t count = static_cast<uint32_t>( instTransforms.size() ) - firstInstance;
+                        if ( count < 2 )
+                        {
+                            // A level with a single member is cheaper as a per-object draw, and that is
+                            // the same threshold the batch itself is chosen by.
+                            instTransforms.resize( firstInstance );
+                            for ( std::size_t i = 0; i < batchable.size(); ++i )
+                                if ( levels[i] == level )
+                                    singles.push_back( batchable[i] );
+                            continue;
+                        }
+
+                        InstancedDraw d;
+                        d.Mesh          = mesh;
+                        d.InstanceCount = count;
+                        d.FirstInstance = firstInstance;
+                        d.MaterialIndex = static_cast<uint32_t>( instMaterials.size() );
+                        d.LodLevel      = level;
+                        // No batchable object carries overrides (filtered above), so every instance of
+                        // the batch genuinely shares the parent material's effective values.
+                        instMaterials.push_back( batchable[0].Gm );
+                        instDraws.push_back( d );
+                    }
                 }
                 else
                 {
@@ -1087,14 +1159,55 @@ namespace Desert::Graphic::System
                 if ( !mat )
                     continue;
 
-                InstancedDraw d;
-                d.Mesh          = ism.Mesh;
-                d.InstanceCount = static_cast<uint32_t>( ism.Transforms->size() );
-                d.FirstInstance = static_cast<uint32_t>( instTransforms.size() );
-                d.MaterialIndex = static_cast<uint32_t>( instMaterials.size() );
-                instTransforms.insert( instTransforms.end(), ism.Transforms->begin(), ism.Transforms->end() );
+                // PER-INSTANCE, and that is the whole point of culling an ISM at all. A batch is ONE draw
+                // call carrying N transforms, so a batch-level test would answer "some of it is on screen"
+                // and then submit every instance — a forest whose one visible tree costs the vertex stage
+                // all forty thousand of them. The draw count does not move here; the INSTANCE count does,
+                // which is why the detector prints the two apart.
+                //
+                // Only the visible transforms are appended, so the slice named by firstInstance is exactly
+                // the instances that survived: nothing downstream needs to know culling happened.
+                const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+                const uint32_t           maxLevel    = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
+
+                // Visible instances and their levels, gathered in ONE pass over the component's array.
+                // The LOD question is per instance for the same reason the visibility question is: the
+                // batch is one entity but forty thousand placements, and the near ones and the far ones
+                // of a single ISM are not the same object to a renderer.
+                auto& visible = m_ScratchIsmVisible;
+                auto& levels  = m_ScratchLodLevels;
+                visible.clear();
+                levels.clear();
+                for ( const auto& instanceTransform : *ism.Transforms )
+                {
+                    if ( !IsVisibleInView( frustum, instanceTransform, localBounds ) )
+                        continue;
+                    visible.push_back( instanceTransform );
+                    levels.push_back( std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds,
+                                                                               camera->GetPosition(), -1, 0 ),
+                                                maxLevel ) );
+                }
+                if ( visible.empty() )
+                    continue;
+
+                // ONE material row for the whole ISM, named by every one of its per-level draws: the
+                // level splits the geometry, not the material.
+                const auto materialIndex = static_cast<uint32_t>( instMaterials.size() );
                 instMaterials.push_back( BuildEffectiveMaterial( mat, ism.Material.get() ) );
-                instDraws.push_back( d );
+
+                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                {
+                    InstancedDraw d;
+                    d.Mesh          = ism.Mesh;
+                    d.FirstInstance = static_cast<uint32_t>( instTransforms.size() );
+                    d.MaterialIndex = materialIndex;
+                    d.LodLevel      = level;
+                    for ( std::size_t i = 0; i < visible.size(); ++i )
+                        if ( levels[i] == level )
+                            instTransforms.push_back( visible[i] );
+                    d.InstanceCount = static_cast<uint32_t>( instTransforms.size() ) - d.FirstInstance;
+                    instDraws.push_back( d );
+                }
             }
         }
 
@@ -1125,7 +1238,8 @@ namespace Desert::Graphic::System
                 instMat->SetMaterialIndex( d.MaterialIndex );
                 instMat->Bind( instInst );
                 renderer.RenderMesh( instancedPipeline, d.Mesh, unusedModelTransform,
-                                     instMat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance );
+                                     instMat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance,
+                                     /*hiddenSubmeshMask*/ 0, d.LodLevel );
             }
         }
     }
@@ -1941,6 +2055,34 @@ namespace Desert::Graphic::System
                      // the dominant cost in the 256-mesh stress test (256x4 per-object draws -> 4 draws).
                      const bool instancingOn = m_ShadowInstancedPipeline && m_ShadowInstancedMaterial[c];
 
+                     // THE CASCADE'S OWN MATRIX, NOT THE CAMERA'S — and that distinction is the whole
+                     // safety of culling a shadow pass at all. An object behind the camera casts into
+                     // the frame it is not itself in, so the camera's frustum would buy draw calls with
+                     // missing shadows and the draw-call detector would report it as a win.
+                     //
+                     // WHY THIS ONE CHANGES NOTHING ON SCREEN. It is derived from `m_CascadeVP[c]`, the
+                     // exact matrix the caster vertex shader multiplies by (SetLightMatrix above passes
+                     // it as Projection with an identity View, and so does this). The cascade projection
+                     // is a FINITE orthographic box — `glm::orthoRH_ZO(-radius, radius, -radius, radius,
+                     // 10 cm, 4 * radius)` in ShadowCascades.hpp — so a caster outside that box is
+                     // already clipped by the rasterizer today. This skips exactly the geometry the GPU
+                     // was going to throw away, which is why it is provable rather than plausible.
+                     //
+                     // The plane extraction is convention-agnostic here and that is not luck: the
+                     // cascades are deliberately STANDARD-Z while the camera is reversed-Z, which swaps
+                     // which of the two derived planes is "near" and which is "far" — the SET of six
+                     // half-spaces is the same one either way, and Intersects tests all six by value.
+                     const Core::Frustum cascadeFrustum( m_CascadeVP[c], glm::mat4( 1.0f ) );
+
+                     // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
+                     // deliberate rather than convenient: a caster drawn into the cascade at a coarser
+                     // level than the object the camera sees casts a silhouette that does not match the
+                     // object it belongs to. The per-object caster loop below has always asked it this
+                     // way (ComputeLOD reads the main camera); the batched paths simply did not ask.
+                     const auto*     lodCamera = m_SceneRenderer->GetMainCamera();
+                     const glm::vec3 lodViewPosition =
+                          lodCamera != nullptr ? lodCamera->GetPosition() : glm::vec3( 0.0f );
+
                      std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
                      const auto bucketFor =
                           [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&
@@ -1952,7 +2094,9 @@ namespace Desert::Graphic::System
                          return byMesh.back().second;
                      };
                      for ( const auto& rd : m_StaticQueue )
-                         if ( rd.Mesh && rd.CastShadows )
+                         if ( rd.Mesh != nullptr && rd.CastShadows &&
+                              IsVisibleInView( cascadeFrustum, rd.Transform,
+                                               Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                              bucketFor( rd.Mesh ).push_back( &rd );
 
                      // Pack all instanced-batch transforms contiguously; each batch reads its slice via
@@ -1968,11 +2112,37 @@ namespace Desert::Graphic::System
                      {
                          if ( instancingOn && bucket.size() >= 2 )
                          {
-                             ShadowBatch b{ mesh, static_cast<uint32_t>( bucket.size() ),
-                                            static_cast<uint32_t>( instTransforms.size() ) };
+                             // One draw per level, exactly as the geometry pass does it, and for the
+                             // same reason: the per-object caster loop below passes ComputeLOD to its
+                             // draw while this one used to pass nothing, so a caster's silhouette
+                             // changed detail depending on whether it found a twin.
+                             const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
+                             auto&          levels   = m_ScratchLodLevels;
+                             levels.clear();
+                             levels.reserve( bucket.size() );
                              for ( const auto* rd : bucket )
-                                 instTransforms.push_back( rd->Transform );
-                             batches.push_back( b );
+                                 levels.push_back(
+                                      std::min( ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ),
+                                                maxLevel ) );
+
+                             for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                             {
+                                 const auto first = static_cast<uint32_t>( instTransforms.size() );
+                                 for ( std::size_t i = 0; i < bucket.size(); ++i )
+                                     if ( levels[i] == level )
+                                         instTransforms.push_back( bucket[i]->Transform );
+
+                                 const uint32_t count = static_cast<uint32_t>( instTransforms.size() ) - first;
+                                 if ( count < 2 )
+                                 {
+                                     instTransforms.resize( first );
+                                     for ( std::size_t i = 0; i < bucket.size(); ++i )
+                                         if ( levels[i] == level )
+                                             singles.push_back( bucket[i] );
+                                     continue;
+                                 }
+                                 batches.push_back( ShadowBatch{ mesh, count, first, level } );
+                             }
                          }
                          else
                          {
@@ -1981,19 +2151,55 @@ namespace Desert::Graphic::System
                          }
                      }
 
-                     // UE-style Instanced Static Meshes cast shadows too — append each as its own batch
-                     // (transforms straight from the component array).
+                     // UE-style Instanced Static Meshes cast too, unless the component says otherwise —
+                     // each becomes its own batch (or one per LOD level).
                      if ( instancingOn )
                      {
                          for ( const auto& ism : m_InstancedQueue )
                          {
-                             if ( !ism.Mesh || !ism.Transforms || ism.Transforms->empty() )
+                             // THE FLAG EXISTS NOW, and until it did an ISM was the one mesh kind in the
+                             // engine whose shadow could not be turned off: the static and skinned
+                             // components both carry CastShadows and this pass read both, while the ISM
+                             // branch had no condition at all.
+                             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms ||
+                                  ism.Transforms->empty() )
                                  continue;
-                             ShadowBatch b{ ism.Mesh, static_cast<uint32_t>( ism.Transforms->size() ),
-                                            static_cast<uint32_t>( instTransforms.size() ) };
-                             instTransforms.insert( instTransforms.end(), ism.Transforms->begin(),
-                                                    ism.Transforms->end() );
-                             batches.push_back( b );
+
+                             // Per-instance, against this cascade. A cascade covers a slice of the view,
+                             // so a forest spread over the map has most of its instances outside every
+                             // one of the four — and the batch is a single draw whose cost is entirely
+                             // its instance count.
+                             const Common::Math::AABB localBounds =
+                                  Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+                             const uint32_t maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
+
+                             auto& visible = m_ScratchIsmVisible;
+                             auto& levels  = m_ScratchLodLevels;
+                             visible.clear();
+                             levels.clear();
+                             for ( const auto& instanceTransform : *ism.Transforms )
+                             {
+                                 if ( !IsVisibleInView( cascadeFrustum, instanceTransform, localBounds ) )
+                                     continue;
+                                 visible.push_back( instanceTransform );
+                                 levels.push_back(
+                                      std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds,
+                                                                               lodViewPosition, -1, 0 ),
+                                                maxLevel ) );
+                             }
+                             if ( visible.empty() )
+                                 continue;
+
+                             for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                             {
+                                 const auto first = static_cast<uint32_t>( instTransforms.size() );
+                                 for ( std::size_t i = 0; i < visible.size(); ++i )
+                                     if ( levels[i] == level )
+                                         instTransforms.push_back( visible[i] );
+                                 batches.push_back( ShadowBatch{
+                                      ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first,
+                                      level } );
+                             }
                          }
                      }
 
@@ -2022,7 +2228,9 @@ namespace Desert::Graphic::System
                      // split, so honouring the mask here would carve the PBR half out of the silhouette
                      // while the PBR record was already casting the whole of it.
                      for ( const auto& g : m_GenericQueue )
-                         if ( g.Mesh && g.CastShadows )
+                         if ( g.Mesh != nullptr && g.CastShadows &&
+                              IsVisibleInView( cascadeFrustum, g.Transform,
+                                               Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                              renderer.RenderMesh( m_ShadowPipeline.get(), g.Mesh, g.Transform,
                                                   m_ShadowMaterial[c]->GetMaterialExecutor(), 1, 0, 0,
                                                   ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) );
@@ -2073,7 +2281,8 @@ namespace Desert::Graphic::System
                                              static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
                          for ( const auto& b : batches )
                              renderer.RenderMesh( m_ShadowInstancedPipeline.get(), b.Mesh, glm::mat4( 1.0f ),
-                                                  instMat->GetMaterialExecutor(), b.Count, b.First );
+                                                  instMat->GetMaterialExecutor(), b.Count, b.First,
+                                                  /*hiddenSubmeshMask*/ 0, b.LodLevel );
                      }
                  },
                  m_ShadowPipeline->GetSpecification(), m_CascadeFB[c], {},
@@ -2213,12 +2422,20 @@ namespace Desert::Graphic::System
 
             renderer.BeginRenderPass( rp.get() );
             m_OverdrawMaterial->UpdateCamera( camera );
+
+            // CULLED LIKE THE PASS IT REPORTS ON. This view exists to answer "how many times was this
+            // pixel shaded", and an uncalled re-rasterization would answer it about a frame the engine
+            // does not draw — an instrument disagreeing with the thing it measures, which is the defect
+            // shape this repository keeps finding rather than a conservative choice.
+            const Core::Frustum overdrawFrustum = camera->GetFrustum();
             for ( const auto& rd : m_StaticQueue )
-                if ( rd.Mesh )
+                if ( rd.Mesh != nullptr && IsVisibleInView( overdrawFrustum, rd.Transform,
+                                                            Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                     renderer.RenderMesh( m_OverdrawPipeline.get(), rd.Mesh, rd.Transform,
                                          m_OverdrawMaterial->GetMaterialExecutor() );
             for ( const auto& g : m_GenericQueue )
-                if ( g.Mesh )
+                if ( g.Mesh != nullptr && IsVisibleInView( overdrawFrustum, g.Transform,
+                                                           Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                     renderer.RenderMesh( m_OverdrawPipeline.get(), g.Mesh, g.Transform,
                                          m_OverdrawMaterial->GetMaterialExecutor() );
             renderer.EndRenderPass();
