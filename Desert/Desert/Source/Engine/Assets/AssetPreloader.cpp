@@ -255,28 +255,42 @@ namespace Desert::Assets
 
     void AssetPreloader::PreloadCloudNoiseVolumes()
     {
-        // Loaded eagerly, unlike meshes: a volume is 8 MiB of bytes with no parse to speak of, and the
-        // renderer needs its contents on the first frame the component asks for it. Deferring would buy a
-        // stall exactly where the sky first appears.
+        // ANNOUNCED, NOT READ — and the comment this replaces is the reason the whole tier exists.
+        //
+        // It said: "Loaded eagerly, unlike meshes: a volume is 8 MiB of bytes with no parse to speak of,
+        // and the renderer needs its contents on the first frame the component asks for it. Deferring
+        // would buy a stall exactly where the sky first appears." Every clause of that was true. What it
+        // did not say is what the eagerness cost when the component never asks: measured on this machine
+        // this stage was **1312.7 ms of a 5707.0 ms boot**, `CloudNoise_Default.dcnv` alone **607.12 ms
+        // by its own time**, and a scene with no clouds paid all of it.
+        //
+        // The stall the comment feared is real, and it is not answered by making the read lazy — that
+        // only moves it into a frame. It is answered by making the read ASYNCHRONOUS and by giving "not
+        // here yet" somewhere to live: `CloudNoiseService::Require` returns Pending, the read runs on a
+        // `JobSystem` worker, and the host holds its loading overlay up until the content it asked for
+        // has settled. The cost stays in the loading screen where it belongs and stops being paid by
+        // scenes that do not want it.
+        //
+        // THE SCAN ITSELF STAYS, and it is not vestigial: it is what mints every `.dcnv`'s handle, so
+        // the path->handle index still answers for a volume nothing has read (`Common::AssetPathIndex`),
+        // and the Content Browser and the component slot can still OFFER the project's volumes.
         ProcessAssetFiles<CloudNoiseVolumeAsset>( Common::Constants::Path::CLOUD_NOISE_PATH,
                                                   SUPPORTED_CLOUD_NOISE_EXTENSIONS, m_AssetManager,
-                                                  AssetPriority::Medium );
+                                                  AssetPriority::Medium, /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
             auto* service = Runtime::ResourceRegistry::GetCloudNoiseService();
             for ( const auto& [handle, volumeAsset] : manager->FindAllByType<Assets::CloudNoiseVolumeAsset>() )
             {
-                if ( const auto result = service->Register( volumeAsset ); !result )
-                {
-                    LOG_ERROR( "[Clouds] Noise volume '{}' could not be uploaded: {}",
-                               volumeAsset->GetMetadata().Filepath.string(), result.GetError() );
-                    continue;
-                }
+                service->Announce( volumeAsset );
 
                 // The default is chosen by FILE NAME, and it is a project-owned file rather than something
                 // compiled in: a project that ships its own CloudNoise_Default.dcnv replaces the engine's
                 // without touching code, which is the same way every other built-in default here works.
+                //
+                // Note it is nominated from the NAME and not from anything inside the file, which is what
+                // lets this still work when nothing has been read.
                 if ( volumeAsset->GetMetadata().Filepath.filename().string() == kCloudNoiseDefaultVolumeName )
                     service->SetDefault( handle );
             }

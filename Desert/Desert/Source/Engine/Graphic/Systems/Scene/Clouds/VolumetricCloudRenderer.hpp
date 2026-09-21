@@ -739,6 +739,12 @@ namespace Desert::Graphic::System
         // run, and retrying an allocation that already failed once per frame only fills the log.
         bool m_TargetsFailed = false;
         bool m_NoiseFailed   = false;
+        // Latched while a noise volume's read is in flight, so the "waiting" line is printed once per
+        // wait rather than once per frame. SEPARATE FROM m_NoiseFailed on purpose: one of them is a
+        // condition that clears itself in a few frames and the other is a scene an artist has to fix,
+        // and a single flag would make the log unable to tell them apart -- which is the defect one
+        // layer down that this whole change is about.
+        bool m_NoiseWaiting  = false;
 
         // Advances once per executed frame. It decides both the march's dither pattern and which of the
         // four sub-pixels this frame traces, and it selects the history target written. Wrapping is

@@ -1115,12 +1115,23 @@ namespace Desert::Editor
             }
         }
 
+        // ONE PUMP PER TICK, AND IT IS THE FIRST THING THIS LAYER DOES AFTER THE BOOT.
+        //
+        // `AsyncAssetLoader` never calls a delegate from inside `Request()` -- not even for an asset that
+        // is already resident -- so a host that forgets this line gets a loader that reads files and
+        // never tells anybody. It is first rather than last because a completion is what UPLOADS a cloud
+        // volume, and doing that before the frame's passes resolve their inputs is what lets the volume
+        // be used by the same frame it arrived in rather than by the next one.
+        Assets::AsyncAssetLoader::Get().Pump();
+        UpdateContentSettling();
+
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
         if ( m_SceneLoadRequested && !StartupLoading() )
         {
             auto path = m_SceneLoadRequested.value();
             m_SceneLoadRequested.reset();
             LoadSceneInternal( path );
+            BeginContentSettle();
 
             // THE OTHER HALF OF THE SKIPPED Init() IN OnAttach. That skip is safe only because THIS load
             // initialises the scene — and LoadSceneInternal has three early returns (the file is gone,
@@ -1404,7 +1415,15 @@ namespace Desert::Editor
         // Screenshot mode, SECOND HALF: the frame just rendered is the frame that gets written. The frame
         // count is not decoration — a temporally accumulating pass needs several frames to converge, so an
         // early shot is a picture of the dither rather than of the scene.
-        if ( auto& shot = ShotOptions::Get(); shot.Active() && !m_SceneLoadRequested && !StartupLoading() )
+        // `!ContentSettling()` IS NOT A CONVENIENCE HERE, IT IS THE CORRECTNESS OF EVERY CAPTURE THIS
+        // REPOSITORY TAKES. `--shot-frames N` counts rendered frames, and before the cloud kinds became
+        // demand-driven every one of them was a frame whose content was already resident. Counting from
+        // the first frame after a scene load would now start the count while a worker is still reading
+        // the sky, so a low-frame capture would photograph a scene with no clouds in it and file it as
+        // the picture of the scene -- the same shape as the blank-PNG trap the verification skill warns
+        // about, and just as invisible in a diff of two such frames.
+        if ( auto& shot = ShotOptions::Get();
+             shot.Active() && !m_SceneLoadRequested && !StartupLoading() && !ContentSettling() )
         {
             ++m_ShotFrame;
 
@@ -1775,7 +1794,11 @@ namespace Desert::Editor
     void EditorLayer::SampleFrameQuiescence()
     {
         Control::EditorQuiescence quiescence;
-        quiescence.Set( Control::PendingWork::StartupLoading, StartupLoading() );
+        // CONTENT SETTLING COUNTS AS STARTUP LOADING FOR THE CHANNEL, and it has to: the channel's whole
+        // contract is that a reply is released only after a presented frame on whose entry no deferred
+        // work from that command remained. A `shot.viewport` answered while a worker is still reading the
+        // sky would hand back a picture of a scene without its clouds and call it the scene.
+        quiescence.Set( Control::PendingWork::StartupLoading, StartupLoading() || ContentSettling() );
         quiescence.Set( Control::PendingWork::SceneLoad, m_SceneLoadRequested.has_value() );
         quiescence.Set( Control::PendingWork::NewScene, m_NewSceneRequested );
         quiescence.Set( Control::PendingWork::SceneView, m_AddSceneViewRequested );
@@ -2930,7 +2953,7 @@ namespace Desert::Editor
 
         // ---- Startup loading overlay (UI loader) ----
         // Fullscreen dim + progress while the staged boot work (mesh cook / preload) runs in OnUpdate.
-        if ( StartupLoading() )
+        if ( StartupLoading() || ContentSettling() )
         {
             ++m_StartupFramesRendered;
 
@@ -2948,7 +2971,11 @@ namespace Desert::Editor
             const float  barW  = 420.0f;
             const size_t total = m_StartupStages.size();
             const float  frac  = total ? (float)m_StartupNext / (float)total : 1.0f;
-            const char*  label = m_StartupNext < total ? m_StartupStages[m_StartupNext].Label.c_str() : "";
+            // THE SETTLE PHASE GETS ITS OWN LABEL rather than the empty string the finished stage list
+            // leaves behind. An overlay that says nothing while it waits is indistinguishable from an
+            // editor that has hung, and this wait is the one the demand-driven model introduced.
+            const char* label = m_StartupNext < total ? m_StartupStages[m_StartupNext].Label.c_str()
+                                                      : "Waiting for the scene's content...";
 
             ::ImGui::SetCursorPos( ImVec2( cx - barW * 0.5f, cy - 60.0f ) );
             ::ImGui::PushFont( EditorResources::GetBoldFont() );
@@ -4789,6 +4816,52 @@ namespace Desert::Editor
     // owns that string, and a second copy in this file would be the same one-fact-two-owners shape as a
     // remembered "is it maximized". The comparison is what keeps this to one glfwSetWindowTitle per change
     // rather than sixty a second.
+    void EditorLayer::BeginContentSettle()
+    {
+        m_ContentSettleState         = ContentSettleState::Waiting;
+        m_ContentSettleFrames        = 0;
+        m_ContentStartedAtFrameBegin = Assets::AsyncAssetLoader::Get().StartedCount();
+        m_ContentWaitBegan           = std::chrono::steady_clock::now();
+    }
+
+    void EditorLayer::UpdateContentSettling()
+    {
+        if ( m_ContentSettleState == ContentSettleState::Settled )
+            return;
+
+        const auto&    loader  = Assets::AsyncAssetLoader::Get();
+        const uint64_t started = loader.StartedCount();
+
+        // TWO CONDITIONS, AND THE SECOND ONE IS THE ONE THAT IS EASY TO LEAVE OUT.
+        //
+        // "Nothing outstanding" alone is not settled, because a request that has just COMPLETED is the
+        // most likely reason the next one is about to be made: a cloud type arrives, and only then is
+        // there a handle to ask the noise service for. A wait that ended on the first empty queue would
+        // release the frame in the middle of that chain and photograph the scene one link short.
+        //
+        // So the frame just rendered must also have asked for nothing new. `StartedCount` is monotonic
+        // and per-read rather than per-request, which is exactly the granularity this needs.
+        const bool quietFrame = loader.Outstanding() == 0 && started == m_ContentStartedAtFrameBegin;
+        m_ContentStartedAtFrameBegin = started;
+        ++m_ContentSettleFrames;
+
+        // AT LEAST TWO FRAMES, because the first one is where the renderer ASKS. Concluding "settled"
+        // from a queue that is empty before anything has looked at the scene is the same mistake as
+        // reading a shot at three frames: the instrument answers before the thing it measures has
+        // happened.
+        if ( m_ContentSettleFrames < 2 || !quietFrame )
+            return;
+
+        const double ms = std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                     m_ContentWaitBegan )
+                               .count();
+        LOG_INFO( "[Content] settled after {} frame(s) in {:.1f} ms; {} read(s) have gone to a worker "
+                  "this session. This is the cost that used to be a boot stage, and a scene that asks "
+                  "for nothing pays none of it.",
+                  m_ContentSettleFrames, ms, loader.StartedCount() );
+        m_ContentSettleState = ContentSettleState::Settled;
+    }
+
     void EditorLayer::SyncWindowTitle()
     {
         const auto& window = m_Application->GetWindow();

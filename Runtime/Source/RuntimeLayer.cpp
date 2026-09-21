@@ -16,6 +16,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetPreloader.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/Core/SceneRenderCollectors.hpp>
@@ -304,13 +305,39 @@ namespace Desert::Player
 
     Common::BoolResultStr RuntimeLayer::OnUpdate( const Common::Timestep& ts )
     {
+        // ONE PUMP PER TICK, and without this line the shipping host would read a cloud volume on a
+        // worker and never hear that it landed -- the completion delegate is what uploads it. The
+        // editor's copy is at the head of its own OnUpdate for the same reason and is asserted beside
+        // it by `AsyncAssetPump`.
+        Assets::AsyncAssetLoader::Get().Pump();
+
         // The startup boundary, logged once: everything before this line (preloads, shader compiles,
         // scene load) is what a player waits through — the millisecond timestamps upstream attribute
         // that wait to its phases, this line marks where it ended.
+        //
+        // IT NOW WAITS FOR THE DEMAND-DRIVEN CONTENT TOO, and that is the honest boundary rather than
+        // the convenient one. The cloud kinds are no longer read at boot, so "the preloads finished"
+        // stopped being the same statement as "the game has what its first frame needs"; a marker that
+        // still said the first would attribute the wait to no phase at all, which is the exact defect
+        // the per-stage timings were added to remove.
         if ( !m_LoggedFirstUpdate )
         {
-            m_LoggedFirstUpdate = true;
-            LOG_INFO( "[Runtime] first update — startup work is done, the game is presenting" );
+            const auto&    loader  = Assets::AsyncAssetLoader::Get();
+            const uint64_t started = loader.StartedCount();
+            // Two conditions, for the reason the editor's copy states: an empty queue in the middle of a
+            // chain is not a settled one, and the first frame is where the renderer ASKS.
+            const bool quietFrame = loader.Outstanding() == 0 && started == m_ContentStartedAtFrameBegin;
+            m_ContentStartedAtFrameBegin = started;
+            ++m_ContentSettleFrames;
+
+            if ( m_ContentSettleFrames >= 2 && quietFrame )
+            {
+                m_LoggedFirstUpdate = true;
+                LOG_INFO( "[Runtime] first update — startup work is done, the game is presenting. {} "
+                          "read(s) went to a worker over {} settling frame(s); that is the cost the "
+                          "eager cloud preload used to charge every launch whatever the scene wanted.",
+                          started, m_ContentSettleFrames );
+            }
         }
 
         if ( m_SplashTimer > 0.0f )

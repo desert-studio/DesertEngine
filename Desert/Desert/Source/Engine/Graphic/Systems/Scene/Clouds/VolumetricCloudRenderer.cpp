@@ -1623,8 +1623,34 @@ namespace Desert::Graphic::System
 
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
         {
-            Image3D* volume = service->Get( m_NoiseSlots.Volume[slot] );
-            if ( !volume )
+            const Assets::AssetRef<Image3D> volume = service->Require( m_NoiseSlots.Volume[slot] );
+
+            // PENDING IS NOT MISSING, AND THIS BRANCH IS THE WHOLE POINT OF THE THREE-STATE ANSWER.
+            //
+            // Until the cloud kinds became demand-driven, a null from the service could only mean "the
+            // scene names a .dcnv that is not in the project", so one branch was enough and it logged an
+            // error. Now the same absence also means "a worker is reading it", which happens on every
+            // scene load and is not a defect. Taking the old branch for it would put an error in the log
+            // for normal loading, latch this renderer's failure flag over a condition that clears
+            // itself, and teach the reader to ignore the one line that reports a genuinely broken
+            // reference.
+            //
+            // The ACTION is the same — do not draw this layer — and that is not an argument for merging
+            // the states: it is why merging them was survivable for so long and why nobody would have
+            // noticed. The log is the difference, and the log is what the next investigation reads.
+            if ( volume.IsPending() )
+            {
+                if ( !m_NoiseWaiting )
+                {
+                    m_NoiseWaiting = true;
+                    LOG_INFO( "[Clouds] Waiting for noise volume {} for slot {} of this layer; the read is "
+                              "on a worker and this view draws no clouds until it lands.",
+                              static_cast<uint64_t>( volume.Handle() ), slot );
+                }
+                return false;
+            }
+
+            if ( !volume.IsValid() )
             {
                 // The service has already logged which volume is missing and why. Latched so a scene with a
                 // broken reference does not print once per frame forever.
@@ -1639,13 +1665,16 @@ namespace Desert::Graphic::System
                 return false;
             }
 
-            m_NoiseVolume[slot] = volume;
+            m_NoiseVolume[slot] = volume.Get();
         }
 
         // Cleared as soon as the volumes do resolve: the failure above is a state of the SCENE, not of this
         // renderer, and dropping a project's clouds for the rest of the session because one scene was
-        // opened with a stale reference is the kind of latch that reads as a broken build.
-        m_NoiseFailed = false;
+        // opened with a stale reference is the kind of latch that reads as a broken build. The waiting
+        // latch clears for the same reason and one step earlier — a volume that arrives must be able to
+        // put the log back to quiet, or the next wait says nothing.
+        m_NoiseFailed  = false;
+        m_NoiseWaiting = false;
 
         return true;
     }
