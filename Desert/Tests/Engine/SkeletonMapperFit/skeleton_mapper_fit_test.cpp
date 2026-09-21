@@ -57,7 +57,6 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
-#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -86,7 +85,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + kRigPath );
+            const std::ifstream probe( prefix + kRigPath );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -96,7 +95,7 @@ namespace
 
     std::string ReadFile( const std::string& path )
     {
-        std::ifstream in( path, std::ios::binary );
+        const std::ifstream in( path, std::ios::binary );
         if ( !in )
             return {};
         std::ostringstream ss;
@@ -152,9 +151,9 @@ namespace
 
     JPH::Mat44 ToJolt( const glm::mat4& m )
     {
-        return JPH::Mat44(
-             JPH::Vec4( m[0][0], m[0][1], m[0][2], m[0][3] ), JPH::Vec4( m[1][0], m[1][1], m[1][2], m[1][3] ),
-             JPH::Vec4( m[2][0], m[2][1], m[2][2], m[2][3] ), JPH::Vec4( m[3][0], m[3][1], m[3][2], m[3][3] ) );
+        return { JPH::Vec4( m[0][0], m[0][1], m[0][2], m[0][3] ), JPH::Vec4( m[1][0], m[1][1], m[1][2], m[1][3] ),
+                 JPH::Vec4( m[2][0], m[2][1], m[2][2], m[2][3] ),
+                 JPH::Vec4( m[3][0], m[3][1], m[3][2], m[3][3] ) };
     }
 
     glm::vec3 TranslationOf( const JPH::Mat44& m )
@@ -180,6 +179,27 @@ namespace
             out.AddJoint( b.Name,
                           b.IsRoot() ? JPH::string_view() : JPH::string_view( bones[b.GetParentID()].Name ) );
         out.CalculateParentJointIndices();
+    }
+
+    /**
+     * @brief A bone index, or a loud failure naming the bone.
+     *
+     * THE ASSERT IS NOT ENOUGH, AND NOT ONLY FOR THE ANALYSER. `ASSERT_TRUE`'s early return is a macro
+     * the clang-tidy dataflow does not model, so every `*idx` after one still reads as an unchecked
+     * optional access -- the same finding A21 closed in the rig-graph suite with an explicit `if`. An
+     * explicit check that RETURNS A VALUE is provably checked AND usable inside an expression, which is
+     * what a dozen measurements below need. A missing bone is reported with its name rather than
+     * silently measuring bone 0: the failure is already on the record by the time 0 is returned.
+     */
+    uint32_t BoneIndex( const Skeleton& rig, const std::string& name )
+    {
+        const auto idx = rig.FindBoneIndex( name );
+        if ( !idx.has_value() )
+        {
+            ADD_FAILURE() << "the rig has no bone named " << name;
+            return 0;
+        }
+        return *idx;
     }
 
     std::vector<glm::mat4> ModelSpace( const Skeleton& rig, const LocalPose& local )
@@ -235,7 +255,7 @@ namespace
     std::vector<double> SampleTicks( const Desert::Animation::AnimationClip& clip )
     {
         std::vector<double> out;
-        const double        duration = static_cast<double>( clip.DurationTicks.Value );
+        const auto          duration = static_cast<double>( clip.DurationTicks.Value );
         for ( int i = 0; i <= 10; ++i )
             out.push_back( duration * i / 10.0 );
         return out;
@@ -322,8 +342,7 @@ TEST( SkeletonMapperFit, OurClipDrivesTheMappedRig )
     JPH::SkeletonMapper mapper;
     mapper.Initialize( &joltRig, bindJolt.data(), &joltRig, bindJolt.data() );
 
-    const auto tipIdx = rig.FindBoneIndex( kTip );
-    ASSERT_TRUE( tipIdx.has_value() );
+    const uint32_t tipIdx = BoneIndex( rig, kTip );
 
     float maxTravel = 0.0F;
     for ( const double t : SampleTicks( clip ) )
@@ -336,7 +355,7 @@ TEST( SkeletonMapperFit, OurClipDrivesTheMappedRig )
         mapper.Map( src.data(), localJolt.data(), out.data() );
 
         maxTravel =
-             std::max( maxTravel, Distance( TranslationOf( out[*tipIdx] ), glm::vec3( bindModel[*tipIdx][3] ) ) );
+             std::max( maxTravel, Distance( TranslationOf( out[tipIdx] ), glm::vec3( bindModel[tipIdx][3] ) ) );
     }
 
     // The corpus suite pins this clip as one that MOVES; 10 cm is far above the 1e-3 cm floor measurement
@@ -395,17 +414,14 @@ namespace
         JPH::SkeletonMapper mapper;
         mapper.Initialize( &joltSource, srcBindJolt.data(), &joltTarget, tgtBindJolt.data() );
 
-        const auto rootIdx = target.FindBoneIndex( kRoot );
-        const auto midIdx  = target.FindBoneIndex( kMid );
-        const auto tipIdx  = target.FindBoneIndex( kTip );
-        EXPECT_TRUE( rootIdx && midIdx && tipIdx );
-        if ( !( rootIdx && midIdx && tipIdx ) )
-            return {};
+        const uint32_t rootIdx = BoneIndex( target, kRoot );
+        const uint32_t midIdx  = BoneIndex( target, kMid );
+        const uint32_t tipIdx  = BoneIndex( target, kTip );
 
         const float upperRest =
-             Distance( glm::vec3( tgtBindModel[*rootIdx][3] ), glm::vec3( tgtBindModel[*midIdx][3] ) );
+             Distance( glm::vec3( tgtBindModel[rootIdx][3] ), glm::vec3( tgtBindModel[midIdx][3] ) );
         const float lowerRest =
-             Distance( glm::vec3( tgtBindModel[*midIdx][3] ), glm::vec3( tgtBindModel[*tipIdx][3] ) );
+             Distance( glm::vec3( tgtBindModel[midIdx][3] ), glm::vec3( tgtBindModel[tipIdx][3] ) );
 
         LimbError out;
         bool      first = true;
@@ -417,9 +433,9 @@ namespace
             mapper.Map( src.data(), tgtLocalJolt.data(), mapped.data() );
 
             const float upper =
-                 Distance( TranslationOf( mapped[*rootIdx] ), TranslationOf( mapped[*midIdx] ) ) / upperRest;
+                 Distance( TranslationOf( mapped[rootIdx] ), TranslationOf( mapped[midIdx] ) ) / upperRest;
             const float lower =
-                 Distance( TranslationOf( mapped[*midIdx] ), TranslationOf( mapped[*tipIdx] ) ) / lowerRest;
+                 Distance( TranslationOf( mapped[midIdx] ), TranslationOf( mapped[tipIdx] ) ) / lowerRest;
             const float worst = std::max( std::fabs( upper - 1.0F ), std::fabs( lower - 1.0F ) );
             out.Worst         = std::max( out.Worst, worst );
             if ( first )
@@ -563,18 +579,17 @@ TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
     mapper.Initialize( &joltSource, ToJoltArray( srcBindModel ).data(), &joltTarget,
                        ToJoltArray( tgtBindModel ).data() );
 
-    const auto tipIdx = target.FindBoneIndex( kTip );
-    ASSERT_TRUE( tipIdx.has_value() );
+    const uint32_t tipIdx = BoneIndex( target, kTip );
 
     const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks.Value * 0.3 ) );
 
     std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
     mapper.Map( ToJoltArray( srcModel ).data(), tgtLocalJolt.data(), out.data() );
 
-    const glm::vec3 mappedTip = TranslationOf( out[*tipIdx] );
-    const glm::vec3 sourceTip = glm::vec3( srcModel[*tipIdx][3] );
+    const glm::vec3 mappedTip = TranslationOf( out[tipIdx] );
+    const glm::vec3 sourceTip = glm::vec3( srcModel[tipIdx][3] );
     const glm::vec3 wanted =
-         glm::vec3( ( srcModel[*tipIdx] * glm::inverse( srcBindModel[*tipIdx] ) * tgtBindModel[*tipIdx] )[3] );
+         glm::vec3( ( srcModel[tipIdx] * glm::inverse( srcBindModel[tipIdx] ) * tgtBindModel[tipIdx] )[3] );
 
     EXPECT_LT( Distance( mappedTip, wanted ), 1e-2F )
          << "the mapped tip is not D[j] * neutral2[j]; the formula this whole document rests on is wrong";
@@ -633,11 +648,10 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
     mapper.Initialize( &joltSource, ToJoltArray( srcBindModel ).data(), &joltTarget,
                        ToJoltArray( tgtBindModel ).data() );
 
-    const auto rootIdx = source.FindBoneIndex( "Base" );
-    ASSERT_TRUE( rootIdx.has_value() );
+    const uint32_t rootIdx = BoneIndex( source, "Base" );
 
-    const float srcRestY = srcBindModel[*rootIdx][3][1];
-    const float tgtRestY = tgtBindModel[*rootIdx][3][1];
+    const float srcRestY = srcBindModel[rootIdx][3][1];
+    const float tgtRestY = tgtBindModel[rootIdx][3][1];
     ASSERT_NEAR( tgtRestY / srcRestY, 1.5F, 1e-3F ) << "the taller rig is not 1.5x taller at the root";
 
     float bestSourceLift = 0.0F;
@@ -650,11 +664,11 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
         std::vector<JPH::Mat44> mapped( target.GetBones().size(), JPH::Mat44::sIdentity() );
         mapper.Map( src.data(), tgtLocalJolt.data(), mapped.data() );
 
-        const float sourceLift = model[*rootIdx][3][1] - srcRestY;
+        const float sourceLift = model[rootIdx][3][1] - srcRestY;
         if ( std::fabs( sourceLift ) > std::fabs( bestSourceLift ) )
         {
             bestSourceLift = sourceLift;
-            liftAtBest     = TranslationOf( mapped[*rootIdx] ).y - tgtRestY;
+            liftAtBest     = TranslationOf( mapped[rootIdx] ).y - tgtRestY;
         }
     }
 
@@ -704,17 +718,16 @@ TEST( SkeletonMapperFit, ScaleSurvivesADirectMapping )
     JPH::SkeletonMapper mapper;
     mapper.Initialize( &joltRig, bindJolt.data(), &joltRig, bindJolt.data() );
 
-    const auto midIdx = rig.FindBoneIndex( kMid );
-    ASSERT_TRUE( midIdx.has_value() );
+    const uint32_t midIdx = BoneIndex( rig, kMid );
 
     LocalPose scaled      = bind;
-    scaled[*midIdx].Scale = glm::vec3( 2.0F );
+    scaled[midIdx].Scale  = glm::vec3( 2.0F );
     const auto scaledJolt = ToJoltArray( ModelSpace( rig, scaled ) );
 
     std::vector<JPH::Mat44> out( bindJolt.size(), JPH::Mat44::sIdentity() );
     mapper.Map( scaledJolt.data(), localJolt.data(), out.data() );
 
-    const JPH::Vec3 col = out[*midIdx].GetAxisX();
+    const JPH::Vec3 col = out[midIdx].GetAxisX();
     EXPECT_NEAR( col.Length(), 2.0F, 1e-3F )
          << "a 2x scale did not survive a direct mapping; the Mat44 path is narrower than it looks";
 }
@@ -739,17 +752,16 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
     const Skeleton source{ std::vector<BoneInfo>( bones ) };
 
     std::vector<BoneInfo> extended;
-    const auto            srcMid = source.FindBoneIndex( kMid );
-    const auto            srcTip = source.FindBoneIndex( kTip );
-    ASSERT_TRUE( srcMid && srcTip );
+    const uint32_t        srcMid = BoneIndex( source, kMid );
+    const uint32_t        srcTip = BoneIndex( source, kTip );
     for ( size_t i = 0; i < bones.size(); ++i )
     {
-        if ( i == *srcTip )
+        if ( i == srcTip )
         {
             BoneInfo twist;
             twist.Name               = "IK_Twist";
-            twist.ParentBoneID       = static_cast<uint32_t>( *srcMid );
-            twist.LocalBindTransform = bones[*srcTip].LocalBindTransform;
+            twist.ParentBoneID       = static_cast<uint32_t>( srcMid );
+            twist.LocalBindTransform = bones[srcTip].LocalBindTransform;
             twist.LocalBindTransform[3][0] *= 0.5F;
             twist.LocalBindTransform[3][1] *= 0.5F;
             twist.LocalBindTransform[3][2] *= 0.5F;
@@ -764,7 +776,7 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
                  glm::rotate( glm::mat4( 1.0F ), glm::radians( 30.0F ), glm::vec3( 0, 0, 1 ) );
             extended.push_back( twist );
 
-            BoneInfo hand     = bones[*srcTip];
+            BoneInfo hand     = bones[srcTip];
             hand.ParentBoneID = static_cast<uint32_t>( extended.size() - 1 );
             hand.LocalBindTransform[3][0] *= 0.5F;
             hand.LocalBindTransform[3][1] *= 0.5F;
@@ -773,7 +785,7 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
             continue;
         }
         BoneInfo b = bones[i];
-        if ( !b.IsRoot() && b.GetParentID() >= *srcTip )
+        if ( !b.IsRoot() && b.GetParentID() >= srcTip )
             b.ParentBoneID = b.GetParentID() + 1; // an index shifted by the insertion
         extended.push_back( b );
     }
@@ -804,9 +816,8 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
          << "IK_Elbow -> IK_Twist -> IK_Hand is exactly the run Chain exists for";
     EXPECT_EQ( mapper.GetUnmapped().size(), 0u ) << "IK_Twist is inside the chain, not left over";
 
-    const auto clip     = ProbeClip();
-    const auto twistIdx = target.FindBoneIndex( "IK_Twist" );
-    ASSERT_TRUE( twistIdx.has_value() );
+    const auto     clip     = ProbeClip();
+    const uint32_t twistIdx = BoneIndex( target, "IK_Twist" );
 
     float moved = 0.0F;
     for ( const double t : SampleTicks( clip ) )
@@ -815,8 +826,8 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
 
         std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
         mapper.Map( src.data(), tgtLocalJolt.data(), out.data() );
-        moved = std::max( moved,
-                          Distance( TranslationOf( out[*twistIdx] ), glm::vec3( tgtBindModel[*twistIdx][3] ) ) );
+        moved =
+             std::max( moved, Distance( TranslationOf( out[twistIdx] ), glm::vec3( tgtBindModel[twistIdx][3] ) ) );
     }
 
     std::cout << "[ MEASURED ] the unmapped intermediate joint travelled " << moved
@@ -828,18 +839,16 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
     // rewrites the chain START's rotation with Quat::sFromTo(actual, desired); without that line the
     // elbow keeps D[elbow] * neutral2[elbow] exactly. The angle between the two X axes is therefore a
     // direct observation of the one piece of machinery §3.19 credits this class with.
-    const auto elbowIdx = target.FindBoneIndex( kMid );
-    ASSERT_TRUE( elbowIdx.has_value() );
+    const uint32_t elbowIdx = BoneIndex( target, kMid );
 
     const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks.Value * 0.3 ) );
     std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
     mapper.Map( ToJoltArray( srcModel ).data(), tgtLocalJolt.data(), out.data() );
 
     const auto      srcBindModel = ModelSpace( source, BindPose( source ) );
-    const glm::mat4 directOnly =
-         srcModel[*srcMid] * glm::inverse( srcBindModel[*srcMid] ) * tgtBindModel[*elbowIdx];
+    const glm::mat4 directOnly = srcModel[srcMid] * glm::inverse( srcBindModel[srcMid] ) * tgtBindModel[elbowIdx];
 
-    const JPH::Vec3 gotAxis = out[*elbowIdx].GetAxisX();
+    const JPH::Vec3 gotAxis = out[elbowIdx].GetAxisX();
     const glm::vec3 got     = glm::normalize( glm::vec3( gotAxis.GetX(), gotAxis.GetY(), gotAxis.GetZ() ) );
     const glm::vec3 direct  = glm::normalize( glm::vec3( directOnly[0] ) );
     const float     degrees = glm::degrees( std::acos( std::clamp( glm::dot( got, direct ), -1.0F, 1.0F ) ) );
