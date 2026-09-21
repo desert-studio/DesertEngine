@@ -51,6 +51,8 @@
 #include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/Skeleton/SkeletonMapper.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <rflcpp/rfl.hpp>
 #include <rflcpp/rfl/json.hpp>
 
@@ -161,12 +163,21 @@ namespace
     }
 
     // Our Skeleton -> JPH::Skeleton, in OUR bone array order. The order is carried over unchanged on
-    // purpose: the whole point of measurement 7 is what Jolt does with an order our type permits.
+    // purpose: the whole point of measurement 8a is what Jolt does with an order our type permits.
+    //
+    // THE PARENT-NAME OVERLOAD, NOT THE PARENT-INDEX ONE, AND THIS COST A CRASH TO FIND.
+    // `AddJoint(name, int parentIndex)` is written `mJoints[inParentIndex].mName` -- it reads the
+    // parent's name out of the array position the parent is ASSUMED to already occupy. On a child-first
+    // rig, which our Skeleton explicitly permits, that index has not been filled yet and the read runs
+    // off the end of a vector with no bounds check and no assert. The suite died silently on exactly
+    // that before this was changed. The name overload plus CalculateParentJointIndices() is
+    // order-independent and is the only safe conversion from our bone array.
     void FillJoltSkeleton( const Skeleton& rig, JPH::Skeleton& out )
     {
         const auto& bones = rig.GetBones();
         for ( const BoneInfo& b : bones )
-            out.AddJoint( b.Name, b.IsRoot() ? -1 : static_cast<int>( b.GetParentID() ) );
+            out.AddJoint( b.Name, b.IsRoot() ? JPH::string_view() : JPH::string_view( bones[b.GetParentID()].Name ) );
+        out.CalculateParentJointIndices();
     }
 
     std::vector<glm::mat4> ModelSpace( const Skeleton& rig, const LocalPose& local )
@@ -242,7 +253,7 @@ TEST( SkeletonMapperFit, OurRigMapsOntoItselfUnchanged )
     const auto bones = ProbeBones();
     ASSERT_EQ( bones.size(), 5u ) << "IKProbe.skeleton is the five-bone probe this suite was written for";
 
-    const Skeleton rig( std::vector<BoneInfo>( bones ) );
+    const Skeleton rig{ std::vector<BoneInfo>( bones ) };
     ASSERT_TRUE( rig.GetStructureError().empty() ) << rig.GetStructureError();
 
     JPH::Skeleton joltRig;
@@ -289,7 +300,7 @@ TEST( SkeletonMapperFit, OurClipDrivesTheMappedRig )
     ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
-    const Skeleton rig( std::vector<BoneInfo>( bones ) );
+    const Skeleton rig{ std::vector<BoneInfo>( bones ) };
     const auto     clip = ProbeClip();
     ASSERT_FALSE( clip.Tracks.empty() ) << "the probe clip carries no tracks";
     ASSERT_EQ( clip.SkeletonSignature, rig.GetSignature() )
@@ -334,26 +345,231 @@ TEST( SkeletonMapperFit, OurClipDrivesTheMappedRig )
 // ---------------------------------------------------------------------------------------------------
 // 3. THE DECIDING MEASUREMENT: A TARGET WITH DIFFERENT PROPORTIONS.
 //
-// This is what retargeting IS. The target rig here is the probe with every bone offset scaled 1.5x -- a
-// taller character, same bone names, same hierarchy. A retargeter must leave the TARGET's bone lengths
-// alone and transfer only the motion.
+// This is what retargeting IS, and the first draft of this test asserted the wrong thing. It predicted
+// that Map() would destroy the target's bone lengths, because Map() writes every mapped joint
+// INDEPENDENTLY in model space and never consults a bone length. The run said otherwise: 0.39 % worst
+// error on a 1.5x-taller rig. The algebra explains it, and the explanation is the deliverable:
 //
-// Asserted as a RATIO (mapped limb length / the target's own rest limb length), never in centimetres:
-// the property is scale-free, and a threshold in centimetres would be a different assertion on every rig.
+//   Map() writes outPose2[b] = pose1[a] * (neutral1[a]^-1 * neutral2[b]) = D[a] * neutral2[b],
+//   where D[a] = pose1[a] * neutral1[a]^-1 is the source joint's model-space delta from ITS rest pose.
+//   For two joints i, j: if their delta ROTATIONS are equal and the source's own segment is rigid, the
+//   whole expression collapses to |dR * (neutral2[j].t - neutral2[i].t)| -- the TARGET's rest length,
+//   exactly. The error is therefore proportional to the product of two things: how much the two rest
+//   poses differ at that joint, and how much the joint BENDS.
+//
+// So the honest instrument is not one number but the law: sweep the proportion factor k and watch the
+// error grow with it. Asserted as RATIOS (mapped length / the target's own rest length) throughout --
+// the property is scale-free and a centimetre threshold would be a different assertion on every rig.
 // ---------------------------------------------------------------------------------------------------
-TEST( SkeletonMapperFit, MappingOntoADifferentlyProportionedRigDoesNotPreserveItsBoneLengths )
+namespace
+{
+    // Worst |ratio - 1| of a mapped limb segment to the target's own rest length, over the whole clip.
+    // `worstAtRest` comes back separately because "correct at rest, wrong under animation" is the shape
+    // of the defect and a single worst-case number would hide it.
+    struct LimbError
+    {
+        float Worst       = 0.0F;
+        float WorstAtRest = 0.0F;
+    };
+
+    LimbError MeasureLimbError( const Skeleton& source, const Skeleton& target,
+                                const Desert::Animation::AnimationClip& clip )
+    {
+        JPH::Skeleton joltSource;
+        JPH::Skeleton joltTarget;
+        FillJoltSkeleton( source, joltSource );
+        FillJoltSkeleton( target, joltTarget );
+
+        const auto srcBindJolt  = ToJoltArray( ModelSpace( source, BindPose( source ) ) );
+        const auto tgtBind      = BindPose( target );
+        const auto tgtBindModel = ModelSpace( target, tgtBind );
+        const auto tgtBindJolt  = ToJoltArray( tgtBindModel );
+
+        std::vector<JPH::Mat44> tgtLocalJolt;
+        for ( size_t i = 0; i < tgtBind.Size(); ++i )
+            tgtLocalJolt.push_back( ToJolt( tgtBind[i].ToMatrix() ) );
+
+        JPH::SkeletonMapper mapper;
+        mapper.Initialize( &joltSource, srcBindJolt.data(), &joltTarget, tgtBindJolt.data() );
+
+        const auto rootIdx = target.FindBoneIndex( kRoot );
+        const auto midIdx  = target.FindBoneIndex( kMid );
+        const auto tipIdx  = target.FindBoneIndex( kTip );
+        EXPECT_TRUE( rootIdx && midIdx && tipIdx );
+        if ( !( rootIdx && midIdx && tipIdx ) )
+            return {};
+
+        const float upperRest =
+             Distance( glm::vec3( tgtBindModel[*rootIdx][3] ), glm::vec3( tgtBindModel[*midIdx][3] ) );
+        const float lowerRest =
+             Distance( glm::vec3( tgtBindModel[*midIdx][3] ), glm::vec3( tgtBindModel[*tipIdx][3] ) );
+
+        LimbError out;
+        bool      first = true;
+        for ( const double t : SampleTicks( clip ) )
+        {
+            const auto src = ToJoltArray( ModelSpace( source, PoseAt( source, clip, t ) ) );
+
+            std::vector<JPH::Mat44> mapped( target.GetBones().size(), JPH::Mat44::sIdentity() );
+            mapper.Map( src.data(), tgtLocalJolt.data(), mapped.data() );
+
+            const float upper =
+                 Distance( TranslationOf( mapped[*rootIdx] ), TranslationOf( mapped[*midIdx] ) ) / upperRest;
+            const float lower =
+                 Distance( TranslationOf( mapped[*midIdx] ), TranslationOf( mapped[*tipIdx] ) ) / lowerRest;
+            const float worst = std::max( std::fabs( upper - 1.0F ), std::fabs( lower - 1.0F ) );
+            out.Worst         = std::max( out.Worst, worst );
+            if ( first )
+            {
+                out.WorstAtRest = worst;
+                first           = false;
+            }
+        }
+        return out;
+    }
+
+    // The target rig with `bone`'s rest transform pre-rotated about X. This is the A-pose-versus-T-pose
+    // difference in its smallest honest form: the two rigs share names and proportions and disagree only
+    // about what "rest" looks like, which is the difference a retarget POSE exists to absorb.
+    Skeleton RestRotatedRig( const std::vector<BoneInfo>& source, const std::string& bone, float radians )
+    {
+        std::vector<BoneInfo> bones = source;
+        for ( BoneInfo& b : bones )
+            if ( b.Name == bone )
+                b.LocalBindTransform =
+                     b.LocalBindTransform * glm::rotate( glm::mat4( 1.0F ), radians, glm::vec3( 1, 0, 0 ) );
+        Skeleton rig( std::move( bones ) );
+        rig.RecomputeOffsetMatrices();
+        return rig;
+    }
+} // namespace
+
+TEST( SkeletonMapperFit, LimbLengthErrorGrowsWithTheRestPoseDifference )
 {
     ASSERT_FALSE( RepoRoot().empty() );
 
-    const auto     bones  = ProbeBones();
-    const Skeleton source( std::vector<BoneInfo>( bones ) );
-    const Skeleton target = ScaledRig( bones, 1.5F );
-    const auto     clip   = ProbeClip();
+    const auto     bones = ProbeBones();
+    const Skeleton source{ std::vector<BoneInfo>( bones ) };
+    const auto     clip = ProbeClip();
     ASSERT_FALSE( clip.Tracks.empty() );
 
-    // The two rigs are the SAME rig as far as this engine is concerned.
-    EXPECT_EQ( source.GetSignature(), target.GetSignature() )
-         << "ComputeSignature is over names and parents; proportions are deliberately not in it";
+    // The two rigs are the SAME rig as far as this engine is concerned, at every k: ComputeSignature is
+    // over names and parents. Nothing in the clip<->rig binding stops the taller one playing this clip.
+    EXPECT_EQ( source.GetSignature(), ScaledRig( bones, 3.0F ).GetSignature() );
+
+    // NOT MONOTONE, AND THE SECOND DRAFT OF THIS TEST ASSERTED THAT IT WAS. Measured: k=1.25 gives more
+    // error than k=1.5. The formula says why and the shape is worth keeping rather than smoothing over --
+    // the mapped segment is |P1[j].t - P1[i].t + (k-1)(dR_j p_j - dR_i p_i)| over k|p_j - p_i|, a norm of
+    // a SUM, so it can dip on the way to its large-k asymptote. A retarget error that is not monotone in
+    // the proportion difference is a retarget error you cannot bound by testing one pair of rigs.
+    float atSmallest = -1.0F;
+    float atLargest  = -1.0F;
+    for ( const float k : { 1.0F, 1.25F, 1.5F, 2.0F, 3.0F } )
+    {
+        const Skeleton  target = ScaledRig( bones, k );
+        const LimbError err    = MeasureLimbError( source, target, clip );
+
+        std::cout << "[ MEASURED ] proportion factor k=" << k << "  worst limb-length error "
+                  << err.Worst * 100.0F << " %  (at rest " << err.WorstAtRest * 100.0F << " %)\n";
+
+        // CORRECT AT REST, AT EVERY k. This is the half that makes the defect dangerous: a bind-pose
+        // screenshot of a retarget built on this mapper is perfect no matter how badly proportioned the
+        // two rigs are.
+        EXPECT_LT( err.WorstAtRest, 1e-4F ) << "k=" << k << ": the rest pose itself is already wrong";
+
+        if ( k == 1.0F )
+        {
+            EXPECT_LT( err.Worst, 1e-4F )
+                 << "identical rigs: the mapper must be exact, otherwise every number above is noise";
+            continue;
+        }
+
+        EXPECT_GT( err.Worst, 1e-3F )
+             << "k=" << k
+             << ": a rig with different proportions kept its limb lengths to within 0.1 %. If this ever "
+                "becomes true, Map() has acquired a notion of the target's bone lengths and T6.2's "
+                "normalised-limb-extension item would have to be revisited.";
+
+        if ( atSmallest < 0.0F )
+            atSmallest = err.Worst;
+        atLargest = err.Worst;
+    }
+
+    // The one growth statement the data supports: the worst proportion difference measured is the worst
+    // error measured. Not "it grows at every step" -- see the note above.
+    EXPECT_GT( atLargest, atSmallest )
+         << "a 3x rig did not err more than a 1.25x rig; the rest-pose difference is not what drives this";
+}
+
+// THE OTHER AXIS, AND HERE THE MAPPER WINS OUTRIGHT. Same proportions, different rest ORIENTATION: a
+// purchased clip authored on an A-pose driving a character modelled in a T-pose. This was written
+// expecting a second failure and measured 3e-7 % -- EXACT.
+//
+// The algebra again: outPose2[j] = D[j] * neutral2[j] carries the TARGET's own rest transform, so a rest
+// pose that differs only in orientation cancels identically. That is the FK-delta semantics UE's
+// retargeter implements with an explicitly authored retarget pose, and Jolt gets it for free out of the
+// model-space delta formulation. It is the single strongest argument in this document for reusing the
+// idea even if the class is not reused.
+TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
+{
+    ASSERT_FALSE( RepoRoot().empty() );
+
+    const auto     bones = ProbeBones();
+    const Skeleton source{ std::vector<BoneInfo>( bones ) };
+    const auto     clip = ProbeClip();
+
+    // 45 degrees at the elbow: the whole forearm sits somewhere else at rest, nothing else changes.
+    const Skeleton  target = RestRotatedRig( bones, kMid, glm::radians( 45.0F ) );
+    const LimbError err    = MeasureLimbError( source, target, clip );
+
+    std::cout << "[ MEASURED ] 45 deg rest-orientation difference at the elbow: worst limb-length error "
+              << err.Worst * 100.0F << " %  (at rest " << err.WorstAtRest * 100.0F << " %)\n";
+
+    EXPECT_LT( err.WorstAtRest, 1e-4F ) << "the rest pose is exact here too";
+    EXPECT_LT( err.Worst, 1e-4F )
+         << "a rest-orientation difference produced limb-length error. The whole reason to reuse this "
+            "mapper is that the model-space delta absorbs it exactly; if that stops being true there is "
+            "nothing left to reuse.";
+
+    // The negative control this needs: the same measurement with a rest-POSITION difference is NOT zero
+    // (see the k sweep above). Without it "absorbed exactly" would be indistinguishable from an
+    // instrument that cannot see anything.
+    const LimbError proportions = MeasureLimbError( source, ScaledRig( bones, 2.0F ), clip );
+    EXPECT_GT( proportions.Worst, 1e-3F )
+         << "the instrument reports zero for a proportion difference too, so it is measuring nothing";
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 4. PELVIS HEIGHT SCALING — T6.2 names it; Map() has no notion of it, and this measures the size of
+//    the omission rather than asserting it from the source.
+//
+// IKProbe_Swing cannot answer this: its two tracks carry CONSTANT position keys, so the probe's root
+// never translates and any root-height number taken from it would be a statement about the clip. The
+// corpus's root-translating clip is TwoBoneProbe_Wave (Base rises 100 -> 150 cm), so the measurement is
+// taken on the rig that clip was authored for. Using the other probe is the point, not a shortcut.
+// ---------------------------------------------------------------------------------------------------
+TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
+{
+    ASSERT_FALSE( RepoRoot().empty() );
+
+    const std::string raw = ReadFile( RepoRoot() + "Editor/Cooked/Meshes/TwoBoneProbe.skeleton" );
+    ASSERT_FALSE( raw.empty() );
+    auto data = rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
+    ASSERT_TRUE( data.has_value() );
+    const std::vector<BoneInfo> twoBones = data.value().Bones;
+
+    const Skeleton source{ std::vector<BoneInfo>( twoBones ) };
+    const Skeleton target = ScaledRig( twoBones, 1.5F );
+
+    const std::string clipRaw = ReadFile( RepoRoot() + "Editor/Cooked/Meshes/TwoBoneProbe_Wave.anim" );
+    ASSERT_FALSE( clipRaw.empty() );
+    const auto clipData =
+         rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( clipRaw );
+    ASSERT_TRUE( clipData.has_value() );
+    auto built = Desert::Assets::Serialization::BuildClipFromAssetData( clipData.value() );
+    ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
+    const auto clip = built.ExtractValue();
+    ASSERT_EQ( clip.SkeletonSignature, source.GetSignature() );
 
     JPH::Skeleton joltSource;
     JPH::Skeleton joltTarget;
@@ -361,145 +577,74 @@ TEST( SkeletonMapperFit, MappingOntoADifferentlyProportionedRigDoesNotPreserveIt
     FillJoltSkeleton( target, joltTarget );
 
     const auto srcBind      = BindPose( source );
-    const auto tgtBind      = BindPose( target );
     const auto srcBindModel = ModelSpace( source, srcBind );
+    const auto tgtBind      = BindPose( target );
     const auto tgtBindModel = ModelSpace( target, tgtBind );
-    const auto srcBindJolt  = ToJoltArray( srcBindModel );
-    const auto tgtBindJolt  = ToJoltArray( tgtBindModel );
 
     std::vector<JPH::Mat44> tgtLocalJolt;
     for ( size_t i = 0; i < tgtBind.Size(); ++i )
         tgtLocalJolt.push_back( ToJolt( tgtBind[i].ToMatrix() ) );
 
     JPH::SkeletonMapper mapper;
-    mapper.Initialize( &joltSource, srcBindJolt.data(), &joltTarget, tgtBindJolt.data() );
-    ASSERT_EQ( mapper.GetMappings().size(), 5u ) << "same names -> five 1:1 mappings";
+    mapper.Initialize( &joltSource, ToJoltArray( srcBindModel ).data(), &joltTarget,
+                       ToJoltArray( tgtBindModel ).data() );
 
-    const auto rootIdx = target.FindBoneIndex( kRoot );
-    const auto midIdx  = target.FindBoneIndex( kMid );
-    const auto tipIdx  = target.FindBoneIndex( kTip );
-    ASSERT_TRUE( rootIdx && midIdx && tipIdx );
-
-    const float upperRest =
-         Distance( glm::vec3( tgtBindModel[*rootIdx][3] ), glm::vec3( tgtBindModel[*midIdx][3] ) );
-    const float lowerRest =
-         Distance( glm::vec3( tgtBindModel[*midIdx][3] ), glm::vec3( tgtBindModel[*tipIdx][3] ) );
-    ASSERT_GT( upperRest, 1.0F );
-    ASSERT_GT( lowerRest, 1.0F );
-
-    float worstRatio = 1.0F; // the sample furthest from 1.0, in either direction
-    float atRestUpper = 0.0F;
-    for ( const double t : SampleTicks( clip ) )
-    {
-        const auto local = PoseAt( source, clip, t );
-        const auto model = ModelSpace( source, local );
-        const auto src   = ToJoltArray( model );
-
-        std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
-        mapper.Map( src.data(), tgtLocalJolt.data(), out.data() );
-
-        const float upper = Distance( TranslationOf( out[*rootIdx] ), TranslationOf( out[*midIdx] ) ) / upperRest;
-        const float lower = Distance( TranslationOf( out[*midIdx] ), TranslationOf( out[*tipIdx] ) ) / lowerRest;
-        if ( t == 0.0 )
-            atRestUpper = upper;
-        for ( const float r : { upper, lower } )
-            if ( std::fabs( r - 1.0F ) > std::fabs( worstRatio - 1.0F ) )
-                worstRatio = r;
-    }
-
-    // WHAT THE FORMULA PREDICTS, so that the number below is understood rather than merely recorded.
-    // Map() writes outPose2[j2] = pose1[j1] * (neutral1[j1]^-1 * neutral2[j2]). Substituting
-    // D[j] = pose1[j] * neutral1[j]^-1 (the source joint's model-space delta from ITS neutral pose) gives
-    // outPose2[j2] = D[j1] * neutral2[j2]: the target's rest transform carried by the source's delta. Each
-    // mapped joint is written INDEPENDENTLY in model space -- nothing in Map() consults the target's own
-    // bone length -- so the distance between two mapped joints is only the target's when D is the same
-    // rigid transform at both ends, i.e. at rest and wherever the two source joints happen not to have
-    // rotated relative to each other. It is therefore CORRECT AT REST and wrong under animation, which is
-    // the worst shape a defect can have: the bind pose looks perfect.
-    EXPECT_NEAR( atRestUpper, 1.0F, 1e-3F )
-         << "at the clip's first sample the mapped limb should still be the target's own length";
-
-    EXPECT_GT( std::fabs( worstRatio - 1.0F ), 0.05F )
-         << "the mapped limb stayed within 5% of the target's own length across the whole clip (worst ratio "
-         << worstRatio
-         << "). If this ever becomes true, re-read the note above -- it would mean Map() acquired a notion "
-            "of the target's bone lengths, and T6.2's refusal would have to be revisited.";
-
-    // Printed so the document can quote a number rather than a verdict.
-    std::cout << "[ MEASURED ] worst mapped-limb / target-rest-limb ratio across the clip: " << worstRatio
-              << " (1.0 would be a retargeter)\n";
-}
-
-// ---------------------------------------------------------------------------------------------------
-// 4. PELVIS HEIGHT SCALING — T6.2 names it; the mapper has no notion of it.
-//
-// Measured on the probe's root: after mapping a source pose onto a 1.5x-taller target, where does the
-// target's root sit? A retargeter scales root height by the rig-height ratio so the taller character's
-// feet stay on the floor. Map() places it wherever the source's root is.
-// ---------------------------------------------------------------------------------------------------
-TEST( SkeletonMapperFit, TheTargetRootTakesTheSourceHeightNotItsOwn )
-{
-    ASSERT_FALSE( RepoRoot().empty() );
-
-    const auto     bones  = ProbeBones();
-    const Skeleton source( std::vector<BoneInfo>( bones ) );
-    const Skeleton target = ScaledRig( bones, 1.5F );
-    const auto     clip   = ProbeClip();
-
-    JPH::Skeleton joltSource;
-    JPH::Skeleton joltTarget;
-    FillJoltSkeleton( source, joltSource );
-    FillJoltSkeleton( target, joltTarget );
-
-    const auto srcBindJolt = ToJoltArray( ModelSpace( source, BindPose( source ) ) );
-    const auto tgtBind     = BindPose( target );
-    const auto tgtBindModel = ModelSpace( target, tgtBind );
-    const auto tgtBindJolt  = ToJoltArray( tgtBindModel );
-
-    std::vector<JPH::Mat44> tgtLocalJolt;
-    for ( size_t i = 0; i < tgtBind.Size(); ++i )
-        tgtLocalJolt.push_back( ToJolt( tgtBind[i].ToMatrix() ) );
-
-    JPH::SkeletonMapper mapper;
-    mapper.Initialize( &joltSource, srcBindJolt.data(), &joltTarget, tgtBindJolt.data() );
-
-    const auto rootIdx = target.FindBoneIndex( kRoot );
+    const auto rootIdx = source.FindBoneIndex( "Base" );
     ASSERT_TRUE( rootIdx.has_value() );
 
-    // Halfway through the clip, where the source root has travelled.
-    const auto local = PoseAt( source, clip, clip.DurationTicks.Value * 0.5 );
-    const auto model = ModelSpace( source, local );
-    const auto src   = ToJoltArray( model );
+    const float srcRestY = srcBindModel[*rootIdx][3][1];
+    const float tgtRestY = tgtBindModel[*rootIdx][3][1];
+    ASSERT_NEAR( tgtRestY / srcRestY, 1.5F, 1e-3F ) << "the taller rig is not 1.5x taller at the root";
 
-    std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
-    mapper.Map( src.data(), tgtLocalJolt.data(), out.data() );
+    float bestSourceLift = 0.0F;
+    float liftAtBest     = 0.0F;
+    for ( const double t : SampleTicks( clip ) )
+    {
+        const auto model = ModelSpace( source, PoseAt( source, clip, t ) );
+        const auto src   = ToJoltArray( model );
 
-    const float sourceRootY = model[*rootIdx][3][1];
-    const float mappedRootY = TranslationOf( out[*rootIdx] ).y;
+        std::vector<JPH::Mat44> mapped( target.GetBones().size(), JPH::Mat44::sIdentity() );
+        mapper.Map( src.data(), tgtLocalJolt.data(), mapped.data() );
 
-    EXPECT_NEAR( mappedRootY, sourceRootY, 1e-3F )
-         << "the mapped root did not land on the source root; the derivation in measurement 3 is wrong";
+        const float sourceLift = model[*rootIdx][3][1] - srcRestY;
+        if ( std::fabs( sourceLift ) > std::fabs( bestSourceLift ) )
+        {
+            bestSourceLift = sourceLift;
+            liftAtBest     = TranslationOf( mapped[*rootIdx] ).y - tgtRestY;
+        }
+    }
 
-    std::cout << "[ MEASURED ] target rest root height " << tgtBindModel[*rootIdx][3][1]
-              << " cm, source root height at mid-clip " << sourceRootY << " cm, mapped target root "
-              << mappedRootY << " cm -- no height ratio is applied anywhere in Map()\n";
+    ASSERT_GT( std::fabs( bestSourceLift ), 10.0F ) << "TwoBoneProbe_Wave no longer lifts its root";
+
+    const float liftRatio = liftAtBest / bestSourceLift;
+    std::cout << "[ MEASURED ] source root lift " << bestSourceLift << " cm; the 1.5x rig's mapped root "
+              << "lifted " << liftAtBest << " cm; ratio " << liftRatio
+              << " (a retargeter that scales pelvis height would give 1.5)\n";
+
+    // 1.0, not 1.5: the translation is carried across as-is. On a character that is half again as tall,
+    // a step that clears a 50 cm ledge on the source clears the same 50 cm -- which on the taller rig is
+    // a shorter step relative to its own legs. That is what "pelvis height scaling" in T6.2 buys, and
+    // nothing in Map() does it.
+    EXPECT_NEAR( liftRatio, 1.0F, 0.05F )
+         << "the root lift was scaled after all; Map() has acquired a height ratio and T6.2's first item "
+            "would have to be revisited";
 }
 
 // ---------------------------------------------------------------------------------------------------
 // 5. SCALE.
 //
-// Our BoneTransform carries a Scale and Pose.hpp gives the reason (clips store S keys, blends blend them).
-// JPH::SkeletonPose::JointState is a quat and a translation and has nowhere to put one. Map() itself is
-// Mat44-typed, so a scale does ride through a DIRECT mapping -- and that is the trap worth pinning,
-// because it makes the loss invisible on a rig with no chains and unavoidable on one with them:
-// Map()'s chain branch calls Mat44::SetRotation, which overwrites the 3x3 that was carrying the scale.
+// Our BoneTransform carries a Scale and Pose.hpp gives the reason (clips store S keys, blends blend
+// them). JPH::SkeletonPose::JointState is a quat and a translation and has nowhere to put one. Map()
+// itself is Mat44-typed, so a scale DOES ride through a direct mapping -- and that is the trap worth
+// pinning, because it makes the loss invisible on a rig with no chains: Map()'s chain branch calls
+// Mat44::SetRotation, which overwrites the 3x3 that was carrying the scale.
 // ---------------------------------------------------------------------------------------------------
-TEST( SkeletonMapperFit, ScaleSurvivesADirectMappingAndIsDestroyedByAChain )
+TEST( SkeletonMapperFit, ScaleSurvivesADirectMapping )
 {
     ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
-    const Skeleton rig( std::vector<BoneInfo>( bones ) );
+    const Skeleton rig{ std::vector<BoneInfo>( bones ) };
 
     JPH::Skeleton joltRig;
     FillJoltSkeleton( rig, joltRig );
@@ -518,15 +663,13 @@ TEST( SkeletonMapperFit, ScaleSurvivesADirectMappingAndIsDestroyedByAChain )
     const auto midIdx = rig.FindBoneIndex( kMid );
     ASSERT_TRUE( midIdx.has_value() );
 
-    LocalPose scaled = bind;
-    scaled[*midIdx].Scale = glm::vec3( 2.0F );
-    const auto scaledJolt = ToJoltArray( ModelSpace( rig, scaled ) );
+    LocalPose scaled       = bind;
+    scaled[*midIdx].Scale  = glm::vec3( 2.0F );
+    const auto scaledJolt  = ToJoltArray( ModelSpace( rig, scaled ) );
 
     std::vector<JPH::Mat44> out( bindJolt.size(), JPH::Mat44::sIdentity() );
     mapper.Map( scaledJolt.data(), localJolt.data(), out.data() );
 
-    // The column length of a scaled basis IS the scale, and the direct-mapping branch is a plain matrix
-    // product, so it comes through.
     const JPH::Vec3 col = out[*midIdx].GetAxisX();
     EXPECT_NEAR( col.Length(), 2.0F, 1e-3F )
          << "a 2x scale did not survive a direct mapping; the Mat44 path is narrower than it looks";
@@ -537,16 +680,20 @@ TEST( SkeletonMapperFit, ScaleSurvivesADirectMappingAndIsDestroyedByAChain )
 //
 // Target = the probe with one extra joint inserted between IK_Elbow and IK_Hand: the purchased-rig case
 // (a twist bone the source rig does not have). Jolt's Initialize should produce one Chain, and Map should
-// place the extra joint by re-aiming the chain start at the source's direction.
+// place the extra joint.
+//
+// THE WHOLE CLIP, NOT ONE SAMPLE. The first draft took the mid-clip pose and measured 5e-5 cm of travel,
+// read it as "the chain is inert" and was wrong: IKProbe_Swing is symmetric and tick 24000 carries the
+// same rotations as tick 0, so the sample chosen was the rest pose. A single sample is not a measurement
+// of a moving thing.
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
 {
     ASSERT_FALSE( RepoRoot().empty() );
 
     const auto     bones = ProbeBones();
-    const Skeleton source( std::vector<BoneInfo>( bones ) );
+    const Skeleton source{ std::vector<BoneInfo>( bones ) };
 
-    // IK_Shoulder(0) IK_Elbow(1) IK_Twist(2, child of elbow) IK_Hand(3, child of twist) IK_Post(4) IK_Kerb(5)
     std::vector<BoneInfo> extended;
     const auto            srcMid = source.FindBoneIndex( kMid );
     const auto            srcTip = source.FindBoneIndex( kTip );
@@ -564,8 +711,8 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
             twist.LocalBindTransform[3][2] *= 0.5F;
             extended.push_back( twist );
 
-            BoneInfo hand         = bones[*srcTip];
-            hand.ParentBoneID     = static_cast<uint32_t>( extended.size() - 1 );
+            BoneInfo hand     = bones[*srcTip];
+            hand.ParentBoneID = static_cast<uint32_t>( extended.size() - 1 );
             hand.LocalBindTransform[3][0] *= 0.5F;
             hand.LocalBindTransform[3][1] *= 0.5F;
             hand.LocalBindTransform[3][2] *= 0.5F;
@@ -608,29 +755,105 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
     const auto twistIdx = target.FindBoneIndex( "IK_Twist" );
     ASSERT_TRUE( twistIdx.has_value() );
 
-    const auto local = PoseAt( source, clip, clip.DurationTicks.Value * 0.5 );
-    const auto src   = ToJoltArray( ModelSpace( source, local ) );
+    float moved = 0.0F;
+    for ( const double t : SampleTicks( clip ) )
+    {
+        const auto src = ToJoltArray( ModelSpace( source, PoseAt( source, clip, t ) ) );
 
-    std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
-    mapper.Map( src.data(), tgtLocalJolt.data(), out.data() );
+        std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
+        mapper.Map( src.data(), tgtLocalJolt.data(), out.data() );
+        moved = std::max(
+             moved, Distance( TranslationOf( out[*twistIdx] ), glm::vec3( tgtBindModel[*twistIdx][3] ) ) );
+    }
 
-    const float moved =
-         Distance( TranslationOf( out[*twistIdx] ), glm::vec3( tgtBindModel[*twistIdx][3] ) );
+    std::cout << "[ MEASURED ] the unmapped intermediate joint travelled " << moved
+              << " cm over the clip -- the chain path is real and it is the one thing here we would "
+                 "otherwise have to write\n";
     EXPECT_GT( moved, 1.0F ) << "the unmapped intermediate joint did not move: the chain is inert";
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 7a. A PRECONDITION OUR SKELETON DELIBERATELY DOES NOT MEET — and it is an assert, not a refusal.
+// 7. THE OUTPUT IS IN THE WRONG CURRENCY FOR OUR PIPELINE, and this measures the conversion, not the idea.
 //
-// Map()'s unmapped branch asserts `parent < joint` by ARRAY INDEX, and LockTranslations/LockAllTranslations
-// assert AreJointsCorrectlyOrdered(). Our Skeleton says the opposite in as many words: "the bone ARRAY
-// order is deliberately left alone -- bone indices are on disk in every .skmesh" (Skeleton.hpp), which is
-// why GetResolveOrder() exists at all. A rig exported child-first is legal for us and silently wrong for
-// Jolt in Release, where JPH_ASSERT compiles to ((void)0).
+// T5.4 made the rig a pose->pose operator: LocalPose in, LocalPose out (parent-relative TRS). Map() hands
+// back MODEL-SPACE Mat44 and takes model-space Mat44. Putting it in the pipeline therefore costs, per
+// character per frame, one ComponentPose resolve on the way in and, on the way out, one 4x4 INVERSE and
+// one BoneTransform::FromMatrix per bone -- and FromMatrix is a refusal path (it rejects a non-positive
+// determinant rather than straightening a mirror), so every frame of a retarget acquires a way to fail.
+//
+// The round trip is measured rather than argued: does Map()'s output survive being turned back into a
+// LocalPose and re-resolved?
+// ---------------------------------------------------------------------------------------------------
+TEST( SkeletonMapperFit, ConvertingTheOutputBackToALocalPoseRoundTrips )
+{
+    ASSERT_FALSE( RepoRoot().empty() );
+
+    const auto     bones = ProbeBones();
+    const Skeleton rig{ std::vector<BoneInfo>( bones ) };
+    const auto     clip = ProbeClip();
+
+    JPH::Skeleton joltRig;
+    FillJoltSkeleton( rig, joltRig );
+
+    const auto bind     = BindPose( rig );
+    const auto bindJolt = ToJoltArray( ModelSpace( rig, bind ) );
+
+    std::vector<JPH::Mat44> localJolt;
+    for ( size_t i = 0; i < bind.Size(); ++i )
+        localJolt.push_back( ToJolt( bind[i].ToMatrix() ) );
+
+    JPH::SkeletonMapper mapper;
+    mapper.Initialize( &joltRig, bindJolt.data(), &joltRig, bindJolt.data() );
+
+    const auto model = ModelSpace( rig, PoseAt( rig, clip, clip.DurationTicks.Value * 0.25 ) );
+    const auto src   = ToJoltArray( model );
+
+    std::vector<JPH::Mat44> out( src.size(), JPH::Mat44::sIdentity() );
+    mapper.Map( src.data(), localJolt.data(), out.data() );
+
+    // Model space -> parent-relative -> TRS, which is what a pipeline stage would have to do.
+    LocalPose back( rig.GetBones().size() );
+    for ( uint32_t i = 0; i < rig.GetBones().size(); ++i )
+    {
+        glm::mat4 m( 1.0F );
+        for ( int c = 0; c < 4; ++c )
+        {
+            const JPH::Vec4 col = out[i].GetColumn4( c );
+            m[c]                = glm::vec4( col.GetX(), col.GetY(), col.GetZ(), col.GetW() );
+        }
+        const uint32_t parent = rig.ResolveParent( i );
+        if ( parent != Skeleton::NO_PARENT )
+        {
+            glm::mat4 pm( 1.0F );
+            for ( int c = 0; c < 4; ++c )
+            {
+                const JPH::Vec4 col = out[parent].GetColumn4( c );
+                pm[c]               = glm::vec4( col.GetX(), col.GetY(), col.GetZ(), col.GetW() );
+            }
+            m = glm::inverse( pm ) * m;
+        }
+        auto trs = Desert::Animation::BoneTransform::FromMatrix( m );
+        ASSERT_TRUE( trs.IsSuccess() ) << "bone " << bones[i].Name << ": " << trs.GetError();
+        back[i] = trs.ExtractValue();
+    }
+
+    const auto reresolved = ModelSpace( rig, back );
+    for ( size_t i = 0; i < reresolved.size(); ++i )
+        EXPECT_LT( Distance( glm::vec3( reresolved[i][3] ), glm::vec3( model[i][3] ) ), 1e-2F )
+             << "bone " << bones[i].Name << " did not survive the model -> local -> model round trip";
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 8a. A PRECONDITION OUR SKELETON DELIBERATELY DOES NOT MEET — and it is an assert, not a refusal.
+//
+// Map()'s unmapped branch asserts `parent < joint` by ARRAY INDEX, and LockTranslations /
+// LockAllTranslations assert AreJointsCorrectlyOrdered(). Our Skeleton says the opposite in as many
+// words: "the bone ARRAY order is deliberately left alone -- bone indices are on disk in every .skmesh"
+// (Skeleton.hpp), which is why GetResolveOrder() exists at all. A rig exported child-first is legal for
+// us and silently wrong for Jolt in Release, where JPH_ASSERT compiles to ((void)0).
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, AChildFirstRigIsLegalForUsAndRejectedByJolt )
 {
-    // Two bones, child at index 0. Nothing in our Skeleton objects: the resolve order sorts it out.
     std::vector<BoneInfo> bones( 2 );
     bones[0].Name               = "Child";
     bones[0].ParentBoneID       = 1;
@@ -647,14 +870,25 @@ TEST( SkeletonMapperFit, AChildFirstRigIsLegalForUsAndRejectedByJolt )
     EXPECT_FALSE( joltRig.AreJointsCorrectlyOrdered() )
          << "Jolt would accept this rig; then Map()'s `parents first` assert is not load-bearing and this "
             "test should be deleted rather than relaxed";
+
+    // AND THE CONVERSION ITSELF HAS A PRECONDITION NOBODY STATES. Jolt's index-taking AddJoint overload
+    // reads `mJoints[parentIndex].mName` while the array is still being filled, so it requires
+    // parentIndex < the joint's own index -- the same parents-first rule, one layer earlier and with no
+    // assert on it at all. Checked here rather than triggered: calling it on this rig is an out-of-bounds
+    // read, which is how it was found.
+    const auto& b = rig.GetBones();
+    ASSERT_EQ( b.size(), 2u );
+    EXPECT_GT( b[0].GetParentID(), 0u )
+         << "this rig no longer has a bone whose parent sits after it; the precondition above is "
+            "untestable and the note should go";
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 7b. THE RETARGET DIRECTION ITSELF IS A PRECONDITION VIOLATION.
+// 8b. THE RETARGET DIRECTION ITSELF IS A PRECONDITION VIOLATION.
 //
-// Initialize() asserts n1 <= n2 -- "Skeleton 1 should be the low detail skeleton". The use T6 exists for is
-// a purchased clip on a bought rig driving OUR character, and there is no rule that the seller's rig has
-// fewer bones than ours. The probes alone already give the violating pair.
+// Initialize() asserts n1 <= n2 -- "Skeleton 1 should be the low detail skeleton". The use T6 exists for
+// is a purchased clip on a bought rig driving OUR character, and there is no rule that the seller's rig
+// has fewer bones than ours. The probes alone already give the violating pair.
 // ---------------------------------------------------------------------------------------------------
 TEST( SkeletonMapperFit, TheSourceRigMayBeLargerThanTheTargetAndJoltForbidsThat )
 {
@@ -674,8 +908,8 @@ TEST( SkeletonMapperFit, TheSourceRigMayBeLargerThanTheTargetAndJoltForbidsThat 
     FillJoltSkeleton( twoBone, joltSmall );
 
     // Not called: Initialize(big, ..., small, ...) trips a JPH_ASSERT in Debug and produces an undefined
-    // mapping in Release. The pair is asserted instead, which is the fact a caller would have to design
-    // around, and it is checked rather than asserted in prose so that a future Jolt that lifts the
+    // mapping in Release. The pair is asserted instead -- it is the fact a caller would have to design
+    // around, and checking it rather than stating it in prose means a future Jolt that lifts the
     // restriction makes this test's premise visibly false.
     EXPECT_GT( joltBig.GetJointCount(), joltSmall.GetJointCount() )
          << "the corpus no longer contains a source rig larger than a target rig";
