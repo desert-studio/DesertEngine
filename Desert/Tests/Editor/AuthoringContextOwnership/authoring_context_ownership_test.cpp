@@ -454,8 +454,7 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
         if ( code.find( "ActiveAuthoringContext" ) == std::string::npos )
             continue; // some other type's Focus/SetMode
 
-        std::string rel = fs::relative( entry.path(), root ).string();
-        writers.insert( rel );
+        writers.insert( fs::relative( entry.path(), root ).string() );
     }
 
     EXPECT_GT( files, 200 );

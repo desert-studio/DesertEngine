@@ -571,7 +571,7 @@ namespace Desert::Editor
             auto*      editClip = const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() );
             auto&      authoring = Core::ActiveAuthoringContext();
             const int  selBone   = authoring.SelectedBoneIndex();
-            const bool canKey    = editClip && authoring.ShowsBones() && selBone >= 0;
+            const bool canKey    = editClip != nullptr && authoring.ShowsBones() && selBone >= 0;
 
             // Author-by-posing: while a clip is open and bones are being authored, the bone gizmo edits the
             // Animator's editable pose buffer (not the rig's bind pose), and keying captures that buffer.
