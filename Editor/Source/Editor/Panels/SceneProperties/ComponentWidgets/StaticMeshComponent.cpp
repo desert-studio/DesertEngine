@@ -17,6 +17,7 @@
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <array>
 #include <filesystem>
 #include <system_error>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
@@ -122,11 +123,20 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::BeginPropertyRow( "Shape", nullptr, assetRow );
             DrawMeshThumbnail( staticMesh, kThumb );
 
-            const char* shapes[] = { "Cube", "Sphere", "Pyramid", "Plane", "Cylinder", "Capsule" };
-            int currentShape = (int)staticMesh.Primitive.value();
-            if ( ImGui::Combo( "##Shape", &currentShape, shapes, IM_ARRAYSIZE( shapes ) ) )
+            // Offered list and stored value both come from Geometry::kAuthorablePrimitives, so the row
+            // a person picks IS the enumerator that gets stored. The hand-typed twin of this list in the
+            // Instanced Static Mesh editor had two shapes transposed — see PrimitiveTypeName's header.
+            std::array<const char*, Geometry::kAuthorablePrimitives.size()> shapes{};
+            int                                                             currentShape = 0;
+            for ( size_t i = 0; i < Geometry::kAuthorablePrimitives.size(); ++i )
             {
-                staticMesh.Primitive = (Geometry::PrimitiveType)currentShape;
+                shapes[i] = Geometry::PrimitiveTypeName( Geometry::kAuthorablePrimitives[i] );
+                if ( Geometry::kAuthorablePrimitives[i] == staticMesh.Primitive.value() )
+                    currentShape = static_cast<int>( i );
+            }
+            if ( ImGui::Combo( "##Shape", &currentShape, shapes.data(), static_cast<int>( shapes.size() ) ) )
+            {
+                staticMesh.Primitive = Geometry::kAuthorablePrimitives[static_cast<size_t>( currentShape )];
                 // MeshECSSystem will handle the dynamic mesh generation/update
             }
 
@@ -405,14 +415,11 @@ namespace Desert::Editor
 
     std::string StaticMeshComponentWidget::GetPrimitiveName( const ECS::StaticMeshComponent& staticMesh ) const
     {
-        if ( !staticMesh.Primitive ) return "None";
-        switch ( *staticMesh.Primitive )
-        {
-            case Geometry::PrimitiveType::Cube: return "Cube";
-            case Geometry::PrimitiveType::Sphere: return "Sphere";
-            case Geometry::PrimitiveType::Plane: return "Plane";
-            default: return "Primitive";
-        }
+        // Was a three-case switch with a `default: return "Primitive"`, so a cylinder, a capsule and a
+        // pyramid all read as "Primitive" in the one place that names the mesh being drawn.
+        if ( !staticMesh.Primitive )
+            return "None";
+        return Geometry::PrimitiveTypeName( *staticMesh.Primitive );
     }
 
     DESERT_REGISTER_CUSTOM_COMPONENT( ECS::StaticMeshComponent, "3D Model", false,

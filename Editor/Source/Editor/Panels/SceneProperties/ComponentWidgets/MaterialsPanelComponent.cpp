@@ -69,6 +69,23 @@ namespace Desert::Editor
             host.Mesh             = c.RuntimeMesh ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
                                                   : Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
         }
+        else if ( entity.HasComponent<ECS::InstancedStaticMeshComponent>() )
+        {
+            // THE THIRD MESH KIND, and it carries the same pair for the same reason: MeshECSSystem
+            // builds its RuntimeMaterialInstances from MaterialSlots exactly as the static path does.
+            // Until this branch existed an ISM had NO material UI at all — its slots could only be
+            // written by editing the scene file — which made "one draw for five hundred props" a
+            // feature you could not give a look to.
+            //
+            // A primitive ISM has no asset mesh, so `Mesh` resolves through the generated RuntimeMesh
+            // the same way the static twin's does.
+            auto& c               = entity.GetComponent<ECS::InstancedStaticMeshComponent>();
+            host.Slots            = &c.MaterialSlots;
+            host.RuntimeInstances = &c.RuntimeMaterialInstances;
+            host.MeshHandle       = c.MeshHandle;
+            host.Mesh             = c.RuntimeMesh ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
+                                                  : Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+        }
         return host;
     }
 
