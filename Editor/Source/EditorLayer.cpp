@@ -108,7 +108,7 @@
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
 #include "Editor/Panels/Animation/AnimLayersPanel.hpp"
 #include "Editor/Panels/Animation/ControlRigPanel.hpp"
-#include "Editor/Core/Selection/ControlRigEditMode.hpp"
+#include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include "Editor/Core/OpenableAssets.hpp"
 #include "Editor/Core/ViewportCameraProperties.hpp"
@@ -2239,6 +2239,20 @@ namespace Desert::Editor
         snapshot.LogErrorCount   = LogsPanel::ErrorCount();
         snapshot.LogTail         = LogsPanel::Tail( 40 );
 
+        // 07 §14.2's mode, so a window capture of the overlay can be read with a number beside it.
+        {
+            const auto& authoring        = Core::ActiveAuthoringContext();
+            snapshot.Authoring.Mode      = Core::AuthoringModeName( authoring.Mode() );
+            snapshot.Authoring.Holder    = authoring.Holder().Describe();
+            snapshot.Authoring.Entity =
+                 authoring.Entity().IsNull() ? std::string() : authoring.Entity().ToString();
+            snapshot.Authoring.SelectedBone = authoring.SelectedBoneIndex();
+            snapshot.Authoring.SelectedControl =
+                 authoring.SelectedControl() ? static_cast<int>( *authoring.SelectedControl() ) : -1;
+            snapshot.Authoring.ShowBoneNames    = authoring.ShowBoneNames();
+            snapshot.Authoring.PreviewsBindPose = authoring.PreviewsBindPose();
+        }
+
         snapshot.Quiescence = m_FrameQuiescence;
         return snapshot;
     }
@@ -3848,17 +3862,22 @@ namespace Desert::Editor
                                   EditorPreferences::Save();
                                   return PaletteCommandDone();
                               } } );
-        // THE CONTROL RIG OVERLAY, and the reason it is a palette entry rather than only the panel's
-        // checkbox is Г14's rule applied to this tier: a capability reachable only by a mouse click inside
-        // a panel does not exist for the control channel, so no unattended run could ever photograph the
-        // control shapes — and a manipulator layer whose appearance cannot be checked is exactly the
-        // "built, tested and unseen" shape this project keeps paying for. It is a VIEWPORT MODE and
-        // persists nowhere, like 2D UI mode above and unlike the grid.
-        commands.push_back( { "View", "Toggle the control rig overlay", []
-                              {
-                                  Core::ControlRigEditMode::Toggle();
-                                  return PaletteCommandDone();
-                              } } );
+        // THE VIEWPORT'S FOUR AUTHORING MODES (07 §14.2), and the reason they are palette entries rather
+        // than only toolbar segments is Г14's rule applied to this tier: a capability reachable only by a
+        // mouse click does not exist for the control channel, so no unattended run could ever photograph
+        // the bone overlay or the control shapes — and an overlay whose appearance cannot be checked is
+        // exactly the "built, tested and unseen" shape this project keeps paying for. They are VIEWPORT
+        // MODES and persist nowhere, like 2D UI mode above and unlike the grid.
+        //
+        // GENERATED FROM THE MODE TABLE, not typed out: a fifth mode reaches the channel by existing.
+        // This replaced one entry, "Toggle the control rig overlay", which flipped a process-wide static
+        // directly — it could name no owner, so over the channel it could not be refused and could not
+        // say which character it had just started posing.
+        for ( const Core::AuthoringMode mode : Core::kAuthoringModes )
+        {
+            commands.push_back( { "View", std::string( "Viewport mode: " ) + Core::AuthoringModeName( mode ),
+                                  [mode] { return Editor::ViewportPanel::RequestAuthoringMode( mode ); } } );
+        }
         commands.push_back( { "View", "Toggle 2D UI mode", [this]
                               {
                                   // REFUSES RATHER THAN DOING NOTHING when there is no scene. The mode is

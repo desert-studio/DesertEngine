@@ -102,6 +102,26 @@ namespace Desert::Editor
         // nothing and saves nothing, exactly like the checkbox.
         static void ToggleUIMode( const Desert::Core::Scene& scene );
 
+        // ── 07 §14.2's MODE SWITCHER, FROM OUTSIDE THE PANEL ──────────────────────────────────────
+        //
+        // The palette's "Viewport mode: ..." entries, and therefore the control channel's. Same argument
+        // as ToggleUIMode above and one more: the four-way switcher's ONLY other door is a mouse click on
+        // a toolbar segment, and synthetic input is closed on this machine — so without this the modes
+        // could never be photographed and a switcher nobody can see working is a switcher nobody can
+        // check. It replaces the palette's old "Toggle the control rig overlay", which reached three
+        // process-wide statics directly and could name no owner.
+        //
+        // REFUSES WITH A REASON rather than doing nothing: "there is no viewport", or the selected entity
+        // cannot be authored that way (`ModeAvailability`). Over the channel a silent success is
+        // indistinguishable from a mode that was entered, which is the one thing a caller must not get
+        // wrong.
+        NO_DISCARD static Common::BoolResultStr RequestAuthoringMode( Core::AuthoringMode mode );
+
+        // CAN THE SELECTED ENTITY BE AUTHORED THIS WAY, and if not, the sentence that says why. An error
+        // rather than a bool because every caller shows the reason: the toolbar as the disabled segment's
+        // tooltip, the palette as the refusal on the wire.
+        NO_DISCARD Common::BoolResultStr ModeAvailability( Core::AuthoringMode mode ) const;
+
         // Called (once, while this viewport window has ImGui focus) so the editor can make this viewport's
         // scene the active one — the Outliner/Details/gizmo then follow whichever viewport you work in.
         void SetOnActivate( std::function<void()> cb )
@@ -206,6 +226,14 @@ namespace Desert::Editor
         // Publish this view's context. Points it at whatever is selected HERE first — the context is keyed
         // on the entity, and a bone index kept across a change of character is an index into another rig.
         void ClaimAuthoringContext();
+
+        // 07 §14.2: Object / Skeleton / Pose / Control as ONE control, replacing the "Skeleton" toggle
+        // that used to sit here. Drawn from `kAuthoringModes` so a mode cannot be added to the enum and
+        // forgotten on the strip.
+        void DrawAuthoringModeSwitch();
+
+        // Take the context and put this viewport into @p mode, saying so if it is refused.
+        void EnterAuthoringMode( Core::AuthoringMode mode );
 
         // The ordinary, per-frame route: the user is working in this viewport, or nobody has claimed bone
         // authoring at all (the editor's cold start, and what makes the toolbar work before anything else

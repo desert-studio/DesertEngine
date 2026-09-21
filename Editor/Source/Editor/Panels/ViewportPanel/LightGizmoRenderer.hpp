@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Editor/Core/Selection/AuthoringContext.hpp>
+
 #include <Engine/Desert.hpp>
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
 #include <ImGui/imgui.h>
@@ -17,7 +19,18 @@ namespace Desert::Editor
         explicit LightGizmoRenderer( const std::shared_ptr<Desert::Core::Scene>& scene );
         ~LightGizmoRenderer() = default;
 
-        void Render( float width, float height, float xpos, float ypos );
+        /**
+         * @brief One frame of every viewport overlay.
+         *
+         * @param owner  WHO IS DRAWING, in the authoring election's vocabulary. Needed because the control
+         *               overlay WRITES — a click selects a control, and a rebuilt rig drops the selection —
+         *               and every write to the authoring context names its owner or is refused. The
+         *               renderer has no owner of its own: it is the viewport's overlay and says so.
+         * @param mine   that owner's durable copy of the context, written through in the same step as the
+         *               publication (see AuthoringContextHost::Write).
+         */
+        void Render( float width, float height, float xpos, float ypos, const Core::AuthoringOwner& owner,
+                     Core::AuthoringContext& mine );
 
         // Nearest skeleton bone head within radiusPx of the (absolute-screen) mouse position, taken from the
         // last skeleton-overlay frame; -1 if none. Populated by RenderSkeleton; drives viewport bone picking.
@@ -68,7 +81,8 @@ namespace Desert::Editor
          * copy in between that could go stale, which is why nothing here caches a hierarchy.
          */
         void RenderControlRig( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height,
-                               float xpos, float ypos );
+                               float xpos, float ypos, const Core::AuthoringOwner& owner,
+                               Core::AuthoringContext& mine );
         // Shared UE-style bone drawing: octahedral parent->child links + sphere joints, from already-projected
         // absolute-screen head positions (nullopt = behind camera). parents[i] < 0 marks a root. When
         // recordForPick is set, fills m_BoneScreenPositions for PickBone.
