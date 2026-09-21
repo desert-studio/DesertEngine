@@ -396,9 +396,9 @@ namespace Desert::Animation
                 if ( actual != expected )
                 {
                     return Common::MakeFormattedError<bool>(
-                         "node '{}' ({}) wires '{}' of '{}', a {}, into its '{}' pin, which is a {}",
-                         node.Name, desc.Name, producer.Outputs[input.Pin].Name, nodes[input.Node].Name,
-                         ToString( actual ), desc.Inputs[pin].Name, ToString( expected ) );
+                         "node '{}' ({}) wires '{}' of '{}', a {}, into its '{}' pin, which is a {}", node.Name,
+                         desc.Name, producer.Outputs[input.Pin].Name, nodes[input.Node].Name, ToString( actual ),
+                         desc.Inputs[pin].Name, ToString( expected ) );
                 }
             }
         }
@@ -487,8 +487,7 @@ namespace Desert::Animation
                     auto decomposed = BoneTransform::FromMatrix( hierarchy.GetGlobalTransform( node.Target ) );
                     if ( !decomposed.IsSuccess() )
                     {
-                        return Common::MakeFormattedError<bool>( "node '{}' reading control '{}': {}",
-                                                                 node.Name,
+                        return Common::MakeFormattedError<bool>( "node '{}' reading control '{}': {}", node.Name,
                                                                  hierarchy.Get( node.Target ).Name,
                                                                  decomposed.GetError() );
                     }
@@ -525,9 +524,9 @@ namespace Desert::Animation
                 }
                 case RigNodeKind::MultiplyTransform:
                 {
-                    const BoneTransform& lhs = std::get<BoneTransform>( read( node.Inputs[0] ) );
-                    const BoneTransform& rhs = std::get<BoneTransform>( read( node.Inputs[1] ) );
-                    auto decomposed = BoneTransform::FromMatrix( lhs.ToMatrix() * rhs.ToMatrix() );
+                    const BoneTransform& lhs        = std::get<BoneTransform>( read( node.Inputs[0] ) );
+                    const BoneTransform& rhs        = std::get<BoneTransform>( read( node.Inputs[1] ) );
+                    auto                 decomposed = BoneTransform::FromMatrix( lhs.ToMatrix() * rhs.ToMatrix() );
                     if ( !decomposed.IsSuccess() )
                     {
                         return Common::MakeFormattedError<bool>( "node '{}' multiplying two transforms: {}",
@@ -542,8 +541,8 @@ namespace Desert::Animation
                     auto                 decomposed = BoneTransform::FromMatrix( glm::inverse( t.ToMatrix() ) );
                     if ( !decomposed.IsSuccess() )
                     {
-                        return Common::MakeFormattedError<bool>( "node '{}' inverting a transform: {}",
-                                                                 node.Name, decomposed.GetError() );
+                        return Common::MakeFormattedError<bool>( "node '{}' inverting a transform: {}", node.Name,
+                                                                 decomposed.GetError() );
                     }
                     m_Slots[base] = RigValue{ decomposed.GetValue() };
                     break;
@@ -564,7 +563,7 @@ namespace Desert::Animation
                 {
                     const BoneTransform& lhs = std::get<BoneTransform>( read( node.Inputs[0] ) );
                     const BoneTransform& rhs = std::get<BoneTransform>( read( node.Inputs[1] ) );
-                    m_Slots[base] = RigValue{ glm::distance( lhs.Translation, rhs.Translation ) };
+                    m_Slots[base]            = RigValue{ glm::distance( lhs.Translation, rhs.Translation ) };
                     break;
                 }
                 case RigNodeKind::RemapFloat:
@@ -590,16 +589,14 @@ namespace Desert::Animation
                 }
                 case RigNodeKind::SetControl:
                 {
-                    const BoneTransform& value = std::get<BoneTransform>( read( node.Inputs[0] ) );
-                    auto                 written =
-                         node.Space == RigControlSpace::Local
-                              ? hierarchy.SetPose( node.Target, value )
-                              : hierarchy.SetGlobalTransform( node.Target, value.ToMatrix() );
+                    const BoneTransform& value   = std::get<BoneTransform>( read( node.Inputs[0] ) );
+                    auto                 written = node.Space == RigControlSpace::Local
+                                                        ? hierarchy.SetPose( node.Target, value )
+                                                        : hierarchy.SetGlobalTransform( node.Target, value.ToMatrix() );
                     if ( !written.IsSuccess() )
                     {
                         return Common::MakeFormattedError<bool>( "node '{}' writing control '{}' ({}): {}",
-                                                                 node.Name,
-                                                                 hierarchy.Get( node.Target ).Name,
+                                                                 node.Name, hierarchy.Get( node.Target ).Name,
                                                                  ToString( node.Space ), written.GetError() );
                     }
                     break;

@@ -260,7 +260,7 @@ namespace Desert::Assets::Serialization
 
         [[nodiscard]] std::optional<Animation::RigValueKind> PayloadKind( const RigGraphInputData& input )
         {
-            int                         present = 0;
+            int                                    present = 0;
             std::optional<Animation::RigValueKind> kind;
 
             if ( input.Link.has_value() )
@@ -316,8 +316,9 @@ namespace Desert::Assets::Serialization
             return std::nullopt;
         }
 
-        [[nodiscard]] Common::BoolResultStr ValidateRigGraphData(
-             const RigGraphData& graph, const std::unordered_map<std::string, size_t>& controlsByName )
+        [[nodiscard]] Common::BoolResultStr
+        ValidateRigGraphData( const RigGraphData&                            graph,
+                              const std::unordered_map<std::string, size_t>& controlsByName )
         {
             if ( graph.Nodes.empty() )
             {
@@ -364,8 +365,7 @@ namespace Desert::Assets::Serialization
                 if ( !kind.has_value() )
                 {
                     return Common::MakeFormattedError<bool>(
-                         "graph node '{}' is of kind '{}', which this build does not know", node.Name,
-                         node.Kind );
+                         "graph node '{}' is of kind '{}', which this build does not know", node.Name, node.Kind );
                 }
 
                 const Animation::RigNodeDescriptor& desc = Animation::DescribeRigNode( *kind );
@@ -381,8 +381,8 @@ namespace Desert::Assets::Serialization
                         if ( controlsByName.find( node.Target ) == controlsByName.end() )
                         {
                             return Common::MakeFormattedError<bool>(
-                                 "graph node '{}' names control '{}', which this rig does not define",
-                                 node.Name, node.Target );
+                                 "graph node '{}' names control '{}', which this rig does not define", node.Name,
+                                 node.Target );
                         }
                         break;
                     case Animation::RigNodeTargetKind::Bone:
@@ -398,8 +398,8 @@ namespace Desert::Assets::Serialization
                         if ( !node.Target.empty() )
                         {
                             return Common::MakeFormattedError<bool>(
-                                 "graph node '{}' is a {}, which names nothing, yet it targets '{}'",
-                                 node.Name, node.Kind, node.Target );
+                                 "graph node '{}' is a {}, which names nothing, yet it targets '{}'", node.Name,
+                                 node.Kind, node.Target );
                         }
                         break;
                 }
@@ -409,15 +409,15 @@ namespace Desert::Assets::Serialization
                     if ( !Animation::RigControlSpaceFromText( node.Space ).has_value() )
                     {
                         return Common::MakeFormattedError<bool>(
-                             "graph node '{}' ({}) has space '{}', which is neither Local nor Global",
-                             node.Name, node.Kind, node.Space );
+                             "graph node '{}' ({}) has space '{}', which is neither Local nor Global", node.Name,
+                             node.Kind, node.Space );
                     }
                 }
                 else if ( !node.Space.empty() )
                 {
                     return Common::MakeFormattedError<bool>(
-                         "graph node '{}' is a {}, which has no control space, yet it asks for '{}'",
-                         node.Name, node.Kind, node.Space );
+                         "graph node '{}' is a {}, which has no control space, yet it asks for '{}'", node.Name,
+                         node.Kind, node.Space );
                 }
 
                 if ( node.Inputs.size() != desc.Inputs.size() )
@@ -452,8 +452,7 @@ namespace Desert::Assets::Serialization
                     if ( payloads == 0 )
                     {
                         return Common::MakeFormattedError<bool>(
-                             "graph node '{}' pin '{}' carries neither a link nor a value", node.Name,
-                             input.Pin );
+                             "graph node '{}' pin '{}' carries neither a link nor a value", node.Name, input.Pin );
                     }
                     if ( payloads > 1 )
                     {
@@ -522,8 +521,8 @@ namespace Desert::Assets::Serialization
                     if ( found == byName.end() )
                     {
                         return Common::MakeFormattedError<bool>(
-                             "graph node '{}' pin '{}' links to '{}', which this graph does not define",
-                             node.Name, input.Pin, link.Node );
+                             "graph node '{}' pin '{}' links to '{}', which this graph does not define", node.Name,
+                             input.Pin, link.Node );
                     }
                     if ( found->second >= i )
                     {
@@ -549,9 +548,8 @@ namespace Desert::Assets::Serialization
                     if ( producer.Outputs[*outPin].Type != expected )
                     {
                         return Common::MakeFormattedError<bool>(
-                             "graph node '{}' wires '{}' of '{}', a {}, into pin '{}', which is a {}",
-                             node.Name, link.Pin, link.Node,
-                             Animation::ToString( producer.Outputs[*outPin].Type ), input.Pin,
+                             "graph node '{}' wires '{}' of '{}', a {}, into pin '{}', which is a {}", node.Name,
+                             link.Pin, link.Node, Animation::ToString( producer.Outputs[*outPin].Type ), input.Pin,
                              Animation::ToString( expected ) );
                     }
 
@@ -1000,8 +998,8 @@ namespace Desert::Assets::Serialization
                     const auto&                         link     = *input.Link;
                     const uint32_t                      producer = nodeIndex.at( link.Node );
                     const Animation::RigNodeDescriptor& from = Animation::DescribeRigNode( nodes[producer].Kind );
-                    wired.Node = producer;
-                    wired.Pin  = static_cast<uint8_t>( *FindPin( from.Outputs, link.Pin ) );
+                    wired.Node                               = producer;
+                    wired.Pin = static_cast<uint8_t>( *FindPin( from.Outputs, link.Pin ) );
                 }
                 else if ( input.Float.has_value() )
                 {
@@ -1155,8 +1153,8 @@ namespace Desert::Assets::Serialization
                     if ( node.Target >= hierarchy.Size() )
                     {
                         return Common::MakeFormattedError<ControlRigData>(
-                             "graph node '{}' names control index {}, which this rig does not have",
-                             node.Name, node.Target );
+                             "graph node '{}' names control index {}, which this rig does not have", node.Name,
+                             node.Target );
                     }
                     file.Target = hierarchy.Get( node.Target ).Name;
                 }

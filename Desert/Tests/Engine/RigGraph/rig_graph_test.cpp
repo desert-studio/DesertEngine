@@ -226,8 +226,8 @@ namespace
     }
 
     RigNode MakeNode( std::string name, RigNodeKind kind, std::vector<RigNodeInput> inputs,
-                      uint32_t target = ControlHierarchy::INVALID,
-                      RigControlSpace space = RigControlSpace::Global )
+                      uint32_t        target = ControlHierarchy::INVALID,
+                      RigControlSpace space  = RigControlSpace::Global )
     {
         RigNode node;
         node.Name   = std::move( name );
@@ -307,13 +307,13 @@ namespace
     struct Ran
     {
         ::Common::BoolResultStr Result = ::Common::MakeSuccess( true );
-        LocalPose                     Pose;
+        LocalPose               Pose;
     };
 
     Ran RunOverBindPose( ControlRigStage& stage, const Skeleton& skeleton )
     {
-        Ran        out;
-        auto       bind = LocalPose::FromBindPose( skeleton );
+        Ran  out;
+        auto bind = LocalPose::FromBindPose( skeleton );
         EXPECT_TRUE( bind.IsSuccess() ) << bind.GetError();
         out.Pose = bind.GetValue();
 
@@ -458,8 +458,8 @@ TEST( RigGraphTest, TheDrivenBoneEndsUpAtTheProductTheGraphComputed )
     std::vector<RigNode> nodes;
     nodes.push_back( MakeNode( "elbow", RigNodeKind::GetBone, {}, kElbow ) );
     nodes.push_back( MakeNode( "target", RigNodeKind::MultiplyTransform, { From( 0 ), Lit( reach ) } ) );
-    nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 1 ) }, control,
-                               RigControlSpace::Global ) );
+    nodes.push_back(
+         MakeNode( "write", RigNodeKind::SetControl, { From( 1 ) }, control, RigControlSpace::Global ) );
 
     RigGraph graph;
     ASSERT_TRUE( graph.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), nodes ).IsSuccess() );
@@ -521,8 +521,8 @@ TEST( RigGraphTest, WithoutAGraphTheSkinningMatricesAreByteForByteTheOnesTFiveFo
         std::vector<RigNode> nodes;
         nodes.push_back( MakeNode( "elbow", RigNodeKind::GetBone, {}, kElbow ) );
         nodes.push_back( MakeNode( "target", RigNodeKind::MultiplyTransform, { From( 0 ), Lit( reach ) } ) );
-        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 1 ) }, control,
-                                   RigControlSpace::Global ) );
+        nodes.push_back(
+             MakeNode( "write", RigNodeKind::SetControl, { From( 1 ) }, control, RigControlSpace::Global ) );
 
         RigGraph graph;
         ASSERT_TRUE( graph.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), nodes ).IsSuccess() );
@@ -570,11 +570,10 @@ namespace
         auto stage = std::make_unique<ControlRigStage>();
 
         const ControlSpace world{ ControlSpaceKind::Component, 0, 1.0F };
-        *a = MustAdd( stage->GetHierarchy(), MakeControl( "A_CTRL", world, BoneTransform{},
-                                                          Placed( { 3.0F, 4.0F, 12.0F }, 20.0F,
-                                                                  { 0.0F, 1.0F, 0.0F } ) ) );
-        *b = MustAdd( stage->GetHierarchy(),
-                      MakeControl( "B_CTRL", world, BoneTransform{}, BoneTransform{} ) );
+        *a = MustAdd( stage->GetHierarchy(),
+                      MakeControl( "A_CTRL", world, BoneTransform{},
+                                   Placed( { 3.0F, 4.0F, 12.0F }, 20.0F, { 0.0F, 1.0F, 0.0F } ) ) );
+        *b = MustAdd( stage->GetHierarchy(), MakeControl( "B_CTRL", world, BoneTransform{}, BoneTransform{} ) );
 
         const auto drives = stage->SetDrives( skeleton, { ControlBoneDrive{ *b, kHand } } );
         EXPECT_TRUE( drives.IsSuccess() ) << drives.GetError();
@@ -584,7 +583,7 @@ namespace
     /// Installs `nodes` and runs the stage once over the bind pose, failing the test on any refusal.
     void RunGraph( ControlRigStage& stage, const Skeleton& skeleton, std::vector<RigNode> nodes )
     {
-        RigGraph graph;
+        RigGraph   graph;
         const auto built = graph.SetNodes( stage.GetHierarchy(), skeleton.GetBones().size(), std::move( nodes ) );
         ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
         const auto installed = stage.SetGraph( std::move( graph ) );
@@ -634,8 +633,8 @@ TEST( RigGraphTest, AReadAfterAWriteSeesTheWrittenValueBecauseOrderIsTheGraphsOw
     // about node 0 at all — it feeds nobody — so a sort over links is free to run the read first. It must
     // not: the hierarchy is state the links do not describe, and the file's order is the answer.
     std::vector<RigNode> nodes;
-    nodes.push_back( MakeNode( "writeA", RigNodeKind::SetControl, { Lit( written ) }, a,
-                               RigControlSpace::Local ) );
+    nodes.push_back(
+         MakeNode( "writeA", RigNodeKind::SetControl, { Lit( written ) }, a, RigControlSpace::Local ) );
     nodes.push_back( MakeNode( "readA", RigNodeKind::GetControl, {}, a, RigControlSpace::Local ) );
     nodes.push_back( MakeNode( "writeB", RigNodeKind::SetControl, { From( 1 ) }, b, RigControlSpace::Local ) );
     RunGraph( *stage, skeleton, nodes );
@@ -661,8 +660,8 @@ TEST( RigGraphTest, MakeAndBreakTransformAreEachOthersInverse )
 
     std::vector<RigNode> nodes;
     nodes.push_back( MakeNode( "break", RigNodeKind::BreakTransform, { Lit( source ) } ) );
-    nodes.push_back( MakeNode( "make", RigNodeKind::MakeTransform,
-                               { From( 0, 0 ), From( 0, 1 ), From( 0, 2 ) } ) );
+    nodes.push_back(
+         MakeNode( "make", RigNodeKind::MakeTransform, { From( 0, 0 ), From( 0, 1 ), From( 0, 2 ) } ) );
     nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 1 ) }, b, RigControlSpace::Local ) );
     RunGraph( *stage, skeleton, nodes );
 
@@ -706,10 +705,9 @@ TEST( RigGraphTest, BlendTransformIsTheMidpointAtAHalfAndIsClampedOutsideTheUnit
         auto     stage = TwoControlRig( skeleton, &a, &b );
 
         std::vector<RigNode> nodes;
-        nodes.push_back( MakeNode( "mix", RigNodeKind::BlendTransform,
-                                   { Lit( from ), Lit( to ), Lit( alpha ) } ) );
-        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, b,
-                                   RigControlSpace::Local ) );
+        nodes.push_back(
+             MakeNode( "mix", RigNodeKind::BlendTransform, { Lit( from ), Lit( to ), Lit( alpha ) } ) );
+        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, b, RigControlSpace::Local ) );
         RunGraph( *stage, skeleton, nodes );
         return stage->GetHierarchy().Get( b ).Pose.Translation.x;
     };
@@ -746,8 +744,7 @@ TEST( RigGraphTest, DistanceIsCentimetresBetweenTheTwoOrigins )
     // is exactly the property that makes `Distance` a DRIVER rather than a readout.
     nodes.push_back( MakeNode( "t", RigNodeKind::RemapFloat,
                                { From( 0 ), Lit( 0.0F ), Lit( 10.0F ), Lit( 0.0F ), Lit( 1.0F ) } ) );
-    nodes.push_back( MakeNode( "mix", RigNodeKind::BlendTransform,
-                               { Lit( zero ), Lit( hundred ), From( 1 ) } ) );
+    nodes.push_back( MakeNode( "mix", RigNodeKind::BlendTransform, { Lit( zero ), Lit( hundred ), From( 1 ) } ) );
     nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 2 ) }, b, RigControlSpace::Local ) );
     RunGraph( *stage, skeleton, nodes );
 
@@ -772,10 +769,9 @@ TEST( RigGraphTest, RemapFloatIsLinearInsideTheRangeAndFlatOutsideIt )
         std::vector<RigNode> nodes;
         nodes.push_back( MakeNode( "t", RigNodeKind::RemapFloat,
                                    { Lit( value ), Lit( 20.0F ), Lit( 40.0F ), Lit( 0.0F ), Lit( 1.0F ) } ) );
-        nodes.push_back( MakeNode( "mix", RigNodeKind::BlendTransform,
-                                   { Lit( zero ), Lit( hundred ), From( 0 ) } ) );
-        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 1 ) }, b,
-                                   RigControlSpace::Local ) );
+        nodes.push_back(
+             MakeNode( "mix", RigNodeKind::BlendTransform, { Lit( zero ), Lit( hundred ), From( 0 ) } ) );
+        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 1 ) }, b, RigControlSpace::Local ) );
         RunGraph( *stage, skeleton, nodes );
         return stage->GetHierarchy().Get( b ).Pose.Translation.x;
     };
@@ -801,8 +797,7 @@ TEST( RigGraphTest, RemapFromAnEmptyRangeIsRefusedAtExecuteRatherThanAnswered )
     std::vector<RigNode> nodes;
     nodes.push_back( MakeNode( "t", RigNodeKind::RemapFloat,
                                { Lit( 5.0F ), Lit( 7.0F ), Lit( 7.0F ), Lit( 0.0F ), Lit( 1.0F ) } ) );
-    nodes.push_back( MakeNode( "mix", RigNodeKind::BlendTransform,
-                               { Lit( zero ), Lit( hundred ), From( 0 ) } ) );
+    nodes.push_back( MakeNode( "mix", RigNodeKind::BlendTransform, { Lit( zero ), Lit( hundred ), From( 0 ) } ) );
     nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 1 ) }, b, RigControlSpace::Local ) );
 
     RigGraph graph;
@@ -830,8 +825,7 @@ namespace
         auto     stage = TwoControlRig( skeleton, &a, &b );
 
         RigGraph   graph;
-        const auto built =
-             graph.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), std::move( nodes ) );
+        const auto built = graph.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), std::move( nodes ) );
         return built.IsSuccess() ? std::string() : built.GetError();
     }
 } // namespace
@@ -858,8 +852,8 @@ TEST( RigGraphTest, ANodeThatFeedsNoSinkIsRefusedByName )
 
     std::vector<RigNode> nodes;
     nodes.push_back( MakeNode( "orphan", RigNodeKind::GetBone, {}, kElbow ) );
-    nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, b,
-                               RigControlSpace::Local ) );
+    nodes.push_back(
+         MakeNode( "write", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, b, RigControlSpace::Local ) );
 
     RigGraph   graph;
     const auto built = graph.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), nodes );
@@ -880,8 +874,7 @@ TEST( RigGraphTest, AForwardOrSelfLinkIsRefusedWhichIsWhyNoCycleCanBeWritten )
         std::vector<RigNode> nodes;
         nodes.push_back( MakeNode( "early", RigNodeKind::MultiplyTransform, { From( 1 ), From( 1 ) } ) );
         nodes.push_back( MakeNode( "late", RigNodeKind::GetBone, {}, kElbow ) );
-        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, b,
-                                   RigControlSpace::Local ) );
+        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, b, RigControlSpace::Local ) );
         RigGraph   graph;
         const auto built = graph.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), nodes );
         ASSERT_FALSE( built.IsSuccess() );
@@ -891,8 +884,7 @@ TEST( RigGraphTest, AForwardOrSelfLinkIsRefusedWhichIsWhyNoCycleCanBeWritten )
         // Self: the tightest cycle there is, refused by the same rule and not by a cycle walk.
         std::vector<RigNode> nodes;
         nodes.push_back( MakeNode( "me", RigNodeKind::MultiplyTransform, { From( 0 ), From( 0 ) } ) );
-        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, b,
-                                   RigControlSpace::Local ) );
+        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, b, RigControlSpace::Local ) );
         RigGraph   graph;
         const auto built = graph.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), nodes );
         ASSERT_FALSE( built.IsSuccess() );
@@ -906,11 +898,10 @@ TEST( RigGraphTest, AWireOrALiteralOfTheWrongTypeIsRefusedNamingBothTypes )
 
     {
         std::vector<RigNode> nodes;
-        nodes.push_back( MakeNode( "d", RigNodeKind::Distance,
-                                   { Lit( BoneTransform{} ), Lit( BoneTransform{} ) } ) );
+        nodes.push_back(
+             MakeNode( "d", RigNodeKind::Distance, { Lit( BoneTransform{} ), Lit( BoneTransform{} ) } ) );
         // Float wired into a Transform pin.
-        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, 1,
-                                   RigControlSpace::Local ) );
+        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, 1, RigControlSpace::Local ) );
         const std::string error = Refused( skeleton, nodes );
         ASSERT_FALSE( error.empty() );
         EXPECT_NE( error.find( "Float" ), std::string::npos ) << error;
@@ -941,10 +932,10 @@ TEST( RigGraphTest, TheStructuralMistakesAKindCanCarryAreEachRefusedByName )
     // Two nodes, one name.
     {
         std::vector<RigNode> nodes;
-        nodes.push_back( MakeNode( "same", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, 1,
-                                   RigControlSpace::Local ) );
-        nodes.push_back( MakeNode( "same", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, 1,
-                                   RigControlSpace::Local ) );
+        nodes.push_back(
+             MakeNode( "same", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, 1, RigControlSpace::Local ) );
+        nodes.push_back(
+             MakeNode( "same", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, 1, RigControlSpace::Local ) );
         const std::string error = Refused( skeleton, nodes );
         EXPECT_NE( error.find( "'same'" ), std::string::npos ) << error;
     }
@@ -953,8 +944,7 @@ TEST( RigGraphTest, TheStructuralMistakesAKindCanCarryAreEachRefusedByName )
         std::vector<RigNode> nodes;
         nodes.push_back( MakeNode( "mul", RigNodeKind::MultiplyTransform,
                                    { Lit( BoneTransform{} ), Lit( BoneTransform{} ) }, 0 ) );
-        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, 1,
-                                   RigControlSpace::Local ) );
+        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, 1, RigControlSpace::Local ) );
         const std::string error = Refused( skeleton, nodes );
         EXPECT_NE( error.find( "target" ), std::string::npos ) << error;
     }
@@ -962,10 +952,9 @@ TEST( RigGraphTest, TheStructuralMistakesAKindCanCarryAreEachRefusedByName )
     {
         std::vector<RigNode> nodes;
         nodes.push_back( MakeNode( "mul", RigNodeKind::MultiplyTransform,
-                                   { Lit( BoneTransform{} ), Lit( BoneTransform{} ) },
-                                   ControlHierarchy::INVALID, RigControlSpace::Local ) );
-        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, 1,
+                                   { Lit( BoneTransform{} ), Lit( BoneTransform{} ) }, ControlHierarchy::INVALID,
                                    RigControlSpace::Local ) );
+        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, 1, RigControlSpace::Local ) );
         const std::string error = Refused( skeleton, nodes );
         EXPECT_NE( error.find( "no control space" ), std::string::npos ) << error;
     }
@@ -973,8 +962,7 @@ TEST( RigGraphTest, TheStructuralMistakesAKindCanCarryAreEachRefusedByName )
     {
         std::vector<RigNode> nodes;
         nodes.push_back( MakeNode( "bone", RigNodeKind::GetBone, {}, 99 ) );
-        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, 1,
-                                   RigControlSpace::Local ) );
+        nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { From( 0 ) }, 1, RigControlSpace::Local ) );
         const std::string error = Refused( skeleton, nodes );
         EXPECT_NE( error.find( "different skeleton" ), std::string::npos ) << error;
     }
@@ -1004,8 +992,8 @@ TEST( RigGraphTest, AGraphWhoseWritesCannotReachADrivenBoneIsRefused )
     auto     stage = TwoControlRig( skeleton, &a, &b );
 
     std::vector<RigNode> nodes;
-    nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, a,
-                               RigControlSpace::Local ) );
+    nodes.push_back(
+         MakeNode( "write", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, a, RigControlSpace::Local ) );
 
     RigGraph graph;
     ASSERT_TRUE( graph.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), nodes ).IsSuccess() )
@@ -1024,14 +1012,12 @@ TEST( RigGraphTest, AGraphWritingAParentOfADrivenControlIsAccepted )
     const Skeleton skeleton = MakeArmRig();
 
     ControlRigStage stage;
-    const uint32_t  root =
-         MustAdd( stage.GetHierarchy(), MakeControl( "Root_CTRL", ControlSpace{ ControlSpaceKind::Component,
-                                                                                0, 1.0F },
-                                                     BoneTransform{}, BoneTransform{} ) );
-    const uint32_t child =
-         MustAdd( stage.GetHierarchy(),
-                  MakeControl( "Child_CTRL", ControlSpace{ ControlSpaceKind::Control, root, 1.0F },
-                               BoneTransform{}, BoneTransform{} ) );
+    const uint32_t  root  = MustAdd( stage.GetHierarchy(),
+                                     MakeControl( "Root_CTRL", ControlSpace{ ControlSpaceKind::Component, 0, 1.0F },
+                                                  BoneTransform{}, BoneTransform{} ) );
+    const uint32_t  child = MustAdd(
+         stage.GetHierarchy(), MakeControl( "Child_CTRL", ControlSpace{ ControlSpaceKind::Control, root, 1.0F },
+                                             BoneTransform{}, BoneTransform{} ) );
 
     ASSERT_TRUE( stage.SetDrives( skeleton, { ControlBoneDrive{ child, kHand } } ).IsSuccess() );
 
@@ -1054,8 +1040,8 @@ TEST( RigGraphTest, RewritingTheDrivesSoTheGraphIsOrphanedIsRefusedAndTheStageIs
     auto           stage    = TwoControlRig( skeleton, &a, &b );
 
     std::vector<RigNode> nodes;
-    nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, b,
-                               RigControlSpace::Local ) );
+    nodes.push_back(
+         MakeNode( "write", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, b, RigControlSpace::Local ) );
     RigGraph graph;
     ASSERT_TRUE( graph.SetNodes( stage->GetHierarchy(), skeleton.GetBones().size(), nodes ).IsSuccess() );
     ASSERT_TRUE( stage->SetGraph( std::move( graph ) ).IsSuccess() );
@@ -1075,10 +1061,9 @@ TEST( RigGraphTest, AGraphCannotBeInstalledBeforeTheDrivesAndAnEmptyOneIsNotSpel
 {
     const Skeleton  skeleton = MakeArmRig();
     ControlRigStage stage;
-    const uint32_t  control =
-         MustAdd( stage.GetHierarchy(), MakeControl( "Hand_CTRL", ControlSpace{ ControlSpaceKind::Component,
-                                                                                0, 1.0F },
-                                                     BoneTransform{}, BoneTransform{} ) );
+    const uint32_t  control = MustAdd(
+         stage.GetHierarchy(), MakeControl( "Hand_CTRL", ControlSpace{ ControlSpaceKind::Component, 0, 1.0F },
+                                             BoneTransform{}, BoneTransform{} ) );
 
     std::vector<RigNode> nodes;
     nodes.push_back( MakeNode( "write", RigNodeKind::SetControl, { Lit( BoneTransform{} ) }, control,
@@ -1088,8 +1073,7 @@ TEST( RigGraphTest, AGraphCannotBeInstalledBeforeTheDrivesAndAnEmptyOneIsNotSpel
 
     const auto tooEarly = stage.SetGraph( std::move( graph ) );
     EXPECT_FALSE( tooEarly.IsSuccess() );
-    EXPECT_NE( tooEarly.GetError().find( "drives before its graph" ), std::string::npos )
-         << tooEarly.GetError();
+    EXPECT_NE( tooEarly.GetError().find( "drives before its graph" ), std::string::npos ) << tooEarly.GetError();
 
     ASSERT_TRUE( stage.SetDrives( skeleton, { ControlBoneDrive{ control, kHand } } ).IsSuccess() );
     EXPECT_FALSE( stage.SetGraph( RigGraph{} ).IsSuccess() )
@@ -1267,8 +1251,7 @@ TEST( RigGraphTest, TheFormatRefusesEverythingTheWalkRefusesAndNamesTheRow )
     };
 
     // An empty graph: present-but-nothing is not a second spelling of absent.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes.clear(); } )
-                    .find( "no nodes" ),
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes.clear(); } ).find( "no nodes" ),
                std::string::npos );
 
     // No sink — the same sentence `RefuseDiscardedWork` produces for the walk, because it IS that function.
@@ -1277,28 +1260,25 @@ TEST( RigGraphTest, TheFormatRefusesEverythingTheWalkRefusesAndNamesTheRow )
                std::string::npos );
 
     // An unknown kind.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
-                           { d.Graph->Nodes[0].Kind = "GetSocket"; } )
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[0].Kind = "GetSocket"; } )
                     .find( "does not know" ),
                std::string::npos );
 
     // A pin the kind does not have.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
-                           { d.Graph->Nodes[1].Inputs[0].Pin = "C"; } )
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[1].Inputs[0].Pin = "C"; } )
                     .find( "does not have" ),
                std::string::npos );
 
     // Two payloads on one pin: a precedence rule would make the loser invisible.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
-                           { d.Graph->Nodes[1].Inputs[1].Float = 1.0f; } )
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[1].Inputs[1].Float = 1.0f; } )
                     .find( "payloads" ),
                std::string::npos );
 
     // No payload at all.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
-                           { d.Graph->Nodes[1].Inputs[1].Transform.reset(); } )
-                    .find( "neither a link nor a value" ),
-               std::string::npos );
+    EXPECT_NE(
+         refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[1].Inputs[1].Transform.reset(); } )
+              .find( "neither a link nor a value" ),
+         std::string::npos );
 
     // A link to a node that comes later — the rule that makes a cycle unwritable.
     {
@@ -1322,14 +1302,12 @@ TEST( RigGraphTest, TheFormatRefusesEverythingTheWalkRefusesAndNamesTheRow )
                std::string::npos );
 
     // A control this rig does not define.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
-                           { d.Graph->Nodes[2].Target = "Nose_CTRL"; } )
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[2].Target = "Nose_CTRL"; } )
                     .find( "does not define" ),
                std::string::npos );
 
     // Two nodes with one name.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
-                           { d.Graph->Nodes[1].Name = "elbowBone"; } )
+    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d ) { d.Graph->Nodes[1].Name = "elbowBone"; } )
                     .find( "two graph nodes" ),
                std::string::npos );
 }

@@ -68,7 +68,7 @@ namespace Desert::Animation
         // exact failure `SetGraph` exists to refuse. Checked against `drives` rather than `m_Drives` so a
         // refusal leaves the stage as it was.
         std::vector<ControlBoneDrive> previous = std::move( m_Drives );
-        m_Drives                                = std::move( drives );
+        m_Drives                               = std::move( drives );
 
         if ( !m_Graph.Empty() )
         {
