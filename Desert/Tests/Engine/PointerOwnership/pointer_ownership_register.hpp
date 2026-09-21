@@ -1311,6 +1311,15 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.hpp",
           "ControlKeyTarget", "Clip", Guard::CallScoped,
           kWhyArgumentPack },
+        // A28: the fourth member of the same pack, added when the keyer learned to key BONES. It is the
+        // Animator's authoring buffer (`Animator::GetAuthoringPose`), and it is here rather than a pose
+        // taken by value for the reason `EndInteraction` exists at all: the value keyed is READ AT THE
+        // COMMIT and not remembered at the write, so the keyer has to be able to look at the buffer when
+        // the drag ends. Same guard as its three neighbours -- the panel builds the pack inside the frame
+        // that uses it and the Animator it points into is the one it just drew.
+        { "Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.hpp",
+          "ControlKeyTarget", "AuthoredPose", Guard::CallScoped,
+          kWhyArgumentPack },
         { "Desert/Desert/Source/Engine/Core/Input.hpp",
           "Mouse", "m_Window", Guard::IdentityOnly,
           "the GLFW window handle, kept as `const void*` so Engine/Core does not include GLFW; it is passed back to the platform layer, never dereferenced here" },

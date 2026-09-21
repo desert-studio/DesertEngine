@@ -375,15 +375,22 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   constant by ADDRESS, not by value, so a row follows a `SetProjectRoot` remap — the same choice,
     //   for the same reason, as `PackagedTree::Tree`, which is the row above it in the register.
     //
+    //   and +1 Raw with A28 (368 -> 369, 853 -> 854): `ControlKeyTarget::AuthoredPose`. The keyer learned
+    //   to key BONES as well as controls, and a bone's value lives in the Animator's authoring buffer
+    //   rather than in the control hierarchy — so the argument pack grew a fourth member with the same
+    //   call-scoped guard as its three neighbours. It is a pointer and not a value for the reason
+    //   `EndInteraction` exists: §971 keys the value the drag ENDED at, which means reading the buffer at
+    //   the commit rather than remembering a copy from the write.
+    //
     //   THESE TWO ROWS ARRIVED ON DIFFERENT BRANCHES AND BOTH EDITED THIS NUMBER. Each was green
     //   against its own base (365 -> 367 and 365 -> 366) and the sum is neither; a merge that took
     //   either side whole would have been a number that compiles, passes review, and is wrong. The
     //   count is derived from the rows, so the rows are what to read when it moves.
-    EXPECT_EQ( CountOf( Form::Raw ), 368 );
+    EXPECT_EQ( CountOf( Form::Raw ), 369 );
     EXPECT_EQ( CountOf( Form::Shared ), 330 );
     EXPECT_EQ( CountOf( Form::Unique ), 117 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 853 )
+    EXPECT_EQ( (int)Members().size(), 854 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
