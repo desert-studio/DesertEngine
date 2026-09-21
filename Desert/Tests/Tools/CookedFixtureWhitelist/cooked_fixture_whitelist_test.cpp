@@ -74,7 +74,7 @@ namespace
      */
     Whitelist ParseWhitelist( const std::string& text )
     {
-        Whitelist out;
+        Whitelist          out;
         std::istringstream in( text );
         std::string        line;
         while ( std::getline( in, line ) )

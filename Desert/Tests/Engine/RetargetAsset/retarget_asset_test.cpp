@@ -278,9 +278,9 @@ namespace
         clip.DurationTicks     = kClipDurationTicks;
         clip.SkeletonSignature = rig.Signature;
         clip.Channels          = {
-            SwingChannel( rig.Bones[0], glm::vec3( 0.0F, 0.0F, 1.0F ), kShoulderSwingDeg, kRootLiftCm ),
-            SwingChannel( rig.Bones[1], glm::vec3( 1.0F, 0.0F, 0.0F ), kElbowSwingDeg, 0.0F ),
-            SwingChannel( rig.Bones[2], glm::vec3( 0.0F, 1.0F, 0.0F ), kWristSwingDeg, 0.0F ),
+             SwingChannel( rig.Bones[0], glm::vec3( 0.0F, 0.0F, 1.0F ), kShoulderSwingDeg, kRootLiftCm ),
+             SwingChannel( rig.Bones[1], glm::vec3( 1.0F, 0.0F, 0.0F ), kElbowSwingDeg, 0.0F ),
+             SwingChannel( rig.Bones[2], glm::vec3( 0.0F, 1.0F, 0.0F ), kWristSwingDeg, 0.0F ),
         };
         return clip;
     }
@@ -663,8 +663,7 @@ TEST( RetargetAssetTest, AnUNEVENProportionDifferenceIsVisibleAtRest )
     // that can tell "the rig this suite is for" from "a rig". Make the three scales equal and it goes to
     // zero, 429 tolerances away, while every `> 0` test in the file stays green; that is the mutation
     // this pin exists to fail, and a `> 0.1` could not fail it by more than a hair.
-    EXPECT_NEAR( restDelta, 4.289F, 0.01F )
-         << "the source rig's segment scales are no longer 1.5 / 1.75 / 1.3";
+    EXPECT_NEAR( restDelta, 4.289F, 0.01F ) << "the source rig's segment scales are no longer 1.5 / 1.75 / 1.3";
 
     // AND THE LIMB LENGTHS ARE STILL EXACT, which is the quantity T6.1's table reports and the one that
     // IS blind at rest. Both statements are true at once, and confusing them is the whole hazard.
@@ -1047,10 +1046,10 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
         std::ofstream( clipOut, std::ios::binary ) << rfl::json::write( ForeignArmClipData() );
     }
 
-    const auto shippedRig = rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>(
-         ReadFile( root + kSourceRig ) );
-    ASSERT_TRUE( shippedRig.has_value() ) << kSourceRig << " is missing or is not a skeleton; copy "
-                                          << rigOut.string() << " over it";
+    const auto shippedRig =
+         rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>( ReadFile( root + kSourceRig ) );
+    ASSERT_TRUE( shippedRig.has_value() )
+         << kSourceRig << " is missing or is not a skeleton; copy " << rigOut.string() << " over it";
 
     const File::SkeletonAssetData builtRig = ForeignArmRigData();
     ASSERT_EQ( shippedRig.value().Bones.size(), builtRig.Bones.size() );
@@ -1059,19 +1058,19 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
     {
         EXPECT_EQ( shippedRig.value().Bones[i].Name, builtRig.Bones[i].Name ) << "bone " << i;
         EXPECT_EQ( shippedRig.value().Bones[i].ParentBoneID, builtRig.Bones[i].ParentBoneID ) << "bone " << i;
-        EXPECT_LT( MaxAbsDelta( shippedRig.value().Bones[i].LocalBindTransform,
-                                builtRig.Bones[i].LocalBindTransform ),
-                   1.0e-3F )
+        EXPECT_LT(
+             MaxAbsDelta( shippedRig.value().Bones[i].LocalBindTransform, builtRig.Bones[i].LocalBindTransform ),
+             1.0e-3F )
              << builtRig.Bones[i].Name << "'s bind transform is not the one this suite builds";
         EXPECT_LT( MaxAbsDelta( shippedRig.value().Bones[i].OffsetMatrix, builtRig.Bones[i].OffsetMatrix ),
                    1.0e-3F )
              << builtRig.Bones[i].Name << "'s inverse bind pose is not the one this suite builds";
     }
 
-    const auto shippedClip = rfl::json::read<File::AnimationAssetData, rfl::DefaultIfMissing>(
-         ReadFile( root + kSourceClip ) );
-    ASSERT_TRUE( shippedClip.has_value() ) << kSourceClip << " is missing or is not a clip; copy "
-                                           << clipOut.string() << " over it";
+    const auto shippedClip =
+         rfl::json::read<File::AnimationAssetData, rfl::DefaultIfMissing>( ReadFile( root + kSourceClip ) );
+    ASSERT_TRUE( shippedClip.has_value() )
+         << kSourceClip << " is missing or is not a clip; copy " << clipOut.string() << " over it";
 
     const File::AnimationAssetData builtClip = ForeignArmClipData();
     EXPECT_EQ( shippedClip.value().Version, builtClip.Version );
