@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <span>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -277,15 +278,19 @@ namespace Desert::Assets::Serialization
         // length with the address, so nothing downstream can read past the run it describes.
         struct Payload
         {
-            uint32_t         Id;
-            std::string_view Bytes;
-            uint64_t         Count;
+            uint32_t                   Id;
+            std::span<const std::byte> Bytes;
+            uint64_t                   Count;
         };
-        const auto AsBytes = []( const auto* first, const size_t count ) -> std::string_view
+        const auto AsBytes = []( const auto* first, const size_t count ) -> std::span<const std::byte>
         {
             if ( count == 0 )
-                return {}; // an empty vector's data() may be null, and a view over null is not one
-            return { reinterpret_cast<const char*>( first ), count * sizeof( *first ) };
+                return {}; // an empty vector's data() may be null, and a span over null is not one
+            // `std::as_bytes` and not a cast: it is the one spelling of "view this object as its own
+            // bytes" that is neither a reinterpret_cast nor a trip through `void*`, both of which the
+            // analyser rejects — and it requires the element type to be trivially copyable, which is
+            // the very property the static_asserts above pin.
+            return std::as_bytes( std::span( first, count ) );
         };
         const Payload payloads[kSectionCount] = {
              { SecStaticVertices, AsBytes( data.StaticVertices.data(), data.StaticVertices.size() ),
@@ -333,12 +338,12 @@ namespace Desert::Assets::Serialization
         out.reserve( static_cast<size_t>( at ) );
         Append( out, &header, sizeof( header ) );
         Append( out, table, sizeof( table ) );
-        for ( uint32_t i = 0; i < kSectionCount; ++i )
+        for ( const Payload& payload : payloads )
         {
             PadToEight( out );
             // The view's own length rather than a recomputed product: the two must agree, and the one
             // that cannot drift is the one the view was built with.
-            Append( out, payloads[i].Bytes.data(), payloads[i].Bytes.size() );
+            Append( out, payload.Bytes.data(), payload.Bytes.size() );
         }
         PadToEight( out );
         return out;
@@ -596,7 +601,7 @@ namespace Desert::Assets::Serialization
         //
         // `DefaultIfMissing` for the reason it was added: a mesh cooked before `MorphTargets` or
         // `LODs` existed takes the struct's default for the absent field instead of failing the read.
-        const auto parsed = rfl::json::read<MeshAssetData, rfl::DefaultIfMissing>( std::string( bytes ) );
+        auto parsed = rfl::json::read<MeshAssetData, rfl::DefaultIfMissing>( std::string( bytes ) );
         if ( !parsed.has_value() )
         {
             return Common::MakeFormattedError<MeshAssetData>(

@@ -50,6 +50,8 @@
 #include <gtest/gtest.h>
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
+
+#include <glm/gtc/type_ptr.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
@@ -58,6 +60,7 @@
 #include <rflcpp/rfl.hpp>
 #include <rflcpp/rfl/json.hpp>
 
+#include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -111,13 +114,14 @@ namespace
         for ( uint32_t i = 0; i < 4; ++i )
         {
             Ser::SkinnedVertexData v{};
-            v.Position    = glm::vec3( -1.0f * i, 2.0f * i, 0.5f );
-            v.Normal      = glm::vec3( 0.0f, 0.0f, -1.0f );
-            v.Tangent     = glm::vec3( 0.0f, 1.0f, 0.0f );
-            v.Bitangent   = glm::vec3( 1.0f, 0.0f, 0.0f );
-            v.TexCoord    = glm::vec2( 0.5f, 0.25f * i );
-            v.BoneIDs     = { i, i + 1u, i + 2u, i + 3u };
-            v.BoneWeights = { 0.5f, 0.25f, 0.125f, 0.125f };
+            const auto             fi = static_cast<float>( i );
+            v.Position                = glm::vec3( -1.0f * fi, 2.0f * fi, 0.5f );
+            v.Normal                  = glm::vec3( 0.0f, 0.0f, -1.0f );
+            v.Tangent                 = glm::vec3( 0.0f, 1.0f, 0.0f );
+            v.Bitangent               = glm::vec3( 1.0f, 0.0f, 0.0f );
+            v.TexCoord                = glm::vec2( 0.5f, 0.25f * fi );
+            v.BoneIDs                 = { i, i + 1u, i + 2u, i + 3u };
+            v.BoneWeights             = { 0.5f, 0.25f, 0.125f, 0.125f };
             data.SkinnedVertices.push_back( v );
         }
         for ( uint32_t i = 0; i < 5; ++i )
@@ -205,9 +209,20 @@ namespace
             EXPECT_EQ( e.VertexCount, g.VertexCount ) << "submesh " << i;
             EXPECT_EQ( e.IndexOffset, g.IndexOffset ) << "submesh " << i;
             EXPECT_EQ( e.IndexCount, g.IndexCount ) << "submesh " << i;
-            EXPECT_EQ( 0, std::memcmp( &e.Transform, &g.Transform, sizeof( glm::mat4 ) ) ) << "submesh " << i;
-            EXPECT_EQ( 0, std::memcmp( &e.BoundingBox, &g.BoundingBox, sizeof( Common::Math::AABB ) ) )
-                 << "submesh " << i;
+            // Component by component rather than by object representation: a float type has no unique
+            // object representation, so a byte comparison over one is a question with no single right
+            // answer (clang-tidy's bugprone-suspicious-memory-comparison says so). Equality of every
+            // component is the property that matters and it is exact for these values.
+            for ( int c = 0; c < 16; ++c )
+                EXPECT_EQ( glm::value_ptr( e.Transform )[c], glm::value_ptr( g.Transform )[c] )
+                     << "submesh " << i << " transform component " << c;
+            for ( int c = 0; c < 3; ++c )
+            {
+                EXPECT_EQ( glm::value_ptr( e.BoundingBox.Min )[c], glm::value_ptr( g.BoundingBox.Min )[c] )
+                     << "submesh " << i << " bounds min " << c;
+                EXPECT_EQ( glm::value_ptr( e.BoundingBox.Max )[c], glm::value_ptr( g.BoundingBox.Max )[c] )
+                     << "submesh " << i << " bounds max " << c;
+            }
             EXPECT_EQ( static_cast<uint64_t>( e.MaterialHandle ), static_cast<uint64_t>( g.MaterialHandle ) )
                  << "submesh " << i;
             ASSERT_EQ( e.LODs.size(), g.LODs.size() ) << "submesh " << i;
@@ -291,8 +306,8 @@ TEST( MeshBinaryFormat, ATruncatedFileIsRefusedAndAnEmptyOneIsNot )
 
     // Cut at the length of the empty file, and at every other interesting boundary. The first of these
     // is the case that motivated the field: the bytes that remain ARE a complete-looking header.
-    for ( const size_t cut :
-          { emptyBytes.size(), full.size() - 1, full.size() / 2, size_t( 64 ), size_t( 63 ), size_t( 0 ) } )
+    for ( const size_t cut : { emptyBytes.size(), full.size() - 1, full.size() / 2, static_cast<size_t>( 64 ),
+                               static_cast<size_t>( 63 ), static_cast<size_t>( 0 ) } )
     {
         const auto cutRead =
              Ser::DecodeMeshBinary( std::string_view( full ).substr( 0, cut ), "truncated.stmesh" );
@@ -337,7 +352,10 @@ TEST( MeshBinaryFormat, ARecordPointingOutsideItsSectionIsRefusedRatherThanFollo
 
     // The Submeshes section is row 4 of the table (1-based), so its Offset is at 64 + 3*24 + 8.
     uint64_t submeshOffset = 0;
-    std::memcpy( &submeshOffset, good.data() + 64 + 3 * 24 + 8, sizeof( submeshOffset ) );
+    // 64 bytes of header, then three 24-byte rows, then the row's Id+ElementSize: the Submeshes
+    // section's Offset field. Named rather than multiplied inline so the widening is explicit.
+    const std::ptrdiff_t submeshRowOffsetField = 64 + 3 * static_cast<std::ptrdiff_t>( 24 ) + 8;
+    std::memcpy( &submeshOffset, good.data() + submeshRowOffsetField, sizeof( submeshOffset ) );
 
     {
         std::string    bad  = good;
