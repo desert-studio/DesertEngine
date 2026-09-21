@@ -95,6 +95,33 @@ namespace
         return buffer.str();
     }
 
+    // The body of scripts/MacOS/BuildMacOS.sh's argument `case ... esac`, with shell comments removed.
+    // The comments have to go for the reason this whole file gives: that block's own prose names the
+    // configurations it is about.
+    std::string CaseBlockOf( const std::string& script )
+    {
+        const size_t at = script.find( "case \"$arg\" in" );
+        if ( at == std::string::npos )
+            return {};
+        const size_t end = script.find( "esac", at );
+        if ( end == std::string::npos )
+            return {};
+
+        std::string out;
+        bool        comment = false;
+        for ( size_t i = at; i < end; ++i )
+        {
+            const char c = script[i];
+            if ( c == '\n' )
+                comment = false;
+            else if ( c == '#' )
+                comment = true;
+            if ( !comment )
+                out.push_back( c );
+        }
+        return out;
+    }
+
     // The contents of a job block's `config: [ ... ]` matrix line, or an empty string if it has none.
     // Narrow on purpose: this is the one line in ci.yml a census needs to read as DATA rather than as
     // prose, and parsing exactly it beats pulling a YAML library into a suite that compiles no engine.
@@ -760,14 +787,26 @@ TEST( ShippingBoundary, BothPlatformWrappersAcceptEveryDeclaredConfiguration )
     ASSERT_FALSE( unix.empty() );
     ASSERT_FALSE( windows.empty() );
 
-    // What "accepts" means is each wrapper's own argument parser, not its usage text: the usage line is
-    // prose and can agree with the workspace while the parser rejects the word, which is the half of
-    // this defect that would have survived a comment-shaped check.
+    // WHAT "ACCEPTS" MEANS IS EACH WRAPPER'S OWN ARGUMENT PARSER, NOT ITS USAGE TEXT. The usage line is
+    // prose: it can agree with the workspace while the parser rejects the word, and that is exactly the
+    // half of this defect a comment-shaped check would have walked past — BuildWindows.bat's usage line
+    // and its parser disagreed for a day. So the unix side is read out of the `case ... esac` block with
+    // its shell comments cut, and the Windows side out of its `if /I "%~1"=="..."` arms.
+    //
+    // THE FIRST DRAFT OF THIS LOOP WAS WRONG AND THE SUITE SAID SO: it looked for `Debug)` and
+    // BuildMacOS.sh spells all three in ONE arm, `Debug|Release|Shipping)`. A census that only ever ran
+    // against a tree it already agreed with would have shipped that.
+    const std::string cases = CaseBlockOf( unix );
+    ASSERT_FALSE( cases.empty() ) << "scripts/MacOS/BuildMacOS.sh has no `case \"$arg\" in` block any more";
+
     for ( const std::string& config : declared )
     {
-        EXPECT_NE( unix.find( config + ")" ), std::string::npos )
-             << "scripts/MacOS/BuildMacOS.sh has no case arm for the '" << config
-             << "' configuration, so it exits 1 on a configuration the workspace declares.";
+        // An arm alternative ends in `)` when it is last and `|` when another follows.
+        const bool unixAccepts =
+             cases.find( config + ")" ) != std::string::npos || cases.find( config + "|" ) != std::string::npos;
+        EXPECT_TRUE( unixAccepts ) << "scripts/MacOS/BuildMacOS.sh has no case arm for the '" << config
+                                   << "' configuration, so it exits 1 on a configuration the workspace "
+                                      "declares.";
         EXPECT_NE( windows.find( "\"%~1\"==\"" + config + "\"" ), std::string::npos )
              << "scripts/Windows/BuildWindows.bat has no argument arm for the '" << config
              << "' configuration. Windows is the platform the game ships for; a wrapper that refuses the "
