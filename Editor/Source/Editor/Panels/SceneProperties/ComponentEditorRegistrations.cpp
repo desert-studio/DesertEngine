@@ -1414,8 +1414,12 @@ namespace Desert::Editor
             {
                 if ( ::ImGui::Button( "Add" ) )
                 {
-                    // Beside the last one rather than at the origin: an instance added on top of an
-                    // existing one is invisible, and "the button did nothing" is what that looks like.
+                    // 200 cm, AND THE OLD NUMBER WAS 2. These two buttons stepped by `2.0f`, which is a
+                    // metre-era constant left behind by the units migration: one world unit is one
+                    // centimetre and PrimitiveMeshFactory scales every built-in shape by
+                    // Units::UnitsPerMetre, so the default cube is 100 cm across and an instance placed
+                    // 2 cm along sat wholly INSIDE the previous one. Ten by ten of them made one cube.
+                    // The button looked broken and was in fact doing exactly what it said.
                     glm::mat4 seed( 1.0f );
                     if ( !c.InstanceTransforms.empty() )
                         seed = glm::translate( c.InstanceTransforms.back(), glm::vec3( 200.0f, 0.0f, 0.0f ) );
@@ -1495,8 +1499,8 @@ namespace Desert::Editor
 
                 if ( duplicateIndex >= 0 )
                 {
-                    // Offset like Add, and for the same reason: a duplicate exactly on top of its source
-                    // is a button that appears to do nothing.
+                    // Offset by the same 200 cm as Add, and for the reason given there: a duplicate that
+                    // lands inside its source is a button that appears to do nothing.
                     c.InstanceTransforms.insert(
                          c.InstanceTransforms.begin() + duplicateIndex + 1,
                          glm::translate( c.InstanceTransforms[static_cast<size_t>( duplicateIndex )],
