@@ -521,10 +521,10 @@ namespace
                 // The first argument, as written. `AuthoringContextHost` accepts a mutation only from an
                 // owner, so an owner in that position IS the signature of a write to it.
                 std::size_t first = at + mutator.size();
-                while ( first < code.size() && std::isspace( static_cast<unsigned char>( code[first] ) ) )
+                while ( first < code.size() && std::isspace( static_cast<unsigned char>( code[first] ) ) != 0 )
                     ++first;
                 std::size_t end = first;
-                while ( end < code.size() && ( std::isalnum( static_cast<unsigned char>( code[end] ) ) ||
+                while ( end < code.size() && ( std::isalnum( static_cast<unsigned char>( code[end] ) ) != 0 ||
                                                code[end] == '_' || code[end] == ':' ) )
                     ++end;
 
