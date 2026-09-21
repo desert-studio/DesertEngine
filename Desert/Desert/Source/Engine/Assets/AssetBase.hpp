@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/UUID.hpp>
@@ -147,6 +148,29 @@ namespace Desert::Assets
         }
 
     protected:
+        /// Installs an identity that came OUT OF THE FILE, over the path-derived one the constructor
+        /// above put there, and records the inverse for it.
+        ///
+        /// WHY A HELPER FOR TWO CALLERS. The recording is the half that is easy to forget, and forgetting
+        /// it is silent: the asset works, its references resolve, and only a handle->path lookup comes
+        /// back empty — a whole session later, with no filename in the miss. The constructor's own comment
+        /// is about exactly this failure ("nine copies of one rule is how the tenth type gets
+        /// forgotten"), so the rule that replaces one of those copies gets one spelling, not two.
+        ///
+        /// `stableKey` is a PARAMETER because the two adopters do not agree about which file the adopted
+        /// number names, and both are right: a `.demat`'s MaterialId names the `.demat`, while a cooked
+        /// `.tex`'s stored Handle names its SOURCE IMAGE (TextureImporter mints it from that path). A
+        /// helper that derived the key from `m_Metadata.Filepath` would quietly make the texture case
+        /// wrong, which is the one with 95 numeric references in shipped content.
+        void AdoptHandleFromFile( const Common::UUID& handle, const std::string& stableKey )
+        {
+            m_Metadata.Handle = handle;
+            // Discarded for the reason FromCookedPath discards it: the only failure is a collision, this
+            // function cannot repair one, and AssetPathIndex::Record has already named both keys and the
+            // number in the log.
+            static_cast<void>( Common::AssetPathIndex::Record( static_cast<uint64_t>( handle ), stableKey ) );
+        }
+
         /// THE PER-TYPE HALF OF `Load()`. Reads the file and fills the type; says nothing about timing.
         ///
         /// Protected rather than public because the public half is the whole contract: a caller reaching

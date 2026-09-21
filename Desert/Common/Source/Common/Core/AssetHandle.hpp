@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/UUID.hpp>
 
@@ -22,10 +23,20 @@ namespace Common
     // (The null default ctor is no longer a difference: UUID's default is null too, for the reasons in
     // UUID.hpp. Both are spelled out here anyway because this is the type asset code reads.)
     //
-    // The 64-bit value and its serialized form are still a plain uint64. The VALUE a given path derives
-    // changed when FromCookedPath became project-relative; nothing in the repository referenced a
-    // path-derived handle by number, which is why that re-stamp needed no migration — the measurement
-    // behind that claim is in the AssetHandleStability suite.
+    // The 64-bit value and its serialized form are still a plain uint64.
+    //
+    // THE SENTENCE THAT USED TO BE HERE IS NO LONGER TRUE, AND SAYING SO IS THE POINT. It read
+    // "nothing in the repository referenced a path-derived handle by number", and it was the licence
+    // under which FromCookedPath's derivation was re-stamped project-relative without a migration.
+    // Counted over `Editor/Resources/Assets` on 2026-09-21: 95 `TextureHandle`, 22 `MeshGuid` and 113
+    // `MaterialId`/`ParentMaterialId` occurrences are path-derived handles written down AS NUMBERS in
+    // committed content. TextureAsset::Load already knows this — it logs that a stale stored number
+    // makes "every `.demat` naming the old number resolve to nothing" — so the two statements had been
+    // contradicting each other in one tree.
+    //
+    // WHAT THAT MEANS FOR ANYONE CHANGING THE DERIVATION BELOW: it is a corpus migration now, not an
+    // edit. `AssetHandleInverse::EveryNumericReferenceInShippedContentStillNamesItsFile` is the census
+    // that turns that from a warning into a red build.
     class AssetHandle : public UUID
     {
     public:
@@ -263,9 +274,32 @@ namespace Common
         // Deterministic handle from an asset's path, keyed on its location RELATIVE to the project (see
         // StableKeyForPath) so the same file carries the same handle on every machine and under every
         // spelling. Computable without parsing the (large) payload.
-        static AssetHandle FromCookedPath( const std::filesystem::path& cookedPath ) noexcept
+        //
+        // AND IT RECORDS THE INVERSE. The hash is one-way, so the only moment at which the number and
+        // the key it came from are both in hand is right here. Every other way of building a
+        // handle->path table — a directory walk, a per-type resolver branch, a service registry — is a
+        // SECOND list that has to be kept in step with this one, and this repository has already paid
+        // for that twice (the packager's hand-written tree list that forgot fonts and icons; the
+        // twelve-branch ToPath that returns "" for a type nobody added). Recording at the mint makes
+        // the inverse total by construction: there is no middle link to drop it.
+        //
+        // The record's answer is DISCARDED, and that is deliberate rather than sloppy. Its only failure
+        // is a collision — two different keys reaching one number — and there is nothing this function
+        // could do about one: both callers asked for the identity of their own file and both are
+        // entitled to an answer. AssetPathIndex::Record has already logged the number and both keys,
+        // which is the report; the census over shipped content asserts the case never arises.
+        //
+        // NOT noexcept, AND IT NEVER WAS ABLE TO BE. StableKeyForPath allocates — its own comment says
+        // so at length — so the promise this signature used to carry was one its body could not keep,
+        // and an allocation failure under it would have been std::terminate rather than an exception.
+        // Nothing depended on the promise: no caller uses this where a non-throwing operation is
+        // required.
+        static AssetHandle FromCookedPath( const std::filesystem::path& cookedPath )
         {
-            return FromKey( StableKeyForPath( cookedPath ) );
+            const std::string key    = StableKeyForPath( cookedPath );
+            const AssetHandle handle = FromKey( key );
+            static_cast<void>( AssetPathIndex::Record( static_cast<uint64_t>( handle ), key ) );
+            return handle;
         }
 
         // Fresh, random runtime id — for assets with no stable source path (procedural / builtin meshes).

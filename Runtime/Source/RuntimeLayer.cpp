@@ -1,4 +1,6 @@
 #include "RuntimeLayer.hpp"
+
+#include <Common/Core/AssetPathIndex.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 
@@ -189,6 +191,13 @@ namespace Desert::Player
         Assets::SyncLoadLedger::NoteBootFinished();
         LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
         LOG_INFO( "[Memory] boot finished — {}", Graphic::MemoryReadout::Take().Report() );
+        // HOW MANY HANDLES CAN NAME THEIR OWN FILE BY THE TIME THE BOOT IS OVER. The eager preloader's
+        // directory walk is what mints them, so this number IS the size of the path->handle inverse the
+        // engine has at that moment — and therefore the exact quantity the demand-driven model has to
+        // reproduce some other way once the walk stops happening (GAP_ANALYSIS T2.4). Beside the two
+        // lines above because it answers the same question they do: what did the boot buy.
+        LOG_INFO( "[AssetPathIndex] boot finished — {} handle(s) can name their own path",
+                  Common::AssetPathIndex::Size() );
         return BOOLSUCCESS;
     }
 

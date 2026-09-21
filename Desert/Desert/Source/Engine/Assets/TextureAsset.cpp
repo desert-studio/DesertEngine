@@ -40,7 +40,14 @@ namespace Desert::Assets
         // The cooked `.tex` carries an id of its own, which additionally survives a rename of the file, so
         // it wins over the path-derived handle AssetBase installed. GetHandle() reads this same field, so
         // TextureService and the editor cannot disagree about which id a texture has.
-        m_Metadata.Handle = dataReflected->Handle;
+        //
+        // IT IS BOUND TO THE SOURCE IMAGE'S KEY, NOT THIS FILE'S. TextureImporter mints this number as
+        // `FromCookedPath(<the source image>)`, so the source is the file the number is a statement
+        // about; binding it to the `.tex` would put a true-looking wrong answer in the index — the one
+        // kind of entry worse than a missing one. The `.tex`'s own path-derived handle is separately in
+        // the index already, from the constructor, and it still names the `.tex`.
+        const std::string sourceKey = Common::AssetHandle::StableKeyForPath( m_SourcePath );
+        AdoptHandleFromFile( dataReflected->Handle, sourceKey );
 
         // THE RELATION NOBODY OWNED. The field above is not a free identity: TextureImporter mints it as
         // `AssetHandle::FromCookedPath(<the source image>)`, so the number in the file and the number the
@@ -63,7 +70,6 @@ namespace Desert::Assets
         // every content root has no derivable identity to compare against — TextureImporter has already
         // warned at cook time that such a file resolves on one machine only, and repeating it per load
         // would be noise rather than news.
-        const std::string sourceKey = Common::AssetHandle::StableKeyForPath( m_SourcePath );
         if ( Common::AssetHandle::IsProjectRelativeKey( sourceKey ) )
         {
             const auto derived = Common::AssetHandle::FromKey( sourceKey );
