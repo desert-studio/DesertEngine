@@ -348,8 +348,7 @@ namespace Desert::Animation
         /// STATIC SINCE A25, for `ResolveTrack`'s reason: the rest pose an untracked bone falls back to
         /// is `rig.Rest` now and not `m_BindPose`, so nothing here reads a member. `BlendedBaseLocal`
         /// below is NOT static and must not become so — it reads the playheads, which are the Animator's.
-        [[nodiscard]] static BoneTransform SampleLocalTransform( const RigSampling& rig,
-                                                                 const AnimationClip* clip,
+        [[nodiscard]] static BoneTransform SampleLocalTransform( const RigSampling& rig, const AnimationClip* clip,
                                                                  uint32_t boneIndex, FrameTime time );
 
         /// The base pose's local transform for one bone: the current clip, or current -> next blended by

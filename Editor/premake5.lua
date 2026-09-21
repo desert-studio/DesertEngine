@@ -103,7 +103,13 @@ project "Editor"
         links { path }
     end
 
-    filter "configurations:Release"
+    -- `or Shipping`, for the reason written in Desert/Desert/premake5.lua: the shipping build links the
+    -- SAME third-party flavour Release does, and inventing a third set would pin Vulkan twice. This set
+    -- is EMPTY today (Editor/Dependencies.lua: assimp became a premake project and nothing replaced it),
+    -- so this arm moves no bytes -- it is here because an empty set that grows a member tomorrow must
+    -- not be the fourth place the shipping configuration is forgotten. The arm that was actually load
+    -- bearing is the macOS one further down, and its note is where this defect is written up.
+    filter "configurations:Release or Shipping"
     for name, path in pairs(deps.EditorSpecific.Libraries.Release) do
         links { path }
     end
@@ -150,7 +156,23 @@ project "Editor"
             links { path }
         end
 
-    filter { "system:macosx", "configurations:Release" }
+    -- `or Shipping`, AND ITS ABSENCE IS WHAT THIS BLOCK IS REALLY ABOUT. This is where the Editor gets
+    -- Vulkan, shaderc and spirv-cross on macOS -- the comment above says why it needs them by name here
+    -- and Visual Studio does not: gmake will not pull a static library's own dependencies through.
+    --
+    -- The shipping configuration arrived with this arm taught to Runtime/premake5.lua and NOT to this
+    -- one. A premake filter that matches no configuration contributes nothing and says nothing, so
+    -- `make config=shipping` -- which is what `scripts/MacOS/BuildMacOS.sh Shipping` runs, and what the
+    -- packager's own "Runtime binary not found" message sends people to -- compiled the entire tree and
+    -- then died at the Editor's link on the whole of Vulkan, the whole of shaderc and the whole of
+    -- spirv-cross. MEASURED, not deduced, and nothing in the sources could have pointed here: every
+    -- translation unit built. Only the link of the one project this configuration had never been asked
+    -- to produce failed. Windows was never affected -- MSVC links project references transitively, so
+    -- the Editor picks the same libraries up through Desert.vcxproj, which В9 did teach.
+    --
+    -- Desert/Tests/Runtime/ShippingBoundary asserts this relation over EVERY such arm in EVERY project
+    -- script, so the next configuration-shaped library selection is covered the day it is written.
+    filter { "system:macosx", "configurations:Release or Shipping" }
         for name, path in pairs(engineDeps.DesertSpecific.Libraries.Release) do
             links { path }
         end

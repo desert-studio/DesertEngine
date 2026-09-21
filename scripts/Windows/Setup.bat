@@ -230,7 +230,7 @@ REM ---------------------------------------------------------------------------
 echo.
 if "%FAILCOUNT%"=="0" if "%MISSCOUNT%"=="0" (
     echo === Setup complete ===
-    echo Build with:  scripts\Windows\BuildWindows.bat [Debug^|Release] [--with-tests]
+    echo Build with:  scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--with-tests]
     echo              ^(or open Desert.sln^)
     endlocal
     exit /b 0

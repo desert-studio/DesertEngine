@@ -1,4 +1,7 @@
-# Desert Engine CI — build (Debug + Release) and run the full test suite on Apple Silicon macOS.
+# Desert Engine CI — build every configuration the workspace declares (Debug, Release and Shipping)
+# and run the full test suite. The suite runs in Debug and Release only; `Shipping` has no test
+# projects in it by construction (Desert/Tests/premake5.lua), and what proves IT is a compile on both
+# platforms plus a symbol dump of the linked player binary (scripts/CI/ShippingSymbols.sh).
 # Tests are auto-enabled on CI: Desert/premake5.lua checks the CI env var (GitHub always sets it).
 name: CI
 
@@ -203,11 +206,12 @@ jobs:
           UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
         run: ./scripts/MacOS/RunTests.sh "$PWD" Debug
 
-  # The Release build, test run, shader lint and packaging only run AFTER both gates pass — no point
-  # spending a macOS build on code that fails formatting or trips a sanitizer. (format = static;
-  # sanitizers = DYNAMIC: it must build instrumented and RUN the suite to catch memory/UB at runtime,
-  # so it necessarily compiles + tests Debug — that is the check, not a duplicate of this job. Debug is
-  # therefore already covered there, so this job only builds Release + shader lint + the artifact.)
+  # The Release and Shipping builds, the test run, the shader lint, the shipping symbol census and the
+  # packaging only run AFTER both gates pass — no point spending a macOS build on code that fails
+  # formatting or trips a sanitizer. (format = static; sanitizers = DYNAMIC: it must build instrumented
+  # and RUN the suite to catch memory/UB at runtime, so it necessarily compiles + tests Debug — that is
+  # the check, not a duplicate of this job. Debug is therefore already covered there, so this job builds
+  # Release + Shipping and nothing in Debug.)
   macos:
     name: macOS ${{ matrix.config }}
     needs: [ format, sanitizers ]
@@ -217,8 +221,29 @@ jobs:
       fail-fast: false
       matrix:
         # Debug is already built AND tested by the `sanitizers` job (under ASan+UBSan, which is
-        # stricter), so this matrix only needs Release — that removes a whole duplicate Debug build.
-        config: [Release]
+        # stricter), so this matrix does not need it — that removes a whole duplicate Debug build.
+        #
+        # SHIPPING IS HERE FOR ONE REASON, AND IT IS NOT macOS COVERAGE. It is the only platform on
+        # which the END-TO-END half of the shipping boundary can be OBSERVED.
+        # `scripts/CI/ShippingSymbols.sh` reads the linked player binary's own symbol table and asserts
+        # eleven instrument names are absent while a positive control is present; `nm` reads that out of
+        # a Mach-O. An MSVC-linked executable does not have one — link.exe puts no COFF symbol table in
+        # an image, the names live in the .pdb, and `symbols "Off"` emits no .pdb. So a "ported" check
+        # on Windows would be an absence test over an empty list, which passes on nothing at all: the
+        # exact failure the script's positive control exists to make impossible, reintroduced by moving
+        # the script. The check runs where it can mean something.
+        #
+        # That division is deliberate and each half is load-bearing. Windows answers "does this
+        # configuration compile and link at all under MSVC" — the question nobody had asked. macOS
+        # answers "is the debug surface actually gone from the artifact" — the question a compile cannot
+        # answer. The property itself is platform-independent by construction: one token,
+        # DESERT_DEV_INSTRUMENTS, defined in one place from a define the workspace sets, with no
+        # platform branch anywhere in its definition (Desert/Tests/Runtime/ShippingBoundary relation 1
+        # is what keeps it that way), so observing it on one platform is observing it.
+        #
+        # This leg also puts the documented developer command — `scripts/MacOS/BuildMacOS.sh Shipping`,
+        # which is what the packager's own error message tells people to run — under test.
+        config: [Release, Shipping]
 
     steps:
       - name: Checkout (with submodules)
@@ -245,13 +270,43 @@ jobs:
       - name: Build ${{ matrix.config }}
         run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }}
 
+      # Not in Shipping: the test projects are removed from that configuration in
+      # Desert/Tests/premake5.lua, so build/Bin/Tests/Shipping is never created and there is nothing to
+      # run. Unguarded, this step goes RED rather than silently green — RunTests.sh exits 1 on a missing
+      # test directory, checked in the script and not assumed from it — which is the right direction for
+      # the failure to point and still not a verdict worth spending a step on. See the same note on the
+      # Windows job.
       - name: Run tests
+        if: matrix.config != 'Shipping'
         run: ./scripts/MacOS/RunTests.sh "$PWD" ${{ matrix.config }}
 
       # Offline shader lint: every .shader parses with the SAME DShaderParser the engine uses —
       # a broken shader fails the pipeline here instead of the editor at runtime.
       - name: Lint shaders (DShaderTool)
         run: ./build/Bin/${{ matrix.config }}/DShaderTool Editor/Resources/Shaders
+
+      # ── THE HALF OF THE SHIPPING BOUNDARY THAT READS THE LINKED ARTIFACT ──────────────────────────
+      #
+      # Desert/Tests/Runtime/ShippingBoundary reads the SOURCES and asserts each instrument sits behind
+      # `DESERT_DEV_INSTRUMENTS`. It runs on every sweep and it compiles no engine code, which is what
+      # makes its verdict configuration-independent — and is also its limit: a source census cannot see
+      # a static library's archive member being pulled in by a reference nobody wrote down. This step
+      # reads the binary a player would run and asserts the names are not in it.
+      #
+      # IT CANNOT BE A TEST, and that is not a preference. A test binary is compiled in ONE
+      # configuration and it is never this one; a Debug test cannot build a Shipping engine to look
+      # inside it, and one that shelled out to `make` would take forty minutes and would BE the build.
+      #
+      # Its exit codes are its interface: 0 clean, 1 an instrument is in the binary, 2 THE CHECK COULD
+      # NOT RUN. The 2 is the whole reason it is a script and not three lines of grep — `nm` on a
+      # stripped or missing binary prints nothing, and "nothing" satisfies every absence check ever
+      # written, so the script also requires a positive control (`DrawIndexedCounted`, which lives in
+      # the very translation unit the draw counter was cut out of) to be PRESENT before it reports any
+      # absence at all. Without that, "the instruments are gone" and "I could not read the binary" are
+      # the same green.
+      - name: Symbol census of the shipping binary
+        if: matrix.config == 'Shipping'
+        run: ./scripts/CI/ShippingSymbols.sh
 
       # Surface the test reports even when a step above failed.
       - name: Upload test reports
@@ -322,10 +377,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Both configurations on purpose. Debug is what the engine is developed in and is where the
-        # section-count and Debug-CRT problems live; Release is what ships and is where optimizer- and
-        # NDEBUG-only breakage would hide.
-        config: [Debug, Release]
+        # THREE CONFIGURATIONS, AND THE THIRD IS THE ONE A PLAYER GETS.
+        #
+        # Debug is what the engine is developed in and is where the section-count and Debug-CRT problems
+        # live. Release is the DEVELOPMENT drop — the editor and the tools this job packages below — and
+        # is where optimizer- and NDEBUG-only breakage hides.
+        #
+        # THIS LINE USED TO SAY "Release is what ships". IT STOPPED BEING TRUE. Since the `Shipping`
+        # configuration landed, a game ships as `Shipping`: a build in which the runtime frame capture,
+        # Optick, Common::Profiling, the GPU profiler, the draw-call counter, the memory watch and the
+        # synchronous-load ledger are not compiled at all. Release still ships the ENGINE DROP (the
+        # editor and tools, see the packaging step below) — and that is a different artifact with a
+        # different audience, which is exactly why the old sentence read as true for a while.
+        #
+        # WHY SHIPPING HAS TO BE HERE, ON WINDOWS. Windows is the platform the game ships for, and until
+        # this leg existed the shipping configuration had been compiled exactly ONCE, on one macOS
+        # machine. MSVC had never seen it. `runtime "Release"` / `optimize "Full"` / `symbols "Off"` are
+        # all valid MSVC settings, but "valid settings" is not "it compiles", and this repository keeps a
+        # register of defects that are invisible from a Mac: popen/pclose against _popen/_pclose,
+        # path::string() handing back backslashes so five path filters silently matched nothing, a
+        # missing setenv, windows.h macros eating method names, a zero-length C array clang accepts as a
+        # GNU extension and MSVC rejects with C2466, and REM inside `for ... in ( )` being DATA to cmd
+        # rather than a comment. The seventh of those cost a red `dev` for a day. A whole configuration
+        # that no compiler on the shipping platform has ever seen is the same bet, taken larger.
+        config: [Debug, Release, Shipping]
 
     steps:
       - name: Checkout (with submodules)
@@ -392,11 +467,25 @@ jobs:
 
       # run_tests.bat is generated by premake (Desert/Tests/premake5.lua); tests are enabled because
       # GitHub always sets CI, which Desert/premake5.lua checks.
+      #
+      # NOT IN SHIPPING, AND NOT BECAUSE IT WOULD BE SLOW — BECAUSE THERE IS NOTHING TO RUN. The test
+      # projects are removed from the Shipping configuration in Desert/Tests/premake5.lua: a suite whose
+      # subject is the draw-call counter cannot be built in the one configuration that removes the
+      # draw-call counter. run_tests.bat is written by RunAllTests's postbuild, which goes with them, so
+      # a Shipping build produces no runner at all. That is the honest state and it fails loudly (cmd
+      # answers 9009 for a missing file); a runner that existed and ran zero suites would be a silent
+      # pass, which is the defect class this repository names Ф4.
       - name: Run tests
+        if: matrix.config != 'Shipping'
         shell: cmd
         run: run_tests.bat
 
       # Offline shader lint with the SAME DShaderParser the engine uses — mirrors the macOS job.
+      #
+      # RUNS IN SHIPPING TOO, and there it is doing a second job worth naming: it is the only step in the
+      # Shipping leg that EXECUTES something MSVC built under `optimize "Full"` / `symbols "Off"`.
+      # Compiling and linking is not starting up, and the test suite — the usual answer to "does it
+      # run" — is not built in this configuration.
       - name: Lint shaders (DShaderTool)
         shell: cmd
         run: build\Bin\${{ matrix.config }}\DShaderTool.exe Editor\Resources\Shaders
