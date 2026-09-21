@@ -145,7 +145,7 @@ namespace Desert::ECS
         Assets::AssetHandle Font; // SDF font asset (drag a .ttf or pick a preloaded one);
                                   // unset = the engine's built-in default (Roboto).
         glm::vec4 Color             = glm::vec4( 1.0f );
-        float     Size              = 100.0f; // world units per em (scales the baked metrics)
+        float     Size              = 1.0f;  // world units per em (scales the baked metrics)
         float     EmissiveIntensity = 1.0f;  // >1 => the text blooms
         bool      Billboard         = false; // face the camera (added by the system per frame)
 

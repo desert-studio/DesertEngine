@@ -169,16 +169,19 @@ TEST( StoredAssetForm, TheMachinePathFormIsTheONEThatStillCarriesTheCheckoutDire
     // that will have to be edited by whoever fixes it.
     const OpenProject open( kProject );
 
+    // `string()` AND NOT `generic_string()`, and the difference is the whole subject of this test.
+    // MachinePath is the file "as this machine spells it" — backslashed on Windows — so searching it
+    // for the forward-slashed spelling found nothing there and the assertion failed on Windows Debug
+    // while passing on macOS, where the two spellings are one string.
     const std::string mesh = RenderStoredForm( StoredAssetForm::MachinePath, "cooked:Meshes/Probe.stmesh" );
-    EXPECT_NE( mesh.find( kProject.generic_string() ), std::string::npos )
+    EXPECT_NE( mesh.find( kProject.string() ), std::string::npos )
          << "the mesh form no longer carries the checkout directory. That is an IMPROVEMENT and a "
             "format change: every `.desce` holding a mesh or skybox reference has to be migrated in the "
             "same commit, and this test updated to assert the new form.";
 
     // While the two forms beside it do not.
-    EXPECT_EQ(
-         RenderStoredForm( StoredAssetForm::StableKey, "cooked:Textures/T.tex" ).find( kProject.generic_string() ),
-         std::string::npos );
+    EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "cooked:Textures/T.tex" ).find( kProject.string() ),
+               std::string::npos );
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::AssetsRelative, "assets:Materials/M.demat" )
                     .find( kProject.generic_string() ),
                std::string::npos );

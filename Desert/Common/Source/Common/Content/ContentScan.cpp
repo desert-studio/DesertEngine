@@ -82,6 +82,18 @@ namespace Common::Content
             return output;
         }
 
+        // The null device, spelled for the shell `popen` actually starts. `/dev/null` is not a path on
+        // Windows: cmd takes it as the relative file `\\dev\\null`, cannot create it, and fails the WHOLE
+        // command — so `git ls-files` returned nothing, `RunAndCapture` reported an empty string, and the
+        // gate said "the question could not be asked" on every Windows run. The `popen` fix made this
+        // file COMPILE there; it did not make the command RUN, and only the second of those is the point.
+        constexpr const char* kNullDevice =
+#if defined( DESERT_PLATFORM_WINDOWS )
+             "nul";
+#else
+             "/dev/null";
+#endif
+
         // Quotes a path for the shell `popen` hands the command to, so a checkout under a directory
         // with a space in it does not silently become two arguments and an empty answer.
         //
@@ -200,8 +212,8 @@ namespace Common::Content
         // is about, committed once more inside its own repair: an instrument answered a different
         // question and had nothing in its output to say so. Hence: resolve the root, and let the caller
         // pass any directory inside the checkout.
-        const std::string toplevelCommand =
-             "git -C " + QuoteForShell( repoRoot.string() ) + " rev-parse --show-toplevel 2>/dev/null";
+        const std::string toplevelCommand = "git -C " + QuoteForShell( repoRoot.string() ) +
+                                            " rev-parse --show-toplevel 2>" + std::string( kNullDevice );
         std::string toplevel = RunAndCapture( toplevelCommand );
         while ( !toplevel.empty() && ( toplevel.back() == '\n' || toplevel.back() == '\r' ) )
             toplevel.pop_back();
@@ -210,8 +222,8 @@ namespace Common::Content
 
         const std::filesystem::path root = std::filesystem::path( toplevel ).lexically_normal();
 
-        const std::string command =
-             "git -C " + QuoteForShell( root.string() ) + " ls-files -z --full-name 2>/dev/null";
+        const std::string command = "git -C " + QuoteForShell( root.string() ) + " ls-files -z --full-name 2>" +
+                                    std::string( kNullDevice );
 
         const std::string output = RunAndCapture( command );
         if ( output.empty() )

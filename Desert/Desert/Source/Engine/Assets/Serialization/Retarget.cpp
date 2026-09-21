@@ -125,8 +125,26 @@ namespace Desert::Assets::Serialization
         // content the cook did not produce. Both load perfectly on the machine that wrote them, which is
         // exactly why the refusal belongs in the format rather than in whoever happens to open it.
         {
-            const std::filesystem::path rig( data.SourceSkeleton );
-            if ( rig.is_absolute() || data.SourceSkeleton.starts_with( ".." ) )
+            // ROOTEDNESS IS DECIDED THE SAME WAY ON EVERY PLATFORM, and that is the point rather than
+            // a detail. `std::filesystem` answers this question differently per host, so the stock
+            // spellings both fail one way round:
+            //
+            //   `is_absolute()`     — false on WINDOWS for `/Users/somebody/x.skeleton`, which carries
+            //                         no drive letter and is merely current-drive-relative there. That
+            //                         let a file holding one developer's POSIX home directory through
+            //                         on the platform this game ships for; caught by Windows Debug
+            //                         while macOS was 263/263 green.
+            //   `has_root_path()`   — false on POSIX for `C:/Users/somebody/x.skeleton`, which is just
+            //                         a directory named `C:` there.
+            //
+            // A `.retarget` is a file that TRAVELS between machines, so "absolute" has to mean one
+            // thing in it regardless of who opens it. Both rooted shapes are refused everywhere: a
+            // leading separator, and a `X:` drive prefix.
+            const std::string& rig      = data.SourceSkeleton;
+            const bool         rooted   = !rig.empty() && ( rig.front() == '/' || rig.front() == '\\' );
+            const bool         lettered = rig.size() >= 2 && rig[1] == ':' &&
+                                  ( ( rig[0] >= 'A' && rig[0] <= 'Z' ) || ( rig[0] >= 'a' && rig[0] <= 'z' ) );
+            if ( rooted || lettered || rig.starts_with( ".." ) )
             {
                 return Common::MakeFormattedError<bool>(
                      "retarget '{}': source rig '{}' must be relative to the cooked meshes root and must "

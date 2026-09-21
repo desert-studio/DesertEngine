@@ -560,7 +560,9 @@ namespace
                 {
                     const int line = 1 + static_cast<int>( std::count(
                                               code.begin(), code.begin() + static_cast<long>( at ), '\n' ) );
-                    walk.Hits.push_back( fs::relative( entry.path(), repoRoot ).string() + ":" +
+                    // generic_string(): see the write scanner below — the rows are forward-slashed
+                    // and `string()` is backslashed on Windows, so a row could never match.
+                    walk.Hits.push_back( fs::relative( entry.path(), repoRoot ).generic_string() + ":" +
                                          std::to_string( line ) );
                 }
             }
@@ -680,7 +682,13 @@ TEST( AuthoringContextCensus, EveryModesOwnReaderExistsOutsideThisHeader )
     {
         if ( !entry.is_regular_file() || !IsSource( entry.path() ) )
             continue;
-        const std::string relative = fs::relative( entry.path(), root ).string();
+        // generic_string(), for the reason spelled out at the write scanner below: `MustBeReadBy` in
+        // the rows above is written with forward slashes, and `string()` is BACKSLASHED on Windows, so
+        // `std::find` over this vector could never match a row. Six rows failed on Windows Debug while
+        // macOS was 263/263 green. The write scanner was fixed for exactly this and the two read
+        // scanners were not — one instance repaired, two left, which is why the fix belongs to the
+        // RELATION and not to the line.
+        const std::string relative = fs::relative( entry.path(), root ).generic_string();
         if ( relative.find( "AuthoringContext.hpp" ) != std::string::npos )
             continue; // the definitions themselves are not readers of themselves
         ++files;

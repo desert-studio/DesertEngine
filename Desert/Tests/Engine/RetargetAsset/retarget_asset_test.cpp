@@ -500,8 +500,13 @@ TEST( RetargetAssetTest, EveryShapeOfUnusableRetargetIsRefusedAndTheMessageNames
     // say WHICH row is wrong sends a rigger to read the whole file.
     const Case cases[] = {
          { "no source rig", "source rig", []( File::RetargetAssetData& d ) { d.SourceSkeleton.clear(); } },
+         // BOTH ROOTED SPELLINGS, because only one of them was caught. A POSIX absolute path is not
+         // `is_absolute()` on Windows (no drive letter), so this row passed there until the validator
+         // was changed to ask `has_root_path()`. One row per spelling, so neither can hide the other.
          { "an absolute source rig", "relative",
            []( File::RetargetAssetData& d ) { d.SourceSkeleton = "/Users/someone/ForeignArm.skeleton"; } },
+         { "a drive-lettered source rig", "relative",
+           []( File::RetargetAssetData& d ) { d.SourceSkeleton = "C:/Users/someone/ForeignArm.skeleton"; } },
          { "an escaping source rig", "relative",
            []( File::RetargetAssetData& d ) { d.SourceSkeleton = "../../elsewhere/ForeignArm.skeleton"; } },
          { "no source pelvis", "pelvis", []( File::RetargetAssetData& d ) { d.SourcePelvisBone.clear(); } },
