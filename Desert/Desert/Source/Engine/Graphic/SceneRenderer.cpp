@@ -916,6 +916,7 @@ namespace Desert::Graphic
             ExecuteTransparency();
         }
 
+#if DESERT_DEV_INSTRUMENTS
         // Overdraw debug view: re-rasterize all meshes additively into a heat map over the finished scene
         // color. Path-independent (redraws geometry, ignores the G-buffer), so it runs for Forward too.
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )
@@ -923,6 +924,7 @@ namespace Desert::Graphic
             DESERT_PROFILE_PASS( "Debug: Overdraw" );
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RenderOverdrawManual();
         }
+#endif // DESERT_DEV_INSTRUMENTS
 
         // Debug overlays (bounding boxes, colliders) drawn LAST over the finished scene color — in both
         // paths, but critically in Deferred where the lighting composite above would otherwise cover any
@@ -1234,9 +1236,11 @@ namespace Desert::Graphic
                                        ->GetSilhouetteMaskFramebuffer() )
             maskFb->Resize( width, height );
 
+#if DESERT_DEV_INSTRUMENTS
         if ( const auto& overdrawFb =
                   UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetOverdrawFramebuffer() )
             overdrawFb->Resize( width, height );
+#endif
 
         UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] )
              ->OnResize( width, height );

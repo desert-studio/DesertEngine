@@ -45,7 +45,7 @@
  *
  * ── WHAT IS DELIBERATELY *NOT* BEHIND IT (the register, and its reasons) ─────────────────────────
  *
- * Five things in the engine look like development instruments and are NOT cut by this boundary. They
+ * Several things in the engine look like development instruments and are NOT cut by this boundary. They
  * are listed here rather than left to be discovered, because "we also meant to remove those" is the
  * promise this whole mechanism exists to stop being made:
  *
@@ -55,14 +55,28 @@
  *   - `Engine/Graphic/DebugViewState.hpp` — `SceneRenderer` *chooses its render path* from it
  *     (SceneRenderer.cpp). Removing it would change the picture, and a boundary that changes the
  *     picture is not a boundary.
- *   - `Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp` — and with it the PIPELINES. MEASURED, on
- *     the first packaged game ever started from this repository (Docs/World/Shots/B9): a Shipping build
- *     creates 38 Vulkan pipelines at startup and at least four of them exist only for a developer —
- *     `DebugLinePipeline`, `StaticMeshWireframe`, `OverdrawPipeline`, `OverdrawResolvePipeline`, plus
- *     the selection-outline family (`SilhouettePipeline`, `SilhouetteSkinnedPipeline`, `JFA_*`) which
- *     draws the EDITOR's selection highlight and has no caller in a player at all. That is startup time
- *     and device memory spent on nothing, and it is a task with a number attached rather than a line to
- *     add here — a pipeline set is chosen by the render graph, not by an `#if`.
+ *   - `Engine/Core/EngineStats.hpp`, ImGui, the `DebugName` strings — see below. The GRAPHICS
+ *     PIPELINES used to be a fifth entry on this list and are no longer: В12 cut the four that a player
+ *     could not reach, and the register that keeps them cut is
+ *     `Desert/Tests/Runtime/ShippingPipelines`. Three things that entry said are worth recording,
+ *     because all three were wrong and each was wrong in a different way:
+ *
+ *       * "38 pipelines". It is 67 — 39 graphics and 28 COMPUTE. The 38 was honest arithmetic over the
+ *         only evidence available: `VulkanPipeline` logs "Created X VulkanPipeline" and
+ *         `VulkanPipelineCompute` logs nothing, so the compute half was invisible to the instrument
+ *         doing the counting.
+ *       * "the selection-outline family ... has no caller in a player at all". It has one, and it is a
+ *         SAVED SCENE. `MeshECSSystem` computes `outlined = isSelected || mesh.OutlineDraw`, and
+ *         `OutlineDraw` is a serialized `StaticMeshComponent` field with a checkbox in the Materials
+ *         panel. Beyond that, `JFA_Init` and `JFA_Final` run on every frame of every build whatever is
+ *         selected, because the composite is what hands the scene colour to tonemap. So the family
+ *         stays, and the relation is now asserted rather than described.
+ *       * "startup time ... spent on nothing", with no number beside it. There is one now, and it is
+ *         small: 127 ms on a machine that has never compiled these shaders, ~1 ms on every run after —
+ *         BELOW the run-to-run spread of the phase it sits in. The cost of a pipeline is the driver
+ *         compiling its shader the first time, not the pipeline object, so a pipeline sharing another's
+ *         program is nearly free (`StaticMeshWireframe`: 0.2 ms). The argument that carried the change
+ *         was surface, not milliseconds.
  *   - `Engine/Core/EngineStats.hpp` — frame time and FPS, updated every frame in `Application::Run`,
  *     read only by the editor's HUD. Cheap, but it is an instrument, and cheap is not a reason.
  *   - ImGui, and `Layer::OnImGuiRender` — the player's LOADING SCREEN is drawn through that call

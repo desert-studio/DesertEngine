@@ -200,12 +200,14 @@ namespace Desert::Graphic::System
         if ( !SetupShadowPass() )
             return Common::MakeError( "Failed to setup shadow pass" );
 
+#if DESERT_DEV_INSTRUMENTS
         if ( !SetupDebugLinePass() )
             return Common::MakeError( "Failed to setup debug line pass" );
 
         // Overdraw is an optional debug view — never fatal if its shaders are missing.
         if ( !SetupOverdrawPass() )
             LOG_WARN( "[MeshRenderer] Overdraw debug view unavailable (shaders missing)." );
+#endif // DESERT_DEV_INSTRUMENTS
 
         // Shared instanced material for auto-batching (only usable if the instanced pipeline/shader exist).
         // One instance is created up front; the per-frame scene data + the packed InstanceTransforms/Materials
@@ -598,7 +600,9 @@ namespace Desert::Graphic::System
         // fresh input every frame. Outline visibility is controlled by JumpFloodOutlineRenderer.
         RegisterSilhouettePass( builder );
         RegisterShadowPass( builder );
+#if DESERT_DEV_INSTRUMENTS
         RegisterDebugPass( builder );
+#endif
     }
 
     void MeshRenderer::RenderGBufferManual()
@@ -886,7 +890,7 @@ namespace Desert::Graphic::System
         auto* instancedInstance =
              m_DeferredGeometry ? m_InstancedGBufferInstance.get() : m_StaticInstancedInstance.get();
         const bool instancingOn = instancedPipeline != nullptr && instancedMaterial != nullptr &&
-                                  instancedInstance != nullptr && !m_Wireframe;
+                                  instancedInstance != nullptr && !WireframeView();
         auto& instTransforms = m_ScratchInstTransforms;
         auto& instMaterials  = m_ScratchInstMaterials;
         auto& instDraws      = m_ScratchInstDraws;
@@ -1131,10 +1135,9 @@ namespace Desert::Graphic::System
                     DESERT_PROFILE_SCOPE( "Mesh: RenderMesh (draw)" );
                     // Deferred: the G-buffer twin's sets bind against the G-buffer pipeline, which writes
                     // the MRT instead of shading. Otherwise forward (wireframe variant when enabled).
-                    auto* pipeline =
-                         ( m_DeferredGeometry && m_StaticGBufferPipeline ) ? m_StaticGBufferPipeline.get()
-                         : ( m_Wireframe && m_StaticWireframePipeline )    ? m_StaticWireframePipeline.get()
-                                                                           : m_StaticPipeline.get();
+                    auto*          pipeline = ( m_DeferredGeometry && m_StaticGBufferPipeline )
+                                                   ? m_StaticGBufferPipeline.get()
+                                                   : WireframePipelineOr( m_StaticPipeline.get() );
                     const uint32_t lod = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias );
                     renderer.RenderMesh( pipeline, obj->Mesh, obj->Transform, drawMat->GetMaterialExecutor(), 1, 0,
                                          obj->HiddenSubmeshes, lod );
@@ -1161,7 +1164,7 @@ namespace Desert::Graphic::System
                            "fall back to, so nothing of it reaches the frame.",
                            m_InstancedQueue.size(), m_DeferredGeometry ? "G-buffer" : "forward",
                            instancedPipeline ? "ok" : "MISSING", instancedMaterial ? "ok" : "MISSING",
-                           instancedInstance ? "ok" : "MISSING", m_Wireframe ? ", wireframe view on" : "" );
+                           instancedInstance ? "ok" : "MISSING", WireframeView() ? ", wireframe view on" : "" );
             }
         }
 
@@ -1421,15 +1424,23 @@ namespace Desert::Graphic::System
         }
         m_StaticPipeline = staticPipeline.GetValue();
 
+#if DESERT_DEV_INSTRUMENTS
         // Wireframe variant — identical spec, line polygon mode (device feature fillModeNonSolid is on).
-        // Selected per-frame by the SceneSettings debug toggle; shares the same framebuffer/render pass.
+        // Selected per-frame by the debug view toggle; shares the same framebuffer/render pass.
         // A debug view, so a refusal costs the view and not the pass.
+        //
+        // NOT IN A PLAYER'S BUILD. The toggle that selects it is Graphic::DebugViewState::WireframeMode,
+        // and the only thing in the tree that writes a DebugViewState is the editor's viewport —
+        // SceneRenderer::SetDebugView has no caller in Runtime/Source, Desert/Desert/Source or
+        // Desert/Common/Source. So in a Shipping build this pipeline could never be bound; it was built,
+        // held and never used. Desert/Tests/Engine/ShippingPipelines is the census that keeps that true.
         spec.DebugName   = "StaticMeshWireframe";
         spec.PolygonMode = PrimitivePolygonMode::Wireframe;
         if ( const auto wireframe = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec ) )
             m_StaticWireframePipeline = wireframe.GetValue();
         else
             LOG_ERROR( "[MeshRenderer] the wireframe view is off: {}", wireframe.GetError() );
+#endif // DESERT_DEV_INSTRUMENTS
 
         // Instanced variant: same vertex layout + state, but the vertex shader pulls the per-instance model
         // matrix from the InstanceTransforms SSBO (binding 16) by gl_InstanceIndex. Drawn via one instanced
@@ -2312,6 +2323,29 @@ namespace Desert::Graphic::System
         }
     }
 
+#if DESERT_DEV_INSTRUMENTS
+    // ── THE DEVELOPER'S THREE PIPELINES, AND WHY THEY ARE NOT IN A PLAYER'S BUILD ────────────────────────
+    //
+    // MEASURED, Shipping Runtime on this tree: a boot creates 67 Vulkan pipelines (39 graphics, 28 compute —
+    // the 28 were never counted before because only the graphics side logs itself). Four of the 67 are
+    // reachable ONLY through Graphic::DebugViewState, and nothing in the player's source set writes one:
+    // SceneRenderer::SetDebugView has no caller in Runtime/Source, Desert/Desert/Source or
+    // Desert/Common/Source, and the fields it would carry cannot come from a .desce either (they left the
+    // scene format with К2 — Desert/Tests/Engine/SceneDebugFields derives that ban from the struct). So the
+    // four were built at every player's startup, held for the session, and could not be bound by anything.
+    //
+    // WHAT CUTTING THEM IS WORTH, and the number is small on purpose rather than by accident: on a warm
+    // machine 1.1 ms of an 82 ms pipeline phase; on a COLD one 127 ms of 9 611 ms, because the cost is not
+    // the pipeline object — it is the driver compiling that pipeline's shader for the first time.
+    // StaticMeshWireframe shares StaticMeshPBR's modules and therefore costs 0.2 ms cold; DebugLine,
+    // Overdraw and OverdrawResolve own theirs and cost 43.3, 5.7 and 77.9 ms. Time is not the whole
+    // argument: an instrument a player's binary cannot use is surface it should not carry.
+    //
+    // NOT CUT, and this is the half the note in DevInstruments.hpp got wrong: the selection-outline family
+    // (Silhouette*, JFA_*) DRAWS IN A PLAYER. `MeshECSSystem` ORs a serialized per-mesh field into the
+    // outline flag (`outlined = isSelected || mesh.OutlineDraw`), so any author who ticks "Draw outline" in
+    // the Materials panel ships an outlined mesh; and JFA_Init and JFA_Final run on EVERY frame regardless,
+    // because the composite is what hands the scene colour to tonemap.
     bool MeshRenderer::SetupDebugLinePass()
     {
         m_DebugLineShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "DebugLine" );
@@ -2530,6 +2564,7 @@ namespace Desert::Graphic::System
              m_DebugLinePipeline->GetSpecification(), targetFb,
              { RenderPassDependency( RenderPhase::Geometry ) } );
     }
+#endif // DESERT_DEV_INSTRUMENTS
 
     void MeshRenderer::RegisterSilhouettePass( RenderGraphBuilder& builder )
     {

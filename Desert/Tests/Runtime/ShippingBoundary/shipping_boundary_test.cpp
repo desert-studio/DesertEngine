@@ -376,8 +376,14 @@ namespace
         static const std::vector<std::string> rows = {
              "Engine/Graphic/ResourceLedger.hpp", // the OWNERSHIP mechanism, not only a readout
              "Engine/Graphic/DebugViewState.hpp", // SceneRenderer chooses its render path from it
-             "Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp", // and four dev-only pipelines with it
-             "Engine/Core/EngineStats.hpp",                          // frame time nobody in a player reads
+             "Engine/Core/EngineStats.hpp",       // frame time nobody in a player reads
+             // MaterialDebugLine.hpp STOOD HERE and was removed by В12, which is the one direction a row
+             // may leave this list: the exception was retired by cutting the thing it excepted. The four
+             // pipelines it carried (DebugLinePipeline, StaticMeshWireframe, OverdrawPipeline,
+             // OverdrawResolvePipeline) are now behind the boundary inside MeshRenderer, the register
+             // that keeps them there is Desert/Tests/Runtime/ShippingPipelines, and the linked-artifact
+             // half is the six mangled rows in scripts/CI/ShippingSymbols.sh. The HEADER still exists —
+             // the editor's collider pass uses it, and the editor is not what this boundary is about.
         };
         return rows;
     }
