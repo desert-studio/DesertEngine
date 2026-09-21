@@ -347,11 +347,27 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   stack object: its address. Its row argues the guard from the LIFO order of the call stack, the
     //   thread-local stack of open scopes, and the four deleted copy/move operators -- the last of which
     //   is what makes "one parent per scope" a property of the type rather than of the caller.
+    //   -> +4 with B6 (844 -> 848), ALL FOUR Shared, and all four are the demand-driven asset model.
+    //   `AssetRef<T>::m_Payload` is the reference type's whole state: a consumer holding one that says
+    //   Ready must be able to use what it names for as long as it holds it, and the service that filled
+    //   it may be cleared by a project close in between -- several owners whose deaths are not ordered,
+    //   which is Q1's shared answer rather than a habit. `Record::Payload` and `LoaderState::Live` in
+    //   AsyncAssetLoader.cpp are the KEEP-ALIVE itself: a worker thread is inside `Load()` on that asset
+    //   while the main thread may be releasing the request, so the object has exactly two owners whose
+    //   order is not knowable, which is the textbook case. And `CloudNoiseService::Entry::Source` is the
+    //   announced-but-unread asset the service can later ask to be read -- held by the AssetManager and
+    //   by this service, neither of which outlives the other by construction.
+    //   and +1 Unique with the same task (848 -> 849): `AsyncAssetLoader::m_State`. The loader's queues
+    //   began as a file-local `static`, which compiles and works and made every method of the class
+    //   `static`-able -- clang-tidy said so before a reader would have, and a singleton whose methods are
+    //   all static is a namespace wearing a class. The state is the loader's now, held behind a pointer
+    //   only so the header carries no mutex and no map. One owner with a known lifetime, which is Q1's
+    //   unique answer.
     EXPECT_EQ( CountOf( Form::Raw ), 365 );
-    EXPECT_EQ( CountOf( Form::Shared ), 326 );
-    EXPECT_EQ( CountOf( Form::Unique ), 115 );
+    EXPECT_EQ( CountOf( Form::Shared ), 330 );
+    EXPECT_EQ( CountOf( Form::Unique ), 116 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 844 )
+    EXPECT_EQ( (int)Members().size(), 849 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -580,7 +596,13 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // names one `.danimgraph` holds this same object, so an edit in the graph window is the graph all of
     // them evaluate next frame. A unique_ptr here, or a copy per entity, would compile and would restore
     // the per-entity blob that schema step 21 removed.
-    EXPECT_EQ( CountOf( Form::Shared ), 326 );
+    // 326 -> 330 with B6: the four members of the demand-driven asset model. Three of them (the
+    // reference's payload, the request record's payload, the loader's live map) are shared because a
+    // WORKER THREAD is inside the asset while the main thread may be dropping the request -- two owners
+    // whose deaths cannot be ordered, which is the one case Q1 answers with shared_ptr and not a
+    // preference. The fourth, an announced-but-unread asset in the noise service, is co-held with the
+    // AssetManager. See the arithmetic at TheScanFindsTheCensusedPopulation.
+    EXPECT_EQ( CountOf( Form::Shared ), 330 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

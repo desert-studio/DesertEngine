@@ -2,6 +2,7 @@
 
 #include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Desert.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Runtime/AssetHotReload.hpp>
 #include <ImGui/imgui.h>
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
@@ -18,6 +19,7 @@
 #include "Editor/RenderSystems/RenderRigistry.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 
+#include <chrono>
 #include <optional>
 
 #include <filesystem>
@@ -612,6 +614,51 @@ namespace Desert::Editor
         {
             return m_StartupNext < m_StartupStages.size();
         }
+
+        // ===== Demand-driven content: the wait that replaced the eager preload =====
+        //
+        // WHY THERE IS A SECOND KIND OF "STILL LOADING". The cloud kinds are no longer read at boot; they
+        // are read when the scene that wants them says so, on `JobSystem` workers, and `AssetRef` is what
+        // makes "not here yet" a state a consumer can branch on. That removes the boot cost (measured:
+        // 1312.7 ms of a 5707.0 ms boot for the noise volumes alone) but it introduces a question the
+        // eager model never had to answer: what does the editor SHOW while the read is in flight?
+        //
+        // The answer is not "the scene without its clouds". A sky that appears several frames after the
+        // rest of the world is exactly the hitch GAP_ANALYSIS §3.1 warns the lazy model moves into the
+        // frame -- it is not a stall, but it is a visible change, and shipping it would be trading a
+        // measurable boot cost for an unmeasurable visual one. So the loading overlay that was already up
+        // for the staged boot stays up until the content the scene asked for has settled, and the cost
+        // stays in the loading screen where it was.
+        //
+        // SETTLED MEANS: nothing is outstanding AND nothing new was started during the frame just
+        // rendered. The second half is what makes it correct for a CHAIN -- a volume that arrives can be
+        // the reason the next thing is requested -- and it is why this is not simply `Outstanding() == 0`.
+        bool ContentSettling() const
+        {
+            return m_ContentSettleState != ContentSettleState::Settled;
+        }
+
+        /// A scene has just loaded; whatever it asks for has not been asked for yet. Starts the wait.
+        void BeginContentSettle();
+        /// One tick of the wait: decides whether the frame just rendered closed the chain.
+        void UpdateContentSettling();
+
+        enum class ContentSettleState : uint8_t
+        {
+            Settled = 0, ///< nothing outstanding and nothing asked for during the last frame
+            Waiting,     ///< a scene has loaded and its content is still arriving
+        };
+        ContentSettleState m_ContentSettleState = ContentSettleState::Settled;
+        /// `AsyncAssetLoader::StartedCount()` as it stood at the start of the frame just rendered. A
+        /// change across a frame means that frame asked for something, so the chain has not closed.
+        uint64_t m_ContentStartedAtFrameBegin = 0;
+        /// Frames rendered since the scene loaded. One frame is not enough to conclude anything: the
+        /// first one is where the renderer ASKS, so `Outstanding() == 0` before it has run says only that
+        /// nobody has looked yet.
+        uint32_t m_ContentSettleFrames = 0;
+        /// When the wait began, so the log can say what it cost -- the number that replaces the boot
+        /// stage this change deleted.
+        std::chrono::steady_clock::time_point m_ContentWaitBegan{};
         // Screenshot mode counters (see Editor/Core/ShotOptions.hpp).
         int  m_ShotFrame        = 0;
         bool m_ShotCameraPlaced = false;

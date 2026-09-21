@@ -34,6 +34,11 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
+        -- THE ASYNC LOADER, because the sweep now ASKS it a question: AssetEviction refuses to release an
+        -- asset whose read is in flight, and it finds that out from AsyncAssetLoader::IsRequested. Without
+        -- this line the suite stopped linking the moment that refusal was added -- which is the suite
+        -- doing its job, and the reason the refusal gets asserted here rather than only in the renderer.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp",
         -- SkeletonAsset::Load builds an Animation::Skeleton, whose constructor computes the signature.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",

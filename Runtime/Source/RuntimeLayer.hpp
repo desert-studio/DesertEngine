@@ -114,6 +114,13 @@ namespace Desert::Player
 
         // Splash screen (SceneSettings.Splash*): a full-screen image shown when a scene loads, fading in/out.
         // Armed by TriggerSplash() on load; m_SplashTimer counts down each frame.
+        // ===== Demand-driven content settling (see OnUpdate) =====
+        // `AsyncAssetLoader::StartedCount()` as it stood at the start of the frame just rendered, and
+        // how many frames the wait has taken. Same two-condition rule as the editor's, and the same
+        // reason: an empty queue in the middle of a chain is not a settled one.
+        uint64_t m_ContentStartedAtFrameBegin = 0;
+        uint32_t m_ContentSettleFrames        = 0;
+
         Assets::AssetHandle m_SplashSprite;
         float               m_SplashTimer    = 0.0f;
         float               m_SplashDuration = 0.0f;

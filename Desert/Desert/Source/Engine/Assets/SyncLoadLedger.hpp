@@ -95,6 +95,19 @@ namespace Desert::Assets
         /// name.
         [[nodiscard]] static uint64_t InFrameLoads();
         [[nodiscard]] static double   InFrameMs();
+
+        /// HOW MUCH OF THE READING STOPPED BLOCKING ANYTHING. A load that ran on a `JobSystem` worker
+        /// under an `AsyncLoadMarker` is counted here and is deliberately NOT counted as in-frame, even
+        /// when it happened long after the boot: `InFrameLoads()` answers "did a frame stop to read a
+        /// file", and a worker thread reading while the frame draws is the opposite of that. Counting it
+        /// there would have made this whole tier's success look identical to its failure — the moment
+        /// the cloud kinds moved off the boot, the detector would have gone from 0 in-frame loads to
+        /// fifteen and reported the fix as the defect.
+        ///
+        /// Still inside `Loads()`, because that number is "how many files were read" and the thread it
+        /// happened on does not change the answer.
+        [[nodiscard]] static uint64_t AsyncLoads();
+        [[nodiscard]] static double   AsyncMs();
         /// The single slowest load seen BY ITS OWN TIME, and what it was. For the line that says which
         /// file to go and open.
         ///
@@ -146,6 +159,32 @@ namespace Desert::Assets
         bool             m_Outermost = false;
     };
 
+    /**
+     * @brief Marks the calling thread as being inside an ASYNCHRONOUS read, for as long as it lives.
+     *
+     * WHY THE DETECTOR NEEDS TO BE TOLD. `SyncLoadLedger` splits every load into "at boot" and "in a
+     * frame", and the second one is a warning because a frame that stops to read a file is a hitch the
+     * player feels. That split has exactly one blind spot, and `AsyncAssetLoader` is built on it: a
+     * `JobSystem` worker reading a `.dcnv` while the main thread draws is *after* the boot and *not* in
+     * the frame. Without this marker every such read would be logged as the very defect this tier was
+     * built to remove, and the fix would be indistinguishable from the disease in the one instrument
+     * that measures it.
+     *
+     * THREAD-LOCAL, like the depth beside it and for the same reason: one worker being async says
+     * nothing about what the main thread is doing at the same moment.
+     */
+    class AsyncLoadMarker final
+    {
+    public:
+        AsyncLoadMarker();
+        ~AsyncLoadMarker();
+
+        AsyncLoadMarker( const AsyncLoadMarker& )            = delete;
+        AsyncLoadMarker& operator=( const AsyncLoadMarker& ) = delete;
+        AsyncLoadMarker( AsyncLoadMarker&& )                 = delete;
+        AsyncLoadMarker& operator=( AsyncLoadMarker&& )      = delete;
+    };
+
     // A NAMED DETAIL NAMESPACE AND INLINE ACCESSORS, NOT AN ANONYMOUS NAMESPACE, and
     // `Graphic/ResourceLedger.hpp` states the reason beside its own copy of this shape: "an anonymous
     // namespace in a header gives every translation unit its own copy of these statics — so the ledger
@@ -177,6 +216,21 @@ namespace Desert::Assets
         {
             static std::atomic<uint64_t> loads{ 0 };
             return loads;
+        }
+
+        inline std::atomic<uint64_t>& AsyncCount()
+        {
+            static std::atomic<uint64_t> loads{ 0 };
+            return loads;
+        }
+
+        /// How many `AsyncLoadMarker`s are open on THIS thread. A counter rather than a flag because a
+        /// completion delegate is allowed to request the next asset, and nesting must not clear the
+        /// outer mark on the way out of the inner one.
+        inline int& AsyncDepth()
+        {
+            static thread_local int depth = 0;
+            return depth;
         }
 
         // THE DEPTH IS THREAD-LOCAL, the totals are not, and the split is load-bearing. The preloader
@@ -211,6 +265,7 @@ namespace Desert::Assets
         {
             double      TotalMs   = 0.0;
             double      InFrameMs = 0.0;
+            double      AsyncMs   = 0.0;
             double      SlowestMs = 0.0;
             std::string SlowestPath;
         };
@@ -289,6 +344,17 @@ namespace Desert::Assets
         return SyncLoadDetail::Sums().InFrameMs;
     }
 
+    inline uint64_t SyncLoadLedger::AsyncLoads()
+    {
+        return SyncLoadDetail::AsyncCount().load( std::memory_order_relaxed );
+    }
+
+    inline double SyncLoadLedger::AsyncMs()
+    {
+        const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
+        return SyncLoadDetail::Sums().AsyncMs;
+    }
+
     inline double SyncLoadLedger::SlowestMs()
     {
         const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
@@ -306,7 +372,16 @@ namespace Desert::Assets
     {
         SyncLoadDetail::LoadCount().fetch_add( 1, std::memory_order_relaxed );
 
-        const bool inFrame = SyncLoadLedger::Phase() == LoadPhase::Frame;
+        // AN ASYNC READ IS NOT AN IN-FRAME READ, and this line is the whole of that distinction. A
+        // worker inside `AsyncAssetLoader` is reading while the frame draws rather than instead of it,
+        // so it is counted, timed and reported — but never as the hitch the warning below names.
+        const bool async = SyncLoadDetail::AsyncDepth() > 0;
+        if ( async )
+        {
+            SyncLoadDetail::AsyncCount().fetch_add( 1, std::memory_order_relaxed );
+        }
+
+        const bool inFrame = !async && SyncLoadLedger::Phase() == LoadPhase::Frame;
         if ( inFrame )
         {
             SyncLoadDetail::InFrameCount().fetch_add( 1, std::memory_order_relaxed );
@@ -319,6 +394,8 @@ namespace Desert::Assets
                 SyncLoadDetail::Sums().TotalMs += totalMs;
                 if ( inFrame )
                     SyncLoadDetail::Sums().InFrameMs += totalMs;
+                if ( async )
+                    SyncLoadDetail::Sums().AsyncMs += totalMs;
             }
             // RANKED BY SELF TIME, AT EVERY DEPTH. Wall time would name the outermost scope every time
             // — a prefab always outlasts the meshes it loads — and send every investigation to the
@@ -358,6 +435,7 @@ namespace Desert::Assets
 
         const uint64_t loads   = SyncLoadDetail::LoadCount().load( std::memory_order_relaxed );
         const uint64_t inFrame = SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed );
+        const uint64_t async   = SyncLoadDetail::AsyncCount().load( std::memory_order_relaxed );
 
         std::string text = "loads=" + std::to_string( loads ) + " in " +
                            SyncLoadDetail::Ms( SyncLoadDetail::Sums().TotalMs ) +
@@ -372,6 +450,11 @@ namespace Desert::Assets
         {
             text += loads == 0 ? " — nothing loaded at all yet" : " — every load so far happened at boot";
         }
+        // NAMED WHETHER OR NOT IT IS ZERO, for the reason the in-frame line is: "none of this boot's
+        // reading was asynchronous" is a fact about the model, and a line that appeared only once the
+        // number was interesting would make the eager case look like a missing detector.
+        text += "\n  async (on a JobSystem worker, blocking no frame): " + std::to_string( async ) +
+                " load(s) in " + SyncLoadDetail::Ms( SyncLoadDetail::Sums().AsyncMs );
         if ( loads > 0 )
         {
             text += "\n  slowest single load by its OWN time: " +
@@ -387,13 +470,16 @@ namespace Desert::Assets
         SyncLoadDetail::BootFinished().store( false, std::memory_order_relaxed );
         SyncLoadDetail::LoadCount().store( 0, std::memory_order_relaxed );
         SyncLoadDetail::InFrameCount().store( 0, std::memory_order_relaxed );
+        SyncLoadDetail::AsyncCount().store( 0, std::memory_order_relaxed );
         SyncLoadDetail::InFrameLogged().store( 0, std::memory_order_relaxed );
         SyncLoadDetail::Sums().TotalMs   = 0.0;
         SyncLoadDetail::Sums().InFrameMs = 0.0;
+        SyncLoadDetail::Sums().AsyncMs   = 0.0;
         SyncLoadDetail::Sums().SlowestMs = 0.0;
         SyncLoadDetail::Sums().SlowestPath.clear();
-        SyncLoadDetail::Depth()     = 0;
-        SyncLoadDetail::OpenScope() = nullptr;
+        SyncLoadDetail::Depth()      = 0;
+        SyncLoadDetail::AsyncDepth() = 0;
+        SyncLoadDetail::OpenScope()  = nullptr;
     }
 
     // THE THREE ASSIGNMENTS BELOW CANNOT BECOME MEMBER INITIALISERS, and the reason is ORDER.
@@ -440,4 +526,13 @@ namespace Desert::Assets
         }
     }
 
+    inline AsyncLoadMarker::AsyncLoadMarker()
+    {
+        ++SyncLoadDetail::AsyncDepth();
+    }
+
+    inline AsyncLoadMarker::~AsyncLoadMarker()
+    {
+        --SyncLoadDetail::AsyncDepth();
+    }
 } // namespace Desert::Assets

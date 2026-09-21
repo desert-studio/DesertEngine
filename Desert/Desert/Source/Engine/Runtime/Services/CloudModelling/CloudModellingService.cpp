@@ -7,6 +7,21 @@
 
 namespace Desert::Runtime
 {
+    void CloudModellingService::Announce( const Assets::Asset<Assets::CloudModellingVolumeAsset>& asset )
+    {
+        if ( !asset )
+        {
+            LOG_ERROR( "[Clouds] CloudModellingService::Announce was given a null asset; nothing was "
+                       "recorded, so whatever body this was will not draw and the hero cloud naming it "
+                       "will be reported as a missing reference." );
+            return;
+        }
+
+        auto& entry = m_Volumes[asset->GetMetadata().Handle];
+        if ( !entry.Asset )
+            entry.Asset = asset;
+    }
+
     Common::BoolResultStr
     CloudModellingService::Register( const std::shared_ptr<Assets::CloudModellingVolumeAsset>& asset )
     {
@@ -26,10 +41,17 @@ namespace Desert::Runtime
                                                      Assets::kCloudModellingVoxelBytes );
 
         if ( auto it = m_Volumes.find( handle );
-             it != m_Volumes.end() && it->second.Revision == asset->GetRevision() )
+             it != m_Volumes.end() && it->second.Loaded && it->second.Revision == asset->GetRevision() )
             return BOOLSUCCESS;
 
-        m_Volumes[handle] = Entry{ asset, data.Recipe.SizeKm, asset->GetRevision() };
+        // Updated rather than replaced: replacing would drop the `LoadRequest` this call is very likely
+        // running inside the completion of. See CloudNoiseService::Register for the whole reason.
+        Entry& entry   = m_Volumes[handle];
+        entry.Asset    = asset;
+        entry.SizeKm   = data.Recipe.SizeKm;
+        entry.Revision = asset->GetRevision();
+        entry.Loaded   = true;
+        entry.Failed   = false;
 
         LOG_INFO( "[Clouds] Modelling volume '{}' registered: {}x{}x{} RGBA8, {:.2f} MiB, "
                   "{:.2f} x {:.2f} x {:.2f} km as sculpted.",
@@ -40,23 +62,107 @@ namespace Desert::Runtime
         return BOOLSUCCESS;
     }
 
-    bool CloudModellingService::HasBody( const Assets::AssetHandle& handle )
+    void CloudModellingService::BeginRead( const Assets::AssetHandle& handle, Entry& entry )
+    {
+        entry.Request = Assets::AsyncAssetLoader::Get().Request(
+             entry.Asset,
+             [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded, const Assets::LoadOutcome outcome,
+                             const std::string& error )
+             {
+                 const auto it = m_Volumes.find( handle );
+                 if ( it == m_Volumes.end() )
+                     return;
+
+                 it->second.Request.Release();
+
+                 if ( outcome != Assets::LoadOutcome::Loaded )
+                 {
+                     it->second.Failed = true;
+                     LOG_ERROR( "[Clouds] Cloud modelling volume '{}' could not be read: {}. Every hero "
+                                "cloud naming it stays undrawn from here on.",
+                                it->second.Asset ? it->second.Asset->GetMetadata().Filepath.string()
+                                                 : std::string( "<unknown>" ),
+                                error );
+                     return;
+                 }
+
+                 const auto asset      = std::static_pointer_cast<Assets::CloudModellingVolumeAsset>( loaded );
+                 const auto registered = Register( asset );
+                 if ( !registered )
+                 {
+                     const auto entryAfter = m_Volumes.find( handle );
+                     if ( entryAfter != m_Volumes.end() )
+                         entryAfter->second.Failed = true;
+                     LOG_ERROR( "[Clouds] Cloud modelling volume '{}' was read but could not be "
+                                "registered: {}",
+                                asset->GetMetadata().Filepath.string(), registered.GetError() );
+                 }
+             },
+             [this, handle]
+             {
+                 const auto it = m_Volumes.find( handle );
+                 if ( it == m_Volumes.end() )
+                     return;
+                 it->second.Request.Release();
+             } );
+    }
+
+    Assets::AssetRef<Assets::CloudModellingVolumeAsset>
+    CloudModellingService::Resolve( const Assets::AssetHandle& handle, const bool mayRequest )
     {
         // AN EMPTY SLOT IS SILENCE, not an error and not a default. There is no built-in hero cloud and
         // there must not be one: a body nobody sculpted appearing in a scene is a cloud the artist cannot
         // explain, where an empty noise slot resolving to the shipped default is a sky they expect.
         if ( handle == 0 )
-            return false;
+            return Assets::AssetRef<Assets::CloudModellingVolumeAsset>::Null();
 
-        if ( m_Volumes.find( handle ) != m_Volumes.end() )
-            return true;
+        const auto it = m_Volumes.find( handle );
+        if ( it == m_Volumes.end() )
+        {
+            // NOT a silent fall-through, and ONCE per handle rather than once per frame — the version
+            // this replaces had no such guard and printed this line sixty times a second.
+            if ( mayRequest && m_Reported.insert( handle ).second )
+                LOG_ERROR( "[Clouds] Cloud modelling volume {} is referenced by a hero cloud but was never "
+                           "announced, so that cloud will not draw. The scene names a .dcmv the asset scan "
+                           "did not find.",
+                           static_cast<uint64_t>( handle ) );
+            return Assets::AssetRef<Assets::CloudModellingVolumeAsset>::Null();
+        }
 
-        // NOT a silent fall-through. The artist chose a body and it is not there; saying which handle is
-        // the difference between a five-minute fix and an afternoon.
-        LOG_ERROR( "[Clouds] Cloud modelling volume {} is referenced by a hero cloud but not registered, so "
-                   "that cloud will not draw. The scene names a .dcmv the asset scan did not find.",
-                   static_cast<uint64_t>( handle ) );
-        return false;
+        if ( it->second.Loaded )
+            return Assets::AssetRef<Assets::CloudModellingVolumeAsset>::Ready( handle, it->second.Asset );
+
+        if ( it->second.Failed )
+            return Assets::AssetRef<Assets::CloudModellingVolumeAsset>::Null();
+
+        if ( it->second.Request.IsValid() || !mayRequest || !it->second.Asset )
+            return Assets::AssetRef<Assets::CloudModellingVolumeAsset>::Pending( handle );
+
+        BeginRead( handle, it->second );
+        return Assets::AssetRef<Assets::CloudModellingVolumeAsset>::Pending( handle );
+    }
+
+    Assets::AssetRef<Assets::CloudModellingVolumeAsset>
+    CloudModellingService::RequireBody( const Assets::AssetHandle& handle )
+    {
+        return Resolve( handle, /*mayRequest=*/true );
+    }
+
+    Assets::AssetRef<Assets::CloudModellingVolumeAsset>
+    CloudModellingService::Peek( const Assets::AssetHandle& handle )
+    {
+        return Resolve( handle, /*mayRequest=*/false );
+    }
+
+    size_t CloudModellingService::ResidentCount() const
+    {
+        size_t resident = 0;
+        for ( const auto& [handle, entry] : m_Volumes )
+        {
+            if ( entry.Loaded )
+                ++resident;
+        }
+        return resident;
     }
 
     glm::vec3 CloudModellingService::GetSizeKm( const Assets::AssetHandle& handle )
@@ -156,7 +262,13 @@ namespace Desert::Runtime
 
     void CloudModellingService::Clear()
     {
+        // Cancelled rather than dropped: see CloudNoiseService::Clear for why the delegate is what tells
+        // an entry that the worker it waits for is not coming back.
+        for ( auto& [handle, entry] : m_Volumes )
+            entry.Request.Cancel();
+
         m_Volumes.clear();
+        m_Reported.clear();
         m_Atlas.reset();
         m_AtlasSlabs.clear();
         m_AtlasRevisions.clear();

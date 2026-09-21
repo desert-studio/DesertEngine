@@ -613,16 +613,23 @@ namespace Desert::Core::Serialize
 
                 auto a = mgr.FindByPath<Assets::CloudModellingVolumeAsset>( full );
                 if ( !a )
-                    a = m.CreateAsset<Assets::CloudModellingVolumeAsset>( Assets::AssetPriority::Medium, full );
+                    a = m.CreateAsset<Assets::CloudModellingVolumeAsset>( Assets::AssetPriority::Medium, full,
+                                                                          /*loadAfterCreate=*/false );
                 if ( !a )
                     return 0;
-                if ( !a->IsReadyForUse() && !a->Load() )
-                    return 0;
-                if ( const auto registered = Runtime::ResourceRegistry::GetCloudModellingService()->Register( a );
-                     !registered )
-                    LOG_ERROR( "[Clouds] Cloud modelling volume '{}' named by the scene could not be "
-                               "uploaded: {}",
-                               full.string(), registered.GetError() );
+
+                // ANNOUNCED, NOT READ — AND THIS LINE USED TO BE A 4 MiB BLOCKING READ INSIDE THE SCENE
+                // DESERIALISER. It said `if ( !a->IsReadyForUse() && !a->Load() ) return 0;`, which in the
+                // editor runs AFTER the boot, so `SyncLoadLedger` counted every one of them as an
+                // in-frame load: the very hitch the detector exists to name. It was invisible because the
+                // preloader had almost always read the file already, so the branch was almost never
+                // taken — the eager preload was hiding a blocking read, not avoiding one, and removing
+                // the preload is exactly what would have exposed it.
+                //
+                // The hero cloud's own renderer asks for the body through `RequireBody` when it comes to
+                // draw it, and waits on a three-state answer. Deserialising a scene must establish WHICH
+                // asset a field names; it has never been the right place to read one.
+                Runtime::ResourceRegistry::GetCloudModellingService()->Announce( a );
                 return static_cast<uint64_t>( a->GetMetadata().Handle );
             }
             if ( type == "ControlRigAsset" )

@@ -738,7 +738,22 @@ namespace Desert::Graphic::System
         // Latched by EnsureTraceTargets and covering ALL SIX images: any one missing means the pass cannot
         // run, and retrying an allocation that already failed once per frame only fills the log.
         bool m_TargetsFailed = false;
+        // Set by BuildProceduralParams (which is const, hence mutable) when either layout slot names a
+        // painting whose read is in flight; read by EnsureModellingVolume, which is the level that can
+        // refuse the frame. TWO MEMBERS rather than one because they answer different questions: one is
+        // "is a read outstanding right now", the other is "have I already said so in the log".
+        mutable bool m_LayoutPending = false;
+        bool         m_LayoutWaiting = false;
+        /// Latched while a hero cloud's body is being read, so the waiting line is printed once per wait.
+        bool m_HeroWaiting = false;
+
         bool m_NoiseFailed   = false;
+        // Latched while a noise volume's read is in flight, so the "waiting" line is printed once per
+        // wait rather than once per frame. SEPARATE FROM m_NoiseFailed on purpose: one of them is a
+        // condition that clears itself in a few frames and the other is a scene an artist has to fix,
+        // and a single flag would make the log unable to tell them apart -- which is the defect one
+        // layer down that this whole change is about.
+        bool m_NoiseWaiting = false;
 
         // Advances once per executed frame. It decides both the march's dither pattern and which of the
         // four sub-pixels this frame traces, and it selects the history target written. Wrapping is

@@ -268,9 +268,25 @@ namespace Desert::Graphic::System
         // slots, and the bake reads null as "there is no painting" and places the sky exactly as it did
         // before these fields existed. A handle that names a layout nobody registered is logged by the
         // service, once, and also arrives here as null.
-        auto* layouts        = Runtime::ResourceRegistry::GetCloudLayoutService();
-        params.PatternSource = layouts->Get( m_Material.LayoutPattern );
-        params.MaskSource    = layouts->Get( m_Material.LayoutMask );
+        auto*      layouts = Runtime::ResourceRegistry::GetCloudLayoutService();
+        const auto pattern = layouts->Require( m_Material.LayoutPattern );
+        const auto mask    = layouts->Require( m_Material.LayoutMask );
+
+        // PENDING IS NOT "NO PAINTING", AND HERE THE TWO ARE THE SAME POINTER.
+        //
+        // An empty slot and a painting still being read both produce a null `shared_ptr`, and the bake
+        // reads null as "place the clouds procedurally". For an empty slot that is correct and shipped.
+        // For a painting in flight it is the quiet degradation this tier exists to remove: the layer the
+        // artist painted would be placed procedurally, baked, and then silently re-baked a few frames
+        // later when the pixels arrived — two different skies for one scene, neither of them reported.
+        //
+        // So the WHOLE bake waits. It is the caller of this function that can refuse (EnsureModellingVolume
+        // returns false and the layer draws nothing this frame), which is why this const function records
+        // the fact rather than acting on it.
+        m_LayoutPending = pattern.IsPending() || mask.IsPending();
+
+        params.PatternSource = pattern.Share();
+        params.MaskSource    = mask.Share();
 
         // WHEN A PAINTING CANNOT BE HONOURED IT IS DROPPED, NOT THE SKY, AND NOT THE OTHER SLOT. The narrow
         // per-table validator is the one called here on purpose, twice — handed the whole one, a mistyped
@@ -326,6 +342,22 @@ namespace Desert::Graphic::System
             return false;
 
         const Assets::CloudProceduralFieldParams wanted = BuildProceduralParams( shapes, speciesCount );
+
+        // A PAINTING THIS LAYER NAMES IS STILL BEING READ. Baking now would bake the procedural placement
+        // and then have to throw it away — fourteen seconds of volume work on some tiers — and in between
+        // the frame would show a sky the artist did not paint. Refuse the frame instead; the host holds
+        // its loading overlay up for exactly this.
+        if ( m_LayoutPending )
+        {
+            if ( !m_LayoutWaiting )
+            {
+                m_LayoutWaiting = true;
+                LOG_INFO( "[Clouds] Waiting for this layer's painted layout; the read is on a worker and "
+                          "the placement bake does not run until it lands." );
+            }
+            return false;
+        }
+        m_LayoutWaiting = false;
 
         // WHERE THE REGION WANTS TO BE. The camera MINUS the accumulated wind, because the march asks the
         // volume about `position - wind`: the sky drifting downwind for an hour must not carry the region
@@ -1372,8 +1404,26 @@ namespace Desert::Graphic::System
 
         for ( const HeroCloudInstance& hero : m_HeroClouds )
         {
-            if ( !service->HasBody( hero.Data.Volume ) )
-                continue; // already logged by the service, with the handle in the message
+            const auto body = service->RequireBody( hero.Data.Volume );
+
+            // A BODY STILL BEING READ STOPS THE WHOLE ATLAS, not just its own slab. Building an atlas
+            // without it would upload up to twelve megabytes and then have to upload them again on the
+            // frame the body landed — and in between the scene would show some of its hero clouds and not
+            // others, which looks like a scene with missing content rather than a scene still loading.
+            if ( body.IsPending() )
+            {
+                if ( !m_HeroWaiting )
+                {
+                    m_HeroWaiting = true;
+                    LOG_INFO( "[Clouds] Waiting for hero cloud '{}' body {}; the read is on a worker and "
+                              "no hero cloud draws until the whole set has landed.",
+                              hero.Name, static_cast<uint64_t>( body.Handle() ) );
+                }
+                return;
+            }
+
+            if ( !body.IsValid() )
+                continue; // empty slot, or already logged by the service with the handle in the message
 
             if ( std::find( bodies.begin(), bodies.end(), hero.Data.Volume ) != bodies.end() )
                 continue;
@@ -1396,6 +1446,8 @@ namespace Desert::Graphic::System
 
             bodies.push_back( hero.Data.Volume );
         }
+
+        m_HeroWaiting = false;
 
         if ( bodies.empty() )
             return;
@@ -1623,8 +1675,34 @@ namespace Desert::Graphic::System
 
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
         {
-            Image3D* volume = service->Get( m_NoiseSlots.Volume[slot] );
-            if ( !volume )
+            const Assets::AssetRef<Image3D> volume = service->Require( m_NoiseSlots.Volume[slot] );
+
+            // PENDING IS NOT MISSING, AND THIS BRANCH IS THE WHOLE POINT OF THE THREE-STATE ANSWER.
+            //
+            // Until the cloud kinds became demand-driven, a null from the service could only mean "the
+            // scene names a .dcnv that is not in the project", so one branch was enough and it logged an
+            // error. Now the same absence also means "a worker is reading it", which happens on every
+            // scene load and is not a defect. Taking the old branch for it would put an error in the log
+            // for normal loading, latch this renderer's failure flag over a condition that clears
+            // itself, and teach the reader to ignore the one line that reports a genuinely broken
+            // reference.
+            //
+            // The ACTION is the same — do not draw this layer — and that is not an argument for merging
+            // the states: it is why merging them was survivable for so long and why nobody would have
+            // noticed. The log is the difference, and the log is what the next investigation reads.
+            if ( volume.IsPending() )
+            {
+                if ( !m_NoiseWaiting )
+                {
+                    m_NoiseWaiting = true;
+                    LOG_INFO( "[Clouds] Waiting for noise volume {} for slot {} of this layer; the read is "
+                              "on a worker and this view draws no clouds until it lands.",
+                              static_cast<uint64_t>( volume.Handle() ), slot );
+                }
+                return false;
+            }
+
+            if ( !volume.IsValid() )
             {
                 // The service has already logged which volume is missing and why. Latched so a scene with a
                 // broken reference does not print once per frame forever.
@@ -1639,13 +1717,16 @@ namespace Desert::Graphic::System
                 return false;
             }
 
-            m_NoiseVolume[slot] = volume;
+            m_NoiseVolume[slot] = volume.Get();
         }
 
         // Cleared as soon as the volumes do resolve: the failure above is a state of the SCENE, not of this
         // renderer, and dropping a project's clouds for the rest of the session because one scene was
-        // opened with a stale reference is the kind of latch that reads as a broken build.
-        m_NoiseFailed = false;
+        // opened with a stale reference is the kind of latch that reads as a broken build. The waiting
+        // latch clears for the same reason and one step earlier — a volume that arrives must be able to
+        // put the log back to quiet, or the next wait says nothing.
+        m_NoiseFailed  = false;
+        m_NoiseWaiting = false;
 
         return true;
     }
