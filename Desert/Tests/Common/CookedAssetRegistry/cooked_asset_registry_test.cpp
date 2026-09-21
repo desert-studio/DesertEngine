@@ -298,11 +298,11 @@ TEST( CookedAssetRegistry, RemovingARowTakesBothOfItsNumbersWithIt )
 //
 // WHY THESE EXIST, AND IT IS A MUTATION THAT PUT THEM HERE. `Desert/Tests/Editor/CookedRegistryGate`
 // holds the committed registry against the committed tree, and it is the thing CI fails on. But it
-// asserts the DATA, not the COMPARATOR: with `CompareWithDisk` mutated to never report an orphan row,
+// asserts the DATA, not the COMPARATOR: with `Compare` mutated to never report an orphan row,
 // and an orphan row planted in the registry, the gate came back GREEN. A green mutation means the test
 // does not reach the property, and the answer is to reach it rather than to record the green.
 //
-// `CompareWithDisk` is PURE — a registry and a map in, a list of sentences out — so the four ways a
+// `Compare` is PURE — a registry, a map and a noun in, a list of sentences out — so the four ways a
 // registry can disagree with a tree are assertable here, with no disk at all.
 
 namespace
@@ -335,7 +335,7 @@ TEST( CookedAssetRegistry, AnAgreeingRegistryAndTreeProduceNoDisagreements )
     const auto onDisk =
          Disk( { { "assets:Materials/M.demat", { Common::Content::ContentKind::Material, 512 } } } );
 
-    EXPECT_TRUE( Common::Content::CompareWithDisk( registry, onDisk ).empty() );
+    EXPECT_TRUE( Common::Content::Compare( registry, onDisk, "on disk" ).empty() );
 }
 
 TEST( CookedAssetRegistry, AFileWithNoRowIsReportedBecauseItWouldNotReachAPackagedBuild )
@@ -347,7 +347,7 @@ TEST( CookedAssetRegistry, AFileWithNoRowIsReportedBecauseItWouldNotReachAPackag
     const auto onDisk =
          Disk( { { "assets:Materials/M.demat", { Common::Content::ContentKind::Material, 512 } } } );
 
-    const auto problems = Common::Content::CompareWithDisk( registry, onDisk );
+    const auto problems = Common::Content::Compare( registry, onDisk, "on disk" );
     ASSERT_EQ( problems.size(), 1u );
     EXPECT_TRUE( Reports( problems, Common::Content::RegistryDisagreement::Kind::MissingRow,
                           "assets:Materials/M.demat" ) );
@@ -359,12 +359,12 @@ TEST( CookedAssetRegistry, AFileWithNoRowIsReportedBecauseItWouldNotReachAPackag
 
 TEST( CookedAssetRegistry, ARowWithNoFileIsReportedBecauseTheLoaderWillChaseItForEver )
 {
-    // THE CASE A MUTATION FOUND UNGUARDED. `CompareWithDisk` was changed to skip this loop entirely
+    // THE CASE A MUTATION FOUND UNGUARDED. `Compare` was changed to skip this loop entirely
     // and the CI gate stayed green over a registry with a planted orphan row.
     AssetRegistry registry;
     ASSERT_TRUE( registry.Insert( Row( "assets:Materials/Gone.demat", "Material", 512 ) ) );
 
-    const auto problems = Common::Content::CompareWithDisk( registry, {} );
+    const auto problems = Common::Content::Compare( registry, {}, "on disk" );
     ASSERT_EQ( problems.size(), 1u );
     EXPECT_TRUE( Reports( problems, Common::Content::RegistryDisagreement::Kind::OrphanRow,
                           "assets:Materials/Gone.demat" ) );
@@ -381,7 +381,7 @@ TEST( CookedAssetRegistry, AKindOrASizeThatDisagreesIsReportedAndTheRowIsStillFo
     const auto onDisk =
          Disk( { { "assets:Materials/M.demat", { Common::Content::ContentKind::Material, 900 } } } );
 
-    const auto problems = Common::Content::CompareWithDisk( registry, onDisk );
+    const auto problems = Common::Content::Compare( registry, onDisk, "on disk" );
     EXPECT_TRUE(
          Reports( problems, Common::Content::RegistryDisagreement::Kind::WrongKind, "assets:Materials/M.demat" ) );
     EXPECT_TRUE(

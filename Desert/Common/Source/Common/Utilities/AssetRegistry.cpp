@@ -18,6 +18,10 @@ namespace Common::Utils
         // editor's cook) and the consumer (both hosts' boot) have to name the same file and a second
         // literal is how they would come to name two.
         constexpr std::string_view kFileName = "AssetRegistry.dreg";
+        // The cook's own rows. `.cooked.` and not `.local.` because what it describes is not a property
+        // of the machine but of the COOK: it ships inside a package built from that cook, and the
+        // runtime that mounts it has no machine to be local to.
+        constexpr std::string_view kCookFileName = "AssetRegistry.cooked.dreg";
 
         // `-` rather than `0` for "no identity" and "no dependencies". Zero is a legal-looking number
         // and would read as an identity of zero — which is what a NULL handle is — so the empty case
@@ -370,6 +374,11 @@ namespace Common::Utils
     std::filesystem::path AssetRegistry::DefaultPath()
     {
         return Constants::Path::Dir( Constants::Path::ContentDir::Cooked ) / kFileName;
+    }
+
+    std::filesystem::path AssetRegistry::CookOutputPath()
+    {
+        return Constants::Path::Dir( Constants::Path::ContentDir::Cooked ) / kCookFileName;
     }
 
     ResultStr<AssetRegistry> AssetRegistry::LoadFrom( const std::filesystem::path& path )

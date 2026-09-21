@@ -139,6 +139,7 @@ DesertAssetRegistry 1
 933 Material 44d056a9359b4d1c - assets:Materials/base/model.demat
 1016 Material f92eb79deac06342 235a4677ab990d51,4935766ceb333c40,f4458fd2d2ef1866 assets:Materials/base_basic_pbr/model.demat
 937 Material 194232c86369b0cb c6ff26d3abf50030 assets:Materials/base_basic_shaded/model.demat
+674 Retarget - - assets:Retargets/ForeignArm_To_IKProbe.retarget
 1393 ControlRig - - assets:Rigs/IKProbe_Arm.derig
 3549 ControlRig - - assets:Rigs/IKProbe_ArmGraph.derig
 32816 Skybox - - assets:Textures/HDR/PreviewCheck.hdr
@@ -159,16 +160,6 @@ DesertAssetRegistry 1
 11354 SkinnedMesh - - cooked:Meshes/TwoBoneProbe.skmesh
 11851 Animation - - cooked:Meshes/TwoBoneProbe_Twist.anim
 11106 Animation - - cooked:Meshes/TwoBoneProbe_Wave.anim
-963 Animation - - cooked:Meshes/TwoJointProbe._ArmSwing.anim
-471 Skeleton - - cooked:Meshes/TwoJointProbe.skeleton
-1748 SkinnedMesh - - cooked:Meshes/TwoJointProbe.skmesh
-44838255 StaticMesh - - cooked:Meshes/base.stmesh
-44838256 StaticMesh - - cooked:Meshes/base_basic_pbr.stmesh
-44838255 StaticMesh - - cooked:Meshes/base_basic_shaded.stmesh
-129 Texture c6ff26d3abf50030 - cooked:Textures/Assets/Meshes/shaded.tex
-137 Texture 235a4677ab990d51 - cooked:Textures/Assets/Meshes/texture_diffuse.tex
-139 Texture f4458fd2d2ef1866 - cooked:Textures/Assets/Meshes/texture_metallic.tex
-136 Texture 4935766ceb333c40 - cooked:Textures/Assets/Meshes/texture_normal.tex
 133 Texture 3facba2f99300a42 - cooked:Textures/T_Checker.tex
 2898 Shader - - engine:Shaders/Programs/AutoExposure/AEAverage.shader
 2379 Shader - - engine:Shaders/Programs/AutoExposure/AEHistogram.shader
