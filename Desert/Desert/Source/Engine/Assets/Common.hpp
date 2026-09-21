@@ -82,6 +82,14 @@ namespace Desert::Assets
         // Engine/Assets/AnimGraphAsset.hpp.
         AnimGraph,
 
+        // A RETARGET (`.retarget`): the rig PAIR a foreign clip is played through — the source rig by
+        // signature, the two pelvis bones, both retarget poses, the chains and the renames. A first-class
+        // asset because tier T6.2 shipped a measured three-stage retargeting pipeline (limb length
+        // 0.000024 % against `JPH::SkeletonMapper`'s 7.934 %) and NO way for a scene to have one: a
+        // `RetargetSetup` had to be filled in in C++ by a caller that did not exist. See
+        // Engine/Assets/Serialization/Retarget.hpp.
+        Retarget,
+
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
         // That red is the only reason this enumerator exists: an asset type whose handle stability nobody
@@ -151,6 +159,13 @@ namespace Desert::Assets
             // the reachability walk can see it (SceneAssetRoots.cpp marks it with "an entity is animated
             // by it") and the ordinary rule holds it alive for exactly as long as a live entity names it.
             case AssetTypeID::AnimGraph:
+            // A RETARGET IS SCENE-SCOPED for the anim graph's reason and by the same mechanism:
+            // `RetargetData::Retarget` is an `AssetHandle`, so the reachability walk can see it
+            // (SceneAssetRoots marks it with "an entity plays a foreign clip through it") and the ordinary
+            // rule holds it alive for exactly as long as a live entity names it. Its own source-rig
+            // dependency is held the way `.skmesh` holds one, so the rig follows the retarget rather than
+            // needing a root of its own.
+            case AssetTypeID::Retarget:
             case AssetTypeID::Count:
                 return false;
         }
@@ -209,6 +224,8 @@ namespace Desert::Assets
                 return "ShaderGraph";
             case AssetTypeID::AnimGraph:
                 return "AnimGraph";
+            case AssetTypeID::Retarget:
+                return "Retarget";
             case AssetTypeID::Count:
                 return "Count";
         }
