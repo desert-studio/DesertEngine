@@ -19,6 +19,10 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        -- The WRITE half of the resolver, so the census can CALL it instead of grepping for it. It was
+        -- extracted from ComponentRegistry.cpp precisely so that this is possible, and it reaches
+        -- AssetHandle and nothing else, so it costs this suite no renderer.
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/StoredAssetForm.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
     }
 

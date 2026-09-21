@@ -33,10 +33,18 @@ namespace Desert::Assets
     void AssetEviction::EdgesOf( AssetManager& manager, const Common::AssetHandle& handle,
                                  const std::function<void( const Common::UUID&, const std::string& )>& visit )
     {
-        // THE EDGES OF THE GRAPH, IN ONE PLACE. Every asset class that names another asset is listed here
-        // and nowhere else, so `Desert/Tests/Engine/AssetEviction` can hold the list against the classes
-        // that actually have such a field. A dropped edge is invisible in every other way: the asset it
-        // should have kept is released, reloads on the next access, and the only symptom is work.
+        // THE EDGES OF THE GRAPH, IN ONE PLACE. Every asset class that names another asset is listed
+        // here and nowhere else. A dropped edge is invisible in every other way: the asset it should
+        // have kept is released, reloads on the next access, and the only symptom is work.
+        //
+        // THREE OF THESE FIVE HAD NO TEST when that was measured, and the header used to claim all of
+        // them did. Two still do not — see the note beside the edge tests in
+        // `Desert/Tests/Engine/AssetEviction`. Adding an edge here without adding its test there is
+        // adding a line nothing can hold you to.
+        //
+        // AND THE RISK IS NOT THEORETICAL FOR THIS FUNCTION SPECIFICALLY: it was lifted out of
+        // `Expand` in one branch while another added the retarget edge to the body it was leaving. A
+        // merge that took the leaving copy would have dropped the edge with nothing red anywhere.
         //
         // AN UNLOADED ASSET CONTRIBUTES NO EDGES, deliberately. Reading its references would mean parsing
         // it — the exact work the lazy registration exists to avoid — and it is harmless: an asset that is
