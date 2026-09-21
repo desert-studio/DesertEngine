@@ -2,6 +2,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/Core.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
@@ -52,9 +53,17 @@ namespace Common::Content
         // byte-identical to a repository that tracks no content — and reporting that as "nothing is
         // tracked" would make the gate certify an empty answer. Exactly the failure
         // `scripts/CI/CheckTidy.sh` reserves its exit code 2 for.
+        // `popen`/`pclose` ARE POSIX AND MSVC SPELLS THEM `_popen`/`_pclose`. This is a recorded
+        // defect class of this repository and it reached `dev` again here: `Windows Shipping` failed
+        // with `error C3861: 'popen': identifier not found`, on the platform the game actually ships
+        // for, while every macOS suite was green. A green sweep here is not a green build there.
         std::string RunAndCapture( const std::string& command )
         {
+#if defined( DESERT_PLATFORM_WINDOWS )
+            FILE* pipe = _popen( command.c_str(), "r" );
+#else
             FILE* pipe = popen( command.c_str(), "r" );
+#endif
             if ( pipe == nullptr )
                 return {};
 
@@ -64,15 +73,38 @@ namespace Common::Content
             while ( ( read = std::fread( buffer, 1, sizeof( buffer ), pipe ) ) > 0 )
                 output.append( buffer, read );
 
+#if defined( DESERT_PLATFORM_WINDOWS )
+            if ( _pclose( pipe ) != 0 )
+#else
             if ( pclose( pipe ) != 0 )
+#endif
                 return {};
             return output;
         }
 
-        // Quotes a path for `sh -c`, single-quote style, so a checkout under a directory with a space
-        // in it does not silently become two arguments and an empty answer.
+        // Quotes a path for the shell `popen` hands the command to, so a checkout under a directory
+        // with a space in it does not silently become two arguments and an empty answer.
+        //
+        // THE TWO SHELLS DISAGREE ABOUT WHAT A QUOTE IS, and the Windows half is not cosmetic: `_popen`
+        // runs `cmd /c`, where a single quote is an ORDINARY CHARACTER and quotes nothing. The
+        // POSIX spelling on Windows would therefore pass `'D:\a\My` and `Checkout'` as two arguments,
+        // git would fail, and `RunAndCapture` would return an empty string — which is precisely the
+        // "empty answer reported as success" this whole file exists to refuse. cmd has no escape for a
+        // double quote inside a quoted string, so an embedded one is stripped rather than mangled; a
+        // path cannot contain `"` on Windows anyway, which is why that is safe here and would not be
+        // for arbitrary text.
         std::string QuoteForShell( const std::string& text )
         {
+#if defined( DESERT_PLATFORM_WINDOWS )
+            std::string quoted = "\"";
+            for ( const char c : text )
+            {
+                if ( c != '"' )
+                    quoted += c;
+            }
+            quoted += "\"";
+            return quoted;
+#else
             std::string quoted = "'";
             for ( const char c : text )
             {
@@ -83,6 +115,7 @@ namespace Common::Content
             }
             quoted += "'";
             return quoted;
+#endif
         }
 
         // The remedy, spelled once. Every disagreement below ends with it, because a gate that names a

@@ -213,3 +213,76 @@ TEST( ReservedIdentifiers, NoPathFilterUsesTheNativeSpelling )
         return all;
     }();
 }
+
+TEST( ReservedIdentifiers, EveryPosixProcessPipeHasItsWindowsSpellingBesideIt )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const auto files = SourceFiles( root );
+    ASSERT_FALSE( files.empty() ) << "no sources walked — this census examined nothing";
+
+    // THIS REACHED `dev` TWICE. The second time it was `Common/Content/ContentScan.cpp`, the file that
+    // asks git what it tracks — so the gate written to stop machine-local answers could not COMPILE on
+    // the platform the game ships for, while every macOS suite stayed green. MSVC spells these
+    // `_popen`/`_pclose` and declares no unprefixed alias.
+    //
+    // THE ASSERTION IS A RELATION, NOT AN ABSENCE, and the first draft got that wrong: forbidding
+    // `popen` outright reddened on all four files that had ALREADY been split correctly, the remedy
+    // included. A gate that fires on its own fix is a gate someone deletes. What must hold is that a
+    // file naming the POSIX spelling also names the Windows one — i.e. somebody thought about the
+    // platform split — which is checkable per file and cannot be satisfied by deleting the guard.
+    //
+    // It does not try to parse `#if` nesting. A file that mentions both spellings but wires them to
+    // the wrong branches is a defect this census cannot see; the COMPILER sees that one, which is
+    // exactly the division of labour a census should keep.
+    const std::regex posixPipe( R"((^|[^A-Za-z0-9_])(popen|pclose)\s*\()" );
+
+    std::vector<std::string> offenders;
+    for ( const fs::path& file : files )
+    {
+        std::ifstream in( file );
+        std::string   line;
+        int           firstUse           = 0;
+        int           number             = 0;
+        bool          hasWindowsSpelling = false;
+        while ( std::getline( in, line ) )
+        {
+            ++number;
+            // A COMMENT IS NOT CODE — same rule, and same reason, as the census above: this very file
+            // has to name what it forbids.
+            const std::size_t firstGlyph = line.find_first_not_of( " \t" );
+            if ( firstGlyph != std::string::npos &&
+                 ( line.compare( firstGlyph, 2, "//" ) == 0 || line.compare( firstGlyph, 1, "*" ) == 0 ) )
+            {
+                continue;
+            }
+            if ( line.find( "_popen" ) != std::string::npos || line.find( "_pclose" ) != std::string::npos )
+            {
+                hasWindowsSpelling = true;
+            }
+            if ( firstUse == 0 && std::regex_search( line, posixPipe ) )
+            {
+                firstUse = number;
+            }
+        }
+        if ( firstUse != 0 && !hasWindowsSpelling )
+        {
+            offenders.push_back( fs::relative( file, root ).generic_string() + ":" + std::to_string( firstUse ) );
+        }
+    }
+
+    EXPECT_TRUE( offenders.empty() )
+         << "`popen`/`pclose` are POSIX and MSVC does not declare them, so this is a Windows BUILD "
+            "failure that no macOS sweep can see. Guard with `#if defined( DESERT_PLATFORM_WINDOWS )` "
+            "and call `_popen`/`_pclose` there — and remember cmd does not honour single quotes, so "
+            "the argument quoting needs the same split or the command silently returns nothing.\n"
+         << [&offenders]
+    {
+        std::string all;
+        for ( const std::string& o : offenders )
+        {
+            all += "  " + o + "\n";
+        }
+        return all;
+    }();
+}
