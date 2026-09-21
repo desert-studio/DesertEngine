@@ -229,6 +229,8 @@ namespace Desert::Animation
      */
     struct ControlKeyTarget
     {
+        /// Null is legal, and it is the ordinary case for a plain skinned character: a bone key needs no
+        /// control rig. Only a `Control` subject requires one.
         ControlHierarchy* Hierarchy = nullptr;
         const Skeleton*   Skeleton  = nullptr; ///< the one the rig was evaluated against, for the name check
         AnimationClip*    Clip      = nullptr;

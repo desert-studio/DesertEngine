@@ -26,7 +26,11 @@ namespace Desert::Editor::Tools
         Operation GetOperation() const { return Core::GizmoState::Get(); }
         bool      IsActive() const { return Core::GizmoState::Get() != Operation::None; }
         bool      IsHovered() const { return m_Hovered; }
-        void      ResetHovered() { m_Hovered = false; } // call once per frame before rendering the gizmo
+        // Call once per frame before rendering the gizmo. It also drops the editor-wide "a pose gizmo is
+        // being held" bit, because that bit's one writer is `RenderBone` — and `RenderBone` is not called
+        // at all outside Pose mode, so a frame in which the user leaves that mode mid-drag would otherwise
+        // leave it stuck on and the Sequencer waiting for a release that never comes.
+        void ResetHovered();
 
         // Object transform gizmo on the current selection. viewportPos/Size = the rendered scene-image rect.
         void RenderObject( ::Desert::Core::Scene& scene, const glm::vec2& viewportPos,

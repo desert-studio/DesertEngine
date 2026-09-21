@@ -1008,3 +1008,25 @@ TEST( ControlKeying, KeyGroupAllKeysEveryBoneOfTheRigAndNotTheControls )
     EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 1U );
     EXPECT_EQ( PositionKeyCount( fix.Clip, "hand_ctrl" ), 0U ) << "no control was touched by this gesture";
 }
+
+TEST( ControlKeying, ABoneIsKeyableWithNoControlRigAtAll )
+{
+    // THE EDITOR'S ORDINARY CASE, and it was refused until it was asked for: a plain skinned character has
+    // no `ControlHierarchy`, and a target requiring one would have made every Sequencer bone key in the
+    // tree fail with a message about a rig the animator was not using.
+    Fixture          fix;
+    ControlKeyTarget target = fix.At( 16 );
+    target.Hierarchy        = nullptr;
+
+    fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, 4.0F );
+    const auto written           = fix.Keyer.WriteBone( target, 1 );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 1U );
+
+    // …and the control half still refuses, naming the missing hierarchy rather than crashing on it.
+    EXPECT_FALSE( fix.Keyer.Write( target, 0,
+                                   TransformOf( glm::vec3( 0.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
+                                                glm::vec3( 1.0F ) ),
+                                   ControlWriteSource::Authored )
+                       .IsSuccess() );
+}

@@ -4,6 +4,8 @@
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 
+#include <Engine/Animation/Rig/ControlKeyer.hpp>
+
 #include <Common/Core/UUID.hpp>
 
 #include <Engine/ECS/Entity.hpp>
@@ -188,12 +190,12 @@ namespace Desert::Editor
         // Assets::Serialization::SaveClipToFile's.
         [[nodiscard]] Common::ResultStr<std::string> SaveClipToDisk( const Animation::AnimationClip& clip );
 
-        // Records the bone's CURRENT local transform (posed in the viewport via Skeleton Edit) as position +
-        // rotation + scale keyframes at `time` in `clip` (upserting any key ON THAT TICK — an equality now,
-        // where it used to be a 1 ms epsilon over floats). This is the
-        // "keyframe by manipulation" path: pose with the gizmo, then key. boneIndex is a Skeleton bone index.
-        void KeyBonePose( Animation::AnimationClip* clip, const Animation::Animator& animator, int boneIndex,
-                          Animation::FrameTime time );
+        // WHAT A KEY IS ABOUT, assembled per frame and never stored. The keyer refuses an incomplete one,
+        // so building it in one place is what stops the "Key" button and Record mode from disagreeing
+        // about which clip, which tick and which pose buffer a key is written from — which is exactly how
+        // the two "add a key at the playhead" paths came to mean different things (§936).
+        [[nodiscard]] Animation::ControlKeyTarget KeyTargetFor( Animation::AnimationClip* clip,
+                                                                const Animation::Animator& animator ) const;
 
         // THE SAME KEYS, DRAWN AS CURVES (T4.3). Replaces the lane area rather than sitting beside it: a
         // dope sheet and a curve view are two readings of one channel, and showing both at once costs the
@@ -248,9 +250,17 @@ namespace Desert::Editor
         int m_CurveDragComponent = -1;
         int m_CurveDragHandle    = 0;
 
-        // Record mode: while ON (and in Skeleton Edit), moving the selected bone with the gizmo AUTO-keys it at
-        // the playhead. m_RecordBone/m_RecordLast track the last-seen transform to detect a change.
-        bool      m_Record     = false;
+        // KEYING LIVES IN THE ENGINE NOW. `m_Record` is gone as a separate bool: the Record button reads and
+        // writes `m_Keyer`'s `AutoChangeMode`, so a lit REC light and a keyer that is actually recording
+        // cannot disagree — two bools for one fact is how they used to. The deferral to the end of a drag,
+        // the auto-key modes and the refusals are all `Animation::ControlKeyer`, which a test suite can
+        // reach and this file cannot (scripts/CI/UnreachedSources.sh).
+        //
+        // ONE KEYER PER WINDOW, not one per editor: an interaction is about the character this document is
+        // over, and two Sequencers authoring two characters must not share a pending list.
+        Animation::ControlKeyer m_Keyer;
+        // The last-seen posed transform of the selected bone, which is how this window decides a gizmo drag
+        // moved something. It stays here because it is about THIS document's bone selection.
         int       m_RecordBone = -1;
         glm::mat4 m_RecordLast = glm::mat4( 1.0f );
 

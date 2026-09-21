@@ -20,11 +20,20 @@ namespace Desert::Animation
          */
         [[nodiscard]] Common::BoolResultStr Check( const ControlKeyTarget& target, KeySubject subject )
         {
-            if ( target.Hierarchy == nullptr || target.Skeleton == nullptr || target.Clip == nullptr )
+            if ( target.Skeleton == nullptr || target.Clip == nullptr )
             {
                 return Common::MakeFormattedError<bool>(
-                     "a control key needs a hierarchy, a skeleton and a clip; this target has {}/{}/{}",
-                     target.Hierarchy != nullptr, target.Skeleton != nullptr, target.Clip != nullptr );
+                     "a key needs a skeleton and a clip; this target has {}/{}", target.Skeleton != nullptr,
+                     target.Clip != nullptr );
+            }
+            // A HIERARCHY IS REQUIRED FOR A CONTROL AND NOT FOR A BONE, and demanding it for both is not
+            // the safe choice it looks like: the Sequencer authoring a plain skinned character has no
+            // control rig at all, so a blanket requirement would refuse every bone key in the editor's
+            // most ordinary case — a refusal nobody would read as "you need a rig you were not using".
+            if ( subject.Kind == KeySubjectKind::Control && target.Hierarchy == nullptr )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "control {} cannot be keyed: this target carries no control hierarchy", subject.Index );
             }
             if ( subject.Kind == KeySubjectKind::Control && subject.Index >= target.Hierarchy->Size() )
             {
