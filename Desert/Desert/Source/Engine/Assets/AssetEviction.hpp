@@ -56,12 +56,25 @@ namespace Desert::Assets
      * references, and everything outside the closure is released. Same conclusion as UE's mark and sweep,
      * for the same underlying reason.
      *
-     * THE TRACE IS THE PART THAT CAN SILENTLY GO WRONG, so both halves are held by censuses rather than by
-     * care: `Desert/Tests/Engine/AssetRoots` asserts that every `Assets::AssetHandle` member declared by
-     * any component in Components.hpp is visited by the root walk, and `Desert/Tests/Engine/AssetEviction`
-     * asserts that every asset class which names another asset is expanded here. A middle link that
-     * silently drops a reference is this project's most repeated defect shape, and an unvisited component
-     * would present as "the mesh vanished after opening another level" — with nothing in the log.
+     * THE TRACE IS THE PART THAT CAN SILENTLY GO WRONG. One half is held by a census:
+     * `Desert/Tests/Engine/AssetRoots` asserts that every `Assets::AssetHandle` member declared by any
+     * component in Components.hpp is visited by the root walk. A middle link that silently drops a
+     * reference is this project's most repeated defect shape, and an unvisited component would present
+     * as "the mesh vanished after opening another level" — with nothing in the log.
+     *
+     * THE OTHER HALF IS NOT HELD BY A CENSUS, AND THIS PARAGRAPH USED TO SAY IT WAS. It claimed that
+     * `Desert/Tests/Engine/AssetEviction` "asserts that every asset class which names another asset is
+     * expanded here", and no such assertion existed — the accessors `EdgesOf` reads did not appear in
+     * that suite at all. Measured by deleting each of the five edges in turn and running it:
+     *
+     *     skinned mesh -> skeleton ........ RED     material -> textures ....... RED
+     *     mesh -> materials ............... GREEN   retarget -> source rig ..... GREEN
+     *     cloud type -> noise volume ...... GREEN
+     *
+     * Three of five could be removed in silence, under a header promising they could not. The mesh edge
+     * now has a test; the last two are owed a fixture and the suite says so where they are missing. The
+     * shape this is an instance of has a name in this project — a stated guarantee the tree does not
+     * honour — and the rule is the same every time: find the line that DOES the thing.
      *
      * ── WHAT HAPPENS WHEN SOMETHING TOUCHES AN EVICTED ASSET: IT RELOADS ──────────────────────────────
      *

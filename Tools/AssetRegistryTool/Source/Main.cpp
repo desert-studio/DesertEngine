@@ -1,8 +1,28 @@
 // AssetRegistryTool — writes and checks a project's COOKED ASSET REGISTRY without booting an engine.
 //
-//   AssetRegistryTool cook  <project.deproj>   walk the content roots, write Cooked/AssetRegistry.dreg
-//   AssetRegistryTool check <project.deproj>   exit 1 if the committed registry disagrees with the tree
-//   AssetRegistryTool list  <project.deproj>   print every row, kind first
+//   AssetRegistryTool cook  <project.deproj> [--disk]   write Cooked/AssetRegistry.dreg
+//   AssetRegistryTool check <project.deproj> [--disk]   exit 1 if that registry disagrees with its source
+//   AssetRegistryTool list  <project.deproj>            print every row, kind first
+//
+// ── TWO SOURCES, AND THE DIFFERENCE IS NAMED RATHER THAN SMOOTHED OVER ────────────────────────────
+//
+// By default `cook` and `check` ask THE REPOSITORY: `git ls-files`, filtered through the content
+// census. `--disk` asks THIS MACHINE: every content file under the roots, whatever git thinks of it.
+// They are different questions and they have different right answers, so the tool prints which one it
+// answered on every run rather than letting a reader assume.
+//
+// WHY THE REPOSITORY IS THE DEFAULT. `Cooked/AssetRegistry.dreg` is COMMITTED, and a committed file is
+// a claim about what a clean clone carries. Cooking it from the disk writes the cooking machine's
+// state into a shared artifact: measured on `dev`, ten rows for files no other checkout has, all of
+// them one developer's `Editor/Cooked/` output, which `.gitignore` excludes by design. The gate that
+// holds this file (`Desert/Tests/Editor/CookedRegistryGate`) asks the repository question too, so
+// `cook` then `check` then CI agree by construction rather than by luck.
+//
+// WHEN `--disk` IS THE RIGHT ONE. A project that is not a git checkout at all — a game somebody is
+// making with this engine — has no repository to ask, and its registry is simply a description of its
+// disk. The packager's refusal is the other case: it is about to pack a directory, so what is IN that
+// directory is exactly its question, and `Editor/Source/Editor/Packaging/GamePackager.cpp` says so at
+// the refusal.
 //
 // RUN IT FROM THE DIRECTORY THE ENGINE RUNS FROM — the one that holds `Resources/`. Engine resource
 // roots are never remapped by a project and so resolve against the working directory; the tool refuses
@@ -49,6 +69,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -57,7 +78,9 @@ namespace
 {
     int Usage()
     {
-        std::fprintf( stderr, "usage: AssetRegistryTool <cook|check|list> <project.deproj>\n" );
+        std::fprintf( stderr, "usage: AssetRegistryTool <cook|check|list> <project.deproj> [--disk]\n"
+                              "  default source: the files git tracks (what a clean clone carries)\n"
+                              "  --disk:         the content roots on this machine\n" );
         return 2;
     }
 
@@ -110,11 +133,51 @@ namespace
         return Common::MakeSuccess( fs::path( projectDir ) );
     }
 
-    int Cook( const fs::path& projectPath )
+    // The file list, from whichever of the two sources was asked for, plus the sentence that says which
+    // — printed on every run, because a tool that answers one of two questions without saying which is
+    // the instrument this whole round was spent repairing.
+    struct ContentSource
+    {
+        std::map<std::string, Common::Content::ContentFile> Files;
+        std::string                                         What; // the whole sentence, for the log
+        std::string                                         Noun; // reads inside a disagreement
+        bool                                                Usable = false;
+    };
+
+    ContentSource SourceFor( const fs::path& projectPath, bool fromDisk )
+    {
+        if ( fromDisk )
+        {
+            return { Common::Content::ScanContentRoots(), "the content roots on this disk",
+                     "on the content roots of this disk", true };
+        }
+
+        // The repository root is where the project lives, walked up until git answers. Passing the
+        // project directory is enough: `git -C` resolves the enclosing checkout itself.
+        auto tracked = Common::Content::TrackedContent( projectPath.parent_path() );
+        if ( !tracked )
+        {
+            return { {},
+                     "git could not answer for " + projectPath.parent_path().string() +
+                          " (not a checkout, or no git). That is not the same as 'nothing is tracked', so "
+                          "the tool refuses rather than writing an empty registry. Use --disk if this "
+                          "project is genuinely not in a repository.",
+                     {},
+                     false };
+        }
+        return { std::move( *tracked ), "the files this repository tracks", "tracked by this repository", true };
+    }
+
+    int Cook( const fs::path& projectPath, bool fromDisk )
     {
         const auto opened = OpenProject( projectPath );
         if ( !opened )
             return Fail( opened.GetError() );
+
+        const ContentSource source = SourceFor( projectPath, fromDisk );
+        if ( !source.Usable )
+            return Fail( source.What );
+        std::printf( "AssetRegistryTool: cooking from %s\n", source.What.c_str() );
 
         const fs::path out = Common::Utils::AssetRegistry::DefaultPath();
 
@@ -132,7 +195,7 @@ namespace
         }
 
         Common::Utils::AssetRegistry registry;
-        for ( const auto& [key, file] : Common::Content::ScanContentRoots() )
+        for ( const auto& [key, file] : source.Files )
         {
             Common::Utils::AssetRegistryEntry entry;
             entry.Key  = key;
@@ -147,21 +210,45 @@ namespace
                 return Fail( inserted.GetError() );
         }
 
+        // A COOK THAT EMPTIES A NON-EMPTY REGISTRY IS REFUSED, and nothing is written.
+        //
+        // It happened here, once, inside the repair this tool exists for: the file list came back empty
+        // because `git ls-files --full-name` prints repository-relative paths and they were being joined
+        // to the wrong root, so every file fell outside the content roots. The tool cheerfully replaced
+        // 247 rows with none and printed "0 row(s)", which reads as success. Printing BOTH counts is
+        // what makes a collapse visible; refusing is what makes it harmless.
+        if ( registry.Empty() && !previous.Empty() )
+        {
+            std::fprintf( stderr,
+                          "AssetRegistryTool: REFUSED — cooking would have replaced %zu row(s) with none, "
+                          "and nothing was written. If this project really has no content, delete\n  %s\n"
+                          "by hand; if it does have content, the source answered the wrong question — "
+                          "compare with --disk.\n",
+                          previous.Count(), out.string().c_str() );
+            return 1;
+        }
+
         std::error_code ec;
         fs::create_directories( out.parent_path(), ec );
         if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( out, registry.Serialize() );
              !written )
             return Fail( written.GetError() );
 
-        std::printf( "AssetRegistryTool: %zu row(s) -> %s\n", registry.Count(), out.string().c_str() );
+        std::printf( "AssetRegistryTool: %zu row(s) -> %zu row(s) in %s\n", previous.Count(), registry.Count(),
+                     out.string().c_str() );
         return 0;
     }
 
-    int Check( const fs::path& projectPath )
+    int Check( const fs::path& projectPath, bool fromDisk )
     {
         const auto opened = OpenProject( projectPath );
         if ( !opened )
             return Fail( opened.GetError() );
+
+        const ContentSource source = SourceFor( projectPath, fromDisk );
+        if ( !source.Usable )
+            return Fail( source.What );
+        std::printf( "AssetRegistryTool: checking against %s\n", source.What.c_str() );
 
         const fs::path out = Common::Utils::AssetRegistry::DefaultPath();
         if ( !Common::Utils::FileSystem::Exists( out ) )
@@ -172,12 +259,11 @@ namespace
         if ( !loaded )
             return Fail( loaded.GetError() );
 
-        // THE COMPARISON IS `Common::Content::CompareWithDisk` and not a loop written here, which is
+        // THE COMPARISON IS `Common::Content::Compare` and not a loop written here, which is
         // the point of that function existing: this tool, the CI gate and the packager all ask the
         // same question, and three answers to it would be three chances to disagree about what
         // "current" means.
-        const auto problems =
-             Common::Content::CompareWithDisk( loaded.GetValue(), Common::Content::ScanContentRoots() );
+        const auto problems = Common::Content::Compare( loaded.GetValue(), source.Files, source.Noun );
 
         for ( const Common::Content::RegistryDisagreement& problem : problems )
             std::fprintf( stderr, "%s\n", problem.Detail.c_str() );
@@ -225,10 +311,19 @@ int main( int argc, char** argv )
                                            return Usage();
 
                                        const fs::path project( args[2] );
+
+                                       bool fromDisk = false;
+                                       for ( int i = 3; i < count; ++i )
+                                       {
+                                           if ( std::strcmp( args[i], "--disk" ) != 0 )
+                                               return Usage();
+                                           fromDisk = true;
+                                       }
+
                                        if ( std::strcmp( args[1], "cook" ) == 0 )
-                                           return Cook( project );
+                                           return Cook( project, fromDisk );
                                        if ( std::strcmp( args[1], "check" ) == 0 )
-                                           return Check( project );
+                                           return Check( project, fromDisk );
                                        if ( std::strcmp( args[1], "list" ) == 0 )
                                            return List( project );
                                        return Usage();

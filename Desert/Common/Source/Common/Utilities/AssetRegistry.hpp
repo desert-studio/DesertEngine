@@ -140,10 +140,37 @@ namespace Common::Utils
         [[nodiscard]] std::string                     Serialize() const;
         [[nodiscard]] static ResultStr<AssetRegistry> Parse( std::string_view text );
 
-        // Where the cooked registry lives: under the project's `Cooked/` tree, which is already a
-        // packaged tree (`Editor/Source/Editor/Packaging/PackagedContentTrees.hpp`), so a shipped game
-        // gets it through the same `.dpak` mount as everything else with no extra plumbing.
+        // ── TWO FILES, AND THE SPLIT IS THE ANSWER TO A MEASURED DEFECT ───────────────────────────
+        //
+        // Both live under the project's `Cooked/` tree, which is already a packaged tree
+        // (`Editor/Source/Editor/Packaging/PackagedContentTrees.hpp`), so a shipped game gets both
+        // through the same `.dpak` mount with no extra plumbing. They differ in WHO WRITES THEM and
+        // WHAT SURVIVES A CLONE, and that difference is the whole point.
+        //
+        // WHY THERE ARE TWO. The first version had one, committed, and the editor's own cook wrote to
+        // it. On a developer's machine `Editor/Cooked/` holds `.stmesh` and `.tex` files that
+        // `.gitignore` excludes by design — they are an Assimp cook of source art, re-derivable and
+        // deliberately not committed — so that one file accumulated rows no other clone could have.
+        // Measured from a fresh checkout of `dev`: TEN such rows, and re-cooking would have replaced
+        // them with ten of the integrator's instead. A shared artifact that every machine rewrites
+        // with its own state is not shared; it is a merge conflict with a schedule.
+        //
+        // THE PROJECT REGISTRY: content the project carries. Committed, and the only writer is
+        // `AssetRegistryTool cook`, which takes its list from what the repository tracks. That is what
+        // makes it reproducible — the same command on any clean clone produces the same bytes — and it
+        // is the file `Desert/Tests/Editor/CookedRegistryGate` holds against the repository.
         [[nodiscard]] static std::filesystem::path DefaultPath();
+
+        // THE COOK REGISTRY: rows for files a cook GENERATED. Written by the editor and by nothing
+        // else, never committed (it matches the `Editor/Cooked/*` rule that already excludes what it
+        // describes), and packed — because a packaged game is built from a cook's output and needs the
+        // rows for it. Read AFTER the project registry and overriding it key by key, which is the same
+        // rule the pak stack uses for the same reason (`VFS.hpp:21` — later mounts win).
+        //
+        // A row goes here when the project registry does not already have its key. That test needs no
+        // git and no filesystem: the engine cannot ask what a repository tracks, and a rule it can
+        // evaluate is the only kind it can be held to.
+        [[nodiscard]] static std::filesystem::path CookOutputPath();
 
         // Reads and parses the registry at `path`, through the VFS — so a packaged game reads it out
         // of `Content.dpak` exactly as a loose checkout reads it off disk.

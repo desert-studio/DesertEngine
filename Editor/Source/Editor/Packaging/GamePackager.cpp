@@ -12,6 +12,8 @@
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Content/ContentScan.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
@@ -137,9 +139,19 @@ namespace Desert::Editor
     // tree list forgot fonts and icons, a built game contained not one `.ttf`, and the first frame with
     // text died.
     //
-    // CI holds the same relation (`Desert/Tests/Editor/CookedRegistryGate`) and that is not enough on
-    // its own: a developer packages from a working tree, which is not what CI saw. Both ends, one
-    // comparison — `Common::Content::CompareWithDisk`.
+    // CI holds a RELATED relation (`Desert/Tests/Editor/CookedRegistryGate`) and the two are
+    // deliberately not the same question, which is worth naming here because the difference looks like
+    // an inconsistency until it is stated:
+    //
+    //   * THE GATE asks the REPOSITORY — the project registry against `git ls-files` — because that
+    //     file is committed and a committed file is a claim about what a clean clone carries.
+    //   * THIS asks THE DISK, because packaging packs a directory. What is in that directory is
+    //     exactly and only what will be in the archive, whatever git thinks of it: a developer's
+    //     `Editor/Cooked/` output is untracked by design and is still the content the player gets.
+    //
+    // So both ends are held, by one comparison (`Common::Content::Compare`) over two lists, and
+    // the registry the package ships is the STACK — the project's rows plus this cook's own — because
+    // both files sit under the Cooked tree the packager already packs.
     //
     // IT REFUSES RATHER THAN REPAIRING, deliberately. Re-cooking here would mean a package whose
     // content differs from the registry the repository holds, i.e. a build nobody else can reproduce;
@@ -155,30 +167,21 @@ namespace Desert::Editor
         // the message that case needs. (Measured: the first version refused outright and turned three
         // PackagedContent cases red over a project that was correct.)
         //
-        // A file that EXISTS and will not parse is still a hard refusal: that is a broken registry,
-        // not an absent one, and packaging against it would ship whatever it managed to read.
-        Common::Utils::AssetRegistry registry;
-        if ( Common::Utils::FileSystem::Exists( Common::Utils::AssetRegistry::DefaultPath() ) )
-        {
-            auto loaded = Common::Utils::AssetRegistry::LoadFrom( Common::Utils::AssetRegistry::DefaultPath() );
-            if ( !loaded )
-            {
-                return "this project's cooked asset registry cannot be read (" +
-                       Common::Utils::AssetRegistry::DefaultPath().string() + "): " + loaded.GetError() +
-                       "\nA package built now would contain whatever of it happened to parse. Run "
-                       "'Rebuild Content Registry' from the command palette, or "
-                       "`AssetRegistryTool cook <project>.deproj`.";
-            }
-            registry = loaded.GetValue(); // GetValue() is a const reference; a move here would be a copy
-        }
-
-        const auto problems = Common::Content::CompareWithDisk( registry, Common::Content::ScanContentRoots() );
+        // THE STACK, not the committed file alone: `Load` reads the project registry and then this
+        // cook's own over it, and what the package ships is both. Comparing only the committed half
+        // against the disk would report every locally cooked mesh as missing — which is what the first
+        // version of the gate did, on the machine of the one person who had not run the cook.
+        const auto problems =
+             Common::Content::Compare( Assets::ContentRegistry::Get(), Common::Content::ScanContentRoots(),
+                                       "on the disk this package is built from" );
         if ( problems.empty() )
             return {};
 
         std::string text = std::to_string( problems.size() ) +
-                           " disagreement(s) between the cooked asset registry and the content tree; a "
-                           "package built now would not match this project:";
+                           " disagreement(s) between the cooked asset registry and the CONTENT ROOTS ON "
+                           "THIS DISK — which is the question packaging asks, because packaging packs a "
+                           "directory. (The CI gate asks a different one: the committed registry against "
+                           "what git tracks.) A package built now would not match this project:";
         // EVERY one of them, not the first: one re-cook fixes them all, and a message that reports one
         // per attempt turns one command into as many attempts as there are files.
         for ( const Common::Content::RegistryDisagreement& problem : problems )

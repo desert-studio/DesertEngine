@@ -22,12 +22,33 @@
 // That is this defect with a different list, so it gets the same answer the packager got: a relation
 // asserted over the CONTENT TREE, not over a schema somebody maintains.
 //
-// ── WHERE THE COMPARISON LIVES, AND WHY NOT HERE ──────────────────────────────────────────────────
+// ── WHAT IT COMPARES AGAINST, AND WHY IT IS NOT THE DISK ──────────────────────────────────────────
 //
-// In `Common::Content::CompareWithDisk`. Four programs ask this question — this suite, the cook, the
-// standalone tool, and the packager, which refuses to ship against a stale registry — and a copy per
-// caller is the shape the whole task is about ending. What this suite adds is the only thing a copy
-// could not: it runs in CI, over the committed tree, on a machine with no Vulkan loader.
+// THE FIRST VERSION OF THIS GATE READ THE WORKING DIRECTORY AND THAT WAS WRONG. The project registry
+// is a COMMITTED file — a claim about what the repository carries — and the disk is a claim about one
+// machine. On the integrator's checkout the two disagreed ten times, and exactly ONE of those ten was
+// a file git tracks; the other nine were his own cook's output under `Editor/Cooked/`, which
+// `.gitignore` excludes on purpose. So the gate was red over content no other clone has, and the
+// remedy it printed — re-cook and commit — would have written HIS machine's state into the shared
+// file and turned the gate red for everybody else.
+//
+// Measured from a fresh checkout of `dev` while fixing it: the committed registry carried ten rows for
+// files a clean clone does not contain, all ten produced by the machine that cooked it.
+//
+// It was the second instance of the shape in one day — a suite that depended on two fixtures nobody
+// had committed was the first, and it was certified 257/257 green by an author who had the files on
+// disk. So the rule is written down rather than applied quietly:
+//
+//     AN INSTRUMENT MUST READ THE DISK ONLY WHEN THE QUESTION IS ABOUT THIS MACHINE.
+//
+// This gate therefore compares the project registry against `Common::Content::TrackedContent`, which
+// is `git ls-files` filtered through the same content census the disk scan uses. Both directions: a
+// tracked file with no row does not reach a packaged build, and a row with no tracked file sends the
+// loader after something no clone has.
+//
+// THE COMPARISON ITSELF is `Common::Content::Compare`, shared with the cook, the standalone
+// tool and the packager — a copy per caller is the shape this whole task is about ending. Only the
+// LIST differs, and that is the part that has to differ.
 //
 // ── WHAT IS DELIBERATELY NOT ASSERTED ─────────────────────────────────────────────────────────────
 //
@@ -46,6 +67,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <map>
 #include <set>
 #include <string>
 
@@ -131,8 +153,24 @@ TEST( CookedRegistryGate, TheGateCanSeeBothTheRegistryAndTheContentTree )
          << "engine resources do not resolve from the working directory this suite set, so the scan "
             "below would miss every shader and certify a registry that has none";
 
-    EXPECT_FALSE( Common::Content::ScanContentRoots().empty() )
-         << "the content scan found no files at all, which cannot be true of this repository";
+    // `if` AND NOT `ASSERT_TRUE`, throughout this file, and the reason is worth one line: gtest's
+    // ASSERT expands to a `return` the flow analyser does not follow, so every `*tracked` after one
+    // reads to clang-tidy as an unchecked optional. A plain guard says the same thing to the reader,
+    // to gtest and to the analyser at once — and a NOLINT would have silenced the one check that
+    // exists to catch exactly the mistake this file is about: an empty answer read as a good one.
+    const auto tracked = Common::Content::TrackedContent( root );
+    if ( !tracked.has_value() )
+    {
+        ADD_FAILURE() << "THE GATE COULD NOT RUN, which is a different answer from 'nothing is wrong'. "
+                         "`git ls-files` failed or "
+                      << root.string()
+                      << " is not a checkout. CI runs this over a git checkout; if that has stopped "
+                         "being true, the gate has stopped being a gate and this failure is the only "
+                         "thing that will say so.";
+        return;
+    }
+    EXPECT_FALSE( tracked->empty() )
+         << "git tracks no content files at all, which cannot be true of this repository";
 
     EXPECT_TRUE( Common::Utils::FileSystem::Exists( Common::Utils::AssetRegistry::DefaultPath() ) )
          << "there is no cooked asset registry at " << Common::Utils::AssetRegistry::DefaultPath().string()
@@ -143,7 +181,7 @@ TEST( CookedRegistryGate, TheGateCanSeeBothTheRegistryAndTheContentTree )
 
 // ── THE RELATION ────────────────────────────────────────────────────────────────────────────────────
 
-TEST( CookedRegistryGate, TheCommittedRegistryAndTheContentTreeDescribeTheSameProject )
+TEST( CookedRegistryGate, TheCommittedRegistryDescribesExactlyWhatACleanCloneCarries )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
@@ -153,10 +191,19 @@ TEST( CookedRegistryGate, TheCommittedRegistryAndTheContentTreeDescribeTheSamePr
     auto loaded = Common::Utils::AssetRegistry::LoadFrom( Common::Utils::AssetRegistry::DefaultPath() );
     ASSERT_TRUE( loaded ) << loaded.GetError();
 
-    const auto onDisk = Common::Content::ScanContentRoots();
-    ASSERT_FALSE( onDisk.empty() );
+    const auto tracked = Common::Content::TrackedContent( root );
+    if ( !tracked.has_value() )
+    {
+        ADD_FAILURE() << "the gate could not run — see the first test for what that means";
+        return;
+    }
+    const std::map<std::string, Common::Content::ContentFile>& present = *tracked;
+    ASSERT_FALSE( present.empty() );
 
-    const auto problems = Common::Content::CompareWithDisk( loaded.GetValue(), onDisk );
+    // AGAINST WHAT GIT TRACKS, NOT AGAINST THE DISK. An untracked file under `Editor/Cooked/` is this
+    // machine's cook output; it is described by the cook's own registry, which is not committed and is
+    // not this gate's subject.
+    const auto problems = Common::Content::Compare( loaded.GetValue(), *tracked, "tracked by this repository" );
 
     // EVERY disagreement is printed, not the first: a re-cook fixes all of them at once, and a gate
     // that reports one per run turns one command into as many runs as there are files.
@@ -185,25 +232,34 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
     auto loaded = Common::Utils::AssetRegistry::LoadFrom( Common::Utils::AssetRegistry::DefaultPath() );
     ASSERT_TRUE( loaded ) << loaded.GetError();
 
-    std::set<std::string> kindsOnDisk;
-    for ( const auto& [key, file] : Common::Content::ScanContentRoots() )
-        kindsOnDisk.insert( std::string( Common::Content::KindName( file.Kind ) ) );
+    const auto tracked = Common::Content::TrackedContent( root );
+    if ( !tracked.has_value() )
+    {
+        ADD_FAILURE() << "the gate could not run — see the first test for what that means";
+        return;
+    }
+
+    std::set<std::string> kindsTracked;
+    for ( const auto& [key, file] : *tracked )
+        kindsTracked.insert( std::string( Common::Content::KindName( file.Kind ) ) );
 
     for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
     {
         const auto        kind = static_cast<Common::Content::ContentKind>( i );
         const std::string name( Common::Content::KindName( kind ) );
 
-        EXPECT_NE( kindsOnDisk.find( name ), kindsOnDisk.end() )
+        EXPECT_NE( kindsTracked.find( name ), kindsTracked.end() )
              << "this repository ships no '" << name
              << "' file, so nothing has ever exercised that census row: its root ("
              << Common::Content::KindSpec( kind ).Root->string() << ") and its extension ("
              << Common::Content::KindSpec( kind ).Extension
              << ") could both be wrong and every run of this gate would still be green. Add one file of "
-                "that kind to the repository, or remove the row.";
+                "that kind to the repository, or remove the row.\n"
+                "COMMITTED, not merely present on your machine: a fixture nobody pushed certifies this "
+                "gate for its author and for nobody else, which has already happened twice.";
 
         EXPECT_FALSE( loaded.GetValue().OfKind( name ).empty() )
-             << "the registry holds no '" << name << "' row while the disk does";
+             << "the registry holds no '" << name << "' row while the repository tracks one";
     }
 }
 

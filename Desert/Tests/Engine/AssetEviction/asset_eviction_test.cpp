@@ -29,6 +29,7 @@
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
+#include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
@@ -214,6 +215,42 @@ namespace
         submesh.Transform       = glm::mat4( 1.0f );
         submesh.BoundingBox.Min = glm::vec3( 0.0f );
         submesh.BoundingBox.Max = glm::vec3( 2.0f, 0.0f, 0.0f );
+        data.Submeshes.push_back( submesh );
+
+        std::ofstream out( path, std::ios::binary | std::ios::trunc );
+        out << rfl::json::write( data );
+        return path.generic_string();
+    }
+
+    // A STATIC mesh whose one submesh names `material`. The static half of the pair above, and it
+    // exists because the mesh -> material edge had no test at all — see the block of tests below.
+    std::string WriteProbeStaticMesh( const std::filesystem::path& path, const Common::UUID& material )
+    {
+        Desert::Assets::Serialization::MeshAssetData data;
+        data.IsSkinned = false;
+
+        for ( int i = 0; i < 3; ++i )
+        {
+            Desert::Assets::Serialization::StaticVertexData v{};
+            v.Position  = glm::vec3( static_cast<float>( i ), 0.0f, 0.0f );
+            v.Normal    = glm::vec3( 0.0f, 1.0f, 0.0f );
+            v.Tangent   = glm::vec3( 1.0f, 0.0f, 0.0f );
+            v.Bitangent = glm::vec3( 0.0f, 0.0f, 1.0f );
+            v.TexCoord  = glm::vec2( 0.0f, 0.0f );
+            data.StaticVertices.push_back( v );
+        }
+        data.Indices.push_back( { 0u, 1u, 2u } );
+
+        Desert::Assets::Serialization::SubmeshData submesh;
+        submesh.Name            = "MaterialProbe";
+        submesh.VertexOffset    = 0;
+        submesh.VertexCount     = 3;
+        submesh.IndexOffset     = 0;
+        submesh.IndexCount      = 3;
+        submesh.Transform       = glm::mat4( 1.0f );
+        submesh.BoundingBox.Min = glm::vec3( 0.0f );
+        submesh.BoundingBox.Max = glm::vec3( 2.0f, 0.0f, 0.0f );
+        submesh.MaterialHandle  = material;
         data.Submeshes.push_back( submesh );
 
         std::ofstream out( path, std::ios::binary | std::ios::trunc );
@@ -671,6 +708,88 @@ namespace
         return i < text.size() && text[i] == '{';
     }
 } // namespace
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// THE EDGES NOBODY WAS ASSERTING — and this header has claimed a census over them for months.
+//
+// `AssetEviction.hpp` says, twice, that "every asset class which names another asset is expanded here"
+// and that `Desert/Tests/Engine/AssetEviction` asserts it. MEASURED, by mutating each of the five edges
+// in `EdgesOf` one at a time and running this suite:
+//
+//     skinned mesh -> skeleton .......... RED    (ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth)
+//     material -> textures .............. RED    (AMaterialsTextureSurvivesBecauseTheMaterialNamesIt)
+//     mesh -> materials ................. GREEN  <- nothing asserted it; CLOSED by the test below
+//     retarget -> source rig ............ GREEN  <- nothing asserted it; still open, see the note below
+//     cloud type -> noise volume ........ GREEN  <- nothing asserted it; still open, see the note below
+//
+// So the guarantee in that header was prose, and three of five edges could be deleted in silence. That
+// is not hypothetical either: the retarget edge was ADDED while `EdgesOf` was being lifted out of
+// `Expand` into a function of its own, and a merge that had taken the leaving body would have dropped
+// it — the integrator caught it by reading, which is the mechanism this file's own comments say must
+// not be relied on.
+//
+// WHAT A DROPPED EDGE COSTS, since none of these fails loudly: the child asset is released while the
+// parent still needs it, both services rebuild on a miss, and the only symptom is work — plus, for the
+// retarget's source rig, the 410-per-frame "Skeleton dependency invalid" the rig path has produced
+// before.
+//
+// Each test below is the same shape as the two that were already here: a REAL file on disk, parsed by
+// the class's own loader, so that an edge which stopped being READ fails as surely as one that stopped
+// being walked.
+
+TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction_edges";
+    std::filesystem::create_directories( dir );
+
+    const std::filesystem::path materialPath = dir / "mesh_edge_material.demat";
+    const std::filesystem::path meshPath     = dir / "mesh_edge_probe.stmesh";
+
+    AssetManager manager;
+
+    {
+        std::ofstream out( materialPath, std::ios::binary | std::ios::trunc );
+        ASSERT_TRUE( out.is_open() );
+        out << R"({"Params":[],"Textures":[]})";
+    }
+    auto material =
+         manager.CreateAsset<SurfaceMaterialAsset>( AssetPriority::Medium, Common::Filepath( materialPath ) );
+    ASSERT_TRUE( material );
+
+    WriteProbeStaticMesh( meshPath, material->GetMetadata().Handle );
+    auto mesh = manager.CreateAsset<StaticMeshAsset>( AssetPriority::Medium, Common::Filepath( meshPath ) );
+    ASSERT_TRUE( mesh );
+    ASSERT_TRUE( mesh->IsReadyForUse() ) << "the probe mesh did not load; the edge cannot be tested";
+    ASSERT_EQ( mesh->GetMaterialHandles().size(), 1u );
+
+    AssetRootSet roots;
+    roots.Mark( mesh->GetMetadata().Handle, "the test says an entity names it" );
+
+    RecordingSink sink;
+    const auto    outcome = AssetEviction::Run( manager, roots, sink );
+
+    EXPECT_EQ( outcome.Reachable, 2u )
+         << "the mesh -> material edge was not followed: the trace reached " << outcome.Reachable
+         << " asset(s) where the mesh alone names one more. Every surface in every scene is dressed "
+            "through this edge.";
+
+    std::filesystem::remove_all( dir );
+}
+
+// THE OTHER TWO ARE NAMED AND NOT WRITTEN, WITH THE REASON.
+//
+// `cloud type -> noise volume` and `retarget -> source rig` still have no test. Both were attempted
+// here and both need a fixture in a format this suite does not otherwise touch: a `.decloudtype`
+// stores its volume as a path RELATIVE TO THE ASSETS ROOT, so the fixture has to move the project root
+// for the length of the test, and a minimal `CloudTypeData` written through `rfl::json::write` did not
+// survive `ParseCloudType` — it crashed the suite rather than failing it. Landing a broken fixture to
+// be able to say the edge is covered would be worse than saying it is not.
+//
+// So the state is recorded rather than dressed up: of five edges, THREE were undefended when this was
+// measured, one is now defended by the test above, and two are owed a fixture. Whoever writes them
+// should start from `WriteProbeRig` / `WriteProbeStaticMesh` above — building the data struct and
+// serializing it is what makes a fixture survive a format change, and hand-written JSON is what does
+// not.
 
 TEST( AssetEviction, EveryDependencyResolverSaysWhatItMatchesItsTargetBy )
 {

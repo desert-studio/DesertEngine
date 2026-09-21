@@ -30,6 +30,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Engine/Core/Serialize/StoredAssetForm.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 
 #include <gtest/gtest.h>
@@ -112,13 +113,51 @@ TEST( AssetResolverCensus, TheSourcesThisSuiteReadsAreWhereItThinksTheyAre )
             "Details panel offers asset pickers - the generated table is stale, not the tree";
 }
 
-// THE RELATION.
-TEST( AssetResolverCensus, EveryDeclaredAssetTypeHasABranchInTheResolver )
+// THE RELATION — AND IT IS TWO OBLIGATIONS, NOT ONE.
+//
+// A reference has to survive a ROUND TRIP, and the two halves live in different places: the WRITE side
+// decides how the handle is spelled into the file (`Core::Serialize::StoredFormFor`), the READ side
+// turns that spelling back into a typed asset (`MakeAssetResolver`'s `FromPath`). Losing either loses
+// the reference, and they are lost independently.
+//
+// THIS SUITE USED TO CONFLATE THEM, and a merge proved it. It concatenated both files and asked whether
+// `type == "X"` appeared ANYWHERE in the result, so a type present in `FromPath` and absent from the
+// form table satisfied it. Measured: with `RetargetAsset` deleted from the form table — exactly what a
+// merge that landed beside a function being moved would do — this suite stayed GREEN, and every scene
+// naming a retarget would have been saved with an absolute path carrying the developer's home
+// directory. That is the defect the material branch was repaired for in I13, re-armed in silence.
+//
+// The write half is ASSERTED BY CALLING IT now, not by grepping for it. That became possible when the
+// form table was extracted into a translation unit a suite can link — which is the same move, for the
+// same reason, that made `TextureSlot.cpp` testable — and an execution cannot be satisfied by the
+// string appearing in a comment, in the other half, or in a type's name.
+
+TEST( AssetResolverCensus, EveryDeclaredAssetTypeCanBeWrittenDown )
 {
+    const std::set<std::string> declared = DeclaredAssetTypes();
+    ASSERT_FALSE( declared.empty() );
+
+    for ( const std::string& type : declared )
+    {
+        EXPECT_TRUE( Desert::Core::Serialize::StoredFormFor( type ).has_value() )
+             << "a component declares PROPERTY( ..., Asset<" << type
+             << "> ) and Core::Serialize::StoredFormFor has no row for it. The Details panel will offer "
+                "a working picker for that field and the slot will save as an empty string and load as "
+                "unset - the value is lost on every round trip. Add a row beside the others in "
+                "StoredAssetForm.cpp, and decide which of the three forms it takes.";
+    }
+}
+
+TEST( AssetResolverCensus, EveryDeclaredAssetTypeCanBeReadBack )
+{
+    // The read half cannot be called: `MakeAssetResolver` reaches the ResourceRegistry and through it
+    // the whole renderer, so nothing in that file is linkable by any suite. It is asserted as text, over
+    // `ComponentRegistry.cpp` ALONE — the file that owns `FromPath` — because reading the two files
+    // together is precisely the mistake this pair of tests replaces.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    std::string code = StripComments( ReadAll( root + kResolver ) ) + StripComments( ReadAll( root + kForms ) );
+    std::string code = StripComments( ReadAll( root + kResolver ) );
     ASSERT_FALSE( code.empty() );
     // Whitespace out, so a branch broken across lines by the formatter still reads as one comparison.
     std::erase_if( code, []( unsigned char c ) { return std::isspace( c ) != 0; } );
@@ -130,10 +169,9 @@ TEST( AssetResolverCensus, EveryDeclaredAssetTypeHasABranchInTheResolver )
     {
         EXPECT_NE( code.find( "type==\"" + type + "\"" ), std::string::npos )
              << "a component declares PROPERTY( ..., Asset<" << type
-             << "> ) and Core::MakeAssetResolver has no branch for it. The Details panel will offer a "
-                "working picker for that field and the slot will save as an empty string and load as "
-                "unset - the value is lost on every round trip, and the resolver's own refusal is the "
-                "only thing that will say so. Add a branch beside the others in ComponentRegistry.cpp.";
+             << "> ) and Core::MakeAssetResolver's FromPath has no branch for it, so whatever the file "
+                "says about that slot is discarded on load. Add a branch beside the others in "
+                "ComponentRegistry.cpp.";
     }
 }
 
