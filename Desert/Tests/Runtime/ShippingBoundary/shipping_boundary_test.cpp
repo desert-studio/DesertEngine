@@ -363,8 +363,19 @@ TEST( ShippingBoundary, EveryRegisteredInstrumentIsBehindTheBoundary )
             if ( StripComments( Read( file ) ).find( kBoundaryToken ) != std::string::npos )
                 gated = true;
         }
-        EXPECT_TRUE( gated ) << row.What << ": none of its own files mentions " << kBoundaryToken
-                             << ", so it is compiled into the player in every configuration.";
+
+        // ONLY THE SELF-GATED FORM IS CHECKED HERE, and the first run of this suite is the reason the
+        // distinction exists at all: it demanded the token inside MemoryReadout's own files and went red
+        // on an instrument that is correctly cut. An `AtEveryCallSite` instrument's own sources are
+        // untouched on purpose — they stay compilable, they simply have no caller left in a shipping
+        // build, so the archive member is never pulled and the name does not reach the binary (proved by
+        // scripts/CI/ShippingSymbols.sh). What has to be true for that row is that EVERY consumer carries
+        // the boundary, which is relation 4's whole subject.
+        if ( row.Where == Gating::InItsOwnHeader )
+        {
+            EXPECT_TRUE( gated ) << row.What << ": its boundary is supposed to be in its own header, and "
+                                 << "none of its files mentions " << kBoundaryToken << ".";
+        }
     }
 }
 
@@ -401,11 +412,13 @@ TEST( ShippingBoundary, EveryPlayerSideConsumerOfAnInstrumentCarriesTheBoundary 
     ASSERT_FALSE( root.empty() );
 
     std::string offenders;
+    std::string stale;
     size_t      consumersSeen = 0;
 
     for ( const Instrument& row : Register() )
     {
         std::set<std::string> own( row.Own.begin(), row.Own.end() );
+        size_t                rowConsumers = 0;
 
         for ( const fs::path& file : PlayerSources( root ) )
         {
@@ -418,6 +431,7 @@ TEST( ShippingBoundary, EveryPlayerSideConsumerOfAnInstrumentCarriesTheBoundary 
                 continue;
 
             ++consumersSeen;
+            ++rowConsumers;
             // An instrument gated in its own header has nothing to ask of its consumers — that is the
             // whole advantage of that form, and demanding the token here would forbid it.
             if ( row.Where == Gating::AtEveryCallSite && text.find( kBoundaryToken ) == std::string::npos )
@@ -425,6 +439,13 @@ TEST( ShippingBoundary, EveryPlayerSideConsumerOfAnInstrumentCarriesTheBoundary 
                 offenders += "\n  " + rel + "  includes " + row.Header + "  (" + row.What + ")";
             }
         }
+
+        // A ROW WITH NO CONSUMER IS A ROW THAT CHECKS NOTHING, and it would sit green for ever: an
+        // instrument that was renamed, moved or deleted leaves its register row behind, and from then on
+        // this relation walks past whatever replaced it. Per row, not in total — one live instrument
+        // would otherwise cover for four dead rows.
+        if ( rowConsumers == 0 )
+            stale += std::string( "\n  " ) + row.What + "  (header " + row.Header + ")";
     }
 
     // A POSITIVE CONTROL, because the loop above passes trivially if it finds nothing: a typo in a header
@@ -433,6 +454,11 @@ TEST( ShippingBoundary, EveryPlayerSideConsumerOfAnInstrumentCarriesTheBoundary 
     EXPECT_GT( consumersSeen, 0u )
          << "no consumer of any registered instrument was found anywhere in the player's source set. "
             "That is not plausible; the search is broken, not the tree.";
+
+    EXPECT_TRUE( stale.empty() )
+         << "these registered instruments have no consumer anywhere in the player's source set, so their "
+            "rows check nothing. Either the instrument is gone and the row must go with it, or its header "
+            "was renamed and the row did not follow:" << stale;
 
     EXPECT_TRUE( offenders.empty() )
          << "these player-side files use a development instrument with no boundary around the use, so "
@@ -521,4 +547,10 @@ TEST( ShippingBoundary, ThePackagerDefaultsToAConfigurationTheWorkspaceDeclares 
     EXPECT_NE( workspace.find( R"("Shipping")" ), std::string::npos )
          << "the packager offers a configuration the workspace does not declare — packaging it can only "
             "ever fail with 'Runtime binary not found'.";
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

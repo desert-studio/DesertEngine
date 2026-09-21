@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Launch the Desert Runtime (standalone player) for a project.
 #
-# Usage: scripts/MacOS/RunRuntime.sh [Debug|Release] [--project <.deproj>] [--scene <.desce>]
+# Usage: scripts/MacOS/RunRuntime.sh [Debug|Release|Shipping] [--project <.deproj>] [--scene <.desce>]
+#
+# A Shipping Runtime has no --shot and no --shot-frames in it: the capture is compiled out (see
+# Common/Core/DevInstruments.hpp). Passing them is not an error there, it is a pair of tokens nothing
+# reads — photograph that build from outside the process (screencapture -l) instead.
 #        (with no --project, falls back to the built-in sandbox project)
 set -euo pipefail
 
