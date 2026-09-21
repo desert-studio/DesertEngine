@@ -7,6 +7,8 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <bit>
+#include <climits>
 #include <cstddef>
 #include <cstring>
 #include <span>
@@ -107,6 +109,16 @@ namespace Desert::Assets::Serialization
 
         /// Reads back as 0x01020304 on a big-endian host, which is the whole point of writing it.
         constexpr uint32_t kByteOrderTag = 0x04030201u;
+
+        // THE WRITER REFUSES TO EXIST ON A HOST IT COULD NOT READ ITS OWN FILE BACK ON. The tag above
+        // lets the READER name a foreign byte order; these two make the BUILD name it, which is the
+        // only place it can be answered, because this file writes raw object representations and a
+        // big-endian build would emit a file every shipping target then rejects. Both shipping targets
+        // are little-endian with 8-bit bytes, so neither assert can fire today — and a port that makes
+        // one fire is told at compile time instead of at a customer's load.
+        static_assert( std::endian::native == std::endian::little,
+                       "the cooked mesh container is little-endian; see kByteOrderTag" );
+        static_assert( CHAR_BIT == 8, "the container's sizes are in 8-bit bytes" );
 
         enum SectionId : uint32_t
         {
