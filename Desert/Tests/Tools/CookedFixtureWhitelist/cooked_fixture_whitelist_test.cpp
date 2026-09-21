@@ -154,7 +154,7 @@ TEST( CookedFixtureWhitelistTest, NoTestNamesAFixtureThatTheIgnoreRuleWouldSwall
             {
                 if ( literal.size() <= dir.size() || literal.compare( 0, dir.size(), dir ) != 0 )
                     continue;
-                if ( rules.Exceptions.count( literal ) != 0 )
+                if ( rules.Exceptions.contains( literal ) )
                     continue;
                 swallowed.push_back( source.filename().string() + " names " + literal );
             }
