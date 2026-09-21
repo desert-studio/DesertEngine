@@ -388,8 +388,8 @@ namespace Desert::Graphic::API::Vulkan
                     continue;
                 }
 
-                DrawIndexedCounted( drawCount, instanceCount, drawOffset, (int32_t)submesh.VertexOffset,
-                                    firstInstance );
+                DrawIndexedCounted( drawCount, instanceCount, drawOffset,
+                                    static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
             }
             else
             {

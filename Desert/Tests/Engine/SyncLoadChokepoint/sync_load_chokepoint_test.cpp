@@ -34,6 +34,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <chrono>
 
 namespace
 {
@@ -152,6 +153,15 @@ TEST_F( LedgerFixture, ANESTEDLoadIsCountedTwiceAndTimedOnce )
     // manager mid-load to resolve the noise volume it names, and the prefab loader loads nested
     // prefabs. Adding every level's duration would report a boot that spent 250 % of its own duration
     // loading — a number a reader would reject, and therefore a detector nobody would use.
+    // МЕРИМ ОТНОШЕНИЕ, А НЕ МИЛЛИСЕКУНДЫ. Прежде здесь стояли `>= 15.0` и `< 38.0`, и под санитайзером
+    // верхняя граница ломалась: ASan замедляет и работу, и инструментацию, так что двадцать миллисекунд
+    // работы приезжают тридцатью с лишним — свойство при этом держится, а тест краснеет. Красный,
+    // который зависит от того, на чём его запустили, — это не проверка, а лотерея, и починить его
+    // подъёмом порога значило бы подогнать число, чтобы гейт замолчал.
+    //
+    // Настоящее утверждение масштабонезависимо: внешняя область ПОКРЫВАЕТ внутреннюю, поэтому итог
+    // обязан быть около стенных часов всего блока, а не их суммы. Обе величины замедляются одинаково.
+    const auto wallStart = std::chrono::steady_clock::now();
     {
         const LoadTimingScope outer( "type.dcloudtype" );
         Work( 10 );
@@ -160,14 +170,19 @@ TEST_F( LedgerFixture, ANESTEDLoadIsCountedTwiceAndTimedOnce )
             Work( 10 );
         }
     }
+    const double wallMs =
+         std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - wallStart ).count();
 
     EXPECT_EQ( SyncLoadLedger::Loads(), 2u ) << "both loads are loads; the count is 'how many files'";
 
-    // The outer scope's own duration covers the inner one, so the total is about one of them, not two.
-    // Asserted as an upper bound with room for scheduler noise: what must not happen is the total
-    // arriving at the sum, ~40 ms.
-    EXPECT_GE( SyncLoadLedger::TotalMs(), 15.0 );
-    EXPECT_LT( SyncLoadLedger::TotalMs(), 38.0 ) << "nested time was added twice: " << SyncLoadLedger::Report();
+    // Нижняя граница — что мерили вообще: итог не может быть заметно меньше того, что заняло время.
+    EXPECT_GE( SyncLoadLedger::TotalMs(), wallMs * 0.5 )
+         << "итог меньше половины стенных часов — похоже, время не учли: " << SyncLoadLedger::Report();
+
+    // Верхняя — что не сложили вложенное дважды. Сумма дала бы примерно ДВОЙНЫЕ стенные часы, поэтому
+    // 1.5 отделяет «покрыто» от «сложено» при любом замедлении.
+    EXPECT_LT( SyncLoadLedger::TotalMs(), wallMs * 1.5 )
+         << "вложенное время сложено дважды (стенные часы " << wallMs << " мс): " << SyncLoadLedger::Report();
 }
 
 TEST_F( LedgerFixture, TheSlowestIsTrackedAtEVERYDepthBecauseTheFileWorthOpeningIsUsuallyTheInnerOne )
