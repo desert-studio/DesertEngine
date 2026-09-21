@@ -135,7 +135,7 @@ namespace Desert::Runtime
         };
 
         Assets::AssetRef<Assets::CloudModellingVolumeAsset> Resolve( const Assets::AssetHandle& handle,
-                                                                     bool mayRequest );
+                                                                     bool                       mayRequest );
         void BeginRead( const Assets::AssetHandle& handle, Entry& entry );
 
         /// Handles already named in a "referenced but not announced" error. `HasBody` had no such set and

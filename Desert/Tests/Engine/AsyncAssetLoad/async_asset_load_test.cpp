@@ -112,8 +112,7 @@ namespace
         /// a hang in CI is indistinguishable from a machine that went away.
         static bool PumpUntilQuiet( const int milliseconds = 5000 )
         {
-            const auto deadline =
-                 std::chrono::steady_clock::now() + std::chrono::milliseconds( milliseconds );
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds( milliseconds );
             while ( std::chrono::steady_clock::now() < deadline )
             {
                 AsyncAssetLoader::Get().Pump();
@@ -142,10 +141,9 @@ TEST_F( AsyncAssetLoad, CompletionNeverRunsInsideRequestEvenWhenTheAssetIsAlread
     ASSERT_TRUE( asset->Load().IsSuccess() );
     ASSERT_TRUE( asset->IsReadyForUse() );
 
-    bool ready = false;
-    auto request =
-         AsyncAssetLoader::Get().Request( asset, [&ready]( const auto&, LoadOutcome, const std::string& )
-                                          { ready = true; }, [] {} );
+    bool ready   = false;
+    auto request = AsyncAssetLoader::Get().Request(
+         asset, [&ready]( const auto&, LoadOutcome, const std::string& ) { ready = true; }, [] {} );
 
     // THE ONE CASE THAT COULD HAVE BEEN ANSWERED IMMEDIATELY, and it is the case that would let a
     // delegate run before `request` above exists. Every caller that stores its handle in the same
@@ -170,7 +168,7 @@ TEST_F( AsyncAssetLoad, CompletionNeverRunsInsideRequestWhenAReadHasToHappen )
 
     std::atomic<bool> ready{ false };
     auto              request = AsyncAssetLoader::Get().Request(
-        asset, [&ready]( const auto&, LoadOutcome, const std::string& ) { ready.store( true ); }, [] {} );
+         asset, [&ready]( const auto&, LoadOutcome, const std::string& ) { ready.store( true ); }, [] {} );
 
     EXPECT_FALSE( ready.load() );
     ASSERT_TRUE( PumpUntilQuiet() );
@@ -209,11 +207,11 @@ TEST_F( AsyncAssetLoad, CancelFiresTheCancelDelegateAndNeverTheCompletion )
     auto asset = std::make_shared<ProbeAsset>( "cancelled.probe" );
     asset->HoldInsideRead.store( true );
 
-    int completions = 0;
-    int cancels     = 0;
-    auto request    = AsyncAssetLoader::Get().Request(
-        asset, [&completions]( const auto&, LoadOutcome, const std::string& ) { ++completions; },
-        [&cancels] { ++cancels; } );
+    int  completions = 0;
+    int  cancels     = 0;
+    auto request     = AsyncAssetLoader::Get().Request(
+         asset, [&completions]( const auto&, LoadOutcome, const std::string& ) { ++completions; },
+         [&cancels] { ++cancels; } );
 
     WaitUntilInsideRead( *asset );
     request.Cancel();
@@ -236,11 +234,11 @@ TEST_F( AsyncAssetLoad, CancelAfterTheReadLandedStillWinsOverTheQueuedCompletion
 {
     auto asset = std::make_shared<ProbeAsset>( "late-cancel.probe" );
 
-    int completions = 0;
-    int cancels     = 0;
-    auto request    = AsyncAssetLoader::Get().Request(
-        asset, [&completions]( const auto&, LoadOutcome, const std::string& ) { ++completions; },
-        [&cancels] { ++cancels; } );
+    int  completions = 0;
+    int  cancels     = 0;
+    auto request     = AsyncAssetLoader::Get().Request(
+         asset, [&completions]( const auto&, LoadOutcome, const std::string& ) { ++completions; },
+         [&cancels] { ++cancels; } );
 
     // Let the worker finish, but do not pump: the completion is now queued and owed.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 5 );
@@ -296,9 +294,9 @@ TEST_F( AsyncAssetLoad, CancelBeforeAWorkerReachesItSkipsTheReadEntirely )
         blockers.back();
     }
 
-    auto victim  = std::make_shared<ProbeAsset>( "victim.probe" );
-    auto request = AsyncAssetLoader::Get().Request(
-         victim, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
+    auto victim = std::make_shared<ProbeAsset>( "victim.probe" );
+    auto request =
+         AsyncAssetLoader::Get().Request( victim, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
     request.Cancel();
 
     blocker->HoldInsideRead.store( false );
@@ -344,8 +342,8 @@ TEST_F( AsyncAssetLoad, ARequestWithNoCompletionDelegateIsRefusedAndQueuesNothin
 
 TEST_F( AsyncAssetLoad, ARequestWithNoAssetIsRefused )
 {
-    auto request = AsyncAssetLoader::Get().Request(
-         nullptr, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
+    auto request =
+         AsyncAssetLoader::Get().Request( nullptr, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
     EXPECT_FALSE( request.IsValid() );
     EXPECT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
 }
@@ -357,9 +355,9 @@ TEST_F( AsyncAssetLoad, TwoRequestsForOneAssetProduceOneReadAndTwoCompletions )
     auto asset = std::make_shared<ProbeAsset>( "shared.probe" );
     asset->HoldInsideRead.store( true );
 
-    int first  = 0;
-    int second = 0;
-    auto a     = AsyncAssetLoader::Get().Request(
+    int  first  = 0;
+    int  second = 0;
+    auto a      = AsyncAssetLoader::Get().Request(
          asset, [&first]( const auto&, LoadOutcome, const std::string& ) { ++first; }, [] {} );
     WaitUntilInsideRead( *asset );
     auto b = AsyncAssetLoader::Get().Request(
@@ -386,13 +384,13 @@ TEST_F( AsyncAssetLoad, AFailedReadCompletesWithFailedAndCarriesTheReason )
     LoadOutcome outcome = LoadOutcome::Loaded;
     std::string reason;
     auto        request = AsyncAssetLoader::Get().Request(
-        asset,
-        [&outcome, &reason]( const auto&, const LoadOutcome result, const std::string& error )
-        {
-            outcome = result;
-            reason  = error;
-        },
-        [] {} );
+         asset,
+         [&outcome, &reason]( const auto&, const LoadOutcome result, const std::string& error )
+         {
+             outcome = result;
+             reason  = error;
+         },
+         [] {} );
 
     ASSERT_TRUE( PumpUntilQuiet() );
     EXPECT_EQ( outcome, LoadOutcome::Failed );
@@ -408,9 +406,9 @@ TEST_F( AsyncAssetLoad, AWorkerReadIsCountedAsyncAndNeverAsAnInFrameHitch )
     SyncLoadLedger::NoteBootFinished();
     ASSERT_EQ( SyncLoadLedger::InFrameLoads(), 0u );
 
-    auto asset   = std::make_shared<ProbeAsset>( "worker.probe" );
-    auto request = AsyncAssetLoader::Get().Request(
-         asset, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
+    auto asset = std::make_shared<ProbeAsset>( "worker.probe" );
+    auto request =
+         AsyncAssetLoader::Get().Request( asset, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} );
     ASSERT_TRUE( PumpUntilQuiet() );
 
     EXPECT_EQ( SyncLoadLedger::AsyncLoads(), 1u );

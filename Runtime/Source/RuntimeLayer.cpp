@@ -326,7 +326,7 @@ namespace Desert::Player
             const uint64_t started = loader.StartedCount();
             // Two conditions, for the reason the editor's copy states: an empty queue in the middle of a
             // chain is not a settled one, and the first frame is where the renderer ASKS.
-            const bool quietFrame = loader.Outstanding() == 0 && started == m_ContentStartedAtFrameBegin;
+            const bool quietFrame        = loader.Outstanding() == 0 && started == m_ContentStartedAtFrameBegin;
             m_ContentStartedAtFrameBegin = started;
             ++m_ContentSettleFrames;
 

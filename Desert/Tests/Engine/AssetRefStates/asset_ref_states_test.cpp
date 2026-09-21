@@ -68,10 +68,8 @@ TEST( AssetRefStates, ExactlyOneOfTheThreeHoldsForEveryConstruction )
     refs.emplace_back( "default-constructed", AssetRef<Payload>() );
     refs.emplace_back( "Null()", AssetRef<Payload>::Null() );
     refs.emplace_back( "Pending()", AssetRef<Payload>::Pending( SomeHandle() ) );
-    refs.emplace_back( "Ready()",
-                       AssetRef<Payload>::Ready( SomeHandle(), std::make_shared<Payload>( 7 ) ) );
-    refs.emplace_back( "Ready() with a null payload",
-                       AssetRef<Payload>::Ready( SomeHandle(), nullptr ) );
+    refs.emplace_back( "Ready()", AssetRef<Payload>::Ready( SomeHandle(), std::make_shared<Payload>( 7 ) ) );
+    refs.emplace_back( "Ready() with a null payload", AssetRef<Payload>::Ready( SomeHandle(), nullptr ) );
 
     for ( const auto& [name, ref] : refs )
     {
@@ -167,8 +165,7 @@ TEST( AssetRefStates, AReferenceCanNameItsAssetInEveryState )
     // A pending reference that could not say WHICH asset is late is a diagnostic that says only
     // "something is late", which is what the log used to say and what cost the investigations.
     EXPECT_EQ( AssetRef<Payload>::Pending( SomeHandle() ).Handle(), SomeHandle() );
-    EXPECT_EQ( AssetRef<Payload>::Ready( SomeHandle(), std::make_shared<Payload>( 1 ) ).Handle(),
-               SomeHandle() );
+    EXPECT_EQ( AssetRef<Payload>::Ready( SomeHandle(), std::make_shared<Payload>( 1 ) ).Handle(), SomeHandle() );
     // Null names nothing, because nothing was asked for.
     EXPECT_EQ( AssetRef<Payload>::Null().Handle(), AssetHandle( 0 ) );
 }
@@ -177,8 +174,8 @@ TEST( AssetRefStates, AReadyReferenceKeepsItsPayloadAlive )
 {
     std::weak_ptr<Payload> observer;
     {
-        auto payload = std::make_shared<Payload>( 9 );
-        observer     = payload;
+        auto payload    = std::make_shared<Payload>( 9 );
+        observer        = payload;
         const auto here = AssetRef<Payload>::Ready( SomeHandle(), std::move( payload ) );
         EXPECT_FALSE( observer.expired() );
         EXPECT_TRUE( here.IsValid() );

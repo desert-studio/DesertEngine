@@ -121,8 +121,8 @@ namespace Desert::Assets
     public:
         /// Called on the main thread when the read finished — successfully or not. @p outcome is the
         /// whole of the difference; @p error is empty on success.
-        using OnReady = std::function<void( const Asset<AssetBase>& asset, LoadOutcome outcome,
-                                            const std::string& error )>;
+        using OnReady =
+             std::function<void( const Asset<AssetBase>& asset, LoadOutcome outcome, const std::string& error )>;
 
         /// Called on the main thread when `Cancel()` won. Takes nothing: the caller knows what it
         /// cancelled, and handing it an asset it decided not to want is how a "cancel" ends up being

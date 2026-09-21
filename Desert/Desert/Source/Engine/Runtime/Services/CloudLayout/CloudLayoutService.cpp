@@ -106,7 +106,7 @@ namespace Desert::Runtime
     }
 
     Assets::AssetRef<const Assets::CloudLayoutData> CloudLayoutService::Resolve( const Assets::AssetHandle& handle,
-                                                                                const bool mayRequest )
+                                                                                 const bool mayRequest )
     {
         // AN EMPTY SLOT IS NULL AND NEVER PENDING. Nothing was asked for, so there is nothing to wait
         // for; this is the state every scene in the repository ships in and the bake's "no painting".
@@ -145,7 +145,8 @@ namespace Desert::Runtime
         return Assets::AssetRef<const Assets::CloudLayoutData>::Pending( handle );
     }
 
-    Assets::AssetRef<const Assets::CloudLayoutData> CloudLayoutService::Require( const Assets::AssetHandle& handle )
+    Assets::AssetRef<const Assets::CloudLayoutData>
+    CloudLayoutService::Require( const Assets::AssetHandle& handle )
     {
         return Resolve( handle, /*mayRequest=*/true );
     }

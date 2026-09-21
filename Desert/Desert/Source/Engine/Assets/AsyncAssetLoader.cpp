@@ -36,7 +36,7 @@ namespace Desert::Assets
 
         struct LoaderState
         {
-            mutable std::mutex                                   Lock;
+            mutable std::mutex                                    Lock;
             std::unordered_map<uint64_t, std::shared_ptr<Record>> Live;
 
             /// Ids whose read has landed and whose completion delegate is owed a `Pump()`.
@@ -181,7 +181,7 @@ namespace Desert::Assets
         bool submit = false;
         {
             const std::lock_guard<std::mutex> guard( state.Lock );
-            record->Id            = state.NextId++;
+            record->Id             = state.NextId++;
             state.Live[record->Id] = record;
 
             if ( asset->IsReadyForUse() )
@@ -193,8 +193,7 @@ namespace Desert::Assets
                 record->Outcome = LoadOutcome::Loaded;
                 state.Done.push_back( record->Id );
             }
-            else if ( const auto waiting = state.Waiting.find( record->Handle );
-                      waiting != state.Waiting.end() )
+            else if ( const auto waiting = state.Waiting.find( record->Handle ); waiting != state.Waiting.end() )
             {
                 waiting->second.push_back( record->Id );
             }
@@ -328,7 +327,7 @@ namespace Desert::Assets
 
     void AsyncAssetLoader::CancelById( const uint64_t id )
     {
-        LoaderState& state = State();
+        LoaderState&                      state = State();
         const std::lock_guard<std::mutex> guard( state.Lock );
 
         const auto live = state.Live.find( id );
@@ -342,7 +341,7 @@ namespace Desert::Assets
 
     void AsyncAssetLoader::ReleaseById( const uint64_t id )
     {
-        LoaderState& state = State();
+        LoaderState&                      state = State();
         const std::lock_guard<std::mutex> guard( state.Lock );
         // The worker, if there is one, keeps its own `shared_ptr<Record>` and finishes the read it
         // started; `SettleWaitingLocked` will find no live entry for this id and owe nothing.
@@ -377,7 +376,7 @@ namespace Desert::Assets
     void AsyncAssetLoader::ResetForTest()
     {
         ShutdownAndDrain();
-        LoaderState& state = State();
+        LoaderState&                      state = State();
         const std::lock_guard<std::mutex> guard( state.Lock );
         state.NextId = 1;
         state.Started.store( 0, std::memory_order_relaxed );

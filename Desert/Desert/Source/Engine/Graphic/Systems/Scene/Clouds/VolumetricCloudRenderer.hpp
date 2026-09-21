@@ -753,7 +753,7 @@ namespace Desert::Graphic::System
         // condition that clears itself in a few frames and the other is a scene an artist has to fix,
         // and a single flag would make the log unable to tell them apart -- which is the defect one
         // layer down that this whole change is about.
-        bool m_NoiseWaiting  = false;
+        bool m_NoiseWaiting = false;
 
         // Advances once per executed frame. It decides both the march's dither pattern and which of the
         // four sub-pixels this frame traces, and it selects the history target written. Wrapping is

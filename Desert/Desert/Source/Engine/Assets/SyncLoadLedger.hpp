@@ -185,7 +185,6 @@ namespace Desert::Assets
         AsyncLoadMarker& operator=( AsyncLoadMarker&& )      = delete;
     };
 
-
     // A NAMED DETAIL NAMESPACE AND INLINE ACCESSORS, NOT AN ANONYMOUS NAMESPACE, and
     // `Graphic/ResourceLedger.hpp` states the reason beside its own copy of this shape: "an anonymous
     // namespace in a header gives every translation unit its own copy of these statics — so the ledger

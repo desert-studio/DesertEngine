@@ -39,7 +39,7 @@
 
 namespace
 {
-    constexpr const char* kLoaderHeader = "Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.hpp";
+    constexpr const char* kLoaderHeader    = "Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.hpp";
     constexpr const char* kPreloaderSource = "Desert/Desert/Source/Engine/Assets/AssetPreloader.cpp";
 
     /// The two files that start the engine. There is no third.
@@ -212,10 +212,11 @@ TEST( AsyncAssetPump, TheConvertedKindsAreAnnouncedAndNotRead )
                 "and it would come back silently because everything else would still work.";
 
         EXPECT_NE( body.find( "->Announce(" ), std::string::npos )
-             << kind.Stage << " does not announce what it scanned. A kind that is neither read nor "
-                              "announced is a kind whose service has never heard of it, so every "
-                              "reference to it resolves to Null -- 'the scan did not find it' -- for "
-                              "files that are sitting right there on disk.";
+             << kind.Stage
+             << " does not announce what it scanned. A kind that is neither read nor "
+                "announced is a kind whose service has never heard of it, so every "
+                "reference to it resolves to Null -- 'the scan did not find it' -- for "
+                "files that are sitting right there on disk.";
 
         EXPECT_EQ( body.find( "->Register(" ), std::string::npos )
              << kind.Stage

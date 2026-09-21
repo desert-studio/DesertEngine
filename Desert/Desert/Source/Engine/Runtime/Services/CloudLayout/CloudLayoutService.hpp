@@ -111,7 +111,7 @@ namespace Desert::Runtime
         };
 
         Assets::AssetRef<const Assets::CloudLayoutData> Resolve( const Assets::AssetHandle& handle,
-                                                                 bool mayRequest );
+                                                                 bool                       mayRequest );
         void BeginRead( const Assets::AssetHandle& handle, Entry& entry );
 
         std::unordered_map<Assets::AssetHandle, Entry> m_Layouts;

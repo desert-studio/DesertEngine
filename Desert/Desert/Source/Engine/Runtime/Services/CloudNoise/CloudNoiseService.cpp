@@ -70,10 +70,10 @@ namespace Desert::Runtime
         // `LoadRequest` this call is very likely running inside the completion of, and destroying a
         // request from within its own delegate is the reentrancy the deferred-completion rule exists to
         // keep out of this code.
-        Entry& entry  = m_Volumes[handle];
-        entry.Volume  = std::move( volume );
+        Entry& entry   = m_Volumes[handle];
+        entry.Volume   = std::move( volume );
         entry.Revision = asset->GetRevision();
-        entry.Failed  = false;
+        entry.Failed   = false;
         if ( !entry.Source )
             entry.Source = asset;
 
@@ -150,7 +150,7 @@ namespace Desert::Runtime
     }
 
     Assets::AssetRef<Graphic::Image3D> CloudNoiseService::Resolve( const Assets::AssetHandle& handle,
-                                                                  const bool mayRequest )
+                                                                   const bool                 mayRequest )
     {
         if ( handle != 0 )
         {

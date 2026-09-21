@@ -4841,7 +4841,7 @@ namespace Desert::Editor
         //
         // So the frame just rendered must also have asked for nothing new. `StartedCount` is monotonic
         // and per-read rather than per-request, which is exactly the granularity this needs.
-        const bool quietFrame = loader.Outstanding() == 0 && started == m_ContentStartedAtFrameBegin;
+        const bool quietFrame        = loader.Outstanding() == 0 && started == m_ContentStartedAtFrameBegin;
         m_ContentStartedAtFrameBegin = started;
         ++m_ContentSettleFrames;
 
@@ -4852,9 +4852,9 @@ namespace Desert::Editor
         if ( m_ContentSettleFrames < 2 || !quietFrame )
             return;
 
-        const double ms = std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
-                                                                     m_ContentWaitBegan )
-                               .count();
+        const double ms =
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_ContentWaitBegan )
+                  .count();
         LOG_INFO( "[Content] settled after {} frame(s) in {:.1f} ms; {} read(s) have gone to a worker "
                   "this session. This is the cost that used to be a boot stage, and a scene that asks "
                   "for nothing pays none of it.",
