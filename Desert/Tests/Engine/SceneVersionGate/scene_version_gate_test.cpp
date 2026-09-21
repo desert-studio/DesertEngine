@@ -31,6 +31,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <array>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -82,15 +83,52 @@ namespace
         return {};
     }
 
-    std::vector<std::filesystem::path> RepositoryScenes()
+    // EVERY PLACE A `.desce` CAN LIVE IN THIS REPOSITORY, and the second row is why this is a list.
+    //
+    // `Templates/<Id>/Payload/` is copied BYTE FOR BYTE into a new project by the launcher and then
+    // opened by the Editor, so a scene in a payload is engine content that has to travel with the
+    // engine's migrations — it just does not live under the assets root. Nothing pointed a migration
+    // or a gate at it: `SceneMigrator` walks only the roots it is handed, and this gate walked one
+    // directory. Today no payload contains a `.desce` (the only payload file in the tree is a `.lua`),
+    // so the hole is not yet a defect; the moment the FirstPerson template its README plans is
+    // authored, a stale scene would ship to whoever creates a project from it, and the first report
+    // would come from a user rather than from here.
+    //
+    // MustContainScenes is the difference between "this root is allowed to be empty" and "this root
+    // being empty means the walk is broken". Without it a renamed assets directory would leave both
+    // corpus tests below iterating an empty list and passing in silence.
+    struct SceneRoot
+    {
+        const char* Relative;
+        bool        MustContainScenes;
+    };
+
+    constexpr std::array<SceneRoot, 2> kSceneRoots = { {
+         { "Editor/Resources/Assets/Scenes", true },
+         // May be empty: templates are authored content and there is no rule that one must exist.
+         // The DIRECTORY still has to, so a rename or a move reddens here rather than going unseen.
+         { "Templates", false },
+    } };
+
+    std::vector<std::filesystem::path> ScenesUnder( const std::filesystem::path& root )
     {
         std::vector<std::filesystem::path> scenes;
         std::error_code                    ec;
-        const std::filesystem::path        root = RepoRoot() + "Editor/Resources/Assets/Scenes";
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( root, ec ) )
         {
             if ( entry.is_regular_file() && entry.path().extension() == ".desce" )
                 scenes.push_back( entry.path() );
+        }
+        return scenes;
+    }
+
+    std::vector<std::filesystem::path> RepositoryScenes()
+    {
+        std::vector<std::filesystem::path> scenes;
+        for ( const SceneRoot& root : kSceneRoots )
+        {
+            const auto found = ScenesUnder( RepoRoot() + root.Relative );
+            scenes.insert( scenes.end(), found.begin(), found.end() );
         }
         return scenes;
     }
@@ -255,6 +293,34 @@ TEST( SceneVersionGateCorpus, TheScenesAreWhereThisSuiteThinksTheyAre )
 // runtime, and the fix is the one the message names: run Tools/SceneMigrator over it. That includes files
 // this repository does not track — the sweep is recursive and Scenes/Autosave holds gitignored editor
 // crash-recovery files, which are exactly the ones most likely to have been written by an older build.
+// 4a. THE POSITIVE CONTROL FOR 4b AND 4c, AND IT WAS MISSING. Both tests below are `for` loops over
+// `RepositoryScenes()`, so an empty list passes them — a renamed assets directory would have turned this
+// gate off without turning it red. That is this repository's most frequent defect shape: the instrument
+// answering a different question with nothing in its output to say so.
+//
+// Each root is checked SEPARATELY rather than by one total, because a total is satisfied by the other
+// root's files: `Templates/` may legitimately hold no scene, but if it stops EXISTING the row is stale
+// and has to be read again by a person.
+TEST( SceneVersionGateCorpus, EveryDeclaredSceneRootExistsAndTheCorpusIsNotEmpty )
+{
+    for ( const SceneRoot& root : kSceneRoots )
+    {
+        const std::filesystem::path path = RepoRoot() + root.Relative;
+        EXPECT_TRUE( std::filesystem::is_directory( path ) )
+             << root.Relative
+             << " is declared as a place scenes can live and is not a directory. Either it moved — in "
+                "which case this row has to move with it — or the walk below is examining nothing.";
+
+        if ( root.MustContainScenes )
+        {
+            EXPECT_FALSE( ScenesUnder( path ).empty() )
+                 << root.Relative
+                 << " holds no .desce at all, so the corpus tests below iterate nothing "
+                    "and pass vacuously.";
+        }
+    }
+}
+
 TEST( SceneVersionGateCorpus, EverySceneOnDiskIsOneThisEngineWillLoad )
 {
     for ( const auto& path : RepositoryScenes() )
