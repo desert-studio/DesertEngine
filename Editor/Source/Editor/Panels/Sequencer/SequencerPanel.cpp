@@ -371,6 +371,21 @@ namespace Desert::Editor
     {
         TakeAuthoringContextIfFocused();
 
+        // A TRANSACTION THAT LOST ITS CLOSER, SWEPT AT THE TOP OF THE FRAME. Every EXPLICIT driver in this
+        // file is a widget being held, so one still open while ImGui reports no active item has lost the
+        // widget that was going to close it — a tangent field stops being drawn the moment the combo above
+        // it switches the key back to `Auto`, and its `IsItemDeactivated` never arrives. Left open, the
+        // transaction would swallow every later edit into one enormous undo step, which is worse than the
+        // no-undo state this change replaced. The EDGE-driven one is deliberately not swept: ImGuizmo
+        // submits no ImGui item, so a bone drag looks identical to a lost widget from here.
+        if ( m_ClipEdit.OpenExplicitly() && !ImGui::IsAnyItemActive() )
+        {
+            if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
+            {
+                LOG_ERROR( "[Sequencer] {}", ended.GetError() );
+            }
+        }
+
         auto&       anim = entity.GetComponent<ECS::AnimationComponent>();
         const auto& smc  = entity.GetComponent<ECS::SkinnedMeshComponent>();
         // Editor-built runtime rig (Convert to Skinned) has no MeshHandle — prefer it (mirrors the render /
@@ -614,6 +629,10 @@ namespace Desert::Editor
             if ( ImGui::Button( ICON_MDI_KEY_PLUS " Key Bone @ Playhead" ) && canKey )
             {
                 anim.Playing = false;
+                // ONE UNDO STEP FOR THE WHOLE PRESS, and the scope has to cover `showKeyedPose` below as
+                // well as the key: that call reloads the WHOLE authoring buffer from the clip, so the pose
+                // the animator is left looking at is part of what this press did.
+                ScopedPoseEdit undoStep( m_ClipEdit, animator, editClip );
                 const auto keyed =
                      m_Keyer.WriteBone( KeyTargetFor( editClip, *animator ), static_cast<uint32_t>( selBone ) );
                 if ( !keyed.IsSuccess() )
@@ -678,6 +697,20 @@ namespace Desert::Editor
             else
             {
                 m_RecordBone = -1; // drop the baseline when there is nothing to key
+            }
+
+            // THE UNDO TRANSACTION CLOSES LAST, and that ordering is the whole of its correctness: the
+            // keyer writes its deferred keys on this same falling edge, and `showKeyedPose` above reloads
+            // the pose out of the clip afterwards. A transaction closed before either of them would record
+            // an "after" that is missing its own keys, and Ctrl+Z would put the pose back while leaving
+            // them in the clip -- the two states disagreeing, which is what keying exists to prevent.
+            //
+            // Called with the same bit `ControlKeyer::Observe` was given, not a second one: two bools for
+            // one fact is how a REC light comes to disagree with what is being recorded (see m_Keyer).
+            const auto recorded = m_ClipEdit.Observe( animator, editClip, Core::GizmoState::PoseInteraction() );
+            if ( !recorded.IsSuccess() )
+            {
+                LOG_ERROR( "[Sequencer] pose edit not undoable: {}", recorded.GetError() );
             }
         }
 
@@ -868,6 +901,10 @@ namespace Desert::Editor
                 ImGui::PushID( ( ti * 3 + ch ) * 4096 + 3999 );
                 if ( ImGui::SmallButton( "+" ) )
                 {
+                    // Opened BEFORE the insert below, which is the only place it can be opened: the button
+                    // both adds the key and refreshes the whole channel's tangents, and the "before" has to
+                    // predate both.
+                    ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
                     const Animation::FrameNumber t =
                          Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
                     const Animation::TrackChannel channel = ChannelOfLane( ch );
@@ -937,6 +974,14 @@ namespace Desert::Editor
                     const bool hov = ImGui::IsItemHovered();
                     if ( ImGui::IsItemActivated() )
                     {
+                        // THE RETIME'S OWN RISING EDGE, which this widget knows and nothing else does. It
+                        // is opened here rather than through `Observe` because ImGui reports activation
+                        // BEFORE the first drag delta is applied — so unlike the gizmo, whose bit is
+                        // published from another file a frame late, this one needs no baseline.
+                        if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+                        {
+                            LOG_ERROR( "[Sequencer] retime not undoable: {}", began.GetError() );
+                        }
                         m_SelTrack   = ti;
                         m_SelChannel = ch;
                         m_SelKey     = k;
@@ -1020,6 +1065,16 @@ namespace Desert::Editor
             Animation::RefreshTangents( tr, tickRate );
             animator->SetTime( animator->GetCurrentTime() ); // refresh the pose to the edited key
         }
+        // CLOSED AFTER THE SORT AND THE TANGENT REFRESH, not at the mouse-up: both of those are part of
+        // what the drag did to the track, and a transaction closed before them would leave an undo that
+        // puts the keys back in the dragged order.
+        if ( needSort )
+        {
+            if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
+            {
+                LOG_ERROR( "[Sequencer] retime not undoable: {}", ended.GetError() );
+            }
+        }
 
         // ---- Selected-key inspector ----
         ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
@@ -1036,6 +1091,30 @@ namespace Desert::Editor
             ImGui::Text( "%s  /  %s", tr.BoneName.c_str(), chName[m_SelChannel] );
             bool changed = false;
 
+            // A NUMERIC FIELD'S DRAG IS AN INTERACTION LIKE THE GIZMO'S, and ImGui publishes both of its
+            // edges for the item just submitted — so unlike the gizmo this one needs no baseline and no
+            // bit passed between files. Called after each field, it makes a drag across forty frames ONE
+            // undo step. `IsItemDeactivated` rather than `...AfterEdit`: a click that changed nothing must
+            // still close the transaction (it pushes nothing, because the diff is empty), or the next edit
+            // would be swallowed into it.
+            const auto bracketField = [&]()
+            {
+                if ( ImGui::IsItemActivated() )
+                {
+                    if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+                    {
+                        LOG_ERROR( "[Sequencer] key edit not undoable: {}", began.GetError() );
+                    }
+                }
+                if ( ImGui::IsItemDeactivated() && m_ClipEdit.OpenExplicitly() )
+                {
+                    if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
+                    {
+                        LOG_ERROR( "[Sequencer] key edit not undoable: {}", ended.GetError() );
+                    }
+                }
+            };
+
             // THE SHAPE OF THE SEGMENT THIS KEY ENDS. Before A6 a clip had exactly one rule — a straight
             // line, unconditionally — so holding a pose and then easing out of it could only be faked with
             // extra keys. A rotation lane offers two of the three: a cubic through quaternions is not a
@@ -1049,6 +1128,9 @@ namespace Desert::Editor
                 {
                     return false;
                 }
+                // BETWEEN THE WIDGET AND THE WRITE. `Combo` edits the local `current`, so the key still
+                // holds its old value on this line and the transaction's "before" is the true one.
+                ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
                 interp = static_cast<Animation::KeyInterp>( current );
                 return true;
             };
@@ -1060,6 +1142,7 @@ namespace Desert::Editor
                 {
                     return false;
                 }
+                ScopedPoseEdit undoStep( m_ClipEdit, animator, clip ); // see interpCombo above
                 mode = static_cast<Animation::TangentMode>( current );
                 return true;
             };
@@ -1069,22 +1152,32 @@ namespace Desert::Editor
                 {
                     auto& key = tr.PositionKeys[m_SelKey];
                     changed |= FrameField( key.Tick, animator->GetDurationTicks(), tickRate, displayRate );
+                    bracketField();
                     changed |= ImGui::DragFloat3( "Position", &key.Position.x, 0.01f );
+                    bracketField();
                     changed |= interpCombo( key.Interp, true );
                     changed |= tangentCombo( key.Mode );
                     if ( key.Mode != Animation::TangentMode::Auto )
                     {
                         changed |= ImGui::DragFloat3( "Arrive /s", &key.ArriveTangent.x, 0.1f );
+                        bracketField();
                         changed |= ImGui::DragFloat3( "Leave /s", &key.LeaveTangent.x, 0.1f );
+                        bracketField();
                     }
                 }
                 else if ( m_SelChannel == 1 )
                 {
                     auto& key = tr.RotationKeys[m_SelKey];
                     changed |= FrameField( key.Tick, animator->GetDurationTicks(), tickRate, displayRate );
+                    bracketField();
                     changed |= interpCombo( key.Interp, false );
                     glm::vec3 euler = glm::degrees( glm::eulerAngles( key.Rotation ) );
-                    if ( ImGui::DragFloat3( "Euler", &euler.x, 0.5f ) )
+                    const bool eulerEdited = ImGui::DragFloat3( "Euler", &euler.x, 0.5f );
+                    // The bracket comes FIRST: on the frame ImGui reports activation the field has not
+                    // edited anything yet, so the transaction opens over a key that still holds its
+                    // original rotation.
+                    bracketField();
+                    if ( eulerEdited )
                     {
                         key.Rotation = glm::quat( glm::radians( euler ) );
                         changed      = true;
@@ -1094,18 +1187,23 @@ namespace Desert::Editor
                 {
                     auto& key = tr.ScaleKeys[m_SelKey];
                     changed |= FrameField( key.Tick, animator->GetDurationTicks(), tickRate, displayRate );
+                    bracketField();
                     changed |= ImGui::DragFloat3( "Scale", &key.Scale.x, 0.01f );
+                    bracketField();
                     changed |= interpCombo( key.Interp, true );
                     changed |= tangentCombo( key.Mode );
                     if ( key.Mode != Animation::TangentMode::Auto )
                     {
                         changed |= ImGui::DragFloat3( "Arrive /s", &key.ArriveTangent.x, 0.1f );
+                        bracketField();
                         changed |= ImGui::DragFloat3( "Leave /s", &key.LeaveTangent.x, 0.1f );
+                        bracketField();
                     }
                 }
 
                 if ( ImGui::Button( ICON_MDI_DELETE "  Delete Key" ) )
                 {
+                    ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
                     if ( m_SelChannel == 0 )
                         tr.PositionKeys.erase( tr.PositionKeys.begin() + m_SelKey );
                     else if ( m_SelChannel == 1 )
@@ -1127,7 +1225,8 @@ namespace Desert::Editor
                 const Animation::FrameNumber t =
                      Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
                 const Animation::TrackChannel channel = ChannelOfLane( m_SelChannel );
-                changed                               = Animation::InsertKeyFromCurve( tr, channel, t, tickRate );
+                ScopedPoseEdit                undoStep( m_ClipEdit, animator, clip );
+                changed = Animation::InsertKeyFromCurve( tr, channel, t, tickRate );
             }
 
             if ( changed )
@@ -1165,6 +1264,11 @@ namespace Desert::Editor
             ImGui::TextDisabled( "This clip has no bone tracks." );
             return;
         }
+
+        // THE CURVE VIEW'S DRAG IS ITS OWN INTERACTION, and `m_CurveDragKey` already IS its boundary: it
+        // goes from -1 to a key when the mouse grabs one and back to -1 when it lets go. Read here,
+        // before any of the grab tests below can move it, so the rising edge is visible further down.
+        const int curveDragBefore = m_CurveDragKey;
 
         // WITH NOTHING SELECTED IT SHOWS THE FIRST CHANNEL THAT HAS KEYS, rather than an instruction to go
         // and select something. A curve view whose empty state is "select a key in the other view" makes the
@@ -1395,6 +1499,16 @@ namespace Desert::Editor
             }
         }
 
+        // The grab tests above are the only writers of `m_CurveDragKey` on this side of the frame, and the
+        // edit below is the first thing that touches the track — so the transaction opens between them.
+        if ( curveDragBefore < 0 && m_CurveDragKey >= 0 )
+        {
+            if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+            {
+                LOG_ERROR( "[Sequencer] curve edit not undoable: {}", began.GetError() );
+            }
+        }
+
         if ( m_CurveDragKey >= 0 && active )
         {
             const int component = m_CurveDragComponent;
@@ -1450,6 +1564,15 @@ namespace Desert::Editor
 
         if ( !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
         {
+            if ( m_CurveDragKey >= 0 && m_ClipEdit.OpenExplicitly() )
+            {
+                // The last frame that edited anything was the previous one (`active` is false now), so the
+                // track already holds the finished curve and this closes over all of it.
+                if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
+                {
+                    LOG_ERROR( "[Sequencer] curve edit not undoable: {}", ended.GetError() );
+                }
+            }
             m_CurveDragKey       = -1;
             m_CurveDragComponent = -1;
             m_CurveDragHandle    = 0;

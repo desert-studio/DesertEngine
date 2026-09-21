@@ -183,6 +183,12 @@ namespace Desert::Editor
      */
     class PoseEditTransaction
     {
+        enum class Driver : uint8_t
+        {
+            Edge,    ///< opened by `Observe` off the interaction bit
+            Explicit ///< opened by `Begin` at a call site that will `End` it
+        };
+
     public:
         /// Open a transaction the caller will close itself. Refuses (and says so) while one is open:
         /// nesting would have to decide whose `End` commits, which is `ControlKeyer::BeginInteraction`'s
@@ -213,13 +219,17 @@ namespace Desert::Editor
             return m_Open;
         }
 
-    private:
-        enum class Driver : uint8_t
+        /// Open, AND opened by a `Begin` that is supposed to close it. The panel sweeps these: an explicit
+        /// driver is always a widget being held, so one still open while the UI reports no active item has
+        /// lost its closer (the field stopped being drawn because a combo above it changed the branch),
+        /// and leaving it open would swallow every later edit into one enormous undo step. The edge-driven
+        /// one must NOT be swept that way -- a viewport gizmo is not an item, so it looks identical.
+        [[nodiscard]] bool OpenExplicitly() const
         {
-            Edge,    ///< opened by `Observe` off the interaction bit
-            Explicit ///< opened by `Begin` at a call site that will `End` it
-        };
+            return m_Open && m_Driver == Driver::Explicit;
+        }
 
+    private:
         Animation::Animator*              m_Animator = nullptr;
         Animation::AnimationClip*         m_Clip     = nullptr;
         bool                              m_Open     = false;

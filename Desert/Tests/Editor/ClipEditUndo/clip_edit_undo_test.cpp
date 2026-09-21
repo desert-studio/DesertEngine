@@ -105,6 +105,32 @@ namespace
         return clip;
     }
 
+    /// FOUR keys, so that the two on either side of the tick we key at are INTERIOR ones. An endpoint's
+    /// auto tangents are flat by rule (`AutoSetTangents`: a curve that leaves its last key with a slope
+    /// overshoots past the end of the clip), so a three-key track cannot show the neighbour effect at all
+    /// -- which is exactly the degenerate scenario §8.4 warns about, and this factory exists because the
+    /// first version of the tangent test used the clip above and passed for that reason.
+    AnimationClip MakeClipWithInteriorKeys()
+    {
+        AnimationClip clip;
+        clip.AnimationName = "take03";
+        clip.DurationTicks = FrameNumber{ PROJECT_TICK_RATE.Numerator };
+        clip.TickRate      = PROJECT_TICK_RATE;
+        clip.DisplayRate   = DEFAULT_DISPLAY_RATE;
+
+        BoneTrack track;
+        track.BoneName = "child";
+        // Ticks on the 30 fps display grid (800 ticks each), values chosen so consecutive secants differ:
+        // a straight line would give every interior key the same slope and hide the effect again.
+        track.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 0.0f, 0.0f, 0.0f ) } );
+        track.PositionKeys.push_back( { FrameNumber{ kDisplayFrameTicks * 10 }, glm::vec3( 0.0f, 1.0f, 0.0f ) } );
+        track.PositionKeys.push_back( { FrameNumber{ kDisplayFrameTicks * 20 }, glm::vec3( 0.0f, 5.0f, 0.0f ) } );
+        track.PositionKeys.push_back( { FrameNumber{ kDisplayFrameTicks * 30 }, glm::vec3( 0.0f, 6.0f, 0.0f ) } );
+        Desert::Animation::RefreshTangents( track, clip.TickRate );
+        clip.Tracks.push_back( std::move( track ) );
+        return clip;
+    }
+
     /// A clip with NO track for the child, to watch keying create one (and undo take it away).
     AnimationClip MakeClipWithNoChildTrack()
     {
@@ -312,6 +338,53 @@ TEST_F( ClipEditUndo, UndoRestoresBothThePoseAndTheClipByValue )
          << "the pose came back near, not equal";
     EXPECT_TRUE( SameTracks( tracksBefore, rig.m_Clip.Tracks ) )
          << "the clip came back near, not equal -- the endpoint tangents are the usual survivor";
+}
+
+TEST_F( ClipEditUndo, UndoRestoresTheNEIGHBOURSTangents )
+{
+    // EVERY OTHER ASSERTION IN THIS FILE IS ONLY AS STRONG AS `SameStoredValue`; this one reads the
+    // floats. The fields it reads are exactly what an undo built as "delete the key I added" would leave
+    // behind: `SetTransformKey` refreshes the WHOLE track's auto tangents after an upsert, so the two
+    // keys that were already there are changed by a key written BETWEEN them, and removing that key does
+    // not change them back.
+    Rig rig( MakeClipWithInteriorKeys(), AutoChangeMode::All );
+    rig.SetTick( kDisplayFrameTicks * 15 ); // between keys 1 and 2, so both of them get a new neighbour
+
+    const glm::vec3 leftLeaveBefore   = rig.m_Clip.Tracks[0].PositionKeys[1].LeaveTangent;
+    const glm::vec3 rightArriveBefore = rig.m_Clip.Tracks[0].PositionKeys[2].ArriveTangent;
+    ASSERT_NE( leftLeaveBefore, glm::vec3( 0.0f ) ) << "an interior key with a flat tangent proves nothing";
+
+    ASSERT_EQ( rig.Drag( 30, 0.02f ), 1u );
+    ASSERT_EQ( rig.m_Clip.Tracks[0].PositionKeys.size(), 5u );
+
+    // Positive control: the neighbours really did move. Without it the two restores below are assertions
+    // that nothing changed and then nothing changed back -- A22's degenerate scenario, in this shape.
+    ASSERT_NE( rig.m_Clip.Tracks[0].PositionKeys[1].LeaveTangent, leftLeaveBefore );
+    ASSERT_NE( rig.m_Clip.Tracks[0].PositionKeys[3].ArriveTangent, rightArriveBefore );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+
+    ASSERT_EQ( rig.m_Clip.Tracks[0].PositionKeys.size(), 4u );
+    EXPECT_EQ( rig.m_Clip.Tracks[0].PositionKeys[1].LeaveTangent, leftLeaveBefore );
+    EXPECT_EQ( rig.m_Clip.Tracks[0].PositionKeys[2].ArriveTangent, rightArriveBefore );
+}
+
+TEST_F( ClipEditUndo, AnEdgeDrivenTransactionIsNotReportedAsExplicit )
+{
+    // The panel sweeps `OpenExplicitly()` transactions at the top of every frame, because a widget that
+    // stopped being drawn never closes its own. A gizmo drag submits no ImGui item, so if it reported
+    // itself explicit the sweep would close it on the frame after it opened -- turning the headline
+    // "one drag, one step" into "one drag, one step at the very start of it".
+    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+
+    EXPECT_EQ( rig.Frame( false, std::nullopt ), 0u );
+    EXPECT_EQ( rig.Frame( true, glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 2.0f, 0.0f ) ) ), 0u );
+    EXPECT_TRUE( rig.m_Transaction.Open() );
+    EXPECT_FALSE( rig.m_Transaction.OpenExplicitly() );
+
+    ASSERT_TRUE( rig.m_Transaction.Begin( &rig.m_Animator, &rig.m_Clip ).IsSuccess() ==
+                 false ); // and it still refuses to nest
+    EXPECT_EQ( rig.Frame( false, std::nullopt ), 1u );
 }
 
 TEST_F( ClipEditUndo, RedoPutsTheSameEditBackByValue )
