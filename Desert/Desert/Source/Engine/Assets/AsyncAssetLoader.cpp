@@ -3,6 +3,7 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -12,7 +13,10 @@
 
 namespace Desert::Assets
 {
-    namespace
+
+    /// See the header: the loader owns this, rather than a free function owning it and the loader
+    /// being a namespace in a class's clothing.
+    struct AsyncAssetLoader::State
     {
         /// One request, from `Request()` to the delegate call that ends it.
         ///
@@ -34,43 +38,37 @@ namespace Desert::Assets
             std::string Error;
         };
 
-        struct LoaderState
-        {
-            mutable std::mutex                                    Lock;
-            std::unordered_map<uint64_t, std::shared_ptr<Record>> Live;
+        mutable std::mutex                                    Lock;
+        std::unordered_map<uint64_t, std::shared_ptr<Record>> Live;
 
-            /// Ids whose read has landed and whose completion delegate is owed a `Pump()`.
-            std::vector<uint64_t> Done;
-            /// Ids whose `Cancel()` is owed a `Pump()`. Kept apart from `Done` so that a cancel arriving
-            /// after a completion still wins — see `Pump()`.
-            std::vector<uint64_t> Cancelled;
+        /// Ids whose read has landed and whose completion delegate is owed a `Pump()`.
+        std::vector<uint64_t> Done;
+        /// Ids whose `Cancel()` is owed a `Pump()`. Kept apart from `Done` so that a cancel arriving
+        /// after a completion still wins — see `Pump()`.
+        std::vector<uint64_t> Cancelled;
 
-            /// WHICH HANDLES HAVE A WORKER ON THEM, and who is waiting for it.
-            ///
-            /// Without this, two requests for one asset submit two jobs that both call `Load()` on the
-            /// same object at the same time — a data race inside every `LoadFromFile` in the engine, none
-            /// of which was written to be reentrant. The second and later requests for a handle get no
-            /// job at all; they settle together with the first when it lands, with its outcome. That is
-            /// also the honest answer: they asked for the same file and the same read served them.
-            std::unordered_map<AssetHandle, std::vector<uint64_t>> Waiting;
+        /// WHICH HANDLES HAVE A WORKER ON THEM, and who is waiting for it.
+        ///
+        /// Without this, two requests for one asset submit two jobs that both call `Load()` on the
+        /// same object at the same time — a data race inside every `LoadFromFile` in the engine, none
+        /// of which was written to be reentrant. The second and later requests for a handle get no
+        /// job at all; they settle together with the first when it lands, with its outcome. That is
+        /// also the honest answer: they asked for the same file and the same read served them.
+        std::unordered_map<AssetHandle, std::vector<uint64_t>> Waiting;
 
-            uint64_t              NextId = 1;
-            std::atomic<uint64_t> Started{ 0 };
-            std::atomic<uint64_t> Cancels{ 0 };
-            /// Workers currently inside `AssetBase::Load()`. `ShutdownAndDrain` waits on it, so tearing
-            /// the process down cannot free an asset a worker is still reading into.
-            std::atomic<int> InFlight{ 0 };
-        };
+        uint64_t              NextId = 1;
+        std::atomic<uint64_t> Started{ 0 };
+        std::atomic<uint64_t> Cancels{ 0 };
+        /// Workers currently inside `AssetBase::Load()`. `ShutdownAndDrain` waits on it, so tearing
+        /// the process down cannot free an asset a worker is still reading into.
+        std::atomic<int> InFlight{ 0 };
+    };
 
-        LoaderState& State()
-        {
-            static LoaderState state;
-            return state;
-        }
-
+    namespace
+    {
         /// Settle @p handle's whole waiting list with one outcome, under the caller's lock.
-        void SettleWaitingLocked( LoaderState& state, const AssetHandle& handle, const LoadOutcome outcome,
-                                  const std::string& error )
+        void SettleWaitingLocked( AsyncAssetLoader::State& state, const AssetHandle& handle,
+                                  const LoadOutcome outcome, const std::string& error )
         {
             const auto waiting = state.Waiting.find( handle );
             if ( waiting == state.Waiting.end() )
@@ -138,6 +136,14 @@ namespace Desert::Assets
         m_Id = 0;
     }
 
+    AsyncAssetLoader::AsyncAssetLoader() : m_State( std::make_unique<State>() )
+    {
+    }
+
+    // OUT OF LINE, AND IT HAS TO BE: `State` is incomplete in the header, so a destructor the compiler
+    // wrote at each use site could not destroy the `unique_ptr`.
+    AsyncAssetLoader::~AsyncAssetLoader() = default;
+
     AsyncAssetLoader& AsyncAssetLoader::Get()
     {
         static AsyncAssetLoader loader;
@@ -170,9 +176,9 @@ namespace Desert::Assets
             return {};
         }
 
-        LoaderState& state = State();
+        State& state = *m_State;
 
-        auto record     = std::make_shared<Record>();
+        auto record     = std::make_shared<State::Record>();
         record->Handle  = asset->GetMetadata().Handle;
         record->Payload = asset;
         record->Ready   = std::move( onReady );
@@ -208,18 +214,21 @@ namespace Desert::Assets
         {
             state.Started.fetch_add( 1, std::memory_order_relaxed );
             const AssetHandle handle = record->Handle;
+            // THE STATE IS CAPTURED BY POINTER, and its lifetime is the process's: the loader is a
+            // function-local static, so the only way a worker could outlive it is a job still running at
+            // exit -- which `ShutdownAndDrain` is there to make impossible.
+            State* inner = m_State.get();
             Common::JobSystem::Get().Submit(
-                 [record, handle]
+                 [record, handle, inner]
                  {
-                     LoaderState& inner = State();
-                     inner.InFlight.fetch_add( 1, std::memory_order_relaxed );
+                     inner->InFlight.fetch_add( 1, std::memory_order_relaxed );
 
                      LoadOutcome outcome = LoadOutcome::Loaded;
                      std::string error;
 
                      bool skip = false;
                      {
-                         const std::lock_guard<std::mutex> guard( inner.Lock );
+                         const std::lock_guard<std::mutex> guard( inner->Lock );
                          // CANCELLED BEFORE A WORKER PICKED IT UP — so the read never happens at all.
                          // This is the half of `Cancel()` that actually saves work, and it is why a scene
                          // that was closed while loading does not sit through its own content.
@@ -242,23 +251,23 @@ namespace Desert::Assets
                      }
 
                      {
-                         const std::lock_guard<std::mutex> guard( inner.Lock );
-                         SettleWaitingLocked( inner, handle, outcome, error );
+                         const std::lock_guard<std::mutex> guard( inner->Lock );
+                         SettleWaitingLocked( *inner, handle, outcome, error );
                      }
 
-                     inner.InFlight.fetch_sub( 1, std::memory_order_relaxed );
+                     inner->InFlight.fetch_sub( 1, std::memory_order_relaxed );
                  } );
         }
 
-        return LoadRequest( record->Id, record->Handle );
+        return { record->Id, record->Handle };
     }
 
     void AsyncAssetLoader::Pump()
     {
-        LoaderState& state = State();
+        State& state = *m_State;
 
-        std::vector<std::shared_ptr<Record>> cancelled;
-        std::vector<std::shared_ptr<Record>> completed;
+        std::vector<std::shared_ptr<State::Record>> cancelled;
+        std::vector<std::shared_ptr<State::Record>> completed;
         {
             const std::lock_guard<std::mutex> guard( state.Lock );
 
@@ -298,36 +307,32 @@ namespace Desert::Assets
 
     size_t AsyncAssetLoader::Outstanding() const
     {
-        const LoaderState&                state = State();
+        const State&                      state = *m_State;
         const std::lock_guard<std::mutex> guard( state.Lock );
         return state.Live.size();
     }
 
     uint64_t AsyncAssetLoader::StartedCount() const
     {
-        return State().Started.load( std::memory_order_relaxed );
+        return m_State->Started.load( std::memory_order_relaxed );
     }
 
     uint64_t AsyncAssetLoader::CancelledCount() const
     {
-        return State().Cancels.load( std::memory_order_relaxed );
+        return m_State->Cancels.load( std::memory_order_relaxed );
     }
 
     bool AsyncAssetLoader::IsRequested( const AssetHandle& handle ) const
     {
-        const LoaderState&                state = State();
+        const State&                      state = *m_State;
         const std::lock_guard<std::mutex> guard( state.Lock );
-        for ( const auto& [id, record] : state.Live )
-        {
-            if ( record->Handle == handle )
-                return true;
-        }
-        return false;
+        return std::ranges::any_of( state.Live,
+                                    [&handle]( const auto& entry ) { return entry.second->Handle == handle; } );
     }
 
     void AsyncAssetLoader::CancelById( const uint64_t id )
     {
-        LoaderState&                      state = State();
+        State&                            state = *m_State;
         const std::lock_guard<std::mutex> guard( state.Lock );
 
         const auto live = state.Live.find( id );
@@ -341,7 +346,7 @@ namespace Desert::Assets
 
     void AsyncAssetLoader::ReleaseById( const uint64_t id )
     {
-        LoaderState&                      state = State();
+        State&                            state = *m_State;
         const std::lock_guard<std::mutex> guard( state.Lock );
         // The worker, if there is one, keeps its own `shared_ptr<Record>` and finishes the read it
         // started; `SettleWaitingLocked` will find no live entry for this id and owe nothing.
@@ -350,14 +355,14 @@ namespace Desert::Assets
 
     bool AsyncAssetLoader::IsLive( const uint64_t id ) const
     {
-        const LoaderState&                state = State();
+        const State&                      state = *m_State;
         const std::lock_guard<std::mutex> guard( state.Lock );
         return state.Live.find( id ) != state.Live.end();
     }
 
     void AsyncAssetLoader::ShutdownAndDrain()
     {
-        LoaderState& state = State();
+        State& state = *m_State;
         {
             const std::lock_guard<std::mutex> guard( state.Lock );
             state.Live.clear();
@@ -376,7 +381,7 @@ namespace Desert::Assets
     void AsyncAssetLoader::ResetForTest()
     {
         ShutdownAndDrain();
-        LoaderState&                      state = State();
+        State&                            state = *m_State;
         const std::lock_guard<std::mutex> guard( state.Lock );
         state.NextId = 1;
         state.Started.store( 0, std::memory_order_relaxed );

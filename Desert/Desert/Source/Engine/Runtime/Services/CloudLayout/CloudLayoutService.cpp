@@ -151,10 +151,9 @@ namespace Desert::Runtime
         return Resolve( handle, /*mayRequest=*/true );
     }
 
-    Assets::AssetRef<const Assets::CloudLayoutData>
-    CloudLayoutService::Peek( const Assets::AssetHandle& handle ) const
+    Assets::AssetRef<const Assets::CloudLayoutData> CloudLayoutService::Peek( const Assets::AssetHandle& handle )
     {
-        return const_cast<CloudLayoutService*>( this )->Resolve( handle, /*mayRequest=*/false );
+        return Resolve( handle, /*mayRequest=*/false );
     }
 
     size_t CloudLayoutService::ResidentCount() const

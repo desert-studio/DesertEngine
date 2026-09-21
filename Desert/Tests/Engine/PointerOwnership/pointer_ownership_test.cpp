@@ -357,11 +357,17 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   order is not knowable, which is the textbook case. And `CloudNoiseService::Entry::Source` is the
     //   announced-but-unread asset the service can later ask to be read -- held by the AssetManager and
     //   by this service, neither of which outlives the other by construction.
+    //   and +1 Unique with the same task (848 -> 849): `AsyncAssetLoader::m_State`. The loader's queues
+    //   began as a file-local `static`, which compiles and works and made every method of the class
+    //   `static`-able -- clang-tidy said so before a reader would have, and a singleton whose methods are
+    //   all static is a namespace wearing a class. The state is the loader's now, held behind a pointer
+    //   only so the header carries no mutex and no map. One owner with a known lifetime, which is Q1's
+    //   unique answer.
     EXPECT_EQ( CountOf( Form::Raw ), 365 );
     EXPECT_EQ( CountOf( Form::Shared ), 330 );
-    EXPECT_EQ( CountOf( Form::Unique ), 115 );
+    EXPECT_EQ( CountOf( Form::Unique ), 116 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 848 )
+    EXPECT_EQ( (int)Members().size(), 849 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

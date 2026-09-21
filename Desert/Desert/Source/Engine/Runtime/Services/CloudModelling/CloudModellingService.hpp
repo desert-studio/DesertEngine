@@ -82,9 +82,10 @@ namespace Desert::Runtime
          */
         Assets::AssetRef<Assets::CloudModellingVolumeAsset> RequireBody( const Assets::AssetHandle& handle );
 
-        /// The answer as it stands: never reads, never requests, never logs.
+        /// The answer as it stands: never reads, never requests, never logs. Not `const` for the reason
+        /// CloudNoiseService::Peek states.
         [[nodiscard]] Assets::AssetRef<Assets::CloudModellingVolumeAsset>
-        Peek( const Assets::AssetHandle& handle ) const;
+        Peek( const Assets::AssetHandle& handle );
 
         /// How many announced bodies have actually been read.
         [[nodiscard]] size_t ResidentCount() const;

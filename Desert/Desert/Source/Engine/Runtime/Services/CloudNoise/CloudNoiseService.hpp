@@ -82,7 +82,13 @@ namespace Desert::Runtime
         /// The answer AS IT STANDS: never reads, never requests, never logs. For anything that wants to
         /// know the state without becoming the reason a load starts — a census, a panel drawing a
         /// status, a test.
-        [[nodiscard]] Assets::AssetRef<Graphic::Image3D> Peek( const Assets::AssetHandle& handle ) const;
+        ///
+        /// NOT `const`, and deliberately not made so with a cast. It shares one walk with `Require`
+        /// because two copies of that walk is how the observing path and the driving path start
+        /// disagreeing about what "pending" means — and a `const_cast` to keep the signature pretty
+        /// would be a promise the body does not keep. The guarantee is in the parameter, and the
+        /// suite is what holds it.
+        [[nodiscard]] Assets::AssetRef<Graphic::Image3D> Peek( const Assets::AssetHandle& handle );
 
         /// How many announced volumes have been read. The number a boot can now be judged by: it used to
         /// equal the number of `.dcnv` files on disk by construction.

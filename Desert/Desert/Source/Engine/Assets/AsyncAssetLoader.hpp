@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 
 namespace Desert::Assets
@@ -190,12 +191,29 @@ namespace Desert::Assets
         /// Counters and live set back to the starting state. Tests only.
         void ResetForTest();
 
+        /// THE QUEUES, THE MUTEX AND THE LIVE SET. Declared here and DEFINED IN THE .cpp, so this header
+        /// carries no `<mutex>` and no map of requests, and nothing outside the implementation can reach
+        /// a field of it. It is public only so that the implementation file's own helper can name the
+        /// type in its signature — the members stay invisible, which is the whole point of an opaque
+        /// declaration.
+        struct State;
+
     private:
-        AsyncAssetLoader() = default;
+        AsyncAssetLoader();
+        ~AsyncAssetLoader();
 
         friend class LoadRequest;
-        void CancelById( uint64_t id );
-        void ReleaseById( uint64_t id );
-        bool IsLive( uint64_t id ) const;
+        void               CancelById( uint64_t id );
+        void               ReleaseById( uint64_t id );
+        [[nodiscard]] bool IsLive( uint64_t id ) const;
+
+        /// THE LOADER'S STATE IS THE LOADER'S, and it did not start out that way. It began as a
+        /// file-local `static LoaderState&`, which compiles and works and is wrong in a way the analyser
+        /// spotted before a reader would have: with the state in a free function, every method here
+        /// could be `static`, and a singleton whose methods are all static is a namespace wearing a
+        /// class. Holding it behind a pointer keeps the mutex, the map and the queues out of this header
+        /// -- which is why it was a free static in the first place -- without making the object a
+        /// decoration.
+        std::unique_ptr<State> m_State;
     };
 } // namespace Desert::Assets

@@ -62,7 +62,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + kLoaderHeader );
+            const std::ifstream probe( prefix + kLoaderHeader );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -72,7 +72,7 @@ namespace
 
     std::string ReadFile( const std::string& path )
     {
-        std::ifstream in( path, std::ios::binary );
+        const std::ifstream in( path, std::ios::binary );
         if ( !in )
             return {};
         std::ostringstream ss;

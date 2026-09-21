@@ -80,9 +80,10 @@ namespace Desert::Runtime
          */
         Assets::AssetRef<const Assets::CloudLayoutData> Require( const Assets::AssetHandle& handle );
 
-        /// The answer as it stands: never reads, never requests, never logs.
-        [[nodiscard]] Assets::AssetRef<const Assets::CloudLayoutData>
-        Peek( const Assets::AssetHandle& handle ) const;
+        /// The answer as it stands: never reads, never requests, never logs. Not `const` for the reason
+        /// CloudNoiseService::Peek states: it shares one walk with `Require`, and a cast to keep the
+        /// signature pretty would be a promise the body does not keep.
+        [[nodiscard]] Assets::AssetRef<const Assets::CloudLayoutData> Peek( const Assets::AssetHandle& handle );
 
         /// How many announced layouts have actually been read. Used to be the number of `.dclayout` files
         /// on disk by construction; now it is the number something asked for.

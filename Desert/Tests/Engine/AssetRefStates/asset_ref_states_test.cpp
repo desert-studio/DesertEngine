@@ -42,7 +42,7 @@ namespace
 
     AssetHandle SomeHandle()
     {
-        return AssetHandle( 0x5EEDu );
+        return AssetHandle{ 0x5EEDu };
     }
 
     /// The three predicates as one readable triple, so an assertion can name the whole state rather

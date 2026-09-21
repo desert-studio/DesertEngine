@@ -220,9 +220,9 @@ namespace Desert::Runtime
         return Resolve( handle, /*mayRequest=*/true );
     }
 
-    Assets::AssetRef<Graphic::Image3D> CloudNoiseService::Peek( const Assets::AssetHandle& handle ) const
+    Assets::AssetRef<Graphic::Image3D> CloudNoiseService::Peek( const Assets::AssetHandle& handle )
     {
-        return const_cast<CloudNoiseService*>( this )->Resolve( handle, /*mayRequest=*/false );
+        return Resolve( handle, /*mayRequest=*/false );
     }
 
     size_t CloudNoiseService::ResidentCount() const

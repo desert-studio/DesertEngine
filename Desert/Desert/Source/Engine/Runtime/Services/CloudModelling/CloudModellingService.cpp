@@ -149,9 +149,9 @@ namespace Desert::Runtime
     }
 
     Assets::AssetRef<Assets::CloudModellingVolumeAsset>
-    CloudModellingService::Peek( const Assets::AssetHandle& handle ) const
+    CloudModellingService::Peek( const Assets::AssetHandle& handle )
     {
-        return const_cast<CloudModellingService*>( this )->Resolve( handle, /*mayRequest=*/false );
+        return Resolve( handle, /*mayRequest=*/false );
     }
 
     size_t CloudModellingService::ResidentCount() const
