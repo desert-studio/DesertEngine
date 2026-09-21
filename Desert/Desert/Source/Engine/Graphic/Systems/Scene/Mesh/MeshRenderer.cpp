@@ -280,6 +280,8 @@ namespace Desert::Graphic::System
         // do not declare them nothing.
         const PBRSceneFrame frameState = CaptureFrameState( camera );
 
+        const Core::Frustum frustum = camera->GetFrustum();
+
         const VertexBufferLayout meshLayout = { { Graphic::ShaderDataType::Float3, "a_Position" },
                                                 { Graphic::ShaderDataType::Float3, "a_Normal" },
                                                 { Graphic::ShaderDataType::Float3, "a_Tangent" },
@@ -305,6 +307,18 @@ namespace Desert::Graphic::System
 
         for ( const auto& g : m_GenericQueue )
         {
+            // CULLED ON THE AUTHORED BOX, and that is only sound because no vertex stage in this tree
+            // moves a vertex off it. A data-driven material whose vertex stage displaced geometry — a
+            // world-position offset, the thing UE hands a "bounds scale" knob for — would be culled on
+            // a box it is allowed to leave, and would pop out of existence for reasons invisible in the
+            // scene. The shader graph emits a FRAGMENT body only; its vertex stage is one shared
+            // generated include (Common/GraphVertex.glslh) that transforms a_Position and nothing else,
+            // and Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in
+            // the tree. The day a vertex-offset node exists, that census goes red before this does.
+            if ( g.Mesh && !IsVisibleInView( frustum, g.Transform,
+                                             Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+                continue;
+
             // Per-slot draws carry their own material (asset params already applied at build);
             // Shader Override draws use a shader-keyed shared material + per-frame overrides.
             DataDrivenMaterial* material   = nullptr;
@@ -1983,6 +1997,26 @@ namespace Desert::Graphic::System
                      // the dominant cost in the 256-mesh stress test (256x4 per-object draws -> 4 draws).
                      const bool instancingOn = m_ShadowInstancedPipeline && m_ShadowInstancedMaterial[c];
 
+                     // THE CASCADE'S OWN MATRIX, NOT THE CAMERA'S — and that distinction is the whole
+                     // safety of culling a shadow pass at all. An object behind the camera casts into
+                     // the frame it is not itself in, so the camera's frustum would buy draw calls with
+                     // missing shadows and the draw-call detector would report it as a win.
+                     //
+                     // WHY THIS ONE CHANGES NOTHING ON SCREEN. It is derived from `m_CascadeVP[c]`, the
+                     // exact matrix the caster vertex shader multiplies by (SetLightMatrix above passes
+                     // it as Projection with an identity View, and so does this). The cascade projection
+                     // is a FINITE orthographic box — `glm::orthoRH_ZO(-radius, radius, -radius, radius,
+                     // 10 cm, 4 * radius)` in ShadowCascades.hpp — so a caster outside that box is
+                     // already clipped by the rasterizer today. This skips exactly the geometry the GPU
+                     // was going to throw away, which is why it is provable rather than plausible.
+                     //
+                     // The plane extraction is convention-agnostic here and that is not luck: the
+                     // cascades are deliberately STANDARD-Z while the camera is reversed-Z, which swaps
+                     // which of the two derived planes is "near" and which is "far" — the SET of six
+                     // half-spaces is the same one either way, and Intersects tests all six by value.
+                     Core::Frustum cascadeFrustum;
+                     cascadeFrustum.Rebuild( m_CascadeVP[c], glm::mat4( 1.0f ) );
+
                      std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
                      const auto bucketFor =
                           [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&
@@ -1994,7 +2028,9 @@ namespace Desert::Graphic::System
                          return byMesh.back().second;
                      };
                      for ( const auto& rd : m_StaticQueue )
-                         if ( rd.Mesh && rd.CastShadows )
+                         if ( rd.Mesh && rd.CastShadows &&
+                              IsVisibleInView( cascadeFrustum, rd.Transform,
+                                               Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                              bucketFor( rd.Mesh ).push_back( &rd );
 
                      // Pack all instanced-batch transforms contiguously; each batch reads its slice via
@@ -2031,11 +2067,25 @@ namespace Desert::Graphic::System
                          {
                              if ( !ism.Mesh || !ism.Transforms || ism.Transforms->empty() )
                                  continue;
-                             ShadowBatch b{ ism.Mesh, static_cast<uint32_t>( ism.Transforms->size() ),
-                                            static_cast<uint32_t>( instTransforms.size() ) };
-                             instTransforms.insert( instTransforms.end(), ism.Transforms->begin(),
-                                                    ism.Transforms->end() );
-                             batches.push_back( b );
+
+                             // Per-instance, against this cascade. A cascade covers a slice of the view,
+                             // so a forest spread over the map has most of its instances outside every
+                             // one of the four — and the batch is a single draw whose cost is entirely
+                             // its instance count.
+                             const Common::Math::AABB localBounds =
+                                  Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+                             const uint32_t firstInstance = static_cast<uint32_t>( instTransforms.size() );
+                             for ( const auto& instanceTransform : *ism.Transforms )
+                             {
+                                 if ( IsVisibleInView( cascadeFrustum, instanceTransform, localBounds ) )
+                                     instTransforms.push_back( instanceTransform );
+                             }
+                             const uint32_t visibleInstances =
+                                  static_cast<uint32_t>( instTransforms.size() ) - firstInstance;
+                             if ( visibleInstances == 0 )
+                                 continue;
+
+                             batches.push_back( ShadowBatch{ ism.Mesh, visibleInstances, firstInstance } );
                          }
                      }
 
@@ -2064,7 +2114,9 @@ namespace Desert::Graphic::System
                      // split, so honouring the mask here would carve the PBR half out of the silhouette
                      // while the PBR record was already casting the whole of it.
                      for ( const auto& g : m_GenericQueue )
-                         if ( g.Mesh && g.CastShadows )
+                         if ( g.Mesh && g.CastShadows &&
+                              IsVisibleInView( cascadeFrustum, g.Transform,
+                                               Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                              renderer.RenderMesh( m_ShadowPipeline.get(), g.Mesh, g.Transform,
                                                   m_ShadowMaterial[c]->GetMaterialExecutor(), 1, 0, 0,
                                                   ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) );
@@ -2267,7 +2319,8 @@ namespace Desert::Graphic::System
                     renderer.RenderMesh( m_OverdrawPipeline.get(), rd.Mesh, rd.Transform,
                                          m_OverdrawMaterial->GetMaterialExecutor() );
             for ( const auto& g : m_GenericQueue )
-                if ( g.Mesh )
+                if ( g.Mesh && IsVisibleInView( overdrawFrustum, g.Transform,
+                                                Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                     renderer.RenderMesh( m_OverdrawPipeline.get(), g.Mesh, g.Transform,
                                          m_OverdrawMaterial->GetMaterialExecutor() );
             renderer.EndRenderPass();

@@ -24,6 +24,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -131,8 +133,10 @@ TEST( FrustumCulling, AWallWhoseCentreIsOutsideTheViewStillCoversIt )
 {
     const Frustum frustum = LookingDownNegativeZ();
 
-    // 400 m long, 20 m thick, starting beside the camera and running away down -Z.
-    const AABB wall{ glm::vec3( -3000.0f, -500.0f, -40000.0f ), glm::vec3( -2000.0f, 500.0f, 0.0f ) };
+    // A block of the city that starts just left of the frame and runs 280 m out to the left and 400 m
+    // away down -Z. Its near-right corner is well inside the view cone; its CENTRE is 160 m to the left
+    // of a view that is only 116 m wide at that depth.
+    const AABB wall{ glm::vec3( -30000.0f, -500.0f, -40000.0f ), glm::vec3( -2000.0f, 500.0f, -100.0f ) };
     const glm::vec3 centre = ( wall.Min + wall.Max ) * 0.5f;
 
     EXPECT_FALSE( frustum.IsInside( centre ) ) << "the premise of this test: the centre is outside";
@@ -144,23 +148,27 @@ TEST( FrustumCulling, AWallWhoseCentreIsOutsideTheViewStillCoversIt )
 
 TEST( FrustumCulling, RotatedBoundsAreTheBoxOfEightCornersAndNotOfTwo )
 {
-    // A long thin plank, yawed 45 degrees. The two-corner shortcut maps Min and Max onto a pair of
-    // points that no longer bracket the object: on a 45-degree yaw the plank's extent along X is
-    // ~length/sqrt(2), while Min.x and Max.x map to points a fraction of that apart.
-    const AABB      local{ glm::vec3( -5000.0f, -10.0f, -10.0f ), glm::vec3( 5000.0f, 10.0f, 10.0f ) };
-    const glm::mat4 yaw45 = glm::rotate( glm::mat4( 1.0f ), glm::radians( 45.0f ), glm::vec3( 0, 1, 0 ) );
+    // A 100 m x 20 m slab, yawed 135 degrees. THE ANGLE IS THE TEST. Under a yaw between 0 and 90
+    // degrees the widest point along X happens to BE the Max corner, so the two-corner shortcut gets the
+    // right answer by luck and a test written at 45 degrees passes over a broken implementation. Past 90
+    // the cosine turns negative and the extreme moves to (Min.x, Max.z) — a corner the shortcut never
+    // looks at. The world-scale scene rotates its buildings in whole multiples of 90 degrees, so this
+    // quadrant is not exotic.
+    const AABB      local{ glm::vec3( -5000.0f, -10.0f, -1000.0f ), glm::vec3( 5000.0f, 10.0f, 1000.0f ) };
+    const glm::mat4 yaw135 = glm::rotate( glm::mat4( 1.0f ), glm::radians( 135.0f ), glm::vec3( 0, 1, 0 ) );
 
-    const AABB eightCorners = Desert::Geometry::TransformBounds( yaw45, local );
+    const AABB eightCorners = Desert::Geometry::TransformBounds( yaw135, local );
 
-    const glm::vec3 minOnly = glm::vec3( yaw45 * glm::vec4( local.Min, 1.0f ) );
-    const glm::vec3 maxOnly = glm::vec3( yaw45 * glm::vec4( local.Max, 1.0f ) );
+    const glm::vec3 minOnly = glm::vec3( yaw135 * glm::vec4( local.Min, 1.0f ) );
+    const glm::vec3 maxOnly = glm::vec3( yaw135 * glm::vec4( local.Max, 1.0f ) );
     const AABB twoCorners{ glm::min( minOnly, maxOnly ), glm::max( minOnly, maxOnly ) };
 
-    // The real extent along X is half the plank's diagonal projected onto X, ~3536 either side.
-    EXPECT_GT( eightCorners.Max.x, 3500.0f );
-    EXPECT_LT( eightCorners.Min.x, -3500.0f );
+    // (5000 + 1000) / sqrt(2) = 4242.6 either side of the origin.
+    EXPECT_NEAR( eightCorners.Max.x, 4242.6f, 1.0f );
+    EXPECT_NEAR( eightCorners.Min.x, -4242.6f, 1.0f );
 
-    // The shortcut's box is strictly smaller on X, which is how an object near the screen edge vanishes.
+    // The shortcut's box is 2828.4 either side — a third of the object's real width missing, which is
+    // exactly how an object near the screen edge vanishes.
     EXPECT_LT( twoCorners.Max.x, eightCorners.Max.x );
     EXPECT_GT( twoCorners.Min.x, eightCorners.Min.x );
 }
@@ -209,13 +217,18 @@ TEST( FrustumCulling, LocalBoundsAreTheUnionOfTheSubmeshBoxes )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 5. WHICH PASSES MAY BE CULLED BY THE CAMERA — a register with one named row per pass, never a count.
+// 5. EVERY PASS CULLS WITH THE MATRIX IT DRAWS WITH, OR IT DOES NOT CULL.
 //
-// The queues are read by five passes and three of them rasterize from somewhere else. An object behind
-// the camera casts a shadow INTO the frame it is not in, so culling a sun pass by the camera's frustum
-// buys draw calls with missing shadows — and the draw-call detector would report that as a win.
+// A register with one named row per pass, and the count derived from the register rather than pinned:
+// a gate pinning a NUMBER can be satisfied by editing the number.
+//
+// The queues are read by five passes and three of them rasterize from somewhere other than the camera.
+// An object behind the camera casts a shadow INTO the frame it is not in, so culling a sun pass by the
+// camera's frustum buys draw calls with missing shadows — and the draw-call detector, which counts
+// submissions and not pixels, would report that as a win. This is the assertion that makes the pairing
+// of pass to frustum a property of the tree instead of a thing somebody remembered.
 
-TEST( FrustumCulling, TheCameraPassesCullAndTheLightPassesDoNot )
+TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
@@ -227,24 +240,155 @@ TEST( FrustumCulling, TheCameraPassesCullAndTheLightPassesDoNot )
     struct Row
     {
         const char* Function;
-        bool        CulledByTheCamera;
+        bool        Culls;
+        const char* CullsWith; ///< the expression the frustum is built from; nullptr when it must not cull
         const char* Why;
     };
 
     const Row rows[] = {
-        { "DrawStaticMeshes", true, "the opaque PBR pass — rasterizes from the camera" },
-        { "RenderGlassManual", true, "transparent pass — rasterizes from the camera" },
-        { "RenderOverdrawManual", true, "debug view of the camera pass; must show the frame that runs" },
-        { "RegisterShadowPass", false, "rasterizes from the SUN: off-screen casters shadow on-screen ground" },
-        { "RenderRSMManual", false, "rasterizes from the SUN: off-screen surfaces are the bounce light" },
+        { "DrawStaticMeshes", true, "camera->GetFrustum()", "opaque PBR pass — rasterizes from the camera" },
+        { "RenderGlassManual", true, "camera->GetFrustum()", "transparent pass — rasterizes from the camera" },
+        { "DrawGenericMeshes", true, "camera->GetFrustum()",
+          "data-driven / shader-graph surfaces — rasterizes from the camera. Sound only while no vertex "
+          "stage moves a vertex off the authored box, which the next test asserts" },
+        { "RenderOverdrawManual", true, "camera->GetFrustum()",
+          "debug view OF the camera pass; it must report the frame that actually runs" },
+        { "RegisterShadowPass", true, "m_CascadeVP[c]",
+          "rasterizes from the SUN: the camera's frustum here would delete off-screen casters whose "
+          "shadows land on screen. Its own cascade matrix is a finite ortho box, so this skips only "
+          "what the rasterizer already clips" },
+        { "RenderRSMManual", false, nullptr,
+          "rasterizes from the SUN into the RSM, and every one of the 114 scenes in the tree is "
+          "GlobalIllumination=ScreenSpace, so this pass never runs: a change here could not be seen on "
+          "any frame this repository can take, and an unobservable change is not shipped" },
     };
 
     for ( const auto& row : rows )
     {
         const std::string body = BodyOf( source, row.Function );
         ASSERT_FALSE( body.empty() ) << "MeshRenderer::" << row.Function << " was renamed or removed";
+
         const bool culls = body.find( "IsVisibleInView(" ) != std::string::npos;
-        EXPECT_EQ( culls, row.CulledByTheCamera )
-             << "MeshRenderer::" << row.Function << " — " << row.Why;
+        EXPECT_EQ( culls, row.Culls ) << "MeshRenderer::" << row.Function << " — " << row.Why;
+
+        if ( row.CullsWith != nullptr )
+        {
+            EXPECT_NE( body.find( row.CullsWith ), std::string::npos )
+                 << "MeshRenderer::" << row.Function << " must build its frustum from " << row.CullsWith
+                 << " — " << row.Why;
+        }
+
+        // And the sun passes must never reach for the camera's frustum, which is the substitution that
+        // reads as an optimization and ships as a frame with holes where shadows were.
+        if ( row.CullsWith == nullptr || std::string( row.CullsWith ) != "camera->GetFrustum()" )
+        {
+            EXPECT_EQ( body.find( "camera->GetFrustum()" ), std::string::npos )
+                 << "MeshRenderer::" << row.Function << " culls from the camera — " << row.Why;
+        }
     }
+}
+
+// The cascades are STANDARD-Z while the camera is reversed-Z, and the frustum's near/far planes are the
+// only two derived from the depth convention. Swapping the convention swaps which derived plane is
+// called "near" — the SET of six half-spaces is the same, and a box test that reads all six is correct
+// under both. That is why one Frustum serves the camera and the cascades; assert it rather than trust it.
+TEST( FrustumCulling, TheBoxTestHoldsForTheCascadesStandardZOrthographicMatrix )
+{
+    // A cascade, spelled as ShadowCascades.hpp spells it: ortho box of half-width `radius` about the
+    // origin, depth from 10 cm to 4 * radius along the light, standard-Z.
+    const float     radius = 10000.0f;
+    const glm::mat4 proj   = glm::orthoRH_ZO( -radius, radius, -radius, radius, 10.0f, radius * 4.0f );
+    const glm::mat4 view =
+         glm::lookAt( glm::vec3( 0.0f, radius * 2.0f, 0.0f ), glm::vec3( 0.0f ), glm::vec3( 0, 0, 1 ) );
+
+    Frustum cascade;
+    cascade.Rebuild( proj, view );
+
+    EXPECT_TRUE( cascade.Intersects( UnitBoxAt( glm::vec3( 0.0f ), 100.0f ) ) )
+         << "the slice's own centre must rasterize";
+    EXPECT_FALSE( cascade.Intersects( UnitBoxAt( glm::vec3( radius * 5.0f, 0.0f, 0.0f ), 100.0f ) ) )
+         << "far outside the ortho box on X — the rasterizer clips it today";
+    EXPECT_FALSE( cascade.Intersects( UnitBoxAt( glm::vec3( 0.0f, -radius * 5.0f, 0.0f ), 100.0f ) ) )
+         << "past the far plane along the light — the rasterizer clips it today";
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 6. NOTHING IN THIS TREE MOVES A VERTEX OFF THE BOX THE CULLER TESTS.
+//
+// Culling a data-driven surface on its authored bounds is only sound while its vertex stage transforms
+// `a_Position` and nothing else. A world-position offset — the feature UE ships a per-material "bounds
+// scale" knob to compensate for — would put geometry outside a box that says it is elsewhere, and the
+// object would vanish from some camera angles and not others. Nothing reports that; it is not a crash,
+// a warning or a failed test, it is a hole in the picture.
+//
+// So it is asserted over the SOURCE TEXT of every Surface-domain shader, because that is the set the
+// generic queue can bind. The day a vertex-offset node exists this goes red FIRST, naming the shader,
+// and whoever adds it has to decide what the bounds of a displaced mesh are before the culler can be
+// trusted with it. The register names the set by a DERIVED rule (Domain Surface), never by a count.
+
+TEST( FrustumCulling, NoSurfaceShaderMovesAVertexOffItsAuthoredBounds )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const fs::path shaderRoot = root / "Editor" / "Resources" / "Shaders";
+    ASSERT_TRUE( fs::exists( shaderRoot ) );
+
+    // Whitespace removed, so the assertion is about the EXPRESSION and not about formatting — a
+    // clang-format pass must not be able to turn this red.
+    const auto squash = []( std::string text )
+    {
+        text.erase( std::remove_if( text.begin(), text.end(),
+                                    []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+                    text.end() );
+        return text;
+    };
+
+    int checked = 0;
+    for ( const auto& entry : fs::recursive_directory_iterator( shaderRoot ) )
+    {
+        if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
+        {
+            continue;
+        }
+        const std::string text = ReadFile( entry.path() );
+        if ( text.find( "Domain Surface" ) == std::string::npos )
+        {
+            continue; // Skybox / UI / Volume / Terrain are not drawn through the mesh queues
+        }
+
+        // The graph shaders declare no vertex body of their own; they include the one shared stage.
+        // Follow it, so the assertion lands on the code that runs rather than on the include line.
+        std::string vertexSource = text;
+        if ( text.find( "#include <Common/GraphVertex.glslh>" ) != std::string::npos )
+        {
+            vertexSource = ReadFile( shaderRoot / "Common" / "GraphVertex.glslh" );
+        }
+
+        const std::size_t at = vertexSource.find( "gl_Position =" );
+        ASSERT_NE( at, std::string::npos ) << entry.path().string() << " has no gl_Position";
+        const std::size_t semicolon = vertexSource.find( ';', at );
+        ASSERT_NE( semicolon, std::string::npos ) << entry.path().string();
+
+        const std::string rhs      = squash( vertexSource.substr( at + 13, semicolon - at - 13 ) );
+        const std::string undisplaced = "*vec4(a_Position,1.0)";
+        ASSERT_GE( rhs.size(), undisplaced.size() ) << entry.path().string();
+        EXPECT_EQ( rhs.substr( rhs.size() - undisplaced.size() ), undisplaced )
+             << entry.path().string()
+             << ": its vertex stage computes gl_Position from something other than the mesh's own "
+                "a_Position. MeshRenderer culls this shader's draws on the mesh's authored bounding "
+                "box, and a displaced vertex is outside a box that claims otherwise. Either the "
+                "displacement must be bounded and the bounds widened to cover it, or this shader must "
+                "be excluded from bounds culling — decide which, then update this register.";
+        ++checked;
+    }
+
+    // Derived from the register above, not pinned: a number here could be satisfied by editing it.
+    EXPECT_GT( checked, 0 ) << "no Surface-domain shader was found — the search is looking in the "
+                               "wrong place, and a census that examines nothing passes silently";
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
