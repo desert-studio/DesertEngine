@@ -47,10 +47,15 @@ namespace Common::Utils::ContentScanLedger
         // difference is the whole point of this line: zero walks is the state the cooked registry
         // exists to produce, so it is reported as a claim rather than as three empty quantities a
         // reader has to interpret.
+        //
+        // "NO CONTENT SCAN", NOT "NO DIRECTORY WAS READ", and the distinction was earned: the editor's
+        // first boot stage is its own cook, which walks the SOURCE ART directory with an iterator of
+        // its own. The header lists all four such walks and why none of them is a content scan.
         if ( readout.Walks == 0 )
-            return "no directory walk happened — every content identity came from the cooked registry";
+            return "no content scan walked a directory — every content identity came from the cooked "
+                   "registry";
 
-        std::string text = std::to_string( readout.Walks ) + " directory walk(s) over " +
+        std::string text = std::to_string( readout.Walks ) + " content scan(s) over " +
                            std::to_string( readout.Entries ) + " entr(ies) in ";
         // Two decimals, spelled the way SyncLoadLedger spells its own, so the three boot lines can be
         // read as one paragraph.

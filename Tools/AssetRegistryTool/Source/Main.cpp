@@ -38,6 +38,7 @@
 #include <ToolMain.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
@@ -48,7 +49,6 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <map>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -110,43 +110,6 @@ namespace
         return Common::MakeSuccess( std::move( projectDir ) );
     }
 
-    std::string LowerExtension( const fs::path& file )
-    {
-        std::string ext = file.extension().string();
-        std::transform( ext.begin(), ext.end(), ext.begin(),
-                        []( unsigned char c ) { return static_cast<char>( ::tolower( c ) ); } );
-        return ext;
-    }
-
-    // Every content file on disk, keyed the way the engine keys it, with its size. The walk uses the
-    // SAME census the engine's loader reads rows back through (Common/Content/ContentKinds.hpp), which
-    // is the whole reason that census sits in `Common` rather than beside the loader.
-    std::map<std::string, std::pair<std::string, uint64_t>> WalkContent()
-    {
-        std::map<std::string, std::pair<std::string, uint64_t>> found;
-
-        for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
-        {
-            const auto kind = static_cast<Common::Content::ContentKind>( i );
-            const Common::Content::ContentKindSpec spec = Common::Content::KindSpec( kind );
-
-            for ( const fs::path& candidate : Common::Utils::FileSystem::ListFilesRecursive( *spec.Root ) )
-            {
-                if ( LowerExtension( candidate ) != spec.Extension )
-                    continue;
-
-                const std::string key = Common::AssetHandle::StableKeyForPath( candidate );
-                if ( key.empty() )
-                    continue;
-
-                found.emplace( key, std::pair<std::string, uint64_t>{
-                                         std::string( spec.Name ),
-                                         Common::Utils::FileSystem::GetFileSize( candidate ) } );
-            }
-        }
-        return found;
-    }
-
     int Cook( const fs::path& projectPath )
     {
         const auto opened = OpenProject( projectPath );
@@ -169,12 +132,12 @@ namespace
         }
 
         Common::Utils::AssetRegistry registry;
-        for ( const auto& [key, kindAndSize] : WalkContent() )
+        for ( const auto& [key, file] : Common::Content::ScanContentRoots() )
         {
             Common::Utils::AssetRegistryEntry entry;
             entry.Key  = key;
-            entry.Kind = kindAndSize.first;
-            entry.Size = kindAndSize.second;
+            entry.Kind = std::string( Common::Content::KindName( file.Kind ) );
+            entry.Size = file.Size;
             if ( const Common::Utils::AssetRegistryEntry* old = previous.FindByKey( key ) )
             {
                 entry.Identity     = old->Identity;
@@ -210,61 +173,25 @@ namespace
         if ( !loaded )
             return Fail( loaded.GetError() );
 
-        const Common::Utils::AssetRegistry& registry = loaded.GetValue();
-        const auto                          onDisk   = WalkContent();
+        // THE COMPARISON IS `Common::Content::CompareWithDisk` and not a loop written here, which is
+        // the point of that function existing: this tool, the CI gate and the packager all ask the
+        // same question, and three answers to it would be three chances to disagree about what
+        // "current" means.
+        const auto problems =
+             Common::Content::CompareWithDisk( loaded.GetValue(), Common::Content::ScanContentRoots() );
 
-        int problems = 0;
-        for ( const auto& [key, kindAndSize] : onDisk )
-        {
-            const Common::Utils::AssetRegistryEntry* row = registry.FindByKey( key );
-            if ( !row )
-            {
-                std::fprintf( stderr,
-                              "MISSING  %s (%s) is on disk and has no row: since the boot stopped "
-                              "walking the content roots, a packaged build would not contain it and "
-                              "every reference to it would resolve to nothing.\n",
-                              key.c_str(), kindAndSize.first.c_str() );
-                ++problems;
-                continue;
-            }
-            if ( row->Kind != kindAndSize.first )
-            {
-                std::fprintf( stderr, "KIND     %s is recorded as '%s' and is a '%s' on disk\n", key.c_str(),
-                              row->Kind.c_str(), kindAndSize.first.c_str() );
-                ++problems;
-            }
-            if ( row->Size != kindAndSize.second )
-            {
-                std::fprintf( stderr, "STALE    %s is recorded at %llu bytes and is %llu on disk\n",
-                              key.c_str(), static_cast<unsigned long long>( row->Size ),
-                              static_cast<unsigned long long>( kindAndSize.second ) );
-                ++problems;
-            }
-        }
+        for ( const Common::Content::RegistryDisagreement& problem : problems )
+            std::fprintf( stderr, "%s\n", problem.Detail.c_str() );
 
-        for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+        if ( !problems.empty() )
         {
-            if ( onDisk.find( row.Key ) == onDisk.end() )
-            {
-                std::fprintf( stderr,
-                              "ORPHAN   %s is a row and no such file exists: the loader will try to read "
-                              "it once per boot and log a failure the reader cannot act on.\n",
-                              row.Key.c_str() );
-                ++problems;
-            }
-        }
-
-        if ( problems != 0 )
-        {
-            std::fprintf( stderr,
-                          "AssetRegistryTool: %d disagreement(s) between %s and the content tree. Run "
-                          "'AssetRegistryTool cook %s' and commit the result.\n",
-                          problems, out.string().c_str(), projectPath.string().c_str() );
+            std::fprintf( stderr, "AssetRegistryTool: %zu disagreement(s) between %s and the content tree.\n",
+                          problems.size(), out.string().c_str() );
             return 1;
         }
 
         std::printf( "AssetRegistryTool: %zu row(s), and the content tree agrees with every one of them\n",
-                     registry.Count() );
+                     loaded.GetValue().Count() );
         return 0;
     }
 

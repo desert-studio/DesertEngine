@@ -1130,7 +1130,14 @@ namespace Desert::Editor
                     }
                     else
                     {
-                        LOG_INFO( "[ContentRegistry] {}", cooked.GetValue().Describe() );
+                        // THE COOK'S OWN WALK COST, READ OUT OF THE SAME LEDGER the boot line above
+                        // reports zero from. This is the one number that says what removing the scan
+                        // from the boot actually bought, measured rather than argued: the cook runs
+                        // exactly the content scans the boot used to run, through the same primitive,
+                        // on the same tree, seconds later on the same machine.
+                        LOG_INFO( "[ContentRegistry] {}; the cook itself did {}",
+                                  cooked.GetValue().Describe(),
+                                  Common::Utils::ContentScanLedger::Report() );
                     }
                 }
             }
@@ -4145,6 +4152,31 @@ namespace Desert::Editor
                                                                           "palette" );
                                   return PaletteCommandDone();
                               } } );
+
+        // REBUILD CONTENT REGISTRY — the remedy every refusal in this subsystem names, reachable
+        // without restarting.
+        //
+        // Since T2.4 neither host scans the content roots at boot: `Cooked/AssetRegistry.dreg` is the
+        // list of what the project has. Content authored IN this editor enters it the moment
+        // `AssetManager::CreateAsset` sees the file, and content the cook writes enters it at the
+        // write — but a file that arrived on disk with nobody looking (a `git pull`, a drop into the
+        // folder while the editor was closed) has no row until something walks. The boot deliberately
+        // does not walk; this is what does, on demand.
+        //
+        // IT IS IN THE DICTIONARY AND NOT ONLY IN A MENU, for the reason "Release unused assets" is:
+        // a capability reachable only as a side effect of something else is missing from the palette,
+        // and the palette is this editor's claim that anything a person can do an agent can do. The
+        // packager refuses to build against a stale registry and its message names this command; a
+        // named remedy that cannot be run is worse than no message.
+        commands.push_back(
+             { "Action", "Rebuild Content Registry", [this]
+               {
+                   const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager );
+                   if ( !cooked )
+                       return Common::MakeFormattedError( "the content registry: {}", cooked.GetError() );
+                   LOG_INFO( "[ContentRegistry] {}", cooked.GetValue().Describe() );
+                   return PaletteCommandDone();
+               } } );
 
         // SAVE SCENE ANSWERS WHETHER IT SAVED. `(void)SaveOpenScene()` stood here against a
         // `[[nodiscard]] bool` — the attribute was on the declaration and the cast silenced it — so a

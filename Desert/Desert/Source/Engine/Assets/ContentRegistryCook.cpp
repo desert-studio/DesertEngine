@@ -4,13 +4,14 @@
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 
+#include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <map>
 #include <mutex>
-#include <unordered_set>
 
 // THE COOK — the one function of the content registry that still walks a directory, and the only walk
 // left in this engine. It is a translation unit of its own because it reads dependency edges through
@@ -29,46 +30,37 @@ namespace Desert::Assets::ContentRegistry
     {
         RefreshOutcome outcome;
 
-        // THE COOK'S WALK, AND THE ONLY ONE LEFT IN THE ENGINE. It is here rather than in the boot on
-        // purpose: `[ContentScan] boot finished` is the number this tier is judged by, and a walk
-        // before the boot line would have made the registry a place the cost moved to rather than a
+        // THE COOK'S WALK, AND THE ONLY CONTENT SCAN LEFT IN THIS ENGINE. It is here rather than in
+        // the boot on purpose: `[ContentScan] boot finished` is the number this tier is judged by, and
+        // a walk before that line would have made the registry a place the cost moved to rather than a
         // place it stopped being paid.
-        std::unordered_set<std::string> onDisk;
+        //
+        // Through `Common::Content::ScanContentRoots`, which is the SAME walk the tool, the CI gate
+        // and the packager use. It had three copies for about an hour of this task's life, which is
+        // one hour more than the shape deserves.
+        const std::map<std::string, Common::Content::ContentFile> onDisk = Common::Content::ScanContentRoots();
+
         {
             Detail::State&                    state = Detail::Get_();
             const std::lock_guard<std::mutex> lock( state.Mutex );
 
-            for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
+            for ( const auto& [key, file] : onDisk )
             {
-                const auto            kind = static_cast<Common::Content::ContentKind>( i );
-                const Common::Content::ContentKindSpec spec = Common::Content::KindSpec( kind );
+                if ( state.Registry.FindByKey( key ) )
+                    continue;
 
-                for ( const auto& candidate : Common::Utils::FileSystem::ListFilesRecursive( *spec.Root ) )
+                Common::Utils::AssetRegistryEntry entry;
+                entry.Key  = key;
+                entry.Kind = std::string( Common::Content::KindName( file.Kind ) );
+                entry.Size = file.Size;
+                if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
                 {
-                    if ( Detail::LowerExtension( candidate ) != spec.Extension )
-                        continue;
-
-                    const std::string key = Common::AssetHandle::StableKeyForPath( candidate );
-                    if ( key.empty() )
-                        continue;
-                    onDisk.insert( key );
-
-                    if ( state.Registry.FindByKey( key ) )
-                        continue;
-
-                    Common::Utils::AssetRegistryEntry entry;
-                    entry.Key  = key;
-                    entry.Kind = std::string( spec.Name );
-                    entry.Size = Common::Utils::FileSystem::GetFileSize( candidate );
-                    if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
-                    {
-                        LOG_ERROR( "[ContentRegistry] '{}' was found on disk and could not be entered: {}",
-                                   key, inserted.GetError() );
-                        continue;
-                    }
-                    ++outcome.Added;
-                    state.Dirty = true;
+                    LOG_ERROR( "[ContentRegistry] '{}' was found on disk and could not be entered: {}", key,
+                               inserted.GetError() );
+                    continue;
                 }
+                ++outcome.Added;
+                state.Dirty = true;
             }
 
             // ROWS WHOSE FILE IS GONE LEAVE. Collected first and erased after, because Remove mutates

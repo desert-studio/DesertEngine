@@ -16,10 +16,23 @@
 // either direction, so here is the tool.
 //
 // WHAT COUNTS AS A WALK: one call to `FileSystem::ListFilesRecursive`, i.e. one
-// `recursive_directory_iterator` over a content root plus the VFS half of the same root. That is
-// the ONLY enumeration primitive in the engine — the font and icon services once hand-rolled the
-// disk half and a packaged game scanned nothing, which is why there is exactly one — so counting it
-// counts every content scan there is.
+// `recursive_directory_iterator` over a content root plus the VFS half of the same root.
+//
+// AND WHAT DOES NOT, WHICH IS THE PART A CENSUS OVER THE SOURCE HAD TO CORRECT. The first version of
+// this paragraph claimed `ListFilesRecursive` is "the ONLY enumeration primitive in the engine", and
+// `grep -rn recursive_directory_iterator` says otherwise: there are four more, and one of them —
+// `ImportManager::ImportAllFromDirectory` — runs as the editor's FIRST boot stage. So this counter
+// would have printed "no directory walk happened" over a boot that had just walked `Meshes/`.
+//
+// The four are deliberate and none is a content scan, which is why they stay uncounted rather than
+// being routed through here:
+//
+//   * `ImportManager` and `MeshDnD` walk SOURCE ART (`.fbx`, `.png`) looking for things to cook. That
+//     is what a walk is for, and it is the cook's own question, not the loader's.
+//   * `GamePackager` and `ContentManifest` walk the trees they are about to pack or hash.
+//
+// So the number this reports is CONTENT SCANS — enumerations whose answer becomes the set of assets
+// the engine has — and the log line says exactly that rather than "no directory was read".
 //
 // IT IS A COUNTER AND NOTHING BRANCHES ON IT. Nothing reads these numbers to decide anything; they
 // are printed beside the other two boot lines and asserted by `Desert/Tests/Common/ContentScanners`
