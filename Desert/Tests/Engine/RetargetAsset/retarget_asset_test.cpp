@@ -152,8 +152,11 @@ namespace
     //   - UNEVEN SEGMENT SCALES (x1.5 / x1.75 / x1.3), because T6.1 measured the retarget error as NOT
     //     monotonic in the proportion difference: a single uniform ratio is the one case whose result does
     //     not generalise, and — see `AnUNEVENProportionDifferenceIsVisibleAtRest` — the one case where the
-    //     rest pose is identically correct however broken the retarget is. Make these three numbers equal
-    //     and the suite stays green while losing the only thing it is for.
+    //     rest pose is identically correct however broken the retarget is. MEASURED, because the obvious
+    //     claim here is wrong: making the three equal does NOT leave the suite green, the `> 0.1` in that
+    //     test already catches it. What no threshold catches is a DIFFERENT uneven triple — 1.6/1.8/1.4
+    //     passes every `>` in this file — which is why that test and the naive-error line below are
+    //     pinned to their VALUES (4.289 cm and 75 %) and not to a floor.
     //   - THE RENAME `IK_Hand` -> `Foreign_Hand`, because `Skeleton::ComputeSignature` hashes bone names
     //     and parents and nothing else, and `SkinnedMeshAsset::ResolveDependencies` binds a mesh to the
     //     FIRST skeleton whose signature matches. A source rig differing from IKProbe only in bone
