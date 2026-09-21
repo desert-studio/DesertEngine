@@ -1184,8 +1184,16 @@ TEST( RigGraphTest, InputsMayBeListedInAnyOrderAndTheWalkStillReadsThemByPin )
 {
     const Skeleton                source   = MakeArmRig();
     Serialization::ControlRigData shuffled = RigWithGraph();
+    // THE GUARD IS NOT REDUNDANT WITH THE ASSERT. `ASSERT_TRUE` is a macro whose early `return` the
+    // analyser's dataflow does not model, so an access after one still reads as unchecked; the plain `if`
+    // is what makes it provably checked, and it is also what stops the line below dereferencing nothing if
+    // `RigWithGraph` is ever changed.
     ASSERT_TRUE( shuffled.Graph.has_value() );
-    std::swap( shuffled.Graph.value().Nodes[1].Inputs[0], shuffled.Graph.value().Nodes[1].Inputs[1] );
+    if ( !shuffled.Graph.has_value() )
+    {
+        return;
+    }
+    std::swap( shuffled.Graph->Nodes[1].Inputs[0], shuffled.Graph->Nodes[1].Inputs[1] );
 
     ASSERT_TRUE( Serialization::ValidateControlRigData( shuffled ).IsSuccess() );
 
@@ -1311,7 +1319,11 @@ TEST( RigGraphTest, ABoneNameTheSkeletonDoesNotHaveIsRefusedAtBuildAndNamesTheSi
     const Skeleton                skeleton = MakeArmRig();
     Serialization::ControlRigData data     = RigWithGraph();
     ASSERT_TRUE( data.Graph.has_value() );
-    data.Graph.value().Nodes[0].Target = "Tentacle";
+    if ( !data.Graph.has_value() )
+    {
+        return;
+    }
+    data.Graph->Nodes[0].Target = "Tentacle";
 
     // The FILE cannot know; only a skeleton can, and that is where the refusal lives.
     ASSERT_TRUE( Serialization::ValidateControlRigData( data ).IsSuccess() );
