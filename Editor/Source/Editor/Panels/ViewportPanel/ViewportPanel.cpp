@@ -467,8 +467,8 @@ namespace Desert::Editor
                 if ( ImGui::Checkbox( "Names", &showNames ) )
                 {
                     ClaimAuthoringContext();
-                    const auto changed = Core::ActiveAuthoringContext().SetShowBoneNames(
-                         m_AuthoringOwner, m_Authoring, showNames );
+                    const auto changed = Core::ActiveAuthoringContext().SetShowBoneNames( m_AuthoringOwner,
+                                                                                          m_Authoring, showNames );
                     if ( !changed.IsSuccess() )
                         LOG_WARN( "[Viewport] bone-name labels refused: {}", changed.GetError() );
                 }

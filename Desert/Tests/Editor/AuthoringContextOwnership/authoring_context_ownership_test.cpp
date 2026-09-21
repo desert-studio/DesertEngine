@@ -43,8 +43,8 @@
 #include <string>
 #include <vector>
 
-using Desert::Editor::SubjectId;
 using Desert::Editor::SubjectDomain;
+using Desert::Editor::SubjectId;
 using Desert::Editor::Core::ActiveAuthoringContext;
 using Desert::Editor::Core::AuthoringContext;
 using Desert::Editor::Core::AuthoringContextHost;
@@ -84,9 +84,9 @@ TEST( AuthoringContextOwnership, AWriteFromANonHolderChangesNothingAndNamesBothP
 {
     AuthoringContextHost host;
 
-    const auto     viewport = AuthoringOwner::ForSceneView( 0 );
-    const auto     stranger = AuthoringOwner::ForSceneView( 7 );
-    AuthoringContext mine   = ContextFor( Character( 11 ) );
+    const auto       viewport = AuthoringOwner::ForSceneView( 0 );
+    const auto       stranger = AuthoringOwner::ForSceneView( 7 );
+    AuthoringContext mine     = ContextFor( Character( 11 ) );
 
     host.Focus( viewport, mine );
     ASSERT_TRUE( host.SetMode( viewport, mine, AuthoringMode::Skeleton ).IsSuccess() );
@@ -202,9 +202,9 @@ TEST( AuthoringContextOwnership, OneCharacterKeepsItsBoneAcrossDetailsViewportAn
 
     const Common::UUID hero = Character( 42 );
 
-    const auto       details  = AuthoringOwner::ForPanel( "Details/Bone Tree" );
-    const auto       viewport = AuthoringOwner::ForSceneView( 0 );
-    const auto       sequencer = SequencerOver( hero );
+    const auto       details      = AuthoringOwner::ForPanel( "Details/Bone Tree" );
+    const auto       viewport     = AuthoringOwner::ForSceneView( 0 );
+    const auto       sequencer    = SequencerOver( hero );
     AuthoringContext detailsCtx   = ContextFor( hero );
     AuthoringContext viewportCtx  = ContextFor( hero );
     AuthoringContext sequencerCtx = ContextFor( hero );
@@ -370,9 +370,8 @@ namespace
                      Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadWhole( entry.path() ) );
                 for ( const std::size_t at : Desert::Tests::ConsumerText::WordPositions( code, word ) )
                 {
-                    const int line =
-                         1 + static_cast<int>( std::count( code.begin(), code.begin() + static_cast<long>( at ),
-                                                           '\n' ) );
+                    const int line = 1 + static_cast<int>( std::count(
+                                              code.begin(), code.begin() + static_cast<long>( at ), '\n' ) );
                     walk.Hits.push_back( fs::relative( entry.path(), repoRoot ).string() + ":" +
                                          std::to_string( line ) );
                 }

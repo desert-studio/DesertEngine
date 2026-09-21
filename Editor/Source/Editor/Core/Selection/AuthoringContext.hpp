@@ -94,10 +94,10 @@ namespace Desert::Editor::Core
     // and a closed document is the ordinary case here, not the exotic one.
     struct AuthoringContext
     {
-        Common::UUID            Entity;                     // whose rig; null = none
+        Common::UUID            Entity; // whose rig; null = none
         AuthoringMode           Mode = AuthoringMode::Object;
-        std::optional<uint32_t> SelectedBone;               // index into Skeleton::GetBones()
-        bool                    ShowBoneNames = false;      // label every bone, not just the selected one
+        std::optional<uint32_t> SelectedBone;          // index into Skeleton::GetBones()
+        bool                    ShowBoneNames = false; // label every bone, not just the selected one
 
         // Leaving bone authoring drops what only made sense inside it. The old type did this inside
         // `SetActive(false)` and it is kept because the alternative is a stale selected bone index
@@ -299,7 +299,7 @@ namespace Desert::Editor::Core
                 return Common::MakeError<bool>( "release refused: " + owner.Describe() + " does not hold the " +
                                                 "authoring context (" + m_Holder.Describe() + " does)" );
 
-            m_Holder  = AuthoringOwner{};
+            m_Holder = AuthoringOwner{};
             m_Context.reset();
             return Common::MakeSuccess<bool>( true );
         }

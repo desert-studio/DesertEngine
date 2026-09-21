@@ -224,7 +224,7 @@ namespace Desert::Editor
         // Sequencer wrote the same bit every frame and the one the user was not looking at won half the
         // time. `m_Authoring` is this window's own copy — keyed on ITS subject — and it reaches the editor
         // only through Core::ActiveAuthoringContext(), which accepts a write from the holder alone.
-        Core::AuthoringContext m_Authoring;
+        Core::AuthoringContext     m_Authoring;
         const Core::AuthoringOwner m_AuthoringOwner;
 
         // Publish this document's context while it is the window the user is working in.

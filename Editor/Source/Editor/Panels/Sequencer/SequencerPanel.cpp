@@ -405,8 +405,7 @@ namespace Desert::Editor
         // the viewport had is carried over untouched.
         Core::ActiveAuthoringContext().Focus( m_AuthoringOwner, m_Authoring );
 
-        const auto picked =
-             Core::ActiveAuthoringContext().SetSelectedBone( m_AuthoringOwner, m_Authoring, bone );
+        const auto picked = Core::ActiveAuthoringContext().SetSelectedBone( m_AuthoringOwner, m_Authoring, bone );
         if ( !picked.IsSuccess() )
             LOG_WARN( "[Sequencer] bone selection refused: {}", picked.GetError() );
     }
