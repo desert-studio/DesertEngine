@@ -224,9 +224,9 @@ jobs:
         # stricter), so this matrix does not need it — that removes a whole duplicate Debug build.
         #
         # SHIPPING IS HERE FOR ONE REASON, AND IT IS NOT macOS COVERAGE. It is the only platform on
-        # which the END-TO-END half of the shipping boundary can be OBSERVED. `scripts/CI/
-        # ShippingSymbols.sh` reads the linked player binary's own symbol table and asserts eleven
-        # instrument names are absent while a positive control is present; `nm` reads that table out of
+        # which the END-TO-END half of the shipping boundary can be OBSERVED.
+        # `scripts/CI/ShippingSymbols.sh` reads the linked player binary's own symbol table and asserts
+        # eleven instrument names are absent while a positive control is present; `nm` reads that out of
         # a Mach-O. An MSVC-linked executable does not have one — link.exe puts no COFF symbol table in
         # an image, the names live in the .pdb, and `symbols "Off"` emits no .pdb. So a "ported" check
         # on Windows would be an absence test over an empty list, which passes on nothing at all: the
