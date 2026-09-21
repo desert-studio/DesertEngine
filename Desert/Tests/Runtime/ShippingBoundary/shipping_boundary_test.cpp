@@ -287,6 +287,8 @@ namespace
         static const std::vector<std::string> rows = {
              "Engine/Graphic/ResourceLedger.hpp", // the OWNERSHIP mechanism, not only a readout
              "Engine/Graphic/DebugViewState.hpp", // SceneRenderer chooses its render path from it
+             "Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp", // and four dev-only pipelines with it
+             "Engine/Core/EngineStats.hpp",                          // frame time nobody in a player reads
         };
         return rows;
     }

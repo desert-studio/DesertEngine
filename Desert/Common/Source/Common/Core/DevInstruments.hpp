@@ -45,9 +45,9 @@
  *
  * ── WHAT IS DELIBERATELY *NOT* BEHIND IT (the register, and its reasons) ─────────────────────────
  *
- * Three things in the engine look like development instruments and are not cut. They are listed here
- * rather than left to be discovered, because "we also meant to remove those" is the promise this whole
- * mechanism exists to stop being made:
+ * Five things in the engine look like development instruments and are NOT cut by this boundary. They
+ * are listed here rather than left to be discovered, because "we also meant to remove those" is the
+ * promise this whole mechanism exists to stop being made:
  *
  *   - `Engine/Graphic/ResourceLedger.hpp` — it is the OWNERSHIP mechanism (ResourceOwnership is RAII
  *     over device allocations, referenced by 27 engine files), not only a readout. Cutting it changes
@@ -55,10 +55,24 @@
  *   - `Engine/Graphic/DebugViewState.hpp` — `SceneRenderer` *chooses its render path* from it
  *     (SceneRenderer.cpp). Removing it would change the picture, and a boundary that changes the
  *     picture is not a boundary.
+ *   - `Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp` — and with it the PIPELINES. MEASURED, on
+ *     the first packaged game ever started from this repository (Docs/World/Shots/B9): a Shipping build
+ *     creates 38 Vulkan pipelines at startup and at least four of them exist only for a developer —
+ *     `DebugLinePipeline`, `StaticMeshWireframe`, `OverdrawPipeline`, `OverdrawResolvePipeline`, plus
+ *     the selection-outline family (`SilhouettePipeline`, `SilhouetteSkinnedPipeline`, `JFA_*`) which
+ *     draws the EDITOR's selection highlight and has no caller in a player at all. That is startup time
+ *     and device memory spent on nothing, and it is a task with a number attached rather than a line to
+ *     add here — a pipeline set is chosen by the render graph, not by an `#if`.
+ *   - `Engine/Core/EngineStats.hpp` — frame time and FPS, updated every frame in `Application::Run`,
+ *     read only by the editor's HUD. Cheap, but it is an instrument, and cheap is not a reason.
  *   - ImGui, and `Layer::OnImGuiRender` — the player's LOADING SCREEN is drawn through that call
  *     (RuntimeLayer::OnImGuiRender -> Render2D). The name says debug UI; the path says product.
  *
- * Each of those is a task, not an oversight, and the census names them so the next reader inherits the
+ * Also not cut, and deliberately so: the `DebugName` strings handed to Vulkan objects (~20 sites). They
+ * are what makes a device-lost report name the pipeline that died, which is a PLAYER's bug report, not a
+ * developer's convenience. Validation layers are already Debug-only (VulkanContext.cpp).
+ *
+ * Each of these is a task, not an oversight, and the census names them so the next reader inherits the
  * reason instead of the surprise.
  */
 
