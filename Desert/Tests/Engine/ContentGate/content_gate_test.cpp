@@ -104,9 +104,15 @@ TEST( ContentGate, OpensNotInTheGapBetweenTwoLinks )
 
 TEST( ContentGate, AFrameThatStartedAReadIsNotQuietEvenWithAnEmptyQueue )
 {
-    // The degenerate version of the case above: a read that both started and finished inside one frame
-    // (an already-resident asset re-requested, say) leaves the queue empty and the counter moved. The
-    // counter is what catches it.
+    // THE ONLY TEST IN THIS FILE THAT THE SECOND CONDITION'S REMOVAL KILLS, and that was measured rather
+    // than assumed: deleting `startedCount == m_StartedAtFrameBegin` from Tick leaves ten of eleven tests
+    // green, because in the ordinary chain each link puts something back in the queue before the next
+    // tick looks, so `outstanding` alone happens to cover it.
+    //
+    // What it does not cover is a read that starts AND lands between two ticks -- a small file on a warm
+    // cache, which is the common case on a player's second launch. The queue is empty at both ends and
+    // the frame in between asked for something; only the counter can tell. A "rare" case in a loading
+    // path is a case that reaches players in the thousands.
     ContentGate gate( ContentState::Loading );
     EXPECT_FALSE( gate.Tick( 0, 0 ) );
     EXPECT_FALSE( gate.Tick( 0, 1 ) ) << "a frame that started a read was treated as a quiet one";
