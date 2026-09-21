@@ -15,7 +15,7 @@
  * has (report 05 §636-646):
  *
  *     UpdateInput(rig, pose);      // pose -> rig hierarchy      -> ControlHierarchy::Evaluate
- *     rig->Evaluate_AnyThread();   // the solve                  -> T5.5, and NOT here
+ *     rig->Evaluate_AnyThread();   // the solve                  -> RigGraph::Execute (T5.5)
  *     UpdateOutput(rig, pose);     // rig hierarchy -> pose      -> ApplyBoneOverrides
  *
  * ── WHY THE CONTROL -> BONE MAP LIVES HERE AND NOT ON `ControlElement` ───────────────────────────────
@@ -54,6 +54,7 @@
 #include <Engine/Animation/BoneControl.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
+#include <Engine/Animation/Rig/RigGraph.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -68,9 +69,10 @@ namespace Desert::Animation
     /**
      * @brief One output hop: this control's component-space transform BECOMES this bone's.
      *
-     * The whole of the rig's forwards solve, for now. T5.5's graph is what will let a control reach a bone
-     * through arithmetic instead of through identity, and when it does it replaces the body of the loop in
-     * `Evaluate` — not the seam, which is the point of doing T5.4 first.
+     * THE OUTPUT HOP, AND STILL THE ONLY ONE — T5.5 DID NOT REPLACE IT. The graph that arrived with T5.5
+     * computes CONTROL poses; this list is what carries a control to a bone, and it stayed exactly as T5.4
+     * wrote it. That is the separation working: the forwards solve got arithmetic without the one place
+     * that decides what reaches the skeleton learning a second way to do it.
      */
     struct ControlBoneDrive
     {
@@ -120,6 +122,39 @@ namespace Desert::Animation
         }
 
         /**
+         * @brief Install the forwards solve — T5.5. DRIVES FIRST, AND THAT ORDER IS THE REFUSAL.
+         *
+         * `RigGraph::SetNodes` has already refused everything structural about the graph on its own: a
+         * graph with no sink, a dead node, a backwards-only link rule that makes a cycle inexpressible.
+         * What it cannot see is the drive list, and that is where the third member of the family lives.
+         *
+         * A GRAPH WHOSE WRITES CANNOT REACH A DRIVEN BONE IS REFUSED. It is the same argument `SetDrives`
+         * makes about an empty drive list and T5.4's header states in full: a stage that provably cannot
+         * change the pose passes every assertion a working one passes, and no test downstream can tell it
+         * from a rig that works. A graph that writes only controls which neither drive a bone nor parent
+         * anything that does is exactly that stage, one layer in.
+         *
+         * Reachability is the control-parent closure: writing a control moves every control parented to
+         * it, so a graph that writes the root of an arm reaches the hand that arm drives. `Dependents` is
+         * the precomputed one-step adjacency; the closure is one forward sweep because a control's parents
+         * are always added before it.
+         */
+        [[nodiscard]] Common::BoolResultStr SetGraph( RigGraph graph );
+
+        [[nodiscard]] const RigGraph& GetGraph() const
+        {
+            return m_Graph;
+        }
+
+        /// Whether a forwards solve is installed. NO GRAPH IS A LEGAL RIG and means what T5.4 shipped: a
+        /// control reaches its bone through identity. It is also the suite's positive control — the same
+        /// pipeline with no graph must produce the same BYTES it produced before this file learned the word.
+        [[nodiscard]] bool HasGraph() const
+        {
+            return !m_Graph.Empty();
+        }
+
+        /**
          * @brief The operator. `pose` in, `pose` out, with every driven bone replaced.
          *
          * `component` must be a view over `pose` — the Animator's is. It is invalidated on entry rather
@@ -143,8 +178,13 @@ namespace Desert::Animation
         /// something people filter out. Same shape, and the same reason, as `BoneControl`'s.
         void ReportErrorOnChange();
 
+        /// Empty when this rig's graph can reach a driven bone, the reason it cannot otherwise. Asked by
+        /// BOTH `SetGraph` and `SetDrives`, because either call is capable of making the answer no.
+        [[nodiscard]] Common::BoolResultStr RefuseUnreachableGraph( const RigGraph& graph ) const;
+
         ControlHierarchy              m_Hierarchy;
         std::vector<ControlBoneDrive> m_Drives;
+        RigGraph                      m_Graph;
 
         /// Reused between frames so an evaluation allocates nothing after the first, as `BoneControl` does.
         std::vector<BoneOverride>  m_Overrides;

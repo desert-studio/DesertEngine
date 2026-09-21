@@ -16,6 +16,8 @@ project(test_name)
         -- because "the rig is last" is only a statement when there is a Controls stage for it to be last of.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
+        -- T5.5: the stage now owns a forwards solve, so the walk links with the stage that runs it.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
