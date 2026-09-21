@@ -1326,11 +1326,17 @@ namespace Desert::Editor
                                         : ( c.Primitive.has_value()
                                                  ? GG::PrimitiveMeshFactory::GetShared( *c.Primitive )
                                                  : nullptr ) );
+            // AND THE LOD CHAIN IS EMPTY FOR EXACTLY THE MESHES AN ISM USUALLY HOLDS. Submesh::LODs says
+            // so in its own header — "empty for meshes with no LODs (procedural / skinned)" — and the
+            // first version of this readout asked only the chain, so every primitive ISM reported
+            // "0 (0 each)" triangles while drawing nine cubes. A count that is silently zero reads as
+            // "this is free", which is the opposite of what the row is here to say. The submesh's own
+            // IndexCount is the geometry either way; LODs[0] is byte-identical to it when it exists.
             uint64_t trianglesEach = 0;
             if ( mesh )
                 for ( const auto& submesh : mesh->GetSubmeshes() )
-                    if ( !submesh.LODs.empty() )
-                        trianglesEach += submesh.LODs.front().IndexCount / 3;
+                    trianglesEach +=
+                         ( submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs.front().IndexCount ) / 3;
 
             uint32_t cascades = 0;
             if ( c.CastShadows && scene && scene->GetSceneRenderer() )
@@ -1441,7 +1447,10 @@ namespace Desert::Editor
                         const auto decomposed =
                              ::Desert::ECS::Rules::DecomposeTransform( c.InstanceTransforms[static_cast<size_t>( i )] );
                         glm::vec3 translation = decomposed.Translation;
-                        glm::vec3 degrees     = glm::degrees( decomposed.Rotation );
+                        // `+ 0.0f` turns IEEE negative zero into positive zero: eulerAngles of an
+                        // unrotated instance hands back -0.0 on two axes, and a row reading "-0.0" on a
+                        // prop nobody has rotated reads as a defect in the decomposition.
+                        glm::vec3 degrees     = glm::degrees( decomposed.Rotation ) + 0.0f;
                         glm::vec3 scale       = decomposed.Scale;
 
                         bool              moved = false;
