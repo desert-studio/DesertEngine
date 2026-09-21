@@ -158,6 +158,26 @@ namespace
         return true;
     }
 
+    /// The matrices that actually REACH THE GPU. A buffer restored without `ApplyLocalPose` leaves these
+    /// holding the pose the undo just took away, so the viewport keeps showing an edit that no longer
+    /// exists anywhere else -- the screen and the clip disagreeing, which is the class this whole change
+    /// is about. Compared exactly: the same TRS through the same arithmetic gives the same bits.
+    bool SameRendered( const std::vector<glm::mat4>& a, const std::vector<glm::mat4>& b )
+    {
+        if ( a.size() != b.size() )
+        {
+            return false;
+        }
+        for ( size_t i = 0; i < a.size(); ++i )
+        {
+            if ( a[i] != b[i] )
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     size_t KeyCount( const AnimationClip& clip, const char* bone )
     {
         for ( const BoneTrack& track : clip.Tracks )
@@ -322,22 +342,26 @@ TEST_F( ClipEditUndo, UndoRestoresBothThePoseAndTheClipByValue )
 {
     Rig rig( MakeClipWithEndpoints(), AutoChangeMode::All );
 
-    const LocalPose              poseBefore   = rig.m_Animator.GetAuthoringPose();
-    const std::vector<BoneTrack> tracksBefore = rig.m_Clip.Tracks;
+    const LocalPose              poseBefore     = rig.m_Animator.GetAuthoringPose();
+    const std::vector<BoneTrack> tracksBefore   = rig.m_Clip.Tracks;
+    const std::vector<glm::mat4> renderedBefore = rig.m_Animator.GetPose().Matrices;
 
     ASSERT_EQ( rig.Drag( 30, 0.02f ), 1u );
 
-    // POSITIVE CONTROL FOR THE SCENARIO ITSELF: both halves moved. Without this the two restores below
-    // are assertions that nothing changed and then nothing changed back.
+    // POSITIVE CONTROL FOR THE SCENARIO ITSELF: all three moved. Without this the restores below are
+    // assertions that nothing changed and then nothing changed back.
     ASSERT_FALSE( SameStoredValue( poseBefore, rig.m_Animator.GetAuthoringPose() ) );
     ASSERT_FALSE( SameTracks( tracksBefore, rig.m_Clip.Tracks ) );
+    ASSERT_FALSE( SameRendered( renderedBefore, rig.m_Animator.GetPose().Matrices ) );
 
     ASSERT_TRUE( CommandHistory::Get().Undo() );
 
     EXPECT_TRUE( SameStoredValue( poseBefore, rig.m_Animator.GetAuthoringPose() ) )
          << "the pose came back near, not equal";
     EXPECT_TRUE( SameTracks( tracksBefore, rig.m_Clip.Tracks ) )
-         << "the clip came back near, not equal -- the endpoint tangents are the usual survivor";
+         << "the clip came back near, not equal -- the neighbours' tangents are the usual survivor";
+    EXPECT_TRUE( SameRendered( renderedBefore, rig.m_Animator.GetPose().Matrices ) )
+         << "the buffer was restored but never rendered: the viewport still shows the undone edit";
 }
 
 TEST_F( ClipEditUndo, UndoRestoresTheNEIGHBOURSTangents )
@@ -494,9 +518,19 @@ TEST_F( ClipEditUndo, ObserveDoesNotCommitATransactionBeginOpened )
 {
     Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
 
+    // THE FIRST VERSION OF THIS TEST PASSED WITH THE RULE DELETED, and the reason is §8.4's: it went
+    // straight from `Begin` to an idle frame, so `Observe` had never seen the bit UP and there was no
+    // falling edge for the rule to be about. The sequence below is the shortest one that makes the bit
+    // fall while a transaction somebody else opened is standing: a frame where the manipulator was held
+    // but there was no clip to record against, so `Observe` remembered the bit and opened nothing.
+    const auto held = rig.m_Transaction.Observe( &rig.m_Animator, nullptr, true );
+    ASSERT_TRUE( held.IsSuccess() );
+    ASSERT_FALSE( rig.m_Transaction.Open() );
+
     ASSERT_TRUE( rig.m_Transaction.Begin( &rig.m_Animator, &rig.m_Clip ).IsSuccess() );
-    // A frame goes by with the manipulator idle. Before the driver was recorded, this read as a falling
-    // edge and committed half of somebody else's edit.
+
+    // Now the bit falls. `Observe` closes only what `Observe` opened -- the invariant that lets the panel
+    // add a `Begin` at a new widget without re-deriving the frame order every time.
     const auto observed = rig.m_Transaction.Observe( &rig.m_Animator, &rig.m_Clip, false );
     ASSERT_TRUE( observed.IsSuccess() );
     EXPECT_EQ( observed.GetValue(), 0u );
@@ -569,6 +603,29 @@ TEST_F( ClipEditUndo, StoredValueComparesTheRepresentationAndNotJustTheAnimation
     b             = a;
     b.ArriveTangent = glm::vec3( 0.0f, 0.0f, 1e-6f );
     EXPECT_FALSE( SameStoredValue( a, b ) ) << "tangents are what a neighbouring key's insertion changes";
+}
+
+TEST_F( ClipEditUndo, TheAnimatorRefusesAPoseThatIsNotItsRigs )
+{
+    // The second of the two size questions, and it is a different one from the command's. The command
+    // asks "is this entry about the rig standing here now"; this asks "is this buffer this skeleton's",
+    // which is the invariant `LocalPose` exists for (index-for-index with GetBones). Tested directly
+    // because the command's own check fires first, so a mutation of this one is invisible from there --
+    // which is how a guard comes to have no reader.
+    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+
+    LocalPose wrongRig;
+    wrongRig.Resize( 5 );
+    const auto refused = rig.m_Animator.SetAuthoringPose( wrongRig );
+    EXPECT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "another rig" ), std::string::npos );
+    // And it changed nothing: a partially installed pose is the worst of the three outcomes.
+    EXPECT_EQ( rig.m_Animator.GetAuthoringPose().Size(), 2u );
+
+    LocalPose thisRig = rig.m_Animator.GetAuthoringPose();
+    thisRig[1].Translation = glm::vec3( 0.0f, 42.0f, 0.0f );
+    ASSERT_TRUE( rig.m_Animator.SetAuthoringPose( thisRig ).IsSuccess() );
+    EXPECT_EQ( rig.m_Animator.GetAuthoringPose()[1].Translation, glm::vec3( 0.0f, 42.0f, 0.0f ) );
 }
 
 TEST_F( ClipEditUndo, AnEntryRecordedAgainstAnotherRigIsDiscardedRatherThanApplied )
