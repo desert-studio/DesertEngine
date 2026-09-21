@@ -122,7 +122,7 @@ namespace Desert::Assets::Serialization
         };
         constexpr uint32_t kSectionCount = SecCount_ - 1;
 
-        constexpr uint32_t kFlagIsSkinned           = 1u << 0;
+        constexpr uint32_t kFlagIsSkinned            = 1u << 0;
         constexpr uint32_t kFlagHasSkeletonSignature = 1u << 1;
 
         /// The element size version 1 declares for each section, indexed by id. A reader that finds a
@@ -277,15 +277,15 @@ namespace Desert::Assets::Serialization
             uint64_t    Count;
         };
         const Payload payloads[kSectionCount] = {
-            { SecStaticVertices, data.StaticVertices.data(), data.StaticVertices.size() },
-            { SecSkinnedVertices, data.SkinnedVertices.data(), data.SkinnedVertices.size() },
-            { SecIndices, data.Indices.data(), data.Indices.size() },
-            { SecSubmeshes, submeshes.data(), submeshes.size() },
-            { SecLODRanges, lodRanges.data(), lodRanges.size() },
-            { SecLODIndices, lodIndices.data(), lodIndices.size() },
-            { SecMorphTargets, morphTargets.data(), morphTargets.size() },
-            { SecMorphDeltas, morphDeltas.data(), morphDeltas.size() },
-            { SecStrings, strings.data(), strings.size() },
+             { SecStaticVertices, data.StaticVertices.data(), data.StaticVertices.size() },
+             { SecSkinnedVertices, data.SkinnedVertices.data(), data.SkinnedVertices.size() },
+             { SecIndices, data.Indices.data(), data.Indices.size() },
+             { SecSubmeshes, submeshes.data(), submeshes.size() },
+             { SecLODRanges, lodRanges.data(), lodRanges.size() },
+             { SecLODIndices, lodIndices.data(), lodIndices.size() },
+             { SecMorphTargets, morphTargets.data(), morphTargets.size() },
+             { SecMorphDeltas, morphDeltas.data(), morphDeltas.size() },
+             { SecStrings, strings.data(), strings.size() },
         };
 
         // Offsets are computed before anything is written, because the table sits in front of the
@@ -347,8 +347,7 @@ namespace Desert::Assets::Serialization
         std::memcpy( &header, bytes.data(), sizeof( header ) );
 
         if ( std::memcmp( header.Magic, kMeshBinaryMagic, sizeof( header.Magic ) ) != 0 )
-            return Common::MakeFormattedError<MeshAssetData>( "'{}' does not carry the cooked-mesh magic.",
-                                                              who );
+            return Common::MakeFormattedError<MeshAssetData>( "'{}' does not carry the cooked-mesh magic.", who );
 
         if ( header.ByteOrder != kByteOrderTag )
         {
@@ -395,7 +394,7 @@ namespace Desert::Assets::Serialization
         // the file, still 8-aligned and still left room for the declared count. The decode succeeded and
         // handed back a mesh of shifted floats. That is the silent wrong answer §1.4 forbids, produced
         // by a single corrupt byte.
-        uint64_t       expectedOffset = sizeof( FileHeader ) + sizeof( table );
+        uint64_t expectedOffset = sizeof( FileHeader ) + sizeof( table );
         for ( uint32_t i = 0; i < kSectionCount; ++i )
         {
             const SectionRow& row      = table[i];
@@ -426,8 +425,8 @@ namespace Desert::Assets::Serialization
             if ( row.Offset > header.FileSize )
             {
                 return Common::MakeFormattedError<MeshAssetData>(
-                     "'{}' section '{}' starts at {}, past the end of a {}-byte file.", who,
-                     SectionName( row.Id ), row.Offset, header.FileSize );
+                     "'{}' section '{}' starts at {}, past the end of a {}-byte file.", who, SectionName( row.Id ),
+                     row.Offset, header.FileSize );
             }
 
             // Division rather than multiplication, so a count chosen to overflow the product cannot
@@ -477,8 +476,7 @@ namespace Desert::Assets::Serialization
         // EVERY CROSS-SECTION REFERENCE IS CHECKED BEFORE IT IS FOLLOWED. The bounds above prove each
         // section lies inside the file; they say nothing about a submesh pointing at LOD range 900 of
         // 3, and following that index is a read of whatever is next in memory.
-        const auto Substring = [&]( const uint32_t offset, const uint32_t length,
-                                    std::string& out ) -> bool
+        const auto Substring = [&]( const uint32_t offset, const uint32_t length, std::string& out ) -> bool
         {
             if ( static_cast<uint64_t>( offset ) + length > strings.size() )
                 return false;
@@ -496,9 +494,8 @@ namespace Desert::Assets::Serialization
             if ( !Substring( rec.NameOffset, rec.NameLength, out.Name ) )
             {
                 return Common::MakeFormattedError<MeshAssetData>(
-                     "'{}' submesh {} names bytes [{}, {}) of a {}-byte string section.", who, i,
-                     rec.NameOffset, static_cast<uint64_t>( rec.NameOffset ) + rec.NameLength,
-                     strings.size() );
+                     "'{}' submesh {} names bytes [{}, {}) of a {}-byte string section.", who, i, rec.NameOffset,
+                     static_cast<uint64_t>( rec.NameOffset ) + rec.NameLength, strings.size() );
             }
             out.VertexOffset = rec.VertexOffset;
             out.VertexCount  = rec.VertexCount;
@@ -529,8 +526,7 @@ namespace Desert::Assets::Serialization
                          range.First + range.Count, N( SecLODIndices ) );
                 }
                 out.LODs[l].resize( static_cast<size_t>( range.Count ) );
-                std::memcpy( out.LODs[l].data(),
-                             At( SecLODIndices ) + range.First * sizeof( IndexData ),
+                std::memcpy( out.LODs[l].data(), At( SecLODIndices ) + range.First * sizeof( IndexData ),
                              static_cast<size_t>( range.Count ) * sizeof( IndexData ) );
             }
         }
@@ -546,8 +542,7 @@ namespace Desert::Assets::Serialization
             {
                 return Common::MakeFormattedError<MeshAssetData>(
                      "'{}' blendshape {} names bytes [{}, {}) of a {}-byte string section.", who, i,
-                     rec.NameOffset, static_cast<uint64_t>( rec.NameOffset ) + rec.NameLength,
-                     strings.size() );
+                     rec.NameOffset, static_cast<uint64_t>( rec.NameOffset ) + rec.NameLength, strings.size() );
             }
 
             const auto ReadDeltas = [&]( const uint64_t first, const uint64_t count,

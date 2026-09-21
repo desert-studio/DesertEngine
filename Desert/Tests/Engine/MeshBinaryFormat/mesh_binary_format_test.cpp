@@ -103,11 +103,9 @@ namespace
         for ( uint32_t i = 0; i < 7; ++i )
         {
             const float f = static_cast<float>( i ) + 0.125f;
-            data.StaticVertices.push_back( Ser::StaticVertexData{ glm::vec3( f, -f, f * 3.5f ),
-                                                                  glm::vec3( 0.0f, 1.0f, 0.0f ),
-                                                                  glm::vec3( 1.0f, 0.0f, 0.0f ),
-                                                                  glm::vec3( 0.0f, 0.0f, 1.0f ),
-                                                                  glm::vec2( f * 0.25f, 1.0f - f ) } );
+            data.StaticVertices.push_back( Ser::StaticVertexData{
+                 glm::vec3( f, -f, f * 3.5f ), glm::vec3( 0.0f, 1.0f, 0.0f ), glm::vec3( 1.0f, 0.0f, 0.0f ),
+                 glm::vec3( 0.0f, 0.0f, 1.0f ), glm::vec2( f * 0.25f, 1.0f - f ) } );
         }
         // Skinned vertices in the same file as static ones: the container has a section for each and
         // filling both is the only way to catch a reader that wires one section to the other's offset.
@@ -135,8 +133,7 @@ namespace
         a.Transform      = glm::mat4( 2.0f );
         a.BoundingBox    = Common::Math::AABB{ glm::vec3( -1.0f, -2.0f, -3.0f ), glm::vec3( 4.0f, 5.0f, 6.0f ) };
         a.MaterialHandle = Common::UUID( 0xABCDEF0123456789ull );
-        a.LODs           = { { Ser::IndexData{ 0, 1, 2 }, Ser::IndexData{ 1, 2, 3 } },
-                             { Ser::IndexData{ 0, 2, 3 } } };
+        a.LODs = { { Ser::IndexData{ 0, 1, 2 }, Ser::IndexData{ 1, 2, 3 } }, { Ser::IndexData{ 0, 2, 3 } } };
 
         // A SECOND SUBMESH AT A NON-ZERO OFFSET, for StaticMeshCooked's reason: the first submesh of
         // any mesh starts at 0 and looks correct however the offsets are computed.
@@ -282,7 +279,7 @@ TEST( MeshBinaryFormat, ATruncatedFileIsRefusedAndAnEmptyOneIsNot )
 {
     // THE PROPERTY THE DECLARED SIZE EXISTS FOR, and it is stated as a DIFFERENCE between two files
     // rather than as two separate expectations: a reader that cannot tell them apart passes each half.
-    const Ser::MeshAssetData empty;              // zero of everything — a legal, complete container
+    const Ser::MeshAssetData empty; // zero of everything — a legal, complete container
     const std::string        emptyBytes = Ser::EncodeMeshBinary( empty );
 
     const auto emptyRead = Ser::DecodeMeshBinary( emptyBytes, "empty.stmesh" );
@@ -295,11 +292,11 @@ TEST( MeshBinaryFormat, ATruncatedFileIsRefusedAndAnEmptyOneIsNot )
 
     // Cut at the length of the empty file, and at every other interesting boundary. The first of these
     // is the case that motivated the field: the bytes that remain ARE a complete-looking header.
-    for ( const size_t cut : { emptyBytes.size(), full.size() - 1, full.size() / 2, size_t( 64 ),
-                               size_t( 63 ), size_t( 0 ) } )
+    for ( const size_t cut :
+          { emptyBytes.size(), full.size() - 1, full.size() / 2, size_t( 64 ), size_t( 63 ), size_t( 0 ) } )
     {
-        const auto cutRead = Ser::DecodeMeshBinary( std::string_view( full ).substr( 0, cut ),
-                                                    "truncated.stmesh" );
+        const auto cutRead =
+             Ser::DecodeMeshBinary( std::string_view( full ).substr( 0, cut ), "truncated.stmesh" );
         EXPECT_FALSE( cutRead.IsSuccess() )
              << "a file cut to " << cut << " of " << full.size() << " bytes was accepted";
     }
@@ -344,8 +341,8 @@ TEST( MeshBinaryFormat, ARecordPointingOutsideItsSectionIsRefusedRatherThanFollo
     std::memcpy( &submeshOffset, good.data() + 64 + 3 * 24 + 8, sizeof( submeshOffset ) );
 
     {
-        std::string      bad     = good;
-        const uint32_t   huge    = 4000u;
+        std::string    bad  = good;
+        const uint32_t huge = 4000u;
         std::memcpy( &bad[submeshOffset + 24], &huge, sizeof( huge ) ); // BinSubmesh::LODFirst
         EXPECT_FALSE( Ser::DecodeMeshBinary( bad, "lod-out-of-range" ).IsSuccess() );
     }
@@ -380,8 +377,8 @@ TEST( MeshBinaryFormat, TheRetiredJsonFormStillOpensAndAgreesWithTheContainer )
 
 TEST( MeshBinaryFormat, BytesThatAreNeitherFormAreRefusedRatherThanReadAsEmpty )
 {
-    for ( const std::string_view junk : { std::string_view( "" ), std::string_view( "not a mesh" ),
-                                          std::string_view( "{\"IsSkinned\":" ) } )
+    for ( const std::string_view junk :
+          { std::string_view( "" ), std::string_view( "not a mesh" ), std::string_view( "{\"IsSkinned\":" ) } )
     {
         const auto read = Ser::ReadMeshAssetData( junk, "junk.stmesh" );
         EXPECT_FALSE( read.IsSuccess() ) << "accepted " << junk.size() << " bytes of junk";
@@ -398,8 +395,7 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
     Ser::MeshAssetData source = FullyPopulated();
     source.SkeletonSignature.reset(); // a static mesh has none
 
-    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic( path,
-                                                                      Ser::EncodeMeshBinary( source ) ) );
+    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic( path, Ser::EncodeMeshBinary( source ) ) );
 
     Desert::Assets::StaticMeshAsset asset( Desert::Assets::AssetPriority::Medium, path );
     const auto                      loaded = asset.LoadFromFile();
@@ -416,8 +412,8 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
     EXPECT_TRUE( asset.GetMorphTargets()[1].DeltaNormals.empty() );
 
     // And a file whose bytes stop early does not become a mesh, on the path a real load takes.
-    const std::string             full = Ser::EncodeMeshBinary( source );
-    const std::filesystem::path   cut  = std::filesystem::temp_directory_path() / "desert_b11_cut.stmesh";
+    const std::string           full = Ser::EncodeMeshBinary( source );
+    const std::filesystem::path cut  = std::filesystem::temp_directory_path() / "desert_b11_cut.stmesh";
     ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic(
          cut, std::string( full.substr( 0, full.size() - 16 ) ) ) );
     Desert::Assets::StaticMeshAsset truncated( Desert::Assets::AssetPriority::Medium, cut );

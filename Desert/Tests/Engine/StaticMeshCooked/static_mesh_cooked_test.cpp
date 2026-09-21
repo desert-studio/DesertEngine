@@ -108,11 +108,10 @@ namespace
             // THROUGH THE SAME READER THE ENGINE USES (B11). The probe is a binary container now, so a
             // bare `rfl::json::read` here would fail on the shipped file while the engine loaded it
             // perfectly — a suite reading the fixture by a route the engine does not take.
-            const auto parsed = Desert::Assets::Serialization::ReadMeshAssetData(
-                 ReadFile( ProbeFile() ), ProbeFile().string() );
-            EXPECT_TRUE( parsed.IsSuccess() )
-                 << "the shipped probe does not parse as a cooked mesh: "
-                 << ( parsed.IsSuccess() ? std::string{} : parsed.GetError() );
+            const auto parsed =
+                 Desert::Assets::Serialization::ReadMeshAssetData( ReadFile( ProbeFile() ), ProbeFile().string() );
+            EXPECT_TRUE( parsed.IsSuccess() ) << "the shipped probe does not parse as a cooked mesh: "
+                                              << ( parsed.IsSuccess() ? std::string{} : parsed.GetError() );
             return parsed.IsSuccess() ? parsed.GetValue() : MeshAssetData{};
         }();
         return data;

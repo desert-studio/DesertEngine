@@ -5,7 +5,6 @@
 
 #include <Common/Utilities/FileSystem.hpp>
 
-
 namespace Desert::Assets
 {
     StaticMeshAsset::StaticMeshAsset( const AssetPriority priority, const Common::Filepath& filepath )
@@ -27,7 +26,8 @@ namespace Desert::Assets
         // a clone's own older cooks — the whole `Cooked/` tree is gitignored and machine-local — still
         // open. Neither this class nor its skinned twin knows which arm ran, and that is the point:
         // there is one place that decides, and it is testable without a filesystem.
-        const auto dataReflected = Serialization::ReadMeshAssetData( raw.GetValue(), m_Metadata.Filepath.string() );
+        const auto dataReflected =
+             Serialization::ReadMeshAssetData( raw.GetValue(), m_Metadata.Filepath.string() );
         if ( !dataReflected )
         {
             return Common::MakeError( dataReflected.GetError() );

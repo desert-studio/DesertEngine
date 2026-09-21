@@ -6,7 +6,7 @@
 // 40 185 992 bytes of JSON for 105 317 vertices and 120 000 triangles — one submesh, no blendshapes,
 // no baked LODs. Every float in it is spelled out in decimal ("-0.5762509107589722" is 19 characters
 // for the four bytes it came from) and every vertex repeats the five field names. The same payload as
-// fixed-width little-endian records is 7 337 940 bytes. The interesting half is not the disk: it is
+// fixed-width little-endian records is 7 338 168 bytes. The interesting half is not the disk: it is
 // that `rfl::json::read` has to walk all 40 MB, and `MeshService::Get` runs it on the frame that first
 // touches the mesh. `Docs/World/PROGRAMME.md` §5 puts this ahead of the texture work for that reason.
 //
@@ -99,8 +99,8 @@ namespace Desert::Assets::Serialization
     /// Container bytes -> `MeshAssetData`, or a refusal that names the file, the section and the two
     /// numbers that disagreed. @p whatFor is the path (or any label) the refusal quotes; it is not
     /// read from the payload, because a corrupt payload cannot be trusted to name itself.
-    [[nodiscard]] Common::ResultStr<MeshAssetData> DecodeMeshBinary( std::string_view  bytes,
-                                                                     std::string_view  whatFor );
+    [[nodiscard]] Common::ResultStr<MeshAssetData> DecodeMeshBinary( std::string_view bytes,
+                                                                     std::string_view whatFor );
 
     /// THE ONE ENTRY POINT BOTH MESH ASSET CLASSES READ THROUGH, and the migration itself: binary when
     /// the magic is there, the retired JSON form when it is not. Pure — bytes in, data out — so the
