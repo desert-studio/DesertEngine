@@ -2,7 +2,11 @@
 setlocal
 REM Launch the Desert Runtime (standalone player) for a project.
 REM
-REM Usage: scripts\Windows\RunRuntime.bat [Debug^|Release] [--project <.deproj>] [--scene <.desce>]
+REM Usage: scripts\Windows\RunRuntime.bat [Debug^|Release^|Shipping] [--project <.deproj>] [--scene <.desce>]
+REM
+REM A Shipping Runtime has no --shot and no --shot-frames in it: the capture is compiled out (see
+REM Common/Core/DevInstruments.hpp). Passing them is not an error there, it is a pair of tokens nothing
+REM reads -- photograph that build from outside the process instead.
 REM        (with no --project, falls back to the built-in sandbox project)
 
 cd /d "%~dp0..\.."

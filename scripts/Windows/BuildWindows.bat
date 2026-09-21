@@ -3,11 +3,12 @@ setlocal EnableDelayedExpansion
 REM Generate project files (premake5 vs2022) and build Desert Engine on Windows.
 REM
 REM Usage:
-REM   scripts\Windows\BuildWindows.bat [Debug^|Release] [--with-tests] [--gen-only] [--no-analyze]
+REM   scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--with-tests] [--gen-only] [--no-analyze]
 REM
 REM Examples:
 REM   scripts\Windows\BuildWindows.bat                  Debug build, static analysis on
 REM   scripts\Windows\BuildWindows.bat Release          Release build
+REM   scripts\Windows\BuildWindows.bat Shipping         what a player gets: no capture, no profiler, no counters
 REM   scripts\Windows\BuildWindows.bat Debug --with-tests
 REM   scripts\Windows\BuildWindows.bat Debug --no-analyze   skip clang-tidy, and SAY so
 REM
@@ -44,11 +45,17 @@ set "ANALYZER=%ROOT%\scripts\CI\CheckTidy.bat"
 if "%~1"=="" goto args_done
 if /I "%~1"=="Debug"        (set "CONFIG=Debug"          & shift & goto parse_args)
 if /I "%~1"=="Release"      (set "CONFIG=Release"        & shift & goto parse_args)
+REM SHIPPING WAS REJECTED HERE, ON THE PLATFORM THE GAME SHIPS FOR. The configuration arrived with its
+REM macOS wrapper taught the word (scripts/MacOS/BuildMacOS.sh) and this one not, so
+REM `BuildWindows.bat Shipping` answered "[ERROR] Unknown argument: Shipping" -- while the packager's
+REM own "Runtime binary not found" message is what sends people here to build that configuration.
+REM Two dead ends in a row is how a configuration stops being used at all.
+if /I "%~1"=="Shipping"     (set "CONFIG=Shipping"       & shift & goto parse_args)
 if /I "%~1"=="--with-tests" (set "PREMAKE_ARGS=--with-tests" & shift & goto parse_args)
 if /I "%~1"=="--gen-only"   (set "GEN_ONLY=1"            & shift & goto parse_args)
 if /I "%~1"=="--no-analyze" (set "ANALYZE=0"             & shift & goto parse_args)
 echo [ERROR] Unknown argument: %~1 1>&2
-echo         Usage: scripts\Windows\BuildWindows.bat [Debug^|Release] [--with-tests] [--gen-only] [--no-analyze] 1>&2
+echo         Usage: scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--with-tests] [--gen-only] [--no-analyze] 1>&2
 exit /b 1
 :args_done
 
