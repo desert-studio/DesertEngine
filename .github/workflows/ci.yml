@@ -271,9 +271,11 @@ jobs:
         run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }}
 
       # Not in Shipping: the test projects are removed from that configuration in
-      # Desert/Tests/premake5.lua, so there is nothing in build/Bin/Tests/Shipping to run and the unix
-      # runner globs the directory — it would find zero suites and report success. See the same note on
-      # the Windows job.
+      # Desert/Tests/premake5.lua, so build/Bin/Tests/Shipping is never created and there is nothing to
+      # run. Unguarded, this step goes RED rather than silently green — RunTests.sh exits 1 on a missing
+      # test directory, checked in the script and not assumed from it — which is the right direction for
+      # the failure to point and still not a verdict worth spending a step on. See the same note on the
+      # Windows job.
       - name: Run tests
         if: matrix.config != 'Shipping'
         run: ./scripts/MacOS/RunTests.sh "$PWD" ${{ matrix.config }}

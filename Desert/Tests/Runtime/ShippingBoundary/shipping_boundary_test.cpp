@@ -689,8 +689,9 @@ TEST( ShippingBoundary, TheBoundaryIsCheckedByCIAndNotOnlyByHand )
 // GpuTimestampLayout, SyncLoadChokepoint — cannot be built in the one configuration that removes what it
 // is about. The cheapest way to make it build would be to weaken the test, which is the wrong direction
 // for a gate to push. So they are removed from the configuration instead, and ci.yml's two "Run tests"
-// steps are guarded to match. This row exists because those are THREE places that have to agree, and the
-// failure if they stop agreeing is a `Run tests` step that runs zero suites and reports success.
+// steps are guarded to match. This row exists because those are THREE places that have to agree; when
+// they stop agreeing the CI leg goes red on a missing directory, which is survivable and still a whole
+// Windows leg spent to say what this line says in a second.
 TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
 {
     const fs::path root = RepoRoot();
@@ -706,9 +707,9 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
     const std::string ci = StripYamlComments( Read( root / ".github/workflows/ci.yml" ) );
     ASSERT_FALSE( ci.empty() );
     EXPECT_GE( CountOf( ci, "if: matrix.config != 'Shipping'" ), 2u )
-         << "both `Run tests` steps must be guarded — there is no test binary in build/Bin/Tests/Shipping "
-            "to run, and the unix runner GLOBS that directory, so an unguarded step there finds zero "
-            "suites and calls it a pass.";
+         << "both `Run tests` steps must be guarded — the Shipping build creates no "
+            "build/Bin/Tests/Shipping at all, so those steps have nothing to run. Unguarded they go red "
+            "on a missing directory and a missing run_tests.bat, which is a whole CI leg spent saying so.";
 }
 
 // ── THE PACKAGER'S DEFAULT IS A CONFIGURATION THAT EXISTS ───────────────────────────────────────────
