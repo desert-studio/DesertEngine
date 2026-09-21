@@ -558,6 +558,11 @@ namespace Common::Utils
         return m_Version;
     }
 
+    const std::filesystem::path& PakReader::ArchivePath() const
+    {
+        return m_Path;
+    }
+
     // One lookup, one refusal of the reserved key, and each accessor names the column it wants. Six
     // copies of the same five lines was the alternative, and the copy that drifts is the one nobody
     // reads again.

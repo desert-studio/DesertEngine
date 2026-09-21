@@ -252,6 +252,10 @@ namespace Common::Utils
         bool   IsOpen() const;
         size_t EntryCount() const;
 
+        // The file this reader was opened on. Exposed so that a caller walking a MOUNT STACK can say
+        // which archive answered — see VFS::SourcePak.
+        const std::filesystem::path& ArchivePath() const;
+
         // Which of the three formats this file turned out to be. Meaningful only when IsOpen().
         PakVersion Version() const;
 

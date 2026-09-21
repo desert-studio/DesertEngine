@@ -162,6 +162,12 @@ namespace Common::Utils
         return Resolve( path, []( const PakReader&, const std::string& ) { return true; } );
     }
 
+    std::optional<std::filesystem::path> VFS::SourcePak( const std::filesystem::path& path )
+    {
+        return Resolve( path, []( const PakReader& pak, const std::string& )
+                        { return std::optional<std::filesystem::path>( pak.ArchivePath() ); } );
+    }
+
     std::optional<std::string> VFS::ReadFile( const std::filesystem::path& path )
     {
         return Resolve( path, []( const PakReader& pak, const std::string& key ) { return pak.Read( key ); } );
