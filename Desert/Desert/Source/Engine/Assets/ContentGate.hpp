@@ -33,10 +33,13 @@ namespace Desert::Assets
      * queue would open in the gap BETWEEN two links and hand the player a world one link short --
      * which is the same defect as before, only rarer and therefore worse.
      *
-     * And it takes at least two frames, because the FIRST frame is where the renderer asks. An empty
-     * queue before anything has looked at the scene says only that nobody has looked yet; concluding
-     * "ready" from it is the same mistake as reading a screenshot at three frames on a swapchain with
-     * three frames in flight -- the instrument answers before the thing it measures has happened.
+     * And it takes TWO QUIET TICKS IN A ROW, not merely two ticks of which the last is quiet. The first
+     * frame is where the renderer asks, so an empty queue before anything has looked at the scene says
+     * only that nobody has looked yet -- the same mistake as reading a screenshot at three frames on a
+     * swapchain with three frames in flight. But the weaker spelling (`quiet && frames >= 2`) also opens
+     * one tick early whenever the next link of a chain is requested by the RENDER rather than by the
+     * completion delegate; the trace is in `Tick`, and `OpensNotInTheGapBetweenTwoLinks` is the test
+     * that goes red if the streak is weakened back.
      *
      * ── WHY IT TAKES NUMBERS AND NOT THE LOADER ─────────────────────────────────────────────────────
      *
@@ -99,8 +102,8 @@ namespace Desert::Assets
         /// Wall clock of the wait: still running while `Loading`, frozen at the total once open.
         [[nodiscard]] double ElapsedMs() const;
 
-        /// The smallest number of ticks that can open the gate. Named so a test cannot drift from it.
-        static constexpr uint32_t kMinimumFrames = 2;
+        /// How many CONSECUTIVE quiet ticks open the gate. Named so a test cannot drift from it.
+        static constexpr uint32_t kQuietFramesToOpen = 2;
 
     private:
         ContentState m_State = ContentState::Ready;
@@ -108,6 +111,8 @@ namespace Desert::Assets
         /// frame means that frame asked for something, so the chain has not closed.
         uint64_t                              m_StartedAtFrameBegin = 0;
         uint32_t                              m_Frames              = 0;
+        /// Consecutive ticks that saw an empty queue and a frame that asked for nothing.
+        uint32_t                              m_QuietStreak         = 0;
         std::chrono::steady_clock::time_point m_Began               = std::chrono::steady_clock::now();
         double                                m_OpenedAfterMs       = 0.0;
     };
