@@ -12,11 +12,14 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/TwoBoneIKControl.hpp>
+#include <Engine/Animation/Retarget/RetargetSource.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
+#include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/Serialization/ControlRig.hpp>
+#include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -85,6 +88,12 @@ namespace Desert::ECS
 
                 const Animation::Skeleton& skeleton = skinnedMeshPtr->GetSkeleton();
 
+                // FIRST OF THE THREE SYNCS, because it is first in the pipeline it feeds: a retarget
+                // changes which rig the SOURCE stage samples, and everything below reads the pose that
+                // stage produces. It is also the one that can change the pose's whole provenance, so a
+                // frame in which it was not yet applied would be a frame of the un-retargeted character.
+                SyncRetarget( registry, entity, *anim.Animator, skeleton );
+
                 // Before either playback path, because a control is a stage of the same pipeline and the
                 // pipeline runs inside Animator::Update below.
                 SyncSkeletalControls( registry, entity, *anim.Animator, skeleton );
@@ -93,6 +102,15 @@ namespace Desert::ECS
                 // the same pipeline (Animator::SyncStages), and the pipeline runs inside Animator::Update
                 // below. Attaching after the update would put the rig one frame behind the pose it operates on.
                 SyncControlRig( registry, entity, anim, *anim.Animator, skeleton );
+
+                // THE RIG A CLIP IS LOOKED UP AGAINST, which a retarget changes and which every clip
+                // lookup below has to use. `ClipDrivesRig` binds on the clip's bone NAMES, so asking the
+                // TARGET rig about a foreign clip refuses exactly the clips a retarget exists to play —
+                // the middle-link defect, introduced by the change that makes retargeting reachable.
+                // SyncRetarget above has already attached or detached, so this is settled for the frame.
+                const Animation::Skeleton& clipRig = anim.Animator->GetRetarget() != nullptr
+                                                          ? anim.Animator->GetRetarget()->GetSourceSkeleton()
+                                                          : skeleton;
 
                 // BEFORE the graph path, because it is what puts a graph there: the entity names a
                 // `.danimgraph` and this is where that handle becomes the object below.
@@ -145,7 +163,7 @@ namespace Desert::ECS
                         const auto res = anim.GraphEvaluator->Update( norm );
                         if ( res.Current )
                         {
-                            const auto found = m_AnimationLibrary->FindForSkeleton( skeleton, res.Current->Clip );
+                            const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, res.Current->Clip );
                             if ( found )
                             {
                                 const auto& clip = found.GetValue()->GetClip();
@@ -160,7 +178,7 @@ namespace Desert::ECS
                             }
                             else
                             {
-                                ReportUnplayableState( skeleton, res.Current->Name, res.Current->Clip,
+                                ReportUnplayableState( clipRig, res.Current->Name, res.Current->Clip,
                                                        found.GetError() );
                             }
                             anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed * res.Current->Speed );
@@ -177,7 +195,7 @@ namespace Desert::ECS
                     // SAME RULE AS THE PICKER that wrote this name into the component. It used to be an
                     // exact-signature scan here against a tolerant one in the Details panel, so a clip an
                     // artist had just chosen could fail to play with nothing said.
-                    const auto found = m_AnimationLibrary->FindForSkeleton( skeleton, anim.CurrentClip );
+                    const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, anim.CurrentClip );
                     if ( found )
                     {
                         const auto& clip    = found.GetValue()->GetClip();
@@ -192,14 +210,14 @@ namespace Desert::ECS
                     }
                     else
                     {
-                        ReportUnplayableState( skeleton, "AnimationComponent.CurrentClip", anim.CurrentClip,
+                        ReportUnplayableState( clipRig, "AnimationComponent.CurrentClip", anim.CurrentClip,
                                                found.GetError() );
                     }
                 }
 
                 else
                 {
-                    const auto animations = m_AnimationLibrary->GetForSkeleton( skeleton );
+                    const auto animations = m_AnimationLibrary->GetForSkeleton( clipRig );
 
                     if ( !animations.empty() )
                     {
@@ -217,7 +235,7 @@ namespace Desert::ECS
                         // from "the library was never filled", which is exactly the state a packaged game
                         // shipped in. Deduped by the same reporter as the named-clip failures above, so
                         // it costs one line per rig rather than sixty a second.
-                        ReportUnplayableState( skeleton, "AnimationComponent (no clip named)", "<any>",
+                        ReportUnplayableState( clipRig, "AnimationComponent (no clip named)", "<any>",
                                                "the library offers no clip for this rig at all." );
                     }
                 }
@@ -540,6 +558,132 @@ namespace Desert::ECS
             anim.BuiltRigSource    = static_cast<uint64_t>( wanted );
             anim.BuiltRigRevision  = asset->GetRevision();
             anim.BuiltRigSignature = skeleton.GetSignature();
+        }
+
+        /**
+         * @brief THE HANDLE BECOMES A SOURCE RIG — and this is the function tier T6.2 did not have.
+         *
+         * T6.2 built `Retarget/`, measured it against `JPH::SkeletonMapper` and beat it on every row, and
+         * no scene could use it: `Retargeter::Initialize` takes a `RetargetSetup` somebody has to fill in
+         * in C++, and nobody did. Everything above this line is that somebody. It is the same shape as
+         * `SyncControlRig` below and deliberately so — authored data in, live object out, once per frame
+         * per entity, with the reverse direction given equal weight.
+         *
+         * ── THE REBUILD DECISION HAS FOUR FACTS, NOT THREE ───────────────────────────────────────────
+         *
+         * `SyncControlRig` compares the handle, the asset's revision and this entity's skeleton signature.
+         * A retarget has a SECOND SIDE, and its signature is the fact nothing else in the chain would
+         * notice moving: re-export the source character and the `.retarget` file, the handle, the revision
+         * and the target rig are all unchanged while the bone order under the source rig is not. The
+         * answer is asked of the built object itself (`RetargetSource::IsBuiltFrom`) rather than kept in
+         * three fields on the component, so there is no `forget()` that can miss one.
+         *
+         * ── AND WHY THE SOURCE RIG IS RE-RESOLVED RATHER THAN ASSUMED ────────────────────────────────
+         *
+         * The source `.skeleton` is reachable only through this retarget's own dependency, so an eviction
+         * sweep can release it while the retarget itself stays loaded — the state `SkeletonAsset`'s
+         * signature comment describes from the mesh's side, where it cost a scene 410 log lines and no
+         * character. Asking the asset to resolve again is what makes that recoverable instead of terminal.
+         */
+        void SyncRetarget( entt::registry& registry, entt::entity entity, Animation::Animator& animator,
+                           const Animation::Skeleton& skeleton ) const
+        {
+            const auto forget = [&animator]()
+            {
+                if ( animator.GetRetarget() != nullptr )
+                {
+                    animator.DetachRetarget();
+                }
+            };
+
+            if ( !registry.has<ECS::RetargetComponent>( entity ) )
+            {
+                forget();
+                return;
+            }
+
+            const Assets::AssetHandle wanted = registry.get<ECS::RetargetComponent>( entity ).Data.Retarget;
+            if ( static_cast<uint64_t>( wanted ) == 0 )
+            {
+                // An empty slot is the off switch, and it is the ONLY one — there is no second "enabled"
+                // flag that could disagree with it (see RetargetData).
+                forget();
+                return;
+            }
+
+            if ( m_AssetManager == nullptr )
+            {
+                forget();
+                ReportOnce( "retarget-no-manager",
+                            "an entity names a retarget, but this host has no asset manager to resolve it "
+                            "through; the entity plays its clip on its own rig" );
+                return;
+            }
+
+            auto asset = m_AssetManager->FindByHandle<Assets::RetargetAsset>( Common::UUID( wanted ) );
+            if ( !asset || !asset->IsReadyForUse() )
+            {
+                // SAID, NOT SWALLOWED, for SyncControlRig's reason: the silent version is a character
+                // played on its own rig while the scene file plainly names a retarget, which is
+                // indistinguishable from a retargeting system that does not work.
+                forget();
+                ReportOnce( fmt::format( "retarget-missing:{}", static_cast<uint64_t>( wanted ) ),
+                            fmt::format( "retarget handle {} is not loaded; the entity naming it plays its "
+                                         "clip on its own rig",
+                                         static_cast<uint64_t>( wanted ) ) );
+                return;
+            }
+
+            const Animation::Skeleton* source = asset->GetSourceSkeleton();
+            if ( source == nullptr )
+            {
+                // Re-resolve rather than give up: see the note above on eviction releasing a rig that is
+                // reachable only through this dependency. `ResolveDependencies` is written to be re-run.
+                asset->ResolveDependencies( *m_AssetManager );
+                source = asset->GetSourceSkeleton();
+            }
+            if ( source == nullptr )
+            {
+                forget();
+                ReportOnce( fmt::format( "retarget-rig:{}", static_cast<uint64_t>( wanted ) ),
+                            fmt::format( "retarget '{}' names source rig '{}' and no loaded skeleton "
+                                         "answers it; the entity plays its clip on its own rig",
+                                         asset->GetDisplayName(), asset->GetData().SourceSkeleton ) );
+                return;
+            }
+
+            if ( const auto* current = animator.GetRetarget();
+                 current != nullptr && current->IsBuiltFrom( static_cast<uint64_t>( wanted ), asset->GetRevision(),
+                                                             source->GetSignature(), skeleton.GetSignature() ) )
+            {
+                return;
+            }
+
+            auto setup = Assets::Serialization::BuildRetargetSetup( asset->GetData() );
+            if ( !setup )
+            {
+                forget();
+                ReportOnce( fmt::format( "retarget-setup:{}", static_cast<uint64_t>( wanted ) ),
+                            setup.GetError() );
+                return;
+            }
+
+            auto built = Animation::Retarget::RetargetSource::Create(
+                 *source, skeleton, setup.ExtractValue(), static_cast<uint64_t>( wanted ), asset->GetRevision() );
+            if ( !built )
+            {
+                forget();
+                ReportOnce( fmt::format( "retarget-build:{}", static_cast<uint64_t>( wanted ) ),
+                            fmt::format( "retarget '{}': {}", asset->GetDisplayName(), built.GetError() ) );
+                return;
+            }
+
+            if ( auto attached = animator.AttachRetarget( built.ExtractValue() ); !attached )
+            {
+                forget();
+                ReportOnce( fmt::format( "retarget-attach:{}", static_cast<uint64_t>( wanted ) ),
+                            attached.GetError() );
+            }
         }
 
         /**

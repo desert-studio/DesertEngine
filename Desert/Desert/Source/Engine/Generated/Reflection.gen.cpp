@@ -203,6 +203,13 @@ namespace
                     .Register();
             }
             {
+                using T = ::Desert::ECS::RetargetData;
+                TypeBuilder( "RetargetData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "Retarget", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Retarget ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Retarget )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Retarget", .Category = "Retarget", .Tooltip = "The .retarget whose rig pair this entity's clips are played through", .IsAsset = true, .AssetType = "RetargetAsset", } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
                 using T = ::Desert::ECS::DirectionalLightData;
                 TypeBuilder( "DirectionalLightData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Color )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "Light", .Tooltip = "Tint of the illumination arriving at scene surfaces. The sun you SEE in the sky is the Sky Atmosphere component's Sun Color / Sun Intensity.", .IsColor = true, .Temperature = true, } } )

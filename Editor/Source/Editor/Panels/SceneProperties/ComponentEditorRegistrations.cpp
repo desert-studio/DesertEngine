@@ -91,6 +91,10 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::TwoBoneIKComponent, Data, "T
 // pipeline stage, rebuilding it when the file changes — belongs to AnimationECSSystem, and the panel that
 // lets an animator grab a control is a panel (View -> Control Rig), not a Details page.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ControlRigComponent, Data, "ControlRigData", "Control Rig" )
+// Retarget is the reflected one-liner for the Control Rig's reason: it is ONE value an artist picks, and
+// everything behind it — binding the source rig by signature, resolving both rigs' names, building the
+// retargeter, rebuilding it when either side moves — belongs to AnimationECSSystem.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RetargetComponent, Data, "RetargetData", "Retarget" )
 // Particle Emitter is a CUSTOM entry: the reflected fields plus a transport (play / pause / restart),
 // because "is it emitting right now" is a state you drive, not a value you type. See MakeEmitterEntry.
 // UI Canvas is a CUSTOM entry: the reflected fields PLUS "Open in UI Editor", which is what the UI Editor

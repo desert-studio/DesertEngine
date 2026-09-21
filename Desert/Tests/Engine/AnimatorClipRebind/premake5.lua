@@ -15,6 +15,15 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        -- A25: `Animator` owns an optional retarget, so every suite that compiles Animator.cpp links the
+        -- retarget layer with it. Listed here rather than discovered at link time because premake
+        -- enumerates sources EXPLICITLY: a dependency that is real but unlisted fails as an undefined
+        -- symbol naming a function sitting in the working tree, which reads as a defect in the merge.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetSource.cpp",
         -- Animator.cpp runs the Controls stage, so it needs the control base it calls through. The base is
         -- two functions and no Vulkan; no suite here adds a control, which is what makes "a rig with no
         -- controls behaves exactly as before" a thing these suites stillmeasure.

@@ -1,0 +1,28 @@
+{
+  "FormatVersion": 1,
+  "Name": "ForeignArm to IKProbe",
+  "SourceSkeleton": "ForeignArm.skeleton",
+  "SourcePelvisBone": "IK_Shoulder",
+  "TargetPelvisBone": "IK_Shoulder",
+  "SourceRetargetPose": {
+    "BoneOffsets": [],
+    "PelvisOffset": [0.0, 0.0, 0.0]
+  },
+  "TargetRetargetPose": {
+    "BoneOffsets": [],
+    "PelvisOffset": [0.0, 0.0, 0.0]
+  },
+  "Chains": [
+    {
+      "Name": "Arm",
+      "SourceStartBone": "IK_Shoulder",
+      "SourceEndBone": "Foreign_Hand",
+      "TargetStartBone": "IK_Shoulder",
+      "TargetEndBone": "IK_Hand",
+      "DriveWithIK": true
+    }
+  ],
+  "BoneRenames": [
+    { "TargetBone": "IK_Hand", "SourceBone": "Foreign_Hand" }
+  ]
+}

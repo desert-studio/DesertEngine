@@ -503,6 +503,7 @@ namespace Desert::Core
         // the system headers rather than trusting this list.
         r.prepare<ECS::TwoBoneIKComponent>();
         r.prepare<ECS::ControlRigComponent>();
+        r.prepare<ECS::RetargetComponent>();
         r.prepare<ECS::TextComponent>();
         r.prepare<ECS::TerrainComponent>();
 

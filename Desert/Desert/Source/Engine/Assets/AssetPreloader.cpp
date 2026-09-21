@@ -15,6 +15,7 @@
 #include "CloudLayoutAsset.hpp"
 #include "AnimGraphAsset.hpp"
 #include "ControlRigAsset.hpp"
+#include "RetargetAsset.hpp"
 #include "UIThemeAsset.hpp"
 #include "StringTableAsset.hpp"
 
@@ -40,6 +41,7 @@ namespace Desert::Assets
     constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_LAYOUT_EXTENSIONS = { ".dclayout" };
     constexpr std::array<std::string_view, 1> SUPPORTED_UI_THEME_EXTENSIONS     = { ".detheme" };
     constexpr std::array<std::string_view, 1> SUPPORTED_CONTROL_RIG_EXTENSIONS  = { ".derig" };
+    constexpr std::array<std::string_view, 1> SUPPORTED_RETARGET_EXTENSIONS     = { ".retarget" };
     constexpr std::array<std::string_view, 1> SUPPORTED_ANIM_GRAPH_EXTENSIONS   = {
          Desert::Animation::Graph::kAnimGraphExtension };
     constexpr std::array<std::string_view, 1> SUPPORTED_STRING_TABLE_EXTENSIONS = {
@@ -371,6 +373,20 @@ namespace Desert::Assets
         ProcessAssetFiles<AnimGraphAsset>( Common::Constants::Path::ANIM_GRAPH_PATH,
                                            SUPPORTED_ANIM_GRAPH_EXTENSIONS, m_AssetManager,
                                            AssetPriority::Medium );
+    }
+
+    void AssetPreloader::PreloadRetargets()
+    {
+        // Loaded eagerly for the rig's reason — the entity's retarget slot has to be able to OFFER the
+        // project's retargets, which it does by asking the manager for every asset of this type — and for
+        // one more of its own: loading is what runs `ResolveDependencies`, which is what binds the source
+        // rig. A retarget registered but not read is a retarget with no source rig, and the character
+        // naming it plays its clip on its own proportions with nothing said.
+        //
+        // There is no service register loop beside this call: a retarget has no process-wide runtime form
+        // — the retargeter is per ENTITY, against that entity's own skeleton, built by AnimationECSSystem.
+        ProcessAssetFiles<RetargetAsset>( Common::Constants::Path::RETARGET_PATH, SUPPORTED_RETARGET_EXTENSIONS,
+                                          m_AssetManager, AssetPriority::Medium );
     }
 
     void AssetPreloader::PreloadCloudModellingVolumes()

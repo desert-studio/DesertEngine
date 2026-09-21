@@ -363,11 +363,18 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   all static is a namespace wearing a class. The state is the loader's now, held behind a pointer
     //   only so the header carries no mutex and no map. One owner with a known lifetime, which is Q1's
     //   unique answer.
-    EXPECT_EQ( CountOf( Form::Raw ), 365 );
+    //   and A25 moves it again, +2 Raw and +1 Unique (849 -> 852). The two Raw are one map and one
+    //   reference to a map, both keyed by clip address and both covered by `m_TrackBinding`'s own
+    //   argument -- see their rows. The Unique is `Animator::m_Retarget`: the source rig and its
+    //   retargeter, held behind a pointer because null IS the answer to "does this entity retarget",
+    //   with no second flag to disagree with it, and because a `Skeleton` value member would cost every
+    //   Animator in the project four vectors for a feature most of them do not use. One owner with a
+    //   known lifetime, which is Q1's unique answer.
+    EXPECT_EQ( CountOf( Form::Raw ), 367 );
     EXPECT_EQ( CountOf( Form::Shared ), 330 );
-    EXPECT_EQ( CountOf( Form::Unique ), 116 );
+    EXPECT_EQ( CountOf( Form::Unique ), 117 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 849 )
+    EXPECT_EQ( (int)Members().size(), 852 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

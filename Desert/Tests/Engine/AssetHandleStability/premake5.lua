@@ -55,6 +55,14 @@ project(test_name)
         -- format converts to and from. None of them reaches the GPU — a rig is names and transforms —
         -- which is why they compile straight into a suite that links no renderer.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/ControlRigAsset.cpp",
+        -- A25: the catalogue instantiates every asset type, so a new one is linked here or the
+        -- census cannot ask its question about it.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
         -- T5.5: the stage owns a forwards solve, so the walk links with the stage that runs it.

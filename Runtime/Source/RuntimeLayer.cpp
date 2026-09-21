@@ -177,6 +177,9 @@ namespace Desert::Player
         // character poses from its clips.
         m_Boot.Run( "Preloading control rigs", [this] { m_AssetPreloader->PreloadControlRigs(); } );
         m_Boot.Run( "Preloading anim graphs", [this] { m_AssetPreloader->PreloadAnimGraphs(); } );
+        // AND HERE TOO, for the rig's reason four lines up. Not order-free: a retarget binds its source
+        // rig while loading, so it must follow the cooked scan that registers the `.skeleton` files.
+        m_Boot.Run( "Preloading retargets", [this] { m_AssetPreloader->PreloadRetargets(); } );
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
         // everything else, so the player sees the language the build boots in with no extra plumbing.
         m_Boot.Run( "Preloading string tables", [this] { m_AssetPreloader->PreloadStringTables(); } );

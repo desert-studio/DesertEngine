@@ -19,6 +19,14 @@ project(test_name)
         -- T5.5: the stage now owns a forwards solve, so the walk links with the stage that runs it.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        -- A25: `Animator` owns an optional retarget, so every suite that compiles Animator.cpp links the
+        -- retarget layer with it. Listed here rather than discovered at link time because premake
+        -- enumerates sources EXPLICITLY: a dependency that is real but unlisted fails as an undefined
+        -- symbol naming a function sitting in the working tree, which reads as a defect in the merge.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetSource.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
