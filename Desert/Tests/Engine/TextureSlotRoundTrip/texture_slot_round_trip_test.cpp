@@ -230,8 +230,7 @@ TEST( TextureSlotRoundTrip, TheStoredFormCarriesNoPartOfTheMachineItWasWrittenOn
          AssetPriority::Medium, Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
     ASSERT_NE( texture, nullptr );
 
-    const std::string stored =
-         TextureSlotToPath( static_cast<uint64_t>( texture->GetMetadata().Handle ) );
+    const std::string stored = TextureSlotToPath( static_cast<uint64_t>( texture->GetMetadata().Handle ) );
 
     EXPECT_EQ( stored.find( ann.Dir.generic_string() ), std::string::npos )
          << "the stored reference '" << stored << "' contains the checkout directory";

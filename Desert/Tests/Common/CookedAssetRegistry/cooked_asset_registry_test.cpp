@@ -22,6 +22,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <initializer_list>
 #include <map>
 #include <string>
@@ -144,8 +145,8 @@ TEST( CookedAssetRegistry, TwoCooksOfOneTreeSerializeToTheSameBytes )
     AssetRegistry forwards;
     AssetRegistry backwards;
 
-    const std::vector<std::string> keys = { "assets:A.demat", "cooked:B.tex", "engine:C.shader",
-                                            "assets:D.derig" };
+    const std::vector<std::string> keys  = { "assets:A.demat", "cooked:B.tex", "engine:C.shader",
+                                             "assets:D.derig" };
     const std::vector<std::string> kinds = { "Material", "Texture", "Shader", "ControlRig" };
 
     for ( std::size_t i = 0; i < keys.size(); ++i )
@@ -213,7 +214,7 @@ TEST( CookedAssetRegistry, PublishingTheRowsMakesEveryHandleNameItsFileWithNothi
     // T2.4 a number read out of a `.desce` on a cold start named a file only because the boot had just
     // walked eight content roots hashing every path in them. This is the replacement, and this test is
     // the cold start: nothing is loaded, nothing is walked, and the numbers resolve.
-    SandboxRootGuard guard;
+    const SandboxRootGuard guard;
     Common::AssetPathIndex::Clear();
 
     AssetRegistry registry;
@@ -242,7 +243,7 @@ TEST( CookedAssetRegistry, ADeclaredIdentityIsNotPublishedIntoThePathIndex )
     //
     // The two questions are different and so are their answers: the index says which STRING a number
     // was hashed from, the registry says which FILE a number names.
-    SandboxRootGuard guard;
+    const SandboxRootGuard guard;
     Common::AssetPathIndex::Clear();
 
     AssetRegistryEntry texture = Row( "cooked:Textures/T_Probe.tex", "Texture", 128 );
@@ -306,8 +307,8 @@ TEST( CookedAssetRegistry, RemovingARowTakesBothOfItsNumbersWithIt )
 
 namespace
 {
-    std::map<std::string, Common::Content::ContentFile> Disk(
-         std::initializer_list<std::pair<std::string, Common::Content::ContentFile>> rows )
+    std::map<std::string, Common::Content::ContentFile>
+    Disk( std::initializer_list<std::pair<std::string, Common::Content::ContentFile>> rows )
     {
         std::map<std::string, Common::Content::ContentFile> out;
         for ( const auto& row : rows )
@@ -318,12 +319,9 @@ namespace
     bool Reports( const std::vector<Common::Content::RegistryDisagreement>& problems,
                   Common::Content::RegistryDisagreement::Kind what, const std::string& key )
     {
-        for ( const auto& problem : problems )
-        {
-            if ( problem.What == what && problem.Key == key )
-                return true;
-        }
-        return false;
+        return std::any_of( problems.begin(), problems.end(),
+                            [&]( const Common::Content::RegistryDisagreement& problem )
+                            { return problem.What == what && problem.Key == key; } );
     }
 } // namespace
 
@@ -334,8 +332,8 @@ TEST( CookedAssetRegistry, AnAgreeingRegistryAndTreeProduceNoDisagreements )
     AssetRegistry registry;
     ASSERT_TRUE( registry.Insert( Row( "assets:Materials/M.demat", "Material", 512 ) ) );
 
-    const auto onDisk = Disk( { { "assets:Materials/M.demat",
-                                  { Common::Content::ContentKind::Material, 512 } } } );
+    const auto onDisk =
+         Disk( { { "assets:Materials/M.demat", { Common::Content::ContentKind::Material, 512 } } } );
 
     EXPECT_TRUE( Common::Content::CompareWithDisk( registry, onDisk ).empty() );
 }
@@ -344,10 +342,10 @@ TEST( CookedAssetRegistry, AFileWithNoRowIsReportedBecauseItWouldNotReachAPackag
 {
     // The T2.7 hazard itself: since the boot stopped scanning the content roots, a file with no row
     // is a file the engine does not have — and the failure is packaged-build-only.
-    AssetRegistry registry;
+    const AssetRegistry registry;
 
-    const auto onDisk = Disk( { { "assets:Materials/M.demat",
-                                  { Common::Content::ContentKind::Material, 512 } } } );
+    const auto onDisk =
+         Disk( { { "assets:Materials/M.demat", { Common::Content::ContentKind::Material, 512 } } } );
 
     const auto problems = Common::Content::CompareWithDisk( registry, onDisk );
     ASSERT_EQ( problems.size(), 1u );
@@ -380,14 +378,14 @@ TEST( CookedAssetRegistry, AKindOrASizeThatDisagreesIsReportedAndTheRowIsStillFo
     AssetRegistry registry;
     ASSERT_TRUE( registry.Insert( Row( "assets:Materials/M.demat", "Texture", 512 ) ) );
 
-    const auto onDisk = Disk( { { "assets:Materials/M.demat",
-                                  { Common::Content::ContentKind::Material, 900 } } } );
+    const auto onDisk =
+         Disk( { { "assets:Materials/M.demat", { Common::Content::ContentKind::Material, 900 } } } );
 
     const auto problems = Common::Content::CompareWithDisk( registry, onDisk );
-    EXPECT_TRUE( Reports( problems, Common::Content::RegistryDisagreement::Kind::WrongKind,
-                          "assets:Materials/M.demat" ) );
-    EXPECT_TRUE( Reports( problems, Common::Content::RegistryDisagreement::Kind::StaleSize,
-                          "assets:Materials/M.demat" ) );
+    EXPECT_TRUE(
+         Reports( problems, Common::Content::RegistryDisagreement::Kind::WrongKind, "assets:Materials/M.demat" ) );
+    EXPECT_TRUE(
+         Reports( problems, Common::Content::RegistryDisagreement::Kind::StaleSize, "assets:Materials/M.demat" ) );
     EXPECT_EQ( problems.size(), 2u ) << "one row, two independent faults, two sentences";
 }
 

@@ -1135,8 +1135,7 @@ namespace Desert::Editor
                         // from the boot actually bought, measured rather than argued: the cook runs
                         // exactly the content scans the boot used to run, through the same primitive,
                         // on the same tree, seconds later on the same machine.
-                        LOG_INFO( "[ContentRegistry] {}; the cook itself did {}",
-                                  cooked.GetValue().Describe(),
+                        LOG_INFO( "[ContentRegistry] {}; the cook itself did {}", cooked.GetValue().Describe(),
                                   Common::Utils::ContentScanLedger::Report() );
                     }
                 }
@@ -4168,15 +4167,15 @@ namespace Desert::Editor
         // and the palette is this editor's claim that anything a person can do an agent can do. The
         // packager refuses to build against a stale registry and its message names this command; a
         // named remedy that cannot be run is worse than no message.
-        commands.push_back(
-             { "Action", "Rebuild Content Registry", [this]
-               {
-                   const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager );
-                   if ( !cooked )
-                       return Common::MakeFormattedError( "the content registry: {}", cooked.GetError() );
-                   LOG_INFO( "[ContentRegistry] {}", cooked.GetValue().Describe() );
-                   return PaletteCommandDone();
-               } } );
+        commands.push_back( { "Action", "Rebuild Content Registry", [this]
+                              {
+                                  const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager );
+                                  if ( !cooked )
+                                      return Common::MakeFormattedError( "the content registry: {}",
+                                                                         cooked.GetError() );
+                                  LOG_INFO( "[ContentRegistry] {}", cooked.GetValue().Describe() );
+                                  return PaletteCommandDone();
+                              } } );
 
         // SAVE SCENE ANSWERS WHETHER IT SAVED. `(void)SaveOpenScene()` stood here against a
         // `[[nodiscard]] bool` — the attribute was on the declaration and the cast silenced it — so a

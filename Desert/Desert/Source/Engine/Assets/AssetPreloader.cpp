@@ -51,8 +51,9 @@ namespace Desert::Assets
         // nothing to do with the number, and a warning at each of them would be noise standing in for a
         // rule that applies to one of them.
         template <typename AssetType, typename... Args>
-        size_t ProcessAssetKind( Common::Content::ContentKind kind, const std::weak_ptr<AssetManager>& assetManager,
-                                 AssetPriority priority, Args&&... args )
+        size_t ProcessAssetKind( Common::Content::ContentKind       kind,
+                                 const std::weak_ptr<AssetManager>& assetManager, AssetPriority priority,
+                                 Args&&... args )
         {
             size_t matched = 0;
 
@@ -117,25 +118,30 @@ namespace Desert::Assets
         // ctor, so the big .stmesh parse + GPU build are deferred to the first Get (lazy). Textures/materials
         // are cheap to parse (small metadata) so they load now to expose their stored handle / external id,
         // but their GPU build is still deferred (RegisterAsset, below).
-        ProcessAssetKind<StaticMeshAsset>( Common::Content::ContentKind::StaticMesh, m_AssetManager, AssetPriority::Low,
+        ProcessAssetKind<StaticMeshAsset>( Common::Content::ContentKind::StaticMesh, m_AssetManager,
+                                           AssetPriority::Low,
                                            /*loadAfterCreate=*/false );
 
-        ProcessAssetKind<TextureAsset>( Common::Content::ContentKind::Texture, m_AssetManager, AssetPriority::Low );
+        ProcessAssetKind<TextureAsset>( Common::Content::ContentKind::Texture, m_AssetManager,
+                                        AssetPriority::Low );
 
         // The count is kept because the animation library's population needs it, and needing it is what
         // makes the ordering a compile-time fact rather than a line-order convention: `PopulateLibrary` at
         // the tail of this function cannot be moved above this statement, because its argument would not
         // exist yet. See Animation::PopulateLibrary for the defect that argument is there to state.
-        const size_t animationFilesFound =
-             ProcessAssetKind<AnimationAsset>( Common::Content::ContentKind::Animation, m_AssetManager, AssetPriority::Low );
+        const size_t animationFilesFound = ProcessAssetKind<AnimationAsset>(
+             Common::Content::ContentKind::Animation, m_AssetManager, AssetPriority::Low );
 
-        ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager, AssetPriority::Low );
+        ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager,
+                                         AssetPriority::Low );
 
         // Materials are editable CONTENT (the project's Materials/ dir): imported (per-mesh
         // subfolders) and editor-created both land here, in the unified .demat format.
-        ProcessAssetKind<SurfaceMaterialAsset>( Common::Content::ContentKind::Material, m_AssetManager, AssetPriority::Low );
+        ProcessAssetKind<SurfaceMaterialAsset>( Common::Content::ContentKind::Material, m_AssetManager,
+                                                AssetPriority::Low );
 
-        ProcessAssetKind<SkinnedMeshAsset>( Common::Content::ContentKind::SkinnedMesh, m_AssetManager, AssetPriority::Low,
+        ProcessAssetKind<SkinnedMeshAsset>( Common::Content::ContentKind::SkinnedMesh, m_AssetManager,
+                                            AssetPriority::Low,
                                             /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
@@ -221,7 +227,8 @@ namespace Desert::Assets
 
     void AssetPreloader::PreloadSkyboxes()
     {
-        ProcessAssetKind<SkyboxAsset>( Common::Content::ContentKind::Skybox, m_AssetManager, AssetPriority::Medium );
+        ProcessAssetKind<SkyboxAsset>( Common::Content::ContentKind::Skybox, m_AssetManager,
+                                       AssetPriority::Medium );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -290,7 +297,8 @@ namespace Desert::Assets
         // Assets::CloudTypeDefaultShape — twelve numbers compiled in — because a type costs nothing to
         // synthesise where a 128^3 volume costs ten seconds, and because the sky of a project that has
         // deleted every file in Clouds/Types must still be the sky it was.
-        ProcessAssetKind<CloudTypeAsset>( Common::Content::ContentKind::CloudType, m_AssetManager, AssetPriority::Medium );
+        ProcessAssetKind<CloudTypeAsset>( Common::Content::ContentKind::CloudType, m_AssetManager,
+                                          AssetPriority::Medium );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -310,7 +318,8 @@ namespace Desert::Assets
         // first frame of a themed canvas needs its numbers, and a canvas that names one must find it
         // already there rather than draw its elements' own colours for the first second of every session
         // — which would look exactly like a theme that does not work.
-        ProcessAssetKind<UIThemeAsset>( Common::Content::ContentKind::UITheme, m_AssetManager, AssetPriority::Medium );
+        ProcessAssetKind<UIThemeAsset>( Common::Content::ContentKind::UITheme, m_AssetManager,
+                                        AssetPriority::Medium );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -331,7 +340,8 @@ namespace Desert::Assets
         // every asset of this type. There is no service register loop beside this call the way the cloud
         // stages have one: a rig has no process-wide runtime form — the pipeline stage is built per
         // ENTITY, against that entity's own skeleton, by AnimationECSSystem.
-        ProcessAssetKind<ControlRigAsset>( Common::Content::ContentKind::ControlRig, m_AssetManager, AssetPriority::Medium );
+        ProcessAssetKind<ControlRigAsset>( Common::Content::ContentKind::ControlRig, m_AssetManager,
+                                           AssetPriority::Medium );
     }
 
     void AssetPreloader::PreloadAnimGraphs()
@@ -345,7 +355,8 @@ namespace Desert::Assets
         //
         // There is no service register loop beside this call: a graph has no process-wide runtime form —
         // the evaluator is per ENTITY, built by AnimationECSSystem from the object this asset owns.
-        ProcessAssetKind<AnimGraphAsset>( Common::Content::ContentKind::AnimGraph, m_AssetManager, AssetPriority::Medium );
+        ProcessAssetKind<AnimGraphAsset>( Common::Content::ContentKind::AnimGraph, m_AssetManager,
+                                          AssetPriority::Medium );
     }
 
     void AssetPreloader::PreloadCloudModellingVolumes()
@@ -361,8 +372,9 @@ namespace Desert::Assets
         // hero-cloud slot means the artist has not chosen a body, and the right answer is no cloud rather
         // than a cloud they did not put there. `CloudModellingService::RequireBody` says the same thing by
         // answering Null — never Pending — for an empty handle.
-        ProcessAssetKind<CloudModellingVolumeAsset>( Common::Content::ContentKind::CloudModellingVolume, m_AssetManager,
-                                                     AssetPriority::Medium, /*loadAfterCreate=*/false );
+        ProcessAssetKind<CloudModellingVolumeAsset>( Common::Content::ContentKind::CloudModellingVolume,
+                                                     m_AssetManager, AssetPriority::Medium,
+                                                     /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -384,7 +396,8 @@ namespace Desert::Assets
         // empty slot means the sky places its clouds procedurally, which is what every scene in this
         // repository does and what the phase's acceptance criterion requires stay byte-identical. That is
         // also why an empty handle resolves to Null and never to Pending — there is nothing to wait for.
-        ProcessAssetKind<CloudLayoutAsset>( Common::Content::ContentKind::CloudLayout, m_AssetManager, AssetPriority::Medium,
+        ProcessAssetKind<CloudLayoutAsset>( Common::Content::ContentKind::CloudLayout, m_AssetManager,
+                                            AssetPriority::Medium,
                                             /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
@@ -409,7 +422,8 @@ namespace Desert::Assets
         // A PROJECT WITH NO Localization/ FOLDER IS NOT AN ERROR. It is a project whose UI is authored in
         // literals, which is every project that predates this stage; the scan matches nothing, no table is
         // published, and every literal element draws exactly what it drew before.
-        ProcessAssetKind<StringTableAsset>( Common::Content::ContentKind::StringTable, m_AssetManager, AssetPriority::High );
+        ProcessAssetKind<StringTableAsset>( Common::Content::ContentKind::StringTable, m_AssetManager,
+                                            AssetPriority::High );
     }
 
     void AssetPreloader::PreloadShaders()
@@ -419,7 +433,8 @@ namespace Desert::Assets
         // say how much was real compilation rather than cache reads.
         const auto start = std::chrono::steady_clock::now();
 
-        ProcessAssetKind<ShaderAsset>( Common::Content::ContentKind::Shader, m_AssetManager, AssetPriority::Medium );
+        ProcessAssetKind<ShaderAsset>( Common::Content::ContentKind::Shader, m_AssetManager,
+                                       AssetPriority::Medium );
 
         size_t count = 0;
         if ( auto manager = m_AssetManager.lock() )

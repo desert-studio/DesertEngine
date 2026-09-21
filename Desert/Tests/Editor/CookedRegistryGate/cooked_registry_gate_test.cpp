@@ -76,7 +76,7 @@ namespace
     {
     public:
         explicit SandboxProject( const fs::path& repoRoot )
-            : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ), m_SavedCwd( fs::current_path() )
+             : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ), m_SavedCwd( fs::current_path() )
         {
             const fs::path editorDir = repoRoot / "Editor";
             fs::current_path( editorDir );
@@ -104,7 +104,7 @@ namespace
         SandboxProject( const SandboxProject& )            = delete;
         SandboxProject& operator=( const SandboxProject& ) = delete;
 
-        bool Opened() const
+        [[nodiscard]] bool Opened() const
         {
             return m_Opened;
         }
@@ -124,7 +124,7 @@ TEST( CookedRegistryGate, TheGateCanSeeBothTheRegistryAndTheContentTree )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
-    SandboxProject project( root );
+    const SandboxProject project( root );
     ASSERT_TRUE( project.Opened() ) << "Editor/Desert.deproj could not be read";
 
     ASSERT_TRUE( fs::is_directory( Common::Constants::Path::SHADERDIR_PATH ) )
@@ -147,7 +147,7 @@ TEST( CookedRegistryGate, TheCommittedRegistryAndTheContentTreeDescribeTheSamePr
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject project( root );
+    const SandboxProject project( root );
     ASSERT_TRUE( project.Opened() );
 
     auto loaded = Common::Utils::AssetRegistry::LoadFrom( Common::Utils::AssetRegistry::DefaultPath() );
@@ -179,7 +179,7 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
     // a census worth having is that it would have gone red, and that is only true of rows it reaches.
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject project( root );
+    const SandboxProject project( root );
     ASSERT_TRUE( project.Opened() );
 
     auto loaded = Common::Utils::AssetRegistry::LoadFrom( Common::Utils::AssetRegistry::DefaultPath() );

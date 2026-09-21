@@ -39,10 +39,10 @@ namespace
     class OpenProject
     {
     public:
-        explicit OpenProject( std::filesystem::path dir )
-            : m_Saved( Common::Constants::Path::CurrentProjectRoot() )
+        explicit OpenProject( const std::filesystem::path& dir )
+             : m_Saved( Common::Constants::Path::CurrentProjectRoot() )
         {
-            Common::Constants::Path::SetProjectRoot( std::move( dir ), "Content" );
+            Common::Constants::Path::SetProjectRoot( dir, "Content" );
         }
         ~OpenProject()
         {
@@ -96,7 +96,7 @@ TEST( StoredAssetForm, AnUnknownTypeHasNoFormRatherThanFallingThroughToOne )
 
 TEST( StoredAssetForm, ATaggedKeyIsWrittenVerbatimAndIsTheOnlyFormThatCanNameBothRoots )
 {
-    OpenProject open( kProject );
+    const OpenProject open( kProject );
 
     // A cooked texture lives under COOKED_PATH, a SIBLING of the assets root. That is why the texture
     // slot stores the tag: relative-to-the-assets-root gives `../Cooked/...` for this file and falls
@@ -111,7 +111,7 @@ TEST( StoredAssetForm, ATaggedKeyIsWrittenVerbatimAndIsTheOnlyFormThatCanNameBot
 
 TEST( StoredAssetForm, AssetsRelativeStripsTheTagAndReproducesWhatRelativeToTheAssetsRootGave )
 {
-    OpenProject open( kProject );
+    const OpenProject open( kProject );
 
     const std::filesystem::path file = kProject / "Content" / "Materials" / "M_Rock.demat";
     const std::string           key  = Common::AssetHandle::StableKeyForPath( file );
@@ -119,7 +119,7 @@ TEST( StoredAssetForm, AssetsRelativeStripsTheTagAndReproducesWhatRelativeToTheA
 
     // THE RELATION, and it is the one that matters: the rendering must equal what the branch this
     // replaces computed — `std::filesystem::relative( filepath, ASSETS_PATH ).generic_string()`.
-    std::error_code ec;
+    std::error_code   ec;
     const std::string wasProducedBefore =
          std::filesystem::relative( file, Common::Constants::Path::ASSETS_PATH, ec ).generic_string();
     ASSERT_FALSE( ec );
@@ -130,7 +130,7 @@ TEST( StoredAssetForm, AssetsRelativeStripsTheTagAndReproducesWhatRelativeToTheA
 
 TEST( StoredAssetForm, AFileOutsideTheAssetsRootKeepsItsOwnSpellingInsteadOfEscapingUpwards )
 {
-    OpenProject open( kProject );
+    const OpenProject open( kProject );
 
     // The branches said it out loud — "outside the project — say so plainly" — and the reason is that
     // relative-to-the-assets-root produces `../Cooked/...` here, which resolves against whatever the
@@ -146,13 +146,13 @@ TEST( StoredAssetForm, AFileOutsideTheAssetsRootKeepsItsOwnSpellingInsteadOfEsca
 
 TEST( StoredAssetForm, AMachinePathIsTheFileAsThisMachineSpellsIt )
 {
-    OpenProject open( kProject );
+    const OpenProject open( kProject );
 
     // Meshes and skyboxes. This is what `GetMetadata().Filepath.string()` gave, and the equality is
     // asserted through the round trip rather than assumed: the preloader creates a mesh shell at
     // exactly `PathForStableKey( row.Key )`, so the two must be the same string.
-    const std::filesystem::path mesh = ( Common::Constants::Path::COOKED_PATH / "Meshes/Probe.stmesh" )
-                                            .lexically_normal();
+    const std::filesystem::path mesh =
+         ( Common::Constants::Path::COOKED_PATH / "Meshes/Probe.stmesh" ).lexically_normal();
     const std::string key = Common::AssetHandle::StableKeyForPath( mesh );
     ASSERT_EQ( key, "cooked:Meshes/Probe.stmesh" );
 
@@ -167,7 +167,7 @@ TEST( StoredAssetForm, TheMachinePathFormIsTheONEThatStillCarriesTheCheckoutDire
     // path. Collapsing the twelve branches preserved that behaviour deliberately — changing it rewrites
     // every scene that holds a mesh — so the property is asserted as it IS, and this test is the thing
     // that will have to be edited by whoever fixes it.
-    OpenProject open( kProject );
+    const OpenProject open( kProject );
 
     const std::string mesh = RenderStoredForm( StoredAssetForm::MachinePath, "cooked:Meshes/Probe.stmesh" );
     EXPECT_NE( mesh.find( kProject.generic_string() ), std::string::npos )
@@ -176,9 +176,9 @@ TEST( StoredAssetForm, TheMachinePathFormIsTheONEThatStillCarriesTheCheckoutDire
             "same commit, and this test updated to assert the new form.";
 
     // While the two forms beside it do not.
-    EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "cooked:Textures/T.tex" ).find(
-                    kProject.generic_string() ),
-               std::string::npos );
+    EXPECT_EQ(
+         RenderStoredForm( StoredAssetForm::StableKey, "cooked:Textures/T.tex" ).find( kProject.generic_string() ),
+         std::string::npos );
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::AssetsRelative, "assets:Materials/M.demat" )
                     .find( kProject.generic_string() ),
                std::string::npos );

@@ -44,7 +44,7 @@ namespace Desert::Core::Serialize
                 // The assets tag read out of AssetHandle's own root table rather than spelled again —
                 // there is exactly one spelling of "assets" in this repository and it is that table's.
                 const std::string prefix = std::string( Common::AssetHandle::AssetsTag() ) + ':';
-                if ( key.rfind( prefix, 0 ) == 0 )
+                if ( key.starts_with( prefix ) )
                     return key.substr( prefix.size() );
                 // Under another root, or under none: the key expands to the path it names and that is
                 // what goes in the file, which is what the branches this replaces did.

@@ -161,8 +161,8 @@ namespace Desert::Player
         // RETURNED, not logged and stepped over: a cooked game whose registry will not parse has no
         // content it can find, and starting with an empty project would be the silent substitution §1.4
         // forbids — a black screen whose reason is one line up in a log the player does not have.
-        const auto registry = m_Boot.Run( "Reading the cooked asset registry",
-                                          [] { return Assets::ContentRegistry::Load(); } );
+        const auto registry =
+             m_Boot.Run( "Reading the cooked asset registry", [] { return Assets::ContentRegistry::Load(); } );
         if ( !registry )
             return Common::MakeError( registry.GetError() );
         LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",

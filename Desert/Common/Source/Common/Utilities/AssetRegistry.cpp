@@ -303,7 +303,7 @@ namespace Common::Utils
         const std::string expected = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
         if ( header != expected )
             return MakeFormattedError<AssetRegistry>(
-                 "not a Desert asset registry: line 1 is \"{}\", expected \"{}\"", std::string( header ),
+                 R"(not a Desert asset registry: line 1 is "{}", expected "{}")", std::string( header ),
                  expected );
 
         AssetRegistry    registry;
@@ -338,17 +338,16 @@ namespace Common::Utils
             entry.Kind = std::string( kindText );
 
             if ( identityText != kNone && !ParseHexU64( identityText, entry.Identity ) )
-                return MakeFormattedError<AssetRegistry>(
-                     "line {}: '{}' is neither '-' nor a 16-digit hex handle", lineNo,
-                     std::string( identityText ) );
+                return MakeFormattedError<AssetRegistry>( "line {}: '{}' is neither '-' nor a 16-digit hex handle",
+                                                          lineNo, std::string( identityText ) );
 
             if ( depsText != kNone )
             {
                 std::string_view deps = depsText;
                 for ( ;; )
                 {
-                    const std::size_t comma = deps.find( ',' );
-                    const std::string_view one = deps.substr( 0, comma );
+                    const std::size_t      comma      = deps.find( ',' );
+                    const std::string_view one        = deps.substr( 0, comma );
                     uint64_t               dependency = 0;
                     if ( !ParseHexU64( one, dependency ) )
                         return MakeFormattedError<AssetRegistry>(

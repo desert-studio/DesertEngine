@@ -55,8 +55,7 @@ namespace Desert::Assets
             if ( const auto skinned = manager.ProbeByHandle<SkinnedMeshAsset>( handle ) )
             {
                 if ( skinned->IsReadyForUse() )
-                    visit( skinned->GetSkeletonDependency().Handle,
-                           "a reachable skinned mesh is rigged to it" );
+                    visit( skinned->GetSkeletonDependency().Handle, "a reachable skinned mesh is rigged to it" );
             }
         }
 
@@ -95,8 +94,7 @@ namespace Desert::Assets
 
             for ( const Common::AssetHandle& handle : closure.Handles() )
             {
-                EdgesOf( manager, handle,
-                         [&closure]( const Common::UUID& edge, const std::string& why )
+                EdgesOf( manager, handle, [&closure]( const Common::UUID& edge, const std::string& why )
                          { closure.Mark( edge, why ); } );
             }
 

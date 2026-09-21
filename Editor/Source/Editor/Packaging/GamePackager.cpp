@@ -169,7 +169,7 @@ namespace Desert::Editor
                        "'Rebuild Content Registry' from the command palette, or "
                        "`AssetRegistryTool cook <project>.deproj`.";
             }
-            registry = std::move( loaded.GetValue() );
+            registry = loaded.GetValue(); // GetValue() is a const reference; a move here would be a copy
         }
 
         const auto problems = Common::Content::CompareWithDisk( registry, Common::Content::ScanContentRoots() );

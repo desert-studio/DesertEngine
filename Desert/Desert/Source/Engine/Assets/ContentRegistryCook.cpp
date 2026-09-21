@@ -45,7 +45,7 @@ namespace Desert::Assets::ContentRegistry
 
             for ( const auto& [key, file] : onDisk )
             {
-                if ( state.Registry.FindByKey( key ) )
+                if ( state.Registry.FindByKey( key ) != nullptr )
                     continue;
 
                 Common::Utils::AssetRegistryEntry entry;
@@ -102,7 +102,7 @@ namespace Desert::Assets::ContentRegistry
 
                 const Common::Utils::AssetRegistryEntry* row =
                      state.Registry.FindByHandle( static_cast<uint64_t>( metadata.Handle ) );
-                if ( !row )
+                if ( row == nullptr )
                     continue; // not scanned content (a procedural clip, a `.dgraph` document)
 
                 std::vector<uint64_t> edges;
@@ -139,6 +139,6 @@ namespace Desert::Assets::ContentRegistry
             outcome.Written = true;
         }
 
-        return Common::MakeSuccess( std::move( outcome ) );
+        return Common::MakeSuccess( RefreshOutcome( outcome ) );
     }
 } // namespace Desert::Assets::ContentRegistry

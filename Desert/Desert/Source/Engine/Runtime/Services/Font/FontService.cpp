@@ -158,8 +158,7 @@ namespace Desert::Runtime
         // SECOND handle -> path table living beside the AssetManager's, and it had the one property
         // that made it the wrong foundation: `Clear()` wiped it, so a `.ttf`'s handle stopped naming
         // its file the moment the service was cleared and rescanned.
-        if ( const std::string known = Common::AssetPathIndex::PathFor( handle ).generic_string();
-             !known.empty() )
+        if ( const std::string known = Common::AssetPathIndex::PathFor( handle ).generic_string(); !known.empty() )
         {
             return known;
         }

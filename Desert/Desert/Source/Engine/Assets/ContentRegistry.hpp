@@ -89,13 +89,9 @@ namespace Desert::Assets
         // cannot be parsed is a REFUSAL: a truncated or hand-broken registry must not read as an empty
         // project, because an empty project starts and looks almost right.
 
-
-
-
         // The files of one kind, as paths on THIS machine — each row's key expanded through
         // `AssetHandle::PathForStableKey`. This is the call that replaced
         // `ListFilesRecursive( root )` filtered by extension at sixteen call sites.
-
 
         // Records that `file` is content and that the engine knows it by `effectiveHandle`. Called by
         // `AssetManager::CreateAsset`; idempotent, and cheap enough to be on that path (a hash lookup
@@ -104,7 +100,6 @@ namespace Desert::Assets
         // A path whose extension is not one of the census's kinds is IGNORED rather than refused: the
         // manager also creates assets for `.dgraph` documents and for procedural and memory-backed
         // keys, none of which any scan enumerates. `KindForFile` is the one place that decides.
-
 
         // Records that `file` is content, WITHOUT claiming to know the handle the engine will know it
         // by. Called by the cook at the moment it writes a cooked file (`WriteCookedJson`), which is
@@ -116,7 +111,6 @@ namespace Desert::Assets
         // through `NoteAsset` would mean "the identity is the path-derived one", which for a `.tex` is
         // a claim that is false and would be written into the row. Not knowing and knowing-it-is-none
         // are different answers, so they are different calls.
-
 
         // WHICH FILE A HANDLE NAMES, as a stable key — the inverse of `AssetHandle::FromCookedPath`,
         // for every handle this engine can resolve, asked WITHOUT a type and WITHOUT an AssetManager.
@@ -145,22 +139,20 @@ namespace Desert::Assets
         // genuinely has no file. Callers log their own refusal, because only they know what the number
         // was for.
 
-
         // Which kind, if any, a file belongs to — by extension, over the census. std::nullopt means
         // "not scanned content", which is an answer and not a failure.
-
 
         // THE COOK. Walks every content root, enters files that have no row, drops rows whose file is
         // gone, and re-reads dependency edges from `manager` for every asset it holds. Writes the file
         // when anything changed. Editor only.
         struct RefreshOutcome
         {
-            std::size_t Rows      = 0;
-            std::size_t Added     = 0;
-            std::size_t Removed   = 0;
-            std::size_t Edges     = 0;
-            bool        Written   = false;
-            std::string Describe() const;
+            std::size_t               Rows    = 0;
+            std::size_t               Added   = 0;
+            std::size_t               Removed = 0;
+            std::size_t               Edges   = 0;
+            bool                      Written = false;
+            [[nodiscard]] std::string Describe() const;
         };
         [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager );
 
@@ -168,261 +160,262 @@ namespace Desert::Assets
         // `Refresh` so the editor can flush rows that `NoteAsset` added during a session without
         // re-walking the disk.
 
-
         // Has a row been added or changed since the last `Load`/`Save`? The editor flushes on this
         // rather than writing the file on every import.
-
 
         // EXISTS FOR TESTS ONLY, for `AssetPathIndex::Clear`'s reason: a suite that moves the project
         // root underneath the registry must not judge its second run against the first run's rows.
 
-    namespace Detail
-    {
-        // THE MUTEX IS NOT DECORATION. `AsyncAssetLoader` runs reads on `JobSystem` workers and the
-        // completion registers the asset, so `NoteAsset` is genuinely called from more than one thread.
-        struct State
+        namespace Detail
         {
-            std::mutex                   Mutex;
-            Common::Utils::AssetRegistry Registry;
-            bool                         Dirty = false;
-        };
+            // THE MUTEX IS NOT DECORATION. `AsyncAssetLoader` runs reads on `JobSystem` workers and the
+            // completion registers the asset, so `NoteAsset` is genuinely called from more than one thread.
+            struct State
+            {
+                std::mutex                   Mutex;
+                Common::Utils::AssetRegistry Registry;
+                bool                         Dirty = false;
+            };
 
-        // A FUNCTION-LOCAL STATIC, for `AssetPathIndex`'s reason: `NoteAsset` is reachable from
-        // `AssetManager::CreateAsset`, which a translation unit's static initialiser can reach, and a
-        // namespace-scope object would then be read before its own constructor ran. It is also the
-        // spelling that makes this header-only: one definition, shared across every translation unit
-        // that includes this file, without a `.cpp` for anyone to have to link.
-        inline State& Get_()
+            // A FUNCTION-LOCAL STATIC, for `AssetPathIndex`'s reason: `NoteAsset` is reachable from
+            // `AssetManager::CreateAsset`, which a translation unit's static initialiser can reach, and a
+            // namespace-scope object would then be read before its own constructor ran. It is also the
+            // spelling that makes this header-only: one definition, shared across every translation unit
+            // that includes this file, without a `.cpp` for anyone to have to link.
+            inline State& Get_()
+            {
+                static State state;
+                return state;
+            }
+
+            // Lower-cased so a `.TEX` on a case-preserving filesystem matches the census row, exactly as
+            // `AssetPreloader`'s scan used to lower-case before comparing.
+            inline std::string LowerExtension( const std::filesystem::path& file )
+            {
+                std::string ext = file.extension().string();
+                std::transform( ext.begin(), ext.end(), ext.begin(),
+                                []( unsigned char c ) { return static_cast<char>( ::tolower( c ) ); } );
+                return ext;
+            }
+        } // namespace Detail
+
+        inline Common::ResultStr<std::size_t> Load()
         {
-            static State state;
-            return state;
+            const std::filesystem::path path = Common::Utils::AssetRegistry::DefaultPath();
+
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            // AN ABSENT FILE IS ZERO ROWS AND NOT A REFUSAL, and the distinction is the only one that
+            // matters here: a project that has never been cooked has no registry, and refusing to start
+            // would make "File / New Project" impossible. A file that EXISTS and will not parse is the
+            // refusal — see LoadFrom, which separates the two.
+            if ( !Common::Utils::FileSystem::Exists( path ) )
+            {
+                state.Registry = Common::Utils::AssetRegistry();
+                state.Dirty    = false;
+                LOG_WARN( "[ContentRegistry] '{}' does not exist, so this project has no cooked asset "
+                          "registry and the preload has nothing to read. The editor writes one at the end "
+                          "of its first session; run 'Rebuild Content Registry' to write one now.",
+                          path.string() );
+                return Common::MakeSuccess( std::size_t{ 0 } );
+            }
+
+            auto loaded = Common::Utils::AssetRegistry::LoadFrom( path );
+            if ( !loaded )
+                return Common::MakeError<std::size_t>( loaded.GetError() );
+
+            // No `std::move`: `GetValue()` hands back a const reference, so a move here would be a
+            // copy wearing a move's spelling — which is worse than a copy, because it reads as free.
+            state.Registry = loaded.GetValue();
+            state.Dirty    = false;
+
+            // AND HERE IS THE POINT OF THE WHOLE TIER. Every row's handles are bound to its key before one
+            // asset exists, so a number read out of a `.desce` names its file on a cold start with nothing
+            // having been walked. The count is returned rather than logged here so the host can print it
+            // beside the boot lines it is meant to be compared against.
+            return Common::MakeSuccess( state.Registry.PublishIdentities() );
         }
 
-        // Lower-cased so a `.TEX` on a case-preserving filesystem matches the census row, exactly as
-        // `AssetPreloader`'s scan used to lower-case before comparing.
-        inline std::string LowerExtension( const std::filesystem::path& file )
+        inline const Common::Utils::AssetRegistry& Get()
         {
-            std::string ext = file.extension().string();
-            std::transform( ext.begin(), ext.end(), ext.begin(),
-                            []( unsigned char c ) { return static_cast<char>( ::tolower( c ) ); } );
-            return ext;
+            return Detail::Get_().Registry;
         }
-    } // namespace Detail
 
-    inline Common::ResultStr<std::size_t> Load()
-    {
-        const std::filesystem::path path = Common::Utils::AssetRegistry::DefaultPath();
-
-        Detail::State& state = Detail::Get_();
-
-        const std::lock_guard<std::mutex> lock( state.Mutex );
-
-        // AN ABSENT FILE IS ZERO ROWS AND NOT A REFUSAL, and the distinction is the only one that
-        // matters here: a project that has never been cooked has no registry, and refusing to start
-        // would make "File / New Project" impossible. A file that EXISTS and will not parse is the
-        // refusal — see LoadFrom, which separates the two.
-        if ( !Common::Utils::FileSystem::Exists( path ) )
+        inline std::vector<std::filesystem::path> FilesOfKind( Common::Content::ContentKind kind )
         {
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            std::vector<std::filesystem::path> files;
+            for ( const Common::Utils::AssetRegistryEntry* row :
+                  state.Registry.OfKind( Common::Content::KindName( kind ) ) )
+            {
+                // Expanded through the SAME inverse every other consumer of a stable key uses, which is
+                // asserted to be the exact inverse of the derivation (AssetHandleStability). A registry
+                // cooked on another machine therefore names this machine's files with no rewriting.
+                files.push_back( Common::AssetHandle::PathForStableKey( row->Key ) );
+            }
+            return files;
+        }
+
+        inline std::string KeyForHandle( uint64_t handle )
+        {
+            if ( handle == 0 )
+                return {};
+
+            {
+                Detail::State&                    state = Detail::Get_();
+                const std::lock_guard<std::mutex> lock( state.Mutex );
+
+                if ( const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( handle ) )
+                    return row->Key;
+            }
+
+            return Common::AssetPathIndex::KeyFor( handle );
+        }
+
+        inline std::optional<Common::Content::ContentKind> KindForFile( const std::filesystem::path& file )
+        {
+            const std::string ext = Detail::LowerExtension( file );
+            if ( ext.empty() )
+                return std::nullopt;
+
+            for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
+            {
+                const auto kind = static_cast<Common::Content::ContentKind>( i );
+                if ( Common::Content::KindSpec( kind ).Extension == ext )
+                    return kind;
+            }
+            return std::nullopt;
+        }
+
+        inline void NoteAsset( const std::filesystem::path& file, uint64_t effectiveHandle )
+        {
+            const std::optional<Common::Content::ContentKind> kind = KindForFile( file );
+            if ( !kind )
+                return; // not scanned content — a `.dgraph`, a procedural key, a memory-backed clip
+
+            const std::string key = Common::AssetHandle::StableKeyForPath( file );
+            if ( key.empty() )
+                return;
+
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            const Common::Utils::AssetRegistryEntry* existing = state.Registry.FindByKey( key );
+            if ( existing != nullptr )
+            {
+                // THE IDENTITY IS THE ONE THING A KNOWN ROW CAN STILL LEARN. A `.tex` and a `.demat` carry
+                // a handle of their own, and it is only known once the file has been PARSED — which is
+                // after the row was first written from the filesystem. Recorded only when it differs from
+                // the path-derived number, so the overwhelming majority of rows keep their `-`.
+                const uint64_t pathHandle = existing->PathHandle();
+                const uint64_t identity   = effectiveHandle == pathHandle ? 0 : effectiveHandle;
+                if ( existing->Identity != identity )
+                {
+                    state.Registry.SetIdentity( key, identity );
+                    state.Dirty = true;
+                }
+                return;
+            }
+
+            Common::Utils::AssetRegistryEntry entry;
+            entry.Key  = key;
+            entry.Kind = std::string( Common::Content::KindName( *kind ) );
+            entry.Size = Common::Utils::FileSystem::GetFileSize( file );
+
+            const uint64_t pathHandle = entry.PathHandle();
+            entry.Identity            = effectiveHandle == pathHandle ? 0 : effectiveHandle;
+
+            if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
+            {
+                LOG_ERROR( "[ContentRegistry] '{}' could not enter the cooked asset registry: {}", key,
+                           inserted.GetError() );
+                return;
+            }
+            state.Dirty = true;
+        }
+
+        inline void NoteFile( const std::filesystem::path& file )
+        {
+            const std::optional<Common::Content::ContentKind> kind = KindForFile( file );
+            if ( !kind )
+                return;
+
+            const std::string key = Common::AssetHandle::StableKeyForPath( file );
+            if ( key.empty() )
+                return;
+
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            // A KNOWN ROW IS LEFT EXACTLY AS IT IS, identity included. A re-cook rewrites the bytes of a
+            // file whose identity the running session already learned by parsing it; clearing that here
+            // would make the row forget the number every scene reference holds, and it would do it on the
+            // one path where the file is most likely to be re-read a moment later.
+            if ( state.Registry.FindByKey( key ) != nullptr )
+                return;
+
+            Common::Utils::AssetRegistryEntry entry;
+            entry.Key  = key;
+            entry.Kind = std::string( Common::Content::KindName( *kind ) );
+            entry.Size = Common::Utils::FileSystem::GetFileSize( file );
+
+            if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
+            {
+                LOG_ERROR( "[ContentRegistry] the cook wrote '{}' and it could not enter the registry: {}", key,
+                           inserted.GetError() );
+                return;
+            }
+            state.Dirty = true;
+        }
+
+        inline Common::BoolResultStr Save()
+        {
+            const std::filesystem::path path = Common::Utils::AssetRegistry::DefaultPath();
+
+            Detail::State& state = Detail::Get_();
+
+            std::string text;
+            {
+                const std::lock_guard<std::mutex> lock( state.Mutex );
+                text = state.Registry.Serialize();
+            }
+
+            std::error_code ec;
+            std::filesystem::create_directories( path.parent_path(), ec );
+
+            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text ); !written )
+                return Common::MakeFormattedError<bool>( "the cooked asset registry '{}' could not be written: {}",
+                                                         path.string(), written.GetError() );
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+            state.Dirty = false;
+            return Common::MakeSuccess( true );
+        }
+
+        inline bool Dirty()
+        {
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            return state.Dirty;
+        }
+
+        inline void ResetForTest()
+        {
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
             state.Registry = Common::Utils::AssetRegistry();
             state.Dirty    = false;
-            LOG_WARN( "[ContentRegistry] '{}' does not exist, so this project has no cooked asset "
-                      "registry and the preload has nothing to read. The editor writes one at the end "
-                      "of its first session; run 'Rebuild Content Registry' to write one now.",
-                      path.string() );
-            return Common::MakeSuccess( std::size_t{ 0 } );
         }
-
-        auto loaded = Common::Utils::AssetRegistry::LoadFrom( path );
-        if ( !loaded )
-            return Common::MakeError<std::size_t>( loaded.GetError() );
-
-        state.Registry = std::move( loaded.GetValue() );
-        state.Dirty    = false;
-
-        // AND HERE IS THE POINT OF THE WHOLE TIER. Every row's handles are bound to its key before one
-        // asset exists, so a number read out of a `.desce` names its file on a cold start with nothing
-        // having been walked. The count is returned rather than logged here so the host can print it
-        // beside the boot lines it is meant to be compared against.
-        return Common::MakeSuccess( state.Registry.PublishIdentities() );
-    }
-
-    inline const Common::Utils::AssetRegistry& Get()
-    {
-        return Detail::Get_().Registry;
-    }
-
-    inline std::vector<std::filesystem::path> FilesOfKind( Common::Content::ContentKind kind )
-    {
-        Detail::State& state = Detail::Get_();
-
-        const std::lock_guard<std::mutex> lock( state.Mutex );
-
-        std::vector<std::filesystem::path> files;
-        for ( const Common::Utils::AssetRegistryEntry* row : state.Registry.OfKind( Common::Content::KindName( kind ) ) )
-        {
-            // Expanded through the SAME inverse every other consumer of a stable key uses, which is
-            // asserted to be the exact inverse of the derivation (AssetHandleStability). A registry
-            // cooked on another machine therefore names this machine's files with no rewriting.
-            files.push_back( Common::AssetHandle::PathForStableKey( row->Key ) );
-        }
-        return files;
-    }
-
-    inline std::string KeyForHandle( uint64_t handle )
-    {
-        if ( handle == 0 )
-            return {};
-
-        {
-            Detail::State&                            state = Detail::Get_();
-            const std::lock_guard<std::mutex> lock( state.Mutex );
-
-            if ( const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( handle ) )
-                return row->Key;
-        }
-
-        return Common::AssetPathIndex::KeyFor( handle );
-    }
-
-    inline std::optional<Common::Content::ContentKind> KindForFile( const std::filesystem::path& file )
-    {
-        const std::string ext = Detail::LowerExtension( file );
-        if ( ext.empty() )
-            return std::nullopt;
-
-        for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
-        {
-            const auto kind = static_cast<Common::Content::ContentKind>( i );
-            if ( Common::Content::KindSpec( kind ).Extension == ext )
-                return kind;
-        }
-        return std::nullopt;
-    }
-
-    inline void NoteAsset( const std::filesystem::path& file, uint64_t effectiveHandle )
-    {
-        const std::optional<Common::Content::ContentKind> kind = KindForFile( file );
-        if ( !kind )
-            return; // not scanned content — a `.dgraph`, a procedural key, a memory-backed clip
-
-        const std::string key = Common::AssetHandle::StableKeyForPath( file );
-        if ( key.empty() )
-            return;
-
-        Detail::State& state = Detail::Get_();
-
-        const std::lock_guard<std::mutex> lock( state.Mutex );
-
-        const Common::Utils::AssetRegistryEntry* existing = state.Registry.FindByKey( key );
-        if ( existing )
-        {
-            // THE IDENTITY IS THE ONE THING A KNOWN ROW CAN STILL LEARN. A `.tex` and a `.demat` carry
-            // a handle of their own, and it is only known once the file has been PARSED — which is
-            // after the row was first written from the filesystem. Recorded only when it differs from
-            // the path-derived number, so the overwhelming majority of rows keep their `-`.
-            const uint64_t pathHandle = existing->PathHandle();
-            const uint64_t identity   = effectiveHandle == pathHandle ? 0 : effectiveHandle;
-            if ( existing->Identity != identity )
-            {
-                state.Registry.SetIdentity( key, identity );
-                state.Dirty = true;
-            }
-            return;
-        }
-
-        Common::Utils::AssetRegistryEntry entry;
-        entry.Key  = key;
-        entry.Kind = std::string( Common::Content::KindName( *kind ) );
-        entry.Size = Common::Utils::FileSystem::GetFileSize( file );
-
-        const uint64_t pathHandle = entry.PathHandle();
-        entry.Identity            = effectiveHandle == pathHandle ? 0 : effectiveHandle;
-
-        if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
-        {
-            LOG_ERROR( "[ContentRegistry] '{}' could not enter the cooked asset registry: {}", key,
-                       inserted.GetError() );
-            return;
-        }
-        state.Dirty = true;
-    }
-
-    inline void NoteFile( const std::filesystem::path& file )
-    {
-        const std::optional<Common::Content::ContentKind> kind = KindForFile( file );
-        if ( !kind )
-            return;
-
-        const std::string key = Common::AssetHandle::StableKeyForPath( file );
-        if ( key.empty() )
-            return;
-
-        Detail::State& state = Detail::Get_();
-
-        const std::lock_guard<std::mutex> lock( state.Mutex );
-
-        // A KNOWN ROW IS LEFT EXACTLY AS IT IS, identity included. A re-cook rewrites the bytes of a
-        // file whose identity the running session already learned by parsing it; clearing that here
-        // would make the row forget the number every scene reference holds, and it would do it on the
-        // one path where the file is most likely to be re-read a moment later.
-        if ( state.Registry.FindByKey( key ) )
-            return;
-
-        Common::Utils::AssetRegistryEntry entry;
-        entry.Key  = key;
-        entry.Kind = std::string( Common::Content::KindName( *kind ) );
-        entry.Size = Common::Utils::FileSystem::GetFileSize( file );
-
-        if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
-        {
-            LOG_ERROR( "[ContentRegistry] the cook wrote '{}' and it could not enter the registry: {}", key,
-                       inserted.GetError() );
-            return;
-        }
-        state.Dirty = true;
-    }
-
-    inline Common::BoolResultStr Save()
-    {
-        const std::filesystem::path path = Common::Utils::AssetRegistry::DefaultPath();
-
-        Detail::State& state = Detail::Get_();
-
-        std::string text;
-        {
-            const std::lock_guard<std::mutex> lock( state.Mutex );
-            text = state.Registry.Serialize();
-        }
-
-        std::error_code ec;
-        std::filesystem::create_directories( path.parent_path(), ec );
-
-        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text ); !written )
-            return Common::MakeFormattedError<bool>( "the cooked asset registry '{}' could not be written: {}",
-                                                     path.string(), written.GetError() );
-
-        const std::lock_guard<std::mutex> lock( state.Mutex );
-        state.Dirty = false;
-        return Common::MakeSuccess( true );
-    }
-
-    inline bool Dirty()
-    {
-        Detail::State& state = Detail::Get_();
-
-        const std::lock_guard<std::mutex> lock( state.Mutex );
-
-        return state.Dirty;
-    }
-
-    inline void ResetForTest()
-    {
-        Detail::State& state = Detail::Get_();
-
-        const std::lock_guard<std::mutex> lock( state.Mutex );
-
-        state.Registry = Common::Utils::AssetRegistry();
-        state.Dirty    = false;
-    }
     } // namespace ContentRegistry
 } // namespace Desert::Assets

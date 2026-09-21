@@ -70,10 +70,10 @@ namespace Common::Utils
     // the cost this file exists to remove.
     struct AssetRegistryEntry
     {
-        std::string Key;  // stable key, e.g. "assets:Materials/M_Rock.demat"
-        uint64_t    Size = 0;
-        std::string Kind;         // the scan this file belongs to; see Common/Content/ContentKinds.hpp
-        uint64_t    Identity = 0; // the handle the FILE declares, or 0 when it declares none
+        std::string           Key; // stable key, e.g. "assets:Materials/M_Rock.demat"
+        uint64_t              Size = 0;
+        std::string           Kind;         // the scan this file belongs to; see Common/Content/ContentKinds.hpp
+        uint64_t              Identity = 0; // the handle the FILE declares, or 0 when it declares none
         std::vector<uint64_t> Dependencies; // handles this asset names, read once at cook
 
         // The handle this file's PATH derives — `AssetHandle::FromKey( Key )`. A method rather than a
@@ -135,10 +135,10 @@ namespace Common::Utils
         // THE DECLARED IDENTITY IS NOT PUBLISHED, and the reason is a distinction the implementation
         // spells out at length: the index says which STRING a number was hashed from, this registry
         // says which FILE a number names, and for a cooked texture those are two different files.
-        std::size_t PublishIdentities() const;
+        [[nodiscard]] std::size_t PublishIdentities() const;
 
-        [[nodiscard]] std::string                         Serialize() const;
-        [[nodiscard]] static ResultStr<AssetRegistry>     Parse( std::string_view text );
+        [[nodiscard]] std::string                     Serialize() const;
+        [[nodiscard]] static ResultStr<AssetRegistry> Parse( std::string_view text );
 
         // Where the cooked registry lives: under the project's `Cooked/` tree, which is already a
         // packaged tree (`Editor/Source/Editor/Packaging/PackagedContentTrees.hpp`), so a shipped game

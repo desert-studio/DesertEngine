@@ -55,8 +55,7 @@ namespace Desert::Runtime
 
         // From `Common::AssetPathIndex`, which `FromCookedPath` records; the private second table this
         // replaces died with `Clear()`, exactly as the font service's did.
-        if ( const std::string known = Common::AssetPathIndex::PathFor( handle ).generic_string();
-             !known.empty() )
+        if ( const std::string known = Common::AssetPathIndex::PathFor( handle ).generic_string(); !known.empty() )
         {
             return known;
         }

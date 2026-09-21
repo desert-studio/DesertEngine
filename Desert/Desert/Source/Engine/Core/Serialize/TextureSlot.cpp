@@ -24,7 +24,9 @@ namespace Desert::Core::Serialize
         // findable if something REGISTERED it, which until this slice meant the boot's directory walk.
         // The registry answers the same question from a file, so a texture nothing has loaded still
         // names itself, and the answer is the row's own key rather than a reconstruction of it.
-        const std::string key = Assets::ContentRegistry::KeyForHandle( handle );
+        // NOT `const`: this string is returned, and a const local cannot be moved out of — the copy
+        // would be silent.
+        std::string key = Assets::ContentRegistry::KeyForHandle( handle );
         if ( key.empty() )
         {
             LOG_ERROR( "[Textures] Handle {0} is set on a texture slot and the cooked asset registry has "

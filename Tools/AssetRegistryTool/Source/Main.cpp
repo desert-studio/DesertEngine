@@ -81,8 +81,8 @@ namespace
 
         const auto project = Common::Project::ReadProjectFile( json.GetValue() );
         if ( !project )
-            return Common::MakeFormattedError<fs::path>( "{} is not a readable project: {}",
-                                                         projectPath.string(), project.GetError() );
+            return Common::MakeFormattedError<fs::path>( "{} is not a readable project: {}", projectPath.string(),
+                                                         project.GetError() );
 
         const fs::path projectDir = fs::absolute( projectPath ).parent_path().lexically_normal();
         Common::Constants::Path::SetProjectRoot( projectDir, project.GetValue().AssetsRoot );
@@ -107,7 +107,7 @@ namespace
                  Common::Constants::Path::SHADERDIR_PATH.string() );
         }
 
-        return Common::MakeSuccess( std::move( projectDir ) );
+        return Common::MakeSuccess( fs::path( projectDir ) );
     }
 
     int Cook( const fs::path& projectPath )
@@ -128,7 +128,7 @@ namespace
             auto loaded = Common::Utils::AssetRegistry::LoadFrom( out );
             if ( !loaded )
                 return Fail( loaded.GetError() );
-            previous = std::move( loaded.GetValue() );
+            previous = loaded.GetValue(); // GetValue() is a const reference; a move here would be a copy
         }
 
         Common::Utils::AssetRegistry registry;
@@ -149,8 +149,7 @@ namespace
 
         std::error_code ec;
         fs::create_directories( out.parent_path(), ec );
-        if ( const auto written =
-                  Common::Utils::FileSystem::WriteContentToFileAtomic( out, registry.Serialize() );
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( out, registry.Serialize() );
              !written )
             return Fail( written.GetError() );
 

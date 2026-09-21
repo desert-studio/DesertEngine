@@ -63,7 +63,7 @@ namespace Common::Content
             const std::string kindName( KindName( file.Kind ) );
 
             const Utils::AssetRegistryEntry* row = registry.FindByKey( key );
-            if ( !row )
+            if ( row == nullptr )
             {
                 problems.push_back(
                      { RegistryDisagreement::Kind::MissingRow, key,
@@ -79,9 +79,9 @@ namespace Common::Content
             if ( row->Kind != kindName )
             {
                 problems.push_back( { RegistryDisagreement::Kind::WrongKind, key,
-                                      "'" + key + "' is recorded as a '" + row->Kind + "' and is a '" +
-                                           kindName + "' on disk, so the loader would build it with the "
-                                                      "wrong asset class." +
+                                      "'" + key + "' is recorded as a '" + row->Kind + "' and is a '" + kindName +
+                                           "' on disk, so the loader would build it with the "
+                                           "wrong asset class." +
                                            kRemedy } );
             }
 
