@@ -4807,6 +4807,23 @@ namespace Desert::Editor
         m_SceneFilter[0]     = '\0';
     }
 
+    void EditorLayer::BeginContentSettle()
+    {
+        m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
+    }
+
+    void EditorLayer::UpdateContentSettling()
+    {
+        const auto& loader = Assets::AsyncAssetLoader::Get();
+        if ( !m_Content.Tick( loader.Outstanding(), loader.StartedCount() ) )
+            return;
+
+        LOG_INFO( "[Content] settled after {} frame(s) in {:.1f} ms; {} read(s) have gone to a worker "
+                  "this session. This is the cost that used to be a boot stage, and a scene that asks "
+                  "for nothing pays none of it.",
+                  m_Content.FramesWaited(), m_Content.ElapsedMs(), loader.StartedCount() );
+    }
+
     // THE ONLY PLACE THE OS STILL SHOWS THIS WINDOW'S NAME. With the system frame gone the title is no
     // longer painted anywhere on screen, but the Dock, Mission Control, the taskbar and every window
     // switcher still read it — and the window's own name was "Desert Engine — <project>" for the whole
@@ -4816,52 +4833,6 @@ namespace Desert::Editor
     // owns that string, and a second copy in this file would be the same one-fact-two-owners shape as a
     // remembered "is it maximized". The comparison is what keeps this to one glfwSetWindowTitle per change
     // rather than sixty a second.
-    void EditorLayer::BeginContentSettle()
-    {
-        m_ContentSettleState         = ContentSettleState::Waiting;
-        m_ContentSettleFrames        = 0;
-        m_ContentStartedAtFrameBegin = Assets::AsyncAssetLoader::Get().StartedCount();
-        m_ContentWaitBegan           = std::chrono::steady_clock::now();
-    }
-
-    void EditorLayer::UpdateContentSettling()
-    {
-        if ( m_ContentSettleState == ContentSettleState::Settled )
-            return;
-
-        const auto&    loader  = Assets::AsyncAssetLoader::Get();
-        const uint64_t started = loader.StartedCount();
-
-        // TWO CONDITIONS, AND THE SECOND ONE IS THE ONE THAT IS EASY TO LEAVE OUT.
-        //
-        // "Nothing outstanding" alone is not settled, because a request that has just COMPLETED is the
-        // most likely reason the next one is about to be made: a cloud type arrives, and only then is
-        // there a handle to ask the noise service for. A wait that ended on the first empty queue would
-        // release the frame in the middle of that chain and photograph the scene one link short.
-        //
-        // So the frame just rendered must also have asked for nothing new. `StartedCount` is monotonic
-        // and per-read rather than per-request, which is exactly the granularity this needs.
-        const bool quietFrame        = loader.Outstanding() == 0 && started == m_ContentStartedAtFrameBegin;
-        m_ContentStartedAtFrameBegin = started;
-        ++m_ContentSettleFrames;
-
-        // AT LEAST TWO FRAMES, because the first one is where the renderer ASKS. Concluding "settled"
-        // from a queue that is empty before anything has looked at the scene is the same mistake as
-        // reading a shot at three frames: the instrument answers before the thing it measures has
-        // happened.
-        if ( m_ContentSettleFrames < 2 || !quietFrame )
-            return;
-
-        const double ms =
-             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_ContentWaitBegan )
-                  .count();
-        LOG_INFO( "[Content] settled after {} frame(s) in {:.1f} ms; {} read(s) have gone to a worker "
-                  "this session. This is the cost that used to be a boot stage, and a scene that asks "
-                  "for nothing pays none of it.",
-                  m_ContentSettleFrames, ms, loader.StartedCount() );
-        m_ContentSettleState = ContentSettleState::Settled;
-    }
-
     void EditorLayer::SyncWindowTitle()
     {
         const auto& window = m_Application->GetWindow();

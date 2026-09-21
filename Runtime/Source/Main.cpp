@@ -37,10 +37,12 @@
 
 #include "PackagedContent.hpp"
 #include "RuntimeLayer.hpp"
+#include "RuntimeShot.hpp"
 
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace Desert::Player
 {
@@ -91,6 +93,17 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             projectArg = argv[++i];
         else if ( std::strcmp( argv[i], "--scene" ) == 0 )
             Desert::Player::s_SceneOverride = argv[++i];
+    }
+
+    // THE ONLY WAY TO PHOTOGRAPH THE PROCESS A PLAYER STARTS. Parsed from a vector rather than from
+    // argv in this loop because the parse is then a pure function with a test of its own; a refusal is
+    // FATAL rather than a warning, since an unattended capture that silently did not happen leaves a
+    // windowed game running with nobody watching it. See RuntimeShot.hpp.
+    const std::vector<std::string> shotArgs( argv + ( argc > 0 ? 1 : 0 ), argv + argc );
+    if ( const auto parsed = Desert::Player::ParseRuntimeShot( shotArgs, Desert::Player::RuntimeShot::Get() );
+         !parsed )
+    {
+        FailStartup( parsed.GetError(), 2 );
     }
 
     // DEV: an explicit --project opens the loose on-disk descriptor (overrides packaged discovery).

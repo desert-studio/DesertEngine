@@ -1,4 +1,5 @@
 #include "RuntimeLayer.hpp"
+#include "RuntimeShot.hpp"
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -38,14 +39,19 @@
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/AudioECSSystem.hpp>
 
+// STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); declare only.
+#include <stb_image/stb_image_write.h>
+
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/SwapChain.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/Render2D/DrawList2D.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
@@ -62,9 +68,49 @@
 #include <Common/Core/KeyCodes.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <string_view>
+
+namespace
+{
+    /// The device image behind an authored sprite handle, or nullptr if the project has none. Both the
+    /// loading cover and the authored splash ask this, and they used to ask it in two hand-copied
+    /// blocks -- which is how the two of them would have drifted apart the first time either was fixed.
+    Desert::Graphic::Image2D* ResolveSpriteImage( const Desert::Assets::AssetHandle& handle )
+    {
+        auto* textures = Desert::Runtime::ResourceRegistry::GetTextureService();
+        if ( textures == nullptr )
+            return nullptr;
+        auto* tex = textures->Get( handle );
+        if ( tex == nullptr )
+            return nullptr;
+        auto* images = Desert::Runtime::ResourceRegistry::GetImageService();
+        if ( images == nullptr )
+            return nullptr;
+        auto* img = dynamic_cast<Desert::Graphic::Image2D*>( images->Resolve( tex->GetImageHandle() ) );
+        if ( img == nullptr || img->GetWidth() == 0 || img->GetHeight() == 0 )
+            return nullptr;
+        return img;
+    }
+
+    /// Centre @p img over a @p w x @p h surface, scaled to FIT (letterboxed, never cropped, never
+    /// stretched): a splash authored at one aspect must not be distorted by the player's window.
+    void DrawFittedSprite( Desert::Graphic::Render2D::DrawList2D& dl, Desert::Graphic::Image2D& img, float w,
+                           float h, float alpha )
+    {
+        const auto  iw  = static_cast<float>( img.GetWidth() );
+        const auto  ih  = static_cast<float>( img.GetHeight() );
+        const float fit = std::min( w / iw, h / ih );
+        const float sw  = iw * fit;
+        const float sh  = ih * fit;
+        const float cx  = w * 0.5f;
+        const float cy  = h * 0.5f;
+        dl.AddImage( &img, { cx - sw * 0.5f, cy - sh * 0.5f }, { cx + sw * 0.5f, cy + sh * 0.5f }, { 0.0f, 0.0f },
+                     { 1.0f, 1.0f }, glm::vec4( 1.0f, 1.0f, 1.0f, alpha ) );
+    }
+} // namespace
 
 namespace Desert::Player
 {
@@ -180,9 +226,18 @@ namespace Desert::Player
                       scenePath );
         }
 
-        // Straight into gameplay: scripts tick, physics runs, the main CameraComponent drives the view.
+        // PLAY, BUT NOT YET PRESENTED. The state is Play from here because Play is what binds the view to
+        // the scene's own CameraComponent (`Scene::UpdateActiveCameraSource`): a loading frame rendered
+        // from anywhere else would ask the renderer for the content of a view the game is never going to
+        // show, and the gate below would then open on the wrong answer. What the loading state suspends
+        // is TIME, not the render — see the zero timestep in OnUpdate.
         m_Scene->SetState( Core::Scene::SceneState::Play );
-        TriggerSplash(); // the boot scene's splash is the game's startup splash
+        // AND THE WORLD IS NOW THE GATE'S SUBJECT. Nothing it wants has been asked for yet: the cloud
+        // kinds are demand-driven, so the first frame is where the asking happens.
+        // TriggerSplash() is NOT called here any more. It used to start the authored splash at the top of
+        // the boot, so the duration a designer picked was spent racing a file read instead of being seen;
+        // it is armed on the tick the gate opens (OnContentReady), over a world that is actually there.
+        m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
 
         m_Boot.LogSummary();
         // AND HERE THE BOOT IS OVER, which is what turns every later synchronous load into a reported
@@ -287,7 +342,12 @@ namespace Desert::Player
             return;
         }
         m_Scene->SetState( Core::Scene::SceneState::Play );
-        TriggerSplash();
+        // THE SAME GATE AS THE BOOT'S, and this is the half that would have been forgotten. A level switch
+        // is a second world handed over at run time — its clouds, its layouts, its themes are read on
+        // demand exactly like the first one's — so a loading state that covered only the boot would ship
+        // the defect back into the game the moment a door was opened.
+        m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
+        m_LoadingFramesPresented = 0;
         LOG_INFO( "[Runtime] Switched scene: {}", path );
     }
 
@@ -303,6 +363,148 @@ namespace Desert::Player
         }
     }
 
+    void RuntimeLayer::RecordShotIfDue()
+    {
+        const auto& shot = RuntimeShot::Get();
+        if ( !shot.Active() || m_ShotRecorded )
+            return;
+        // Counted in PRESENTED frames, from 1: m_PresentedFrames still holds the count BEFORE this one.
+        if ( m_PresentedFrames + 1 != shot.Frames )
+            return;
+
+        const auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
+        if ( !swapChain )
+        {
+            LOG_ERROR( "[Shot] there is no swapchain to capture the presented frame from." );
+            m_ShotRecorded = true; // refused, but decided: OnFramePresented ends the run with a status
+            return;
+        }
+        if ( const auto recorded = swapChain->RecordFrameCapture(); !recorded )
+        {
+            LOG_ERROR( "[Shot] {}", recorded.GetError() );
+            m_ShotRecorded = true;
+            return;
+        }
+        m_ShotRecorded = true;
+    }
+
+    void RuntimeLayer::OnFramePresented()
+    {
+        ++m_PresentedFrames;
+
+        const auto& shot = RuntimeShot::Get();
+        if ( !shot.Active() || !m_ShotRecorded )
+            return;
+
+        int exitCode = 0;
+
+        const auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
+        if ( !swapChain )
+        {
+            LOG_ERROR( "[Shot] the swapchain went away before the captured frame could be collected." );
+            exitCode = 1;
+        }
+        else
+        {
+            const std::filesystem::path file( shot.Output );
+            if ( file.has_parent_path() && !file.parent_path().empty() )
+            {
+                std::error_code ec;
+                std::filesystem::create_directories( file.parent_path(), ec );
+                if ( ec && !std::filesystem::exists( file.parent_path() ) )
+                    LOG_ERROR( "[Shot] could not create '{}': {}", file.parent_path().string(), ec.message() );
+            }
+
+            // The copy was submitted with this frame; waiting is what makes the staging buffer readable.
+            Graphic::Renderer::GetInstance().WaitDeviceIdle();
+
+            uint32_t   width  = 0;
+            uint32_t   height = 0;
+            const auto pixels = swapChain->TakeCapturedFrameRGBA8( width, height );
+            if ( !pixels )
+            {
+                LOG_ERROR( "[Shot] {}", pixels.GetError() );
+                exitCode = 1;
+            }
+            else
+            {
+                stbi_flip_vertically_on_write( 0 );
+                const bool written =
+                     stbi_write_png( shot.Output.c_str(), static_cast<int>( width ), static_cast<int>( height ), 4,
+                                     pixels.GetValue().data(), static_cast<int>( width ) * 4 ) != 0;
+                if ( !written )
+                {
+                    LOG_ERROR( "[Shot] stb_image_write refused to write '{}'.", shot.Output );
+                    exitCode = 1;
+                }
+                else
+                {
+                    LOG_INFO( "[Shot] wrote presented frame {} of the GAME -> {} ({}x{}); the world was "
+                              "{} at that frame.",
+                              shot.Frames, shot.Output, width, height,
+                              m_Content.Loading() ? "still loading" : "complete" );
+                }
+            }
+        }
+
+        m_Application->Close( exitCode );
+    }
+
+    void RuntimeLayer::OnContentReady()
+    {
+        LOG_INFO( "[Runtime] the world is complete after {} settling frame(s) / {} presented loading "
+                  "frame(s), {:.1f} ms; {} read(s) have gone to a worker this session. Until this tick the "
+                  "swapchain carried the loading screen, not the scene -- which is the difference between "
+                  "a lazy loader and a game that shows a sky it has not read yet.",
+                  m_Content.FramesWaited(), m_LoadingFramesPresented, m_Content.ElapsedMs(),
+                  Assets::AsyncAssetLoader::Get().StartedCount() );
+
+        // THE AUTHORED SPLASH STARTS HERE, over a world that exists. Armed at the top of the boot (where
+        // it used to be) its duration was spent on top of frames the player was not going to see anyway,
+        // so a two-second splash was two seconds of nothing in particular.
+        TriggerSplash();
+    }
+
+    void RuntimeLayer::DrawLoadingScreen( Graphic::Render2D::DrawList2D& dl, float w, float h )
+    {
+        // FULLY OPAQUE AND FULL-SCREEN, FIRST. The scene's blit is skipped while this is up, so the
+        // swapchain image underneath is whatever the previous frame left; an alpha < 1 here would show the
+        // last frame of the level being left, which is the frame a level switch exists to replace.
+        dl.AddRectFilled( { 0.0f, 0.0f }, { w, h }, glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) );
+
+        // The world's own splash image, if it names one. Read from the scene's settings rather than from
+        // m_SplashSprite: that field belongs to the authored splash ANIMATION, which does not start until
+        // the gate opens, and borrowing it would have coupled "what the loading screen shows" to "has the
+        // splash been armed yet" -- two facts with one field, and the loading screen would have been blank
+        // for exactly the scenes that bothered to author an image.
+        const Assets::AssetHandle sprite = m_Scene->GetSettings().SplashSprite;
+        if ( auto* img = ResolveSpriteImage( sprite ) )
+            DrawFittedSprite( dl, *img, w, h, 1.0f );
+
+        // AND SOMETHING THAT MOVES. A still loading screen is indistinguishable from a hung game -- the
+        // editor's overlay solves this with a label, and this host has no font it can rely on (fonts are
+        // assets, and the point of this screen is that the assets are not here yet). So: a track and a
+        // block sliding along it, driven by the PRESENTED frame count rather than by a clock, so that an
+        // unattended capture of frame N is reproducible.
+        constexpr float kTrackFraction = 0.34f;
+        constexpr float kBlockFraction = 0.18f;
+        constexpr float kPeriodFrames  = 48.0f;
+
+        const float trackW = w * kTrackFraction;
+        const float blockW = trackW * kBlockFraction;
+        const float x0     = ( w - trackW ) * 0.5f;
+        const float y0     = h * 0.82f;
+        const float thick  = std::max( 2.0f, h * 0.004f );
+
+        dl.AddRectFilled( { x0, y0 }, { x0 + trackW, y0 + thick }, glm::vec4( 1.0f, 1.0f, 1.0f, 0.16f ) );
+
+        // A ping-pong rather than a wrap, so the block is never cut in half at the ends of the track.
+        const float phase = std::fmod( static_cast<float>( m_LoadingFramesPresented ), kPeriodFrames * 2.0f );
+        const float tri   = phase < kPeriodFrames ? phase / kPeriodFrames : 2.0f - phase / kPeriodFrames;
+        const float bx    = x0 + tri * ( trackW - blockW );
+        dl.AddRectFilled( { bx, y0 }, { bx + blockW, y0 + thick }, glm::vec4( 1.0f, 1.0f, 1.0f, 0.85f ) );
+    }
+
     Common::BoolResultStr RuntimeLayer::OnUpdate( const Common::Timestep& ts )
     {
         // ONE PUMP PER TICK, and without this line the shipping host would read a cloud volume on a
@@ -311,33 +513,17 @@ namespace Desert::Player
         // it by `AsyncAssetPump`.
         Assets::AsyncAssetLoader::Get().Pump();
 
-        // The startup boundary, logged once: everything before this line (preloads, shader compiles,
-        // scene load) is what a player waits through — the millisecond timestamps upstream attribute
-        // that wait to its phases, this line marks where it ended.
+        // THE LOADING STATE, TICKED HERE AND NOWHERE ELSE. The rule it applies -- nothing outstanding AND
+        // the frame just rendered asked for nothing new, and never before the second frame -- is one
+        // implementation shared with the editor (Engine/Assets/ContentGate.hpp), because two hosts
+        // holding two copies of a two-condition rule is how one of them ends up holding one condition.
         //
-        // IT NOW WAITS FOR THE DEMAND-DRIVEN CONTENT TOO, and that is the honest boundary rather than
-        // the convenient one. The cloud kinds are no longer read at boot, so "the preloads finished"
-        // stopped being the same statement as "the game has what its first frame needs"; a marker that
-        // still said the first would attribute the wait to no phase at all, which is the exact defect
-        // the per-stage timings were added to remove.
-        if ( !m_LoggedFirstUpdate )
+        // The marker this replaced said the same thing to the LOG and to nothing else. A log line is not
+        // a state: nothing could branch on it, so the frames it described were presented anyway.
         {
-            const auto&    loader  = Assets::AsyncAssetLoader::Get();
-            const uint64_t started = loader.StartedCount();
-            // Two conditions, for the reason the editor's copy states: an empty queue in the middle of a
-            // chain is not a settled one, and the first frame is where the renderer ASKS.
-            const bool quietFrame        = loader.Outstanding() == 0 && started == m_ContentStartedAtFrameBegin;
-            m_ContentStartedAtFrameBegin = started;
-            ++m_ContentSettleFrames;
-
-            if ( m_ContentSettleFrames >= 2 && quietFrame )
-            {
-                m_LoggedFirstUpdate = true;
-                LOG_INFO( "[Runtime] first update — startup work is done, the game is presenting. {} "
-                          "read(s) went to a worker over {} settling frame(s); that is the cost the "
-                          "eager cloud preload used to charge every launch whatever the scene wanted.",
-                          started, m_ContentSettleFrames );
-            }
+            const auto& loader = Assets::AsyncAssetLoader::Get();
+            if ( m_Content.Tick( loader.Outstanding(), loader.StartedCount() ) )
+                OnContentReady();
         }
 
         if ( m_SplashTimer > 0.0f )
@@ -391,7 +577,12 @@ namespace Desert::Player
         if ( const auto begin = m_Scene->BeginScene(); !begin )
             return Common::MakeError( begin.GetError() );
 
-        m_Scene->OnUpdate( ts );
+        // ZERO WHILE THE LOADING SCREEN IS UP, and the render still runs. The render is what ASKS -- a
+        // frame that is not drawn requests nothing, so a host that skipped it would wait for content
+        // nobody had ordered and the gate would never open. What must not run is TIME: without this the
+        // player's first visible frame is already several frames into the game, with the physics stepped
+        // and every script's OnUpdate called against a world they could not be seen reacting to.
+        m_Scene->OnUpdate( m_Content.Loading() ? Common::Timestep( 0.0f ) : ts );
 
         if ( const auto end = m_Scene->EndScene(); !end )
             return Common::MakeError( end.GetError() );
@@ -459,106 +650,124 @@ namespace Desert::Player
 
             if ( m_PresentReady )
             {
+                // THE ONE LINE THAT KEEPS A HALF-READ WORLD OFF THE SCREEN.
+                //
+                // The scene IS rendered while the gate is shut -- rendering is what asks the services for
+                // the cloud kinds, and a frame that is not drawn orders nothing -- but the result does not
+                // reach the swapchain. Skipping the blit rather than drawing an opaque rectangle over it
+                // is deliberate: a cover is only as opaque as whoever edits it next leaves it, and this way
+                // the undercooked image is not in the swapchain to begin with.
+                const bool loading = m_Content.Loading();
+
                 // 1) Present the scene: blit its final (tonemapped) image over the whole swapchain.
-                if ( const auto image = m_Scene->GetFinalImage() )
+                if ( !loading )
                 {
-                    if ( auto tp = m_BlitExecutor->GetTexture2DProperty( "u_Texture" ) )
-                        tp->SetImage( image.get() );
-                    renderer.SubmitFullscreenQuad( m_BlitPipeline.get(), m_BlitExecutor.get() );
+                    if ( const auto image = m_Scene->GetFinalImage() )
+                    {
+                        if ( auto tp = m_BlitExecutor->GetTexture2DProperty( "u_Texture" ) )
+                            tp->SetImage( image.get() );
+                        renderer.SubmitFullscreenQuad( m_BlitPipeline.get(), m_BlitExecutor.get() );
+                    }
                 }
 
                 // 2) UI + splash via Render2D, on top.
                 m_Render2D->BeginFrame( { 0.0f, 0.0f, w, h } );
                 auto& dl = m_Render2D->GetDrawList();
 
-                glm::mat4        vp( 1.0f );
-                const glm::mat4* vpPtr = nullptr;
-                if ( auto cam = m_Scene->GetMainCamera().lock() )
+                if ( loading )
                 {
-                    vp    = cam->GetProjectionMatrix() * cam->GetViewMatrix();
-                    vpPtr = &vp;
+                    ++m_LoadingFramesPresented;
+                    DrawLoadingScreen( dl, w, h );
+
+                    // KEYS AND CLICKS MADE AT A LOADING SCREEN ARE NOT INPUT TO THE GAME. Without this the
+                    // accumulators keep filling while the cover is up and empty themselves into the first
+                    // frame the player can see -- a character that starts the level already walking, from
+                    // a key held down during the wait.
+                    m_PrevMouseDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left );
+                    m_ScrollAccum   = 0.0f;
+                    m_TypedText.clear();
+                    m_Backspace     = false;
+                    m_TabPressed    = false;
+                    m_SubmitPressed = false;
+                    m_EscapePressed = false;
                 }
-
-                // Fullscreen: window mouse px == framebuffer px. MouseReleased is the down->up edge.
-                const auto [mx, my] = Input::Mouse::Get().GetMousePosition();
-                const bool  down    = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left );
-                UI::UIInput input;
-                input.MousePx       = { mx, my };
-                input.MouseDown     = down;
-                input.MouseReleased = m_PrevMouseDown && !down;
-                // The right button is reported HELD, not as an edge: the frame derives the edge itself from
-                // UIViewContext::PrevRightDown, exactly as it does for the left one, so the press a context
-                // menu opens on is computed in one place.
-                input.MouseRightDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Right );
-                input.Escape         = m_EscapePressed;
-                input.ScrollDelta   = m_ScrollAccum;
-                input.TypedText     = m_TypedText;
-                input.Backspace     = m_Backspace;
-                input.Tab           = m_TabPressed;
-                input.Submit        = m_SubmitPressed;
-                m_PrevMouseDown     = down;
-                m_ScrollAccum       = 0.0f;
-                m_TypedText.clear();
-                m_Backspace     = false;
-                m_TabPressed    = false;
-                m_SubmitPressed = false;
-                m_EscapePressed = false;
-
-                // Pointer events / drops can fire several times in one frame, so they come back in their
-                // own list; a button action still arrives through `clicked`.
-                std::vector<std::string> uiMessages;
-                // The player has exactly one view, but its UI state still belongs to that view rather
-                // than to the process — a scene change rebinds it, and nothing else can reach it.
-                //
-                // EVERY CANVAS OF THE LEVEL, in authored Sort Order. This used to ask UI::SoleCanvas and
-                // refuse a level with two canvases, because a view could hold the runtime state of one
-                // canvas only; Ю4 keys that state by (canvas x view), so a HUD and a pause menu are simply
-                // two canvases and both are drawn. A level with none draws nothing and says nothing — a
-                // game without UI is legitimate, and it was only ever a refusal because of the limit.
-                m_UIView.Materials = &m_Render2D->Materials();
-                m_UIView.RenderTextures = m_UIRenderTextures.get();
-                UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
-                for ( const entt::entity canvas : UI::CanvasesInDrawOrder( m_Scene->GetRegistry() ) )
-                    if ( const auto drawn = UI::RenderCanvas2D( m_UIView, m_Scene->GetRegistry(), canvas, dl,
-                                                                vpPtr, &input, &clicked, &m_FocusedUI );
-                         !drawn )
-                        LOG_ERROR( "[Runtime] {}", drawn.GetError() );
-                UI::EndUIFrame( m_UIView, m_Scene->GetRegistry(), dl, &input, &m_FocusedUI, &clicked,
-                                &uiMessages );
-
-                // Queue them for gameplay: ScriptSystem drains this and calls OnUIMessage on every script.
-                for ( const std::string& msg : uiMessages )
-                    UI::UIMessageQueue::Get().Push( msg );
-
-                if ( m_SplashTimer > 0.0f )
+                else
                 {
-                    const float elapsed = m_SplashDuration - m_SplashTimer;
-                    float       a       = 1.0f;
-                    if ( m_SplashFade > 0.0f )
+                    glm::mat4        vp( 1.0f );
+                    const glm::mat4* vpPtr = nullptr;
+                    if ( auto cam = m_Scene->GetMainCamera().lock() )
                     {
-                        if ( elapsed < m_SplashFade )
-                            a = elapsed / m_SplashFade; // fade in
-                        else if ( m_SplashTimer < m_SplashFade )
-                            a = m_SplashTimer / m_SplashFade; // fade out
+                        vp    = cam->GetProjectionMatrix() * cam->GetViewMatrix();
+                        vpPtr = &vp;
                     }
-                    a = std::clamp( a, 0.0f, 1.0f );
 
-                    dl.AddRectFilled( { 0.0f, 0.0f }, { w, h }, glm::vec4( 0.0f, 0.0f, 0.0f, a ) ); // fade
-                    if ( auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( m_SplashSprite ) )
+                    // Fullscreen: window mouse px == framebuffer px. MouseReleased is the down->up edge.
+                    const auto [mx, my] = Input::Mouse::Get().GetMousePosition();
+                    const bool  down    = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Left );
+                    UI::UIInput input;
+                    input.MousePx       = { mx, my };
+                    input.MouseDown     = down;
+                    input.MouseReleased = m_PrevMouseDown && !down;
+                    // The right button is reported HELD, not as an edge: the frame derives the edge itself from
+                    // UIViewContext::PrevRightDown, exactly as it does for the left one, so the press a context
+                    // menu opens on is computed in one place.
+                    input.MouseRightDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Right );
+                    input.Escape         = m_EscapePressed;
+                    input.ScrollDelta    = m_ScrollAccum;
+                    input.TypedText      = m_TypedText;
+                    input.Backspace      = m_Backspace;
+                    input.Tab            = m_TabPressed;
+                    input.Submit         = m_SubmitPressed;
+                    m_PrevMouseDown      = down;
+                    m_ScrollAccum        = 0.0f;
+                    m_TypedText.clear();
+                    m_Backspace     = false;
+                    m_TabPressed    = false;
+                    m_SubmitPressed = false;
+                    m_EscapePressed = false;
+
+                    // Pointer events / drops can fire several times in one frame, so they come back in their
+                    // own list; a button action still arrives through `clicked`.
+                    std::vector<std::string> uiMessages;
+                    // The player has exactly one view, but its UI state still belongs to that view rather
+                    // than to the process — a scene change rebinds it, and nothing else can reach it.
+                    //
+                    // EVERY CANVAS OF THE LEVEL, in authored Sort Order. This used to ask UI::SoleCanvas and
+                    // refuse a level with two canvases, because a view could hold the runtime state of one
+                    // canvas only; Ю4 keys that state by (canvas x view), so a HUD and a pause menu are simply
+                    // two canvases and both are drawn. A level with none draws nothing and says nothing — a
+                    // game without UI is legitimate, and it was only ever a refusal because of the limit.
+                    m_UIView.Materials      = &m_Render2D->Materials();
+                    m_UIView.RenderTextures = m_UIRenderTextures.get();
+                    UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
+                    for ( const entt::entity canvas : UI::CanvasesInDrawOrder( m_Scene->GetRegistry() ) )
+                        if ( const auto drawn = UI::RenderCanvas2D( m_UIView, m_Scene->GetRegistry(), canvas, dl,
+                                                                    vpPtr, &input, &clicked, &m_FocusedUI );
+                             !drawn )
+                            LOG_ERROR( "[Runtime] {}", drawn.GetError() );
+                    UI::EndUIFrame( m_UIView, m_Scene->GetRegistry(), dl, &input, &m_FocusedUI, &clicked,
+                                    &uiMessages );
+
+                    // Queue them for gameplay: ScriptSystem drains this and calls OnUIMessage on every script.
+                    for ( const std::string& msg : uiMessages )
+                        UI::UIMessageQueue::Get().Push( msg );
+
+                    if ( m_SplashTimer > 0.0f )
                     {
-                        auto* img = static_cast<Graphic::Image2D*>(
-                             Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                        if ( img && img->GetWidth() > 0 && img->GetHeight() > 0 )
+                        const float elapsed = m_SplashDuration - m_SplashTimer;
+                        float       a       = 1.0f;
+                        if ( m_SplashFade > 0.0f )
                         {
-                            const float iw  = static_cast<float>( img->GetWidth() );
-                            const float ih  = static_cast<float>( img->GetHeight() );
-                            const float fit = std::min( w / iw, h / ih );
-                            const float sw = iw * fit, sh = ih * fit;
-                            const float cx = w * 0.5f, cy = h * 0.5f;
-                            dl.AddImage( img, { cx - sw * 0.5f, cy - sh * 0.5f },
-                                         { cx + sw * 0.5f, cy + sh * 0.5f }, { 0.0f, 0.0f }, { 1.0f, 1.0f },
-                                         glm::vec4( 1.0f, 1.0f, 1.0f, a ) );
+                            if ( elapsed < m_SplashFade )
+                                a = elapsed / m_SplashFade; // fade in
+                            else if ( m_SplashTimer < m_SplashFade )
+                                a = m_SplashTimer / m_SplashFade; // fade out
                         }
+                        a = std::clamp( a, 0.0f, 1.0f );
+
+                        dl.AddRectFilled( { 0.0f, 0.0f }, { w, h }, glm::vec4( 0.0f, 0.0f, 0.0f, a ) ); // fade
+                        if ( auto* img = ResolveSpriteImage( m_SplashSprite ) )
+                            DrawFittedSprite( dl, *img, w, h, a );
                     }
                 }
 
@@ -567,6 +776,13 @@ namespace Desert::Player
         }
 
         renderer.EndRenderPass();
+
+        // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and it has to be: a swapchain
+        // image may only be touched between its acquire and its present, and reading it back afterwards
+        // is a Vulkan violation that looks perfect in the resulting PNG -- only the validation layer
+        // objects. So the copy goes into THIS frame's command buffer, and the bytes are collected in
+        // OnFramePresented once the present that carried it has gone out.
+        RecordShotIfDue();
 
         // Dispatch the clicked button's action AFTER the pass (scene switch queued for next OnUpdate; quit /
         // URL are process-level). Same encoding the UI walker produces.
