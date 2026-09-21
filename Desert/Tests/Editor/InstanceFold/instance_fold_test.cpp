@@ -11,6 +11,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <filesystem>
+#include <fstream>
 #include <set>
 #include <string>
 
@@ -192,6 +194,68 @@ TEST( InstanceFold, TheAuthorablePrimitivesAreAPrefixOfTheEnumAndExcludeTheGener
         EXPECT_NE( shape, Geometry::PrimitiveType::Terrain );
         EXPECT_NE( shape, Geometry::PrimitiveType::LightCube );
     }
+}
+
+// ---------------------------------------------------------------- the queue the fold fills
+
+// A FOLD THAT EMPTIES THE SCENE IS THE WORST OUTCOME THIS FEATURE HAS, and it was reachable.
+//
+// MeshRenderer::DrawStaticMeshes drains BOTH queues -- the auto-batched static meshes and the ISM
+// batches -- and it opened with `if ( m_StaticQueue.empty() ) return;`. So an Instanced Static Mesh
+// appeared only in a scene that also held at least one ordinary static mesh. Measured 2026-09-21 on
+// one directional light plus one ISM of 4 000 cubes: mean pixel 109.3 against 160.0, and the frame
+// was byte-identical from inside the field and from nine thousand units above it -- nothing was
+// drawn at all. Collapse DESTROYS the entities it folds, so folding the last static meshes in a
+// scene emptied it, silently: the renderer's own "these entities do not appear" refusal fires only
+// when the instanced CELL is missing, and the function had returned before reaching it.
+//
+// A FRAME CANNOT GUARD THIS and a unit test cannot reach a Vulkan queue, so the guard is over the
+// SOURCE TEXT -- the same technique DrawCounterFunnel uses, for the same reason: nothing visible
+// distinguishes "this queue was drained" from "this function returned first". Comments are stripped
+// before the check, because the paragraph above names the forbidden spelling and a census that reds
+// on its own explanation is a census somebody switches off (and takes a real finding with it).
+TEST( InstanceFold, TheStaticMeshPassDoesNotReturnBeforeItReachesTheInstancedQueue )
+{
+    namespace fs = std::filesystem;
+
+    fs::path root = fs::current_path();
+    for ( int i = 0; i < 8 && !( fs::exists( root / "Desert" / "Common" ) && fs::exists( root / "Editor" ) ); ++i )
+        root = root.parent_path();
+    ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) ) << "tree not found -- this census saw nothing";
+
+    const fs::path renderer = root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /
+                              "Mesh" / "MeshRenderer.cpp";
+    std::ifstream in( renderer );
+    ASSERT_TRUE( in.is_open() ) << renderer.string();
+
+    std::string guard;
+    std::string line;
+    bool        inside = false;
+    while ( std::getline( in, line ) )
+    {
+        if ( const std::size_t glyph = line.find_first_not_of( " \t" ); glyph != std::string::npos )
+        {
+            if ( line.compare( glyph, 2, "//" ) == 0 || line.compare( glyph, 1, "*" ) == 0 )
+                continue; // prose, including the paragraph above and the one beside the guard itself
+        }
+        if ( line.find( "void MeshRenderer::DrawStaticMeshes()" ) != std::string::npos )
+        {
+            inside = true;
+            continue;
+        }
+        if ( !inside )
+            continue;
+        guard += line;
+        if ( line.find( "return;" ) != std::string::npos )
+            break; // the FIRST early-out is the one that can skip the instanced batches
+    }
+
+    ASSERT_TRUE( inside ) << "MeshRenderer::DrawStaticMeshes was not found -- the census aimed at nothing";
+    EXPECT_NE( guard.find( "m_StaticQueue" ), std::string::npos ) << guard;
+    EXPECT_NE( guard.find( "m_InstancedQueue" ), std::string::npos )
+         << "the first early-out of DrawStaticMeshes does not ask about the instanced queue it also "
+            "drains, so an ISM alone in a scene is not drawn: "
+         << guard;
 }
 
 int main( int argc, char** argv )

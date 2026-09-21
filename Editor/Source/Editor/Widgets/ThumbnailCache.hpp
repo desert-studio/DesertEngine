@@ -38,12 +38,18 @@ namespace Desert::Editor
          *        EditorLayer::OnDetach.
          *
          * WHY A STATIC SWEEP RATHER THAN A CALL PER OWNER. Most caches belong to a panel and go down with
-         * `m_Panels.clear()`, which is safely inside the editor's teardown. Three do NOT: the component
+         * `m_Panels.clear()`, which is safely inside the editor's teardown. Four do NOT: the component
          * widgets keep theirs in FUNCTION-STATICS —
          *
-         *     StaticMeshComponent.cpp        `static MaterialComponentWidget materialComponent;`
-         *     StaticMeshComponent.cpp        `static ThumbnailCache s_Thumbnails;`
-         *     SkinnedMeshComponentWidget.cpp `static MaterialComponentWidget materials;`
+         *     StaticMeshComponent.cpp           `static MaterialComponentWidget materialComponent;`
+         *     StaticMeshComponent.cpp           `static ThumbnailCache s_Thumbnails;`
+         *     SkinnedMeshComponentWidget.cpp    `static MaterialComponentWidget materials;`
+         *     ComponentEditorRegistrations.cpp  `static MaterialComponentWidget s_InstancedMaterials;`
+         *
+         * (the fourth is the Instanced Static Mesh editor's material slots, added when an ISM gained a
+         * material UI at all — it is listed here because this paragraph is a census and a census that
+         * quietly falls behind is worse than none; `ReleaseAll` itself needed no change, because the
+         * cache knows its own instances, which is the whole argument below.)
          *
          * — so they are destroyed at `__cxa_finalize`, after ~Application has taken the device and the VMA
          * allocator with it. `~VulkanImage2D` then releases through a freed allocator and the process

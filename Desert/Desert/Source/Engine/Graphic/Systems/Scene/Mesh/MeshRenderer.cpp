@@ -793,7 +793,23 @@ namespace Desert::Graphic::System
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void MeshRenderer::DrawStaticMeshes()
     {
-        if ( m_StaticQueue.empty() )
+        // BOTH QUEUES, AND THE SECOND ONE WAS MISSING. The instanced batches at the bottom of this
+        // function are drawn INSIDE it, so `if ( m_StaticQueue.empty() ) return;` meant an Instanced
+        // Static Mesh was drawn only in a scene that also held at least one ordinary static mesh —
+        // silently, with no message, because the "these entities do not appear" refusal below only
+        // fires when the instanced CELL is missing, not when the function returned before reaching it.
+        //
+        // Measured 2026-09-21 on a scene of one directional light and one ISM of 4 000 cubes: mean
+        // pixel 109.3 against 160.0 for the same 4 000 as separate entities, and the frame was
+        // BYTE-IDENTICAL whether the camera stood inside the field or nine thousand units above it —
+        // the tell that nothing was being drawn at all rather than drawn wrongly. Adding one ordinary
+        // static mesh anywhere in the scene made all 4 000 appear.
+        //
+        // It is reachable from the editor in one gesture now: "Collapse selection into Instanced Static
+        // Mesh" DESTROYS the entities it folds, so folding the last static meshes in a scene used to
+        // empty it. The shadow pass has its own loop and never had this guard, which is why the draw
+        // counter still reported thousands of instances while the colour frame held none.
+        if ( m_StaticQueue.empty() && m_InstancedQueue.empty() )
             return;
 
         auto&      renderer = Renderer::GetInstance();
