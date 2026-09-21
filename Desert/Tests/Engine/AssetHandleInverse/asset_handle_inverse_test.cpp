@@ -114,7 +114,7 @@ namespace
             }
             if ( text[at + 1] == '*' )
             {
-                const size_t end = text.find( "*/", at + 2 );
+                const size_t end  = text.find( "*/", at + 2 );
                 const size_t last = end == std::string::npos ? text.size() : end + 2;
                 for ( ; at < last; ++at )
                 {
@@ -125,6 +125,18 @@ namespace
             }
         }
         return text;
+    }
+
+    // One offence per line. A FREE FUNCTION and not the `<< [&]{...}()` it replaces: a parameter-less
+    // multi-line lambda inside a stream chain is one of the constructs clang-format 18 (the CI gate) and
+    // clang-format 22 (what this machine has) wrap differently, so the local check passes work the gate
+    // rejects. The rule is cheaper to obey than to rediscover.
+    std::string Joined( const std::vector<std::string>& lines )
+    {
+        std::string out;
+        for ( const std::string& line : lines )
+            out += line + "\n";
+        return out;
     }
 
     // Saves and restores the process-wide project root AND the index that is keyed behind it. The two
@@ -316,8 +328,8 @@ TEST( AssetHandleInverse, EveryContentFileIsNamedBackByItsOwnHandle )
             continue;
         ++files;
 
-        const auto handle = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( entry.path() ) );
-        const fs::path named = Common::AssetPathIndex::PathFor( handle );
+        const auto     handle = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( entry.path() ) );
+        const fs::path named  = Common::AssetPathIndex::PathFor( handle );
 
         if ( named.empty() )
         {
@@ -338,13 +350,7 @@ TEST( AssetHandleInverse, EveryContentFileIsNamedBackByItsOwnHandle )
 
     EXPECT_TRUE( offences.empty() ) << offences.size() << " of " << files
                                     << " content files are not named back by their own handle:\n"
-                                    << [&offences]
-    {
-        std::string joined;
-        for ( const auto& line : offences )
-            joined += line + "\n";
-        return joined;
-    }();
+                                    << Joined( offences );
 
     // Printed rather than pinned. A census that asserts a COUNT is satisfied by editing the count; the
     // number is here so a reader of the sweep can see the corpus shrink, and the assertion below is only
@@ -402,7 +408,8 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
 
     for ( const auto& row : meshes )
     {
-        const auto derived = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( expandFromProject( row.Path ) ) );
+        const auto derived =
+             static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( expandFromProject( row.Path ) ) );
         EXPECT_EQ( derived, row.Handle )
              << row.Scene << " writes '" << row.Path << "' beside " << row.Handle << ", but that path now "
              << "derives " << derived << ". The stored number is what the scene resolves against, so "
@@ -502,8 +509,8 @@ TEST( AssetHandleInverse, PathForIsTheAssertedInverseAndNotASecondSpellingOfIt )
     // Every root, so a root added to the table reaches this assertion without an edit here.
     for ( const auto& candidate : Common::AssetHandle::ContentRoots() )
     {
-        const fs::path asset = *candidate.Root / "Nested" / "Thing.bin";
-        const auto handle    = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( asset ) );
+        const fs::path asset  = *candidate.Root / "Nested" / "Thing.bin";
+        const auto     handle = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( asset ) );
 
         const std::string key = Common::AssetPathIndex::KeyFor( handle );
         ASSERT_FALSE( key.empty() ) << "no inverse recorded for a file under root '" << candidate.Tag << "'";
@@ -564,14 +571,9 @@ TEST( AssetHandleInverse, EveryIdentityAdoptedFromAFileGoesThroughTheRecordingHe
     EXPECT_TRUE( offences.empty() )
          << "an identity is installed without recording its inverse, so that asset's handle will name "
             "nothing:\n"
-         << [&offences]
-    {
-        std::string joined;
-        for ( const auto& line : offences )
-            joined += line + "\n";
-        return joined;
-    }() << "Use AssetBase::AdoptHandleFromFile instead, and pass the key of the file the NUMBER is a "
-           "statement about.";
+         << Joined( offences )
+         << "Use AssetBase::AdoptHandleFromFile instead, and pass the key of the file the NUMBER is a "
+            "statement about.";
 }
 
 TEST( AssetHandleInverse, NothingInProductionClearsTheIndex )
@@ -586,9 +588,9 @@ TEST( AssetHandleInverse, NothingInProductionClearsTheIndex )
     std::vector<std::string> offences;
     size_t                   scanned = 0;
 
-    for ( const fs::path& base : { fs::path( root ) / "Desert/Desert/Source", fs::path( root ) / "Desert/Common/Source",
-                                   fs::path( root ) / "Editor/Source", fs::path( root ) / "Runtime/Source",
-                                   fs::path( root ) / "Tools" } )
+    for ( const fs::path& base :
+          { fs::path( root ) / "Desert/Desert/Source", fs::path( root ) / "Desert/Common/Source",
+            fs::path( root ) / "Editor/Source", fs::path( root ) / "Runtime/Source", fs::path( root ) / "Tools" } )
     {
         for ( const fs::path& source : SourcesUnder( base ) )
         {
@@ -600,15 +602,11 @@ TEST( AssetHandleInverse, NothingInProductionClearsTheIndex )
     }
 
     ASSERT_GT( scanned, 100u ) << "only " << scanned << " sources were read — the census walked nothing";
-    EXPECT_TRUE( offences.empty() ) << "production code clears the handle->path index:\n"
-                                    << [&offences]
-    {
-        std::string joined;
-        for ( const auto& line : offences )
-            joined += line + "\n";
-        return joined;
-    }() << "Clear() exists for tests that move the project root. An asset that is unloaded must still be "
-           "able to say which file it came from, or the reference that reloads it is a different asset.";
+    EXPECT_TRUE( offences.empty() )
+         << "production code clears the handle->path index:\n"
+         << Joined( offences )
+         << "Clear() exists for tests that move the project root. An asset that is unloaded must still be "
+            "able to say which file it came from, or the reference that reloads it is a different asset.";
 }
 
 int main( int argc, char** argv )

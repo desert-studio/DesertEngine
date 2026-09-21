@@ -168,8 +168,7 @@ namespace Desert::Assets
             // Discarded for the reason FromCookedPath discards it: the only failure is a collision, this
             // function cannot repair one, and AssetPathIndex::Record has already named both keys and the
             // number in the log.
-            static_cast<void>(
-                 Common::AssetPathIndex::Record( static_cast<uint64_t>( handle ), stableKey ) );
+            static_cast<void>( Common::AssetPathIndex::Record( static_cast<uint64_t>( handle ), stableKey ) );
         }
 
         /// THE PER-TYPE HALF OF `Load()`. Reads the file and fills the type; says nothing about timing.

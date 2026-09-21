@@ -18,8 +18,8 @@ namespace Common::AssetPathIndex
         // that has no order to get wrong.
         struct Table
         {
-            std::mutex                                 Mutex;
-            std::unordered_map<uint64_t, std::string>  KeyByHandle;
+            std::mutex                                Mutex;
+            std::unordered_map<uint64_t, std::string> KeyByHandle;
         };
 
         Table& Get()
