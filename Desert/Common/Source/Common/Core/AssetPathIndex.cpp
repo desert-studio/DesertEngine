@@ -39,7 +39,7 @@ namespace Common::AssetPathIndex
 
         Table& table = Get();
 
-        std::lock_guard<std::mutex> lock( table.Mutex );
+        const std::lock_guard<std::mutex> lock( table.Mutex );
 
         const auto [it, inserted] = table.KeyByHandle.emplace( handle, std::string( stableKey ) );
         if ( inserted )
@@ -67,7 +67,7 @@ namespace Common::AssetPathIndex
 
         Table& table = Get();
 
-        std::lock_guard<std::mutex> lock( table.Mutex );
+        const std::lock_guard<std::mutex> lock( table.Mutex );
 
         const auto it = table.KeyByHandle.find( handle );
         return it == table.KeyByHandle.end() ? std::string() : it->second;
@@ -86,7 +86,7 @@ namespace Common::AssetPathIndex
     {
         Table& table = Get();
 
-        std::lock_guard<std::mutex> lock( table.Mutex );
+        const std::lock_guard<std::mutex> lock( table.Mutex );
 
         return table.KeyByHandle.size();
     }
@@ -95,7 +95,7 @@ namespace Common::AssetPathIndex
     {
         Table& table = Get();
 
-        std::lock_guard<std::mutex> lock( table.Mutex );
+        const std::lock_guard<std::mutex> lock( table.Mutex );
 
         table.KeyByHandle.clear();
     }

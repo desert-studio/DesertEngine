@@ -66,7 +66,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Core/SceneSettings.hpp" );
+            const std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Core/SceneSettings.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -76,8 +76,8 @@ namespace
 
     std::string ReadAll( const fs::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
-        std::ostringstream buffer;
+        const std::ifstream in( path, std::ios::binary );
+        std::ostringstream  buffer;
         buffer << in.rdbuf();
         return buffer.str();
     }
@@ -196,6 +196,12 @@ namespace
     // Pulls every such pair out of one parsed scene document. The walk is recursive because a component
     // block sits at an unknown depth inside the entity list, and hard-coding the depth is how the next
     // format change makes this census pass over nothing.
+    //
+    // The recursion is silenced rather than removed: the document IS recursive, and an explicit worklist
+    // would have to copy every subtree because `to_array`/`to_object` return by VALUE. The directive has
+    // to be the LAST comment line before the statement — one more line of prose under it and clang-tidy
+    // does not see it, which is how the first attempt at this went red with the comment already written.
+    // NOLINTNEXTLINE(misc-no-recursion)
     void CollectPairs( const rfl::Generic& node, const std::string& scene, std::vector<PathAndHandle>& meshes,
                        std::vector<PathAndHandle>& materials )
     {
@@ -228,7 +234,7 @@ namespace
         const auto stringAt = [&valueOf]( const char* name ) -> std::optional<std::string>
         {
             const rfl::Generic* found = valueOf( name );
-            if ( !found )
+            if ( found == nullptr )
                 return std::nullopt;
             const auto text = found->to_string();
             return text ? std::optional<std::string>( text.value() ) : std::nullopt;
@@ -236,7 +242,7 @@ namespace
         const auto intAt = [&valueOf]( const char* name ) -> std::optional<uint64_t>
         {
             const rfl::Generic* found = valueOf( name );
-            if ( !found )
+            if ( found == nullptr )
                 return std::nullopt;
             if ( const auto value = found->to_int64() )
                 return static_cast<uint64_t>( value.value() );
@@ -251,7 +257,7 @@ namespace
 
         const rfl::Generic* paths = valueOf( "MaterialPaths" );
         const rfl::Generic* guids = valueOf( "MaterialGuids" );
-        if ( paths && guids )
+        if ( paths != nullptr && guids != nullptr )
         {
             const auto pathArray = paths->to_array();
             const auto guidArray = guids->to_array();
@@ -285,7 +291,7 @@ namespace
             const auto parsed = rfl::json::read<rfl::Generic>( ReadAll( entry.path() ) );
             if ( !parsed )
             {
-                if ( parseError && parseError->empty() )
+                if ( parseError != nullptr && parseError->empty() )
                     *parseError = entry.path().filename().string() + ": " + parsed.error().what();
                 continue;
             }
@@ -316,7 +322,7 @@ TEST( AssetHandleInverse, EveryContentFileIsNamedBackByItsOwnHandle )
     const fs::path content = fs::path( root ) / "Editor/Resources/Assets";
     ASSERT_TRUE( fs::exists( content ) ) << content.string() << " is missing";
 
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( root + "Editor", "Resources/Assets" );
 
     std::vector<std::string> offences;
@@ -371,7 +377,7 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
     const fs::path scenes = fs::path( root ) / "Editor/Resources/Assets/Scenes";
     ASSERT_TRUE( fs::exists( scenes ) ) << scenes.string() << " is missing";
 
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( root + "Editor", "Resources/Assets" );
 
     std::vector<PathAndHandle> meshes;
@@ -455,7 +461,7 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
 
 TEST( AssetHandleInverse, MintingAPathDerivedHandleRecordsItsInverse )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/tmp/desert-b5-probe", "Content" );
 
     const fs::path asset  = fs::path( "/tmp/desert-b5-probe/Content" ) / "Textures" / "T_Probe.png";
@@ -467,7 +473,7 @@ TEST( AssetHandleInverse, MintingAPathDerivedHandleRecordsItsInverse )
 
 TEST( AssetHandleInverse, AKeyThatIsNotAPathIsNotIndexedAsOne )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     // FromKey is the raw hash and has callers that mint identities rather than locations — the thumbnail
     // key, an imported sub-mesh's key, a `procedural://` clip. Indexing those would put entries in a table
@@ -480,7 +486,7 @@ TEST( AssetHandleInverse, AKeyThatIsNotAPathIsNotIndexedAsOne )
 
 TEST( AssetHandleInverse, ACollisionIsRefusedAndTheFirstBindingStands )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
 
     const uint64_t handle = 0x5DE5E27B5u;
 
@@ -503,7 +509,7 @@ TEST( AssetHandleInverse, ACollisionIsRefusedAndTheFirstBindingStands )
 
 TEST( AssetHandleInverse, PathForIsTheAssertedInverseAndNotASecondSpellingOfIt )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/tmp/desert-b5-probe", "Content" );
 
     // Every root, so a root added to the table reaches this assertion without an edit here.
@@ -552,7 +558,7 @@ TEST( AssetHandleInverse, EveryIdentityAdoptedFromAFileGoesThroughTheRecordingHe
         for ( const fs::path& source : SourcesUnder( base ) )
         {
             ++scanned;
-            if ( allowed.count( source.filename().string() ) )
+            if ( allowed.contains( source.filename().string() ) )
                 continue;
 
             const std::string text = WithoutComments( ReadAll( source ) );
