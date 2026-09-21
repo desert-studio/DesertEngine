@@ -46,10 +46,10 @@ namespace Desert::Editor::Commands
     /// What two meshes must share before one instanced draw can stand for both.
     struct FoldMeshIdentity
     {
-        Common::AssetHandle                          Mesh;      ///< null when @ref Primitive is used
+        Common::AssetHandle                            Mesh;      ///< null when @ref Primitive is used
         std::optional<Desert::Geometry::PrimitiveType> Primitive; ///< a built-in shape instead of an asset
-        std::vector<Common::AssetHandle>             Materials; ///< the material slot list, in order
-        bool                                         CastShadows = true;
+        std::vector<Common::AssetHandle>               Materials; ///< the material slot list, in order
+        bool                                           CastShadows = true;
 
         [[nodiscard]] bool SameAs( const FoldMeshIdentity& other ) const;
 
@@ -61,9 +61,9 @@ namespace Desert::Editor::Commands
     struct FoldCandidate
     {
         Common::UUID     Entity;
-        std::string      Name;                ///< the tag, for refusal messages
+        std::string      Name; ///< the tag, for refusal messages
         FoldMeshIdentity Identity;
-        glm::mat4        World{ 1.0f };       ///< instance transforms are WORLD-space (MeshECSSystem)
+        glm::mat4        World{ 1.0f }; ///< instance transforms are WORLD-space (MeshECSSystem)
 
         /// Things this entity carries that an ISM cannot: "a forced LOD", "children", "a Script".
         /// Non-empty => the whole fold is refused, naming this entity and these words.

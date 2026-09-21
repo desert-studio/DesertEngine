@@ -1063,8 +1063,8 @@ namespace Desert::Editor::Commands
             // from "these two cubes are different cubes".
             std::string message = planned.GetError();
             if ( withoutAMesh > 0 )
-                message += " (" + std::to_string( withoutAMesh ) + " of the " +
-                           std::to_string( uuids.size() ) + " selected carry no static mesh)";
+                message += " (" + std::to_string( withoutAMesh ) + " of the " + std::to_string( uuids.size() ) +
+                           " selected carry no static mesh)";
             return Common::MakeError<Common::UUID>( message );
         }
         const FoldPlan& plan = planned.GetValue();

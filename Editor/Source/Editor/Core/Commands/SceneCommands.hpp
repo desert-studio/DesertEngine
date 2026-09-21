@@ -131,7 +131,8 @@ namespace Desert::Editor::Commands
      * One undo step: undo brings every source back with its original UUID and removes the ISM.
      * @return the new entity's UUID, or the refusal.
      */
-    [[nodiscard]] Common::ResultStr<Common::UUID> CollapseIntoInstancedMesh( const std::vector<Common::UUID>& uuids );
+    [[nodiscard]] Common::ResultStr<Common::UUID>
+    CollapseIntoInstancedMesh( const std::vector<Common::UUID>& uuids );
 
     // Runs `mutate` (a component add/remove from the Details panel) undoably: the entity subtree is
     // snapshotted before and after, and undo/redo swap between the two serialized states (delete +

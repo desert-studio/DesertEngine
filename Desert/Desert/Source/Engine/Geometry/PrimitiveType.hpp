@@ -61,6 +61,6 @@ namespace Desert::Geometry
     // them would be two more knobs that move nothing. Every Details combo offering a shape reads THIS
     // array, so the order it draws and the value it stores cannot disagree.
     inline constexpr std::array<PrimitiveType, 6> kAuthorablePrimitives = {
-         PrimitiveType::Cube,     PrimitiveType::Sphere,   PrimitiveType::Pyramid,
-         PrimitiveType::Plane,    PrimitiveType::Cylinder, PrimitiveType::Capsule };
+         PrimitiveType::Cube,  PrimitiveType::Sphere,   PrimitiveType::Pyramid,
+         PrimitiveType::Plane, PrimitiveType::Cylinder, PrimitiveType::Capsule };
 } // namespace Desert::Geometry

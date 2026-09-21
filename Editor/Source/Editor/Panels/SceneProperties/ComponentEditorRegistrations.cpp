@@ -1221,7 +1221,7 @@ namespace Desert::Editor
     // ============================================================================================
     static ComponentEditorEntry MakeInstancedStaticMeshEntry()
     {
-        using ISMC  = ::Desert::ECS::InstancedStaticMeshComponent;
+        using ISMC   = ::Desert::ECS::InstancedStaticMeshComponent;
         namespace GG = ::Desert::Geometry;
 
         ComponentEditorEntry e;
@@ -1320,12 +1320,12 @@ namespace Desert::Editor
             const size_t instanceCount = c.InstanceTransforms.size();
 
             ::Desert::Mesh* mesh =
-                 c.RuntimeMesh ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
-                               : ( c.MeshHandle
-                                        ? ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle )
-                                        : ( c.Primitive.has_value()
-                                                 ? GG::PrimitiveMeshFactory::GetShared( *c.Primitive )
-                                                 : nullptr ) );
+                 c.RuntimeMesh
+                      ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
+                      : ( c.MeshHandle
+                               ? ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle )
+                               : ( c.Primitive.has_value() ? GG::PrimitiveMeshFactory::GetShared( *c.Primitive )
+                                                           : nullptr ) );
             // AND THE LOD CHAIN IS EMPTY FOR EXACTLY THE MESHES AN ISM USUALLY HOLDS. Submesh::LODs says
             // so in its own header — "empty for meshes with no LODs (procedural / skinned)" — and the
             // first version of this readout asked only the chain, so every primitive ISM reported
@@ -1350,9 +1350,8 @@ namespace Desert::Editor
                 ::ImGui::Text( "%zu", instanceCount );
                 U::ImGuiUtilities::EndPropertyRow();
 
-                U::ImGuiUtilities::BeginPropertyRow( "Triangles",
-                                                     "Instances x the mesh's LOD 0 triangles, before "
-                                                     "per-instance culling and LOD" );
+                U::ImGuiUtilities::BeginPropertyRow( "Triangles", "Instances x the mesh's LOD 0 triangles, before "
+                                                                  "per-instance culling and LOD" );
                 if ( mesh )
                     ::ImGui::Text( "%llu  (%llu each)",
                                    static_cast<unsigned long long>( trianglesEach * instanceCount ),
@@ -1424,8 +1423,8 @@ namespace Desert::Editor
                 {
                     for ( int z = 0; z < 10; ++z )
                         for ( int x = 0; x < 10; ++x )
-                            c.InstanceTransforms.push_back( glm::translate(
-                                 glm::mat4( 1.0f ), glm::vec3( x * 200.0f, 0.0f, z * 200.0f ) ) );
+                            c.InstanceTransforms.push_back(
+                                 glm::translate( glm::mat4( 1.0f ), glm::vec3( x * 200.0f, 0.0f, z * 200.0f ) ) );
                 }
                 ::ImGui::SameLine();
                 if ( ::ImGui::Button( "Clear" ) )
@@ -1444,14 +1443,14 @@ namespace Desert::Editor
                     {
                         ::ImGui::PushID( i );
 
-                        const auto decomposed =
-                             ::Desert::ECS::Rules::DecomposeTransform( c.InstanceTransforms[static_cast<size_t>( i )] );
+                        const auto decomposed = ::Desert::ECS::Rules::DecomposeTransform(
+                             c.InstanceTransforms[static_cast<size_t>( i )] );
                         glm::vec3 translation = decomposed.Translation;
                         // `+ 0.0f` turns IEEE negative zero into positive zero: eulerAngles of an
                         // unrotated instance hands back -0.0 on two axes, and a row reading "-0.0" on a
                         // prop nobody has rotated reads as a defect in the decomposition.
-                        glm::vec3 degrees     = glm::degrees( decomposed.Rotation ) + 0.0f;
-                        glm::vec3 scale       = decomposed.Scale;
+                        glm::vec3 degrees = glm::degrees( decomposed.Rotation ) + 0.0f;
+                        glm::vec3 scale   = decomposed.Scale;
 
                         bool              moved = false;
                         const std::string label = "[" + std::to_string( i ) + "]";

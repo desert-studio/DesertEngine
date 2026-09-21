@@ -127,7 +127,7 @@ namespace Desert::Editor
             // a person picks IS the enumerator that gets stored. The hand-typed twin of this list in the
             // Instanced Static Mesh editor had two shapes transposed — see PrimitiveTypeName's header.
             std::array<const char*, Geometry::kAuthorablePrimitives.size()> shapes{};
-            int currentShape = 0;
+            int                                                             currentShape = 0;
             for ( size_t i = 0; i < Geometry::kAuthorablePrimitives.size(); ++i )
             {
                 shapes[i] = Geometry::PrimitiveTypeName( Geometry::kAuthorablePrimitives[i] );

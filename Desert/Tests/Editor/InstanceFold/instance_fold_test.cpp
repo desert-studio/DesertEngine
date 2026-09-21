@@ -94,8 +94,8 @@ TEST( InstanceFold, TwoDifferentMeshesAreRefusedAndBothAreNamed )
     FoldMeshIdentity sphere;
     sphere.Primitive = Geometry::PrimitiveType::Sphere;
 
-    const auto planned = PlanInstanceFold( { At( "A", 1, { 0.0f, 0.0f, 0.0f } ),
-                                             At( "B", 2, { 0.0f, 0.0f, 0.0f }, sphere ) } );
+    const auto planned =
+         PlanInstanceFold( { At( "A", 1, { 0.0f, 0.0f, 0.0f } ), At( "B", 2, { 0.0f, 0.0f, 0.0f }, sphere ) } );
     ASSERT_FALSE( planned.IsSuccess() );
     EXPECT_NE( planned.GetError().find( "Cube" ), std::string::npos ) << planned.GetError();
     EXPECT_NE( planned.GetError().find( "Sphere" ), std::string::npos ) << planned.GetError();
@@ -105,11 +105,11 @@ TEST( InstanceFold, DifferentMaterialSlotsAreADifferentIdentityEvenOnTheSameMesh
 {
     // An ISM has ONE material list for every instance it holds. Two cubes with different materials
     // folded together would take one of the two looks, silently.
-    FoldMeshIdentity painted   = CubeIdentity();
-    painted.Materials          = { ::Common::AssetHandle::FromKey( "Materials/Red.demat" ) };
+    FoldMeshIdentity painted = CubeIdentity();
+    painted.Materials        = { ::Common::AssetHandle::FromKey( "Materials/Red.demat" ) };
 
-    const auto planned = PlanInstanceFold( { At( "A", 1, { 0.0f, 0.0f, 0.0f } ),
-                                             At( "B", 2, { 0.0f, 0.0f, 0.0f }, painted ) } );
+    const auto planned =
+         PlanInstanceFold( { At( "A", 1, { 0.0f, 0.0f, 0.0f } ), At( "B", 2, { 0.0f, 0.0f, 0.0f }, painted ) } );
     EXPECT_FALSE( planned.IsSuccess() );
 }
 
@@ -117,11 +117,11 @@ TEST( InstanceFold, ShadowsOffAndShadowsOnAreADifferentIdentity )
 {
     // The easiest one to forget: CastShadows is a single flag on the component, so folding a prop
     // whose shadow somebody turned OFF together with one that casts would put that shadow back.
-    FoldMeshIdentity noShadow   = CubeIdentity();
-    noShadow.CastShadows        = false;
+    FoldMeshIdentity noShadow = CubeIdentity();
+    noShadow.CastShadows      = false;
 
-    const auto planned = PlanInstanceFold( { At( "A", 1, { 0.0f, 0.0f, 0.0f } ),
-                                             At( "B", 2, { 0.0f, 0.0f, 0.0f }, noShadow ) } );
+    const auto planned =
+         PlanInstanceFold( { At( "A", 1, { 0.0f, 0.0f, 0.0f } ), At( "B", 2, { 0.0f, 0.0f, 0.0f }, noShadow ) } );
     ASSERT_FALSE( planned.IsSuccess() );
     EXPECT_NE( planned.GetError().find( "shadows off" ), std::string::npos ) << planned.GetError();
 }

@@ -3692,8 +3692,7 @@ namespace Desert::Editor
         //
         // It returns the planner's own refusal rather than PaletteCommandDone: a fold that would have
         // destroyed a collider must say so to whoever asked, on the channel and in the toast alike.
-        commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh",
-                              []
+        commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh", []
                               {
                                   const auto folded = Commands::CollapseIntoInstancedMesh(
                                        Core::SelectionManager::GetSelection() );
