@@ -80,7 +80,6 @@ namespace Desert::Runtime
         };
 
         std::unordered_map<std::string, std::unique_ptr<Icon>> m_Icons;        // svg path -> baked icon
-        std::unordered_map<uint64_t, std::string>              m_HandleToPath; // asset handle -> svg path
         std::vector<LayerBitmap>                               m_Bitmaps;      // every imported colour run
         std::vector<std::string>                               m_Available;    // registered paths
         std::shared_ptr<Graphic::Image2D>                      m_Atlas;

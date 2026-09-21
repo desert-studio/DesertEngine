@@ -1,4 +1,7 @@
 #include "AssetPreloader.hpp"
+
+#include <Engine/Assets/ContentRegistry.hpp>
+
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -20,30 +23,19 @@
 
 namespace Desert::Assets
 {
-    // The two mesh extensions come from Common::Constants::Extensions rather than being spelled again
-    // here. They used to be literals in this file AND named constants in Constants.hpp, and the two
-    // disagreed — the named ones were swapped — for as long as nobody read them. One value, one home.
-    const std::array<std::string_view, 1> SUPPORTED_SKINNED_MESH_EXTENSIONS = {
-         Common::Constants::Extensions::SKINNED_MESH };
-    const std::array<std::string_view, 1> SUPPORTED_STATIC_MESH_EXTENSIONS = {
-         Common::Constants::Extensions::STATIC_MESH };
-    constexpr std::array<std::string_view, 1> SUPPORTED_SKELETON_EXTENSIONS     = { ".skeleton" };
-    // (now written by import too). Both register as SurfaceMaterialAsset.
-    constexpr std::array<std::string_view, 1> SUPPORTED_MATERIAL_EXTENSIONS     = { ".demat" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_ANIMATION_EXTENSIONS    = { ".anim" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_TEXTURE_EXTENSIONS      = { ".tex" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_SKYBOX_EXTENSIONS       = { ".hdr" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_SHADERS_EXTENSIONS      = { ".shader" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_NOISE_EXTENSIONS  = { ".dcnv" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_TYPE_EXTENSIONS   = { ".decloudtype" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_BODY_EXTENSIONS   = { ".dcmv" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_CLOUD_LAYOUT_EXTENSIONS = { ".dclayout" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_UI_THEME_EXTENSIONS     = { ".detheme" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_CONTROL_RIG_EXTENSIONS  = { ".derig" };
-    constexpr std::array<std::string_view, 1> SUPPORTED_ANIM_GRAPH_EXTENSIONS   = {
-         Desert::Animation::Graph::kAnimGraphExtension };
-    constexpr std::array<std::string_view, 1> SUPPORTED_STRING_TABLE_EXTENSIONS = {
-         Localization::kStringTableExtension };
+    // THE EXTENSION TABLES THAT STOOD HERE ARE GONE, AND THAT IS THE POINT OF T2.4.
+    //
+    // Sixteen `constexpr std::array<std::string_view, 1>` constants and sixteen content roots lived in
+    // this file, one pair per scan, and they were the project's only statement of what content IS. That
+    // was survivable while the boot walked the directories itself — the call site WAS the list. It stops
+    // being survivable the moment the enumeration moves to COOK time and the boot reads a file: the
+    // producer and the consumer are then in different programs, and a kind one knows and the other does
+    // not is content that exists in the editor and is missing from the shipped game. The census is
+    // `Common/Content/ContentKinds.hpp` now, read by the cook's walk and by every scan below.
+    //
+    // What stayed at the call sites is the kind -> C++ CLASS pairing, because that is not expressible in
+    // a constexpr row (a template argument is not data) and because it has never been duplicated: the
+    // cook's walk knows only roots and extensions and never constructs an asset.
 
     AssetPreloader::AssetPreloader( const std::shared_ptr<AssetManager>& assetManager,
                                     Animation::AnimationLibrary&         animationLibrary )
@@ -58,26 +50,25 @@ namespace Desert::Assets
         // clips never arrived". It is deliberately not `[[nodiscard]]`: the other ten call sites have
         // nothing to do with the number, and a warning at each of them would be noise standing in for a
         // rule that applies to one of them.
-        template <typename AssetType, typename Extensions, typename... Args>
-        size_t ProcessAssetFiles( const std::filesystem::path& rootPath, const Extensions& supportedExtensions,
-                                  const std::weak_ptr<AssetManager>& assetManager, AssetPriority priority,
-                                  Args&&... args )
+        template <typename AssetType, typename... Args>
+        size_t ProcessAssetKind( Common::Content::ContentKind kind, const std::weak_ptr<AssetManager>& assetManager,
+                                 AssetPriority priority, Args&&... args )
         {
             size_t matched = 0;
-            // Candidates = the loose files on disk PLUS everything a mounted .dpak holds under this
-            // root (packaged game: the disk dirs typically do not exist at all), deduplicated with a
-            // loose file overriding its pak twin. The enumeration itself is the ONE shared
-            // implementation every content scanner uses — the font/icon services once hand-rolled the
-            // disk half only, and a packaged game scanned nothing.
-            for ( const auto& candidate : Common::Utils::FileSystem::ListFilesRecursive( rootPath ) )
+
+            // THE CANDIDATES COME FROM THE COOKED REGISTRY, NOT FROM A DIRECTORY WALK, and this one
+            // line is what GAP_ANALYSIS T2.4 is. It used to be
+            // `ListFilesRecursive( root )` filtered by extension — eight roots, sixteen walks, every
+            // boot, on both hosts, and the only thing in the engine that minted handles wholesale.
+            // `Common::AssetPathIndex` made the result observable (`N handle(s) can name their own
+            // path`) and said in its own header that inverting the hash was the PRECONDITION for
+            // removing the walk rather than the removal; this is the removal.
+            //
+            // The registry's rows were published into `AssetPathIndex` before this ran, so every
+            // handle already names its file. What this loop still does is build the SHELLS the Content
+            // Browser, the pickers, the thumbnail sweep and the drag-and-drop targets read.
+            for ( const auto& candidate : ContentRegistry::FilesOfKind( kind ) )
             {
-                std::string ext = candidate.extension().string();
-                std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-
-                if ( std::find( supportedExtensions.begin(), supportedExtensions.end(), ext ) ==
-                     supportedExtensions.end() )
-                    continue;
-
                 ++matched;
 
                 if ( auto manager = assetManager.lock() )
@@ -103,9 +94,9 @@ namespace Desert::Assets
                     // say "the scan found N and only M arrived" (see Animation::PopulateLibrary).
                     if ( !asset )
                     {
-                        LOG_ERROR( "'{}' was found by the asset scan and could not be loaded, so it is NOT "
-                                   "in the project; the parse error is logged above. Everything that "
-                                   "references it will resolve to nothing.",
+                        LOG_ERROR( "'{}' is a row in the cooked asset registry and could not be loaded, so "
+                                   "it is NOT in the project; the parse error is logged above. Everything "
+                                   "that references it will resolve to nothing.",
                                    path.string() );
                         continue;
                     }
@@ -126,33 +117,26 @@ namespace Desert::Assets
         // ctor, so the big .stmesh parse + GPU build are deferred to the first Get (lazy). Textures/materials
         // are cheap to parse (small metadata) so they load now to expose their stored handle / external id,
         // but their GPU build is still deferred (RegisterAsset, below).
-        ProcessAssetFiles<StaticMeshAsset>( Common::Constants::Path::MESH_PATH_COOKED,
-                                            SUPPORTED_STATIC_MESH_EXTENSIONS, m_AssetManager, AssetPriority::Low,
-                                            /*loadAfterCreate=*/false );
+        ProcessAssetKind<StaticMeshAsset>( Common::Content::ContentKind::StaticMesh, m_AssetManager, AssetPriority::Low,
+                                           /*loadAfterCreate=*/false );
 
-        ProcessAssetFiles<TextureAsset>( Common::Constants::Path::TEXTURE_PATH_COOKED,
-                                         SUPPORTED_TEXTURE_EXTENSIONS, m_AssetManager, AssetPriority::Low );
+        ProcessAssetKind<TextureAsset>( Common::Content::ContentKind::Texture, m_AssetManager, AssetPriority::Low );
 
         // The count is kept because the animation library's population needs it, and needing it is what
         // makes the ordering a compile-time fact rather than a line-order convention: `PopulateLibrary` at
         // the tail of this function cannot be moved above this statement, because its argument would not
         // exist yet. See Animation::PopulateLibrary for the defect that argument is there to state.
-        const size_t animationFilesFound = ProcessAssetFiles<AnimationAsset>(
-             Common::Constants::Path::MESH_PATH_COOKED, SUPPORTED_ANIMATION_EXTENSIONS, m_AssetManager,
-             AssetPriority::Low );
+        const size_t animationFilesFound =
+             ProcessAssetKind<AnimationAsset>( Common::Content::ContentKind::Animation, m_AssetManager, AssetPriority::Low );
 
-        ProcessAssetFiles<SkeletonAsset>( Common::Constants::Path::MESH_PATH_COOKED,
-                                          SUPPORTED_SKELETON_EXTENSIONS, m_AssetManager, AssetPriority::Low );
+        ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager, AssetPriority::Low );
 
         // Materials are editable CONTENT (the project's Materials/ dir): imported (per-mesh
         // subfolders) and editor-created both land here, in the unified .demat format.
-        ProcessAssetFiles<SurfaceMaterialAsset>( Common::Constants::Path::MATERIAL_PATH,
-                                                 SUPPORTED_MATERIAL_EXTENSIONS, m_AssetManager,
-                                                 AssetPriority::Low );
+        ProcessAssetKind<SurfaceMaterialAsset>( Common::Content::ContentKind::Material, m_AssetManager, AssetPriority::Low );
 
-        ProcessAssetFiles<SkinnedMeshAsset>( Common::Constants::Path::MESH_PATH_COOKED,
-                                             SUPPORTED_SKINNED_MESH_EXTENSIONS, m_AssetManager,
-                                             AssetPriority::Low, /*loadAfterCreate=*/false );
+        ProcessAssetKind<SkinnedMeshAsset>( Common::Content::ContentKind::SkinnedMesh, m_AssetManager, AssetPriority::Low,
+                                            /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -237,8 +221,7 @@ namespace Desert::Assets
 
     void AssetPreloader::PreloadSkyboxes()
     {
-        ProcessAssetFiles<SkyboxAsset>( Common::Constants::Path::SKYBOX_PATH, SUPPORTED_SKYBOX_EXTENSIONS,
-                                        m_AssetManager, AssetPriority::Medium );
+        ProcessAssetKind<SkyboxAsset>( Common::Content::ContentKind::Skybox, m_AssetManager, AssetPriority::Medium );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -274,9 +257,8 @@ namespace Desert::Assets
         // THE SCAN ITSELF STAYS, and it is not vestigial: it is what mints every `.dcnv`'s handle, so
         // the path->handle index still answers for a volume nothing has read (`Common::AssetPathIndex`),
         // and the Content Browser and the component slot can still OFFER the project's volumes.
-        ProcessAssetFiles<CloudNoiseVolumeAsset>( Common::Constants::Path::CLOUD_NOISE_PATH,
-                                                  SUPPORTED_CLOUD_NOISE_EXTENSIONS, m_AssetManager,
-                                                  AssetPriority::Medium, /*loadAfterCreate=*/false );
+        ProcessAssetKind<CloudNoiseVolumeAsset>( Common::Content::ContentKind::CloudNoiseVolume, m_AssetManager,
+                                                 AssetPriority::Medium, /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -308,9 +290,7 @@ namespace Desert::Assets
         // Assets::CloudTypeDefaultShape — twelve numbers compiled in — because a type costs nothing to
         // synthesise where a 128^3 volume costs ten seconds, and because the sky of a project that has
         // deleted every file in Clouds/Types must still be the sky it was.
-        ProcessAssetFiles<CloudTypeAsset>( Common::Constants::Path::CLOUD_TYPE_PATH,
-                                           SUPPORTED_CLOUD_TYPE_EXTENSIONS, m_AssetManager,
-                                           AssetPriority::Medium );
+        ProcessAssetKind<CloudTypeAsset>( Common::Content::ContentKind::CloudType, m_AssetManager, AssetPriority::Medium );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -330,8 +310,7 @@ namespace Desert::Assets
         // first frame of a themed canvas needs its numbers, and a canvas that names one must find it
         // already there rather than draw its elements' own colours for the first second of every session
         // — which would look exactly like a theme that does not work.
-        ProcessAssetFiles<UIThemeAsset>( Common::Constants::Path::UI_THEME_PATH, SUPPORTED_UI_THEME_EXTENSIONS,
-                                         m_AssetManager, AssetPriority::Medium );
+        ProcessAssetKind<UIThemeAsset>( Common::Content::ContentKind::UITheme, m_AssetManager, AssetPriority::Medium );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -352,9 +331,7 @@ namespace Desert::Assets
         // every asset of this type. There is no service register loop beside this call the way the cloud
         // stages have one: a rig has no process-wide runtime form — the pipeline stage is built per
         // ENTITY, against that entity's own skeleton, by AnimationECSSystem.
-        ProcessAssetFiles<ControlRigAsset>( Common::Constants::Path::CONTROL_RIG_PATH,
-                                            SUPPORTED_CONTROL_RIG_EXTENSIONS, m_AssetManager,
-                                            AssetPriority::Medium );
+        ProcessAssetKind<ControlRigAsset>( Common::Content::ContentKind::ControlRig, m_AssetManager, AssetPriority::Medium );
     }
 
     void AssetPreloader::PreloadAnimGraphs()
@@ -368,9 +345,7 @@ namespace Desert::Assets
         //
         // There is no service register loop beside this call: a graph has no process-wide runtime form —
         // the evaluator is per ENTITY, built by AnimationECSSystem from the object this asset owns.
-        ProcessAssetFiles<AnimGraphAsset>( Common::Constants::Path::ANIM_GRAPH_PATH,
-                                           SUPPORTED_ANIM_GRAPH_EXTENSIONS, m_AssetManager,
-                                           AssetPriority::Medium );
+        ProcessAssetKind<AnimGraphAsset>( Common::Content::ContentKind::AnimGraph, m_AssetManager, AssetPriority::Medium );
     }
 
     void AssetPreloader::PreloadCloudModellingVolumes()
@@ -386,9 +361,8 @@ namespace Desert::Assets
         // hero-cloud slot means the artist has not chosen a body, and the right answer is no cloud rather
         // than a cloud they did not put there. `CloudModellingService::RequireBody` says the same thing by
         // answering Null — never Pending — for an empty handle.
-        ProcessAssetFiles<CloudModellingVolumeAsset>( Common::Constants::Path::CLOUD_VOLUME_PATH,
-                                                      SUPPORTED_CLOUD_BODY_EXTENSIONS, m_AssetManager,
-                                                      AssetPriority::Medium, /*loadAfterCreate=*/false );
+        ProcessAssetKind<CloudModellingVolumeAsset>( Common::Content::ContentKind::CloudModellingVolume, m_AssetManager,
+                                                     AssetPriority::Medium, /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -410,9 +384,8 @@ namespace Desert::Assets
         // empty slot means the sky places its clouds procedurally, which is what every scene in this
         // repository does and what the phase's acceptance criterion requires stay byte-identical. That is
         // also why an empty handle resolves to Null and never to Pending — there is nothing to wait for.
-        ProcessAssetFiles<CloudLayoutAsset>( Common::Constants::Path::CLOUD_LAYOUT_PATH,
-                                             SUPPORTED_CLOUD_LAYOUT_EXTENSIONS, m_AssetManager,
-                                             AssetPriority::Medium, /*loadAfterCreate=*/false );
+        ProcessAssetKind<CloudLayoutAsset>( Common::Content::ContentKind::CloudLayout, m_AssetManager, AssetPriority::Medium,
+                                            /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -436,9 +409,7 @@ namespace Desert::Assets
         // A PROJECT WITH NO Localization/ FOLDER IS NOT AN ERROR. It is a project whose UI is authored in
         // literals, which is every project that predates this stage; the scan matches nothing, no table is
         // published, and every literal element draws exactly what it drew before.
-        ProcessAssetFiles<StringTableAsset>( Common::Constants::Path::LOCALIZATION_PATH,
-                                             SUPPORTED_STRING_TABLE_EXTENSIONS, m_AssetManager,
-                                             AssetPriority::High );
+        ProcessAssetKind<StringTableAsset>( Common::Content::ContentKind::StringTable, m_AssetManager, AssetPriority::High );
     }
 
     void AssetPreloader::PreloadShaders()
@@ -448,8 +419,7 @@ namespace Desert::Assets
         // say how much was real compilation rather than cache reads.
         const auto start = std::chrono::steady_clock::now();
 
-        ProcessAssetFiles<ShaderAsset>( Common::Constants::Path::SHADERDIR_PATH,
-                                        SUPPORTED_SHADERS_EXTENSIONS, m_AssetManager, AssetPriority::Medium );
+        ProcessAssetKind<ShaderAsset>( Common::Content::ContentKind::Shader, m_AssetManager, AssetPriority::Medium );
 
         size_t count = 0;
         if ( auto manager = m_AssetManager.lock() )

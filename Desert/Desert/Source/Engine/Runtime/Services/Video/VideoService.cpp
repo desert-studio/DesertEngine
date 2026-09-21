@@ -5,6 +5,7 @@
 
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/AssetPathIndex.hpp>
 
 #include <pl_mpeg/pl_mpeg.h>
 
@@ -102,15 +103,14 @@ namespace Desert::Runtime
             return 0;
         // FromCookedPath, not FromKey -- one file is one handle whatever spelling registered it. See the
         // note in FontService::RegisterFont; the two services key their registries the same way.
-        const uint64_t handle = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( path ) );
-        m_HandleToPath.emplace( handle, path );
-        return handle;
+        // The record of which file this number names is made by FromCookedPath itself, into
+        // `Common::AssetPathIndex`; this service kept a private copy of that table and no longer does.
+        return static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( path ) );
     }
 
     std::string VideoService::PathForHandle( uint64_t handle ) const
     {
-        const auto it = m_HandleToPath.find( handle );
-        return it == m_HandleToPath.end() ? std::string() : it->second;
+        return Common::AssetPathIndex::PathFor( handle ).generic_string();
     }
 
     Graphic::Image2D* VideoService::Resolve( uint64_t handle )

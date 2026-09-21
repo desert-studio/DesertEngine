@@ -4,6 +4,7 @@
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
 #include <Engine/Text/FontCache.hpp>
 
+#include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -108,8 +109,14 @@ namespace Desert::Runtime
 
     void FontService::Clear()
     {
+        // `m_HandleToPath.clear()` STOOD HERE and its removal is the point of T2.4's second remainder.
+        // This service kept a private handle -> path table beside the AssetManager's, so clearing the
+        // service's payloads also destroyed the only thing that could say which `.ttf` a handle named:
+        // a font's identity died with its atlas, and a scene re-read afterwards resolved its font to
+        // nothing. The binding lives in `Common::AssetPathIndex` now, recorded by `FromCookedPath` at
+        // the moment the number is derived, and nothing here can take it away — which is the invariant
+        // that file's own header is about.
         m_Fonts.clear();
-        m_HandleToPath.clear();
         m_ExtraGlyphs.clear();
         m_Retired.clear();
         m_Available.clear();
@@ -125,8 +132,19 @@ namespace Desert::Runtime
         // spellings of ONE font two handles -- so a UIText that named the font one way stopped resolving
         // when the same font was registered the other way.
         const uint64_t handle = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( ttfPath ) );
-        if ( m_HandleToPath.emplace( handle, ttfPath ).second )
-            m_Available.push_back( ttfPath ); // first time we've seen this path -> offer it in the picker
+
+        // THE PICKER LIST IS DEDUPLICATED ON THE CANONICAL PATH, not on the spelling the caller
+        // happened to hold. That used to be free — the handle map's `emplace(...).second` answered
+        // "have I seen this file" — and with the map gone the question has to be asked of the index,
+        // which is where the answer actually lives. `PathFor` expands the key this call has just
+        // recorded, so a font dropped onto the viewport (absolute) and the same font picked from the
+        // dropdown (project-rooted) produce ONE entry rather than two rows naming one file.
+        const std::string canonical = Common::AssetPathIndex::PathFor( handle ).generic_string();
+        if ( !canonical.empty() &&
+             std::find( m_Available.begin(), m_Available.end(), canonical ) == m_Available.end() )
+        {
+            m_Available.push_back( canonical );
+        }
         return handle;
     }
 
@@ -134,13 +152,24 @@ namespace Desert::Runtime
     {
         if ( handle == 0 )
             return "";
-        if ( const auto it = m_HandleToPath.find( handle ); it != m_HandleToPath.end() )
-            return it->second;
-        // A saved scene may reference a font we haven't scanned yet (project asset). Fill the registry from
-        // the font roots, then retry — the deterministic handle will match if the .ttf is discoverable.
+
+        // THE ANSWER COMES FROM `Common::AssetPathIndex`, which is the inverse of the derivation and
+        // is recorded by `FromCookedPath` itself. The private `m_HandleToPath` this replaces was a
+        // SECOND handle -> path table living beside the AssetManager's, and it had the one property
+        // that made it the wrong foundation: `Clear()` wiped it, so a `.ttf`'s handle stopped naming
+        // its file the moment the service was cleared and rescanned.
+        if ( const std::string known = Common::AssetPathIndex::PathFor( handle ).generic_string();
+             !known.empty() )
+        {
+            return known;
+        }
+
+        // A saved scene may reference a font nothing has derived a handle for yet (a project asset in
+        // a session that has not touched one). Scanning the font roots is what mints those handles, and
+        // minting is what records the inverse — so the retry below is the same lookup after the only
+        // thing that could have made it succeed.
         EnsurePreloaded();
-        const auto it = m_HandleToPath.find( handle );
-        return it == m_HandleToPath.end() ? "" : it->second;
+        return Common::AssetPathIndex::PathFor( handle ).generic_string();
     }
 
     Font* FontService::Get( uint64_t handle, float pixelHeight )

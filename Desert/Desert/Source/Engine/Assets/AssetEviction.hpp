@@ -200,9 +200,35 @@ namespace Desert::Assets
         [[nodiscard]] static EvictionOutcome Run( AssetManager& manager, const AssetRootSet& roots,
                                                   IEvictionSink& sink );
 
+        /**
+         * @brief EVERY ASSET @p handle NAMES — the graph's edges, for one node, in one place.
+         *
+         * PUBLIC BECAUSE IT HAS A SECOND READER NOW, and the second reader is the reason it is a
+         * function rather than a loop body. The cooked asset registry (GAP_ANALYSIS T2.4) stores
+         * dependency edges per asset so the cook can decide what travels together and so T2.5's size
+         * map has something to rank. Those are the SAME edges the eviction closure walks, and writing
+         * them out a second time would be this project's most repeated defect shape — two lists that
+         * must agree, with nothing checking that they do.
+         *
+         * AN UNLOADED ASSET CONTRIBUTES NO EDGES, deliberately, and both callers want that: reading an
+         * unloaded asset's references means parsing it, which is the work the demand-driven model
+         * exists to avoid. For the sweep that is harmless (an unloaded asset is protecting nothing);
+         * for the registry it means the edge column is as complete as the session that cooked it, and
+         * nothing in the loader branches on it.
+         *
+         * @p visit is called once per edge with the handle AND the sentence that explains it,
+         * including null handles — filtering them is the caller's, because the sweep wants them marked
+         * and the registry does not want them stored. The reason travels with the edge rather than
+         * being reconstructed at the call site: it is what an eviction refusal prints, and a second
+         * wording of "why is this reachable" is the same drift in prose that the edge list is in code.
+         */
+        static void EdgesOf( AssetManager& manager, const Common::AssetHandle& handle,
+                             const std::function<void( const Common::UUID&, const std::string& )>& visit );
+
     private:
-        /// Add everything the assets already in @p closure name, until it stops growing. The edges are
-        /// enumerated in one place so `Desert/Tests/Engine/AssetEviction` can assert none is missing.
+        /// Add everything the assets already in @p closure name, until it stops growing. The edges come
+        /// from `EdgesOf` so `Desert/Tests/Engine/AssetEviction` has one list to hold against the
+        /// classes that actually have such a field.
         static void Expand( AssetManager& manager, AssetRootSet& closure );
     };
 

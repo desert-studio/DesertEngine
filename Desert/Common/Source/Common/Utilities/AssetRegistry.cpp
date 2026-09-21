@@ -1,0 +1,393 @@
+#include <Common/Utilities/AssetRegistry.hpp>
+
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/AssetPathIndex.hpp>
+#include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+
+#include <algorithm>
+#include <charconv>
+
+namespace Common::Utils
+{
+    namespace
+    {
+        constexpr std::string_view kMagic         = "DesertAssetRegistry";
+        constexpr int              kFormatVersion = 1;
+        // The file's name under the Cooked tree. One spelling, here, because both the producer (the
+        // editor's cook) and the consumer (both hosts' boot) have to name the same file and a second
+        // literal is how they would come to name two.
+        constexpr std::string_view kFileName = "AssetRegistry.dreg";
+
+        // `-` rather than `0` for "no identity" and "no dependencies". Zero is a legal-looking number
+        // and would read as an identity of zero — which is what a NULL handle is — so the empty case
+        // and the null case would be spelled the same. A dash cannot be mistaken for either.
+        constexpr std::string_view kNone = "-";
+
+        std::string HexU64( uint64_t value )
+        {
+            static constexpr char kDigits[] = "0123456789abcdef";
+            std::string           out( 16, '0' );
+            for ( int i = 15; i >= 0; --i )
+            {
+                out[static_cast<std::size_t>( i )] = kDigits[value & 0xFull];
+                value >>= 4;
+            }
+            return out;
+        }
+
+        bool ParseHexU64( std::string_view text, uint64_t& out )
+        {
+            if ( text.size() != 16 )
+                return false;
+            uint64_t value = 0;
+            for ( const char c : text )
+            {
+                value <<= 4;
+                if ( c >= '0' && c <= '9' )
+                    value |= static_cast<uint64_t>( c - '0' );
+                else if ( c >= 'a' && c <= 'f' )
+                    value |= static_cast<uint64_t>( c - 'a' + 10 );
+                else
+                    return false;
+            }
+            out = value;
+            return true;
+        }
+
+        // Splits off the next whitespace-delimited column, leaving `rest` at the start of the one
+        // after it. Returns false when there is no column left, which is how every "line N has no
+        // <column>" refusal below is produced rather than by counting spaces twice.
+        bool NextColumn( std::string_view& rest, std::string_view& column )
+        {
+            const std::size_t end = rest.find( ' ' );
+            if ( end == std::string_view::npos )
+                return false;
+            column = rest.substr( 0, end );
+            rest   = rest.substr( end + 1 );
+            return true;
+        }
+    } // namespace
+
+    uint64_t AssetRegistryEntry::PathHandle() const
+    {
+        return static_cast<uint64_t>( AssetHandle::FromKey( Key ) );
+    }
+
+    uint64_t AssetRegistryEntry::EffectiveHandle() const
+    {
+        return Identity != 0 ? Identity : PathHandle();
+    }
+
+    BoolResultStr AssetRegistry::Insert( AssetRegistryEntry entry )
+    {
+        if ( entry.Key.empty() )
+            return MakeError<bool>( "a registry row with no key names nothing" );
+        // A key with a space in it round-trips (the key column is last) but a key with a NEWLINE
+        // cannot: it would be read back as two rows, the second of them malformed. Legal on POSIX,
+        // so it is refused at the door rather than silently mangled — ContentManifest::FromDirectory
+        // makes the same refusal for the same reason.
+        if ( entry.Key.find( '\n' ) != std::string::npos || entry.Key.find( '\r' ) != std::string::npos )
+            return MakeFormattedError<bool>( "the key '{}' contains a line break and cannot be written "
+                                             "as one row",
+                                             entry.Key );
+        if ( entry.Kind.empty() || entry.Kind.find( ' ' ) != std::string::npos )
+            return MakeFormattedError<bool>( "'{}' is not a usable kind for '{}': a kind is one "
+                                             "non-empty word, because it is a middle column",
+                                             entry.Kind, entry.Key );
+
+        const auto at = std::lower_bound( m_Entries.begin(), m_Entries.end(), entry.Key,
+                                          []( const AssetRegistryEntry& row, const std::string& key )
+                                          { return row.Key < key; } );
+        if ( at != m_Entries.end() && at->Key == entry.Key )
+            return MakeFormattedError<bool>( "'{}' is already a row in this registry; a file enumerated "
+                                             "twice would make the registry depend on walk order",
+                                             entry.Key );
+
+        const uint64_t pathHandle = entry.PathHandle();
+        const uint64_t identity   = entry.Identity;
+
+        m_KeyByHandle[pathHandle] = entry.Key;
+        if ( identity != 0 )
+            m_KeyByHandle[identity] = entry.Key;
+
+        m_Entries.insert( at, std::move( entry ) );
+        return MakeSuccess( true );
+    }
+
+    bool AssetRegistry::Remove( std::string_view key )
+    {
+        const auto at = std::lower_bound( m_Entries.begin(), m_Entries.end(), key,
+                                          []( const AssetRegistryEntry& row, std::string_view wanted )
+                                          { return std::string_view( row.Key ) < wanted; } );
+        if ( at == m_Entries.end() || at->Key != key )
+            return false;
+
+        // BOTH of the row's numbers leave the handle index with it. Erasing only the path-derived one
+        // would leave a declared identity pointing at a key that is no longer a row — a lookup that
+        // succeeds and then finds nothing, which is worse than one that misses.
+        m_KeyByHandle.erase( at->PathHandle() );
+        if ( at->Identity != 0 )
+            m_KeyByHandle.erase( at->Identity );
+
+        m_Entries.erase( at );
+        return true;
+    }
+
+    bool AssetRegistry::SetIdentity( std::string_view key, uint64_t identity )
+    {
+        const auto at = std::lower_bound( m_Entries.begin(), m_Entries.end(), key,
+                                          []( const AssetRegistryEntry& row, std::string_view wanted )
+                                          { return std::string_view( row.Key ) < wanted; } );
+        if ( at == m_Entries.end() || at->Key != key )
+            return false;
+
+        if ( at->Identity == identity )
+            return true;
+
+        if ( at->Identity != 0 )
+            m_KeyByHandle.erase( at->Identity );
+        at->Identity = identity;
+        if ( identity != 0 )
+            m_KeyByHandle[identity] = at->Key;
+        return true;
+    }
+
+    bool AssetRegistry::SetDependencies( std::string_view key, std::vector<uint64_t> dependencies )
+    {
+        const auto at = std::lower_bound( m_Entries.begin(), m_Entries.end(), key,
+                                          []( const AssetRegistryEntry& row, std::string_view wanted )
+                                          { return std::string_view( row.Key ) < wanted; } );
+        if ( at == m_Entries.end() || at->Key != key )
+            return false;
+
+        at->Dependencies = std::move( dependencies );
+        return true;
+    }
+
+    const std::vector<AssetRegistryEntry>& AssetRegistry::Entries() const
+    {
+        return m_Entries;
+    }
+
+    std::size_t AssetRegistry::Count() const
+    {
+        return m_Entries.size();
+    }
+
+    bool AssetRegistry::Empty() const
+    {
+        return m_Entries.empty();
+    }
+
+    const AssetRegistryEntry* AssetRegistry::FindByHandle( uint64_t handle ) const
+    {
+        if ( handle == 0 )
+            return nullptr;
+        const auto it = m_KeyByHandle.find( handle );
+        return it == m_KeyByHandle.end() ? nullptr : FindByKey( it->second );
+    }
+
+    const AssetRegistryEntry* AssetRegistry::FindByKey( std::string_view key ) const
+    {
+        const auto at = std::lower_bound( m_Entries.begin(), m_Entries.end(), key,
+                                          []( const AssetRegistryEntry& row, std::string_view wanted )
+                                          { return std::string_view( row.Key ) < wanted; } );
+        if ( at == m_Entries.end() || at->Key != key )
+            return nullptr;
+        return &*at;
+    }
+
+    std::vector<const AssetRegistryEntry*> AssetRegistry::OfKind( std::string_view kind ) const
+    {
+        std::vector<const AssetRegistryEntry*> rows;
+        for ( const AssetRegistryEntry& entry : m_Entries )
+        {
+            if ( entry.Kind == kind )
+                rows.push_back( &entry );
+        }
+        return rows;
+    }
+
+    std::size_t AssetRegistry::PublishIdentities() const
+    {
+        std::size_t bound = 0;
+        for ( const AssetRegistryEntry& entry : m_Entries )
+        {
+            if ( AssetPathIndex::Record( entry.PathHandle(), entry.Key ) )
+                ++bound;
+
+            // THE DECLARED IDENTITY IS DELIBERATELY NOT PUBLISHED HERE, and the first run that did
+            // publish it is why the distinction is written down rather than assumed.
+            //
+            // `AssetPathIndex` answers ONE question: which string was this number hashed from. For a
+            // `.tex` that string is the SOURCE image's key (`assets:Meshes/shaded.png`) — `TextureAsset
+            // ::Load` records it through `AdoptHandleFromFile` with exactly that argument. Binding the
+            // same number to the COOKED file's key here made the index refuse the loader's own record
+            // a moment later and print `two files cannot share one identity` twice, over two files
+            // that share nothing: one is the other's cooked twin.
+            //
+            // "Which FILE does this number name" is a different question and it is this registry's,
+            // answered by `FindByHandle`, which indexes the declared identity as well as the derived
+            // one. Conflating the two would have made the collision refusal — which exists to catch a
+            // real and serious defect — fire on the normal case, i.e. would have taught everyone to
+            // ignore it.
+        }
+        return bound;
+    }
+
+    std::string AssetRegistry::Serialize() const
+    {
+        std::string out;
+        out.reserve( m_Entries.size() * 96 + 32 );
+        out += kMagic;
+        out += ' ';
+        out += std::to_string( kFormatVersion );
+        out += '\n';
+        for ( const AssetRegistryEntry& entry : m_Entries )
+        {
+            out += std::to_string( entry.Size );
+            out += ' ';
+            out += entry.Kind;
+            out += ' ';
+            out += entry.Identity == 0 ? std::string( kNone ) : HexU64( entry.Identity );
+            out += ' ';
+            if ( entry.Dependencies.empty() )
+            {
+                out += kNone;
+            }
+            else
+            {
+                // SORTED AND DEDUPLICATED ON THE WAY OUT rather than trusted from the producer. The
+                // edges come from walking an asset's slots, and slot order is a property of the file
+                // being read, not of the content: two cooks of one tree must produce one byte string.
+                std::vector<uint64_t> deps = entry.Dependencies;
+                std::sort( deps.begin(), deps.end() );
+                deps.erase( std::unique( deps.begin(), deps.end() ), deps.end() );
+                for ( std::size_t i = 0; i < deps.size(); ++i )
+                {
+                    if ( i != 0 )
+                        out += ',';
+                    out += HexU64( deps[i] );
+                }
+            }
+            out += ' ';
+            out += entry.Key;
+            out += '\n';
+        }
+        return out;
+    }
+
+    ResultStr<AssetRegistry> AssetRegistry::Parse( std::string_view text )
+    {
+        std::size_t lineStart = 0;
+        std::size_t lineNo    = 0;
+
+        auto nextLine = [&]( std::string_view& line ) -> bool
+        {
+            if ( lineStart >= text.size() )
+                return false;
+            const std::size_t end = text.find( '\n', lineStart );
+            line = text.substr( lineStart, ( end == std::string_view::npos ? text.size() : end ) - lineStart );
+            lineStart = ( end == std::string_view::npos ) ? text.size() : end + 1;
+            if ( !line.empty() && line.back() == '\r' )
+                line.remove_suffix( 1 );
+            ++lineNo;
+            return true;
+        };
+
+        std::string_view header;
+        if ( !nextLine( header ) )
+            return MakeError<AssetRegistry>( "the asset registry is empty — its header line is missing" );
+
+        const std::string expected = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
+        if ( header != expected )
+            return MakeFormattedError<AssetRegistry>(
+                 "not a Desert asset registry: line 1 is \"{}\", expected \"{}\"", std::string( header ),
+                 expected );
+
+        AssetRegistry    registry;
+        std::string_view line;
+        while ( nextLine( line ) )
+        {
+            if ( line.empty() )
+                continue;
+
+            std::string_view rest = line;
+            std::string_view sizeText;
+            std::string_view kindText;
+            std::string_view identityText;
+            std::string_view depsText;
+            if ( !NextColumn( rest, sizeText ) || !NextColumn( rest, kindText ) ||
+                 !NextColumn( rest, identityText ) || !NextColumn( rest, depsText ) || rest.empty() )
+            {
+                return MakeFormattedError<AssetRegistry>(
+                     "line {} is not a registry row — expected \"<size> <kind> <identity> <deps> <key>\"",
+                     lineNo );
+            }
+
+            AssetRegistryEntry entry;
+            entry.Key = std::string( rest );
+
+            const auto sizeParsed =
+                 std::from_chars( sizeText.data(), sizeText.data() + sizeText.size(), entry.Size );
+            if ( sizeParsed.ec != std::errc() || sizeParsed.ptr != sizeText.data() + sizeText.size() )
+                return MakeFormattedError<AssetRegistry>( "line {}: '{}' is not a size", lineNo,
+                                                          std::string( sizeText ) );
+
+            entry.Kind = std::string( kindText );
+
+            if ( identityText != kNone && !ParseHexU64( identityText, entry.Identity ) )
+                return MakeFormattedError<AssetRegistry>(
+                     "line {}: '{}' is neither '-' nor a 16-digit hex handle", lineNo,
+                     std::string( identityText ) );
+
+            if ( depsText != kNone )
+            {
+                std::string_view deps = depsText;
+                for ( ;; )
+                {
+                    const std::size_t comma = deps.find( ',' );
+                    const std::string_view one = deps.substr( 0, comma );
+                    uint64_t               dependency = 0;
+                    if ( !ParseHexU64( one, dependency ) )
+                        return MakeFormattedError<AssetRegistry>(
+                             "line {}: '{}' in the dependency column is not a 16-digit hex handle", lineNo,
+                             std::string( one ) );
+                    entry.Dependencies.push_back( dependency );
+                    if ( comma == std::string_view::npos )
+                        break;
+                    deps = deps.substr( comma + 1 );
+                }
+            }
+
+            if ( const auto inserted = registry.Insert( std::move( entry ) ); !inserted )
+                return MakeFormattedError<AssetRegistry>( "line {}: {}", lineNo, inserted.GetError() );
+        }
+
+        return MakeSuccess( std::move( registry ) );
+    }
+
+    std::filesystem::path AssetRegistry::DefaultPath()
+    {
+        return Constants::Path::Dir( Constants::Path::ContentDir::Cooked ) / kFileName;
+    }
+
+    ResultStr<AssetRegistry> AssetRegistry::LoadFrom( const std::filesystem::path& path )
+    {
+        // THROUGH `ReadFileContent`, which is VFS-aware: in a packaged game the Cooked tree exists only
+        // inside `Content.dpak`, and a bare `ifstream` here would have made the shipping host the one
+        // host that cannot read its own registry.
+        const auto text = FileSystem::ReadFileContent( path );
+        if ( !text )
+            return MakeFormattedError<AssetRegistry>( "the cooked asset registry '{}' could not be read: {}",
+                                                      path.string(), text.GetError() );
+
+        auto parsed = Parse( text.GetValue() );
+        if ( !parsed )
+            return MakeFormattedError<AssetRegistry>( "'{}' is not a usable cooked asset registry: {}",
+                                                      path.string(), parsed.GetError() );
+
+        return parsed;
+    }
+} // namespace Common::Utils

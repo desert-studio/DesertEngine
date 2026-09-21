@@ -1,5 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Engine/Assets/ContentRegistry.hpp>
+
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -604,6 +606,21 @@ namespace Desert::Editor
             style.Colors[ImGuiCol_WindowBg].w = 1.0f;
         }
 
+        // THE COOKED ASSET REGISTRY, BEFORE ANY PRELOAD — including the shader one on the next line,
+        // which is the earliest scan this host runs. Every `Preload*` takes its candidates from the
+        // registry since T2.4, so a preload that ran before the file was read would find nothing; and
+        // the boot's cook stages call `ContentRegistry::NoteFile` as they write, which would be writing
+        // into rows that `Load` was about to replace.
+        //
+        // A REFUSAL ENDS THE RUN, on the terms §1.4 sets: an editor that starts with a registry it
+        // could not parse is an editor showing an empty Content Browser over a project full of files,
+        // and "looks almost right" is the failure mode that costs the most to find.
+        const auto registry = Assets::ContentRegistry::Load();
+        if ( !registry )
+            return Common::MakeFormattedError( "the cooked asset registry: {}", registry.GetError() );
+        LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
+                  Assets::ContentRegistry::Get().Count(), registry.GetValue() );
+
         // Shaders must exist BEFORE the render systems below are constructed (their default materials
         // resolve shaders in the ctor). Meshes/skyboxes are staged behind the loading overlay instead.
         m_AssetPreloader->PreloadShaders();
@@ -1088,6 +1105,33 @@ namespace Desert::Editor
                     // one: the same count reached with directory walks and reached without them are two
                     // different boots, and nothing else in the process can tell them apart (§T2.4).
                     LOG_INFO( "[ContentScan] boot finished — {}", Common::Utils::ContentScanLedger::Report() );
+
+                    // AND ONLY NOW THE EDITOR DOES ITS COOK — after the three lines above, which is not
+                    // a tidiness choice. `Refresh` WALKS the content roots (it is the one walk left in
+                    // this engine), and a walk before the `[ContentScan]` line would have made the
+                    // registry a place the cost moved to rather than a place it stopped being paid:
+                    // the number the whole tier is judged by would report the walk it removed.
+                    //
+                    // What it is for: content that arrived on disk without going through this editor —
+                    // a `git pull`, a file dropped into the folder while the editor was closed — has no
+                    // row, and since the boot no longer walks, it is content the engine does not have.
+                    // This enters it, so it is there the NEXT time the project opens, and says how many
+                    // it found. A file authored IN the editor never waits for this: `CreateAsset` notes
+                    // its row the moment it exists.
+                    //
+                    // A REFUSAL IS LOGGED AND THE SESSION CONTINUES, unlike `Load`'s. Nothing in this
+                    // session depends on the cook: the editor is already running over the registry it
+                    // read, and failing to write the next boot's copy is a reason to say so loudly, not
+                    // a reason to stop editing.
+                    if ( const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager ); !cooked )
+                    {
+                        LOG_ERROR( "[ContentRegistry] the content registry could not be cooked: {}",
+                                   cooked.GetError() );
+                    }
+                    else
+                    {
+                        LOG_INFO( "[ContentRegistry] {}", cooked.GetValue().Describe() );
+                    }
                 }
             }
             SampleFrameQuiescence();

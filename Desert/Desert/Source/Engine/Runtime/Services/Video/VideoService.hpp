@@ -67,6 +67,5 @@ namespace Desert::Runtime
         VideoPlayback* GetOrOpen( const std::string& path );
 
         std::unordered_map<std::string, VideoPlayback> m_Videos;       // open decoders keyed by path
-        std::unordered_map<uint64_t, std::string>      m_HandleToPath; // video asset handle -> path
     };
 } // namespace Desert::Runtime
