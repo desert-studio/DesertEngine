@@ -133,13 +133,19 @@ namespace
             Rig.Evaluate( Bones, Pose );
         }
 
+        /// The buffer the gizmo poses and a BONE key is read from. Separate from `Local` on purpose:
+        /// `Local` is what the rig was evaluated against, and a keyer that read the evaluated pose would
+        /// pass every assertion here while keying the wrong buffer in the editor.
+        LocalPose Authoring = ChestAt( glm::vec3( 0.0F, 100.0F, 0.0F ) );
+
         [[nodiscard]] ControlKeyTarget At( int tick )
         {
             ControlKeyTarget target;
-            target.Hierarchy = &Rig;
-            target.Skeleton  = &Bones;
-            target.Clip      = &Clip;
-            target.Tick      = FrameNumber{ tick };
+            target.Hierarchy    = &Rig;
+            target.Skeleton     = &Bones;
+            target.Clip         = &Clip;
+            target.Tick         = FrameNumber{ tick };
+            target.AuthoredPose = &Authoring;
             return target;
         }
     };
@@ -667,4 +673,164 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── THE SAME TWO RULES FOR A BONE (A28) ──────────────────────────────────────────────────────────────
+//
+// THE NUMBER THIS FILE EXISTS TO STATE. The Sequencer's Record mode keys bones, not controls, and it
+// had no interaction: it called a keying routine once per mouse-move frame in which the posed bone
+// differed. Two facts decide what that cost, and they pull in opposite directions:
+//
+//   * the write is an UPSERT ON A TICK, so N writes at ONE tick leave ONE key per channel — the
+//     per-mouse-move loop was NOT producing a key per mouse move, and saying it was would be wrong;
+//   * an interaction that CROSSES ticks leaves one key per tick crossed, and nothing in the keyer
+//     stops that. `kRecordFrames` frames across `kRecordFrames` ticks is the measurement below.
+//
+// Both halves are asserted, because either alone is misleading: the first without the second says the
+// defect never existed, the second without the first inflates it.
+
+namespace
+{
+    /// One second of dragging at 60 Hz. The playhead advances with it, which is what "scrub or play
+    /// while holding the gizmo" does — the case the deferral makes unreachable by construction.
+    constexpr int kRecordFrames = 60;
+
+    /// Move the posed bone as a drag would, and offer it to the keyer once per frame.
+    /// @param interaction whether the drag is bracketed by Begin/EndInteraction.
+    /// @param movePlayhead whether the playhead advances during the drag.
+    /// @return how many keys the keyer reported writing across the whole drag.
+    uint32_t DriveBoneDrag( Fixture& fix, bool interaction, bool movePlayhead )
+    {
+        if ( interaction )
+        {
+            EXPECT_TRUE( fix.Keyer.BeginInteraction().IsSuccess() );
+        }
+        uint32_t keyed = 0;
+        for ( int frame = 0; frame < kRecordFrames; ++frame )
+        {
+            fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, static_cast<float>( frame ) );
+            const int  tick    = movePlayhead ? frame : 0;
+            const auto written = fix.Keyer.WriteBone( fix.At( tick ), 1 );
+            EXPECT_TRUE( written.IsSuccess() ) << written.GetError();
+            keyed += written.IsSuccess() ? written.GetValue() : 0;
+        }
+        if ( interaction )
+        {
+            const auto ended = fix.Keyer.EndInteraction( fix.At( movePlayhead ? kRecordFrames - 1 : 0 ) );
+            EXPECT_TRUE( ended.IsSuccess() ) << ended.GetError();
+            keyed += ended.IsSuccess() ? ended.GetValue() : 0;
+        }
+        return keyed;
+    }
+
+    size_t PositionKeyCount( const AnimationClip& clip, const char* track )
+    {
+        const BoneTrack* found = FindTrack( clip, track );
+        return found == nullptr ? 0U : found->PositionKeys.size();
+    }
+} // namespace
+
+TEST( ControlKeying, AFrozenPlayheadAlreadyCollapsedSixtyWritesOntoOneKey )
+{
+    // THE "BEFORE" NUMBER, AND IT IS NOT THE ONE THE GAP ANALYSIS PREDICTED. With the playhead where the
+    // Sequencer holds it during a drag, the undeferred loop wrote sixty times and left one key: the tick
+    // upsert had been doing the deduplication all along. A claim of "a key per mouse move" is false here,
+    // and it matters that it is said in a test rather than in a report nobody can re-run.
+    Fixture        fix;
+    const uint32_t keyed = DriveBoneDrag( fix, /*interaction=*/false, /*movePlayhead=*/false );
+
+    EXPECT_EQ( keyed, static_cast<uint32_t>( kRecordFrames ) ) << "sixty keying calls did happen";
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 1U ) << "and left one key, because they shared a tick";
+}
+
+TEST( ControlKeying, AnUndeferredDragThatCrossesTicksLeavesOneKeyPerTick )
+{
+    // THE POSITIVE CONTROL FOR THE TEST BELOW, and the defect's real size. The moment the playhead moves
+    // under the drag, the upsert stops collapsing anything and the clip records the path of the pointer.
+    Fixture        fix;
+    const uint32_t keyed = DriveBoneDrag( fix, /*interaction=*/false, /*movePlayhead=*/true );
+
+    EXPECT_EQ( keyed, static_cast<uint32_t>( kRecordFrames ) );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), static_cast<size_t>( kRecordFrames ) )
+         << "sixty ticks, sixty keys — this is what report 05 §971 calls a correctness defect";
+}
+
+TEST( ControlKeying, TheSameDragInsideAnInteractionLeavesOneKey )
+{
+    Fixture        fix;
+    const uint32_t keyed = DriveBoneDrag( fix, /*interaction=*/true, /*movePlayhead=*/true );
+
+    EXPECT_EQ( keyed, 1U ) << "one key per subject, whatever the drag and the playhead did";
+
+    const BoneTrack* track = FindTrack( fix.Clip, "chest" );
+    ASSERT_NE( track, nullptr ) << "a bone's keys live in a track named after the bone";
+    EXPECT_EQ( track->PositionKeys.size(), 1U );
+    EXPECT_EQ( track->RotationKeys.size(), 1U );
+    EXPECT_EQ( track->ScaleKeys.size(), 1U );
+    EXPECT_EQ( track->PositionKeys[0].Tick.Value, kRecordFrames - 1 ) << "at the tick the drag ended on";
+
+    // RESOLVED AT THE COMMIT, NOT REMEMBERED AT THE WRITE: the value is the one the drag ENDED at, and a
+    // keyer that stored the pose handed to the first `WriteBone` would put frame 0 here.
+    EXPECT_EQ( track->PositionKeys[0].Position.z, static_cast<float>( kRecordFrames - 1 ) );
+}
+
+TEST( ControlKeying, ABoneAndAControlShareOneInteraction )
+{
+    // The pending list is keyed on {kind, index}, so bone 0 and control 0 are two subjects. THE INDICES
+    // ARE DELIBERATELY EQUAL: with a bone 1 and a control 0 this test passed even when `KeySubject`'s
+    // equality ignored `Kind` entirely — a degenerate scenario, and it was caught by the mutation rather
+    // than by reading it (§8.4). With both at 0, an implementation that stored bare indices folds the two
+    // subjects into one and keys only the first.
+    Fixture fix;
+    ASSERT_EQ( fix.Hand, 0U ) << "this test's whole point is that the two indices collide";
+    ASSERT_TRUE( fix.Keyer.BeginInteraction().IsSuccess() );
+
+    fix.Authoring[0].Translation = glm::vec3( 1.0F, 2.0F, 3.0F );
+    ASSERT_TRUE( fix.Keyer.WriteBone( fix.At( 20 ), 0 ).IsSuccess() );
+    ASSERT_TRUE( fix.Keyer
+                      .Write( fix.At( 20 ), fix.Hand,
+                              TransformOf( glm::vec3( 9.0F, 0.0F, 0.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
+                                           glm::vec3( 1.0F ) ),
+                              ControlWriteSource::Authored )
+                      .IsSuccess() );
+    EXPECT_EQ( fix.Keyer.Pending(), 2U ) << "a bone and a control are two subjects, not one index";
+
+    const auto ended = fix.Keyer.EndInteraction( fix.At( 20 ) );
+    ASSERT_TRUE( ended.IsSuccess() ) << ended.GetError();
+    EXPECT_EQ( ended.GetValue(), 2U );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "root" ), 1U );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "hand_ctrl" ), 1U );
+}
+
+TEST( ControlKeying, ABoneKeyWithoutAnAuthoringPoseIsRefusedRatherThanKeyedFromTheBindPose )
+{
+    Fixture          fix;
+    ControlKeyTarget target = fix.At( 10 );
+    target.AuthoredPose     = nullptr;
+
+    const auto written = fix.Keyer.WriteBone( target, 1 );
+    EXPECT_FALSE( written.IsSuccess() ) << "the bind pose is not the animator's work — see §936";
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 0U );
+
+    EXPECT_FALSE( fix.Keyer.WriteBone( fix.At( 10 ), 99 ).IsSuccess() ) << "no bone 99 in a skeleton of 2";
+}
+
+TEST( ControlKeying, AControlNamedAfterABoneIsStillRefusedButTheBoneItselfIsNot )
+{
+    // The collision refusal is about a CONTROL borrowing a bone's name. Generalising `Check` over subjects
+    // is exactly where that rule could have been turned on the bone it is meant to protect, which would
+    // make every bone in the tree unkeyable — and every count-based test above would still pass.
+    Fixture fix;
+    ASSERT_TRUE( fix.Keyer.WriteBone( fix.At( 10 ), 1 ).IsSuccess() );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 1U );
+
+    ControlElement clash = MakeControl( "chest", { ControlSpace{ ControlSpaceKind::Bone, 0, 1.0F } } );
+    const auto     added = fix.Rig.Add( clash );
+    ASSERT_TRUE( added.IsSuccess() ) << added.GetError();
+
+    const auto written =
+         fix.Keyer.Write( fix.At( 10 ), added.GetValue(),
+                          TransformOf( glm::vec3( 0.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
+                          ControlWriteSource::Authored );
+    EXPECT_FALSE( written.IsSuccess() ) << "a control named after a bone would drive that bone";
 }
