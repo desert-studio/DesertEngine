@@ -4,9 +4,22 @@ namespace Desert::Editor::Core
 {
     // Editor-global transform-gizmo mode, and the gizmo's view of the snap settings.
     //
-    // Shared static (same pattern as SelectionManager / SkeletonEditMode) so BOTH the viewport (keyboard
-    // W/E/R + the GizmoController that renders the gizmo) and the main toolbar buttons reach ONE place
-    // without cross-panel plumbing.
+    // Shared static (same pattern as SelectionManager) so BOTH the viewport (keyboard W/E/R + the
+    // GizmoController that renders the gizmo) and the main toolbar buttons reach ONE place without
+    // cross-panel plumbing.
+    //
+    // THIS CITED `SkeletonEditMode` AS THE OTHER EXAMPLE OF THE PATTERN, and that class no longer exists:
+    // it was four process-wide values with public setters that five files wrote, and the defect that
+    // follows is not hypothetical — two Sequencer documents authoring two characters overwrote each
+    // other's pose mode every frame. It is now Core::AuthoringContext, published by one owner at a time,
+    // and a write from anybody else is refused. The reference is removed rather than repointed because
+    // the two are no longer the same pattern, and a comment naming a model is read as an endorsement of
+    // copying it.
+    //
+    // WHY THIS ONE DID NOT GO THE SAME WAY: there is exactly one gizmo operation for the whole editor and
+    // nothing about it is per-document — W/E/R in any viewport means the same thing everywhere, and no
+    // two windows can want different answers. The authoring context is the opposite: it is about ONE rig,
+    // and the editor deliberately has several open at once.
     //
     // THIS CLASS STORES ONLY SESSION STATE — the operation and the transform space — and that is the point
     // rather than an accident. Both are "where you are in a task"; neither is written to disk, so neither

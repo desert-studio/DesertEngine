@@ -3,7 +3,7 @@
 #include <Editor/Core/Selection/ControlRigEditMode.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
-#include <Editor/Core/Selection/SkeletonEditMode.hpp>
+#include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
@@ -84,7 +84,7 @@ namespace Desert::Editor
 
         // Collider wireframes moved to EditorColliderPass (true 3D, depth-tested) via the Editor Pass API.
 
-        if ( Core::SkeletonEditMode::IsActive() )
+        if ( Core::ActiveAuthoringContext().ShowsBones() )
         {
             RenderSkeleton( camera, width, height, xpos, ypos );
         }
@@ -750,7 +750,7 @@ namespace Desert::Editor
         const ImVec2    windowPos   = ImGui::GetWindowPos();
         ImDrawList*     drawList    = ImGui::GetWindowDrawList();
 
-        const int selectedBone = Core::SkeletonEditMode::GetSelectedBone();
+        const int selectedBone = Core::ActiveAuthoringContext().SelectedBoneIndex();
 
         // Bone head (world) = entityWorld * chainGlobal[3], where chainGlobal = the parent chain of
         // LocalBindTransform. This MATCHES the rendered mesh, which is skinned with bind bone matrices =
@@ -796,7 +796,8 @@ namespace Desert::Editor
             names[i] = bones[i].Name;
         }
 
-        DrawBoneGizmos( drawList, screen, parents, names, selectedBone, Core::SkeletonEditMode::ShowAllNames(),
+        DrawBoneGizmos( drawList, screen, parents, names, selectedBone,
+                        Core::ActiveAuthoringContext().ShowBoneNames(),
                         /*recordForPick=*/true );
     }
 

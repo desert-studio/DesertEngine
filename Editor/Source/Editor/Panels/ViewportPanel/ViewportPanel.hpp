@@ -6,6 +6,8 @@
 
 #include <Engine/Desert.hpp>
 
+#include "Editor/Core/SceneViewIdentity.hpp"
+#include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ViewportModes.hpp"
 #include "Editor/Panels/IPanel.hpp"
 
@@ -47,8 +49,15 @@ namespace Desert::Editor
     public:
         // `title` is the ImGui window title/id. Multi-scene editing spawns extra viewports, so each needs
         // its own unique "###id" (two windows sharing one id merge into a single dockable window).
+        //
+        // `sceneViewId` is this view's name in SceneViewIdentity's sense, and it is here because the
+        // viewport is one of the three surfaces that can OWN the bone-authoring context
+        // (Editor/Core/Selection/AuthoringContext.hpp): several viewports exist, they must be told apart
+        // when one of them writes the context, and an index would name the wrong one the moment a view is
+        // closed — the whole argument SceneViewIdentity.hpp makes.
         ViewportPanel( const std::shared_ptr<Desert::Core::Scene>& scene,
-                       const Assets::AssetManager* assetManager = nullptr, std::string title = "Scene###scene" );
+                       const Assets::AssetManager* assetManager = nullptr, std::string title = "Scene###scene",
+                       uint64_t sceneViewId = kPrimarySceneViewId );
         ~ViewportPanel() override; // defined in the .cpp (unique_ptr<AsyncMeshLoader> needs the complete type)
 
         // A SELF-REGISTERING TYPE MUST NOT BE COPYABLE OR MOVABLE. The constructor pushes `this` into
@@ -183,6 +192,31 @@ namespace Desert::Editor
         std::optional<glm::vec2> m_PendingViewportSize;
 
         std::shared_ptr<Desert::Core::Scene>  m_Scene;
+
+        // ── THIS VIEW'S BONE AUTHORING ────────────────────────────────────────────────────────────
+        //
+        // The state lives here, in the surface that owns it, and is PUBLISHED to
+        // Core::ActiveAuthoringContext() while the user is working in this viewport. That is what
+        // replaced Core::SkeletonEditMode's four process-wide statics: they were one copy for the whole
+        // editor, so a second viewport and a second Sequencer shared one selected bone and one pose-mode
+        // bit and overwrote each other every frame.
+        uint64_t               m_SceneViewId = kPrimarySceneViewId;
+        Core::AuthoringContext m_Authoring;
+
+        // Publish this view's context. Points it at whatever is selected HERE first — the context is keyed
+        // on the entity, and a bone index kept across a change of character is an index into another rig.
+        void ClaimAuthoringContext();
+
+        // The ordinary, per-frame route: the user is working in this viewport, or nobody has claimed bone
+        // authoring at all (the editor's cold start, and what makes the toolbar work before anything else
+        // has ever been focused).
+        void TakeAuthoringContextIfFocused();
+
+        // WHO THIS VIEWPORT IS when it writes the context. Built once from the id, because the owner is
+        // compared by value on every write and a value rebuilt per call would be two owners that merely
+        // look alike.
+        const Core::AuthoringOwner m_AuthoringOwner;
+
         std::function<void()>                 m_OnActivate; // fired while this viewport window is focused
         const Assets::AssetManager*           m_AssetManager = nullptr; // for prefab drag-drop instantiate
         std::unique_ptr<Editor::UI::UIHelper> m_UIHelper;

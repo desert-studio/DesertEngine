@@ -5,7 +5,8 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Core/ThemeManager.hpp>
-#include <Editor/Core/Selection/SkeletonEditMode.hpp>
+#include <Editor/Core/Selection/AuthoringContext.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include "Helper/MeshDetailsWidget.hpp"
@@ -22,6 +23,14 @@ namespace Desert::Editor
 
     namespace
     {
+        // WHO THIS PANEL IS, to the authoring context. One value, built once, because the owner is compared
+        // by value on every write and a fresh string per click would be two owners that merely look alike.
+        const Core::AuthoringOwner& BoneTreeOwner()
+        {
+            static const Core::AuthoringOwner s_Owner = Core::AuthoringOwner::ForPanel( "Details/Bone Tree" );
+            return s_Owner;
+        }
+
         // What the vertex weights say about a rig. Real, checkable problems only — the engine has no
         // fixed bone cap to warn about (the pose lives in a storage buffer that grows on demand), but a
         // vertex no bone moves, or one pointing past the end of the skeleton, is a genuine bug.
@@ -112,6 +121,13 @@ namespace Desert::Editor
         auto  assetManager = m_AssetManager.lock();
         if ( !assetManager )
             return;
+
+        // WHOSE RIG THIS IS. The authoring context is keyed on the entity (see AuthoringContext.hpp): it is
+        // what keeps the bone selection of two characters apart, and what lets this tree take the context
+        // over from the viewport without resetting it when it is the SAME character.
+        const Common::UUID entityId = entity.HasComponent<ECS::UUIDComponent>()
+                                           ? entity.GetComponent<ECS::UUIDComponent>().UUID
+                                           : Common::UUID::Null();
 
         Utils::ImGuiUtilities::PushID();
 
@@ -319,17 +335,36 @@ namespace Desert::Editor
                 if ( children[boneIndex].empty() )
                     flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet;
 
-                const bool boneSelected =
-                     ::Desert::Editor::Core::SkeletonEditMode::GetSelectedBone() == static_cast<int>( boneIndex );
+                const bool boneSelected = ::Desert::Editor::Core::ActiveAuthoringContext().SelectedBoneIndex() ==
+                                          static_cast<int>( boneIndex );
                 if ( boneSelected )
                     flags |= ImGuiTreeNodeFlags_Selected;
 
                 const std::string label =
                      std::string( ICON_MDI_BONE ) + "  " + bone.Name + "##" + std::to_string( boneIndex );
                 const bool open = ImGui::TreeNodeEx( label.c_str(), flags );
-                // Clicking a bone selects it (highlighted in the Skeleton Edit viewport overlay).
+                // Clicking a bone selects it (highlighted in the viewport's bone overlay).
+                //
+                // THE TREE TAKES THE AUTHORING CONTEXT TO DO IT, and that is the whole shape of the change
+                // that removed SkeletonEditMode: only the owner may write the selected bone, so a surface
+                // that wants to change it has to say it is the one the user is working in. Focus() adopts
+                // the live context when it is about the SAME entity, so taking it over here keeps the mode
+                // and the bone the viewport or a Sequencer had — the user sees exactly what the shared
+                // global used to give them, and a Sequencer over a DIFFERENT character keeps its own.
                 if ( ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen() )
-                    ::Desert::Editor::Core::SkeletonEditMode::SetSelectedBone( static_cast<int>( boneIndex ) );
+                {
+                    m_Authoring.Entity = entityId;
+                    Core::ActiveAuthoringContext().Focus( BoneTreeOwner(), m_Authoring );
+                    if ( const auto set = Core::ActiveAuthoringContext().SetSelectedBone(
+                              BoneTreeOwner(), m_Authoring, static_cast<uint32_t>( boneIndex ) );
+                         !set.IsSuccess() )
+                    {
+                        // Unreachable while Focus() above succeeds, and logged rather than dropped because
+                        // the day it IS reachable the symptom is "clicking a bone does nothing" with no
+                        // other trace at all.
+                        LOG_WARN( "[Details] bone selection refused: {}", set.GetError() );
+                    }
+                }
                 if ( open )
                 {
                     for ( auto child : children[boneIndex] )

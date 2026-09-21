@@ -2,6 +2,8 @@
 
 #include "../IPanel.hpp"
 
+#include <Editor/Core/Selection/AuthoringContext.hpp>
+
 #include <Common/Core/UUID.hpp>
 
 #include <Engine/ECS/Entity.hpp>
@@ -113,6 +115,9 @@ namespace Desert::Editor
                         const std::shared_ptr<::Desert::Core::Scene>& scene, Animation::AnimationLibrary* library,
                         Assets::AssetManager* assetManager );
 
+        // Out of line only to give the authoring context back; see the definition.
+        ~SequencerPanel() override;
+
         ImVec2 GetDefaultSize() const override
         {
             return ImVec2( 980.0f, 320.0f );
@@ -211,6 +216,23 @@ namespace Desert::Editor
         Assets::AssetManager*                m_AssetManager = nullptr;
 
         const Timeline m_Timeline = Timeline::Skeletal;
+
+        // ── WHAT THIS DOCUMENT AUTHORS, AND ITS RIGHT TO SAY SO ───────────────────────────────────
+        //
+        // Fork C of Docs/Animation/07_panels_design.md, closed as C1: the pose mode and the selected bone
+        // belong to the DOCUMENT. They used to be `static inline` values on the process, so every open
+        // Sequencer wrote the same bit every frame and the one the user was not looking at won half the
+        // time. `m_Authoring` is this window's own copy — keyed on ITS subject — and it reaches the editor
+        // only through Core::ActiveAuthoringContext(), which accepts a write from the holder alone.
+        Core::AuthoringContext     m_Authoring;
+        const Core::AuthoringOwner m_AuthoringOwner;
+
+        // Publish this document's context while it is the window the user is working in.
+        void TakeAuthoringContextIfFocused();
+
+        // Clicking a bone's track selects that bone on the skeleton. Takes the context first, because the
+        // click IS the user choosing this window.
+        void SelectBoneFromTrack( uint32_t bone );
 
         // Curve view (T4.3). The value window is view state and is REFITTED when the selection changes,
         // not every frame: a box that rescales itself while a key is dragged moves the key under the mouse.

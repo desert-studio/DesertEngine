@@ -10,10 +10,21 @@ namespace Desert::Editor::Core
      * @brief "Control Rig" mode: the viewport draws the selected entity's control shapes and lets them be
      *        grabbed.
      *
-     * THE SAME SHAPE AS `SkeletonEditMode` next door, and the same reason for existing: two panels have to
-     * agree on one selection. The Control Rig panel lists the controls and the viewport overlay draws and
-     * drags them, and neither owns the other — so the selection is a third thing both read, exactly as the
-     * selected BONE is.
+     * TWO PANELS HAVE TO AGREE ON ONE SELECTION: the Control Rig panel lists the controls and the viewport
+     * overlay draws and drags them, and neither owns the other — so the selection is a third thing both
+     * read.
+     *
+     * THIS USED TO SAY "the same shape as SkeletonEditMode next door", AND THAT SHAPE IS NOW GONE. The
+     * bone side became Core::AuthoringContext: one published context with ONE owner at a time, where a
+     * write from a non-holder is refused instead of silently winning. The reason it had to is in
+     * AuthoringContext.hpp — several Sequencer documents exist at once by design and they fought over one
+     * process-wide bit.
+     *
+     * THE SAME ARGUMENT APPLIES HERE AND THE WORK IS NOT DONE. This is a named remainder, not an
+     * exception: Docs/Animation/07_panels_design.md §14.2 folds Control into the viewport's four-way mode
+     * switcher, and that is the change which gives `AuthoringMode::Control` and a selected control a
+     * reader — which is why neither was added to AuthoringContext ahead of it (a knob nothing reads is
+     * what contract §3 forbids). Until then this stays as it is rather than being half-moved.
      *
      * IT IS NOT VIEW-ONLY. `ControlManipulator`'s `ControlDrag` writes the control's local pose through the
      * live `ControlHierarchy` the entity's Animator holds, which is the stage `AnimationECSSystem` built —
