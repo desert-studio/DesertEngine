@@ -91,8 +91,15 @@ namespace Desert::Assets
         // the file is the better identity because it survives renames and moves as well, so it wins when it
         // is there. When it is not, the path-derived handle AssetBase already installed stands — which is
         // why there is no `else` here.
+        //
+        // THROUGH AdoptHandleFromFile so the handle->path inverse learns the adopted number too. The
+        // path-derived one the constructor installed is already in the index; this one replaces it as the
+        // material's identity, and it is the number 113 `MaterialId`/`ParentMaterialId` occurrences in
+        // shipped content actually name — so an index that knew only the derived one would be empty for
+        // exactly the references that exist.
         if ( m_Data.MaterialId )
-            m_Metadata.Handle = *m_Data.MaterialId;
+            AdoptHandleFromFile( *m_Data.MaterialId,
+                                 Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::LoadFromFile()
