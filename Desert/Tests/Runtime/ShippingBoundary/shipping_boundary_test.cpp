@@ -778,8 +778,8 @@ TEST( ShippingBoundary, EveryShippedProjectSelectsItsLibrariesInTheShippingConfi
             continue;
 
         const std::string rel = fs::relative( entry.path(), root ).generic_string();
-        if ( rel.find( "ThirdParty/" ) != std::string::npos || rel.find( "build/" ) == 0 ||
-             rel.find( "Desert/Tests/" ) == 0 )
+        if ( rel.find( "ThirdParty/" ) != std::string::npos || rel.starts_with( "build/" ) ||
+             rel.starts_with( "Desert/Tests/" ) )
             continue;
 
         const std::string text = Read( entry.path() );
