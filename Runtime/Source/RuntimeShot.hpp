@@ -64,7 +64,7 @@ namespace Desert::Player
         {
             if ( args[i] == "--shot" )
             {
-                if ( i + 1 >= args.size() || args[i + 1].rfind( "--", 0 ) == 0 )
+                if ( i + 1 >= args.size() || args[i + 1].starts_with( "--" ) )
                     return Common::MakeError<bool>( "--shot needs an output path, e.g. --shot out.png" );
                 out.Output = args[++i];
             }

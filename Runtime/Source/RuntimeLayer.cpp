@@ -73,6 +73,45 @@
 #include <filesystem>
 #include <string_view>
 
+namespace
+{
+    /// The device image behind an authored sprite handle, or nullptr if the project has none. Both the
+    /// loading cover and the authored splash ask this, and they used to ask it in two hand-copied
+    /// blocks -- which is how the two of them would have drifted apart the first time either was fixed.
+    Desert::Graphic::Image2D* ResolveSpriteImage( const Desert::Assets::AssetHandle& handle )
+    {
+        auto* textures = Desert::Runtime::ResourceRegistry::GetTextureService();
+        if ( textures == nullptr )
+            return nullptr;
+        auto* tex = textures->Get( handle );
+        if ( tex == nullptr )
+            return nullptr;
+        auto* images = Desert::Runtime::ResourceRegistry::GetImageService();
+        if ( images == nullptr )
+            return nullptr;
+        auto* img = dynamic_cast<Desert::Graphic::Image2D*>( images->Resolve( tex->GetImageHandle() ) );
+        if ( img == nullptr || img->GetWidth() == 0 || img->GetHeight() == 0 )
+            return nullptr;
+        return img;
+    }
+
+    /// Centre @p img over a @p w x @p h surface, scaled to FIT (letterboxed, never cropped, never
+    /// stretched): a splash authored at one aspect must not be distorted by the player's window.
+    void DrawFittedSprite( Desert::Graphic::Render2D::DrawList2D& dl, Desert::Graphic::Image2D& img, float w,
+                           float h, float alpha )
+    {
+        const auto  iw  = static_cast<float>( img.GetWidth() );
+        const auto  ih  = static_cast<float>( img.GetHeight() );
+        const float fit = std::min( w / iw, h / ih );
+        const float sw  = iw * fit;
+        const float sh  = ih * fit;
+        const float cx  = w * 0.5f;
+        const float cy  = h * 0.5f;
+        dl.AddImage( &img, { cx - sw * 0.5f, cy - sh * 0.5f }, { cx + sw * 0.5f, cy + sh * 0.5f }, { 0.0f, 0.0f },
+                     { 1.0f, 1.0f }, glm::vec4( 1.0f, 1.0f, 1.0f, alpha ) );
+    }
+} // namespace
+
 namespace Desert::Player
 {
     RuntimeLayer::RuntimeLayer( std::string scenePathOverride, Engine::Application* application )
@@ -439,24 +478,8 @@ namespace Desert::Player
         // splash been armed yet" -- two facts with one field, and the loading screen would have been blank
         // for exactly the scenes that bothered to author an image.
         const Assets::AssetHandle sprite = m_Scene->GetSettings().SplashSprite;
-        if ( auto* textures = Runtime::ResourceRegistry::GetTextureService() )
-        {
-            if ( auto* tex = textures->Get( sprite ) )
-            {
-                auto* img = static_cast<Graphic::Image2D*>(
-                     Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                if ( img && img->GetWidth() > 0 && img->GetHeight() > 0 )
-                {
-                    const float iw  = static_cast<float>( img->GetWidth() );
-                    const float ih  = static_cast<float>( img->GetHeight() );
-                    const float fit = std::min( w / iw, h / ih );
-                    const float sw = iw * fit, sh = ih * fit;
-                    const float cx = w * 0.5f, cy = h * 0.5f;
-                    dl.AddImage( img, { cx - sw * 0.5f, cy - sh * 0.5f }, { cx + sw * 0.5f, cy + sh * 0.5f },
-                                 { 0.0f, 0.0f }, { 1.0f, 1.0f }, glm::vec4( 1.0f, 1.0f, 1.0f, 1.0f ) );
-                }
-            }
-        }
+        if ( auto* img = ResolveSpriteImage( sprite ) )
+            DrawFittedSprite( dl, *img, w, h, 1.0f );
 
         // AND SOMETHING THAT MOVES. A still loading screen is indistinguishable from a hung game -- the
         // editor's overlay solves this with a label, and this host has no font it can rely on (fonts are
@@ -743,22 +766,8 @@ namespace Desert::Player
                         a = std::clamp( a, 0.0f, 1.0f );
 
                         dl.AddRectFilled( { 0.0f, 0.0f }, { w, h }, glm::vec4( 0.0f, 0.0f, 0.0f, a ) ); // fade
-                        if ( auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( m_SplashSprite ) )
-                        {
-                            auto* img = static_cast<Graphic::Image2D*>(
-                                 Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                            if ( img && img->GetWidth() > 0 && img->GetHeight() > 0 )
-                            {
-                                const float iw  = static_cast<float>( img->GetWidth() );
-                                const float ih  = static_cast<float>( img->GetHeight() );
-                                const float fit = std::min( w / iw, h / ih );
-                                const float sw = iw * fit, sh = ih * fit;
-                                const float cx = w * 0.5f, cy = h * 0.5f;
-                                dl.AddImage( img, { cx - sw * 0.5f, cy - sh * 0.5f },
-                                             { cx + sw * 0.5f, cy + sh * 0.5f }, { 0.0f, 0.0f }, { 1.0f, 1.0f },
-                                             glm::vec4( 1.0f, 1.0f, 1.0f, a ) );
-                            }
-                        }
+                        if ( auto* img = ResolveSpriteImage( m_SplashSprite ) )
+                            DrawFittedSprite( dl, *img, w, h, a );
                     }
                 }
 
