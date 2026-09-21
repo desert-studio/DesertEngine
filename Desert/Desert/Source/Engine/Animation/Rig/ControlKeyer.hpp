@@ -78,6 +78,26 @@
  * `Playback` branch and scrubbing re-keys every control on every frame, which is exactly what the suite
  * mutates to check.
  *
+ * ── THE SAME DEFERRAL FOR A BONE, AND WHY THERE IS NOT A SECOND KEYER (A28) ──────────────────────────
+ *
+ * The Sequencer's Record mode keys BONES, not controls, and it had no interaction at all: every mouse-move
+ * frame in which the posed bone differed called a keying routine of its own. The two rules above are not
+ * about controls — they are about an INTERACTION and a named transform track — so a second class with a
+ * second upsert in it would be this file's own warning in a new costume. `KeySubject` is therefore a
+ * {kind, index} pair and the pending list holds subjects; everything else is shared.
+ *
+ * TWO ASYMMETRIES, BOTH DELIBERATE:
+ *
+ *   1. `WriteBone` DOES NOT TAKE A POSE. A control's storage is the hierarchy and the keyer owns that
+ *      write, which is what makes `ControlWriteSource` load-bearing. A bone's storage is the Animator's
+ *      authoring buffer, which the gizmo writes through `Animator::SetBoneLocalPose` — a funnel the keyer
+ *      cannot stand in front of without duplicating that function's refusals. So the keyer READS the bone
+ *      pose from `ControlKeyTarget::AuthoredPose` instead, at the moment it commits.
+ *   2. `WriteBone` HAS NO `ControlWriteSource`. Report 01 §823's loop cannot form here and the line that
+ *      says so is `Animator.hpp:157`: playback writes `m_EvaluatedPose`, the authoring buffer is
+ *      "UNAFFECTED by it". A flag that no path can raise is a knob that hides the absence of the problem
+ *      it claims to solve, so there is not one.
+ *
  * ── WHAT THIS FILE IS NOT ────────────────────────────────────────────────────────────────────────────
  *
  * `ApplyClipToControls` is the READ side of keying and nothing more: it samples named tracks onto
@@ -111,6 +131,31 @@ namespace Desert::Animation
     };
 
     /**
+     * @brief Which of a rig's two kinds of animatable thing a key is about.
+     *
+     * A track name is the only binding key there is (see the file note), so from the CLIP's point of view
+     * these two are the same thing; the kind says only where the name and the value are read from.
+     */
+    enum class KeySubjectKind : uint8_t
+    {
+        Control, ///< name and pose come from the `ControlHierarchy`
+        Bone,    ///< name comes from the `Skeleton`, pose from `ControlKeyTarget::AuthoredPose`
+    };
+
+    /// One thing an interaction is moving. A pair rather than a tagged index, because an index whose
+    /// meaning depends on a bit stored elsewhere is how a control's keys end up on a bone.
+    struct KeySubject
+    {
+        KeySubjectKind Kind  = KeySubjectKind::Control;
+        uint32_t       Index = 0;
+
+        [[nodiscard]] bool operator==( const KeySubject& other ) const
+        {
+            return Kind == other.Kind && Index == other.Index;
+        }
+    };
+
+    /**
      * @brief What a key is written into, and where. PASSED PER CALL, NEVER STORED.
      *
      * The same reason `ControlHierarchy::Evaluate` takes the pose as an argument: a keyer holding a
@@ -123,6 +168,12 @@ namespace Desert::Animation
         const Skeleton*   Skeleton  = nullptr; ///< the one the rig was evaluated against, for the name check
         AnimationClip*    Clip      = nullptr;
         FrameNumber       Tick;
+
+        /// Where a BONE subject's value is read from — the Animator's authoring buffer, not its bind pose
+        /// and not its evaluated pose. Null is legal and means "this target keys controls only"; a bone
+        /// write against such a target is refused rather than keyed from whatever the bind pose says,
+        /// because a key holding the bind pose is the §936 defect (a keyframe that moves the bone).
+        const LocalPose* AuthoredPose = nullptr;
     };
 
     /**
@@ -172,6 +223,15 @@ namespace Desert::Animation
                                                          const BoneTransform& pose, ControlWriteSource source );
 
         /**
+         * @brief The same operation for a BONE the animator has posed. See the file note for the two
+         *        asymmetries (no pose argument, no write source) and why each of them is the honest shape.
+         *
+         * @return 1 when it keyed, 0 when it deferred. Refuses a target with no `AuthoredPose`, a bone
+         *         index the skeleton does not have, and everything `Check` refuses for a control.
+         */
+        [[nodiscard]] Common::ResultStr<uint32_t> WriteBone( const ControlKeyTarget& target, uint32_t bone );
+
+        /**
          * @brief Close the interaction and key every control that moved during it, once each.
          *
          * The value keyed is read from the hierarchy NOW, not remembered from the writes: that is the
@@ -195,8 +255,8 @@ namespace Desert::Animation
         void CancelInteraction();
 
     private:
-        bool                  m_Interacting = false;
-        std::vector<uint32_t> m_Pending;
+        bool                    m_Interacting = false;
+        std::vector<KeySubject> m_Pending;
     };
 
     /**

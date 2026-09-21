@@ -18,7 +18,7 @@ namespace Desert::Animation
          * checked here too, even for a write that will defer, so that a bad target is reported at the
          * moment the caller can still do something about it.
          */
-        [[nodiscard]] Common::BoolResultStr Check( const ControlKeyTarget& target, uint32_t control )
+        [[nodiscard]] Common::BoolResultStr Check( const ControlKeyTarget& target, KeySubject subject )
         {
             if ( target.Hierarchy == nullptr || target.Skeleton == nullptr || target.Clip == nullptr )
             {
@@ -26,10 +26,34 @@ namespace Desert::Animation
                      "a control key needs a hierarchy, a skeleton and a clip; this target has {}/{}/{}",
                      target.Hierarchy != nullptr, target.Skeleton != nullptr, target.Clip != nullptr );
             }
-            if ( control >= target.Hierarchy->Size() )
+            if ( subject.Kind == KeySubjectKind::Control && subject.Index >= target.Hierarchy->Size() )
             {
-                return Common::MakeFormattedError<bool>( "no control {} in a rig of {}", control,
+                return Common::MakeFormattedError<bool>( "no control {} in a rig of {}", subject.Index,
                                                          target.Hierarchy->Size() );
+            }
+            if ( subject.Kind == KeySubjectKind::Bone )
+            {
+                if ( subject.Index >= static_cast<uint32_t>( target.Skeleton->GetBones().size() ) )
+                {
+                    return Common::MakeFormattedError<bool>( "no bone {} in a skeleton of {}", subject.Index,
+                                                             target.Skeleton->GetBones().size() );
+                }
+                if ( target.AuthoredPose == nullptr )
+                {
+                    // NOT "fall back to the bind pose". A key holding the bind pose is a keyframe that
+                    // moves the bone the moment it is written, which is the defect §936 names.
+                    return Common::MakeFormattedError<bool>(
+                         "bone {} ('{}') cannot be keyed: this target carries no authoring pose to read it "
+                         "from, and the bind pose is not the animator's work",
+                         subject.Index, target.Skeleton->GetBones()[subject.Index].Name );
+                }
+                if ( subject.Index >= static_cast<uint32_t>( target.AuthoredPose->Size() ) )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "bone {} is outside the authoring pose, which holds {} bones — the pose and the "
+                         "skeleton disagree about the rig",
+                         subject.Index, target.AuthoredPose->Size() );
+                }
             }
             if ( target.Tick.Value < 0 || target.Tick > target.Clip->DurationTicks )
             {
@@ -44,7 +68,14 @@ namespace Desert::Animation
                      target.Tick.Value, target.Clip->AnimationName, target.Clip->DurationTicks.Value );
             }
 
-            const std::string& name = target.Hierarchy->Get( control ).Name;
+            if ( subject.Kind == KeySubjectKind::Bone )
+            {
+                // A BONE'S NAME IS ITS OWN. The collision refusal below is about a CONTROL borrowing a
+                // bone's name; a bone track landing on that bone is what playback binding is for.
+                return Common::MakeSuccess( true );
+            }
+
+            const std::string& name = target.Hierarchy->Get( subject.Index ).Name;
             if ( const auto bone = target.Skeleton->FindBoneIndex( name ) )
             {
                 // See the file note: a track name is the only binding key there is, so this control's keys
@@ -81,15 +112,20 @@ namespace Desert::Animation
 
         /// Write the control's CURRENT pose as one key. The value is read here rather than remembered; see
         /// `EndInteraction`'s note on why that is the whole of "resolve before you commit".
-        [[nodiscard]] Common::BoolResultStr KeyNow( const ControlKeyTarget& target, uint32_t control )
+        [[nodiscard]] Common::BoolResultStr KeyNow( const ControlKeyTarget& target, KeySubject subject )
         {
-            const ControlElement& element = target.Hierarchy->Get( control );
-            BoneTrack&            track   = TrackFor( *target.Clip, element.Name );
-            if ( !SetTransformKey( track, target.Tick, element.Pose, target.Clip->TickRate ) )
+            const bool           isBone = subject.Kind == KeySubjectKind::Bone;
+            const std::string&   name   = isBone ? target.Skeleton->GetBones()[subject.Index].Name
+                                                 : target.Hierarchy->Get( subject.Index ).Name;
+            const BoneTransform& pose   = isBone ? ( *target.AuthoredPose )[subject.Index]
+                                                 : target.Hierarchy->Get( subject.Index ).Pose;
+
+            BoneTrack& track = TrackFor( *target.Clip, name );
+            if ( !SetTransformKey( track, target.Tick, pose, target.Clip->TickRate ) )
             {
                 return Common::MakeFormattedError<bool>(
-                     "control '{}': its pose could not be written as a key at tick {}", element.Name,
-                     target.Tick.Value );
+                     "{} '{}': its pose could not be written as a key at tick {}",
+                     isBone ? "bone" : "control", name, target.Tick.Value );
             }
             return Common::MakeSuccess( true );
         }
@@ -118,7 +154,8 @@ namespace Desert::Animation
     Common::ResultStr<uint32_t> ControlKeyer::Write( const ControlKeyTarget& target, uint32_t control,
                                                      const BoneTransform& pose, ControlWriteSource source )
     {
-        if ( const auto checked = Check( target, control ); !checked.IsSuccess() )
+        const KeySubject subject{ KeySubjectKind::Control, control };
+        if ( const auto checked = Check( target, subject ); !checked.IsSuccess() )
         {
             return Common::MakeError<uint32_t>( checked.GetError() );
         }
@@ -141,14 +178,41 @@ namespace Desert::Animation
         {
             // REPORT 05 §971. The clip is not touched at all yet; what is remembered is WHICH control
             // moved, never the value it moved to.
-            if ( std::find( m_Pending.begin(), m_Pending.end(), control ) == m_Pending.end() )
+            if ( std::find( m_Pending.begin(), m_Pending.end(), subject ) == m_Pending.end() )
             {
-                m_Pending.push_back( control );
+                m_Pending.push_back( subject );
             }
             return Common::MakeSuccess( 0U );
         }
 
-        if ( const auto keyed = KeyNow( target, control ); !keyed.IsSuccess() )
+        if ( const auto keyed = KeyNow( target, subject ); !keyed.IsSuccess() )
+        {
+            return Common::MakeError<uint32_t>( keyed.GetError() );
+        }
+        return Common::MakeSuccess( 1U );
+    }
+
+    Common::ResultStr<uint32_t> ControlKeyer::WriteBone( const ControlKeyTarget& target, uint32_t bone )
+    {
+        const KeySubject subject{ KeySubjectKind::Bone, bone };
+        if ( const auto checked = Check( target, subject ); !checked.IsSuccess() )
+        {
+            return Common::MakeError<uint32_t>( checked.GetError() );
+        }
+
+        // NO POSE IS STORED HERE. The gizmo already wrote it through `Animator::SetBoneLocalPose`; see the
+        // file note for why standing a second funnel in front of that one would only duplicate its
+        // refusals.
+        if ( m_Interacting )
+        {
+            if ( std::find( m_Pending.begin(), m_Pending.end(), subject ) == m_Pending.end() )
+            {
+                m_Pending.push_back( subject );
+            }
+            return Common::MakeSuccess( 0U );
+        }
+
+        if ( const auto keyed = KeyNow( target, subject ); !keyed.IsSuccess() )
         {
             return Common::MakeError<uint32_t>( keyed.GetError() );
         }
@@ -167,18 +231,18 @@ namespace Desert::Animation
         // REFUSE BEFORE WRITING ANYTHING, over every pending control. A loop that keyed three controls and
         // then refused the fourth would leave the clip holding a third of an interaction, and the undo the
         // caller pushes covers the whole of one — that is §971's other half.
-        for ( const uint32_t control : m_Pending )
+        for ( const KeySubject subject : m_Pending )
         {
-            if ( const auto checked = Check( target, control ); !checked.IsSuccess() )
+            if ( const auto checked = Check( target, subject ); !checked.IsSuccess() )
             {
                 return Common::MakeError<uint32_t>( checked.GetError() );
             }
         }
 
         uint32_t keyed = 0;
-        for ( const uint32_t control : m_Pending )
+        for ( const KeySubject subject : m_Pending )
         {
-            if ( const auto wrote = KeyNow( target, control ); !wrote.IsSuccess() )
+            if ( const auto wrote = KeyNow( target, subject ); !wrote.IsSuccess() )
             {
                 return Common::MakeError<uint32_t>( wrote.GetError() );
             }
