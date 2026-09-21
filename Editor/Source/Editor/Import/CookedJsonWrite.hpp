@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <regex>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 namespace Desert::Editor
@@ -36,8 +37,13 @@ namespace Desert::Editor
     // in a path. NOTE, and it is not this function's to fix: the freshness check in
     // ImportManager::Import asks about the UNSANITISED path, so a source whose name needs sanitising
     // re-cooks on every scan.
-    template <typename T>
-    [[nodiscard]] Common::BoolResultStr WriteCookedJson( const T& data, const std::filesystem::path& path )
+    // THE BYTES HALF, SPLIT OUT WHEN `.stmesh`/`.skmesh` STOPPED BEING TEXT (B11). Everything this
+    // header's comment describes — the sanitised filename, the checked atomic write, the registry row —
+    // is about a cooked FILE and not about JSON, and a cooked mesh is now a binary container. Splitting
+    // is what keeps the hole described above closed in ONE place for both payload kinds rather than
+    // reopening it in a second copy, which is the mistake the Д35 note is about.
+    [[nodiscard]] inline Common::BoolResultStr WriteCookedBytes( const std::string&           bytes,
+                                                                 const std::filesystem::path& path )
     {
         static const std::regex illegal( R"([<>:"/\\|?*])" );
 
@@ -47,12 +53,11 @@ namespace Desert::Editor
         const std::filesystem::path fixedPath =
              path.parent_path() / std::regex_replace( path.filename().string(), illegal, "_" );
 
-        const std::string json = rfl::json::write( data );
-        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( fixedPath, json );
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( fixedPath, bytes );
              !written )
         {
             return Common::MakeFormattedError<bool>( "cooked metadata '{}' ({} bytes) was not written: {}",
-                                                     fixedPath.string(), json.size(), written.GetError() );
+                                                     fixedPath.string(), bytes.size(), written.GetError() );
         }
 
         // THE COOKED FILE ENTERS THE CONTENT REGISTRY THE MOMENT IT EXISTS, and this is the only place
@@ -68,5 +73,11 @@ namespace Desert::Editor
         Assets::ContentRegistry::NoteFile( fixedPath );
 
         return BOOLSUCCESS;
+    }
+
+    template <typename T>
+    [[nodiscard]] Common::BoolResultStr WriteCookedJson( const T& data, const std::filesystem::path& path )
+    {
+        return WriteCookedBytes( rfl::json::write( data ), path );
     }
 } // namespace Desert::Editor
