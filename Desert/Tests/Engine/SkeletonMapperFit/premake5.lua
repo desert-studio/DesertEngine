@@ -1,0 +1,76 @@
+local test_name = path.getname(_SCRIPT_DIR)
+local test_files = os.matchfiles("*.cpp")
+
+project(test_name)
+    kind "ConsoleApp"
+    language "C++"
+
+    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+
+    -- T6.1. The subject is a THIRD-PARTY unit we already build and never call: JPH::SkeletonMapper. It is
+    -- measured against our own rig and our own clip, read off disk through the engine's own reader, so that
+    -- what this suite accepts is what the engine would accept. Jolt is linked as the workspace project
+    -- (`links { "Jolt" }`) -- vendored, MIT, already paid for in compile time -- and NOT rebuilt here.
+    files {
+        test_files,
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+    }
+
+    includedirs {
+        "%{wks.location}/Desert/Common/Source",
+        "%{wks.location}/Desert/Desert/Source",
+    }
+    externalincludedirs {
+        "%{wks.location}/ThirdParty/entt/include/",
+        "%{wks.location}/ThirdParty/reflect-cpp/include",
+        deps.DesertSpecific.IncludeDir.jolt,
+    }
+
+    for name, path in pairs(deps.Common.IncludeDir) do
+        externalincludedirs { path }
+    end
+
+    for name, path in pairs(deps.TestSpecific.IncludeDir) do
+        externalincludedirs { path }
+    end
+
+    for _, define in ipairs(deps.TestSpecific.Defines) do
+        defines { define }
+    end
+
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+    filter "system:linux"
+        defines { "DESERT_PLATFORM_LINUX" }
+    filter {}
+
+    links { "Common", "Optick", "Jolt" }
+
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
+
+    filter "system:not windows"
+        links { "ReflectCpp" }
+    filter {}
+
+    filter "configurations:Debug"
+        for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
+            links { path }
+        end
+
+    filter "configurations:Release"
+        for name, path in pairs(deps.TestSpecific.Libraries.Release) do
+            links { path }
+        end
+
+    filter {}
+
+print("Configured test project: " .. test_name)
