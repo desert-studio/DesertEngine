@@ -791,7 +791,7 @@ TEST( ShippingBoundary, EveryShippedProjectSelectsItsLibrariesInTheShippingConfi
         // it. A census that examines one of two identical constructs is a census that reports on half a
         // file.
         for ( size_t use = text.find( "Libraries.Release" ); use != std::string::npos;
-              use       = text.find( "Libraries.Release", use + 1 ) )
+              use        = text.find( "Libraries.Release", use + 1 ) )
         {
             ++scanned;
 
