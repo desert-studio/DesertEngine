@@ -1018,7 +1018,7 @@ namespace Desert::Assets::Serialization
                     wired.Literal = Animation::RigValue{ ToBoneTransform( *input.Transform ) };
                 }
 
-                node.Inputs[pin] = std::move( wired );
+                node.Inputs[pin] = wired;
             }
 
             nodeIndex.emplace( file.Name, static_cast<uint32_t>( nodes.size() ) );

@@ -203,13 +203,6 @@ namespace
         return input;
     }
 
-    RigNodeInput Lit( const glm::quat& value )
-    {
-        RigNodeInput input;
-        input.Literal = RigValue{ value };
-        return input;
-    }
-
     RigNodeInput Lit( const BoneTransform& value )
     {
         RigNodeInput input;
@@ -348,7 +341,7 @@ TEST( RigGraphTest, EveryKindHasExactlyOneRowAndTheCountIsDerivedFromTheTable )
         // read is the defect `kSpaceKinds` in the `.derig` layer already carries a comment about.
         const auto parsed = RigNodeKindFromText( table[i].Name );
         ASSERT_TRUE( parsed.has_value() ) << table[i].Name;
-        EXPECT_EQ( *parsed, table[i].Kind );
+        EXPECT_EQ( parsed.value_or( table[i].Kind ), table[i].Kind );
 
         std::set<std::string> pins;
         for ( const auto& pin : table[i].Inputs )
@@ -734,8 +727,8 @@ TEST( RigGraphTest, DistanceIsCentimetresBetweenTheTwoOrigins )
     BoneTransform right;
     right.Translation = { 3.0F, 4.0F, 0.0F }; // 5 cm, and a triangle nobody can get wrong by accident.
 
-    BoneTransform zero;
-    BoneTransform hundred;
+    const BoneTransform zero;
+    BoneTransform       hundred;
     hundred.Translation = { 100.0F, 0.0F, 0.0F };
 
     std::vector<RigNode> nodes;
@@ -756,8 +749,8 @@ TEST( RigGraphTest, RemapFloatIsLinearInsideTheRangeAndFlatOutsideIt )
 {
     const Skeleton skeleton = MakeArmRig();
 
-    BoneTransform zero;
-    BoneTransform hundred;
+    const BoneTransform zero;
+    BoneTransform       hundred;
     hundred.Translation = { 100.0F, 0.0F, 0.0F };
 
     const auto remapped = [&]( float value )
@@ -790,8 +783,8 @@ TEST( RigGraphTest, RemapFromAnEmptyRangeIsRefusedAtExecuteRatherThanAnswered )
     uint32_t       b        = ControlHierarchy::INVALID;
     auto           stage    = TwoControlRig( skeleton, &a, &b );
 
-    BoneTransform zero;
-    BoneTransform hundred;
+    const BoneTransform zero;
+    BoneTransform       hundred;
     hundred.Translation = { 100.0F, 0.0F, 0.0F };
 
     std::vector<RigNode> nodes;
@@ -1191,7 +1184,8 @@ TEST( RigGraphTest, InputsMayBeListedInAnyOrderAndTheWalkStillReadsThemByPin )
 {
     const Skeleton                source   = MakeArmRig();
     Serialization::ControlRigData shuffled = RigWithGraph();
-    std::swap( shuffled.Graph->Nodes[1].Inputs[0], shuffled.Graph->Nodes[1].Inputs[1] );
+    ASSERT_TRUE( shuffled.Graph.has_value() );
+    std::swap( shuffled.Graph.value().Nodes[1].Inputs[0], shuffled.Graph.value().Nodes[1].Inputs[1] );
 
     ASSERT_TRUE( Serialization::ValidateControlRigData( shuffled ).IsSuccess() );
 
@@ -1316,7 +1310,8 @@ TEST( RigGraphTest, ABoneNameTheSkeletonDoesNotHaveIsRefusedAtBuildAndNamesTheSi
 {
     const Skeleton                skeleton = MakeArmRig();
     Serialization::ControlRigData data     = RigWithGraph();
-    data.Graph->Nodes[0].Target            = "Tentacle";
+    ASSERT_TRUE( data.Graph.has_value() );
+    data.Graph.value().Nodes[0].Target = "Tentacle";
 
     // The FILE cannot know; only a skeleton can, and that is where the refusal lives.
     ASSERT_TRUE( Serialization::ValidateControlRigData( data ).IsSuccess() );

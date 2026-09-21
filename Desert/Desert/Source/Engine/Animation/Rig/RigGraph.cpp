@@ -1,5 +1,7 @@
 #include "RigGraph.hpp"
 
+#include <glm/gtc/type_ptr.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
@@ -103,6 +105,20 @@ namespace Desert::Animation
              { "Global", RigControlSpace::Global },
         } };
 
+        [[nodiscard]] bool AllFinite( const float* components, size_t count )
+        {
+            for ( size_t i = 0; i < count; ++i )
+            {
+                if ( !std::isfinite( components[i] ) )
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// NOT RECURSIVE, and that is the analyser's rule rather than an opinion: a Transform is four
+        /// scalars plus two triples, so the flat form is also the shorter one.
         [[nodiscard]] bool IsFinite( const RigValue& value )
         {
             switch ( static_cast<RigValueKind>( value.index() ) )
@@ -110,23 +126,15 @@ namespace Desert::Animation
                 case RigValueKind::Float:
                     return std::isfinite( std::get<float>( value ) );
                 case RigValueKind::Vec3:
-                {
-                    const auto& v = std::get<glm::vec3>( value );
-                    return std::isfinite( v.x ) && std::isfinite( v.y ) && std::isfinite( v.z );
-                }
+                    return AllFinite( glm::value_ptr( std::get<glm::vec3>( value ) ), 3 );
                 case RigValueKind::Quat:
-                {
-                    const auto& q = std::get<glm::quat>( value );
-                    return std::isfinite( q.w ) && std::isfinite( q.x ) && std::isfinite( q.y ) &&
-                           std::isfinite( q.z );
-                }
+                    return AllFinite( glm::value_ptr( std::get<glm::quat>( value ) ), 4 );
                 case RigValueKind::Transform:
                 {
-                    const auto&    t = std::get<BoneTransform>( value );
-                    const RigValue translation{ t.Translation };
-                    const RigValue rotation{ t.Rotation };
-                    const RigValue scale{ t.Scale };
-                    return IsFinite( translation ) && IsFinite( rotation ) && IsFinite( scale );
+                    const auto& t = std::get<BoneTransform>( value );
+                    return AllFinite( glm::value_ptr( t.Translation ), 3 ) &&
+                           AllFinite( glm::value_ptr( t.Rotation ), 4 ) &&
+                           AllFinite( glm::value_ptr( t.Scale ), 3 );
                 }
             }
             return false;
@@ -354,7 +362,7 @@ namespace Desert::Animation
 
                 if ( input.Node == RigNodeInput::LITERAL )
                 {
-                    const RigValueKind actual = static_cast<RigValueKind>( input.Literal.index() );
+                    const auto actual = static_cast<RigValueKind>( input.Literal.index() );
                     if ( actual != expected )
                     {
                         return Common::MakeFormattedError<bool>(
