@@ -31,7 +31,7 @@ namespace Common::Content
         // the tracked list disagree with the walk about exactly those files.
         bool IsUnder( const std::filesystem::path& file, const std::filesystem::path& root )
         {
-            std::error_code ec;
+            std::error_code             ec;
             const std::filesystem::path absoluteFile =
                  file.is_absolute() ? file.lexically_normal()
                                     : std::filesystem::absolute( file, ec ).lexically_normal();
@@ -177,8 +177,8 @@ namespace Common::Content
 
         const std::filesystem::path root = std::filesystem::path( toplevel ).lexically_normal();
 
-        const std::string command = "git -C " + QuoteForShell( root.string() ) +
-                                    " ls-files -z --full-name 2>/dev/null";
+        const std::string command =
+             "git -C " + QuoteForShell( root.string() ) + " ls-files -z --full-name 2>/dev/null";
 
         const std::string output = RunAndCapture( command );
         if ( output.empty() )
@@ -189,10 +189,9 @@ namespace Common::Content
         std::size_t start = 0;
         while ( start < output.size() )
         {
-            const std::size_t end      = output.find( '\0', start );
-            const std::string relative = output.substr( start, end == std::string::npos
-                                                                    ? std::string::npos
-                                                                    : end - start );
+            const std::size_t end = output.find( '\0', start );
+            const std::string relative =
+                 output.substr( start, end == std::string::npos ? std::string::npos : end - start );
             start = ( end == std::string::npos ) ? output.size() : end + 1;
             if ( relative.empty() )
                 continue;

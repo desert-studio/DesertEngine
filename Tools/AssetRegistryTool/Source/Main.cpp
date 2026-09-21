@@ -78,10 +78,9 @@ namespace
 {
     int Usage()
     {
-        std::fprintf( stderr,
-                      "usage: AssetRegistryTool <cook|check|list> <project.deproj> [--disk]\n"
-                      "  default source: the files git tracks (what a clean clone carries)\n"
-                      "  --disk:         the content roots on this machine\n" );
+        std::fprintf( stderr, "usage: AssetRegistryTool <cook|check|list> <project.deproj> [--disk]\n"
+                              "  default source: the files git tracks (what a clean clone carries)\n"
+                              "  --disk:         the content roots on this machine\n" );
         return 2;
     }
 
@@ -140,8 +139,8 @@ namespace
     struct ContentSource
     {
         std::map<std::string, Common::Content::ContentFile> Files;
-        std::string                                         What;   // the whole sentence, for the log
-        std::string                                         Noun;   // reads inside a disagreement
+        std::string                                         What; // the whole sentence, for the log
+        std::string                                         Noun; // reads inside a disagreement
         bool                                                Usable = false;
     };
 
@@ -163,10 +162,10 @@ namespace
                           " (not a checkout, or no git). That is not the same as 'nothing is tracked', so "
                           "the tool refuses rather than writing an empty registry. Use --disk if this "
                           "project is genuinely not in a repository.",
-                     {}, false };
+                     {},
+                     false };
         }
-        return { std::move( *tracked ), "the files this repository tracks", "tracked by this repository",
-                 true };
+        return { std::move( *tracked ), "the files this repository tracks", "tracked by this repository", true };
     }
 
     int Cook( const fs::path& projectPath, bool fromDisk )
@@ -175,7 +174,7 @@ namespace
         if ( !opened )
             return Fail( opened.GetError() );
 
-        ContentSource source = SourceFor( projectPath, fromDisk );
+        const ContentSource source = SourceFor( projectPath, fromDisk );
         if ( !source.Usable )
             return Fail( source.What );
         std::printf( "AssetRegistryTool: cooking from %s\n", source.What.c_str() );
@@ -235,8 +234,8 @@ namespace
              !written )
             return Fail( written.GetError() );
 
-        std::printf( "AssetRegistryTool: %zu row(s) -> %zu row(s) in %s\n", previous.Count(),
-                     registry.Count(), out.string().c_str() );
+        std::printf( "AssetRegistryTool: %zu row(s) -> %zu row(s) in %s\n", previous.Count(), registry.Count(),
+                     out.string().c_str() );
         return 0;
     }
 
@@ -246,7 +245,7 @@ namespace
         if ( !opened )
             return Fail( opened.GetError() );
 
-        ContentSource source = SourceFor( projectPath, fromDisk );
+        const ContentSource source = SourceFor( projectPath, fromDisk );
         if ( !source.Usable )
             return Fail( source.What );
         std::printf( "AssetRegistryTool: checking against %s\n", source.What.c_str() );

@@ -458,8 +458,7 @@ namespace Desert::Assets
             std::error_code ec;
             std::filesystem::create_directories( path.parent_path(), ec );
 
-            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text );
-                 !written )
+            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text ); !written )
             {
                 return Common::MakeFormattedError<bool>( "the cook's asset registry '{}' could not be "
                                                          "written: {}",

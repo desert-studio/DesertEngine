@@ -67,6 +67,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <map>
 #include <set>
 #include <string>
 
@@ -152,12 +153,22 @@ TEST( CookedRegistryGate, TheGateCanSeeBothTheRegistryAndTheContentTree )
          << "engine resources do not resolve from the working directory this suite set, so the scan "
             "below would miss every shader and certify a registry that has none";
 
+    // `if` AND NOT `ASSERT_TRUE`, throughout this file, and the reason is worth one line: gtest's
+    // ASSERT expands to a `return` the flow analyser does not follow, so every `*tracked` after one
+    // reads to clang-tidy as an unchecked optional. A plain guard says the same thing to the reader,
+    // to gtest and to the analyser at once — and a NOLINT would have silenced the one check that
+    // exists to catch exactly the mistake this file is about: an empty answer read as a good one.
     const auto tracked = Common::Content::TrackedContent( root );
-    ASSERT_TRUE( tracked.has_value() )
-         << "THE GATE COULD NOT RUN, which is a different answer from 'nothing is wrong'. `git "
-            "ls-files` failed or " << root.string()
-         << " is not a checkout. CI runs this over a git checkout; if that has stopped being true, the "
-            "gate has stopped being a gate and this failure is the only thing that will say so.";
+    if ( !tracked.has_value() )
+    {
+        ADD_FAILURE() << "THE GATE COULD NOT RUN, which is a different answer from 'nothing is wrong'. "
+                         "`git ls-files` failed or "
+                      << root.string()
+                      << " is not a checkout. CI runs this over a git checkout; if that has stopped "
+                         "being true, the gate has stopped being a gate and this failure is the only "
+                         "thing that will say so.";
+        return;
+    }
     EXPECT_FALSE( tracked->empty() )
          << "git tracks no content files at all, which cannot be true of this repository";
 
@@ -181,14 +192,18 @@ TEST( CookedRegistryGate, TheCommittedRegistryDescribesExactlyWhatACleanCloneCar
     ASSERT_TRUE( loaded ) << loaded.GetError();
 
     const auto tracked = Common::Content::TrackedContent( root );
-    ASSERT_TRUE( tracked.has_value() ) << "the gate could not run — see the first test for what that means";
-    ASSERT_FALSE( tracked->empty() );
+    if ( !tracked.has_value() )
+    {
+        ADD_FAILURE() << "the gate could not run — see the first test for what that means";
+        return;
+    }
+    const std::map<std::string, Common::Content::ContentFile>& present = *tracked;
+    ASSERT_FALSE( present.empty() );
 
     // AGAINST WHAT GIT TRACKS, NOT AGAINST THE DISK. An untracked file under `Editor/Cooked/` is this
     // machine's cook output; it is described by the cook's own registry, which is not committed and is
     // not this gate's subject.
-    const auto problems =
-         Common::Content::Compare( loaded.GetValue(), *tracked, "tracked by this repository" );
+    const auto problems = Common::Content::Compare( loaded.GetValue(), *tracked, "tracked by this repository" );
 
     // EVERY disagreement is printed, not the first: a re-cook fixes all of them at once, and a gate
     // that reports one per run turns one command into as many runs as there are files.
@@ -218,7 +233,11 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
     ASSERT_TRUE( loaded ) << loaded.GetError();
 
     const auto tracked = Common::Content::TrackedContent( root );
-    ASSERT_TRUE( tracked.has_value() );
+    if ( !tracked.has_value() )
+    {
+        ADD_FAILURE() << "the gate could not run — see the first test for what that means";
+        return;
+    }
 
     std::set<std::string> kindsTracked;
     for ( const auto& [key, file] : *tracked )

@@ -231,7 +231,7 @@ namespace
 
         for ( int i = 0; i < 3; ++i )
         {
-            Desert::Assets::Serialization::StaticVertexData v;
+            Desert::Assets::Serialization::StaticVertexData v{};
             v.Position  = glm::vec3( static_cast<float>( i ), 0.0f, 0.0f );
             v.Normal    = glm::vec3( 0.0f, 1.0f, 0.0f );
             v.Tangent   = glm::vec3( 1.0f, 0.0f, 0.0f );
