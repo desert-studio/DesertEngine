@@ -73,7 +73,7 @@ namespace
 
     std::string Read( const fs::path& file )
     {
-        std::ifstream in( file.string() );
+        const std::ifstream in( file.string() );
         if ( !in )
             return {};
         std::ostringstream buffer;
@@ -429,13 +429,13 @@ TEST( ShippingBoundary, EveryPlayerSideConsumerOfAnInstrumentCarriesTheBoundary 
 
     for ( const Instrument& row : Register() )
     {
-        std::set<std::string> own( row.Own.begin(), row.Own.end() );
-        size_t                rowConsumers = 0;
+        const std::set<std::string> own( row.Own.begin(), row.Own.end() );
+        size_t                      rowConsumers = 0;
 
         for ( const fs::path& file : PlayerSources( root ) )
         {
             const std::string rel = fs::relative( file, root ).generic_string();
-            if ( own.count( rel ) != 0 )
+            if ( own.contains( rel ) )
                 continue;
 
             const std::string text = StripComments( Read( file ) );
@@ -506,8 +506,9 @@ TEST( ShippingBoundary, EveryProfilingMacroHasAShippingTwinNameForName )
         {
             const size_t nameStart = at + std::string( "#define " ).size();
             size_t       nameEnd   = nameStart;
-            while ( nameEnd < region.size() &&
-                    ( std::isalnum( static_cast<unsigned char>( region[nameEnd] ) ) || region[nameEnd] == '_' ) )
+            while (
+                 nameEnd < region.size() &&
+                 ( std::isalnum( static_cast<unsigned char>( region[nameEnd] ) ) != 0 || region[nameEnd] == '_' ) )
                 ++nameEnd;
             names.insert( region.substr( nameStart, nameEnd - nameStart ) );
         }
@@ -521,7 +522,7 @@ TEST( ShippingBoundary, EveryProfilingMacroHasAShippingTwinNameForName )
 
     std::string missing;
     for ( const std::string& name : development )
-        if ( shipping.count( name ) == 0 )
+        if ( !shipping.contains( name ) )
             missing += "\n  " + name;
 
     EXPECT_TRUE( missing.empty() )
@@ -531,7 +532,7 @@ TEST( ShippingBoundary, EveryProfilingMacroHasAShippingTwinNameForName )
 
     std::string stale;
     for ( const std::string& name : shipping )
-        if ( development.count( name ) == 0 )
+        if ( !development.contains( name ) )
             stale += "\n  " + name;
     EXPECT_TRUE( stale.empty() ) << "these macros exist only in the Shipping branch — a no-op with nothing "
                                     "to be a no-op of:"
