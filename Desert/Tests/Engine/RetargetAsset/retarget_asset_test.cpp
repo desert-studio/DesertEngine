@@ -131,19 +131,6 @@ namespace
         return rig;
     }
 
-    AnimationClip ClipFrom( const char* path )
-    {
-        const std::string raw = ReadFile( RepoRoot() + path );
-        EXPECT_FALSE( raw.empty() ) << "could not read " << path;
-        const auto data = rfl::json::read<File::AnimationAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        if ( !data.has_value() )
-            return {};
-        auto built = File::BuildClipFromAssetData( data.value() );
-        EXPECT_TRUE( built.IsSuccess() ) << ( built.IsSuccess() ? "" : built.GetError() );
-        return built.IsSuccess() ? built.ExtractValue() : AnimationClip{};
-    }
-
     // ─────────────────────────────────────────────────────────────────────────────────────────────────
     // THE SOURCE RIG AND ITS CLIP ARE BUILT HERE RATHER THAN READ FROM DISK (A27)
     // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -194,7 +181,9 @@ namespace
     constexpr float   kShoulderSwingDeg  = 35.0F;
     constexpr float   kElbowSwingDeg     = 20.0F;
     constexpr float   kWristSwingDeg     = 30.0F;
-    constexpr float   kRootLiftCm        = 100.0F;
+    /// 225 - 150: the two rigs' roots differ by exactly this, so the pelvis stage's scaling has
+    /// something to bite on that is on the scale of the proportion difference rather than arbitrary.
+    constexpr float kRootLiftCm = 75.0F;
 
     std::vector<BoneInfo> TargetBones()
     {
@@ -227,7 +216,7 @@ namespace
         // The offsets are the inverse bind pose and must follow the lengths; `Skeleton` can derive them,
         // and deriving them is what stops the shipped file from carrying IKProbe's offsets under
         // ForeignArm's bones — a file that parses perfectly and skins to the wrong place.
-        Skeleton rig( bones );
+        Skeleton rig( std::move( bones ) );
         rig.RecomputeOffsetMatrices();
 
         File::SkeletonAssetData data;
@@ -669,6 +658,14 @@ TEST( RetargetAssetTest, AnUNEVENProportionDifferenceIsVisibleAtRest )
     EXPECT_GT( restDelta, 0.1F ) << "an uneven source rig changes the chain's normalised extension, so "
                                     "even the rest pose is re-aimed";
 
+    // AND IT IS PINNED TO ITS VALUE, NOT TO A THRESHOLD (A27). This number is a function of the THREE
+    // SCALE FACTORS AND NOTHING ELSE — no clip, no tick — which makes it the one assertion in the suite
+    // that can tell "the rig this suite is for" from "a rig". Make the three scales equal and it goes to
+    // zero, 429 tolerances away, while every `> 0` test in the file stays green; that is the mutation
+    // this pin exists to fail, and a `> 0.1` could not fail it by more than a hair.
+    EXPECT_NEAR( restDelta, 4.289F, 0.01F )
+         << "the source rig's segment scales are no longer 1.5 / 1.75 / 1.3";
+
     // AND THE LIMB LENGTHS ARE STILL EXACT, which is the quantity T6.1's table reports and the one that
     // IS blind at rest. Both statements are true at once, and confusing them is the whole hazard.
     EXPECT_LT( WorstSegmentErrorPercent( target, out ), 0.01F );
@@ -739,6 +736,11 @@ TEST( RetargetAssetTest, ARetargetedCharacterHasDifferentSkinningMatricesAndTheD
     const float retargetError = WorstSegmentErrorPercent( target, retargetedPose );
     EXPECT_GT( naiveError, 10.0F ) << "the naive path is supposed to be wrong; if it is not, this "
                                       "corpus no longer differs in proportion and proves nothing";
+    // 1.75 - 1, EXACTLY: the naive path writes the source's own 140 cm upper arm onto a target bone that
+    // is 80 cm, and the worst segment of the rig is therefore the one scaled most. The second pin on the
+    // rig's identity, and the one that names WHICH segment is worst — a uniform rig would still fail the
+    // `> 10` above at some scales, and this at every one of them.
+    EXPECT_NEAR( naiveError, 75.0F, 0.01F ) << "the worst-scaled segment is no longer the upper arm at x1.75";
     EXPECT_LT( retargetError, 0.01F ) << "the retargeted target must keep its own bones";
 
     // AND DETACHING PUTS IT BACK EXACTLY. The other half of "the retarget is an attachment": a pipeline
@@ -1034,9 +1036,21 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
+    // THE REGENERATION PATH IS THIS TEST, not a sentence in a comment. Both files are written out on
+    // every run, so "the corpus disagrees with the construction" and "here are the bytes that fix it"
+    // are the same event — and a recipe that is executed every run cannot rot the way an instruction
+    // in a header does.
+    const std::filesystem::path rigOut  = std::filesystem::temp_directory_path() / "ForeignArm.skeleton";
+    const std::filesystem::path clipOut = std::filesystem::temp_directory_path() / "ForeignArm_Swing.anim";
+    {
+        std::ofstream( rigOut, std::ios::binary ) << rfl::json::write( ForeignArmRigData() );
+        std::ofstream( clipOut, std::ios::binary ) << rfl::json::write( ForeignArmClipData() );
+    }
+
     const auto shippedRig = rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>(
          ReadFile( root + kSourceRig ) );
-    ASSERT_TRUE( shippedRig.has_value() ) << kSourceRig << " is missing or is not a skeleton";
+    ASSERT_TRUE( shippedRig.has_value() ) << kSourceRig << " is missing or is not a skeleton; copy "
+                                          << rigOut.string() << " over it";
 
     const File::SkeletonAssetData builtRig = ForeignArmRigData();
     ASSERT_EQ( shippedRig.value().Bones.size(), builtRig.Bones.size() );
@@ -1056,7 +1070,8 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
 
     const auto shippedClip = rfl::json::read<File::AnimationAssetData, rfl::DefaultIfMissing>(
          ReadFile( root + kSourceClip ) );
-    ASSERT_TRUE( shippedClip.has_value() ) << kSourceClip << " is missing or is not a clip";
+    ASSERT_TRUE( shippedClip.has_value() ) << kSourceClip << " is missing or is not a clip; copy "
+                                           << clipOut.string() << " over it";
 
     const File::AnimationAssetData builtClip = ForeignArmClipData();
     EXPECT_EQ( shippedClip.value().Version, builtClip.Version );

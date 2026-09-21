@@ -183,6 +183,14 @@ Editor/Cooked/Meshes/*
 !Editor/Cooked/Meshes/IKProbe_Swing.anim
 !Editor/Cooked/Meshes/A6Curve_Linear.anim
 !Editor/Cooked/Meshes/A6Curve_Cubic.anim
+# A27. These two are a DERIVED artifact: `Desert/Tests/Engine/RetargetAsset` constructs the same rig and
+# the same clip in C++ from IKProbe.skeleton and refuses if these bytes disagree with it. They are listed
+# here because `ANIM_RetargetWitness.desce` plays the clip and the shipped `.retarget` names the rig — and
+# because they were NOT listed here once: `git add` skipped both in silence, the suite that measured them
+# stayed green in the one tree where they sat on disk, and when that tree was removed the bytes were gone.
+# Anything added to this directory must be named here, and nothing in a test may depend on that happening.
+!Editor/Cooked/Meshes/ForeignArm.skeleton
+!Editor/Cooked/Meshes/ForeignArm_Swing.anim
 
 # Fetched by scripts/MacOS/Setup.sh (not a submodule)
 ThirdParty/meshoptimizer/
