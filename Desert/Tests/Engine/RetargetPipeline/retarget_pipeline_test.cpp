@@ -684,7 +684,18 @@ TEST( RetargetPipeline, AChainRetargetsAlongItsWholeLengthAndNotOnlyItsStart )
     // The scenario's own strength, on the record. T6.1's mutation failed to redden because its first
     // scenario made the re-aim identity; a chain whose source ends move by the same amount would make
     // every parameterisation identical and this test vacuous.
-    const LocalPose sourcePose  = PoseAt( source, clip, 12000.0 );
+    // THE SCENARIO HAD TO BE STRENGTHENED, AND THE FIRST VERSION'S FAILURE IS THE EVIDENCE THAT THE
+    // INSTRUMENT IS ALIVE. `IKProbe_Swing` animates the shoulder and the elbow and leaves the HAND on its
+    // bind transform -- and an unanimated child inherits its parent's model delta exactly, so the source
+    // chain's last two deltas were IDENTICAL. A slerp between two equal quaternions is constant, every
+    // bone in the target run came out at 40.1555 deg, and the test below reported "the twist got the end
+    // delta" for a reason that had nothing to do with the parameterisation. That is character for
+    // character the equivalence trap T6.1 §4 recorded against its own first draft. Turning the source's
+    // hand makes the three source deltas genuinely distinct.
+    LocalPose sourcePose                             = PoseAt( source, clip, 12000.0 );
+    sourcePose[BoneIndex( source, kTip )].Rotation =
+         glm::normalize( sourcePose[BoneIndex( source, kTip )].Rotation *
+                         glm::angleAxis( glm::radians( 25.0F ), glm::vec3( 0.0F, 0.0F, 1.0F ) ) );
     const ModelPose sourceModel = ModelOf( source, sourcePose );
     const glm::quat startDelta  = sourceModel[chain.SourceRun.front()].Rotation *
                                  glm::inverse( sourceRest[chain.SourceRun.front()].Rotation );
@@ -715,9 +726,27 @@ TEST( RetargetPipeline, AChainRetargetsAlongItsWholeLengthAndNotOnlyItsStart )
 
     const uint32_t  twist      = BoneIndex( target, "IK_Twist" );
     const glm::quat twistDelta = targetModel[twist].Rotation * glm::inverse( targetRest[twist].Rotation );
+    std::cout << "[ MEASURED ] the twist bone, which has NO source partner, sits "
+              << DegreesBetween( twistDelta, startDelta ) << " deg from the chain start's delta and "
+              << DegreesBetween( twistDelta, endDelta ) << " deg from the chain end's\n";
     EXPECT_GT( DegreesBetween( twistDelta, startDelta ), 1.0F )
          << "the twist bone got the chain START's delta: the parameterisation is not running";
-    EXPECT_GT( DegreesBetween( twistDelta, endDelta ), 1.0F );
+    EXPECT_GT( DegreesBetween( twistDelta, endDelta ), 1.0F )
+         << "the twist bone got the chain END's delta: it is not being placed along the chain";
+
+    // And where a target bone's parameter COINCIDES with a source bone's, it must get that source bone's
+    // delta exactly -- the parameterisation has to reduce to the direct mapping at the points where the
+    // two chains agree, or it is a different function that merely looks similar.
+    const uint32_t  targetElbow = BoneIndex( target, kMid );
+    const glm::quat elbowDelta =
+         targetModel[targetElbow].Rotation * glm::inverse( targetRest[targetElbow].Rotation );
+    const uint32_t  sourceElbow = BoneIndex( source, kMid );
+    const glm::quat sourceElbowDelta =
+         sourceModel[sourceElbow].Rotation * glm::inverse( sourceRest[sourceElbow].Rotation );
+    std::cout << "[ MEASURED ] target elbow (param " << chain.TargetParams[1] << ") vs source elbow (param "
+              << chain.SourceParams[1] << "): " << DegreesBetween( elbowDelta, sourceElbowDelta )
+              << " deg apart\n";
+    EXPECT_LT( DegreesBetween( elbowDelta, sourceElbowDelta ), 1.0e-2F );
 
     // And the whole point of doing it this way: lengths survive it.
     std::cout << "[ MEASURED ] chained target, worst limb-length error: "
@@ -989,4 +1018,10 @@ TEST( RetargetPipeline, SourceScaleIsNotCarriedOntoTheTarget )
     EXPECT_NEAR( elbowScale.z, 1.0F, 1.0e-4F );
 
     EXPECT_LT( WorstSegmentErrorPercent( target, retargeter.GetTargetInitialPose(), out ), 1.0e-3F );
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
