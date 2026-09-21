@@ -25,9 +25,17 @@
 //   5. RELEASE IS THE HOLDER'S ALONE. A window closing cannot take authoring away from the window the
 //      user is working in.
 //
-// AND TWO CENSUSES OVER THE REPOSITORY'S SOURCE TEXT (sections 6 and 7), because the interesting claim
+// AND FOUR CENSUSES OVER THE REPOSITORY'S SOURCE TEXT (sections 6 and 7), because the interesting claim
 // — "the global is not read anywhere any more" — is about the tree and not about any run of this binary.
-// Both counts are DERIVED from the walk; neither is written down.
+// Every count is DERIVED from the walk; none is written down.
+//
+// SECTION 8 IS 07 §14.2's FOUR MODES, added when the viewport got one switcher instead of a toggle:
+// `Mode::Control` arrived with its reader and `Editor::Core::ControlRigEditMode` — three more statics on
+// the process, the identical defect on the control side — was dissolved the same way. Its relations are
+// that no two modes answer the readers alike (a mode nobody can distinguish is a dead segment), that
+// each mode drops the selection it cannot mean, and that the bind-pose preview is Skeleton ALONE, which
+// is 07 §1.3's defect and the one thing §5.3 deliberately left broken so that its change stayed a move
+// of ownership.
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 
@@ -38,8 +46,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <set>
 #include <sstream>
+#include <tuple>
 #include <string>
 #include <vector>
 
@@ -301,6 +311,134 @@ TEST( AuthoringContextOwnership, EveryModeCanNameItself )
     EXPECT_STREQ( AuthoringModeName( AuthoringMode::Pose ), "Pose" );
 }
 
+// ── 8. THE FOUR MODES (07 §14.2) ──────────────────────────────────────────────────────────────────
+//
+// The switcher's whole claim is "four modes, and each one changes something". Three relations say it:
+// the modes are DISTINGUISHED (no two answer the readers identically), each mode DROPS the selections it
+// cannot mean, and — the one that is a bug fix rather than a new feature — the bind-pose preview belongs
+// to Skeleton ALONE (07 §1.3). The last one lives here and not in the viewport because
+// `ViewportPanel.cpp` is compiled by no suite at all.
+
+TEST( AuthoringContextModes, NoTwoModesAnswerTheReadersTheSameWay )
+{
+    // A MODE THAT NOBODY CAN TELL FROM ANOTHER MODE IS A DEAD SEGMENT ON THE STRIP — contract §3, and the
+    // exact reason `Mode::Control` was kept out until this change. Written as "the answer vectors are all
+    // different" rather than as four hand-checked truth tables so that a fifth mode cannot be added as a
+    // duplicate of an existing one and pass.
+    std::set<std::tuple<bool, bool, bool>> answers;
+    for ( const AuthoringMode mode : Desert::Editor::Core::kAuthoringModes )
+    {
+        AuthoringContext context;
+        context.EnterMode( mode );
+        answers.insert( { context.ShowsBones(), context.ShowsControls(), context.PreviewsBindPose() } );
+    }
+    EXPECT_EQ( answers.size(), Desert::Editor::Core::kAuthoringModes.size() );
+}
+
+TEST( AuthoringContextModes, TheBindPosePreviewIsSkeletonAloneAndPoseNoLongerGetsTheRigsAnswer )
+{
+    // 07 §1.3. The viewport asked `ShowsBones()` — true for Skeleton AND Pose — so a clip being authored
+    // was drawn in BIND pose, which hides the very edit the bone gizmo is making. The previous change
+    // (§5.3) preserved the defect deliberately so that it stayed a move of ownership; this is where it is
+    // fixed, and the two halves are asserted TOGETHER because the whole defect was that one was used for
+    // the other.
+    AuthoringContext context;
+
+    context.EnterMode( AuthoringMode::Skeleton );
+    EXPECT_TRUE( context.ShowsBones() );
+    EXPECT_TRUE( context.PreviewsBindPose() );
+
+    context.EnterMode( AuthoringMode::Pose );
+    EXPECT_TRUE( context.ShowsBones() ) << "pose authoring still draws the bones; only the preview changed";
+    EXPECT_FALSE( context.PreviewsBindPose() ) << "07 §1.3: the clip's pose IS what the user is editing";
+
+    context.EnterMode( AuthoringMode::Control );
+    EXPECT_FALSE( context.ShowsBones() );
+    EXPECT_FALSE( context.PreviewsBindPose() );
+
+    context.EnterMode( AuthoringMode::Object );
+    EXPECT_FALSE( context.PreviewsBindPose() );
+}
+
+TEST( AuthoringContextModes, EachModeDropsTheSelectionItCannotMean )
+{
+    // An index only means something inside the mode that produced it. A control index carried into
+    // Skeleton would highlight a BONE of that number, and a bone index carried into Control a control of
+    // it — the stale-handle defect with two smaller names. Asserted over the whole table rather than for
+    // the two transitions that happen to be easy to reach from the toolbar.
+    for ( const AuthoringMode mode : Desert::Editor::Core::kAuthoringModes )
+    {
+        AuthoringContext context;
+        context.SelectedBone    = 4u;
+        context.SelectedControl = 9u;
+        context.EnterMode( mode );
+
+        EXPECT_EQ( context.SelectedBone.has_value(), context.ShowsBones() ) << AuthoringModeName( mode );
+        EXPECT_EQ( context.SelectedControl.has_value(), context.ShowsControls() ) << AuthoringModeName( mode );
+    }
+}
+
+TEST( AuthoringContextOwnership, TwoCharactersCannotOverwriteEachOthersControlSelection )
+{
+    // SECTION 3's DEFECT, ON THE CONTROL SIDE. `ControlRigEditMode` held ONE `s_Selected` for the whole
+    // process, so the Control Rig panel and the viewport overlay of a second character shared an index
+    // into the FIRST character's hierarchy — and a rig with fewer controls made it an out-of-range read
+    // the panel then had to guess about. Neither half could refuse the other; now the second one can.
+    AuthoringContextHost host;
+
+    const Common::UUID hero    = Character( 21 );
+    const Common::UUID villain = Character( 22 );
+
+    const auto       viewport = AuthoringOwner::ForSceneView( 0 );
+    AuthoringContext heroCtx  = ContextFor( hero );
+    host.Focus( viewport, heroCtx );
+    ASSERT_TRUE( host.SetMode( viewport, heroCtx, AuthoringMode::Control ).IsSuccess() );
+    ASSERT_TRUE( host.SetSelectedControl( viewport, heroCtx, 6u ).IsSuccess() );
+    ASSERT_TRUE( host.SetControlRotate( viewport, heroCtx, true ).IsSuccess() );
+
+    const auto       panel      = AuthoringOwner::ForPanel( "Control Rig" );
+    AuthoringContext villainCtx = ContextFor( villain );
+
+    // The panel writing WITHOUT taking the context is refused and changes nothing — the old statics
+    // accepted exactly this and it is the whole §5.3 defect.
+    const auto refused = host.SetSelectedControl( panel, villainCtx, 0u );
+    EXPECT_FALSE( refused.IsSuccess() );
+    EXPECT_EQ( host.SelectedControl(), std::optional<uint32_t>( 6u ) );
+
+    // And when it DOES take it, adoption is by entity: a different character starts from its own state
+    // rather than inheriting the hero's control index.
+    host.Focus( panel, villainCtx );
+    EXPECT_EQ( host.Entity(), villain );
+    EXPECT_FALSE( host.SelectedControl().has_value() );
+    EXPECT_FALSE( host.ControlRotate() ) << "the manipulator bit is per rig, like everything else here";
+}
+
+TEST( AuthoringContextOwnership, OneCharacterKeepsItsControlAcrossThePanelAndTheViewport )
+{
+    // The other half of section 4, for the control side: the Control Rig panel says WHICH control and the
+    // viewport overlay DRAGS it, so a selection that did not survive the move between them would make the
+    // two halves unusable together — which is the arrangement the panel's own header promises.
+    AuthoringContextHost host;
+
+    const Common::UUID hero  = Character( 31 );
+    const auto         panel = AuthoringOwner::ForPanel( "Control Rig" );
+    AuthoringContext   panelCtx = ContextFor( hero );
+
+    host.Focus( panel, panelCtx );
+    ASSERT_TRUE( host.SetMode( panel, panelCtx, AuthoringMode::Control ).IsSuccess() );
+    ASSERT_TRUE( host.SetSelectedControl( panel, panelCtx, 3u ).IsSuccess() );
+
+    const auto       viewport = AuthoringOwner::ForSceneView( 0 );
+    AuthoringContext viewCtx  = ContextFor( hero );
+    host.Focus( viewport, viewCtx );
+
+    EXPECT_EQ( host.Mode(), AuthoringMode::Control );
+    EXPECT_EQ( host.SelectedControl(), std::optional<uint32_t>( 3u ) );
+    // The viewport's OWN copy was written back by Focus(), which is what lets it read its member for the
+    // rest of the frame instead of the publication.
+    EXPECT_EQ( viewCtx.SelectedControl, std::optional<uint32_t>( 3u ) );
+}
+
 // ── 6 & 7. CENSUSES OVER THE REPOSITORY'S SOURCE TEXT ─────────────────────────────────────────────
 //
 // WHY A CENSUS AND NOT A TEST. "The global is read nowhere" is a statement about every translation unit
@@ -330,7 +468,11 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            const std::ifstream probe( prefix + "Editor/Source/Editor/Core/Selection/ControlRigEditMode.hpp" );
+            // THE PROBE NAMES A FILE THIS SUITE IS ABOUT AND DOES NOT DELETE. It used to name
+            // `ControlRigEditMode.hpp`, which §14.2 then removed — and a root-finder anchored on a file a
+            // census EXISTS TO SEE REMOVED returns "" the day it succeeds, after which every census below
+            // fails on its ASSERT for a reason that has nothing to do with the tree.
+            const std::ifstream probe( prefix + "Editor/Source/Editor/Core/Selection/AuthoringContext.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -418,6 +560,84 @@ TEST( AuthoringContextCensus, SkeletonEditModeIsReadNowhereAndItsHeaderIsGone )
     EXPECT_TRUE( walk.Hits.empty() ) << walk.Hits.size() << " live reference(s) to the removed global:" << where;
 }
 
+TEST( AuthoringContextCensus, ControlRigEditModeIsReadNowhereAndItsHeaderIsGone )
+{
+    // The same census as the one above it, for the three statics 07 §14.2 dissolved: `s_Active`,
+    // `s_Selected` and `s_Rotate`, written by the Control Rig panel and the viewport overlay and toggled
+    // by a palette entry. It had the IDENTICAL defect for the identical reason and it was left standing
+    // on purpose until `Mode::Control` had a reader — which is this change.
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from the repository (or a build directory under it)";
+
+    // Deleted, not deprecated: contract §3. Without this line the identifier census below stays green
+    // while the class is alive and simply unused — and the next agent finds two ways to do one thing.
+    EXPECT_FALSE( fs::exists( root + "Editor/Source/Editor/Core/Selection/ControlRigEditMode.hpp" ) );
+
+    const Walk walk = CountIdentifier(
+         root, { "Editor/Source", "Desert/Desert/Source", "Desert/Tests", "Runtime" }, "ControlRigEditMode" );
+
+    EXPECT_GT( walk.Files, 200 ) << "the walk found almost nothing — the roots are wrong, not the tree";
+
+    std::string where;
+    for ( const auto& hit : walk.Hits )
+        where += "\n  " + hit;
+    EXPECT_TRUE( walk.Hits.empty() ) << walk.Hits.size() << " live reference(s) to the removed global:" << where;
+}
+
+TEST( AuthoringContextCensus, EveryModesOwnReaderExistsOutsideThisHeader )
+{
+    // WHY THIS CENSUS EXISTS. The reason `Mode::Control` was absent for a whole task is written into the
+    // header it was absent from: a mode nothing reads is a knob that moves nothing, and the four-way
+    // switcher would have shipped one dead segment out of four. That argument is only enforceable over
+    // the TREE — the predicates below are inline in a header no suite's failure would notice, and the
+    // files that call them (ViewportPanel.cpp, LightGizmoRenderer.cpp) are compiled by no suite either.
+    //
+    // A REGISTER OF NAMED ROWS, and the rows are the DISTINGUISHING readers: the thing each mode does
+    // that no other mode does. `Object` has none of its own by construction — it is the absence of the
+    // other three — so it is not a row, and saying that here is what stops the next reader adding a
+    // hollow one for symmetry.
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::vector<std::pair<std::string, std::string>> rows = {
+         { "ShowsBones", "Skeleton + Pose: the bone overlay and the bone gizmo" },
+         { "PreviewsBindPose", "Skeleton alone: 07 §1.3's bind-pose preview" },
+         { "IsPoseAuthoring", "Pose alone: the gizmo writes the animator's pose buffer" },
+         { "ShowsControls", "Control: the control-shape overlay and its drag" },
+         { "SelectedControl", "Control: which shape is highlighted and grabbed" },
+         { "ControlRotate", "Control: what a grab writes — translate or rotate" },
+    };
+
+    std::map<std::string, std::vector<std::string>> readers;
+    int                                             files = 0;
+    for ( const auto& entry : fs::recursive_directory_iterator( fs::path( root + "Editor/Source" ) ) )
+    {
+        if ( !entry.is_regular_file() || !IsSource( entry.path() ) )
+            continue;
+        const std::string relative = fs::relative( entry.path(), root ).string();
+        if ( relative.find( "AuthoringContext.hpp" ) != std::string::npos )
+            continue; // the definitions themselves are not readers of themselves
+        ++files;
+
+        const std::string code =
+             Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadWhole( entry.path() ) );
+        for ( const auto& row : rows )
+        {
+            if ( !Desert::Tests::ConsumerText::WordPositions( code, row.first ).empty() )
+                readers[row.first].push_back( relative );
+        }
+    }
+
+    EXPECT_GT( files, 200 ) << "the walk found almost nothing — the root is wrong, not the tree";
+
+    for ( const auto& row : rows )
+    {
+        EXPECT_FALSE( readers[row.first].empty() )
+             << "no file reads '" << row.first << "', so the mode it distinguishes moves nothing — "
+             << row.second;
+    }
+}
+
 TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
 {
     // A REGISTER OF NAMED ROWS, NOT A NUMBER. A census pinning a count can be satisfied by editing the
@@ -431,6 +651,12 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
          "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.cpp",
          "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.cpp",
          "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp",
+         // The two control-rig surfaces, added by 07 §14.2 when `ControlRigEditMode`'s three statics were
+         // dissolved into this type. They are the SAME two halves the bone side already had — a panel
+         // that says which control, and a viewport overlay that draws and drags it — and they arrive as
+         // named rows rather than as a bumped count.
+         "Editor/Source/Editor/Panels/Animation/ControlRigPanel.cpp",
+         "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp",
     };
 
     std::set<std::string> writers;
@@ -448,7 +674,9 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
         const bool writes = code.find( ".Focus(" ) != std::string::npos ||
                             code.find( ".SetMode(" ) != std::string::npos ||
                             code.find( ".SetSelectedBone(" ) != std::string::npos ||
-                            code.find( ".SetShowBoneNames(" ) != std::string::npos;
+                            code.find( ".SetShowBoneNames(" ) != std::string::npos ||
+                            code.find( ".SetSelectedControl(" ) != std::string::npos ||
+                            code.find( ".SetControlRotate(" ) != std::string::npos;
         if ( !writes )
             continue;
         if ( code.find( "ActiveAuthoringContext" ) == std::string::npos )
