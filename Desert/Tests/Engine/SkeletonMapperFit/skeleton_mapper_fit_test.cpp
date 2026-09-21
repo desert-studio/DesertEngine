@@ -57,6 +57,7 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -537,6 +538,47 @@ TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
     const LimbError proportions = MeasureLimbError( source, ScaledRig( bones, 2.0F ), clip );
     EXPECT_GT( proportions.Worst, 1e-3F )
          << "the instrument reports zero for a proportion difference too, so it is measuring nothing";
+
+    // AND THE SECOND NEGATIVE CONTROL, which a length ratio cannot give: a rotation about the elbow does
+    // not change |hand - elbow|, so the measurement above would read zero even if the mapper ignored the
+    // target's rest pose entirely and copied the source's joint positions. So assert where the hand
+    // actually LANDS: on the target's rest offset carried by the source's delta, which is a different
+    // place from the source's own hand.
+    JPH::Skeleton joltSource;
+    JPH::Skeleton joltTarget;
+    FillJoltSkeleton( source, joltSource );
+    FillJoltSkeleton( target, joltTarget );
+
+    const auto srcBindModel = ModelSpace( source, BindPose( source ) );
+    const auto tgtBind      = BindPose( target );
+    const auto tgtBindModel = ModelSpace( target, tgtBind );
+
+    std::vector<JPH::Mat44> tgtLocalJolt;
+    for ( size_t i = 0; i < tgtBind.Size(); ++i )
+        tgtLocalJolt.push_back( ToJolt( tgtBind[i].ToMatrix() ) );
+
+    JPH::SkeletonMapper mapper;
+    mapper.Initialize( &joltSource, ToJoltArray( srcBindModel ).data(), &joltTarget,
+                       ToJoltArray( tgtBindModel ).data() );
+
+    const auto tipIdx = target.FindBoneIndex( kTip );
+    ASSERT_TRUE( tipIdx.has_value() );
+
+    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks.Value * 0.3 ) );
+
+    std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
+    mapper.Map( ToJoltArray( srcModel ).data(), tgtLocalJolt.data(), out.data() );
+
+    const glm::vec3 mappedTip = TranslationOf( out[*tipIdx] );
+    const glm::vec3 sourceTip = glm::vec3( srcModel[*tipIdx][3] );
+    const glm::vec3 wanted    = glm::vec3(
+         ( srcModel[*tipIdx] * glm::inverse( srcBindModel[*tipIdx] ) * tgtBindModel[*tipIdx] )[3] );
+
+    EXPECT_LT( Distance( mappedTip, wanted ), 1e-2F )
+         << "the mapped tip is not D[j] * neutral2[j]; the formula this whole document rests on is wrong";
+    EXPECT_GT( Distance( mappedTip, sourceTip ), 10.0F )
+         << "the mapped tip landed on the SOURCE's tip, so the target's rest pose was ignored and the "
+            "length ratio above was blind to it";
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -709,6 +751,15 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
             twist.LocalBindTransform[3][0] *= 0.5F;
             twist.LocalBindTransform[3][1] *= 0.5F;
             twist.LocalBindTransform[3][2] *= 0.5F;
+            // THE BEND IS WHAT MAKES THE CHAIN BRANCH OBSERVABLE, and the first version of this test did
+            // not have it: with the twist exactly bisecting the source's own offset, the target chain
+            // already points where the source points, Quat::sFromTo returns the identity, and replacing
+            // that whole line with sIdentity() by hand changed the measured travel by ZERO. A mutation
+            // that does not redden may be equivalent IN THE SCENARIO rather than harmless, which is
+            // exactly what happened here.
+            twist.LocalBindTransform =
+                 twist.LocalBindTransform * glm::rotate( glm::mat4( 1.0F ), glm::radians( 30.0F ),
+                                                         glm::vec3( 0, 0, 1 ) );
             extended.push_back( twist );
 
             BoneInfo hand     = bones[*srcTip];
@@ -770,6 +821,32 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
               << " cm over the clip -- the chain path is real and it is the one thing here we would "
                  "otherwise have to write\n";
     EXPECT_GT( moved, 1.0F ) << "the unmapped intermediate joint did not move: the chain is inert";
+
+    // AND THE RE-AIM ITSELF, measured against what the direct mapping alone would have produced. Map()
+    // rewrites the chain START's rotation with Quat::sFromTo(actual, desired); without that line the
+    // elbow keeps D[elbow] * neutral2[elbow] exactly. The angle between the two X axes is therefore a
+    // direct observation of the one piece of machinery §3.19 credits this class with.
+    const auto elbowIdx = target.FindBoneIndex( kMid );
+    ASSERT_TRUE( elbowIdx.has_value() );
+
+    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks.Value * 0.3 ) );
+    std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
+    mapper.Map( ToJoltArray( srcModel ).data(), tgtLocalJolt.data(), out.data() );
+
+    const auto srcBindModel = ModelSpace( source, BindPose( source ) );
+    const glm::mat4 directOnly =
+         srcModel[*srcMid] * glm::inverse( srcBindModel[*srcMid] ) * tgtBindModel[*elbowIdx];
+
+    const JPH::Vec3 gotAxis = out[*elbowIdx].GetAxisX();
+    const glm::vec3 got     = glm::normalize( glm::vec3( gotAxis.GetX(), gotAxis.GetY(), gotAxis.GetZ() ) );
+    const glm::vec3 direct  = glm::normalize( glm::vec3( directOnly[0] ) );
+    const float     degrees = glm::degrees( std::acos( std::clamp( glm::dot( got, direct ), -1.0F, 1.0F ) ) );
+
+    std::cout << "[ MEASURED ] the chain re-aim turned the chain start by " << degrees
+              << " deg away from what the direct mapping alone gives\n";
+    EXPECT_GT( degrees, 1.0F )
+         << "the chain start was not re-aimed, so Quat::sFromTo produced the identity and this scenario "
+            "cannot tell the chain branch from its absence";
 }
 
 // ---------------------------------------------------------------------------------------------------
