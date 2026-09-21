@@ -454,7 +454,16 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
         if ( code.find( "ActiveAuthoringContext" ) == std::string::npos )
             continue; // some other type's Focus/SetMode
 
-        writers.insert( fs::relative( entry.path(), root ).string() );
+        // `generic_string()`, NOT `string()`, AND THIS IS A WINDOWS-ONLY DEFECT THAT WAS LIVE. On
+        // Windows `path::string()` hands back backslashes, so every row this set produced read
+        // `Editor\\Source\\...` while the register above spells `Editor/Source/...` -- the two never
+        // matched, and the census failed BOTH ways at once: three "a new surface writes the context"
+        // for the three rows it already allows, and three "this row no longer writes the context" for
+        // the same three. Caught by the first Windows CI run over this suite (run 35635711944), which
+        // is also the only place it is observable: on macOS the two spellings are the same string, so
+        // a green local run says nothing about it either way. This is the repository's recorded
+        // separator class -- the one where five path filters silently matched nothing.
+        writers.insert( fs::relative( entry.path(), root ).generic_string() );
     }
 
     EXPECT_GT( files, 200 );
