@@ -36,14 +36,26 @@
  * pinned somewhere, and there are exactly three places it could be: this file, the component, or
  * nowhere.
  *
- *   THE SOURCE RIG IS NAMED BY THIS FILE, BY SIGNATURE. If the source rig were named by the component
- *   instead, the same `.retarget` pointed at a different source rig would be accepted whenever the bone
- *   names happened to resolve, and would then be wrong by whatever the two rigs' proportions differ by —
- *   the "middle link drops a property" shape with a file in the middle. `SourceSkeletonSignature` is the
- *   same mechanism `.skmesh` already uses to name its rig (`SkinnedMeshAsset::ResolveDependencies`
- *   matches `SkeletonAsset::GetSignature()`), which means: no path to break when the file moves, no
- *   absolute path carrying one developer's home directory into the project, and a value of 0 that means
- *   "not known" and never "matches anything".
+ *   THE SOURCE RIG IS NAMED BY THIS FILE, BY PATH. If the source rig were named by the component instead,
+ *   the same `.retarget` pointed at a different source rig would be accepted whenever the bone names
+ *   happened to resolve, and would then be wrong by whatever the two rigs' proportions differ by — the
+ *   "middle link drops a property" shape with a file in the middle.
+ *
+ *   AND IT IS A PATH RATHER THAN A SIGNATURE, WHICH IS THE OPPOSITE OF WHAT `.skmesh` DOES. A signature
+ *   was the first answer here, because `SkinnedMeshAsset::ResolveDependencies` names its rig that way and
+ *   the mechanism is already built. It is WRONG for this file, and measurably so:
+ *   `Skeleton::ComputeSignature` hashes the sorted `name<parentName` pairs and NOTHING ELSE, so two
+ *   exports of one character at different proportions have the SAME signature — which is precisely the
+ *   pair a retarget exists to bridge (T6.1 measured k = 1.25, 1.5, 2.0, 3.0, all of them signature-equal).
+ *   A signature-keyed lookup would therefore be free to bind the TARGET's own rig as the source, and the
+ *   retarget would quietly become the identity: a feature that runs, reports success, and does nothing —
+ *   the exact shape this file was written to end. `Tests/Engine/RetargetPipeline`'s own helper says so in
+ *   as many words ("this rig has the SAME signature as its source").
+ *
+ *   The path is RELATIVE TO THE COOKED MESHES ROOT, joined in `RetargetAsset::ResolveDependencies` and
+ *   nowhere else — the shape `.decloudtype` uses for its noise volume, against the root a `.skeleton`
+ *   actually lives under (`AssetPreloader` scans skeletons from `MESH_PATH_COOKED` and from nowhere
+ *   else). Relative, so the library is the same library on another machine.
  *
  *   THE TARGET RIG IS THE ENTITY'S OWN, AND IS NOT NAMED HERE. A second statement of it would be a
  *   second source of truth for which rig this entity has, and the loser of a disagreement between the
@@ -116,7 +128,7 @@ namespace Desert::Assets::Serialization
     /**
      * @brief The FILE layout's generation.
      *
-     *   1 - the source rig by signature, the two pelvis names, both retarget poses, the chains and the
+     *   1 - the source rig by relative path, the two pelvis names, both retarget poses, the chains and the
      *       renames (A25).
      *
      * See the file note for why this is its own sequence and not `Core::kSceneVersion`. An unknown value
@@ -209,18 +221,19 @@ namespace Desert::Assets::Serialization
     /**
      * @brief One retarget on disk — the pair, and everything authored about it.
      *
-     * `SourceSkeletonSignature` IS THE SOURCE HALF OF THE PAIR and the field this format exists for; see
-     * the file note. Zero is refused: it is `SkeletonAsset`'s "never read" value, and a retarget that
-     * matched any unloaded rig would bind to the first one in the project and report success.
+     * `SourceSkeleton` IS THE SOURCE HALF OF THE PAIR and the field this format exists for; see the file
+     * note for why it is a path and not a signature. Empty is refused: a retarget with no source rig can
+     * only ever be the identity.
      */
     struct RetargetAssetData
     {
         std::optional<int32_t> FormatVersion;
         std::string            Name;
 
-        /// `Animation::Skeleton::GetSignature()` of the rig the CLIPS are authored on. Resolved to a
-        /// `SkeletonAsset` by `RetargetAsset::ResolveDependencies`, exactly as `.skmesh` resolves its rig.
-        uint64_t SourceSkeletonSignature = 0;
+        /// The `.skeleton` the CLIPS are authored on, RELATIVE to the cooked meshes root (e.g.
+        /// "IKProbe.skeleton"). Resolved by `RetargetAsset::ResolveDependencies`, which performs the one
+        /// join. See the file note for why this is not a signature.
+        std::string SourceSkeleton;
 
         std::string SourcePelvisBone;
         std::string TargetPelvisBone;
@@ -242,7 +255,8 @@ namespace Desert::Assets::Serialization
      * @brief Rejects a retarget the loader cannot honour, naming the row that is wrong.
      *
      * Pure, so a retarget editor can refuse to save for the same reason the loader refuses to read, rather
-     * than the two disagreeing about what is legal. Refuses: a zero source signature; an empty pelvis name
+     * than the two disagreeing about what is legal. Refuses: an empty, absolute or escaping source-rig
+     * path; an empty pelvis name
      * on either side; a non-finite number anywhere; a non-normalisable rotation offset; an offset or
      * rename row with an empty bone name; two offsets on one bone; two renames claiming one target bone; a
      * chain with an empty name or an empty bone name; and two chains with the same name.
@@ -300,7 +314,7 @@ namespace Desert::Assets::Serialization
     /// The exact mirror of `BuildRetargetSetup`, and it lives beside it for `BuildDataFromControlRig`'s
     /// reason: a format whose two directions are not testable together is a format whose round trip is an
     /// assumption.
-    NO_DISCARD RetargetAssetData BuildDataFromRetargetSetup( const std::string&                        name,
-                                                             uint64_t                                  sourceSignature,
+    NO_DISCARD RetargetAssetData BuildDataFromRetargetSetup( const std::string& name,
+                                                             const std::string& sourceSkeleton,
                                                              const Animation::Retarget::RetargetSetup& setup );
 } // namespace Desert::Assets::Serialization

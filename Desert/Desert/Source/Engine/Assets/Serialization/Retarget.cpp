@@ -6,6 +6,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <cmath>
+#include <filesystem>
 #include <string>
 #include <unordered_set>
 
@@ -108,16 +109,30 @@ namespace Desert::Assets::Serialization
 
     Common::BoolResultStr ValidateRetargetData( const RetargetAssetData& data )
     {
-        // ZERO IS REFUSED, AND IT IS THE SAME REFUSAL `SkinnedMeshAsset::ResolveDependencies` MAKES ON THE
-        // OTHER SIDE OF THE SAME NUMBER: 0 is `SkeletonAsset`'s "this rig's file has not been read", so a
-        // retarget carrying 0 would match the first unloaded skeleton in the project and report itself
-        // resolved — a worse failure than an unresolved one, because nothing downstream can detect it.
-        if ( data.SourceSkeletonSignature == 0 )
+        // THE SOURCE RIG IS THE ONE FACT THIS FILE CANNOT DO WITHOUT. A retarget naming no source rig is
+        // a retarget that can only ever be the identity — a feature that runs, reports success and does
+        // nothing, which is the shape this whole format exists to end.
+        if ( data.SourceSkeleton.empty() )
         {
             return Common::MakeFormattedError<bool>(
-                 "retarget '{}' names no source rig (signature 0). A retarget is a statement about two "
-                 "rigs and the source one is not the entity's; it has to be named here",
+                 "retarget '{}' names no source rig. A retarget is a statement about two rigs and the "
+                 "source one is not the entity's; it has to be named here",
                  data.Name );
+        }
+
+        // RELATIVE, AND IT IS REFUSED HERE RATHER THAN NORMALISED AT THE JOIN. An absolute path carries
+        // one developer's home directory into a file that ships with the project; an escaping one names
+        // content the cook did not produce. Both load perfectly on the machine that wrote them, which is
+        // exactly why the refusal belongs in the format rather than in whoever happens to open it.
+        {
+            const std::filesystem::path rig( data.SourceSkeleton );
+            if ( rig.is_absolute() || data.SourceSkeleton.starts_with( ".." ) )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "retarget '{}': source rig '{}' must be relative to the cooked meshes root and must "
+                     "not escape it",
+                     data.Name, data.SourceSkeleton );
+            }
         }
 
         if ( data.SourcePelvisBone.empty() || data.TargetPelvisBone.empty() )
@@ -304,13 +319,13 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( std::move( setup ) );
     }
 
-    RetargetAssetData BuildDataFromRetargetSetup( const std::string& name, uint64_t sourceSignature,
+    RetargetAssetData BuildDataFromRetargetSetup( const std::string& name, const std::string& sourceSkeleton,
                                                   const RetargetSetup& setup )
     {
         RetargetAssetData out;
-        out.FormatVersion           = kRetargetVersion;
-        out.Name                    = name;
-        out.SourceSkeletonSignature = sourceSignature;
+        out.FormatVersion      = kRetargetVersion;
+        out.Name               = name;
+        out.SourceSkeleton     = sourceSkeleton;
         out.SourcePelvisBone        = setup.SourcePelvisBone;
         out.TargetPelvisBone        = setup.TargetPelvisBone;
         out.SourceRetargetPose      = PoseDataFrom( setup.SourceRetargetPose );

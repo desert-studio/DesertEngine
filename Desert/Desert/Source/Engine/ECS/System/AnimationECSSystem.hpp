@@ -637,9 +637,9 @@ namespace Desert::ECS
             {
                 forget();
                 ReportOnce( fmt::format( "retarget-rig:{}", static_cast<uint64_t>( wanted ) ),
-                            fmt::format( "retarget '{}' names source rig signature {} and no loaded "
-                                         "skeleton answers it; the entity plays its clip on its own rig",
-                                         asset->GetDisplayName(), asset->GetData().SourceSkeletonSignature ) );
+                            fmt::format( "retarget '{}' names source rig '{}' and no loaded skeleton "
+                                         "answers it; the entity plays its clip on its own rig",
+                                         asset->GetDisplayName(), asset->GetData().SourceSkeleton ) );
                 return;
             }
 
@@ -661,8 +661,8 @@ namespace Desert::ECS
             }
 
             auto built = Animation::Retarget::RetargetSource::Create(
-                 *source, skeleton, setup.ExtractValue(), asset->GetData().SourceSkeletonSignature,
-                 static_cast<uint64_t>( wanted ), asset->GetRevision() );
+                 *source, skeleton, setup.ExtractValue(), static_cast<uint64_t>( wanted ),
+                 asset->GetRevision() );
             if ( !built )
             {
                 forget();

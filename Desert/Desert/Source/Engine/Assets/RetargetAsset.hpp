@@ -23,10 +23,11 @@ namespace Desert::Assets
      *
      * `.derig` has no dependency: a control rig is a statement about ONE rig, and that rig is whichever
      * entity the component sits on. A retarget is a statement about TWO, and the source one is named by
-     * nothing else in the scene — the entity carries only its own. So the file names it by signature and
-     * this class resolves it, through the identical mechanism and for the identical reason as
-     * `SkinnedMeshAsset::ResolveDependencies`: a signature is portable where a path is not, a rig whose
-     * file has not been read answers 0, and 0 must never match.
+     * nothing else in the scene — the entity carries only its own. So the file names it and this class
+     * resolves it, by RELATIVE PATH, the way `CloudTypeAsset` resolves the noise volume its `.decloudtype`
+     * names. NOT by signature, although `SkinnedMeshAsset` names its rig that way: see
+     * Serialization/Retarget.hpp — a signature cannot tell two proportion variants of one character apart,
+     * and those are precisely the pair a retarget exists to bridge.
      *
      * WHAT IT DOES NOT DO: build a `Retargeter`. The caches inside one are resolved against a particular
      * pair of skeletons, and the same retarget is legally used by two entities whose meshes are different

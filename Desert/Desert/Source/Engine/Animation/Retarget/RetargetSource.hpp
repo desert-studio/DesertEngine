@@ -59,7 +59,6 @@ namespace Desert::Animation::Retarget
          *
          * @param source          the rig the clips are authored on, BY VALUE — see the file note.
          * @param target          the rig being posed. Not kept: the Animator already holds it.
-         * @param expectedSource  the signature the setup was AUTHORED against, or 0 to accept any rig.
          * @param assetHandle     the `.retarget` this was built from, as a stamp. Never dereferenced.
          * @param assetRevision   that asset's revision at build time.
          *
@@ -67,15 +66,16 @@ namespace Desert::Animation::Retarget
          * only ever emit the rest pose, a pelvis at zero height, a chain whose end does not descend from
          * its start, an IK run that is not two bones, two chains on one target bone.
          *
-         * AND ONE REFUSAL THAT `Initialize` CANNOT MAKE: being handed the wrong source rig. Initialize can
-         * only notice a rig whose bone NAMES do not resolve, and two exports of one character at different
-         * proportions have identical names — they would resolve perfectly and retarget from the wrong
-         * proportions, silently. The signature is the one fact that separates them, and this is the only
-         * place that holds both halves of it.
+         * THERE IS DELIBERATELY NO "IS THIS THE RIGHT SOURCE RIG" CHECK HERE, and the absence is decided
+         * rather than skipped. The only value it could compare is the skeleton's signature, and
+         * `Skeleton::ComputeSignature` hashes names and parents alone — so it is EQUAL across the
+         * proportion variants a retarget exists to bridge, and a check on it would pass exactly when it
+         * mattered. Which rig is the source is settled where it is stated: `RetargetAsset` resolves the
+         * path its file names, and a path has one answer.
          */
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<RetargetSource>>
-        Create( Skeleton source, const Skeleton& target, RetargetSetup setup, uint64_t expectedSource,
-                uint64_t assetHandle, uint32_t assetRevision );
+        Create( Skeleton source, const Skeleton& target, RetargetSetup setup, uint64_t assetHandle,
+                uint32_t assetRevision );
 
         [[nodiscard]] const Skeleton& GetSourceSkeleton() const
         {

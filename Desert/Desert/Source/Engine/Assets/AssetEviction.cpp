@@ -88,10 +88,11 @@ namespace Desert::Assets
                 }
 
                 // THE RETARGET'S SOURCE RIG, and without this row it is unreachable by construction: a
-                // source `.skeleton` is named by no component and no mesh — only by the `.retarget` that
-                // plays clips from it. `SkeletonAsset::GetSignature` records what the first sweep did to
-                // the mesh's rig when the equivalent row was missing (410 x "Skeleton dependency invalid"
-                // in twelve seconds, and no character drawn); this is the same hole one content kind over.
+                // source `.skeleton` is named by no component and by no mesh in the scene — only by the
+                // `.retarget` that plays clips from it. `SkeletonAsset::GetSignature` records what the
+                // first sweep did to the mesh's rig when the equivalent row was missing (410 x "Skeleton
+                // dependency invalid" in twelve seconds, and no character drawn); this is the same hole
+                // one content kind over.
                 if ( const auto retarget = manager.ProbeByHandle<RetargetAsset>( handle ) )
                 {
                     if ( retarget->IsReadyForUse() )

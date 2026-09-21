@@ -1,5 +1,6 @@
 #include <Engine/Assets/RetargetAsset.hpp>
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
@@ -58,12 +59,11 @@ namespace Desert::Assets
         m_Ready = true;
 
         // THE SOURCE RIG IS PART OF WHAT WAS LOADED, so it is part of the line that says what was loaded.
-        // Without the signature the log cannot tell a retarget waiting for a rig that is not in the
-        // project from one whose rig is simply cold — and that is the only observation a person makes on
-        // a headless run.
-        LOG_INFO( "[Animation] Retarget '{}' loaded: source rig sig {}, {} chain(s), {} rename(s), "
+        // Without it the log cannot tell a retarget waiting for a rig that is not in the project from one
+        // whose rig is simply cold — and that is the only observation a person makes on a headless run.
+        LOG_INFO( "[Animation] Retarget '{}' loaded: source rig '{}', {} chain(s), {} rename(s), "
                   "{}+{} retarget-pose offset(s).",
-                  m_DisplayName, m_Data.SourceSkeletonSignature, m_Data.Chains.size(),
+                  m_DisplayName, m_Data.SourceSkeleton, m_Data.Chains.size(),
                   m_Data.BoneRenames.size(), m_Data.SourceRetargetPose.BoneOffsets.size(),
                   m_Data.TargetRetargetPose.BoneOffsets.size() );
         return BOOLSUCCESS;
@@ -74,60 +74,43 @@ namespace Desert::Assets
         m_SourceSkeleton.Handle = Common::AssetHandle::Null();
         m_SourceSkeleton.Cached.reset();
 
-        // A SIGNATURE OF ZERO MEANS "NOT KNOWN YET", NEVER "MATCHES ANYTHING" — `SkinnedMeshAsset`'s
-        // guard, and the reason is identical: `SkeletonAsset::GetSignature()` also answers 0 for a rig
-        // whose own file has not been read, so comparing the two would bind this retarget to the first
-        // unloaded skeleton in the project and report the dependency resolved.
-        if ( m_Data.SourceSkeletonSignature == 0 )
+        if ( m_Data.SourceSkeleton.empty() )
         {
             return;
         }
 
-        const auto& allSkeletons = manager.FindAllByType<Assets::SkeletonAsset>();
-        for ( const auto& [handle, skeleton] : allSkeletons )
+        // RELATIVE TO THE COOKED MESHES ROOT, JOINED HERE AND NOWHERE ELSE — `CloudTypeAsset`'s shape, and
+        // against the root a `.skeleton` actually lives under: `AssetPreloader` scans skeletons from
+        // `MESH_PATH_COOKED` and from nowhere else, so a rig indexed anywhere else does not exist.
+        const Common::Filepath full =
+             ( Common::Constants::Path::MESH_PATH_COOKED / m_Data.SourceSkeleton ).lexically_normal();
+
+        auto skeleton = manager.FindByPath<SkeletonAsset>( full );
+        if ( !skeleton )
         {
-            if ( skeleton->GetSignature() != m_Data.SourceSkeletonSignature )
-            {
-                continue;
-            }
-
-            // THE RIG'S BONES MUST BE RESIDENT BEFORE THIS COUNTS AS RESOLVED. The only thing anyone does
-            // with this dependency is copy the bones into a `RetargetSource`, which needs them present;
-            // and eviction releases a source rig whenever no scene names it, so "registered but cold" is
-            // the ordinary state here rather than an edge case.
-            if ( const auto loaded = skeleton->EnsureLoaded( manager ); !loaded )
-            {
-                LOG_ERROR( "RetargetAsset '{}': source rig sig {} is registered as '{}' but could not be "
-                           "read back: {}",
-                           m_Metadata.Filepath.string(), m_Data.SourceSkeletonSignature,
-                           skeleton->GetMetadata().Filepath.string(), loaded.GetError() );
-                continue;
-            }
-
-            // AND THE REMEMBERED NUMBER IS RE-CHECKED AGAINST THE BONES JUST READ, for the reason
-            // SkinnedMeshAsset gives: a cold rig answers with the signature of the last payload it held,
-            // which may be stale if the `.skeleton` was re-cooked while it was cold. The signature starts
-            // a lookup; it never completes one.
-            if ( skeleton->GetSignature() != m_Data.SourceSkeletonSignature )
-            {
-                LOG_WARN( "RetargetAsset '{}': source rig '{}' was remembered as sig {} and reads back as "
-                          "{} — it has been re-cooked. Not bound.",
-                          m_Metadata.Filepath.string(), skeleton->GetMetadata().Filepath.string(),
-                          m_Data.SourceSkeletonSignature, skeleton->GetSignature() );
-                continue;
-            }
-
-            m_SourceSkeleton.Handle = handle;
-            m_SourceSkeleton.Cached = skeleton;
-            break;
+            // NOT a silent fall-through to "no retarget": the file names a rig, the rig is not there, and
+            // the character that comes out will be the un-retargeted one wearing this retarget's name.
+            LOG_WARN( "RetargetAsset '{}': source rig '{}' ({}) is not a skeleton this project has "
+                      "scanned. Characters naming this retarget play their clips on their own rig.",
+                      m_Metadata.Filepath.string(), m_Data.SourceSkeleton, full.string() );
+            return;
         }
 
-        if ( !m_SourceSkeleton.IsValid() )
+        // THE RIG'S BONES MUST BE RESIDENT BEFORE THIS COUNTS AS RESOLVED. The only thing anyone does with
+        // this dependency is copy the bones into a `RetargetSource`, which needs them present; and
+        // eviction releases a source rig whenever no scene names it, so "registered but cold" is the
+        // ordinary state here rather than an edge case. `SkeletonAsset::GetSignature`'s own comment
+        // records what the equivalent omission cost on the mesh's side: 410 "dependency invalid" lines in
+        // twelve seconds and no character drawn.
+        if ( const auto loaded = skeleton->EnsureLoaded( manager ); !loaded )
         {
-            LOG_WARN( "RetargetAsset '{}': source rig sig {} not found among {} skeleton(s). Characters "
-                      "naming this retarget are posed by their clip alone until it is.",
-                      m_Metadata.Filepath.string(), m_Data.SourceSkeletonSignature, allSkeletons.size() );
+            LOG_ERROR( "RetargetAsset '{}': source rig '{}' could not be read: {}",
+                       m_Metadata.Filepath.string(), full.string(), loaded.GetError() );
+            return;
         }
+
+        m_SourceSkeleton.Handle = skeleton->GetMetadata().Handle;
+        m_SourceSkeleton.Cached = skeleton;
     }
 
     Common::BoolResultStr RetargetAsset::Unload()
@@ -158,8 +141,8 @@ namespace Desert::Assets
             return ok;
         }
 
-        LOG_INFO( "[Animation] Retarget written: '{}', source rig sig {}, {} chain(s), {} rename(s).",
-                  filepath.string(), data.SourceSkeletonSignature, data.Chains.size(),
+        LOG_INFO( "[Animation] Retarget written: '{}', source rig '{}', {} chain(s), {} rename(s).",
+                  filepath.string(), data.SourceSkeleton, data.Chains.size(),
                   data.BoneRenames.size() );
         return BOOLSUCCESS;
     }
