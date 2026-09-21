@@ -100,6 +100,34 @@ namespace Desert::Assets
         // are different answers, so they are different calls.
         void NoteFile( const std::filesystem::path& file );
 
+        // WHICH FILE A HANDLE NAMES, as a stable key — the inverse of `AssetHandle::FromCookedPath`,
+        // for every handle this engine can resolve, asked WITHOUT a type and WITHOUT an AssetManager.
+        //
+        // THIS IS THE FUNCTION THE TWELVE-BRANCH `ToPath` COLLAPSED INTO. `Core::MakeAssetResolver`
+        // used to answer it with a hand-written table of per-type lookups, each of them
+        // `mgr.FindByHandle<SomeAsset>( h )->GetMetadata().Filepath`, and that arrangement had three
+        // properties that stopped being survivable with T2.4:
+        //
+        //   * it needed the asset REGISTERED in the AssetManager, and the only thing that registered
+        //     assets wholesale was the directory walk this slice removes. Every branch was one step
+        //     from answering "" — which a scene saves as an empty slot and loads as unset;
+        //   * a type nobody wrote a branch for got no answer at all, and the branch that says so is
+        //     the only reason anyone would ever find out;
+        //   * it lived three layers above where identity is minted, so nothing below the engine could
+        //     ask it.
+        //
+        // TWO SOURCES, AND THEY ARE NOT TWO LISTS THAT MUST AGREE. The registry answers for content:
+        // it is persistent, it knows a `.tex`'s DECLARED identity, and it is what a shipped game has.
+        // `Common::AssetPathIndex` answers for anything this SESSION has derived a handle from,
+        // including files outside every content root, which have no row by definition. Neither is a
+        // subset of the other and neither can answer the other's question; the union is the answer,
+        // and the registry goes first because it is the one that survives the process.
+        //
+        // Empty means nothing ever derived this number from a path — a `Generate()`d runtime id, which
+        // genuinely has no file. Callers log their own refusal, because only they know what the number
+        // was for.
+        [[nodiscard]] std::string KeyForHandle( uint64_t handle );
+
         // Which kind, if any, a file belongs to — by extension, over the census. std::nullopt means
         // "not scanned content", which is an answer and not a failure.
         [[nodiscard]] std::optional<Common::Content::ContentKind> KindForFile( const std::filesystem::path& file );

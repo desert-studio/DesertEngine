@@ -33,9 +33,16 @@ namespace Desert::Core::Serialize
     // COOKED_PATH, a SIBLING of the assets root, where that reduction yields `../Cooked/...` and falls
     // back to absolute anyway. The tag is the bit no plain path can carry.
     //
-    // A handle that names no registered texture returns "" and LOGS why (DC §1.4): the slot is about to
-    // be saved as empty, which is indistinguishable from an empty slot, so the next save loses it.
-    std::string TextureSlotToPath( const Assets::AssetManager& manager, uint64_t handle );
+    // A handle the cooked asset registry has no row for returns "" and LOGS why (DC §1.4): the slot is
+    // about to be saved as empty, which is indistinguishable from an empty slot, so the next save loses
+    // it.
+    //
+    // IT TAKES NO AssetManager SINCE T2.4, and the removal is the point rather than tidiness. The old
+    // signature said, in the type system, that a texture reference could only be written down if the
+    // registry happened to hold the asset — and the only thing that held assets wholesale was the boot's
+    // directory walk. `ContentRegistry::KeyForHandle` answers from a file instead, so the round trip no
+    // longer depends on what a session has loaded.
+    std::string TextureSlotToPath( uint64_t handle );
 
     // The handle for a stored string, or 0 when it is empty or nothing resolves.
     //

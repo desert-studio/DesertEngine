@@ -19,6 +19,12 @@ project(test_name)
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/TextureSlot.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
+        -- The cooked asset registry, which is where the write side gets its answer since T2.4. It is
+        -- dependency-light for exactly this reason: it reaches Common and the AssetManager and nothing
+        -- else, so listing it here costs no Vulkan. AssetEviction comes with it because Refresh reads
+        -- the one edge table through it -- neither is exercised by this suite, but a translation unit
+        -- must link whole.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/ContentRegistry.cpp",
     }
 
     includedirs {

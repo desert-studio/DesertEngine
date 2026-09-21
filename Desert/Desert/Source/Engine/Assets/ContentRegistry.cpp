@@ -1,19 +1,19 @@
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/ContentRegistryInternals.hpp>
 
-#include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
 #include <mutex>
-#include <unordered_set>
 
 namespace Desert::Assets::ContentRegistry
 {
-    namespace
+    namespace Detail
     {
         // A FUNCTION-LOCAL STATIC, for `AssetPathIndex`'s reason: `NoteAsset` is reachable from
         // `AssetManager::CreateAsset`, which a translation unit's static initialiser can reach, and a
@@ -21,13 +21,6 @@ namespace Desert::Assets::ContentRegistry
         //
         // THE MUTEX IS NOT DECORATION. `AsyncAssetLoader` runs reads on `JobSystem` workers and the
         // completion registers the asset, so `NoteAsset` is genuinely called from more than one thread.
-        struct State
-        {
-            std::mutex                   Mutex;
-            Common::Utils::AssetRegistry Registry;
-            bool                         Dirty = false;
-        };
-
         State& Get_()
         {
             static State state;
@@ -43,20 +36,13 @@ namespace Desert::Assets::ContentRegistry
                             []( unsigned char c ) { return static_cast<char>( ::tolower( c ) ); } );
             return ext;
         }
-    } // namespace
-
-    std::string RefreshOutcome::Describe() const
-    {
-        return std::to_string( Rows ) + " row(s) in the content registry: " + std::to_string( Added ) +
-               " added, " + std::to_string( Removed ) + " removed, " + std::to_string( Edges ) +
-               " dependency edge(s) recorded; " + ( Written ? "written" : "unchanged, not written" );
-    }
+    } // namespace Detail
 
     Common::ResultStr<std::size_t> Load()
     {
         const std::filesystem::path path = Common::Utils::AssetRegistry::DefaultPath();
 
-        State& state = Get_();
+        Detail::State& state = Detail::Get_();
 
         const std::lock_guard<std::mutex> lock( state.Mutex );
 
@@ -91,12 +77,12 @@ namespace Desert::Assets::ContentRegistry
 
     const Common::Utils::AssetRegistry& Get()
     {
-        return Get_().Registry;
+        return Detail::Get_().Registry;
     }
 
     std::vector<std::filesystem::path> FilesOfKind( Common::Content::ContentKind kind )
     {
-        State& state = Get_();
+        Detail::State& state = Detail::Get_();
 
         const std::lock_guard<std::mutex> lock( state.Mutex );
 
@@ -111,9 +97,25 @@ namespace Desert::Assets::ContentRegistry
         return files;
     }
 
+    std::string KeyForHandle( uint64_t handle )
+    {
+        if ( handle == 0 )
+            return {};
+
+        {
+            Detail::State&                            state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            if ( const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( handle ) )
+                return row->Key;
+        }
+
+        return Common::AssetPathIndex::KeyFor( handle );
+    }
+
     std::optional<Common::Content::ContentKind> KindForFile( const std::filesystem::path& file )
     {
-        const std::string ext = LowerExtension( file );
+        const std::string ext = Detail::LowerExtension( file );
         if ( ext.empty() )
             return std::nullopt;
 
@@ -136,7 +138,7 @@ namespace Desert::Assets::ContentRegistry
         if ( key.empty() )
             return;
 
-        State& state = Get_();
+        Detail::State& state = Detail::Get_();
 
         const std::lock_guard<std::mutex> lock( state.Mutex );
 
@@ -184,7 +186,7 @@ namespace Desert::Assets::ContentRegistry
         if ( key.empty() )
             return;
 
-        State& state = Get_();
+        Detail::State& state = Detail::Get_();
 
         const std::lock_guard<std::mutex> lock( state.Mutex );
 
@@ -209,137 +211,11 @@ namespace Desert::Assets::ContentRegistry
         state.Dirty = true;
     }
 
-    Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager )
-    {
-        RefreshOutcome outcome;
-
-        // THE COOK'S WALK, AND THE ONLY ONE LEFT IN THE ENGINE. It is here rather than in the boot on
-        // purpose: `[ContentScan] boot finished` is the number this tier is judged by, and a walk
-        // before the boot line would have made the registry a place the cost moved to rather than a
-        // place it stopped being paid.
-        std::unordered_set<std::string> onDisk;
-        {
-            State&                            state = Get_();
-            const std::lock_guard<std::mutex> lock( state.Mutex );
-
-            for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
-            {
-                const auto            kind = static_cast<Common::Content::ContentKind>( i );
-                const Common::Content::ContentKindSpec spec = Common::Content::KindSpec( kind );
-
-                for ( const auto& candidate : Common::Utils::FileSystem::ListFilesRecursive( *spec.Root ) )
-                {
-                    if ( LowerExtension( candidate ) != spec.Extension )
-                        continue;
-
-                    const std::string key = Common::AssetHandle::StableKeyForPath( candidate );
-                    if ( key.empty() )
-                        continue;
-                    onDisk.insert( key );
-
-                    if ( state.Registry.FindByKey( key ) )
-                        continue;
-
-                    Common::Utils::AssetRegistryEntry entry;
-                    entry.Key  = key;
-                    entry.Kind = std::string( spec.Name );
-                    entry.Size = Common::Utils::FileSystem::GetFileSize( candidate );
-                    if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
-                    {
-                        LOG_ERROR( "[ContentRegistry] '{}' was found on disk and could not be entered: {}",
-                                   key, inserted.GetError() );
-                        continue;
-                    }
-                    ++outcome.Added;
-                    state.Dirty = true;
-                }
-            }
-
-            // ROWS WHOSE FILE IS GONE LEAVE. Collected first and erased after, because Remove mutates
-            // the container the loop above would otherwise be walking.
-            std::vector<std::string> vanished;
-            for ( const Common::Utils::AssetRegistryEntry& row : state.Registry.Entries() )
-            {
-                if ( onDisk.find( row.Key ) == onDisk.end() )
-                    vanished.push_back( row.Key );
-            }
-            for ( const std::string& key : vanished )
-            {
-                state.Registry.Remove( key );
-                ++outcome.Removed;
-                state.Dirty = true;
-            }
-        }
-
-        // THE EDGES, READ FROM THE ONE TABLE THAT ALREADY OWNS THEM. `AssetEviction::EdgesOf` is the
-        // list of "which asset classes name another asset", and `Desert/Tests/Engine/AssetEviction`
-        // holds it against the classes that actually have such a field. Reading the edges here through
-        // a second list would be the two-lists-that-must-agree shape this whole task is about.
-        //
-        // IT WALKS THE MANAGER'S OWN RECORDS AND NOT THE REGISTRY'S ROWS, and that is what keeps the
-        // file from churning. An UNLOADED asset contributes no edges — reading its references would
-        // mean parsing it, which is the work the demand-driven model exists to avoid — so a pass over
-        // the rows would have written `no edges` for every asset this session happened not to touch,
-        // and the next session would have written them back. A file that differs after every run is a
-        // file nobody can diff and a gate nobody can trust. Iterating the records lets the rule be the
-        // exact one: an asset that is loaded tells the truth about its edges, and an asset that is not
-        // loaded has taught us nothing, so its row is left alone.
-        {
-            State&                            state = Get_();
-            const std::lock_guard<std::mutex> lock( state.Mutex );
-
-            for ( const auto& [metadata, asset] : manager.RegisteredAssets() )
-            {
-                if ( !asset || !asset->IsReadyForUse() )
-                    continue;
-
-                const Common::Utils::AssetRegistryEntry* row =
-                     state.Registry.FindByHandle( static_cast<uint64_t>( metadata.Handle ) );
-                if ( !row )
-                    continue; // not scanned content (a procedural clip, a `.dgraph` document)
-
-                std::vector<uint64_t> edges;
-                AssetEviction::EdgesOf( manager, metadata.Handle,
-                                        [&edges]( const Common::UUID& edge, const std::string& )
-                                        {
-                                            // Null edges are dropped HERE and not in EdgesOf: the sweep
-                                            // wants them marked (a null in a slot is a slot that names
-                                            // nothing, and marking it costs nothing), the registry must
-                                            // not store a dependency on the null handle.
-                                            if ( static_cast<uint64_t>( edge ) != 0 )
-                                                edges.push_back( static_cast<uint64_t>( edge ) );
-                                        } );
-
-                std::sort( edges.begin(), edges.end() );
-                edges.erase( std::unique( edges.begin(), edges.end() ), edges.end() );
-
-                outcome.Edges += edges.size();
-                if ( edges != row->Dependencies )
-                {
-                    const std::string key = row->Key; // SetDependencies invalidates `row`
-                    state.Registry.SetDependencies( key, std::move( edges ) );
-                    state.Dirty = true;
-                }
-            }
-
-            outcome.Rows = state.Registry.Count();
-        }
-
-        if ( Dirty() )
-        {
-            if ( const auto written = Save(); !written )
-                return Common::MakeError<RefreshOutcome>( written.GetError() );
-            outcome.Written = true;
-        }
-
-        return Common::MakeSuccess( std::move( outcome ) );
-    }
-
     Common::BoolResultStr Save()
     {
         const std::filesystem::path path = Common::Utils::AssetRegistry::DefaultPath();
 
-        State& state = Get_();
+        Detail::State& state = Detail::Get_();
 
         std::string text;
         {
@@ -361,7 +237,7 @@ namespace Desert::Assets::ContentRegistry
 
     bool Dirty()
     {
-        State& state = Get_();
+        Detail::State& state = Detail::Get_();
 
         const std::lock_guard<std::mutex> lock( state.Mutex );
 
@@ -370,7 +246,7 @@ namespace Desert::Assets::ContentRegistry
 
     void ResetForTest()
     {
-        State& state = Get_();
+        Detail::State& state = Detail::Get_();
 
         const std::lock_guard<std::mutex> lock( state.Mutex );
 

@@ -2,6 +2,7 @@
 #include <Engine/Core/Serialize/AssetReferenceResolve.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
+#include <Engine/Core/Serialize/StoredAssetForm.hpp>
 #include <Engine/Core/Serialize/TextureSlot.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -14,6 +15,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
@@ -341,180 +343,56 @@ namespace Desert::Core::Serialize
     {
         Reflection::AssetResolver r;
 
-        r.ToPath = [&mgr]( uint64_t handle, const std::string& type ) -> std::string
+        r.ToPath = []( uint64_t handle, const std::string& type ) -> std::string
         {
             if ( handle == 0 )
                 return "";
-            if ( type == "SkyboxAsset" )
-            {
-                auto a = mgr.FindByHandle<Assets::SkyboxAsset>( Common::UUID( handle ) );
-                return a ? a->GetMetadata().Filepath.string() : "";
-            }
-            if ( type == "MaterialAsset" )
-            {
-                auto a = mgr.FindByHandle<Assets::MaterialAsset>( Common::UUID( handle ) );
-                if ( !a )
-                    return "";
 
-                // RELATIVE to the assets root, on exactly the terms the three cloud branches below are
-                // relative — and this branch is the reason they had to say so. It wrote the asset's
-                // filepath verbatim, which is ABSOLUTE, so every scene re-saved in the editor took
-                // whoever saved it home directory into the repository: 22 distinct
-                // `/Users/<somebody>/.../Materials/*.demat` across 42 of the 51 scenes here, none of
-                // which resolves on any other machine. A material is content that ships WITH the
-                // project, so the path that names it must be too. The v7 -> v8 migration produces this
-                // same string, and FromPath below accepts either form.
-                std::error_code ec;
-                const auto      rel = std::filesystem::relative( a->GetMetadata().Filepath,
-                                                                 Common::Constants::Path::ASSETS_PATH, ec );
-                // generic_string() rather than native(): native() is a WIDE string on Windows and a
-                // narrow one here, so a narrow ".." literal only compiles on this platform.
-                const auto relStr = rel.generic_string();
-                if ( ec || rel.empty() || relStr.rfind( "..", 0 ) == 0 )
-                    return a->GetMetadata().Filepath.string(); // outside the project — say so plainly
-                return relStr;
-            }
-            // Textures: in TextureSlot.cpp, which is the ONE branch of this table a suite can reach.
-            // It used to write `a->GetMetadata().Filepath.string()` right here — absolute, i.e. a
-            // developer's home directory in a committed file, the same defect the MaterialAsset branch
-            // above was fixed for. The material's fix could not be copied: a cooked texture lives under
-            // COOKED_PATH, a SIBLING of the assets root, where relative-to-ASSETS_PATH gives
-            // `../Cooked/...` and falls back to absolute anyway.
-            if ( type == "TextureAsset" )
-                return TextureSlotToPath( mgr, handle );
-            // NO "CloudNoiseVolumeAsset" BRANCH ANY MORE. It served exactly one reflected field — the
-            // cloud layer's own noise slot — and that field moved onto the cloud TYPE, which stores its
-            // volume as a path of its own rather than through this resolver. A branch keyed on a
-            // metadata string no reflected field produces is a path nothing can reach (§4.1).
-            // THE "CloudTypeAsset" AND "CloudLayoutAsset" BRANCHES ARE GONE WITH THE FIELDS THEY
-            // SERVED (O1): the four type slots and the layout are MATERIAL schema parameters now, stored
-            // in the `.demat` as path-derived handles, so no reflected field produces either metadata
-            // string and a branch keyed on one is a path nothing can reach (§4.1). The write side of the
-            // relative-path rule they pioneered lives on in the MaterialAsset branch above.
-            if ( type == "CloudModellingVolumeAsset" )
-            {
-                auto a = mgr.FindByHandle<Assets::CloudModellingVolumeAsset>( Common::UUID( handle ) );
-                if ( !a )
-                    return "";
-
-                // RELATIVE, on exactly the terms the cloud type above is relative: a sculpted body is
-                // content that ships WITH the project, and an absolute path would carry one
-                // developer's home directory into every scene that uses one.
-                std::error_code ec;
-                const auto      rel = std::filesystem::relative( a->GetMetadata().Filepath,
-                                                                 Common::Constants::Path::ASSETS_PATH, ec );
-                // generic_string() rather than native(): native() is a WIDE string on Windows and a
-                // narrow one here, so a narrow ".." literal only compiles on this platform.
-                const auto relStr = rel.generic_string();
-                if ( ec || rel.empty() || relStr.rfind( "..", 0 ) == 0 )
-                    return a->GetMetadata().Filepath.string(); // outside the project — say so plainly
-                return relStr;
-            }
-            if ( type == "ControlRigAsset" )
-            {
-                auto a = mgr.FindByHandle<Assets::ControlRigAsset>( Common::UUID( handle ) );
-                if ( !a )
-                {
-                    return "";
-                }
-
-                // RELATIVE, on exactly the terms the theme below is relative: a rig is content that ships
-                // WITH the project, and an absolute path would carry one developer's home directory into
-                // every scene that names one.
-                std::error_code ec;
-                const auto      rel = std::filesystem::relative( a->GetMetadata().Filepath,
-                                                                 Common::Constants::Path::ASSETS_PATH, ec );
-                // generic_string() rather than native(): native() is a WIDE string on Windows and a
-                // narrow one here, so a narrow ".." literal only compiles on this platform.
-                auto relStr = rel.generic_string();
-                if ( ec || rel.empty() || relStr.starts_with( ".." ) )
-                {
-                    return a->GetMetadata().Filepath.string(); // outside the project — say so plainly
-                }
-                return relStr;
-            }
-            if ( type == "AnimGraphAsset" )
-            {
-                auto a = mgr.FindByHandle<Assets::AnimGraphAsset>( Common::UUID( handle ) );
-                if ( !a )
-                {
-                    return "";
-                }
-
-                // RELATIVE, on exactly the terms the rig above is relative.
-                std::error_code ec;
-                const auto      rel = std::filesystem::relative( a->GetMetadata().Filepath,
-                                                                 Common::Constants::Path::ASSETS_PATH, ec );
-                // generic_string() rather than native(): native() is a WIDE string on Windows and a
-                // narrow one here, so a narrow ".." literal only compiles on this platform.
-                auto relStr = rel.generic_string();
-                if ( ec || rel.empty() || relStr.starts_with( ".." ) )
-                {
-                    return a->GetMetadata().Filepath.string(); // outside the project — say so plainly
-                }
-                return relStr;
-            }
-            if ( type == "UIThemeAsset" )
-            {
-                auto a = mgr.FindByHandle<Assets::UIThemeAsset>( Common::UUID( handle ) );
-                if ( !a )
-                    return "";
-
-                // RELATIVE, on exactly the terms the material and the sculpted body above are relative: a
-                // theme is content that ships WITH the project, and an absolute path would carry one
-                // developer's home directory into every scene that names one.
-                std::error_code ec;
-                const auto      rel = std::filesystem::relative( a->GetMetadata().Filepath,
-                                                                 Common::Constants::Path::ASSETS_PATH, ec );
-                // generic_string() rather than native(): native() is a WIDE string on Windows and a
-                // narrow one here, so a narrow ".." literal only compiles on this platform.
-                const auto relStr = rel.generic_string();
-                if ( ec || rel.empty() || relStr.rfind( "..", 0 ) == 0 )
-                    return a->GetMetadata().Filepath.string(); // outside the project — say so plainly
-                return relStr;
-            }
-            // The three SERVICE-REGISTRY types. Each owns its own handle<->path table (they are not
-            // AssetManager assets), and each persists as the ROOT-TAGGED KEY rather than the path the
-            // table holds — see ServiceKeyForPath at the top of this file for why a path could not
-            // survive packaging.
-            if ( type == "FontAsset" )
-            {
-                return ServiceKeyForPath( Runtime::ResourceRegistry::GetFontService()->PathForHandle( handle ) );
-            }
-            if ( type == "VideoAsset" )
-            {
-                return ServiceKeyForPath( Runtime::ResourceRegistry::GetVideoService()->PathForHandle( handle ) );
-            }
-            if ( type == "IconAsset" )
-            {
-                return ServiceKeyForPath( Runtime::ResourceRegistry::GetIconService()->PathForHandle( handle ) );
-            }
-            // Meshes (static/skinned both resolve handle->path via the MeshAsset base).
+            // TWELVE PER-TYPE LOOKUPS STOOD HERE AND THERE IS NOW ONE, which is the second half of
+            // GAP_ANALYSIS T2.4: the cooked registry is the source of BOTH answers.
             //
-            // NAMED, not the fall-through it used to be (I13). Every branch above tests its type and
-            // this one ended the function unconditionally, so an asset type with NO branch — a
-            // `PROPERTY(Asset<AudioAsset>)` somebody adds tomorrow — was looked up as a MESH, found
-            // nothing, and returned an empty string. The field then had a working Details picker over a
-            // slot that saved as "" and loaded as 0, with nothing anywhere saying so: a dead setting
-            // (DC 1.3) delivered by a silent fallback (DC 1.4), in the one place that decides whether a
-            // scene reference survives a save.
-            if ( type == "StaticMeshAsset" || type == "SkinnedMeshAsset" || type == "MeshAsset" )
+            // Each of the twelve was the same shape — `mgr.FindByHandle<SomeAsset>( handle )` and then
+            // `GetMetadata().Filepath` bent into whatever string that type stores. That arrangement
+            // needed the asset REGISTERED, and the only thing that registered assets wholesale was the
+            // boot's directory walk; with the walk gone it would have been twelve branches one step
+            // from returning "" — which a scene saves as an empty slot and reads back as unset, losing
+            // the reference with nothing anywhere saying so. `ContentRegistry::KeyForHandle` answers
+            // from a FILE instead, once, for every type, with no AssetManager involved at all (the
+            // lambda no longer captures one).
+            //
+            // WHAT DID NOT COLLAPSE IS THE SPELLING, and it must not: the string a `.desce` stores is
+            // a FORMAT, and changing it is a corpus migration rather than an edit. Three forms serve
+            // all twelve types, `StoredAssetForm` below names which type takes which, and each one is
+            // byte-identical to what its branch produced. So the IDENTITY question has one answer and
+            // only the rendering differs — twelve lookups became three renderings.
+            const std::optional<StoredAssetForm> form = StoredFormFor( type );
+            if ( !form )
             {
-                auto a = mgr.FindByHandle<Assets::MeshAsset>( Common::UUID( handle ) );
-                return a ? a->GetMetadata().Filepath.string() : "";
+                // AND ANYTHING ELSE REFUSES, LOUDLY. The refusal cannot save the field — there is no
+                // form to write it in — but it turns a slot that quietly loses its value into one line
+                // naming the type that needs one. Desert/Tests/Engine/AssetResolverCensus catches the
+                // same omission earlier, at the moment the field is declared; this catches everything
+                // the census cannot see, including a type that reaches the resolver from somewhere else.
+                LOG_ERROR( "[Scene] asset type '{0}' has no branch in Core::MakeAssetResolver, so a "
+                           "reference of that type cannot be written to a scene: the slot will save as "
+                           "empty and load as unset. Add a row for it beside the others in "
+                           "ComponentRegistry.cpp.",
+                           type );
+                return "";
             }
 
-            // AND ANYTHING ELSE REFUSES, LOUDLY. The refusal cannot save the field — there is no
-            // branch to write it with — but it turns a slot that quietly loses its value into one line
-            // naming the type that needs one. Desert/Tests/Engine/AssetResolverCensus catches the same
-            // omission earlier, at the moment the field is declared; this catches everything the census
-            // cannot see, including a type that reaches the resolver from somewhere else.
-            LOG_ERROR( "[Scene] asset type '{0}' has no branch in Core::MakeAssetResolver, so a "
-                       "reference of that type cannot be written to a scene: the slot will save as "
-                       "empty and load as unset. Add a branch for it beside the others in "
-                       "ComponentRegistry.cpp.",
-                       type );
-            return "";
+            const std::string key = Assets::ContentRegistry::KeyForHandle( handle );
+            if ( key.empty() )
+            {
+                LOG_ERROR( "[Scene] handle {0} is set on a '{1}' slot and nothing in this project names "
+                           "it — neither the cooked asset registry nor anything this session derived. "
+                           "The slot is being written out EMPTY and the reference is lost. If the file "
+                           "is on disk, the registry is stale: run 'AssetRegistryTool cook'.",
+                           handle, type );
+                return "";
+            }
+
+            return RenderStoredForm( *form, key );
         };
 
         r.FromPath = [&mgr]( const std::string& path, const std::string& type ) -> uint64_t

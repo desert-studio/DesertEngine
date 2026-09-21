@@ -46,6 +46,15 @@ using Desert::Tests::ConsumerText::StripComments;
 namespace
 {
     constexpr const char* kResolver  = "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp";
+    // THE WRITE HALF MOVED, AND THIS SUITE FOLLOWS IT RATHER THAN BEING RELAXED. Until T2.4 the
+    // resolver answered "which file is this handle" twelve times, once per type, inside the lambda in
+    // kResolver; the cooked asset registry answers it once for every type, and what is left per type
+    // is only the FORM the reference is spelled in. That table is here, in a translation unit a suite
+    // can actually link — the same reason TextureSlot.cpp was extracted, stated in its own header.
+    //
+    // Both files are read and concatenated: the census's question is "does this type have a branch
+    // SOMEWHERE in the resolver", and splitting one answer across two files must not split the census.
+    constexpr const char* kForms     = "Desert/Desert/Source/Engine/Core/Serialize/StoredAssetForm.cpp";
     constexpr const char* kConstants = "Desert/Common/Source/Common/Core/Constants.hpp";
 
     std::string RepoRoot()
@@ -96,6 +105,7 @@ TEST( AssetResolverCensus, TheSourcesThisSuiteReadsAreWhereItThinksTheyAre )
     ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
     EXPECT_FALSE( ReadAll( root + kResolver ).empty() ) << kResolver << " is missing or empty";
+    EXPECT_FALSE( ReadAll( root + kForms ).empty() ) << kForms << " is missing or empty";
     EXPECT_FALSE( ReadAll( root + kConstants ).empty() ) << kConstants << " is missing or empty";
     EXPECT_FALSE( DeclaredAssetTypes().empty() )
          << "the reflection table declares no asset-bearing field at all, which cannot be true while the "
@@ -108,7 +118,7 @@ TEST( AssetResolverCensus, EveryDeclaredAssetTypeHasABranchInTheResolver )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    std::string code = StripComments( ReadAll( root + kResolver ) );
+    std::string code = StripComments( ReadAll( root + kResolver ) ) + StripComments( ReadAll( root + kForms ) );
     ASSERT_FALSE( code.empty() );
     // Whitespace out, so a branch broken across lines by the formatter still reads as one comparison.
     std::erase_if( code, []( unsigned char c ) { return std::isspace( c ) != 0; } );
@@ -135,7 +145,7 @@ TEST( AssetResolverCensus, AnUnknownAssetTypeIsRefusedRatherThanTreatedAsAMesh )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    std::string code = StripComments( ReadAll( root + kResolver ) );
+    std::string code = StripComments( ReadAll( root + kResolver ) ) + StripComments( ReadAll( root + kForms ) );
     ASSERT_FALSE( code.empty() );
     std::erase_if( code, []( unsigned char c ) { return std::isspace( c ) != 0; } );
 
