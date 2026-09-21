@@ -63,7 +63,13 @@ namespace Desert::Core
         // viewport size so the live setters above can rebuild without the caller re-passing it.
         virtual void UpdateProjectionMatrix( const uint32_t width, const uint32_t height );
 
-        const Frustum& GetFrustum();
+        // BY VALUE AND const. It used to return a reference into a mutable member that this call
+        // rebuilt every time — a cache never read twice, whose only lasting effect was to make the
+        // accessor non-const. That is why the engine had a Frustum class and nothing that culled with
+        // it: `SceneRenderer::GetMainCamera()` hands the render path a CONST camera, so the one
+        // accessor that could have produced a frustum was unreachable from the one place that needed
+        // one. Zero callers in the engine was not an oversight; it was a signature.
+        [[nodiscard]] Frustum GetFrustum() const;
 
     protected:
         glm::mat4 m_ProjectionMatrix = glm::mat4( 1.0f );
@@ -78,8 +84,6 @@ namespace Desert::Core
 
         uint32_t m_ViewportWidth  = 0; // last viewport size (for the live setters to rebuild against)
         uint32_t m_ViewportHeight = 0;
-
-        Frustum m_Frustum;
     };
 
     // Free-orbit / fly viewport camera (RMB to look + WASDQE to move). Receives input globally via

@@ -64,10 +64,9 @@ namespace Desert::Core
             UpdateProjectionMatrix( m_ViewportWidth, m_ViewportHeight );
     }
 
-    const Frustum& Camera::GetFrustum()
+    Frustum Camera::GetFrustum() const
     {
-        m_Frustum.Rebuild( m_ProjectionMatrix, m_ViewMatrix );
-        return m_Frustum;
+        return Frustum( m_ProjectionMatrix, m_ViewMatrix );
     }
 
     // ─── EditorCamera (orbit / fly) ─────────────────────────────────────────────

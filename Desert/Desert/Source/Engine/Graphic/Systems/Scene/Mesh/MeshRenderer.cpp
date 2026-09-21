@@ -7,6 +7,8 @@
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
+#include <Engine/Geometry/MeshBounds.hpp>
+#include <Engine/Graphic/VisibilityCulling.hpp>
 // MeshShaderFor / MeshVertexPath / MeshPass — the (path x pass) table this file asks for its pipelines.
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -641,11 +643,16 @@ namespace Desert::Graphic::System
         // Collect the transparent (Transmission > 0) objects + their effective GPU material entries. Uses a
         // DEDICATED material so the opaque passes' per-frame UBs are untouched (the double-write-per-frame that
         // hung the GPU).
+        const Core::Frustum frustum = camera->GetFrustum();
+
         std::vector<const StaticMeshRenderData*> glassObjs;
         std::vector<PBRGpuMaterial>              gpuMats;
         for ( const auto& data : m_StaticQueue )
         {
             if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform,
+                                   Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
             if ( !pbrInst )
@@ -786,6 +793,18 @@ namespace Desert::Graphic::System
         // transform is per-object, and it rides a push constant.
         const PBRSceneFrame frameState = CaptureFrameState( camera );
 
+        // FRUSTUM CULLING, AND IT LIVES IN THE PASS RATHER THAN AT SUBMIT. The queues this pass reads are
+        // read by FIVE passes, and three of them look at the scene from somewhere else: the four shadow
+        // cascades and the RSM rasterize from the SUN. An object behind the camera casts a shadow into
+        // the frame it is not itself in, so dropping it at submit would delete shadows to save draws —
+        // a "culling win" measured as a picture that is missing something. The camera's frustum is only
+        // ever applied where the camera is what rasterizes.
+        //
+        // Rebuilt per pass rather than cached on the renderer: it is six normalized planes out of two
+        // matrices the camera already holds, and a cached frustum is a second answer to "where is the
+        // camera" that can disagree with the matrices the same pass draws with.
+        const Core::Frustum frustum = camera->GetFrustum();
+
         // Group draws by material so each material's per-object data fills ONE storage buffer, indexed
         // per draw (GPU-scene style). Objects of the same material that wrote a shared buffer per-draw
         // would otherwise collapse to the last writer.
@@ -803,6 +822,10 @@ namespace Desert::Graphic::System
         {
             if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() ||
                  !data.MaterialSlots->Slots[0] )
+                continue;
+
+            if ( !IsVisibleInView( frustum, data.Transform,
+                                   Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
 
             // First PBR slot drives the batch. Slots holding a custom-shader material
@@ -1087,12 +1110,31 @@ namespace Desert::Graphic::System
                 if ( !mat )
                     continue;
 
+                // PER-INSTANCE, and that is the whole point of culling an ISM at all. A batch is ONE draw
+                // call carrying N transforms, so a batch-level test would answer "some of it is on screen"
+                // and then submit every instance — a forest whose one visible tree costs the vertex stage
+                // all forty thousand of them. The draw count does not move here; the INSTANCE count does,
+                // which is why the detector prints the two apart.
+                //
+                // Only the visible transforms are appended, so the slice named by firstInstance is exactly
+                // the instances that survived: nothing downstream needs to know culling happened.
+                const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+                const uint32_t           firstInstance = static_cast<uint32_t>( instTransforms.size() );
+                for ( const auto& instanceTransform : *ism.Transforms )
+                {
+                    if ( IsVisibleInView( frustum, instanceTransform, localBounds ) )
+                        instTransforms.push_back( instanceTransform );
+                }
+                const uint32_t visibleInstances =
+                     static_cast<uint32_t>( instTransforms.size() ) - firstInstance;
+                if ( visibleInstances == 0 )
+                    continue;
+
                 InstancedDraw d;
                 d.Mesh          = ism.Mesh;
-                d.InstanceCount = static_cast<uint32_t>( ism.Transforms->size() );
-                d.FirstInstance = static_cast<uint32_t>( instTransforms.size() );
+                d.InstanceCount = visibleInstances;
+                d.FirstInstance = firstInstance;
                 d.MaterialIndex = static_cast<uint32_t>( instMaterials.size() );
-                instTransforms.insert( instTransforms.end(), ism.Transforms->begin(), ism.Transforms->end() );
                 instMaterials.push_back( BuildEffectiveMaterial( mat, ism.Material.get() ) );
                 instDraws.push_back( d );
             }
@@ -2213,8 +2255,15 @@ namespace Desert::Graphic::System
 
             renderer.BeginRenderPass( rp.get() );
             m_OverdrawMaterial->UpdateCamera( camera );
+
+            // CULLED LIKE THE PASS IT REPORTS ON. This view exists to answer "how many times was this
+            // pixel shaded", and an uncalled re-rasterization would answer it about a frame the engine
+            // does not draw — an instrument disagreeing with the thing it measures, which is the defect
+            // shape this repository keeps finding rather than a conservative choice.
+            const Core::Frustum overdrawFrustum = camera->GetFrustum();
             for ( const auto& rd : m_StaticQueue )
-                if ( rd.Mesh )
+                if ( rd.Mesh && IsVisibleInView( overdrawFrustum, rd.Transform,
+                                                 Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                     renderer.RenderMesh( m_OverdrawPipeline.get(), rd.Mesh, rd.Transform,
                                          m_OverdrawMaterial->GetMaterialExecutor() );
             for ( const auto& g : m_GenericQueue )
