@@ -1244,7 +1244,7 @@ namespace Desert::Editor
             // ── MESH SOURCE ───────────────────────────────────────────────────────────────────────
             U::ImGuiUtilities::ResetPropertyRows();
 
-            if ( !c.MeshHandle )
+            if ( c.MeshHandle.IsNull() )
             {
                 // OFFERED LIST AND STORED VALUE BOTH FROM Geometry::kAuthorablePrimitives. The hand-typed
                 // list that stood here was { "Cube", "Sphere", "Plane", "Pyramid" } against an enum that
@@ -1269,8 +1269,8 @@ namespace Desert::Editor
             }
 
             U::ImGuiUtilities::BeginPropertyRow( "Mesh", "Drop a .stmesh here to instance an asset mesh" );
-            ::ImGui::Button( c.MeshHandle ? "Mesh: <asset> (drop to replace)"
-                                          : "Drop a .stmesh to use an asset mesh",
+            ::ImGui::Button( c.MeshHandle.IsNull() ? "Drop a .stmesh to use an asset mesh"
+                                                   : "Mesh: <asset> (drop to replace)",
                              ImVec2( -1.0f, 0.0f ) );
             if ( ::ImGui::BeginDragDropTarget() )
             {
@@ -1292,7 +1292,7 @@ namespace Desert::Editor
             }
             U::ImGuiUtilities::EndPropertyRow();
 
-            if ( c.MeshHandle && ::ImGui::SmallButton( "Use Primitive Instead" ) )
+            if ( !c.MeshHandle.IsNull() && ::ImGui::SmallButton( "Use Primitive Instead" ) )
             {
                 c.MeshHandle = {};
                 c.Primitive  = GG::PrimitiveType::Cube;
@@ -1319,13 +1319,16 @@ namespace Desert::Editor
             // mesh's own index counts, and the draw figure is the batch rule stated as a rule.
             const size_t instanceCount = c.InstanceTransforms.size();
 
-            ::Desert::Mesh* mesh =
-                 c.RuntimeMesh
-                      ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
-                      : ( c.MeshHandle
-                               ? ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle )
-                               : ( c.Primitive.has_value() ? GG::PrimitiveMeshFactory::GetShared( *c.Primitive )
-                                                           : nullptr ) );
+            // The renderer's own order of preference (MeshECSSystem): the in-editor mesh, then the
+            // asset, then the built-in shape. Spelled as statements rather than three nested conditional
+            // operators, which is both what the analyser asks for and what makes the order readable.
+            ::Desert::Mesh* mesh = nullptr;
+            if ( c.RuntimeMesh )
+                mesh = static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() );
+            else if ( !c.MeshHandle.IsNull() )
+                mesh = ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+            else if ( c.Primitive.has_value() )
+                mesh = GG::PrimitiveMeshFactory::GetShared( *c.Primitive );
             // AND THE LOD CHAIN IS EMPTY FOR EXACTLY THE MESHES AN ISM USUALLY HOLDS. Submesh::LODs says
             // so in its own header — "empty for meshes with no LODs (procedural / skinned)" — and the
             // first version of this readout asked only the chain, so every primitive ISM reported
@@ -1333,13 +1336,13 @@ namespace Desert::Editor
             // "this is free", which is the opposite of what the row is here to say. The submesh's own
             // IndexCount is the geometry either way; LODs[0] is byte-identical to it when it exists.
             uint64_t trianglesEach = 0;
-            if ( mesh )
+            if ( mesh != nullptr )
                 for ( const auto& submesh : mesh->GetSubmeshes() )
                     trianglesEach +=
                          ( submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs.front().IndexCount ) / 3;
 
             uint32_t cascades = 0;
-            if ( c.CastShadows && scene && scene->GetSceneRenderer() )
+            if ( c.CastShadows && scene != nullptr && scene->GetSceneRenderer() != nullptr )
                 cascades = scene->GetSceneRenderer()->GetShadowCascadeCount();
 
             if ( U::ImGuiUtilities::SectionHeader( ICON_MDI_CHART_BAR "  Statistics", true ) )
@@ -1352,7 +1355,7 @@ namespace Desert::Editor
 
                 U::ImGuiUtilities::BeginPropertyRow( "Triangles", "Instances x the mesh's LOD 0 triangles, before "
                                                                   "per-instance culling and LOD" );
-                if ( mesh )
+                if ( mesh != nullptr )
                     ::ImGui::Text( "%llu  (%llu each)",
                                    static_cast<unsigned long long>( trianglesEach * instanceCount ),
                                    static_cast<unsigned long long>( trianglesEach ) );
@@ -1423,8 +1426,9 @@ namespace Desert::Editor
                 {
                     for ( int z = 0; z < 10; ++z )
                         for ( int x = 0; x < 10; ++x )
-                            c.InstanceTransforms.push_back(
-                                 glm::translate( glm::mat4( 1.0f ), glm::vec3( x * 200.0f, 0.0f, z * 200.0f ) ) );
+                            c.InstanceTransforms.push_back( glm::translate(
+                                 glm::mat4( 1.0f ), glm::vec3( static_cast<float>( x ) * 200.0f, 0.0f,
+                                                               static_cast<float>( z ) * 200.0f ) ) );
                 }
                 ::ImGui::SameLine();
                 if ( ::ImGui::Button( "Clear" ) )

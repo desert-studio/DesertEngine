@@ -968,8 +968,8 @@ namespace Desert::Editor::Commands
         std::vector<Common::UUID> matching;
         for ( const auto& entity : s_Scene->GetAllEntities() )
         {
-            ECS::Entity candidate = entity;
-            const auto  identity  = StaticMeshIdentityOf( candidate );
+            const ECS::Entity candidate = entity;
+            const auto        identity  = StaticMeshIdentityOf( candidate );
             if ( !identity || !identity->SameAs( *wanted ) )
                 continue;
             const Common::UUID uuid = UUIDOf( candidate );
@@ -995,25 +995,31 @@ namespace Desert::Editor::Commands
         size_t                     withoutAMesh = 0;
         for ( const Common::UUID& uuid : uuids )
         {
-            auto entity = FindEntity( uuid );
-            if ( !entity )
+            const auto found = FindEntity( uuid );
+            if ( !found )
                 continue;
-            if ( !entity->HasComponent<ECS::StaticMeshComponent>() )
+
+            // Unwrapped ONCE, right after the check. Threading the optional through the thirty lines
+            // below is what makes `bugprone-unchecked-optional-access` fire four times on a function
+            // that does test it — and the check is right to be nervous: "it was checked further up" is
+            // exactly the argument that stops being true when somebody inserts a line.
+            const ECS::Entity entity   = *found;
+            const auto        identity = StaticMeshIdentityOf( entity );
+            if ( !identity )
             {
                 ++withoutAMesh;
                 continue;
             }
 
-            const auto& mesh = entity->GetComponent<ECS::StaticMeshComponent>();
+            const auto& mesh = entity.GetComponent<ECS::StaticMeshComponent>();
 
             FoldCandidate candidate;
-            candidate.Entity = uuid;
-            candidate.Name   = entity->HasComponent<ECS::TagComponent>()
-                                    ? entity->GetComponent<ECS::TagComponent>().Tag
-                                    : std::string( "Entity" );
-            candidate.World  = entity->GetWorldTransform();
-
-            candidate.Identity = *StaticMeshIdentityOf( *entity );
+            candidate.Entity   = uuid;
+            candidate.Name     = entity.HasComponent<ECS::TagComponent>()
+                                      ? entity.GetComponent<ECS::TagComponent>().Tag
+                                      : std::string( "Entity" );
+            candidate.World    = entity.GetWorldTransform();
+            candidate.Identity = *identity;
 
             // The static component's own fields that an ISM has no room for. Each one is a knob somebody
             // deliberately moved, so losing it silently is losing an authoring decision.
@@ -1030,8 +1036,8 @@ namespace Desert::Editor::Commands
             if ( mesh.RuntimeMesh )
                 candidate.Blockers.emplace_back( "a mesh edited in the editor and not yet saved" );
 
-            if ( entity->HasComponent<ECS::RelationshipComponent>() &&
-                 !entity->GetComponent<ECS::RelationshipComponent>().Children.empty() )
+            if ( entity.HasComponent<ECS::RelationshipComponent>() &&
+                 !entity.GetComponent<ECS::RelationshipComponent>().Children.empty() )
                 candidate.Blockers.emplace_back( "children" );
 
             // AND EVERY OTHER COMPONENT, ASKED OF THE SERIALIZATION REGISTRY RATHER THAN LISTED HERE.
@@ -1043,11 +1049,11 @@ namespace Desert::Editor::Commands
             // screen.
             for ( const auto& serializer : ::Desert::Core::Serialize::ComponentRegistry::Get().All() )
             {
-                if ( serializer.Key == "StaticMesh" || !serializer.Has || !serializer.Has( *entity ) )
+                if ( serializer.Key == "StaticMesh" || !serializer.Has || !serializer.Has( entity ) )
                     continue;
                 if ( serializer.Key == "Visibility" &&
-                     ( !entity->HasComponent<ECS::VisibilityComponent>() ||
-                       entity->GetComponent<ECS::VisibilityComponent>().Visible ) )
+                     ( !entity.HasComponent<ECS::VisibilityComponent>() ||
+                       entity.GetComponent<ECS::VisibilityComponent>().Visible ) )
                     continue;
                 candidate.Blockers.push_back( "a " + serializer.Key + " component" );
             }
@@ -1088,7 +1094,7 @@ namespace Desert::Editor::Commands
         }
 
         const Common::UUID folded  = Common::UUID::Generate();
-        ECS::Entity&       created = s_Scene->CreateEntityWithUUID( folded, name );
+        const ECS::Entity& created = s_Scene->CreateEntityWithUUID( folded, name );
         auto&              ism     = created.AddComponent<ECS::InstancedStaticMeshComponent>();
         ism.MeshHandle             = plan.Identity.Mesh;
         ism.Primitive              = plan.Identity.Primitive;

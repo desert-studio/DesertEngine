@@ -88,7 +88,10 @@ TEST( InstanceFold, OneMeshIsNotAFoldAndTheRefusalSaysHowManyItFound )
 {
     const auto planned = PlanInstanceFold( { At( "Only", 1, { 0.0f, 0.0f, 0.0f } ) } );
     ASSERT_FALSE( planned.IsSuccess() );
-    EXPECT_NE( planned.GetError().find( "1" ), std::string::npos ) << planned.GetError();
+    // The COUNT, because "two of the seven you picked are lights" is what a person can act on and
+    // "this did not work" is not. Spelled as the phrase rather than the bare digit: a lone "1" is also
+    // in the word "at least two static meshes" nowhere, but it would be in any future wording by luck.
+    EXPECT_NE( planned.GetError().find( "offers 1" ), std::string::npos ) << planned.GetError();
 }
 
 TEST( InstanceFold, TwoDifferentMeshesAreRefusedAndBothAreNamed )
