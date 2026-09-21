@@ -967,7 +967,7 @@ TEST( RetargetPipeline, ASourcePoseOfTheWrongSizeIsRefused )
     Retargeter retargeter;
     ASSERT_TRUE( retargeter.Initialize( source, target, SetupFor( kRoot, kRoot ) ).IsSuccess() );
 
-    LocalPose  tooShort( 2 );
+    const LocalPose tooShort( 2 );
     LocalPose  out;
     const auto ran = retargeter.Retarget( source, target, tooShort, out );
     ASSERT_FALSE( ran.IsSuccess() );

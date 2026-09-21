@@ -45,7 +45,7 @@ namespace Desert::Animation::Retarget
         out.Rotation    = inverseRotation * child.Rotation;
         out.Scale       = child.Scale / parent.Scale;
         out.Translation = ( inverseRotation * ( child.Translation - parent.Translation ) ) / parent.Scale;
-        return Common::MakeSuccess( std::move( out ) );
+        return Common::MakeSuccess( out );
     }
 
     Common::ResultStr<ModelPose> ModelPose::FromLocal( const Skeleton& skeleton, const LocalPose& local )

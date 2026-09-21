@@ -41,6 +41,26 @@ namespace Desert::Animation::Retarget
             return glm::rotation( glm::normalize( from ), glm::normalize( to ) );
         }
 
+        Common::BoolResultStr RefuseAForeignRig( const Skeleton& rig, uint64_t signature, size_t boneCount,
+                                                    const char* which )
+        {
+            // THE CACHE IS A PILE OF BONE INDICES RESOLVED AGAINST ONE PARTICULAR RIG. Handed a different
+            // one, every index means a different bone and the result is a pose, not an error -- which is the
+            // failure a downstream test cannot see. The signature is FNV-1a over names and parents, so it
+            // catches a rig of a different STRUCTURE; it is deliberately blind to proportions (T6.1 measured
+            // a rig scaled x3 carrying the same signature), and it does not need to see them: a rig with the
+            // same names and the same parents is one this cache's indices are correct for, which is the only
+            // thing being claimed here.
+            if ( rig.GetSignature() == signature && rig.GetBones().size() == boneCount )
+            {
+                return Common::MakeSuccess( true );
+            }
+            return Common::MakeFormattedError<bool>(
+                 "this retargeter was built for a {} rig of {} bones with signature {}, and was handed one of "
+                 "{} bones with signature {}. Every cached bone index would name a different bone.",
+                 which, boneCount, signature, rig.GetBones().size(), rig.GetSignature() );
+        }
+
         /// The run of bones from `start` down to `end`, inclusive, or empty when `end` is not a descendant
         /// of `start`. Walks UP from the end, which is the only direction a `Skeleton` can be walked: it
         /// keeps parents, not children.
@@ -252,7 +272,7 @@ namespace Desert::Animation::Retarget
                      authored.Name, resolved.SourceRestLength, resolved.TargetRestLength );
             }
 
-            const int32_t chainIndex = static_cast<int32_t>( m_Chains.size() );
+            const auto chainIndex = static_cast<int32_t>( m_Chains.size() );
             for ( size_t i = 0; i < resolved.TargetRun.size(); ++i )
             {
                 const uint32_t bone = resolved.TargetRun[i];
@@ -524,26 +544,6 @@ namespace Desert::Animation::Retarget
             }
         }
         return Common::MakeSuccess( true );
-    }
-
-    Common::BoolResultStr Retargeter::RefuseAForeignRig( const Skeleton& rig, uint64_t signature, size_t boneCount,
-                                                         const char* which ) const
-    {
-        // THE CACHE IS A PILE OF BONE INDICES RESOLVED AGAINST ONE PARTICULAR RIG. Handed a different
-        // one, every index means a different bone and the result is a pose, not an error -- which is the
-        // failure a downstream test cannot see. The signature is FNV-1a over names and parents, so it
-        // catches a rig of a different STRUCTURE; it is deliberately blind to proportions (T6.1 measured
-        // a rig scaled x3 carrying the same signature), and it does not need to see them: a rig with the
-        // same names and the same parents is one this cache's indices are correct for, which is the only
-        // thing being claimed here.
-        if ( rig.GetSignature() == signature && rig.GetBones().size() == boneCount )
-        {
-            return Common::MakeSuccess( true );
-        }
-        return Common::MakeFormattedError<bool>(
-             "this retargeter was built for a {} rig of {} bones with signature {}, and was handed one of "
-             "{} bones with signature {}. Every cached bone index would name a different bone.",
-             which, boneCount, signature, rig.GetBones().size(), rig.GetSignature() );
     }
 
     Common::BoolResultStr Retargeter::Retarget( const Skeleton& source, const Skeleton& target,

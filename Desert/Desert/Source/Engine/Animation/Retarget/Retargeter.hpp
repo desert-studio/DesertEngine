@@ -216,9 +216,6 @@ namespace Desert::Animation::Retarget
         [[nodiscard]] Common::BoolResultStr ResolveChains( const Skeleton& source, const Skeleton& target );
         [[nodiscard]] Common::BoolResultStr BuildPairings( const Skeleton& source, const Skeleton& target );
 
-        /// Refuses a rig this cache's bone indices were not resolved against.
-        [[nodiscard]] Common::BoolResultStr RefuseAForeignRig( const Skeleton& rig, uint64_t signature,
-                                                               size_t boneCount, const char* which ) const;
 
         /// STAGE 1. The target pelvis's model-space translation for this frame.
         [[nodiscard]] glm::vec3 StagePelvisMotion( const ModelPose& sourceModel ) const;
