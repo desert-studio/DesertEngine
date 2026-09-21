@@ -162,6 +162,70 @@ TEST( AnimatorPose, SamplingAClipIntoTheBufferResetsBonesTheClipDoesNotAnimate )
             "disagree about what the pose at this time is";
 }
 
+// ── A SECTION REACHES THE SKINNING MATRICES, NOT ONLY THE CLIP (A28) ───────────────────────────────
+//
+// THE POSITIVE CONTROL THE `ClipSections` SUITE CANNOT PROVIDE. That suite asserts the section maths and
+// that `AnimationClip::SampleTrack` applies it; neither says whether PLAYBACK goes through `SampleTrack`
+// at all. A `SampleLocalTransform` still calling `track.Sample` directly would leave every assertion
+// over there green while no section in the project changed a single pixel — which is exactly the shape
+// of "both named suites stayed green while the graph received nothing".
+//
+// `GetPose().Matrices` is what the renderer uploads (Scene.cpp and MeshECSSystem.hpp are its only two
+// consumers), so asserting here is asserting about the frame.
+TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
+{
+    Skeleton      skel = MakeChain();
+    Animator      anim( skel );
+    AnimationClip clip = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
+
+    anim.Play( clip );
+    anim.SetTime( 0.0f );
+    const glm::mat4 unsectioned = anim.GetPose().Matrices[1];
+
+    // The same clip, muted by a section. Nothing else about it changes.
+    AnimationClip     muted   = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
+    Desert::Animation::ClipSection off;
+    off.Name  = "muted";
+    off.Start = FrameNumber{ 0 };
+    off.End   = muted.DurationTicks;
+    off.Blend = Desert::Animation::SectionBlendType::Absolute;
+    Desert::Animation::ScalarKey zero;
+    zero.Tick  = FrameNumber{ 0 };
+    zero.Value = 0.0f;
+    off.Weight.push_back( zero );
+    muted.Sections.push_back( off );
+
+    Animator silent( skel );
+    silent.Play( muted );
+    silent.SetTime( 0.0f );
+    const glm::mat4 sectioned = silent.GetPose().Matrices[1];
+
+    EXPECT_FALSE( MatNear( unsectioned, sectioned ) )
+         << "a zero-weight section changed nothing in the matrices the renderer uploads, so playback is "
+            "not going through AnimationClip::SampleTrack";
+
+    // AND IT IS THE REST POSE IT FELL BACK TO, not an arbitrary difference. A clip that broke for any
+    // other reason would also satisfy the assertion above.
+    Animator rest( skel );
+    EXPECT_TRUE( MatNear( sectioned, rest.GetPose().Matrices[1] ) );
+
+    // NEGATIVE CONTROL: a FULL-weight Absolute section must leave the same matrices the unsectioned clip
+    // produced, because that is what every migrated file in the repository now carries.
+    AnimationClip     full = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
+    Desert::Animation::ClipSection whole;
+    whole.Name  = "whole";
+    whole.Start = FrameNumber{ 0 };
+    whole.End   = full.DurationTicks;
+    whole.Blend = Desert::Animation::SectionBlendType::Absolute;
+    full.Sections.push_back( whole );
+
+    Animator unchanged( skel );
+    unchanged.Play( full );
+    unchanged.SetTime( 0.0f );
+    EXPECT_TRUE( MatNear( unsectioned, unchanged.GetPose().Matrices[1] ) )
+         << "a full-weight Absolute section is what the whole corpus migrated to; it must be invisible";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
