@@ -14,7 +14,7 @@
 // wherever a relation can be derived, and where it cannot it pins a NAMED ROW rather than a count, so
 // the gate cannot be satisfied by editing a number.
 //
-// THE FIVE RELATIONS, AND WHAT EACH WOULD HAVE CAUGHT:
+// THE SIX RELATIONS, AND WHAT EACH WOULD HAVE CAUGHT:
 //
 //   1. The configuration exists, is declared once, and is what defines the macro. A `Shipping` that the
 //      workspace lists and `Configurations.lua` says nothing about is a configuration in which every
@@ -37,6 +37,18 @@
 //   5. Every profiling macro has a shipping twin, name for name — derived from the header, not listed
 //      here. A seventh `DESERT_PROFILE_*` added without a no-op beside it would otherwise keep Optick in
 //      the player binary, and nothing else in the tree would say so.
+//
+//   6. THE WIRING. Relations 1-5 and scripts/CI/ShippingSymbols.sh both ran in exactly one place for a
+//      day after the configuration landed: a developer's laptop, by hand. This row pins that Windows
+//      compiles the configuration, that macOS runs the symbol census, that the census still carries a
+//      positive control, and that its two ends agree where the binary is. A gate nobody runs is the same
+//      promise as "we will remember to cut it".
+//
+// Two further rows sit beside them and are not relations between instruments, so they are not numbered:
+// the packager's default configuration must be one the workspace declares, and the test projects must
+// stay OUT of the Shipping configuration — a suite whose subject is the draw-call counter cannot be
+// built in the configuration that removes the draw-call counter, and the cheapest way to make it build
+// would be to weaken the test.
 //
 // COMMENTS ARE STRIPPED BEFORE ANYTHING IS SEARCHED FOR. A census that shoots at prose gets switched off
 // — twice in one week here, once taking a real finding down with it — and this file's own paragraphs
@@ -79,6 +91,52 @@ namespace
         std::ostringstream buffer;
         buffer << in.rdbuf();
         return buffer.str();
+    }
+
+    // The contents of a job block's `config: [ ... ]` matrix line, or an empty string if it has none.
+    // Narrow on purpose: this is the one line in ci.yml a census needs to read as DATA rather than as
+    // prose, and parsing exactly it beats pulling a YAML library into a suite that compiles no engine.
+    std::string MatrixConfigs( const std::string& jobBlock )
+    {
+        const size_t at = jobBlock.find( "config: [" );
+        if ( at == std::string::npos )
+            return {};
+        const size_t open  = at + std::string( "config: [" ).size();
+        const size_t close = jobBlock.find( ']', open );
+        if ( close == std::string::npos )
+            return {};
+        return jobBlock.substr( open, close - open );
+    }
+
+    // YAML line comments out. Deliberately narrower than StripComments below and used only on
+    // .github/workflows/ci.yml: a `#` there is always a comment (no anchor, tag or colour literal in
+    // the file), so "cut at the first # that starts a token" is the whole rule. The reason it is needed
+    // at all is the same one the header gives — ci.yml's prose names the configuration, the script and
+    // the sentence it used to carry, so raw text would match the explanation instead of the wiring.
+    std::string StripYamlComments( const std::string& source )
+    {
+        std::string out;
+        out.reserve( source.size() );
+        bool comment = false;
+        char prev    = '\n';
+        for ( const char c : source )
+        {
+            if ( c == '\n' )
+            {
+                comment = false;
+                out.push_back( c );
+            }
+            else if ( !comment && c == '#' && ( prev == '\n' || prev == ' ' || prev == '\t' ) )
+            {
+                comment = true;
+            }
+            else if ( !comment )
+            {
+                out.push_back( c );
+            }
+            prev = c;
+        }
+        return out;
     }
 
     // Line and block comments out, string literals left alone. The point is narrow: every paragraph in
@@ -537,6 +595,120 @@ TEST( ShippingBoundary, EveryProfilingMacroHasAShippingTwinNameForName )
     EXPECT_TRUE( stale.empty() ) << "these macros exist only in the Shipping branch — a no-op with nothing "
                                     "to be a no-op of:"
                                  << stale;
+}
+
+// ── RELATION 6: THE BOUNDARY IS GUARDED BY A MACHINE, NOT BY THIS MACHINE ───────────────────────────
+//
+// Relations 1-5 and `scripts/CI/ShippingSymbols.sh` are two halves of one proof, and for one day after
+// the configuration landed BOTH of them ran in exactly one place: a developer's laptop, by hand. A gate
+// that only a person remembers to run is the same promise as "we will remember to cut it", which is the
+// promise this whole suite exists because nobody keeps.
+//
+// So the wiring itself is a relation. The rows below are NAMED, never counted — a count can be satisfied
+// by editing the count. Each one is a sentence somebody would have to delete on purpose:
+//
+//   * Windows compiles the shipping configuration. Windows is the platform the game ships for and the
+//     one that diverges most from the machine this file was written on; the configuration had been
+//     compiled exactly once, on macOS, when this row was added.
+//   * macOS runs the symbol census, and the census still refuses to speak without a positive control.
+//     Dropping the control turns "the instruments are gone" and "I could not read the binary" into the
+//     same green, on the one gate whose entire job is to say what is present.
+//   * The two ends of that census agree about WHERE the binary is. The script defaults to a path; the
+//     workspace decides the path. A middle link silently dropping that agreement is this project's most
+//     frequent defect shape, and here it degrades to the script's exit 2 rather than a false pass —
+//     which is survivable, and still worth naming before it happens.
+//
+// YAML COMMENTS ARE STRIPPED FIRST, for the reason the header of this file gives: ci.yml explains at
+// length what it forbids and what it used to say, so a search over its raw text finds the explanation
+// and calls it the wiring.
+TEST( ShippingBoundary, TheBoundaryIsCheckedByCIAndNotOnlyByHand )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string ci = StripYamlComments( Read( root / ".github/workflows/ci.yml" ) );
+    ASSERT_FALSE( ci.empty() ) << ".github/workflows/ci.yml is missing or empty";
+
+    // The job blocks, so a row can say WHICH platform carries it. Two-space indent is the job level.
+    const size_t macosAt   = ci.find( "\n  macos:" );
+    const size_t windowsAt = ci.find( "\n  windows:" );
+    ASSERT_NE( macosAt, std::string::npos ) << "ci.yml no longer has a macos job";
+    ASSERT_NE( windowsAt, std::string::npos ) << "ci.yml no longer has a windows job";
+    ASSERT_LT( macosAt, windowsAt ) << "the macos job must precede the windows job for this census to "
+                                       "split them; if they were reordered, fix this line, not the file.";
+    const std::string macosJob   = ci.substr( macosAt, windowsAt - macosAt );
+    const std::string windowsJob = ci.substr( windowsAt );
+
+    // THE MATRIX LINE AND NOT THE JOB, because the job text contains the word either way: the guard on
+    // the test step is spelled `matrix.config != 'Shipping'` and would keep a bare find() green on a job
+    // that had stopped building the configuration entirely.
+    const std::string windowsMatrix = MatrixConfigs( windowsJob );
+    EXPECT_NE( windowsMatrix.find( "Shipping" ), std::string::npos )
+         << "the Windows job's matrix is [" << windowsMatrix
+         << "] — it no longer builds the Shipping configuration. Windows is the platform the game ships "
+            "for, and MSVC had never compiled this configuration at all until that leg existed: "
+            "`runtime \"Release\"` / `optimize \"Full\"` / `symbols \"Off\"` being valid MSVC settings is "
+            "not the same statement as `it compiles`.";
+
+    const std::string macosMatrix = MatrixConfigs( macosJob );
+    EXPECT_NE( macosMatrix.find( "Shipping" ), std::string::npos )
+         << "the macOS job's matrix is [" << macosMatrix
+         << "] — without a Shipping build there is no linked binary for the symbol census below to read, "
+            "and it would answer exit 2 on every push.";
+
+    EXPECT_NE( macosJob.find( "scripts/CI/ShippingSymbols.sh" ), std::string::npos )
+         << "nothing in CI reads the linked shipping binary any more. The source census you are reading "
+            "cannot see an archive member pulled in by a reference nobody wrote down; that is the half "
+            "the symbol dump owns, and it now runs nowhere.";
+
+    const std::string symbols = Read( root / "scripts/CI/ShippingSymbols.sh" );
+    ASSERT_FALSE( symbols.empty() ) << "scripts/CI/ShippingSymbols.sh is missing — the CI step above "
+                                       "would fail, but this says why before it does";
+    EXPECT_NE( symbols.find( "CONTROL=" ), std::string::npos )
+         << "the symbol census lost its positive control. `nm` on a stripped or unreadable binary prints "
+            "nothing, and nothing passes every absence check ever written: without a symbol that MUST be "
+            "found, a green from that script is indistinguishable from a binary it failed to read.";
+
+    // WHERE THE BINARY IS, ASSERTED AS A RELATION AND NOT AS A STRING IN TWO PLACES. The workspace owns
+    // the directory; the script defaults to a path inside it. `%{cfg.buildcfg}` is `Shipping` in that
+    // configuration, and `Runtime` is the project name.
+    const std::string workspace = Read( root / "BuildScripts/Workspace.lua" );
+    ASSERT_FALSE( workspace.empty() );
+    EXPECT_NE( workspace.find( "/build/Bin/%{cfg.buildcfg}" ), std::string::npos )
+         << "the workspace's targetdir moved. scripts/CI/ShippingSymbols.sh defaults to "
+            "build/Bin/Shipping/Runtime and will answer exit 2 (`the check could not run`) rather than a "
+            "false pass — but it will answer it on every push until somebody reads this message.";
+    EXPECT_NE( symbols.find( "build/Bin/Shipping/Runtime" ), std::string::npos )
+         << "the symbol census no longer defaults to the path the workspace builds into, and the CI step "
+            "passes it no argument.";
+}
+
+// ── THE TEST SUITES ARE NOT IN THE SHIPPING CONFIGURATION, AND THAT IS LOAD-BEARING ─────────────────
+//
+// A suite whose subject IS one of the instruments — DrawCounterFunnel, MemoryDetector,
+// GpuTimestampLayout, SyncLoadChokepoint — cannot be built in the one configuration that removes what it
+// is about. The cheapest way to make it build would be to weaken the test, which is the wrong direction
+// for a gate to push. So they are removed from the configuration instead, and ci.yml's two "Run tests"
+// steps are guarded to match. This row exists because those are THREE places that have to agree, and the
+// failure if they stop agreeing is a `Run tests` step that runs zero suites and reports success.
+TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string tests = Read( root / "Desert/Tests/premake5.lua" );
+    ASSERT_FALSE( tests.empty() );
+    EXPECT_GE( CountOf( tests, "removeconfigurations { \"Shipping\" }" ), 3u )
+         << "the test projects are back in the Shipping configuration: the per-suite loop, BuildAllTests "
+            "and RunAllTests each need the removal, and the last of those is what writes run_tests.bat. "
+            "With them back, every suite that tests an instrument has to compile without it.";
+
+    const std::string ci = StripYamlComments( Read( root / ".github/workflows/ci.yml" ) );
+    ASSERT_FALSE( ci.empty() );
+    EXPECT_GE( CountOf( ci, "if: matrix.config != 'Shipping'" ), 2u )
+         << "both `Run tests` steps must be guarded — there is no test binary in build/Bin/Tests/Shipping "
+            "to run, and the unix runner GLOBS that directory, so an unguarded step there finds zero "
+            "suites and calls it a pass.";
 }
 
 // ── THE PACKAGER'S DEFAULT IS A CONFIGURATION THAT EXISTS ───────────────────────────────────────────
