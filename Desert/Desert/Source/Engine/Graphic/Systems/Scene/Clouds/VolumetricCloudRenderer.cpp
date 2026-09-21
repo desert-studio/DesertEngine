@@ -268,9 +268,25 @@ namespace Desert::Graphic::System
         // slots, and the bake reads null as "there is no painting" and places the sky exactly as it did
         // before these fields existed. A handle that names a layout nobody registered is logged by the
         // service, once, and also arrives here as null.
-        auto* layouts        = Runtime::ResourceRegistry::GetCloudLayoutService();
-        params.PatternSource = layouts->Get( m_Material.LayoutPattern );
-        params.MaskSource    = layouts->Get( m_Material.LayoutMask );
+        auto*      layouts = Runtime::ResourceRegistry::GetCloudLayoutService();
+        const auto pattern = layouts->Require( m_Material.LayoutPattern );
+        const auto mask    = layouts->Require( m_Material.LayoutMask );
+
+        // PENDING IS NOT "NO PAINTING", AND HERE THE TWO ARE THE SAME POINTER.
+        //
+        // An empty slot and a painting still being read both produce a null `shared_ptr`, and the bake
+        // reads null as "place the clouds procedurally". For an empty slot that is correct and shipped.
+        // For a painting in flight it is the quiet degradation this tier exists to remove: the layer the
+        // artist painted would be placed procedurally, baked, and then silently re-baked a few frames
+        // later when the pixels arrived — two different skies for one scene, neither of them reported.
+        //
+        // So the WHOLE bake waits. It is the caller of this function that can refuse (EnsureModellingVolume
+        // returns false and the layer draws nothing this frame), which is why this const function records
+        // the fact rather than acting on it.
+        m_LayoutPending = pattern.IsPending() || mask.IsPending();
+
+        params.PatternSource = pattern.Share();
+        params.MaskSource    = mask.Share();
 
         // WHEN A PAINTING CANNOT BE HONOURED IT IS DROPPED, NOT THE SKY, AND NOT THE OTHER SLOT. The narrow
         // per-table validator is the one called here on purpose, twice — handed the whole one, a mistyped
@@ -326,6 +342,22 @@ namespace Desert::Graphic::System
             return false;
 
         const Assets::CloudProceduralFieldParams wanted = BuildProceduralParams( shapes, speciesCount );
+
+        // A PAINTING THIS LAYER NAMES IS STILL BEING READ. Baking now would bake the procedural placement
+        // and then have to throw it away — fourteen seconds of volume work on some tiers — and in between
+        // the frame would show a sky the artist did not paint. Refuse the frame instead; the host holds
+        // its loading overlay up for exactly this.
+        if ( m_LayoutPending )
+        {
+            if ( !m_LayoutWaiting )
+            {
+                m_LayoutWaiting = true;
+                LOG_INFO( "[Clouds] Waiting for this layer's painted layout; the read is on a worker and "
+                          "the placement bake does not run until it lands." );
+            }
+            return false;
+        }
+        m_LayoutWaiting = false;
 
         // WHERE THE REGION WANTS TO BE. The camera MINUS the accumulated wind, because the march asks the
         // volume about `position - wind`: the sky drifting downwind for an hour must not carry the region
@@ -1372,8 +1404,26 @@ namespace Desert::Graphic::System
 
         for ( const HeroCloudInstance& hero : m_HeroClouds )
         {
-            if ( !service->HasBody( hero.Data.Volume ) )
-                continue; // already logged by the service, with the handle in the message
+            const auto body = service->RequireBody( hero.Data.Volume );
+
+            // A BODY STILL BEING READ STOPS THE WHOLE ATLAS, not just its own slab. Building an atlas
+            // without it would upload up to twelve megabytes and then have to upload them again on the
+            // frame the body landed — and in between the scene would show some of its hero clouds and not
+            // others, which looks like a scene with missing content rather than a scene still loading.
+            if ( body.IsPending() )
+            {
+                if ( !m_HeroWaiting )
+                {
+                    m_HeroWaiting = true;
+                    LOG_INFO( "[Clouds] Waiting for hero cloud '{}' body {}; the read is on a worker and "
+                              "no hero cloud draws until the whole set has landed.",
+                              hero.Name, static_cast<uint64_t>( body.Handle() ) );
+                }
+                return;
+            }
+
+            if ( !body.IsValid() )
+                continue; // empty slot, or already logged by the service with the handle in the message
 
             if ( std::find( bodies.begin(), bodies.end(), hero.Data.Volume ) != bodies.end() )
                 continue;
@@ -1396,6 +1446,8 @@ namespace Desert::Graphic::System
 
             bodies.push_back( hero.Data.Volume );
         }
+
+        m_HeroWaiting = false;
 
         if ( bodies.empty() )
             return;

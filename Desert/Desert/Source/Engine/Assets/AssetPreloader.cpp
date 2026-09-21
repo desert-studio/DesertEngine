@@ -375,50 +375,50 @@ namespace Desert::Assets
 
     void AssetPreloader::PreloadCloudModellingVolumes()
     {
-        // Loaded eagerly like the noise volumes and for the same reason: 4 MiB of bytes with no parse to
-        // speak of, and the renderer needs the contents on the first frame a hero cloud asks for them.
+        // ANNOUNCED, NOT READ. The comment this replaces said the reads were free because there is "no
+        // parse to speak of"; measured, this stage cost **913.0 ms of a 5707.0 ms boot** for three
+        // sculpted bodies of 4 MiB each, and a scene with no hero cloud in it paid every millisecond.
+        // The service's own header already promised the right rule for the ATLAS — "a frame pays 4.00 MiB
+        // for each body an entity actually names, not for the library" — and the boot was the one place
+        // that rule did not hold.
         //
         // NO DEFAULT IS NOMINATED, unlike the noise volumes, and the absence is the decision: an empty
         // hero-cloud slot means the artist has not chosen a body, and the right answer is no cloud rather
-        // than a cloud they did not put there. Runtime::CloudModellingService::HasBody says the same thing.
+        // than a cloud they did not put there. `CloudModellingService::RequireBody` says the same thing by
+        // answering Null — never Pending — for an empty handle.
         ProcessAssetFiles<CloudModellingVolumeAsset>( Common::Constants::Path::CLOUD_VOLUME_PATH,
                                                       SUPPORTED_CLOUD_BODY_EXTENSIONS, m_AssetManager,
-                                                      AssetPriority::Medium );
+                                                      AssetPriority::Medium, /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
             auto* service = Runtime::ResourceRegistry::GetCloudModellingService();
             for ( const auto& [handle, bodyAsset] : manager->FindAllByType<Assets::CloudModellingVolumeAsset>() )
-            {
-                if ( const auto result = service->Register( bodyAsset ); !result )
-                    LOG_ERROR( "[Clouds] Modelling volume '{}' could not be registered: {}",
-                               bodyAsset->GetMetadata().Filepath.string(), result.GetError() );
-            }
+                service->Announce( bodyAsset );
         }
     }
 
     void AssetPreloader::PreloadCloudLayouts()
     {
-        // Loaded eagerly like the volumes beside it, and it is cheaper than any of them: 1.25 MiB at the
-        // shipped 512 square, with no parse beyond a CRC. The BAKE needs the pixels the first time a
-        // painted layer places a cloud, and the bake runs on the first frame.
+        // ANNOUNCED, NOT READ, and this stage is the clearest case in the project for why. Measured on
+        // this machine it cost **689.0 ms of a 5707.0 ms boot** to read ten paintings totalling 10.3 MiB
+        // — and EVERY SCENE IN THIS REPOSITORY LEAVES BOTH LAYOUT SLOTS EMPTY, so every one of those
+        // milliseconds was spent on pixels nothing points at. The comment this replaces called the stage
+        // "cheaper than any of them", which was true per file and beside the point.
         //
         // NO DEFAULT IS NOMINATED, and here the absence is the shipped state rather than an edge case: an
         // empty slot means the sky places its clouds procedurally, which is what every scene in this
-        // repository does and what the phase's acceptance criterion requires stay byte-identical.
+        // repository does and what the phase's acceptance criterion requires stay byte-identical. That is
+        // also why an empty handle resolves to Null and never to Pending — there is nothing to wait for.
         ProcessAssetFiles<CloudLayoutAsset>( Common::Constants::Path::CLOUD_LAYOUT_PATH,
                                              SUPPORTED_CLOUD_LAYOUT_EXTENSIONS, m_AssetManager,
-                                             AssetPriority::Medium );
+                                             AssetPriority::Medium, /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
             auto* service = Runtime::ResourceRegistry::GetCloudLayoutService();
             for ( const auto& [handle, layoutAsset] : manager->FindAllByType<Assets::CloudLayoutAsset>() )
-            {
-                if ( const auto result = service->Register( layoutAsset ); !result )
-                    LOG_ERROR( "[Clouds] Cloud layout '{}' could not be registered: {}",
-                               layoutAsset->GetMetadata().Filepath.string(), result.GetError() );
-            }
+                service->Announce( layoutAsset );
         }
     }
 

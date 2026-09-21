@@ -1,10 +1,13 @@
 #pragma once
 
+#include <Engine/Assets/AssetRef.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Graphic/Image.hpp>
 
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Runtime
@@ -53,13 +56,38 @@ namespace Desert::Runtime
     class CloudModellingService
     {
     public:
-        /// Keeps @p asset so its voxels can be laid into an atlas. The bytes are NOT copied: the asset
-        /// holds 4 MiB of them already and a second copy would be a second thing to keep in step.
+        /// THE PROJECT HAS THIS BODY. Records the handle and the (unread) asset; opens no file.
+        ///
+        /// Reading every `.dcmv` at boot cost a measured **913.0 ms of a 5707.0 ms boot** on this machine
+        /// for three sculpted bodies of 4 MiB each, and a scene with no hero cloud in it paid all of it.
+        /// The header's own promise above — *"a frame pays 4.00 MiB for each body an entity actually
+        /// names, not for the library"* — was true of the ATLAS and false of the boot; it is true of both
+        /// now.
+        void Announce( const Assets::Asset<Assets::CloudModellingVolumeAsset>& asset );
+
+        /// Keeps @p asset so its voxels can be laid into an atlas, from bytes already in hand. The bytes
+        /// are NOT copied: the asset holds 4 MiB of them already and a second copy would be a second
+        /// thing to keep in step.
         Common::BoolResultStr Register( const std::shared_ptr<Assets::CloudModellingVolumeAsset>& asset );
 
-        /// Whether a body is loaded for @p handle. An empty slot is silence; a handle nobody registered is
-        /// logged, because the artist chose a body and it is not there.
-        bool HasBody( const Assets::AssetHandle& handle );
+        /**
+         * @brief THE THREE-STATE ANSWER, and the only thing that starts a read.
+         *
+         * - **Null** — an EMPTY slot (silence: there is no built-in hero cloud and there must not be one),
+         *   or a handle the scan never found, or one whose read failed. Logged once per handle for the
+         *   latter two; `HasBody`, which this replaces, logged once per FRAME.
+         * - **Pending** — the body is being read. The caller must not build an atlas without it: the
+         *   atlas would then be rebuilt — twelve megabytes of upload — on the frame it arrived.
+         * - **Ready** — the voxels are here and `GetSizeKm` can answer.
+         */
+        Assets::AssetRef<Assets::CloudModellingVolumeAsset> RequireBody( const Assets::AssetHandle& handle );
+
+        /// The answer as it stands: never reads, never requests, never logs.
+        [[nodiscard]] Assets::AssetRef<Assets::CloudModellingVolumeAsset>
+        Peek( const Assets::AssetHandle& handle ) const;
+
+        /// How many announced bodies have actually been read.
+        [[nodiscard]] size_t ResidentCount() const;
 
         /// The authored SIZE of that volume in kilometres, which the renderer needs to build the
         /// instance's transform and its bounds. Returned beside the image rather than looked up from the
@@ -94,10 +122,26 @@ namespace Desert::Runtime
     private:
         struct Entry
         {
+            /// Announced, possibly unread. The source of the request: a handle cannot be read.
             std::shared_ptr<Assets::CloudModellingVolumeAsset> Asset;
-            glm::vec3                                          SizeKm{ 0.0f };
-            uint32_t                                           Revision = 0;
+            /// FILLED BY `Register`, NOT BY `Announce`, because the authored size is inside the file. An
+            /// announced-but-unread body therefore reports zero — which is why nothing may ask for it
+            /// before `RequireBody` says Ready.
+            glm::vec3           SizeKm{ 0.0f };
+            uint32_t            Revision = 0;
+            bool                Loaded   = false;
+            Assets::LoadRequest Request;
+            bool                Failed = false;
         };
+
+        Assets::AssetRef<Assets::CloudModellingVolumeAsset> Resolve( const Assets::AssetHandle& handle,
+                                                                     bool mayRequest );
+        void BeginRead( const Assets::AssetHandle& handle, Entry& entry );
+
+        /// Handles already named in a "referenced but not announced" error. `HasBody` had no such set and
+        /// logged its error EVERY FRAME for a scene with a stale reference; with a pending state in the
+        /// mix that would have become a log nobody can read at all.
+        std::unordered_set<Assets::AssetHandle> m_Reported;
 
         std::unordered_map<Assets::AssetHandle, Entry> m_Volumes;
 

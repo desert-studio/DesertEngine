@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/AssetRef.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 
 #include <memory>
@@ -30,8 +32,16 @@ namespace Desert::Runtime
     class CloudLayoutService
     {
     public:
-        /// Caches @p asset under its handle. Called again for the same asset after a hot reload; a changed
-        /// content hash replaces the entry, an unchanged one is a no-op.
+        /// THE PROJECT HAS THIS PAINTING. Records the handle and the (unread) asset; opens no file.
+        ///
+        /// This is what `AssetPreloader::PreloadCloudLayouts` does now. Reading every `.dclayout` at boot
+        /// cost a measured **689.0 ms of a 5707.0 ms boot** on this machine for ten files totalling
+        /// 10.3 MiB, and every scene in this repository leaves both layout slots EMPTY — so all of it was
+        /// spent on paintings nothing in the project points at.
+        void Announce( const Assets::Asset<Assets::CloudLayoutAsset>& asset );
+
+        /// Caches @p asset under its handle, from bytes already in hand. Called again for the same asset
+        /// after a hot reload; a changed content hash replaces the entry, an unchanged one is a no-op.
         Common::BoolResultStr Register( const std::shared_ptr<Assets::CloudLayoutAsset>& asset );
 
         /**
@@ -50,16 +60,52 @@ namespace Desert::Runtime
          * unloaded — and the failure would be a read of freed pixels inside a bake, which is the least
          * diagnosable crash this subsystem could have.
          */
-        std::shared_ptr<const Assets::CloudLayoutData> Get( const Assets::AssetHandle& handle );
+        /**
+         * @brief THE THREE-STATE ANSWER, and the only thing that starts a read.
+         *
+         * - **Null** — no painting. An EMPTY handle is Null, and that is the shipped state of every scene
+         *   in this repository: the bake reads it as "there is no painting" and places the sky exactly as
+         *   it did before these fields existed. A handle naming a layout the scan never found is also
+         *   Null, and is logged once.
+         * - **Pending** — the painting exists and is being read. The bake MUST NOT run: falling through
+         *   to "no painting" here would place the clouds procedurally for a layer the artist painted, and
+         *   then silently correct itself a few frames later. That is the quiet degradation this whole
+         *   change is about, and it is why the two states cannot share a null pointer.
+         * - **Ready** — the pixels are here.
+         *
+         * SHARED AND NOT BORROWED, through the aliasing constructor, exactly as the pointer this replaces
+         * was: the payload owns a share of the ASSET and addresses its layout member. The bake's
+         * parameters are cached across frames, so a borrowed pointer would outlive an unloaded asset and
+         * the failure would be a read of freed pixels inside a bake.
+         */
+        Assets::AssetRef<const Assets::CloudLayoutData> Require( const Assets::AssetHandle& handle );
+
+        /// The answer as it stands: never reads, never requests, never logs.
+        [[nodiscard]] Assets::AssetRef<const Assets::CloudLayoutData>
+        Peek( const Assets::AssetHandle& handle ) const;
+
+        /// How many announced layouts have actually been read. Used to be the number of `.dclayout` files
+        /// on disk by construction; now it is the number something asked for.
+        [[nodiscard]] size_t ResidentCount() const;
 
         void Clear();
 
     private:
         struct Entry
         {
+            /// Announced, possibly unread. The source of the request: a handle cannot be read.
             std::shared_ptr<Assets::CloudLayoutAsset> Asset;
             uint32_t                                  ContentHash = 0;
+            /// Live while a worker is reading. See CloudNoiseService for why it is cancelled rather than
+            /// dropped in `Clear()`.
+            Assets::LoadRequest Request;
+            /// Read and failed. Latched: a retry per frame on a corrupt file is a frame-rate defect.
+            bool Failed = false;
         };
+
+        Assets::AssetRef<const Assets::CloudLayoutData> Resolve( const Assets::AssetHandle& handle,
+                                                                 bool mayRequest );
+        void BeginRead( const Assets::AssetHandle& handle, Entry& entry );
 
         std::unordered_map<Assets::AssetHandle, Entry> m_Layouts;
         // Handles already complained about. A missing layout is a permanent state of the scene, so without
