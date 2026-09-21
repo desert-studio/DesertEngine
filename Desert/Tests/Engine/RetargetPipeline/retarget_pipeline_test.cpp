@@ -968,8 +968,8 @@ TEST( RetargetPipeline, ASourcePoseOfTheWrongSizeIsRefused )
     ASSERT_TRUE( retargeter.Initialize( source, target, SetupFor( kRoot, kRoot ) ).IsSuccess() );
 
     const LocalPose tooShort( 2 );
-    LocalPose  out;
-    const auto ran = retargeter.Retarget( source, target, tooShort, out );
+    LocalPose       out;
+    const auto      ran = retargeter.Retarget( source, target, tooShort, out );
     ASSERT_FALSE( ran.IsSuccess() );
     std::cout << "[ REFUSED ] " << ran.GetError() << "\n";
 }

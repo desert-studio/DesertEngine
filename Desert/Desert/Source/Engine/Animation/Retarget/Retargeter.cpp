@@ -42,7 +42,7 @@ namespace Desert::Animation::Retarget
         }
 
         Common::BoolResultStr RefuseAForeignRig( const Skeleton& rig, uint64_t signature, size_t boneCount,
-                                                    const char* which )
+                                                 const char* which )
         {
             // THE CACHE IS A PILE OF BONE INDICES RESOLVED AGAINST ONE PARTICULAR RIG. Handed a different
             // one, every index means a different bone and the result is a pose, not an error -- which is the
