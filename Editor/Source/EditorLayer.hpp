@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/ContentGate.hpp>
+
 #include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
@@ -630,12 +632,19 @@ namespace Desert::Editor
         // for the staged boot stays up until the content the scene asked for has settled, and the cost
         // stays in the loading screen where it was.
         //
-        // SETTLED MEANS: nothing is outstanding AND nothing new was started during the frame just
-        // rendered. The second half is what makes it correct for a CHAIN -- a volume that arrives can be
-        // the reason the next thing is requested -- and it is why this is not simply `Outstanding() == 0`.
+        // THE RULE ITSELF IS NOT HERE ANY MORE. It was three fields and two methods in this class, and
+        // the shipping runtime held a hand-copied half of it -- a marker that logged the same condition
+        // and had no state, so the frames it described were presented anyway. One implementation, both
+        // hosts, and the two conditions can be tested without a device: Engine/Assets/ContentGate.hpp.
+        //
+        // `Ready` at construction is correct FOR THIS HOST only: the editor opens on an empty scene
+        // behind its own staged-boot overlay, and the first scene load calls BeginWorld. The runtime
+        // constructs its gate `Loading`.
+        Assets::ContentGate m_Content{ Assets::ContentState::Ready };
+
         bool ContentSettling() const
         {
-            return m_ContentSettleState != ContentSettleState::Settled;
+            return m_Content.Loading();
         }
 
         /// A scene has just loaded; whatever it asks for has not been asked for yet. Starts the wait.
@@ -643,22 +652,6 @@ namespace Desert::Editor
         /// One tick of the wait: decides whether the frame just rendered closed the chain.
         void UpdateContentSettling();
 
-        enum class ContentSettleState : uint8_t
-        {
-            Settled = 0, ///< nothing outstanding and nothing asked for during the last frame
-            Waiting,     ///< a scene has loaded and its content is still arriving
-        };
-        ContentSettleState m_ContentSettleState = ContentSettleState::Settled;
-        /// `AsyncAssetLoader::StartedCount()` as it stood at the start of the frame just rendered. A
-        /// change across a frame means that frame asked for something, so the chain has not closed.
-        uint64_t m_ContentStartedAtFrameBegin = 0;
-        /// Frames rendered since the scene loaded. One frame is not enough to conclude anything: the
-        /// first one is where the renderer ASKS, so `Outstanding() == 0` before it has run says only that
-        /// nobody has looked yet.
-        uint32_t m_ContentSettleFrames = 0;
-        /// When the wait began, so the log can say what it cost -- the number that replaces the boot
-        /// stage this change deleted.
-        std::chrono::steady_clock::time_point m_ContentWaitBegan{};
         // Screenshot mode counters (see Editor/Core/ShotOptions.hpp).
         int  m_ShotFrame        = 0;
         bool m_ShotCameraPlaced = false;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/ContentGate.hpp>
 #include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
@@ -18,6 +19,7 @@ namespace Desert::Graphic
 } // namespace Desert::Graphic
 namespace Desert::Graphic::Render2D
 {
+    class DrawList2D;
     class Render2D;
     class UIRenderTextureCache;
 }
@@ -43,6 +45,8 @@ namespace Desert::Player
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
         [[nodiscard]] Common::BoolResultStr OnImGuiRender() override;
         void                                OnEvent( Common::Event& event ) override;
+        /// The frame is out. The half of the unattended capture that COLLECTS — see RuntimeShot.hpp.
+        void OnFramePresented() override;
 
     private:
         // Tear down the current scene and deserialize `path` in its place (systems survive Clear()). Runs
@@ -109,18 +113,42 @@ namespace Desert::Player
         // A UI button clicked this frame with an "scene:<path>" OnClickMessage — applied next OnUpdate.
         std::optional<std::string> m_PendingSceneLoad;
 
-        // One-shot "startup is over" log marker (see OnUpdate) — the boundary startup timings end at.
-        bool m_LoggedFirstUpdate = false;
+        // ===== THE STATE A SHIPPING GAME NEEDS AND DID NOT HAVE =====
+        //
+        // Demand-driven loading moved the read of the world's content out of the boot and into the first
+        // frame that asks for it. The editor covers those frames with the loading overlay it already had;
+        // this host had nothing, so the first frames of a packaged game could present a world whose sky
+        // had not landed — and a volumetric cloud with no volume falls back to a PROCEDURAL sky, which
+        // is a picture, not an error. Nothing would have been logged and nothing would have looked
+        // broken. That is the worst shape a deficit can take, and it is the one a player gets.
+        //
+        // Constructed `Loading` on purpose: this process exists in order to read a world, and a gate
+        // that defaulted to `Ready` would present exactly the frames it was added to cover. The rule
+        // that closes it lives in one place for both hosts — Engine/Assets/ContentGate.hpp.
+        Assets::ContentGate m_Content{ Assets::ContentState::Loading };
+
+        /// How many frames the loading screen has been PRESENTED. Drives the activity strip (a still
+        /// loading screen is indistinguishable from a hung game) and is what the settle log reports.
+        uint32_t m_LoadingFramesPresented = 0;
+
+        /// Drawn while `m_Content.Loading()` — an opaque cover, the scene's splash sprite if it names
+        /// one, and a moving strip. Returns nothing: it cannot fail, and a world with no splash is a
+        /// legitimate game, so an empty cover is the correct answer rather than a refusal.
+        void DrawLoadingScreen( Graphic::Render2D::DrawList2D& dl, float w, float h );
+
+        /// Everything that must happen exactly once, on the tick the gate opens: the game starts.
+        void OnContentReady();
+
+        // ===== Unattended capture of the PRESENTED frame (--shot / --shot-frames) =====
+        // The copy is recorded into this frame's command buffer at the tail of OnImGuiRender and
+        // collected in OnFramePresented. Counted in frames this host has PRESENTED, from 1.
+        uint32_t m_PresentedFrames = 0;
+        bool     m_ShotRecorded    = false;
+        /// Recorded into the command buffer if this frame is the one asked for. Nothing otherwise.
+        void RecordShotIfDue();
 
         // Splash screen (SceneSettings.Splash*): a full-screen image shown when a scene loads, fading in/out.
         // Armed by TriggerSplash() on load; m_SplashTimer counts down each frame.
-        // ===== Demand-driven content settling (see OnUpdate) =====
-        // `AsyncAssetLoader::StartedCount()` as it stood at the start of the frame just rendered, and
-        // how many frames the wait has taken. Same two-condition rule as the editor's, and the same
-        // reason: an empty queue in the middle of a chain is not a settled one.
-        uint64_t m_ContentStartedAtFrameBegin = 0;
-        uint32_t m_ContentSettleFrames        = 0;
-
         Assets::AssetHandle m_SplashSprite;
         float               m_SplashTimer    = 0.0f;
         float               m_SplashDuration = 0.0f;
