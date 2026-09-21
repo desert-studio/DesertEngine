@@ -46,6 +46,11 @@
 #include <sstream>
 #include <string>
 
+#include <optional>
+#include <vector>
+#include <cstdio>
+
+#include <Common/Core/Core.hpp>
 namespace
 {
     constexpr const char* kCorpusDir = "Editor/Cooked/Meshes/";
@@ -66,6 +71,69 @@ namespace
             prefix += "../";
         }
         return {};
+    }
+
+    // THE CORPUS IS WHAT GIT TRACKS, AND ASKING THE DISK WAS WRONG THREE TIMES.
+    //
+    // This walk began as "every `.anim` under the root" and then grew an exclusion per incident:
+    // `/build/` (copies of the sources), then `/.claude/` (other branches' worktrees, each pinned to
+    // whatever commit that agent branched from). The third incident is the one that ends the pattern:
+    // `Editor/Cooked/Meshes/TwoJointProbe._ArmSwing.anim` is ignored, untracked, and WRITTEN AT RUN TIME
+    // BY ANOTHER SUITE. No exclusion list can be complete against a file that does not exist until a
+    // sibling test creates it, and the verdict would depend on whether that sibling had run yet — on CI
+    // it had not, so this was red on a developer machine and green in the pipeline.
+    //
+    // So the question is asked of the repository instead of the filesystem. `git ls-files` answers
+    // exactly "what a clean clone carries", which is what the sentence "every clip in the repository"
+    // meant all along.
+    //
+    // std::nullopt means THE QUESTION COULD NOT BE ASKED — git missing, or not a checkout — and the
+    // caller fails on it rather than reading it as "no clips are tracked". An empty successful answer is
+    // the shape this whole class of defect hides behind.
+    std::optional<std::vector<std::string>> TrackedClips()
+    {
+        const std::string command = "git -C \"" + RepoRoot() + ".\" ls-files -z -- \"*.anim\" 2>" +
+#if defined( DESERT_PLATFORM_WINDOWS )
+                                    std::string( "nul" );
+#else
+                                    std::string( "/dev/null" );
+#endif
+
+#if defined( DESERT_PLATFORM_WINDOWS )
+        FILE* pipe = _popen( command.c_str(), "r" );
+#else
+        FILE* pipe = popen( command.c_str(), "r" );
+#endif
+        if ( pipe == nullptr )
+            return std::nullopt;
+
+        std::string output;
+        char        buffer[4096];
+        std::size_t read = 0;
+        while ( ( read = std::fread( buffer, 1, sizeof( buffer ), pipe ) ) > 0 )
+            output.append( buffer, read );
+
+#if defined( DESERT_PLATFORM_WINDOWS )
+        if ( _pclose( pipe ) != 0 )
+#else
+        if ( pclose( pipe ) != 0 )
+#endif
+            return std::nullopt;
+
+        std::vector<std::string> clips;
+        std::string              current;
+        for ( const char c : output )
+        {
+            if ( c == '\0' )
+            {
+                if ( !current.empty() )
+                    clips.push_back( RepoRoot() + current );
+                current.clear();
+                continue;
+            }
+            current += c;
+        }
+        return clips;
     }
 
     std::string ReadFile( const std::string& path )
@@ -270,48 +338,29 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsAtTheCurrentGeneration )
 {
     ASSERT_FALSE( RepoRoot().empty() );
 
-    std::size_t seen = 0;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( RepoRoot() ) )
-    {
-        if ( !entry.is_regular_file() || entry.path().extension() != ".anim" )
-        {
-            continue;
-        }
-        // Build outputs are copies of the sources above and are not part of the corpus.
-        if ( entry.path().generic_string().find( "/build/" ) != std::string::npos )
-        {
-            continue;
-        }
-        // NEITHER ARE OTHER BRANCHES' CHECKOUTS, and leaving them in made this census answer a
-        // different question than the one it asks. `.claude/worktrees/` holds a full working tree per
-        // agent, each pinned to whatever commit that agent branched from — so the walk read `.anim`
-        // files belonging to branches this test does not describe, and failed on the ones that predate
-        // the generation field. Measured 2026-09-15 on the merge of А5: the six real corpus files were
-        // all at generation 1, and the suite went red anyway on copies inside two parked worktrees.
-        //
-        // The verdict would then depend on which branches happen to be checked out beside this one,
-        // which is not a property of the repository at all: remove those worktrees and it passes
-        // without anything being fixed. The existing `/build/` line already conceded that not every
-        // `.anim` under the root belongs to the corpus; the list of exclusions was simply short by one.
-        if ( entry.path().generic_string().find( "/.claude/" ) != std::string::npos )
-        {
-            continue;
-        }
+    const auto clips = TrackedClips();
+    ASSERT_TRUE( clips.has_value() )
+         << "THE CENSUS COULD NOT RUN, which is a different answer from 'every clip is current'. "
+            "`git ls-files` failed or "
+         << RepoRoot() << " is not a checkout.";
 
+    std::size_t seen = 0;
+    for ( const std::string& path : *clips )
+    {
         ++seen;
         const auto data =
              rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>(
-                  ReadFile( entry.path().string() ) );
-        ASSERT_TRUE( data.has_value() ) << entry.path().string() << " does not parse as a `.anim` at all";
+                  ReadFile( path ) );
+        ASSERT_TRUE( data.has_value() ) << path << " does not parse as a `.anim` at all";
         EXPECT_EQ( data.value().Version, Desert::Assets::Serialization::kAnimationVersion )
-             << entry.path().string() << " is at `.anim` generation " << data.value().Version
-             << " and this build reads " << Desert::Assets::Serialization::kAnimationVersion
+             << path << " is at `.anim` generation " << data.value().Version << " and this build reads "
+             << Desert::Assets::Serialization::kAnimationVersion
              << ". Run Tools/SceneMigrator over it: the loader refuses it, so whatever plays it stands "
                 "still.";
     }
 
     // A sweep that found nothing is not a clean sweep — it is a sweep that ran somewhere else.
-    EXPECT_GE( seen, 6u ) << "only " << seen << " `.anim` file(s) were found from " << RepoRoot()
+    EXPECT_GE( seen, 6u ) << "only " << seen << " tracked `.anim` file(s) were found from " << RepoRoot()
                           << "; this census is measuring the wrong tree.";
 }
 
@@ -329,22 +378,18 @@ TEST( AnimationClipCorpus, EveryKeyInEveryClipSTATESItsShapeRatherThanInheriting
 {
     ASSERT_FALSE( RepoRoot().empty() );
 
+    const auto trackedClips = TrackedClips();
+    ASSERT_TRUE( trackedClips.has_value() )
+         << "THE CENSUS COULD NOT RUN, which is a different answer from 'every key states its shape'. "
+            "`git ls-files` failed or this is not a checkout.";
+
     std::size_t clips = 0;
     std::size_t keys  = 0;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( RepoRoot() ) )
+    for ( const std::string& clipPath : *trackedClips )
     {
-        if ( !entry.is_regular_file() || entry.path().extension() != ".anim" )
-        {
-            continue;
-        }
-        if ( entry.path().generic_string().find( "/build/" ) != std::string::npos )
-        {
-            continue;
-        }
-
         ++clips;
-        const std::string text = ReadFile( entry.path().string() );
-        ASSERT_FALSE( text.empty() ) << entry.path().string();
+        const std::string text = ReadFile( clipPath );
+        ASSERT_FALSE( text.empty() ) << clipPath;
 
         // Every key object in the file must carry a "Shape". Counted rather than searched for once,
         // because one key stating its shape while the other 266 stay silent is exactly the state this
@@ -362,7 +407,7 @@ TEST( AnimationClipCorpus, EveryKeyInEveryClipSTATESItsShapeRatherThanInheriting
             ++ticks;
         }
 
-        EXPECT_EQ( shapes, ticks ) << entry.path().string() << " has " << ticks << " key(s) and " << shapes
+        EXPECT_EQ( shapes, ticks ) << clipPath << " has " << ticks << " key(s) and " << shapes
                                    << " stated shape(s). A key whose shape is missing from the file gets "
                                       "one invented by DefaultIfMissing, and an invented default cannot "
                                       "afterwards be told from an authored one.";
@@ -386,35 +431,32 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositorySTATESTheSectionItsValuesAreR
     // a behavioural test: the failure is invisible in every frame and only visible in the file.
     ASSERT_FALSE( RepoRoot().empty() );
 
+    const auto trackedClips = TrackedClips();
+    ASSERT_TRUE( trackedClips.has_value() )
+         << "THE CENSUS COULD NOT RUN, which is a different answer from 'every clip states its section'. "
+            "`git ls-files` failed or this is not a checkout.";
+
     std::size_t clips = 0;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( RepoRoot() ) )
+    for ( const std::string& clipPath : *trackedClips )
     {
-        if ( !entry.is_regular_file() || entry.path().extension() != ".anim" )
-        {
-            continue;
-        }
-        if ( entry.path().generic_string().find( "/build/" ) != std::string::npos )
-        {
-            continue;
-        }
         ++clips;
 
-        const std::string raw = ReadFile( entry.path().string() );
-        ASSERT_FALSE( raw.empty() ) << entry.path().string();
+        const std::string raw = ReadFile( clipPath );
+        ASSERT_FALSE( raw.empty() ) << clipPath;
         const auto parsed =
              rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( raw );
-        ASSERT_TRUE( parsed.has_value() ) << entry.path().string();
+        ASSERT_TRUE( parsed.has_value() ) << clipPath;
         const auto& data = parsed.value();
 
         ASSERT_FALSE( data.Sections.empty() )
-             << entry.path().string()
+             << clipPath
              << " states no section. It would play correctly and say nothing about why — which is the "
                 "state this step exists to end.";
-        EXPECT_EQ( data.Sections[0].StartTick, 0 ) << entry.path().string();
+        EXPECT_EQ( data.Sections[0].StartTick, 0 ) << clipPath;
         EXPECT_EQ( data.Sections[0].EndTick, data.DurationTicks )
-             << entry.path().string() << " has a section that does not reach its own stated length";
+             << clipPath << " has a section that does not reach its own stated length";
         EXPECT_EQ( data.Sections[0].Blend, 0 )
-             << entry.path().string()
+             << clipPath
              << " migrated to something other than Absolute. A migration states the behaviour a file "
                 "already had; it does not choose a new one.";
     }

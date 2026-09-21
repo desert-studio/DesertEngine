@@ -183,7 +183,7 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
     const glm::mat4 unsectioned = anim.GetPose().Matrices[1];
 
     // The same clip, muted by a section. Nothing else about it changes.
-    AnimationClip     muted   = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
+    AnimationClip                  muted = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
     Desert::Animation::ClipSection off;
     off.Name  = "muted";
     off.Start = FrameNumber{ 0 };
@@ -211,7 +211,7 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
 
     // NEGATIVE CONTROL: a FULL-weight Absolute section must leave the same matrices the unsectioned clip
     // produced, because that is what every migrated file in the repository now carries.
-    AnimationClip     full = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
+    AnimationClip                  full = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
     Desert::Animation::ClipSection whole;
     whole.Name  = "whole";
     whole.Start = FrameNumber{ 0 };

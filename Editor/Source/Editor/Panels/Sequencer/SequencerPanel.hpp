@@ -194,7 +194,7 @@ namespace Desert::Editor
         // so building it in one place is what stops the "Key" button and Record mode from disagreeing
         // about which clip, which tick and which pose buffer a key is written from — which is exactly how
         // the two "add a key at the playhead" paths came to mean different things (§936).
-        [[nodiscard]] Animation::ControlKeyTarget KeyTargetFor( Animation::AnimationClip* clip,
+        [[nodiscard]] Animation::ControlKeyTarget KeyTargetFor( Animation::AnimationClip*  clip,
                                                                 const Animation::Animator& animator ) const;
 
         // THE SAME KEYS, DRAWN AS CURVES (T4.3). Replaces the lane area rather than sitting beside it: a

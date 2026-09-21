@@ -22,9 +22,9 @@ namespace Desert::Animation
         // find the pair, a float only for the fraction inside one interval. A weight channel that
         // interpolated differently from the channels it scales would make a fade look like a defect in
         // the curve underneath it.
-        const auto it = std::lower_bound( Weight.begin(), Weight.end(), at.Frame,
-                                          []( const ScalarKey& key, FrameNumber tick )
-                                          { return key.Tick < tick; } );
+        const auto it =
+             std::lower_bound( Weight.begin(), Weight.end(), at.Frame,
+                               []( const ScalarKey& key, FrameNumber tick ) { return key.Tick < tick; } );
         if ( it == Weight.begin() )
         {
             return Weight.front().Value;
@@ -44,8 +44,8 @@ namespace Desert::Animation
         const auto   factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
         const double spanSeconds =
              span * static_cast<double>( tickRate.Denominator ) / static_cast<double>( tickRate.Numerator );
-        return EvaluateSegment( prev->Value, prev->LeaveTangent, next->Value, next->ArriveTangent,
-                                next->Interp, spanSeconds, factor );
+        return EvaluateSegment( prev->Value, prev->LeaveTangent, next->Value, next->ArriveTangent, next->Interp,
+                                spanSeconds, factor );
     }
 
     BoneTransform ApplySection( const ClipSection& section, const BoneTransform& authored,
@@ -85,8 +85,8 @@ namespace Desert::Animation
         // authored quaternion scaled, which is not a rotation. Composed on the LEFT of the reference for
         // the same reason an additive layer is: the offset is expressed in the reference's own space.
         const glm::quat identity( 1.0F, 0.0F, 0.0F, 0.0F );
-        const glm::quat partial = ( weight >= 1.0F ) ? authored.Rotation
-                                                     : glm::slerp( identity, authored.Rotation, weight );
+        const glm::quat partial =
+             ( weight >= 1.0F ) ? authored.Rotation : glm::slerp( identity, authored.Rotation, weight );
         out.Rotation = reference.Rotation * partial;
         // Scale is MULTIPLICATIVE, so its identity is 1 and a partial offset walks from 1 towards the
         // authored factor. Adding it instead would make an unweighted additive scale of 1 double the bone.

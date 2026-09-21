@@ -45,9 +45,9 @@ namespace Desert::Assets::Serialization
         };
         struct LegacyKeyPosition
         {
-            std::optional<float>     Time;
-            std::optional<int32_t>   Tick;
-            glm::vec3                Value = glm::vec3( 0.0f );
+            std::optional<float>          Time;
+            std::optional<int32_t>        Tick;
+            glm::vec3                     Value = glm::vec3( 0.0f );
             std::optional<LegacyKeyShape> Shape;
             std::optional<glm::vec3>      ArriveTangent;
             std::optional<glm::vec3>      LeaveTangent;

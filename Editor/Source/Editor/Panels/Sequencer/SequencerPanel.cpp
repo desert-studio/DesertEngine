@@ -239,9 +239,9 @@ namespace Desert::Editor
         target.Skeleton     = &animator.GetSkeleton();
         target.Clip         = clip;
         target.AuthoredPose = &animator.GetAuthoringPose();
-        target.Tick         = Animation::SnapToDisplayRate( animator.GetCurrentTick(),
-                                                            clip != nullptr ? clip->TickRate : Animation::PROJECT_TICK_RATE,
-                                                            clip != nullptr ? clip->DisplayRate : Animation::DEFAULT_DISPLAY_RATE );
+        target.Tick         = Animation::SnapToDisplayRate(
+             animator.GetCurrentTick(), clip != nullptr ? clip->TickRate : Animation::PROJECT_TICK_RATE,
+             clip != nullptr ? clip->DisplayRate : Animation::DEFAULT_DISPLAY_RATE );
         return target;
     }
 
@@ -613,9 +613,9 @@ namespace Desert::Editor
 
             if ( ImGui::Button( ICON_MDI_KEY_PLUS " Key Bone @ Playhead" ) && canKey )
             {
-                anim.Playing        = false;
-                const auto keyed    = m_Keyer.WriteBone( KeyTargetFor( editClip, *animator ),
-                                                         static_cast<uint32_t>( selBone ) );
+                anim.Playing = false;
+                const auto keyed =
+                     m_Keyer.WriteBone( KeyTargetFor( editClip, *animator ), static_cast<uint32_t>( selBone ) );
                 if ( !keyed.IsSuccess() )
                 {
                     // A BUTTON THAT REFUSED SILENTLY IS THE DEFECT CLASS §1.4 NAMES. Unlike the authoring
@@ -652,12 +652,11 @@ namespace Desert::Editor
                     moved = ( cur != m_RecordLast );
                 }
 
-                const bool held = Core::GizmoState::PoseInteraction();
-                const auto observed =
-                     m_Keyer.Observe( KeyTargetFor( editClip, *animator ),
-                                      Animation::KeySubject{ Animation::KeySubjectKind::Bone,
-                                                             static_cast<uint32_t>( selBone ) },
-                                      held, moved );
+                const bool held     = Core::GizmoState::PoseInteraction();
+                const auto observed = m_Keyer.Observe(
+                     KeyTargetFor( editClip, *animator ),
+                     Animation::KeySubject{ Animation::KeySubjectKind::Bone, static_cast<uint32_t>( selBone ) },
+                     held, moved );
                 if ( !observed.IsSuccess() )
                 {
                     LOG_ERROR( "[Sequencer] auto-key refused: {}", observed.GetError() );

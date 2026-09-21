@@ -69,17 +69,17 @@ namespace
         p0.Position = glm::vec3( 0.0F, 0.0F, 0.0F );
         p0.Interp   = KeyInterp::Linear;
         PositionKeyFrame p1;
-        p1.Tick     = FrameNumber{ kDuration };
-        p1.Position = glm::vec3( 100.0F, 0.0F, 0.0F ); // one metre, in this engine's centimetres
-        p1.Interp   = KeyInterp::Linear;
+        p1.Tick            = FrameNumber{ kDuration };
+        p1.Position        = glm::vec3( 100.0F, 0.0F, 0.0F ); // one metre, in this engine's centimetres
+        p1.Interp          = KeyInterp::Linear;
         track.PositionKeys = { p0, p1 };
 
         RotationKeyFrame r0;
         r0.Tick     = FrameNumber{ 0 };
         r0.Rotation = glm::quat( 1.0F, 0.0F, 0.0F, 0.0F );
         RotationKeyFrame r1;
-        r1.Tick     = FrameNumber{ kDuration };
-        r1.Rotation = glm::angleAxis( glm::radians( 90.0F ), glm::vec3( 0.0F, 0.0F, 1.0F ) );
+        r1.Tick            = FrameNumber{ kDuration };
+        r1.Rotation        = glm::angleAxis( glm::radians( 90.0F ), glm::vec3( 0.0F, 0.0F, 1.0F ) );
         track.RotationKeys = { r0, r1 };
 
         ScaleKeyFrame s0;
@@ -162,7 +162,7 @@ TEST( ClipSections, AFullWeightAbsoluteSectionIsExactWHERETHEARITHMETICWOULDNOTB
     //
     // A corpus clip whose bone sits far from the origin and whose curve is small is EXACTLY this case, so
     // the branch is load bearing and this is the scenario that proves it.
-    BoneTrack        tiny;
+    BoneTrack tiny;
     tiny.BoneName = "arm";
     PositionKeyFrame p;
     p.Tick     = FrameNumber{ 0 };
@@ -196,14 +196,14 @@ TEST( ClipSections, ATrackNoSectionSpeaksForPlaysAsAuthored )
     // A section list is a statement about SOME tracks. One that names others must leave this one alone,
     // and "alone" is the curve — not the rest pose, which is what a sampler defaulting to weight 0 would
     // return and which would look like a bone that simply stopped animating.
-    AnimationClip clip    = ClipWith( MovingTrack( "arm" ) );
+    AnimationClip clip      = ClipWith( MovingTrack( "arm" ) );
     ClipSection   elsewhere = WholeClip( SectionBlendType::Additive );
-    elsewhere.Tracks       = { "leg" };
+    elsewhere.Tracks        = { "leg" };
     clip.Sections.push_back( elsewhere );
 
     const FrameTime at{ FrameNumber{ kDuration }, 0.0F };
-    ExpectExactlyEqual( clip.SampleTrack( clip.Tracks[0], at, Rest() ),
-                        clip.Tracks[0].Sample( at, clip.TickRate ), "a track nobody claimed is its curve" );
+    ExpectExactlyEqual( clip.SampleTrack( clip.Tracks[0], at, Rest() ), clip.Tracks[0].Sample( at, clip.TickRate ),
+                        "a track nobody claimed is its curve" );
     EXPECT_EQ( clip.SectionFor( "arm", FrameNumber{ 0 } ), nullptr );
     EXPECT_NE( clip.SectionFor( "leg", FrameNumber{ 0 } ), nullptr ) << "…and the named one IS claimed";
 }
@@ -238,8 +238,7 @@ TEST( ClipSections, AbsoluteAndAdditiveDisagreeOnTheIdentityValue )
                         "an Absolute section's value IS the pose, identity included" );
     ExpectExactlyEqual( ApplySection( additive, identity, Rest(), 1.0F ), Rest(),
                         "an Additive section's identity is a no-op, at any weight" );
-    ExpectExactlyEqual( ApplySection( additive, identity, Rest(), 0.37F ), Rest(),
-                        "…including a partial one" );
+    ExpectExactlyEqual( ApplySection( additive, identity, Rest(), 0.37F ), Rest(), "…including a partial one" );
 }
 
 TEST( ClipSections, AnAdditiveSectionAddsItsOffsetToTheRestPose )
@@ -271,8 +270,8 @@ TEST( ClipSections, AHalfWeightIsHalfTheVALUEAndNotHalfAPoseBlend )
     // 100-centimetre translation reading 50. A pose blend would give neither in general, and gives the
     // same answer here only because the test deliberately compares against the numbers rather than
     // against a second implementation.
-    const ClipSection additive = WholeClip( SectionBlendType::Additive );
-    const BoneTransform offset = TransformOf(
+    const ClipSection   additive = WholeClip( SectionBlendType::Additive );
+    const BoneTransform offset   = TransformOf(
          glm::vec3( 100.0F, 0.0F, 0.0F ), glm::angleAxis( glm::radians( 90.0F ), glm::vec3( 0.0F, 0.0F, 1.0F ) ),
          glm::vec3( 3.0F, 1.0F, 1.0F ) );
     const BoneTransform rest =
@@ -307,29 +306,29 @@ TEST( ClipSections, AnUnkeyedWeightChannelIsFullWeightAndNotSilence )
     // file has the first, so reading it as the second would mute the entire corpus — and a muted clip
     // still loads, still plays and still renders a character, in its bind pose.
     const ClipSection unkeyed = WholeClip( SectionBlendType::Absolute );
-    EXPECT_FLOAT_EQ( unkeyed.WeightAt( FrameTime{ FrameNumber{ 1234 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ),
-                     1.0F );
+    EXPECT_FLOAT_EQ(
+         unkeyed.WeightAt( FrameTime{ FrameNumber{ 1234 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ), 1.0F );
 
     ClipSection muted = WholeClip( SectionBlendType::Absolute );
     ScalarKey   zero;
     zero.Tick  = FrameNumber{ 0 };
     zero.Value = 0.0F;
     muted.Weight.push_back( zero );
-    EXPECT_FLOAT_EQ( muted.WeightAt( FrameTime{ FrameNumber{ 1234 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ),
-                     0.0F );
+    EXPECT_FLOAT_EQ(
+         muted.WeightAt( FrameTime{ FrameNumber{ 1234 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ), 0.0F );
 }
 
 TEST( ClipSections, TheWeightChannelFadesBetweenItsKeys )
 {
     ClipSection fade = WholeClip( SectionBlendType::Additive );
     ScalarKey   a;
-    a.Tick     = FrameNumber{ 0 };
-    a.Value    = 0.0F;
-    a.Interp   = KeyInterp::Linear;
+    a.Tick   = FrameNumber{ 0 };
+    a.Value  = 0.0F;
+    a.Interp = KeyInterp::Linear;
     ScalarKey b;
-    b.Tick     = FrameNumber{ kDuration };
-    b.Value    = 1.0F;
-    b.Interp   = KeyInterp::Linear;
+    b.Tick      = FrameNumber{ kDuration };
+    b.Value     = 1.0F;
+    b.Interp    = KeyInterp::Linear;
     fade.Weight = { a, b };
 
     const auto rate = Desert::Animation::PROJECT_TICK_RATE;
@@ -355,7 +354,7 @@ TEST( ClipSections, TheFadeReachesTheSamplerAndNotOnlyTheWeightFunction )
     fade.Weight.push_back( off );
     clip.Sections.push_back( fade );
 
-    const FrameTime at{ FrameNumber{ kDuration }, 0.0F };
+    const FrameTime     at{ FrameNumber{ kDuration }, 0.0F };
     const BoneTransform muted = clip.SampleTrack( clip.Tracks[0], at, Rest() );
     ExpectExactlyEqual( muted, Rest(), "a zero-weight Absolute section hands back the rest pose" );
     EXPECT_FLOAT_EQ( clip.Tracks[0].Sample( at, clip.TickRate ).Translation.x, 100.0F )

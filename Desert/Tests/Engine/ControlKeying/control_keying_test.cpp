@@ -709,8 +709,8 @@ namespace
         for ( int frame = 0; frame < kRecordFrames; ++frame )
         {
             fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, static_cast<float>( frame ) );
-            const int  tick    = movePlayhead ? frame : 0;
-            const auto written = fix.Keyer.WriteBone( fix.At( tick ), 1 );
+            const int  tick              = movePlayhead ? frame : 0;
+            const auto written           = fix.Keyer.WriteBone( fix.At( tick ), 1 );
             EXPECT_TRUE( written.IsSuccess() ) << written.GetError();
             keyed += written.IsSuccess() ? written.GetValue() : 0;
         }
@@ -935,7 +935,7 @@ TEST( ControlKeying, AnExplicitKeyIsNotSilencedByAutoKeyBeingOff )
     ASSERT_EQ( fix.Keyer.Modes().AutoChange, AutoChangeMode::None );
 
     fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, 7.0F );
-    const auto written = fix.Keyer.WriteBone( fix.At( 12 ), 1 );
+    const auto written           = fix.Keyer.WriteBone( fix.At( 12 ), 1 );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     EXPECT_EQ( written.GetValue(), 1U );
     EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 1U );
@@ -1024,9 +1024,10 @@ TEST( ControlKeying, ABoneIsKeyableWithNoControlRigAtAll )
     EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 1U );
 
     // …and the control half still refuses, naming the missing hierarchy rather than crashing on it.
-    EXPECT_FALSE( fix.Keyer.Write( target, 0,
-                                   TransformOf( glm::vec3( 0.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
-                                                glm::vec3( 1.0F ) ),
-                                   ControlWriteSource::Authored )
-                       .IsSuccess() );
+    EXPECT_FALSE(
+         fix.Keyer
+              .Write( target, 0,
+                      TransformOf( glm::vec3( 0.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
+                      ControlWriteSource::Authored )
+              .IsSuccess() );
 }

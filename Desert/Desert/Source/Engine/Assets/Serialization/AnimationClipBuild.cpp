@@ -155,7 +155,8 @@ namespace Desert::Assets::Serialization
                      "unsectioned.",
                      data.Name, i, section.Name, section.StartTick, section.EndTick );
             }
-            if ( section.Blend < 0 || section.Blend > static_cast<int32_t>( Animation::SectionBlendType::Additive ) )
+            if ( section.Blend < 0 ||
+                 section.Blend > static_cast<int32_t>( Animation::SectionBlendType::Additive ) )
             {
                 return Common::MakeFormattedError<Animation::AnimationClip>(
                      "clip '{}': section {} ('{}') states blend type {}, which this build does not have. "
@@ -165,10 +166,10 @@ namespace Desert::Assets::Serialization
             }
 
             Animation::ClipSection built;
-            built.Name  = section.Name;
-            built.Start = Animation::FrameNumber{ section.StartTick };
-            built.End   = Animation::FrameNumber{ section.EndTick };
-            built.Blend = static_cast<Animation::SectionBlendType>( section.Blend );
+            built.Name   = section.Name;
+            built.Start  = Animation::FrameNumber{ section.StartTick };
+            built.End    = Animation::FrameNumber{ section.EndTick };
+            built.Blend  = static_cast<Animation::SectionBlendType>( section.Blend );
             built.Tracks = section.Tracks;
             built.Weight.reserve( section.Weight.size() );
             for ( const auto& w : section.Weight )

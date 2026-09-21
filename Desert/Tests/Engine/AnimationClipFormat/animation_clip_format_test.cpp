@@ -487,12 +487,12 @@ namespace
         data.DurationTicks = 24000;
 
         Ser::KeyPosition key;
-        key.Tick                = 12000;
-        key.Value               = glm::vec3( 7.0f, 8.0f, 9.0f );
-        key.Shape.Interp        = 2; // Cubic
-        key.Shape.Mode          = 1; // not Auto
-        key.ArriveTangent       = glm::vec3( 1.5f, 0.0f, 0.0f );
-        key.LeaveTangent        = glm::vec3( -2.5f, 0.0f, 0.0f );
+        key.Tick          = 12000;
+        key.Value         = glm::vec3( 7.0f, 8.0f, 9.0f );
+        key.Shape.Interp  = 2; // Cubic
+        key.Shape.Mode    = 1; // not Auto
+        key.ArriveTangent = glm::vec3( 1.5f, 0.0f, 0.0f );
+        key.LeaveTangent  = glm::vec3( -2.5f, 0.0f, 0.0f );
 
         Ser::ChannelData channel;
         channel.BoneName = "hips";
@@ -573,9 +573,9 @@ TEST( AnimationClipFormat, AClipWithABackwardsOrUnknownSectionIsRefusedRatherTha
 
     data.Sections.clear();
     Ser::SectionData unknown;
-    unknown.Name      = "future";
-    unknown.EndTick   = 24000;
-    unknown.Blend     = 7;
+    unknown.Name    = "future";
+    unknown.EndTick = 24000;
+    unknown.Blend   = 7;
     data.Sections.push_back( unknown );
     EXPECT_FALSE( Desert::Assets::Serialization::BuildClipFromAssetData( data ) )
          << "reading an unknown blend as Absolute turns an offset into a pose";

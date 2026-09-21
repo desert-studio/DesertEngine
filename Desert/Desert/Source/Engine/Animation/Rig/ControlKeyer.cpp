@@ -372,8 +372,8 @@ namespace Desert::Animation
         std::vector<PendingSubject> commits = m_Pending;
         if ( m_Modes.KeyGroup == KeyGroupMode::All && !m_Pending.empty() )
         {
-            bool controls = false;
-            bool bones    = false;
+            bool controls  = false;
+            bool bones     = false;
             bool automatic = false;
             for ( const PendingSubject& pending : m_Pending )
             {
