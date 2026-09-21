@@ -258,10 +258,10 @@ namespace Desert::Assets::Serialization
         // paragraph of `RigGraph.hpp` says why the pin table had to be data rather than a virtual, and this
         // is the caller it had to be data FOR.
 
-        [[nodiscard]] std::optional<RigValueKind> PayloadKind( const RigGraphInputData& input )
+        [[nodiscard]] std::optional<Animation::RigValueKind> PayloadKind( const RigGraphInputData& input )
         {
             int                         present = 0;
-            std::optional<RigValueKind> kind;
+            std::optional<Animation::RigValueKind> kind;
 
             if ( input.Link.has_value() )
             {
@@ -270,22 +270,22 @@ namespace Desert::Assets::Serialization
             if ( input.Float.has_value() )
             {
                 ++present;
-                kind = RigValueKind::Float;
+                kind = Animation::RigValueKind::Float;
             }
             if ( input.Vec3.has_value() )
             {
                 ++present;
-                kind = RigValueKind::Vec3;
+                kind = Animation::RigValueKind::Vec3;
             }
             if ( input.Quat.has_value() )
             {
                 ++present;
-                kind = RigValueKind::Quat;
+                kind = Animation::RigValueKind::Quat;
             }
             if ( input.Transform.has_value() )
             {
                 ++present;
-                kind = RigValueKind::Transform;
+                kind = Animation::RigValueKind::Transform;
             }
 
             if ( present != 1 )
@@ -293,7 +293,7 @@ namespace Desert::Assets::Serialization
                 return std::nullopt;
             }
             // A link's type is the producing pin's, which only the caller can look up.
-            return input.Link.has_value() ? std::optional<RigValueKind>{} : kind;
+            return input.Link.has_value() ? std::optional<Animation::RigValueKind>{} : kind;
         }
 
         [[nodiscard]] int PayloadCount( const RigGraphInputData& input )
@@ -326,29 +326,39 @@ namespace Desert::Assets::Serialization
                      "leaving the Graph field out, not by writing an empty one" );
             }
 
+            // EVERY NAME IS COLLECTED BEFORE ANY LINK IS RESOLVED, and that is a diagnostic decision rather
+            // than a structural one. Building the map as the loop went made a FORWARD link report "this
+            // graph does not define 'place'" — true of the map at that instant, false of the file, and
+            // exactly the kind of message that sends a rigger looking for a typo in a name that is right
+            // there three lines below. With every name known, "does not define" means absent and "comes
+            // later" means later.
             std::unordered_map<std::string, size_t> byName;
             byName.reserve( graph.Nodes.size() );
 
-            std::vector<std::string>                names;
-            std::vector<Animation::RigNodeKind>     kinds;
-            std::vector<std::vector<uint32_t>>      producers( graph.Nodes.size() );
-
             for ( size_t i = 0; i < graph.Nodes.size(); ++i )
             {
-                const RigGraphNodeData& node = graph.Nodes[i];
-
-                if ( node.Name.empty() )
+                if ( graph.Nodes[i].Name.empty() )
                 {
                     return Common::MakeFormattedError<bool>(
                          "graph node {} has an empty name; the name is what a link, a refusal and an editor "
                          "row all bind on",
                          i );
                 }
-                if ( !byName.emplace( node.Name, i ).second )
+                if ( !byName.emplace( graph.Nodes[i].Name, i ).second )
                 {
                     return Common::MakeFormattedError<bool>(
-                         "two graph nodes are named '{}'; a link naming it would have two answers", node.Name );
+                         "two graph nodes are named '{}'; a link naming it would have two answers",
+                         graph.Nodes[i].Name );
                 }
+            }
+
+            std::vector<std::string>            names;
+            std::vector<Animation::RigNodeKind> kinds;
+            std::vector<std::vector<uint32_t>>  producers( graph.Nodes.size() );
+
+            for ( size_t i = 0; i < graph.Nodes.size(); ++i )
+            {
+                const RigGraphNodeData& node = graph.Nodes[i];
 
                 const auto kind = Animation::RigNodeKindFromText( node.Kind );
                 if ( !kind.has_value() )

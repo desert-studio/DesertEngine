@@ -35,6 +35,7 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <functional>
 #include <set>
 #include <string>
 #include <utility>
@@ -304,7 +305,7 @@ namespace
     /// Runs one stage over the bind pose and hands back the driven bone's component transform.
     struct Ran
     {
-        Desert::Common::BoolResultStr Result = Desert::Common::MakeSuccess( true );
+        ::Common::BoolResultStr Result = ::Common::MakeSuccess( true );
         LocalPose                     Pose;
     };
 
@@ -1299,10 +1300,11 @@ TEST( RigGraphTest, TheFormatRefusesEverythingTheWalkRefusesAndNamesTheRow )
                std::string::npos );
 
     // A link to a node that comes later — the rule that makes a cycle unwritable.
-    EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
-                           { d.Graph->Nodes[1].Inputs[0].Link->Node = "place"; } )
-                    .find( "comes later" ),
-               std::string::npos );
+    {
+        const std::string forward = refusedFor( []( Serialization::ControlRigData& d )
+                                                { d.Graph->Nodes[1].Inputs[0].Link->Node = "place"; } );
+        EXPECT_NE( forward.find( "comes later" ), std::string::npos ) << "[" << forward << "]";
+    }
 
     // A link to an output pin the producing kind does not have.
     EXPECT_NE( refusedFor( []( Serialization::ControlRigData& d )
@@ -1345,4 +1347,10 @@ TEST( RigGraphTest, ABoneNameTheSkeletonDoesNotHaveIsRefusedAtBuildAndNamesTheSi
     ASSERT_FALSE( built.IsSuccess() );
     EXPECT_NE( built.GetError().find( "Tentacle" ), std::string::npos ) << built.GetError();
     EXPECT_NE( built.GetError().find( "elbowBone" ), std::string::npos ) << built.GetError();
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
