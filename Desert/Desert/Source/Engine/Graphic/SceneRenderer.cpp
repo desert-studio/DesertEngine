@@ -524,24 +524,15 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetWhitePoint( sceneSettings.WhitePoint );
 
-#if DESERT_DEV_INSTRUMENTS
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWireframe( m_DebugView.WireframeMode );
-#endif
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetLODEnabled( quality.MeshLOD );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetShadows( sceneSettings.EnableShadows, sceneSettings.ShadowBias,
                            static_cast<int>( m_DebugView.ShadowDebug ), sceneSettings.CascadeSplitLambda );
-        // The two SHADER-BRANCH debug views travel with the PBR program and cost no pipeline, so they
-        // cross the boundary. The AABB wireframes have a pipeline of their own and do not — see the
-        // block in MeshRenderer.cpp that carries the measurement.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.LightingDebug );
-#if DESERT_DEV_INSTRUMENTS
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetBoundingBoxView( m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
-                                   m_DebugView.BoundingBoxLineWidth );
-#endif
+             ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
+                             m_DebugView.BoundingBoxLineWidth, m_DebugView.LightingDebug );
 
         // Global texture filter: push into RenderConfig (read by sampler creation). On an actual change,
         // recreate all image samplers so the new filter applies live (no reload).

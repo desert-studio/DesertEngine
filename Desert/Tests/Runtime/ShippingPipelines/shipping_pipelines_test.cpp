@@ -228,8 +228,8 @@ namespace
 
     struct Found
     {
-        std::string File;      ///< repo-relative, forward slashes
-        std::string Name;      ///< the DebugName expression that names this pipeline
+        std::string File; ///< repo-relative, forward slashes
+        std::string Name; ///< the DebugName expression that names this pipeline
         bool        BehindGate = false;
         int         Line       = 0;
     };
@@ -249,12 +249,12 @@ namespace
             const size_t eq = lines[i].find( '=', key );
             if ( eq == std::string::npos )
                 continue;
-            std::string value = lines[i].substr( eq + 1 );
-            const size_t cut  = value.find_first_of( ",;}" );
+            std::string  value = lines[i].substr( eq + 1 );
+            const size_t cut   = value.find_first_of( ",;}" );
             if ( cut != std::string::npos )
                 value = value.substr( 0, cut );
             return Trim( value );
-            }
+        }
         return {};
     }
 
@@ -289,8 +289,8 @@ namespace
 
             for ( const fs::path& file : files )
             {
-                std::string relative = fs::relative( file, root ).generic_string();
-                if ( FactoryFiles().count( relative ) )
+                const std::string relative = fs::relative( file, root ).generic_string();
+                if ( FactoryFiles().contains( relative ) )
                     continue;
 
                 const std::vector<std::string> lines = Lines( StripComments( Read( file ) ) );
@@ -298,18 +298,18 @@ namespace
                 for ( size_t i = 0; i < lines.size(); ++i )
                 {
                     const std::string trimmed = Trim( lines[i] );
-                    if ( trimmed.rfind( "#if", 0 ) == 0 )
+                    if ( trimmed.starts_with( "#if" ) )
                     {
-                        const size_t token  = trimmed.find( "DESERT_DEV_INSTRUMENTS" );
-                        const bool   negated = trimmed.find( '!' ) != std::string::npos &&
-                                             trimmed.find( '!' ) < token;
+                        const size_t token = trimmed.find( "DESERT_DEV_INSTRUMENTS" );
+                        const bool   negated =
+                             trimmed.find( '!' ) != std::string::npos && trimmed.find( '!' ) < token;
                         gate.push_back( token != std::string::npos && !negated );
                     }
-                    else if ( trimmed.rfind( "#else", 0 ) == 0 && !gate.empty() )
+                    else if ( trimmed.starts_with( "#else" ) && !gate.empty() )
                     {
                         gate.back() = !gate.back();
                     }
-                    else if ( trimmed.rfind( "#endif", 0 ) == 0 && !gate.empty() )
+                    else if ( trimmed.starts_with( "#endif" ) && !gate.empty() )
                     {
                         gate.pop_back();
                     }
@@ -359,12 +359,10 @@ namespace
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"StaticMeshWireframe\"", Verdict::DeveloperOnly,
                "selected only by DebugViewState::WireframeMode, which no player-side file writes" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"DebugLinePipeline\"", Verdict::DeveloperOnly,
-               "draws AABB wireframes, gated by DebugViewState::ShowBoundingBoxes" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"OverdrawPipeline\"", Verdict::DeveloperOnly,
-               "the overdraw heat map, gated by DebugViewState::DeferredDebug" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"DebugLinePipeline\"",
+               Verdict::DeveloperOnly, "draws AABB wireframes, gated by DebugViewState::ShowBoundingBoxes" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"OverdrawPipeline\"",
+               Verdict::DeveloperOnly, "the overdraw heat map, gated by DebugViewState::DeferredDebug" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"OverdrawResolvePipeline\"", Verdict::DeveloperOnly,
                "the overdraw heat map's fullscreen resolve, same toggle" },
@@ -372,30 +370,30 @@ namespace
              // ── mesh geometry, shadows and the selection outline ────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"GenericMesh_\" + shaderName", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"SkinnedMesh_Load\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"StaticMeshGeometry\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"SkinnedMesh_Load\"",
+               Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"StaticMeshGeometry\"",
+               Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"StaticMeshGeometryInstanced\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"StaticMeshGBuffer\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"StaticMeshRSM\"", Verdict::Shipped, "reflective shadow map — the GI bounce's caster" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"StaticMeshGBuffer\"",
+               Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"StaticMeshRSM\"",
+               Verdict::Shipped, "reflective shadow map — the GI bounce's caster" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"StaticMeshGBufferInstanced\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"StaticMeshGlass\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"StaticMeshGlass\"",
+               Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"SkinnedMeshGeometry\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"SilhouettePipeline\"", Verdict::Shipped,
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"SilhouettePipeline\"",
+               Verdict::Shipped,
                "the outline mask — reachable in a player through the serialized StaticMeshComponent"
                " field OutlineDraw, see OutlineFamilyIsReachableFromASavedScene below" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"SilhouetteSkinnedPipeline\"", Verdict::Shipped, "same, for skinned meshes" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"ShadowPipeline\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"ShadowPipeline\"",
+               Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"ShadowPipelineInstanced\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
@@ -410,8 +408,8 @@ namespace
              // ── sky, terrain, clouds, fog ───────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp", "debugName",
                Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
-               "\"ProceduralSky\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp", "\"ProceduralSky\"",
+               Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp", "name",
                Verdict::Shipped, "the atmosphere LUT compute family" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp",
@@ -426,18 +424,18 @@ namespace
                "kResolveShaderName", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
                "kCompositeShaderName", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp",
-               "kFogShaderName", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp",
-               "kApplyShaderName", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp", "kFogShaderName",
+               Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp", "kApplyShaderName",
+               Verdict::Shipped, "" },
 
              // ── deferred shading and its screen-space passes ────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/CopyRenderer.hpp", "\"Copy\"",
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp",
                "\"DeferredLighting\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp",
-               "\"GIResolve\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp", "\"GIResolve\"",
+               Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp",
                "\"GITemporalResolve\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSAORenderer.hpp", "\"SSAO\"",
@@ -446,26 +444,26 @@ namespace
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRResolve\"",
                Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp",
-               "\"SSRComposite\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRComposite\"",
+               Verdict::Shipped, "" },
 
              // ── post processing ─────────────────────────────────────────────────────────────────────
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp",
-               "name", Verdict::Shipped, "the histogram compute family" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp", "name",
+               Verdict::Shipped, "the histogram compute family" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/BackdropBlurRenderer.hpp",
                "\"BackdropBlurDownsample\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/BloomRenderer.cpp",
-               "shaderName", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/FXAARenderer.cpp",
-               "debugName", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/BloomRenderer.cpp", "shaderName",
+               Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/FXAARenderer.cpp", "debugName",
+               Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.cpp",
                "shaderName", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.cpp",
                "shaderName", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/SMAARenderer.cpp",
                "std::string( name )", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/TonemapRenderer.cpp",
-               "debugName", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/TonemapRenderer.cpp", "debugName",
+               Verdict::Shipped, "" },
 
              // ── particles ───────────────────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
@@ -476,16 +474,16 @@ namespace
                "\"ParticleAlpha\"", Verdict::Shipped, "" },
 
              // ── environment baking (IBL) ────────────────────────────────────────────────────────────
-             { "Desert/Desert/Source/Engine/Graphic/ComputeImages.cpp", "\"BakeProceduralSky\"",
-               Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/ComputeImages.cpp", "\"BakeProceduralSky\"", Verdict::Shipped,
+               "" },
              { "Desert/Desert/Source/Engine/Graphic/ComputeImages.cpp", "spec.Tag", Verdict::Shipped,
                "the cubemap/mip/irradiance/prefilter compute family, named by its caller" },
 
              // ── 2D, UI and present ──────────────────────────────────────────────────────────────────
-             { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp", "\"UI2DPipeline\"",
-               Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp", "\"UITextPipeline\"",
-               Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp", "\"UI2DPipeline\"", Verdict::Shipped,
+               "" },
+             { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp", "\"UITextPipeline\"", Verdict::Shipped,
+               "" },
              { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp", "\"UIGlassPipeline\"",
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Render2D/UIMaterialCache.cpp", "\"UIMat_\" + shaderName",
@@ -536,7 +534,7 @@ TEST( ShippingPipelines, EveryCreationSiteIsRegistered )
 
     for ( const auto& site : Sites() )
     {
-        EXPECT_TRUE( registered.count( Key( site.File, site.Name ) ) )
+        EXPECT_TRUE( registered.contains( Key( site.File, site.Name ) ) )
              << site.File << ":" << site.Line << " creates the pipeline " << site.Name
              << " and no row in Desert/Tests/Runtime/ShippingPipelines claims it.\n"
                 "  Add one, with a verdict: Shipped (the product needs it) or DeveloperOnly (only a "
@@ -553,7 +551,7 @@ TEST( ShippingPipelines, NoRegisteredRowHasLostItsSite )
         present.insert( Key( site.File, site.Name ) );
 
     for ( const auto& row : Register() )
-        EXPECT_TRUE( present.count( Key( row.File, row.Name ) ) )
+        EXPECT_TRUE( present.contains( Key( row.File, row.Name ) ) )
              << "the register claims a pipeline " << row.Name << " in " << row.File
              << ", and no such creation site exists any more. Delete the row in the same change that "
                 "deleted the pipeline.";
@@ -698,8 +696,9 @@ TEST( ShippingPipelines, TheOutlineCompositeRunsOnEveryFrame )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string jfa = StripComments( Read(
-         root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.cpp" ) );
+    const std::string jfa = StripComments(
+         Read( root /
+               "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.cpp" ) );
     ASSERT_FALSE( jfa.empty() ) << "JumpFloodOutlineRenderer.cpp could not be read";
 
     const size_t execute = jfa.find( "void JumpFloodOutlineRenderer::Execute" );

@@ -1135,9 +1135,9 @@ namespace Desert::Graphic::System
                     DESERT_PROFILE_SCOPE( "Mesh: RenderMesh (draw)" );
                     // Deferred: the G-buffer twin's sets bind against the G-buffer pipeline, which writes
                     // the MRT instead of shading. Otherwise forward (wireframe variant when enabled).
-                    auto* pipeline = ( m_DeferredGeometry && m_StaticGBufferPipeline )
-                                          ? m_StaticGBufferPipeline.get()
-                                          : WireframePipelineOr( m_StaticPipeline.get() );
+                    auto*          pipeline = ( m_DeferredGeometry && m_StaticGBufferPipeline )
+                                                   ? m_StaticGBufferPipeline.get()
+                                                   : WireframePipelineOr( m_StaticPipeline.get() );
                     const uint32_t lod = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias );
                     renderer.RenderMesh( pipeline, obj->Mesh, obj->Transform, drawMat->GetMaterialExecutor(), 1, 0,
                                          obj->HiddenSubmeshes, lod );
@@ -2324,28 +2324,28 @@ namespace Desert::Graphic::System
     }
 
 #if DESERT_DEV_INSTRUMENTS
-// ── THE DEVELOPER'S THREE PIPELINES, AND WHY THEY ARE NOT IN A PLAYER'S BUILD ────────────────────────
-//
-// MEASURED, Shipping Runtime on this tree: a boot creates 67 Vulkan pipelines (39 graphics, 28 compute —
-// the 28 were never counted before because only the graphics side logs itself). Four of the 67 are
-// reachable ONLY through Graphic::DebugViewState, and nothing in the player's source set writes one:
-// SceneRenderer::SetDebugView has no caller in Runtime/Source, Desert/Desert/Source or
-// Desert/Common/Source, and the fields it would carry cannot come from a .desce either (they left the
-// scene format with К2 — Desert/Tests/Engine/SceneDebugFields derives that ban from the struct). So the
-// four were built at every player's startup, held for the session, and could not be bound by anything.
-//
-// WHAT CUTTING THEM IS WORTH, and the number is small on purpose rather than by accident: on a warm
-// machine 1.1 ms of an 82 ms pipeline phase; on a COLD one 127 ms of 9 611 ms, because the cost is not
-// the pipeline object — it is the driver compiling that pipeline's shader for the first time.
-// StaticMeshWireframe shares StaticMeshPBR's modules and therefore costs 0.2 ms cold; DebugLine,
-// Overdraw and OverdrawResolve own theirs and cost 43.3, 5.7 and 77.9 ms. Time is not the whole
-// argument: an instrument a player's binary cannot use is surface it should not carry.
-//
-// NOT CUT, and this is the half the note in DevInstruments.hpp got wrong: the selection-outline family
-// (Silhouette*, JFA_*) DRAWS IN A PLAYER. `MeshECSSystem` ORs a serialized per-mesh field into the
-// outline flag (`outlined = isSelected || mesh.OutlineDraw`), so any author who ticks "Draw outline" in
-// the Materials panel ships an outlined mesh; and JFA_Init and JFA_Final run on EVERY frame regardless,
-// because the composite is what hands the scene colour to tonemap.
+    // ── THE DEVELOPER'S THREE PIPELINES, AND WHY THEY ARE NOT IN A PLAYER'S BUILD ────────────────────────
+    //
+    // MEASURED, Shipping Runtime on this tree: a boot creates 67 Vulkan pipelines (39 graphics, 28 compute —
+    // the 28 were never counted before because only the graphics side logs itself). Four of the 67 are
+    // reachable ONLY through Graphic::DebugViewState, and nothing in the player's source set writes one:
+    // SceneRenderer::SetDebugView has no caller in Runtime/Source, Desert/Desert/Source or
+    // Desert/Common/Source, and the fields it would carry cannot come from a .desce either (they left the
+    // scene format with К2 — Desert/Tests/Engine/SceneDebugFields derives that ban from the struct). So the
+    // four were built at every player's startup, held for the session, and could not be bound by anything.
+    //
+    // WHAT CUTTING THEM IS WORTH, and the number is small on purpose rather than by accident: on a warm
+    // machine 1.1 ms of an 82 ms pipeline phase; on a COLD one 127 ms of 9 611 ms, because the cost is not
+    // the pipeline object — it is the driver compiling that pipeline's shader for the first time.
+    // StaticMeshWireframe shares StaticMeshPBR's modules and therefore costs 0.2 ms cold; DebugLine,
+    // Overdraw and OverdrawResolve own theirs and cost 43.3, 5.7 and 77.9 ms. Time is not the whole
+    // argument: an instrument a player's binary cannot use is surface it should not carry.
+    //
+    // NOT CUT, and this is the half the note in DevInstruments.hpp got wrong: the selection-outline family
+    // (Silhouette*, JFA_*) DRAWS IN A PLAYER. `MeshECSSystem` ORs a serialized per-mesh field into the
+    // outline flag (`outlined = isSelected || mesh.OutlineDraw`), so any author who ticks "Draw outline" in
+    // the Materials panel ships an outlined mesh; and JFA_Init and JFA_Final run on EVERY frame regardless,
+    // because the composite is what hands the scene colour to tonemap.
     bool MeshRenderer::SetupDebugLinePass()
     {
         m_DebugLineShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "DebugLine" );

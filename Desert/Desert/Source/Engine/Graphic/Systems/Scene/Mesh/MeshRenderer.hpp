@@ -223,37 +223,41 @@ namespace Desert::Graphic::System
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
         void ClearQueues();
 
-#if DESERT_DEV_INSTRUMENTS
+        // THE BOUNDARY IS DRAWN INSIDE THIS HEADER, not at the call sites, and Common/Core/Profiler.hpp
+        // draws its own the same way for the same reason: the API stays one shape in both
+        // configurations, so every caller — including the next one somebody writes — compiles unchanged
+        // and is cut automatically. Desert/Tests/Runtime/ShippingBoundary calls this form
+        // `Gating::InItsOwnHeader` and calls it the stronger of the two. The alternative, an `#if`
+        // around each call in SceneRenderer and around each branch in the draw loop, is four more
+        // places to forget.
+
         // Debug wireframe toggle (DebugViewState::WireframeMode) — selects the line-polygon pipeline.
-        void SetWireframe( bool enabled )
+        // In a player's build the argument is accepted and dropped: there is no wireframe pipeline to
+        // select, because nothing in a player can set the flag that would select it.
+        void SetWireframe( [[maybe_unused]] bool enabled )
         {
+#if DESERT_DEV_INSTRUMENTS
             m_Wireframe = enabled;
+#endif
         }
 
-        bool WireframeView() const
+        [[nodiscard]] bool WireframeView() const
         {
+#if DESERT_DEV_INSTRUMENTS
             return m_Wireframe;
-        }
-
-        GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
-        {
-            return ( m_Wireframe && m_StaticWireframePipeline ) ? m_StaticWireframePipeline.get() : fallback;
-        }
 #else
-        // THE NO-OP TWINS, and they are why the draw loop has no `#if` in it. Common/Core/Profiler.hpp
-        // draws its boundary the same way for the same reason: an `#if` at the call site is a second
-        // place to forget, and the draw loop is read far more often than this header. Both fold to
-        // nothing at -O2, so the shipped loop is the loop without a wireframe branch.
-        static constexpr bool WireframeView()
-        {
             return false;
+#endif
         }
 
-        static GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback )
+        [[nodiscard]] GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
         {
+#if DESERT_DEV_INSTRUMENTS
+            return ( m_Wireframe && m_StaticWireframePipeline ) ? m_StaticWireframePipeline.get() : fallback;
+#else
             return fallback;
+#endif
         }
-#endif // DESERT_DEV_INSTRUMENTS
 
         // Distance-based mesh LOD (auto). LOD0 is byte-identical to the base geometry, so this only
         // affects meshes far from the camera. Toggle from the editor's Graphics menu.
@@ -327,27 +331,22 @@ namespace Desert::Graphic::System
         const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
         const glm::vec4& GetCascadeWorldPerTexel() const   { return m_CascadeWorldPerTexel; }
 
-        // Debug visualizations that are SHADER BRANCHES: per-pixel normals and the per-light "where light
-        // lands" colouring. They cost no pipeline of their own — the PBR program carries both branches —
-        // so they cross the shipping boundary with the program and are set in every configuration.
-        //
-        // The AABB wireframes are NOT here, and the split is the point: they are drawn by a pipeline of
-        // their own, so they are cut from a player's build entirely. See SetBoundingBoxView.
-        void SetDebugView( bool showNormals, bool lightingDebug = false )
+        // Debug visualizations. TWO KINDS, and the boundary runs between them: `showNormals` and
+        // `lightingDebug` are BRANCHES IN THE PBR SHADER, so they travel with the program and cost no
+        // pipeline; the AABB wireframes are drawn by a pipeline of their own, so a player's build has
+        // neither the pipeline nor the fields, and the three arguments are accepted and dropped.
+        void SetDebugView( bool showNormals, [[maybe_unused]] bool showBoundingBoxes,
+                           [[maybe_unused]] const glm::vec3& bbColor, [[maybe_unused]] float bbLineWidth,
+                           bool lightingDebug = false )
         {
             m_ShowNormals   = showNormals;
             m_LightingDebug = lightingDebug;
-        }
-
 #if DESERT_DEV_INSTRUMENTS
-        // Per-mesh AABB wireframes, drawn through the debug-line pipeline below.
-        void SetBoundingBoxView( bool show, const glm::vec3& color, float lineWidth )
-        {
-            m_ShowBoundingBoxes    = show;
-            m_BoundingBoxColor     = color;
-            m_BoundingBoxLineWidth = lineWidth;
+            m_ShowBoundingBoxes    = showBoundingBoxes;
+            m_BoundingBoxColor     = bbColor;
+            m_BoundingBoxLineWidth = bbLineWidth;
+#endif
         }
-#endif // DESERT_DEV_INSTRUMENTS
 
     private:
         bool SetupGeometryPass();
@@ -381,7 +380,7 @@ namespace Desert::Graphic::System
 #endif
         std::shared_ptr<GraphicsPipeline> m_StaticInstancedPipeline; // reads per-instance transform from SSBO
 #if DESERT_DEV_INSTRUMENTS
-        bool                              m_Wireframe = false;
+        bool m_Wireframe = false;
 #endif
         bool                              m_LODEnabled = true;
 
