@@ -38,10 +38,25 @@ namespace Desert::Editor
     // anything else (Editor/Packaging/PackageTarget.hpp explains why and derives the four things that
     // follow from it); a field whose only reachable value is the host would be the dead setting П6
     // removed, in a new place.
+    // THE CONFIGURATIONS A PACKAGE CAN BE CUT FROM, in the order the panel offers them, and the reason
+    // this is a table rather than two literals is the one PackageTarget.hpp gives for its own: the panel
+    // drew `{ "Debug", "Release" }` and the packager's default said "Release", two spellings of one fact
+    // in two files. `Shipping` arriving as a third build configuration is exactly the event that would
+    // have made them disagree — the panel would have kept offering two.
+    //
+    // SHIPPING IS FIRST BECAUSE IT IS THE DEFAULT, and the default matters more here than anywhere else
+    // in the editor: this is the one button whose product a stranger runs. Debug and Release are still
+    // offered, because packaging a development build to reproduce something on another machine is a real
+    // need — but they are now a CHOICE to make rather than the only thing on the menu.
+    inline constexpr const char* kPackageConfigs[] = { "Shipping", "Release", "Debug" };
+
     struct PackageOptions
     {
         std::string OutputDir = "Build/Output"; // relative to the editor cwd, or absolute
-        std::string Config    = "Release";      // which Runtime binary to bundle: "Debug" | "Release"
+        // Which Runtime binary to bundle; one of kPackageConfigs above. Shipping by default: the
+        // development instruments — the frame capture, the profiler, the counters — are compiled out of
+        // that one and out of no other (BuildScripts/Configurations.lua).
+        std::string Config = "Shipping";
         // macOS: produce <Name>.app (launcher + Info.plist + MoltenVK/loader inside Contents/Frameworks
         // so the player machine needs no Homebrew). false -> plain folder + launcher. On a host with no
         // .app concept this is refused with a LOG_WARN and the plain layout is produced instead.

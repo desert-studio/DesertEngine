@@ -149,7 +149,11 @@ namespace Desert::Assets
         LoadTimingScope( LoadTimingScope&& )                 = delete;
         LoadTimingScope& operator=( LoadTimingScope&& )      = delete;
 
+        // THE STATE IS THE INSTRUMENT TOO, so it goes with the bodies. Left standing under Shipping it is
+        // 40 bytes per asset load that nothing reads — and clang says so, five times per build
+        // (-Wunused-private-field), which is a warning the tree is at zero for and must stay at zero for.
     private:
+#if DESERT_DEV_INSTRUMENTS
         std::string m_Path;
         int64_t     m_StartNs = 0;
         /// Nanoseconds this scope's CHILDREN spent, added by each of them as it closes. Subtracting it
@@ -158,6 +162,7 @@ namespace Desert::Assets
         int64_t          m_ChildNs   = 0;
         LoadTimingScope* m_Parent    = nullptr;
         bool             m_Outermost = false;
+#endif
     };
 
     /**

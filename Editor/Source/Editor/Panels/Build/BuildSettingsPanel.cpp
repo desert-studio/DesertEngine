@@ -117,17 +117,18 @@ namespace Desert::Editor
 
         ImGui::Spacing();
         ImGui::TextUnformatted( "Configuration" );
-        const char* configs[] = { "Debug", "Release" };
-        for ( std::size_t i = 0; i < std::size( configs ); ++i )
+        // FROM THE PACKAGER'S OWN LIST, never a literal here — see kPackageConfigs.
+        for ( std::size_t i = 0; i < std::size( kPackageConfigs ); ++i )
         {
             if ( i > 0 )
                 ImGui::SameLine();
-            if ( ImGui::RadioButton( configs[i], prefs.PackageConfig == configs[i] ) )
+            if ( ImGui::RadioButton( kPackageConfigs[i], prefs.PackageConfig == kPackageConfigs[i] ) )
             {
-                prefs.PackageConfig = configs[i];
+                prefs.PackageConfig = kPackageConfigs[i];
                 EditorPreferences::Save();
             }
         }
+        ImGui::TextDisabled( "Shipping has no frame capture, no profiler and no counters in it." );
 
         ImGui::Spacing();
         if ( HostPlatformInfo().SupportsAppBundle )
