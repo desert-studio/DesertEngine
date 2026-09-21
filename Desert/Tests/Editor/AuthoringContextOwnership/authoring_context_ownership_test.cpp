@@ -642,13 +642,33 @@ TEST( AuthoringContextCensus, EveryModesOwnReaderExistsOutsideThisHeader )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::vector<std::pair<std::string, std::string>> rows = {
-         { "ShowsBones", "Skeleton + Pose: the bone overlay and the bone gizmo" },
-         { "PreviewsBindPose", "Skeleton alone: 07 §1.3's bind-pose preview" },
-         { "IsPoseAuthoring", "Pose alone: the gizmo writes the animator's pose buffer" },
-         { "ShowsControls", "Control: the control-shape overlay and its drag" },
-         { "SelectedControl", "Control: which shape is highlighted and grabbed" },
-         { "ControlRotate", "Control: what a grab writes — translate or rotate" },
+    // EACH ROW NAMES THE FILE THAT MUST MAKE THE DECISION, not merely "somebody reads it somewhere".
+    // The weaker form was tried and it is too weak: deleting the control overlay from the viewport
+    // leaves the Control Rig panel's checkbox reading the same predicate, so the census stays green
+    // while `Control` has stopped changing anything a viewport shows — which is precisely the dead knob
+    // the row exists to forbid. A named file also survives the predicate being inlined as
+    // `Mode() == AuthoringMode::Control` at five call sites, which is the other way a single source of
+    // truth quietly stops being one.
+    struct Row
+    {
+        std::string Predicate;
+        std::string MustBeReadBy; // repo-relative path
+        std::string Why;
+    };
+
+    const std::vector<Row> rows = {
+         { "ShowsBones", "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp",
+           "Skeleton + Pose: the bone overlay" },
+         { "PreviewsBindPose", "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.cpp",
+           "Skeleton alone: 07 §1.3's bind-pose preview" },
+         { "IsPoseAuthoring", "Editor/Source/Editor/Panels/ViewportPanel/Tools/GizmoController.cpp",
+           "Pose alone: the gizmo writes the animator's pose buffer instead of the bind transform" },
+         { "ShowsControls", "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp",
+           "Control: the control-shape overlay is drawn at all" },
+         { "SelectedControl", "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp",
+           "Control: which shape is highlighted and grabbed" },
+         { "ControlRotate", "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp",
+           "Control: what a grab writes — translate or rotate" },
     };
 
     std::map<std::string, std::vector<std::string>> readers;
@@ -664,20 +684,22 @@ TEST( AuthoringContextCensus, EveryModesOwnReaderExistsOutsideThisHeader )
 
         const std::string code =
              Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadWhole( entry.path() ) );
-        for ( const auto& row : rows )
+        for ( const Row& row : rows )
         {
-            if ( !Desert::Tests::ConsumerText::WordPositions( code, row.first ).empty() )
-                readers[row.first].push_back( relative );
+            if ( !Desert::Tests::ConsumerText::WordPositions( code, row.Predicate ).empty() )
+                readers[row.Predicate].push_back( relative );
         }
     }
 
     EXPECT_GT( files, 200 ) << "the walk found almost nothing — the root is wrong, not the tree";
 
-    for ( const auto& row : rows )
+    for ( const Row& row : rows )
     {
-        EXPECT_FALSE( readers[row.first].empty() )
-             << "no file reads '" << row.first << "', so the mode it distinguishes moves nothing — "
-             << row.second;
+        const std::vector<std::string>& where = readers[row.Predicate];
+        EXPECT_FALSE( where.empty() ) << "no file reads '" << row.Predicate
+                                      << "', so the mode it distinguishes moves nothing — " << row.Why;
+        EXPECT_NE( std::find( where.begin(), where.end(), row.MustBeReadBy ), where.end() )
+             << row.MustBeReadBy << " no longer reads '" << row.Predicate << "' — " << row.Why;
     }
 }
 

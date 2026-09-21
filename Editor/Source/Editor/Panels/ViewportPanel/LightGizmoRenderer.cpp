@@ -802,17 +802,41 @@ namespace Desert::Editor
         // raw-vertex scale (thousands of units) while the mesh renders at the chain scale — hence "bones much
         // bigger than the mesh".
         //
-        // THE OVERLAY IS DRAWN IN BIND POSE, ALWAYS, and that is deliberate — it used to be six lines of
-        // comment promising "the SAME pose the mesh is RENDERED with" above a `const std::vector<glm::mat4>*
-        // poseMatrices = nullptr;` that was never assigned, so the branch reading it was unreachable and the
-        // overlay had never once followed an animated pose. The reason the bind chain is the right answer
-        // here: Skeleton Edit renders the mesh itself in BIND pose (SelectionContext's bind-pose preview), so
-        // an animated overlay would sit off both the mesh and the gizmo. When that preview goes away, this is
-        // the line that has to change with it, and it should change by reading the animator — not by
-        // reviving a pointer nothing sets.
+        // THE OVERLAY DRAWS THE POSE THE MESH IS DRAWN IN, AND ONE PREDICATE DECIDES BOTH.
+        //
+        // This used to take the bind chain unconditionally, and that WAS right while it was true that the
+        // mesh is always drawn in bind pose during bone authoring. 07 §1.3 ended that: the bind-pose
+        // preview is now `AuthoringContext::PreviewsBindPose()` — Skeleton alone — so in Pose mode the
+        // mesh moves with the animator and a bind-chain overlay would sit off both the mesh and the
+        // gizmo, which is 07 §3.4's complaint. The two sides are therefore asked the SAME question rather
+        // than each being told the answer: whatever `PreviewsBindPose()` says the renderer is showing is
+        // what the joints are resolved from.
+        //
+        // (The previous shape here was worse than a wrong answer: six lines of comment promising "the
+        // SAME pose the mesh is RENDERED with" above a `const std::vector<glm::mat4>* poseMatrices =
+        // nullptr;` that nothing ever assigned, so the branch reading it was unreachable. It is read out
+        // of the animator now, which is where the pose actually is.)
+        const Animation::Animator* animator = nullptr;
+        if ( entity.HasComponent<ECS::AnimationComponent>() )
+        {
+            animator = entity.GetComponent<ECS::AnimationComponent>().Animator.get();
+        }
+
         std::vector<glm::mat4> chainGlobal;
-        skeleton.ResolveComponentSpace( [&bones]( uint32_t i ) { return bones[i].LocalBindTransform; },
-                                        chainGlobal );
+        if ( Core::ActiveAuthoringContext().PreviewsBindPose() || animator == nullptr )
+        {
+            skeleton.ResolveComponentSpace( [&bones]( uint32_t i ) { return bones[i].LocalBindTransform; },
+                                            chainGlobal );
+        }
+        else
+        {
+            // Component space, already resolved by the pipeline — the same values the skinning matrices
+            // were built from this frame, so the joints cannot lag the mesh by a frame the way a copy
+            // taken anywhere else would.
+            chainGlobal.resize( bones.size() );
+            for ( uint32_t i = 0; i < static_cast<uint32_t>( bones.size() ); ++i )
+                chainGlobal[i] = animator->GetBoneModelMatrix( i );
+        }
 
         std::vector<glm::vec3> heads( bones.size() );
         for ( size_t i = 0; i < bones.size(); ++i )
