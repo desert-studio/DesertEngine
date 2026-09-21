@@ -14,6 +14,7 @@
 // by EVERY open Sequencer into one process-wide bit; two characters open side by side (the thing making
 // this a document bought) therefore decided each other's pose mode by draw order.
 #include <Editor/Core/Selection/AuthoringContext.hpp>
+#include <Editor/Core/GizmoState.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -223,69 +224,25 @@ namespace Desert::Editor
         }
     } // namespace
 
-    void SequencerPanel::KeyBonePose( Animation::AnimationClip* clip, const Animation::Animator& animator,
-                                      int boneIndex, Animation::FrameTime time )
+    Animation::ControlKeyTarget SequencerPanel::KeyTargetFor( Animation::AnimationClip*  clip,
+                                                              const Animation::Animator& animator ) const
     {
-        const auto& skeleton = animator.GetSkeleton();
-        if ( !clip || boneIndex < 0 || boneIndex >= static_cast<int>( skeleton.GetBones().size() ) )
-            return;
-        const auto& bone = skeleton.GetBones()[boneIndex];
-
-        // Key the EDITABLE animated pose (what the gizmo posed) — NOT the shared bind pose. The gizmo in pose
-        // mode writes the Animator's local-pose buffer, so this captures the posed skeleton.
-        glm::vec3 t, s, skew;
-        glm::vec4 persp;
-        glm::quat r;
-        glm::decompose( animator.GetBoneLocalPose( static_cast<uint32_t>( boneIndex ) ), s, r, t, skew, persp );
-
-        // Find (or create) the track for this bone.
-        Animation::BoneTrack* track = nullptr;
-        for ( auto& tr : clip->Tracks )
-            if ( tr.BoneName == bone.Name )
-            {
-                track = &tr;
-                break;
-            }
-        if ( !track )
-        {
-            Animation::BoneTrack nt;
-            nt.BoneName = bone.Name;
-            clip->Tracks.push_back( std::move( nt ) );
-            track = &clip->Tracks.back();
-        }
-
-        // THE KEY LANDS ON A TICK OF THE DISPLAY GRID, and "is there already a key here" is then an `==`.
-        // What this replaces was `std::abs( k.Time - time ) < 1e-3f` — an epsilon, because two float paths
-        // that mean the same instant do not produce the same float. An epsilon has the two failure modes an
-        // epsilon always has: too small and the artist gets a second key a thousandth of a second from the
-        // first, too large and a deliberate pair of adjacent keys silently becomes one. Neither exists on
-        // the grid.
-        const Animation::FrameNumber tick =
-             Animation::SnapToDisplayRate( time, clip->TickRate, clip->DisplayRate );
-
-        const auto upsertPos = [&]( auto& keys, auto value, auto make )
-        {
-            for ( auto& k : keys )
-            {
-                if ( k.Tick == tick )
-                {
-                    make( k, value );
-                    return;
-                }
-            }
-            keys.push_back( {} );
-            keys.back().Tick = tick;
-            make( keys.back(), value );
-            std::sort( keys.begin(), keys.end() );
-        };
-        upsertPos( track->PositionKeys, t, []( auto& k, const glm::vec3& v ) { k.Position = v; } );
-        upsertPos( track->RotationKeys, r, []( auto& k, const glm::quat& v ) { k.Rotation = v; } );
-        upsertPos( track->ScaleKeys, s, []( auto& k, const glm::vec3& v ) { k.Scale = v; } );
-
-        // A KEY WAS ADDED OR MOVED, SO THE CURVE CHANGED ON BOTH SIDES OF IT. Keying is an edit like any
-        // other, and the one path that did not recompute would be the one that leaves an animator
-        // wondering why the shape drifts as they work.
-        Animation::RefreshTangents( *track, clip->TickRate );
+        // THE HAND-ROLLED UPSERT THAT USED TO BE HERE IS GONE, and its deletion is the change rather than
+        // a tidy-up. `TrackEditing.hpp` says of `SetTransformKey`: "AN UPSERT, and the only one in the
+        // tree" — and there were two. They did not agree: this one gave a NEW key the `KeyInterp` default
+        // (Linear) while the engine's gives it Cubic/Auto, so a bone keyed from Record mode and the same
+        // bone keyed through the control path produced differently shaped curves from identical gestures.
+        //
+        // Everything that was here — the track lookup, the tick snap, the three-channel write and the
+        // tangent refresh — is `Animation::ControlKeyer`, where a suite can reach it.
+        Animation::ControlKeyTarget target;
+        target.Skeleton     = &animator.GetSkeleton();
+        target.Clip         = clip;
+        target.AuthoredPose = &animator.GetAuthoringPose();
+        target.Tick         = Animation::SnapToDisplayRate( animator.GetCurrentTick(),
+                                                            clip != nullptr ? clip->TickRate : Animation::PROJECT_TICK_RATE,
+                                                            clip != nullptr ? clip->DisplayRate : Animation::DEFAULT_DISPLAY_RATE );
+        return target;
     }
 
     // RequestOpen() AND ITS FILE-STATIC INBOX ARE GONE, and the deletion is the change rather than a
@@ -588,18 +545,55 @@ namespace Desert::Editor
                                                              : Core::AuthoringMode::Skeleton );
             }
 
-            // Record toggle (red when armed) — auto-keys while the gizmo moves the selected bone.
-            if ( m_Record )
+            // Record toggle (red when armed). IT IS THE KEYER'S `AutoChangeMode`, READ AND WRITTEN
+            // DIRECTLY, not a second bool that has to be kept in step with one: a REC light that can
+            // disagree with whether anything is being recorded is the shape this tree keeps paying for.
+            const bool armed = m_Keyer.Modes().AutoChange != Animation::AutoChangeMode::None;
+            if ( armed )
             {
                 ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.70f, 0.15f, 0.15f, 1.0f ) );
                 ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.82f, 0.20f, 0.20f, 1.0f ) );
             }
-            if ( ImGui::Button( m_Record ? ICON_MDI_RECORD_CIRCLE " REC" : ICON_MDI_RECORD " Record" ) )
-                m_Record = !m_Record;
-            if ( m_Record )
+            if ( ImGui::Button( armed ? ICON_MDI_RECORD_CIRCLE " REC" : ICON_MDI_RECORD " Record" ) )
+            {
+                Animation::KeyingModes modes = m_Keyer.Modes();
+                modes.AutoChange = armed ? Animation::AutoChangeMode::None : Animation::AutoChangeMode::All;
+                m_Keyer.SetModes( modes );
+            }
+            if ( armed )
                 ImGui::PopStyleColor( 2 );
-            Utils::ImGuiUtilities::Tooltip( "Auto-key: while ON (and in Skeleton Edit), moving the selected bone "
-                                            "with the gizmo writes a key at the playhead automatically." );
+            Utils::ImGuiUtilities::Tooltip( "Auto-key (UE ships this OFF): while ON, posing the selected bone "
+                                            "writes ONE key when you let go of the gizmo — not one per mouse "
+                                            "move, and not one per tick the playhead crossed." );
+            ImGui::SameLine();
+
+            // THE TWO KEYING-MODE ENUMS, ON THE SURFACE THAT USES THEM. A mode nothing can reach is a knob
+            // that moves nothing; these are the only two the tree can honour, and `ControlKeyer.hpp`
+            // carries the count that refuses UE's third.
+            ImGui::SetNextItemWidth( 110.0f );
+            {
+                Animation::KeyingModes modes   = m_Keyer.Modes();
+                int                    change  = static_cast<int>( modes.AutoChange );
+                const char*            changes = "Off\0Key existing\0Track only\0Create + key\0";
+                if ( ImGui::Combo( "##autochange", &change, changes ) )
+                {
+                    modes.AutoChange = static_cast<Animation::AutoChangeMode>( change );
+                    m_Keyer.SetModes( modes );
+                }
+                Utils::ImGuiUtilities::Tooltip( "What an automatic change does: nothing / key a bone that is "
+                                                "already animated / give it a track but no key / both." );
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth( 110.0f );
+                int         group  = static_cast<int>( modes.KeyGroup );
+                const char* groups = "Changed only\0Moved bones\0Whole rig\0";
+                if ( ImGui::Combo( "##keygroup", &group, groups ) )
+                {
+                    modes.KeyGroup = static_cast<Animation::KeyGroupMode>( group );
+                    m_Keyer.SetModes( modes );
+                }
+                Utils::ImGuiUtilities::Tooltip( "Which bones an automatic key covers. 'Changed only' skips a "
+                                                "bone the curve already agrees with at this tick." );
+            }
             ImGui::SameLine();
 
             ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.44f, 0.31f, 0.10f, 1.0f ) );
@@ -619,8 +613,16 @@ namespace Desert::Editor
 
             if ( ImGui::Button( ICON_MDI_KEY_PLUS " Key Bone @ Playhead" ) && canKey )
             {
-                anim.Playing = false;
-                KeyBonePose( editClip, *animator, selBone, animator->GetCurrentTick() );
+                anim.Playing        = false;
+                const auto keyed    = m_Keyer.WriteBone( KeyTargetFor( editClip, *animator ),
+                                                         static_cast<uint32_t>( selBone ) );
+                if ( !keyed.IsSuccess() )
+                {
+                    // A BUTTON THAT REFUSED SILENTLY IS THE DEFECT CLASS §1.4 NAMES. Unlike the authoring
+                    // context's "not your turn", every refusal reachable from here is a real answer the
+                    // animator has to see: a tick outside the clip, a bone the pose buffer does not hold.
+                    LOG_ERROR( "[Sequencer] key refused: {}", keyed.GetError() );
+                }
                 showKeyedPose( editClip );
             }
             ImGui::EndDisabled();
@@ -629,32 +631,54 @@ namespace Desert::Editor
             HelpMarker( "Keyframe by MANIPULATION:\n"
                         "1) In the viewport toolbar, enable Skeleton Edit.\n"
                         "2) Pick a bone and move/rotate it with the gizmo.\n"
-                        "3) Turn on Record (auto-key as you move) OR click Key Bone at the playhead.\n"
+                        "3) Turn on Record (auto-key ON RELEASE) OR click Key Bone at the playhead.\n"
                         "Repeat at different times to build the motion (drag the diamond keys below to retime)." );
 
-            // Record mode: detect the selected bone's POSE changing (a gizmo drag in pose mode) and auto-key it.
-            if ( m_Record && canKey )
+            // RECORD MODE IS ONE CALL NOW, and the rule it used to spell here lives in the keyer because
+            // this file is compiled by no test suite. What is left is the two facts only this window knows:
+            // whether the manipulator is being held, and whether the selected bone's pose moved since the
+            // last frame.
+            if ( canKey )
             {
                 const glm::mat4 cur = animator->GetBoneLocalPose( static_cast<uint32_t>( selBone ) );
+                bool            moved = false;
                 if ( selBone != m_RecordBone )
                 {
-                    m_RecordBone = selBone; // switched bone -> seed the baseline, don't key yet
+                    m_RecordBone = selBone; // switched bone -> seed the baseline, do not call it a move
                     m_RecordLast = cur;
                 }
-                else if ( cur != m_RecordLast )
+                else
                 {
+                    moved = ( cur != m_RecordLast );
+                }
+
+                const bool held = Core::GizmoState::PoseInteraction();
+                const auto observed =
+                     m_Keyer.Observe( KeyTargetFor( editClip, *animator ),
+                                      Animation::KeySubject{ Animation::KeySubjectKind::Bone,
+                                                             static_cast<uint32_t>( selBone ) },
+                                      held, moved );
+                if ( !observed.IsSuccess() )
+                {
+                    LOG_ERROR( "[Sequencer] auto-key refused: {}", observed.GetError() );
+                }
+                else if ( observed.GetValue() > 0 )
+                {
+                    // Keys landed, so the clip moved under the buffer the gizmo is posing. Reload it and
+                    // re-seed the baseline from the reload rather than from `cur`, or the next frame reads
+                    // the reload as a drag and keys a second time.
                     anim.Playing = false;
-                    KeyBonePose( editClip, *animator, selBone, animator->GetCurrentTick() );
                     showKeyedPose( editClip );
-                    // The reload above rewrote the buffer, so re-read the baseline from it rather than
-                    // keeping `cur`: otherwise the next frame sees a difference that is the reload, not a
-                    // drag, and keys a second time.
                     m_RecordLast = animator->GetBoneLocalPose( static_cast<uint32_t>( selBone ) );
+                }
+                else if ( moved )
+                {
+                    m_RecordLast = cur;
                 }
             }
             else
             {
-                m_RecordBone = -1; // drop the baseline when not recording
+                m_RecordBone = -1; // drop the baseline when there is nothing to key
             }
         }
 

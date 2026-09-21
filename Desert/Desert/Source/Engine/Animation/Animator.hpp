@@ -157,6 +157,14 @@ namespace Desert::Animation
         // UNAFFECTED by it — only ApplyLocalPose() renders it into the skinning matrices.
         void                    SetBoneLocalPose( uint32_t boneIndex, const glm::mat4& localTransform );
         [[nodiscard]] glm::mat4 GetBoneLocalPose( uint32_t boneIndex ) const; // identity if out of range
+        // THE BUFFER ITSELF, for the keyer. `GetBoneLocalPose` composes a matrix out of a `BoneTransform`
+        // the keyer would immediately decompose again — a round trip that cannot be exact for a
+        // non-uniformly scaled rotated bone (`BoneTransform::FromMatrix` folds shear into the rotation),
+        // so keying through it would record a pose slightly different from the one on screen.
+        [[nodiscard]] const LocalPose& GetAuthoringPose() const
+        {
+            return m_AuthoringPose;
+        }
         // Loads `clip`'s sampled LOCAL transforms at `time` into the authoring pose (bind for untracked
         // bones), so the user can edit an existing keyed pose and re-key from it.
         void SampleClipIntoLocalPose( const AnimationClip& clip, FrameTime time );

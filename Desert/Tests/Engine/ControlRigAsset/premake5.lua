@@ -19,6 +19,10 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        -- The section blend the Animator samples through (AnimationClip::SampleTrack). A header-inline
+        -- call into a .cpp nobody linked is a LINK error and not a silent wrong answer, which is why
+        -- ApplySection lives in a translation unit rather than in the header beside its caller.
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
         -- A25: `Animator` owns an optional retarget, so every suite that compiles Animator.cpp links the
         -- retarget layer with it. Listed here rather than discovered at link time because premake
         -- enumerates sources EXPLICITLY: a dependency that is real but unlisted fails as an undefined

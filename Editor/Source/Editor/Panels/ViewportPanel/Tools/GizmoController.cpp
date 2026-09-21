@@ -259,6 +259,12 @@ namespace Desert::Editor::Tools
         }
     }
 
+    void GizmoController::ResetHovered()
+    {
+        m_Hovered = false;
+        Core::GizmoState::SetPoseInteraction( false );
+    }
+
     void GizmoController::RenderBone( ::Desert::Core::Scene& scene, const glm::vec2& viewportPos,
                                       const glm::vec2& viewportSize )
     {
@@ -357,6 +363,17 @@ namespace Desert::Editor::Tools
         // One undo entry per drag: capture the bone's pre-drag rest transform when the drag STARTS, before
         // this frame's edit is written below. Rig editing only — pose-mode edits are persisted by keying.
         const bool usingNow = ImGuizmo::IsUsing();
+
+        // AND THE POSE BRANCH PUBLISHES THE SAME BOUNDARY IT ALREADY COMPUTES. `m_BoneDragActive` above is
+        // the rig-editing half of one fact — "the bone gizmo is being held" — and the pose half of it was
+        // simply dropped, so the Sequencer, which is the thing that needs it, had to guess the boundary
+        // from the pose CHANGING and could never see a drag end. Report 05 §971's deferral is exactly that
+        // missing edge; see Core::GizmoState::PoseInteraction for why the bit lives there.
+        if ( usePose && usingNow )
+        {
+            Core::GizmoState::SetPoseInteraction( true );
+        }
+
         if ( !usePose && usingNow && !m_BoneDragActive )
         {
             m_BoneDragActive = true;

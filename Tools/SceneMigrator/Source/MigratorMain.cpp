@@ -886,6 +886,12 @@ namespace Desert::Migration
             what << " " << report.ShapesWritten
                  << " key(s) now STATE their interpolation and tangent mode instead of inheriting a silent "
                     "default;";
+            // THE GENERATION-3 SENTENCE, and it is a separate one because it is a separate claim: the
+            // step from 2 adds NO key shapes (they were already stated) and adds the section instead, so
+            // a line reporting only `ShapesWritten` would say "0" and read as a conversion that did
+            // nothing.
+            what << " " << report.SectionsWritten
+                 << " section(s) now STATE the range, blend type and weight its values are read under;";
 
             if ( check )
             {

@@ -854,6 +854,10 @@ namespace Desert::Editor
                           worstMicro * 1000 / 24 / 1000 );
             }
 
+            // The one producer of the section a clip behaves as (Serialization/Animation.hpp). An importer
+            // that stamped its own would be the third copy of a default, and the third copy is the one
+            // that disagrees.
+            Assets::Serialization::EnsureStatedSections( animData );
             result.Animations.push_back( animData );
         }
 

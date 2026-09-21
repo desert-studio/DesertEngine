@@ -115,6 +115,32 @@ namespace Desert::Editor::Core
             return op == Operation::Scale;
         }
 
+        // ── IS A MANIPULATOR BEING HELD RIGHT NOW (A28) ──────────────────────────────────────────────
+        //
+        // THE BOUNDARY OF AN INTERACTION, AND IT LIVES HERE FOR THIS CLASS'S OWN STATED REASON: there is
+        // one pointer for the whole editor, so "a gizmo is being dragged" is one answer everywhere and
+        // nothing about it is per-document. It is the criterion the header note above uses to decide what
+        // belongs in `GizmoState` and what belongs in `AuthoringContext`.
+        //
+        // IT IS NOT BEHIND THE AUTHORING-CONTEXT GATE, and that is the decision rather than an omission.
+        // Putting it there would make it writable only by whoever currently holds the context — and while
+        // an animator drags a bone in the viewport with a Sequencer window focused, the holder is the
+        // SEQUENCER. The viewport's write would be refused, the bit would never rise, and the deferral it
+        // exists for would be silently off in exactly the case it was built for.
+        //
+        // Written by `GizmoController::RenderBone` (the pose branch) and read by `SequencerPanel`, which
+        // hands it to `Animation::ControlKeyer::Observe`. Neither of those two files is compiled by any
+        // test suite, which is why the RULE is in the keyer and only the BIT is here.
+        static bool PoseInteraction()
+        {
+            return s_PoseInteraction;
+        }
+
+        static void SetPoseInteraction( bool held )
+        {
+            s_PoseInteraction = held;
+        }
+
         // Snap increments, owned by EditorPreferences (~/.desertengine/editor.json). Snapping is active
         // when the persistent toggle is ON, or while Ctrl is held — and Ctrl INVERTS the toggle (so with
         // snap-always on, Ctrl gives a temporary free drag).
@@ -139,5 +165,6 @@ namespace Desert::Editor::Core
     private:
         inline static Operation s_Operation = Operation::None;
         inline static Space     s_Space     = Space::World; // UE's default, and the behaviour before this existed
+        inline static bool      s_PoseInteraction = false;
     };
 } // namespace Desert::Editor::Core
