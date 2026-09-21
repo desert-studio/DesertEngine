@@ -524,15 +524,24 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetWhitePoint( sceneSettings.WhitePoint );
 
+#if DESERT_DEV_INSTRUMENTS
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWireframe( m_DebugView.WireframeMode );
+#endif
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetLODEnabled( quality.MeshLOD );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetShadows( sceneSettings.EnableShadows, sceneSettings.ShadowBias,
                            static_cast<int>( m_DebugView.ShadowDebug ), sceneSettings.CascadeSplitLambda );
+        // The two SHADER-BRANCH debug views travel with the PBR program and cost no pipeline, so they
+        // cross the boundary. The AABB wireframes have a pipeline of their own and do not — see the
+        // block in MeshRenderer.cpp that carries the measurement.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
-                             m_DebugView.BoundingBoxLineWidth, m_DebugView.LightingDebug );
+             ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.LightingDebug );
+#if DESERT_DEV_INSTRUMENTS
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+             ->SetBoundingBoxView( m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
+                                   m_DebugView.BoundingBoxLineWidth );
+#endif
 
         // Global texture filter: push into RenderConfig (read by sampler creation). On an actual change,
         // recreate all image samplers so the new filter applies live (no reload).
@@ -916,6 +925,7 @@ namespace Desert::Graphic
             ExecuteTransparency();
         }
 
+#if DESERT_DEV_INSTRUMENTS
         // Overdraw debug view: re-rasterize all meshes additively into a heat map over the finished scene
         // color. Path-independent (redraws geometry, ignores the G-buffer), so it runs for Forward too.
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )
@@ -923,6 +933,7 @@ namespace Desert::Graphic
             DESERT_PROFILE_PASS( "Debug: Overdraw" );
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RenderOverdrawManual();
         }
+#endif // DESERT_DEV_INSTRUMENTS
 
         // Debug overlays (bounding boxes, colliders) drawn LAST over the finished scene color — in both
         // paths, but critically in Deferred where the lighting composite above would otherwise cover any
@@ -1234,9 +1245,11 @@ namespace Desert::Graphic
                                        ->GetSilhouetteMaskFramebuffer() )
             maskFb->Resize( width, height );
 
+#if DESERT_DEV_INSTRUMENTS
         if ( const auto& overdrawFb =
                   UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetOverdrawFramebuffer() )
             overdrawFb->Resize( width, height );
+#endif
 
         UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] )
              ->OnResize( width, height );

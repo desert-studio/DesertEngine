@@ -8,9 +8,12 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
+#include <Common/Core/DevInstruments.hpp>
+#if DESERT_DEV_INSTRUMENTS
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialOverdraw.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialOverdrawResolve.hpp>
+#endif
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -187,6 +190,7 @@ namespace Desert::Graphic::System
             return m_SilhouetteMaskFramebuffer;
         }
 
+#if DESERT_DEV_INSTRUMENTS
         // Overdraw debug view: re-rasterize every opaque mesh with additive blend (no depth) into a float
         // accumulation buffer, then heat-map the per-pixel overdraw count over the finished scene colour.
         // Path-independent (re-draws geometry; ignores the G-buffer), so it works in Forward and Deferred.
@@ -196,6 +200,7 @@ namespace Desert::Graphic::System
         {
             return m_OverdrawFB;
         }
+#endif // DESERT_DEV_INSTRUMENTS
 
         // True if any queued mesh is flagged for the selection outline this frame. The Jump Flood pass
         // uses this to skip its (log2(width)) full-screen ping-pong passes when nothing is selected.
@@ -218,11 +223,37 @@ namespace Desert::Graphic::System
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
         void ClearQueues();
 
-        // Debug wireframe toggle (SceneSettings.WireframeMode) — selects the line-polygon pipeline.
+#if DESERT_DEV_INSTRUMENTS
+        // Debug wireframe toggle (DebugViewState::WireframeMode) — selects the line-polygon pipeline.
         void SetWireframe( bool enabled )
         {
             m_Wireframe = enabled;
         }
+
+        bool WireframeView() const
+        {
+            return m_Wireframe;
+        }
+
+        GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
+        {
+            return ( m_Wireframe && m_StaticWireframePipeline ) ? m_StaticWireframePipeline.get() : fallback;
+        }
+#else
+        // THE NO-OP TWINS, and they are why the draw loop has no `#if` in it. Common/Core/Profiler.hpp
+        // draws its boundary the same way for the same reason: an `#if` at the call site is a second
+        // place to forget, and the draw loop is read far more often than this header. Both fold to
+        // nothing at -O2, so the shipped loop is the loop without a wireframe branch.
+        static constexpr bool WireframeView()
+        {
+            return false;
+        }
+
+        static GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback )
+        {
+            return fallback;
+        }
+#endif // DESERT_DEV_INSTRUMENTS
 
         // Distance-based mesh LOD (auto). LOD0 is byte-identical to the base geometry, so this only
         // affects meshes far from the camera. Toggle from the editor's Graphics menu.
@@ -296,16 +327,27 @@ namespace Desert::Graphic::System
         const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
         const glm::vec4& GetCascadeWorldPerTexel() const   { return m_CascadeWorldPerTexel; }
 
-        // Debug visualizations (Scene Settings -> Debug): per-pixel normals (PBR shader) + AABB wireframes.
-        void SetDebugView( bool showNormals, bool showBoundingBoxes, const glm::vec3& bbColor,
-                           float bbLineWidth, bool lightingDebug = false )
+        // Debug visualizations that are SHADER BRANCHES: per-pixel normals and the per-light "where light
+        // lands" colouring. They cost no pipeline of their own — the PBR program carries both branches —
+        // so they cross the shipping boundary with the program and are set in every configuration.
+        //
+        // The AABB wireframes are NOT here, and the split is the point: they are drawn by a pipeline of
+        // their own, so they are cut from a player's build entirely. See SetBoundingBoxView.
+        void SetDebugView( bool showNormals, bool lightingDebug = false )
         {
-            m_ShowNormals          = showNormals;
-            m_ShowBoundingBoxes    = showBoundingBoxes;
-            m_BoundingBoxColor     = bbColor;
-            m_BoundingBoxLineWidth = bbLineWidth;
-            m_LightingDebug        = lightingDebug;
+            m_ShowNormals   = showNormals;
+            m_LightingDebug = lightingDebug;
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // Per-mesh AABB wireframes, drawn through the debug-line pipeline below.
+        void SetBoundingBoxView( bool show, const glm::vec3& color, float lineWidth )
+        {
+            m_ShowBoundingBoxes    = show;
+            m_BoundingBoxColor     = color;
+            m_BoundingBoxLineWidth = lineWidth;
+        }
+#endif // DESERT_DEV_INSTRUMENTS
 
     private:
         bool SetupGeometryPass();
@@ -325,16 +367,22 @@ namespace Desert::Graphic::System
         void DrawGenericMeshes( bool useLoadPass = false ); // per-object data-driven materials (v3 slots + overrides)
         void RegisterSilhouettePass( RenderGraphBuilder& builder );
         void RegisterShadowPass( RenderGraphBuilder& builder );
+#if DESERT_DEV_INSTRUMENTS
         bool SetupDebugLinePass();
         bool SetupOverdrawPass(); // overdraw accumulation pipeline + FB + fullscreen heat resolve
         void RegisterDebugPass( RenderGraphBuilder& builder );
+#endif // DESERT_DEV_INSTRUMENTS
 
     private:
         // Static
         std::shared_ptr<GraphicsPipeline> m_StaticPipeline;
+#if DESERT_DEV_INSTRUMENTS
         std::shared_ptr<GraphicsPipeline> m_StaticWireframePipeline; // same spec, PolygonMode::Wireframe
+#endif
         std::shared_ptr<GraphicsPipeline> m_StaticInstancedPipeline; // reads per-instance transform from SSBO
-        bool                              m_Wireframe  = false;
+#if DESERT_DEV_INSTRUMENTS
+        bool                              m_Wireframe = false;
+#endif
         bool                              m_LODEnabled = true;
 
         // Deferred G-buffer geometry pipeline (static): writes Albedo+Metallic / Normal+Roughness into the
@@ -468,6 +516,7 @@ namespace Desert::Graphic::System
         // Debug visualization (Scene Settings -> Debug)
         bool      m_ShowNormals          = false; // per-pixel normal color (PBR shader branch)
         bool      m_LightingDebug        = false; // per-light colored "where light lands" (PBR shader branch)
+#if DESERT_DEV_INSTRUMENTS
         bool      m_ShowBoundingBoxes    = false; // AABB wireframes via the debug line renderer below
         glm::vec3 m_BoundingBoxColor     = glm::vec3( 0.25f, 0.95f, 0.35f );
         float     m_BoundingBoxLineWidth = 1.5f;
@@ -486,6 +535,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline>        m_OverdrawResolvePipeline;
         std::shared_ptr<Shader>                  m_OverdrawResolveShader;
         std::unique_ptr<MaterialOverdrawResolve> m_OverdrawResolveMaterial;
+#endif // DESERT_DEV_INSTRUMENTS
 
         std::vector<StaticMeshRenderData>  m_StaticQueue;
         std::vector<SkinnedMeshRenderData> m_SkinnedQueue;
