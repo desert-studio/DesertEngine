@@ -47,8 +47,8 @@ namespace
     {
         const glm::mat4 projection =
              Desert::Core::MakePerspective( glm::radians( 60.0f ), 1.0f, 100.0f, 100000.0f );
-        const glm::mat4 view       = glm::lookAt( glm::vec3( 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ),
-                                                  glm::vec3( 0.0f, 1.0f, 0.0f ) );
+        const glm::mat4 view =
+             glm::lookAt( glm::vec3( 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ) );
         return Frustum( projection, view );
     }
 
@@ -88,7 +88,7 @@ namespace
         {
             return {};
         }
-        const std::size_t end = source.find( "\n    void MeshRenderer::", begin + opener.size() );
+        const std::size_t end  = source.find( "\n    void MeshRenderer::", begin + opener.size() );
         const std::size_t end2 = source.find( "\n    bool MeshRenderer::", begin + opener.size() );
         return source.substr( begin, std::min( end, end2 ) - begin );
     }
@@ -136,7 +136,7 @@ TEST( FrustumCulling, AWallWhoseCentreIsOutsideTheViewStillCoversIt )
     // A block of the city that starts just left of the frame and runs 280 m out to the left and 400 m
     // away down -Z. Its near-right corner is well inside the view cone; its CENTRE is 160 m to the left
     // of a view that is only 116 m wide at that depth.
-    const AABB wall{ glm::vec3( -30000.0f, -500.0f, -40000.0f ), glm::vec3( -2000.0f, 500.0f, -100.0f ) };
+    const AABB      wall{ glm::vec3( -30000.0f, -500.0f, -40000.0f ), glm::vec3( -2000.0f, 500.0f, -100.0f ) };
     const glm::vec3 centre = ( wall.Min + wall.Max ) * 0.5f;
 
     EXPECT_FALSE( frustum.IsInside( centre ) ) << "the premise of this test: the centre is outside";
@@ -161,7 +161,7 @@ TEST( FrustumCulling, RotatedBoundsAreTheBoxOfEightCornersAndNotOfTwo )
 
     const glm::vec3 minOnly = glm::vec3( yaw135 * glm::vec4( local.Min, 1.0f ) );
     const glm::vec3 maxOnly = glm::vec3( yaw135 * glm::vec4( local.Max, 1.0f ) );
-    const AABB twoCorners{ glm::min( minOnly, maxOnly ), glm::max( minOnly, maxOnly ) };
+    const AABB      twoCorners{ glm::min( minOnly, maxOnly ), glm::max( minOnly, maxOnly ) };
 
     // (5000 + 1000) / sqrt(2) = 4242.6 either side of the origin.
     EXPECT_NEAR( eightCorners.Max.x, 4242.6f, 1.0f );
@@ -179,9 +179,8 @@ TEST( FrustumCulling, ARotatedPlankReachingIntoTheViewIsNotCulled )
 
     // Centre well off to the left and deep; yawed so one end swings into the view cone.
     const AABB      local{ glm::vec3( -20000.0f, -100.0f, -100.0f ), glm::vec3( 20000.0f, 100.0f, 100.0f ) };
-    const glm::mat4 transform =
-         glm::translate( glm::mat4( 1.0f ), glm::vec3( -22000.0f, 0.0f, -20000.0f ) ) *
-         glm::rotate( glm::mat4( 1.0f ), glm::radians( 45.0f ), glm::vec3( 0, 1, 0 ) );
+    const glm::mat4 transform = glm::translate( glm::mat4( 1.0f ), glm::vec3( -22000.0f, 0.0f, -20000.0f ) ) *
+                                glm::rotate( glm::mat4( 1.0f ), glm::radians( 45.0f ), glm::vec3( 0, 1, 0 ) );
 
     EXPECT_TRUE( IsVisibleInView( frustum, transform, local ) );
 }
@@ -198,8 +197,7 @@ TEST( FrustumCulling, AMeshWithNoExtentIsDrawnRatherThanCulled )
 
     // Placed far behind the camera, where a box WOULD be culled — the answer must still be "draw it",
     // because "I do not know where this is" is not "it is not there".
-    const glm::mat4 behindTheCamera =
-         glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, 500000.0f ) );
+    const glm::mat4 behindTheCamera = glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, 500000.0f ) );
     EXPECT_TRUE( IsVisibleInView( frustum, behindTheCamera, none ) );
 }
 
@@ -232,9 +230,8 @@ TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string source =
-         ReadFile( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /
-                   "Mesh" / "MeshRenderer.cpp" );
+    const std::string source = ReadFile( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" /
+                                         "Scene" / "Mesh" / "MeshRenderer.cpp" );
     ASSERT_FALSE( source.empty() );
 
     struct Row
@@ -246,21 +243,21 @@ TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
     };
 
     const Row rows[] = {
-        { "DrawStaticMeshes", true, "camera->GetFrustum()", "opaque PBR pass — rasterizes from the camera" },
-        { "RenderGlassManual", true, "camera->GetFrustum()", "transparent pass — rasterizes from the camera" },
-        { "DrawGenericMeshes", true, "camera->GetFrustum()",
-          "data-driven / shader-graph surfaces — rasterizes from the camera. Sound only while no vertex "
-          "stage moves a vertex off the authored box, which the next test asserts" },
-        { "RenderOverdrawManual", true, "camera->GetFrustum()",
-          "debug view OF the camera pass; it must report the frame that actually runs" },
-        { "RegisterShadowPass", true, "m_CascadeVP[c]",
-          "rasterizes from the SUN: the camera's frustum here would delete off-screen casters whose "
-          "shadows land on screen. Its own cascade matrix is a finite ortho box, so this skips only "
-          "what the rasterizer already clips" },
-        { "RenderRSMManual", false, nullptr,
-          "rasterizes from the SUN into the RSM, and every one of the 114 scenes in the tree is "
-          "GlobalIllumination=ScreenSpace, so this pass never runs: a change here could not be seen on "
-          "any frame this repository can take, and an unobservable change is not shipped" },
+         { "DrawStaticMeshes", true, "camera->GetFrustum()", "opaque PBR pass — rasterizes from the camera" },
+         { "RenderGlassManual", true, "camera->GetFrustum()", "transparent pass — rasterizes from the camera" },
+         { "DrawGenericMeshes", true, "camera->GetFrustum()",
+           "data-driven / shader-graph surfaces — rasterizes from the camera. Sound only while no vertex "
+           "stage moves a vertex off the authored box, which the next test asserts" },
+         { "RenderOverdrawManual", true, "camera->GetFrustum()",
+           "debug view OF the camera pass; it must report the frame that actually runs" },
+         { "RegisterShadowPass", true, "m_CascadeVP[c]",
+           "rasterizes from the SUN: the camera's frustum here would delete off-screen casters whose "
+           "shadows land on screen. Its own cascade matrix is a finite ortho box, so this skips only "
+           "what the rasterizer already clips" },
+         { "RenderRSMManual", false, nullptr,
+           "rasterizes from the SUN into the RSM, and every one of the 114 scenes in the tree is "
+           "GlobalIllumination=ScreenSpace, so this pass never runs: a change here could not be seen on "
+           "any frame this repository can take, and an unobservable change is not shipped" },
     };
 
     for ( const auto& row : rows )
@@ -274,8 +271,8 @@ TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
         if ( row.CullsWith != nullptr )
         {
             EXPECT_NE( body.find( row.CullsWith ), std::string::npos )
-                 << "MeshRenderer::" << row.Function << " must build its frustum from " << row.CullsWith
-                 << " — " << row.Why;
+                 << "MeshRenderer::" << row.Function << " must build its frustum from " << row.CullsWith << " — "
+                 << row.Why;
         }
 
         // And the sun passes must never reach for the camera's frustum, which is the substitution that
@@ -337,9 +334,9 @@ TEST( FrustumCulling, NoSurfaceShaderMovesAVertexOffItsAuthoredBounds )
     // clang-format pass must not be able to turn this red.
     const auto squash = []( std::string text )
     {
-        text.erase( std::remove_if( text.begin(), text.end(),
-                                    []( unsigned char c ) { return std::isspace( c ) != 0; } ),
-                    text.end() );
+        text.erase(
+             std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+             text.end() );
         return text;
     };
 
@@ -369,7 +366,7 @@ TEST( FrustumCulling, NoSurfaceShaderMovesAVertexOffItsAuthoredBounds )
         const std::size_t semicolon = vertexSource.find( ';', at );
         ASSERT_NE( semicolon, std::string::npos ) << entry.path().string();
 
-        const std::string rhs      = squash( vertexSource.substr( at + 13, semicolon - at - 13 ) );
+        const std::string rhs         = squash( vertexSource.substr( at + 13, semicolon - at - 13 ) );
         const std::string undisplaced = "*vec4(a_Position,1.0)";
         ASSERT_GE( rhs.size(), undisplaced.size() ) << entry.path().string();
         EXPECT_EQ( rhs.substr( rhs.size() - undisplaced.size() ), undisplaced )

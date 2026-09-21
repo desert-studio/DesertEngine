@@ -548,11 +548,10 @@ TEST( MeshLOD, TheBoundsTakingAndSubmeshTakingSelectorsAreOnePolicy )
 
     for ( float distance = 100.0f; distance < 200000.0f; distance *= 2.0f )
     {
-        const glm::mat4 transform =
-             glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, -distance ) );
+        const glm::mat4 transform = glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, -distance ) );
         EXPECT_EQ( Desert::Geometry::SelectLOD( transform, submeshes, glm::vec3( 0.0f ), -1, 0 ),
-                   Desert::Geometry::SelectLODFromBounds(
-                        transform, Desert::Geometry::LocalBounds( submeshes ), glm::vec3( 0.0f ), -1, 0 ) )
+                   Desert::Geometry::SelectLODFromBounds( transform, Desert::Geometry::LocalBounds( submeshes ),
+                                                          glm::vec3( 0.0f ), -1, 0 ) )
              << "at " << distance << " cm";
     }
 }
@@ -561,17 +560,16 @@ TEST( MeshLOD, TheBoundsTakingAndSubmeshTakingSelectorsAreOnePolicy )
 // frame — it renders, at the wrong detail, and looks exactly like a batch rendered at the right one.
 TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
 {
-    namespace fs = std::filesystem;
+    namespace fs  = std::filesystem;
     fs::path root = fs::current_path();
-    for ( int i = 0; i < 8 && !( fs::exists( root / "Desert" / "Common" ) && fs::exists( root / "Editor" ) );
-          ++i )
+    for ( int i = 0; i < 8 && !( fs::exists( root / "Desert" / "Common" ) && fs::exists( root / "Editor" ) ); ++i )
     {
         root = root.parent_path();
     }
     ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) );
 
-    std::ifstream     in( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" /
-                          "Scene" / "Mesh" / "MeshRenderer.cpp" );
+    std::ifstream in( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" / "Mesh" /
+                      "MeshRenderer.cpp" );
     std::stringstream buffer;
     buffer << in.rdbuf();
     const std::string source = buffer.str();
@@ -585,11 +583,11 @@ TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
     };
 
     const Row rows[] = {
-        { "renderer.RenderMesh( instancedPipeline", "d.LodLevel",
-          "the opaque instanced batch — auto-batched statics and ISM instances" },
-        { "renderer.RenderMesh( m_ShadowInstancedPipeline.get()", "b.LodLevel",
-          "the cascade's instanced casters; a caster at a coarser level than the object the camera "
-          "sees casts a silhouette that does not match it" },
+         { "renderer.RenderMesh( instancedPipeline", "d.LodLevel",
+           "the opaque instanced batch — auto-batched statics and ISM instances" },
+         { "renderer.RenderMesh( m_ShadowInstancedPipeline.get()", "b.LodLevel",
+           "the cascade's instanced casters; a caster at a coarser level than the object the camera "
+           "sees casts a silhouette that does not match it" },
     };
 
     for ( const auto& row : rows )

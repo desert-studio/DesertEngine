@@ -61,7 +61,7 @@ namespace Desert::Graphic::Render
 
         DrawInstancedStaticMeshCommand( Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms,
-                                        bool castShadows )
+                                        bool                                          castShadows )
              : Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) ),
                CastShadows( castShadows )
         {

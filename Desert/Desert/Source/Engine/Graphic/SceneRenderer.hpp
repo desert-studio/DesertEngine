@@ -187,7 +187,7 @@ namespace Desert::Graphic
         // and the one this replaces was an unconditional append in the cascade pass.
         void SubmitInstancedMesh( const Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                  bool castShadows );
+                                  bool                                                 castShadows );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, float intensity = 1.0f );
 

@@ -315,8 +315,8 @@ namespace Desert::Graphic::System
             // generated include (Common/GraphVertex.glslh) that transforms a_Position and nothing else,
             // and Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in
             // the tree. The day a vertex-offset node exists, that census goes red before this does.
-            if ( g.Mesh && !IsVisibleInView( frustum, g.Transform,
-                                             Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+            if ( g.Mesh &&
+                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                 continue;
 
             // Per-slot draws carry their own material (asset params already applied at build);
@@ -665,8 +665,7 @@ namespace Desert::Graphic::System
         {
             if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
                 continue;
-            if ( !IsVisibleInView( frustum, data.Transform,
-                                   Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
             if ( !pbrInst )
@@ -838,8 +837,7 @@ namespace Desert::Graphic::System
                  !data.MaterialSlots->Slots[0] )
                 continue;
 
-            if ( !IsVisibleInView( frustum, data.Transform,
-                                   Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
 
             // First PBR slot drives the batch. Slots holding a custom-shader material
@@ -971,8 +969,7 @@ namespace Desert::Graphic::System
                             if ( levels[i] == level )
                                 instTransforms.push_back( batchable[i].Obj->Transform );
 
-                        const uint32_t count =
-                             static_cast<uint32_t>( instTransforms.size() ) - firstInstance;
+                        const uint32_t count = static_cast<uint32_t>( instTransforms.size() ) - firstInstance;
                         if ( count < 2 )
                         {
                             // A level with a single member is cheaper as a per-object draw, and that is
@@ -2124,9 +2121,9 @@ namespace Desert::Graphic::System
                              levels.clear();
                              levels.reserve( bucket.size() );
                              for ( const auto* rd : bucket )
-                                 levels.push_back( std::min( ComputeLOD( rd->Transform, rd->Mesh,
-                                                                        rd->ForcedLOD, rd->LODBias ),
-                                                             maxLevel ) );
+                                 levels.push_back(
+                                      std::min( ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ),
+                                                maxLevel ) );
 
                              for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                              {
@@ -2135,8 +2132,7 @@ namespace Desert::Graphic::System
                                      if ( levels[i] == level )
                                          instTransforms.push_back( bucket[i]->Transform );
 
-                                 const uint32_t count =
-                                      static_cast<uint32_t>( instTransforms.size() ) - first;
+                                 const uint32_t count = static_cast<uint32_t>( instTransforms.size() ) - first;
                                  if ( count < 2 )
                                  {
                                      instTransforms.resize( first );
@@ -2185,10 +2181,10 @@ namespace Desert::Graphic::System
                                  if ( !IsVisibleInView( cascadeFrustum, instanceTransform, localBounds ) )
                                      continue;
                                  visible.push_back( instanceTransform );
-                                 levels.push_back( std::min(
-                                      Geometry::SelectLODFromBounds( instanceTransform, localBounds,
-                                                                     lodViewPosition, -1, 0 ),
-                                      maxLevel ) );
+                                 levels.push_back(
+                                      std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds,
+                                                                               lodViewPosition, -1, 0 ),
+                                                maxLevel ) );
                              }
                              if ( visible.empty() )
                                  continue;
@@ -2200,8 +2196,8 @@ namespace Desert::Graphic::System
                                      if ( levels[i] == level )
                                          instTransforms.push_back( visible[i] );
                                  batches.push_back( ShadowBatch{
-                                      ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first,
-                                      first, level } );
+                                      ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first,
+                                      level } );
                              }
                          }
                      }

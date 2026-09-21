@@ -567,8 +567,8 @@ namespace Desert::Graphic::System
         // Per-batch LOD levels and the surviving ISM transforms. Members rather than locals for the
         // reason every accumulator in this file is one: their capacity persists, so a frame that culls
         // 49 000 instances out of 49 152 allocates nothing.
-        std::vector<uint32_t>       m_ScratchLodLevels;
-        std::vector<glm::mat4>      m_ScratchIsmVisible;
+        std::vector<uint32_t>                    m_ScratchLodLevels;
+        std::vector<glm::mat4>                   m_ScratchIsmVisible;
         std::vector<PBRGpuMaterial> m_ScratchInstMaterials;
         std::vector<InstancedDraw>  m_ScratchInstDraws;
         std::vector<PBRGpuMaterial> m_ScratchGpuMaterials; // per-object Materials[] SSBO

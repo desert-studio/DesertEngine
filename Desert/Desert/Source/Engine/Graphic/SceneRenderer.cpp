@@ -1328,7 +1328,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::SubmitInstancedMesh( const Mesh* mesh, const MaterialInstancePtr& material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                             bool castShadows )
+                                             bool                                                 castShadows )
     {
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitInstancedMesh( { .Mesh        = static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) ),
