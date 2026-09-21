@@ -19,9 +19,10 @@
  *
  * ── THE CORPUS, AND WHY THE SOURCE RIG IS NOT SIMPLY A SCALED IKProbe ────────────────────────────────
  *
- * `Editor/Cooked/Meshes/ForeignArm.skeleton` is IKProbe's arm at UNEVEN proportions (shoulder x1.5,
- * upper arm x1.75, forearm x1.3) with ONE bone renamed, `IK_Hand` -> `Foreign_Hand`. Both halves are
- * load-bearing:
+ * THE SUITE BUILDS ITS OWN SOURCE RIG AND CLIP — see `ForeignArmRigData` below for the ignore rule that
+ * made the first version of this file depend on two fixtures `git add` had silently skipped. The rig is
+ * IKProbe's arm at UNEVEN proportions (shoulder x1.5, upper arm x1.75, forearm x1.3) with ONE bone
+ * renamed, `IK_Hand` -> `Foreign_Hand`. Both halves are load-bearing:
  *
  *   - UNEVEN, because T6.1 measured the retarget error as NOT MONOTONIC in the proportion difference, so
  *     a single uniform ratio is the one case whose result does not generalise;
@@ -32,8 +33,13 @@
  *     every existing scene. The rename is what keeps the two rigs distinguishable to the asset system,
  *     and it is also what makes the file's `BoneRenames` row do work.
  *
- * The clip `ForeignArm_Swing.anim` drives all three bones AND lifts the root, so all three stages of the
- * pipeline are exercised by the same measurement: pelvis motion, FK chains and the IK tip.
+ * The clip drives all three bones AND lifts the root, so all three stages of the pipeline are exercised
+ * by the same measurement: pelvis motion, FK chains and the IK tip.
+ *
+ * `Editor/Cooked/Meshes/ForeignArm.skeleton` and `ForeignArm_Swing.anim` still ship, because
+ * `ANIM_RetargetWitness.desce` plays the clip and the `.retarget` names the rig — but they are now a
+ * DERIVED artifact of the construction below, pinned to it by
+ * `TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstructs`. No measurement in this file reads them.
  */
 
 #include <gtest/gtest.h>
@@ -125,11 +131,180 @@ namespace
         return rig;
     }
 
-    AnimationClip ClipFrom( const char* path )
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────
+    // THE SOURCE RIG AND ITS CLIP ARE BUILT HERE RATHER THAN READ FROM DISK (A27)
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────
+    //
+    // The first version of this suite loaded `ForeignArm.skeleton` and `ForeignArm_Swing.anim` from
+    // `Editor/Cooked/Meshes/`, and those two files never reached `dev`. `.gitignore` turns that directory
+    // into a WHITELIST — `Editor/Cooked/Meshes/*` followed by one `!` line per file — so a fixture whose
+    // name is not in the list is skipped by `git add` IN SILENCE, while the `.retarget` that names it is
+    // committed normally. The suite was green in the tree where the files happened to sit on disk and red
+    // in every clone; when that tree was removed the bytes were gone, and no copy existed anywhere.
+    //
+    // The lesson is not "add the files to the list". It is that a measurement must not rest on a file an
+    // ignore rule is allowed to make disappear. So the source rig is DERIVED, in code, from
+    // `IKProbe.skeleton` — which is in the whitelist, is the retarget's target anyway, and is therefore
+    // the one file whose absence this suite could not survive in any design.
+    //
+    // The two edits below are exactly what the retarget exists to survive, and both are load-bearing:
+    //
+    //   - UNEVEN SEGMENT SCALES (x1.5 / x1.75 / x1.3), because T6.1 measured the retarget error as NOT
+    //     monotonic in the proportion difference: a single uniform ratio is the one case whose result does
+    //     not generalise, and — see `AnUNEVENProportionDifferenceIsVisibleAtRest` — the one case where the
+    //     rest pose is identically correct however broken the retarget is. MEASURED, because the obvious
+    //     claim here is wrong: making the three equal does NOT leave the suite green, the `> 0.1` in that
+    //     test already catches it. What no threshold catches is a DIFFERENT uneven triple — 1.6/1.8/1.4
+    //     passes every `>` in this file — which is why that test and the naive-error line below are
+    //     pinned to their VALUES (4.289 cm and 75 %) and not to a floor.
+    //   - THE RENAME `IK_Hand` -> `Foreign_Hand`, because `Skeleton::ComputeSignature` hashes bone names
+    //     and parents and nothing else, and `SkinnedMeshAsset::ResolveDependencies` binds a mesh to the
+    //     FIRST skeleton whose signature matches. A source rig differing from IKProbe only in bone
+    //     LENGTHS would carry IKProbe's own signature and could re-rig IKProbe.skmesh onto it. The rename
+    //     is what keeps the two rigs distinguishable, and it is also what makes the `BoneRenames` row work.
+    //
+    // The props `IK_Post` and `IK_Kerb` are dropped: the negative control in
+    // `ARetargetedCharacterHasDifferentSkinningMatricesAndTheDifferenceIsMeasured` asks that bones the
+    // source does not have stay bit-identical, so the source must not have them. They are the last two
+    // bones of IKProbe and parent nothing, so taking the first three keeps every `ParentBoneID` valid.
+
+    constexpr const char* kSourceTip = "Foreign_Hand";
+
+    /// Segment scales, root-ward first. UNEVEN BY CONSTRUCTION — see the note above.
+    constexpr float kShoulderScale = 1.5F;
+    constexpr float kUpperArmScale = 1.75F;
+    constexpr float kForearmScale  = 1.3F;
+
+    /// The clip's shape, and it is IKProbe_Swing's: one full sine over the clip, so tick 0 and tick 48000
+    /// are the rest and tick 12000 is the extreme. The two arm angles are IKProbe_Swing's own amplitudes;
+    /// the wrist and the root lift are what make this clip drive ALL THREE bones and move the pelvis, so
+    /// that all three stages of the pipeline are exercised by one measurement.
+    constexpr int32_t kClipDurationTicks = 48000;
+    constexpr int32_t kClipKeyStride     = 3000;
+    constexpr float   kShoulderSwingDeg  = 35.0F;
+    constexpr float   kElbowSwingDeg     = 20.0F;
+    constexpr float   kWristSwingDeg     = 30.0F;
+    /// 225 - 150: the two rigs' roots differ by exactly this, so the pelvis stage's scaling has
+    /// something to bite on that is on the scale of the proportion difference rather than arbitrary.
+    constexpr float kRootLiftCm = 75.0F;
+
+    std::vector<BoneInfo> TargetBones()
     {
-        const std::string raw = ReadFile( RepoRoot() + path );
-        EXPECT_FALSE( raw.empty() ) << "could not read " << path;
-        const auto data = rfl::json::read<File::AnimationAssetData, rfl::DefaultIfMissing>( raw );
+        const std::string raw = ReadFile( RepoRoot() + kTargetRig );
+        EXPECT_FALSE( raw.empty() ) << "could not read " << kTargetRig;
+        auto data = rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
+        EXPECT_TRUE( data.has_value() );
+        return data.has_value() ? std::move( data.value().Bones ) : std::vector<BoneInfo>{};
+    }
+
+    /// The source rig as FILE DATA, so that what the suite measures and what the project ships are the
+    /// same construction rather than two descriptions of one.
+    File::SkeletonAssetData ForeignArmRigData()
+    {
+        std::vector<BoneInfo> bones = TargetBones();
+        EXPECT_GE( bones.size(), 3U );
+        if ( bones.size() < 3 )
+            return {};
+        bones.resize( 3 ); // IK_Shoulder, IK_Elbow, IK_Hand — the props parent nothing and are dropped
+
+        const float scales[] = { kShoulderScale, kUpperArmScale, kForearmScale };
+        for ( size_t i = 0; i < bones.size(); ++i )
+        {
+            bones[i].LocalBindTransform[3][0] *= scales[i];
+            bones[i].LocalBindTransform[3][1] *= scales[i];
+            bones[i].LocalBindTransform[3][2] *= scales[i];
+        }
+        bones[2].Name = kSourceTip;
+
+        // The offsets are the inverse bind pose and must follow the lengths; `Skeleton` can derive them,
+        // and deriving them is what stops the shipped file from carrying IKProbe's offsets under
+        // ForeignArm's bones — a file that parses perfectly and skins to the wrong place.
+        Skeleton rig( std::move( bones ) );
+        rig.RecomputeOffsetMatrices();
+
+        File::SkeletonAssetData data;
+        data.Signature = rig.GetSignature();
+        data.Bones     = rig.GetBones();
+        return data;
+    }
+
+    /// One full sine over the clip: 0 at tick 0 and at the duration, 1 at tick 12000.
+    float SwingAt( int32_t tick )
+    {
+        constexpr float kTwoPi = 6.283185307179586F;
+        return std::sin( kTwoPi * static_cast<float>( tick ) / static_cast<float>( kClipDurationTicks ) );
+    }
+
+    File::ChannelData SwingChannel( const BoneInfo& bone, const glm::vec3& axis, float degrees, float liftCm )
+    {
+        File::ChannelData channel;
+        channel.BoneName = bone.Name;
+
+        const glm::vec3 rest( bone.LocalBindTransform[3] );
+        const glm::quat bind( glm::mat3( bone.LocalBindTransform ) );
+
+        for ( int32_t tick = 0; tick <= kClipDurationTicks; tick += kClipKeyStride )
+        {
+            const float swing = SwingAt( tick );
+
+            File::KeyPosition position;
+            position.Tick  = tick;
+            position.Value = rest + glm::vec3( 0.0F, liftCm * swing, 0.0F );
+            channel.Positions.push_back( position );
+
+            File::KeyRotation rotation;
+            rotation.Tick  = tick;
+            rotation.Value = bind * glm::angleAxis( glm::radians( degrees * swing ), axis );
+            channel.Rotations.push_back( rotation );
+        }
+
+        File::KeyScale scale;
+        scale.Value = glm::vec3( 1.0F );
+        channel.Scales.push_back( scale );
+        return channel;
+    }
+
+    /// The clip as FILE DATA. Every bone of the source rig is driven and the root is lifted, so the
+    /// pelvis stage, the FK chains and the IK tip are all reached by one tick of one clip.
+    File::AnimationAssetData ForeignArmClipData()
+    {
+        const File::SkeletonAssetData rig = ForeignArmRigData();
+        EXPECT_EQ( rig.Bones.size(), 3U );
+        if ( rig.Bones.size() != 3 )
+            return {};
+
+        File::AnimationAssetData clip;
+        clip.Version           = File::kAnimationVersion;
+        clip.Name              = "ForeignArm_Swing";
+        clip.TickRate          = File::FrameRateData{ 24000, 1 };
+        clip.DisplayRate       = File::FrameRateData{ 8, 1 };
+        clip.DurationTicks     = kClipDurationTicks;
+        clip.SkeletonSignature = rig.Signature;
+        clip.Channels          = {
+             SwingChannel( rig.Bones[0], glm::vec3( 0.0F, 0.0F, 1.0F ), kShoulderSwingDeg, kRootLiftCm ),
+             SwingChannel( rig.Bones[1], glm::vec3( 1.0F, 0.0F, 0.0F ), kElbowSwingDeg, 0.0F ),
+             SwingChannel( rig.Bones[2], glm::vec3( 0.0F, 1.0F, 0.0F ), kWristSwingDeg, 0.0F ),
+        };
+        return clip;
+    }
+
+    /// THE FIXTURE GOES THROUGH JSON AND BACK, on purpose. Handing the tests a `Skeleton` built in memory
+    /// would drop `rfl::json::read` and `BuildClipFromAssetData` out of the suite entirely, and those are
+    /// the two links the shipped corpus travels through. What is removed here is the DISK, not the format.
+    Skeleton SourceRig()
+    {
+        auto data = rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>(
+             rfl::json::write( ForeignArmRigData() ) );
+        EXPECT_TRUE( data.has_value() );
+        Skeleton rig( data.has_value() ? std::move( data.value().Bones ) : std::vector<BoneInfo>{} );
+        rig.RecomputeOffsetMatrices();
+        return rig;
+    }
+
+    AnimationClip SourceClip()
+    {
+        const auto data = rfl::json::read<File::AnimationAssetData, rfl::DefaultIfMissing>(
+             rfl::json::write( ForeignArmClipData() ) );
         EXPECT_TRUE( data.has_value() );
         if ( !data.has_value() )
             return {};
@@ -464,7 +639,7 @@ TEST( RetargetAssetTest, AnUNEVENProportionDifferenceIsVisibleAtRest )
     // This is recorded because it is the exact kind of claim that gets over-generalised into "a bind-pose
     // frame is always useless here". The honest statement is narrower and this test holds both halves of
     // it side by side.
-    const Skeleton  source     = RigFrom( kSourceRig );
+    const Skeleton  source     = SourceRig();
     const Skeleton  target     = RigFrom( kTargetRig );
     const LocalPose targetRest = [&]
     {
@@ -486,6 +661,13 @@ TEST( RetargetAssetTest, AnUNEVENProportionDifferenceIsVisibleAtRest )
     EXPECT_GT( restDelta, 0.1F ) << "an uneven source rig changes the chain's normalised extension, so "
                                     "even the rest pose is re-aimed";
 
+    // AND IT IS PINNED TO ITS VALUE, NOT TO A THRESHOLD (A27). This number is a function of the THREE
+    // SCALE FACTORS AND NOTHING ELSE — no clip, no tick — which makes it the one assertion in the suite
+    // that can tell "the rig this suite is for" from "a rig". Make the three scales equal and it goes to
+    // zero, 429 tolerances away, while every `> 0` test in the file stays green; that is the mutation
+    // this pin exists to fail, and a `> 0.1` could not fail it by more than a hair.
+    EXPECT_NEAR( restDelta, 4.289F, 0.01F ) << "the source rig's segment scales are no longer 1.5 / 1.75 / 1.3";
+
     // AND THE LIMB LENGTHS ARE STILL EXACT, which is the quantity T6.1's table reports and the one that
     // IS blind at rest. Both statements are true at once, and confusing them is the whole hazard.
     EXPECT_LT( WorstSegmentErrorPercent( target, out ), 0.01F );
@@ -500,9 +682,9 @@ TEST( RetargetAssetTest, AnUNEVENProportionDifferenceIsVisibleAtRest )
 
 TEST( RetargetAssetTest, ARetargetedCharacterHasDifferentSkinningMatricesAndTheDifferenceIsMeasured )
 {
-    const Skeleton      source = RigFrom( kSourceRig );
+    const Skeleton      source = SourceRig();
     const Skeleton      target = RigFrom( kTargetRig );
-    const AnimationClip clip   = ClipFrom( kSourceClip );
+    const AnimationClip clip   = SourceClip();
 
     // WITHOUT: the clip plays on the target rig by bone NAME, which is exactly what this engine did
     // before this task. Two of the clip's three bones exist on the target, so it is not "nothing plays" —
@@ -556,6 +738,11 @@ TEST( RetargetAssetTest, ARetargetedCharacterHasDifferentSkinningMatricesAndTheD
     const float retargetError = WorstSegmentErrorPercent( target, retargetedPose );
     EXPECT_GT( naiveError, 10.0F ) << "the naive path is supposed to be wrong; if it is not, this "
                                       "corpus no longer differs in proportion and proves nothing";
+    // 1.75 - 1, EXACTLY: the naive path writes the source's own 140 cm upper arm onto a target bone that
+    // is 80 cm, and the worst segment of the rig is therefore the one scaled most. The second pin on the
+    // rig's identity, and the one that names WHICH segment is worst — a uniform rig would still fail the
+    // `> 10` above at some scales, and this at every one of them.
+    EXPECT_NEAR( naiveError, 75.0F, 0.01F ) << "the worst-scaled segment is no longer the upper arm at x1.75";
     EXPECT_LT( retargetError, 0.01F ) << "the retargeted target must keep its own bones";
 
     // AND DETACHING PUTS IT BACK EXACTLY. The other half of "the retarget is an attachment": a pipeline
@@ -574,9 +761,9 @@ TEST( RetargetAssetTest, TheRenamedBoneIsDrivenOnlyBecauseTheFileSaysSo )
     // THE `BoneRenames` ROW, AS AN ASSERTION. Without it the target's `IK_Hand` has no source bone at all
     // and the chain is the only thing that could reach it; removing the row must therefore change the
     // hand and nothing above it. A row nobody can observe is a row that can be deleted by accident.
-    const Skeleton      source = RigFrom( kSourceRig );
+    const Skeleton      source = SourceRig();
     const Skeleton      target = RigFrom( kTargetRig );
-    const AnimationClip clip   = ClipFrom( kSourceClip );
+    const AnimationClip clip   = SourceClip();
 
     File::RetargetAssetData noRename = ShippedRetarget();
     ASSERT_FALSE( noRename.BoneRenames.empty() );
@@ -622,7 +809,7 @@ TEST( RetargetAssetTest, AClipThatDrivesNothingLeavesTheTargetInItsOwnRetargetRe
     // makes it a no-op — the equation is `sourceCurrent * sourceInitial^-1`, so `sourceInitial` gives the
     // identity delta and the target keeps its own rest. Feed the whole rig that state at once, with a
     // clip that drives nothing, and the answer must be the target's retarget rest EXACTLY.
-    const Skeleton source = RigFrom( kSourceRig );
+    const Skeleton source = SourceRig();
     const Skeleton target = RigFrom( kTargetRig );
 
     AnimationClip empty;
@@ -663,7 +850,7 @@ TEST( RetargetAssetTest, AnAdditiveLayerOfNothingIsANoOpOnlyBecauseItsReferenceI
     // that is identity — and the delta against either the bind pose or the target's own retarget pose is
     // a correction nobody wrote, injected into every bone by a layer the author set to add nothing. Both
     // of those were tried here; the second is the one that had to be measured to be ruled out.
-    const Skeleton source = RigFrom( kSourceRig );
+    const Skeleton source = SourceRig();
     const Skeleton target = RigFrom( kTargetRig );
 
     File::RetargetAssetData posed = ShippedRetarget();
@@ -677,7 +864,7 @@ TEST( RetargetAssetTest, AnAdditiveLayerOfNothingIsANoOpOnlyBecauseItsReferenceI
     empty.TickRate      = Desert::Animation::FrameRate{ 24000, 1 };
 
     Animator animator( target );
-    animator.Play( ClipFrom( kSourceClip ), false );
+    animator.Play( SourceClip(), false );
     ASSERT_TRUE( animator.AttachRetarget( BuildSource( posed, source, target ) ).IsSuccess() );
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const std::vector<glm::mat4> withoutLayer = animator.GetPose().Matrices;
@@ -700,7 +887,7 @@ TEST( RetargetAssetTest, ARetargetIsRebuiltWhenAnySideOfThePairMoves )
     // FOUR FACTS, AND THE SUITE ASKS ABOUT EACH ONE. `SyncRetarget` skips the rebuild only when all four
     // agree; a stamp that could not distinguish one of them would leave a stale retargeter running after
     // the thing it was built from had changed.
-    const Skeleton source = RigFrom( kSourceRig );
+    const Skeleton source = SourceRig();
     const Skeleton target = RigFrom( kTargetRig );
 
     auto built = BuildSource( ShippedRetarget(), source, target );
@@ -725,7 +912,7 @@ TEST( RetargetAssetTest, ARetargetBuiltForAnotherTargetRigIsRefusedRatherThanAtt
     // A retargeter whose target is not this Animator's rig cannot change this rig's pose correctly, and a
     // stage that runs and is wrong is worse than one that refuses. Built against the SOURCE rig as its own
     // target, then offered to an Animator on the target rig.
-    const Skeleton source = RigFrom( kSourceRig );
+    const Skeleton source = SourceRig();
     const Skeleton target = RigFrom( kTargetRig );
 
     File::RetargetAssetData ontoItself = ShippedRetarget();
@@ -756,9 +943,9 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
     // Animator: a layer keeps its OWN playhead, so `SetTick` moves the base clip and leaves the layer
     // where it was. Two poses at two different times cannot be compared bone for bone; the target's own
     // segment lengths can, at any time, and they are exactly what an un-retargeted fold destroys.
-    const Skeleton      source = RigFrom( kSourceRig );
+    const Skeleton      source = SourceRig();
     const Skeleton      target = RigFrom( kTargetRig );
-    const AnimationClip clip   = ClipFrom( kSourceClip );
+    const AnimationClip clip   = SourceClip();
 
     // THE POSITIVE CONTROL FIRST: the naive path folding this clip as a layer, so the number the
     // assertion below is protecting against is measured rather than assumed.
@@ -822,7 +1009,7 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
 
     // AND THE TWO RIGS MUST NOT SHARE A SIGNATURE, or `SkinnedMeshAsset::ResolveDependencies` could bind
     // IKProbe.skmesh to the source rig — see this file's header.
-    EXPECT_NE( RigFrom( kSourceRig ).GetSignature(), RigFrom( kTargetRig ).GetSignature() );
+    EXPECT_NE( SourceRig().GetSignature(), RigFrom( kTargetRig ).GetSignature() );
 
     const std::string witness = ReadFile( root + "Editor/Resources/Assets/Scenes/ANIM_RetargetWitness.desce" );
     ASSERT_FALSE( witness.empty() );
@@ -835,6 +1022,87 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     EXPECT_EQ( control.find( "\"Retarget\"" ), std::string::npos )
          << "the control scene must differ from the witness in exactly one thing: the retarget";
     EXPECT_NE( control.find( "ForeignArm_Swing" ), std::string::npos );
+}
+
+TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstructs )
+{
+    // THE FILES ARE A DERIVED ARTIFACT AND THIS IS THEIR PRODUCER. Every measurement above runs on the
+    // fixture built in this file, so the suite cannot be silenced by an ignore rule again — but
+    // `ANIM_RetargetWitness.desce` plays `ForeignArm_Swing` and the shipped `.retarget` names
+    // `ForeignArm.skeleton`, so the two files still have to exist for the scenes to animate. This test is
+    // what keeps those bytes and this construction from drifting apart: change a scale above without
+    // regenerating the files and the corpus says so here, by name, instead of on someone else's screen.
+    //
+    // THEY ARE COMPARED BY VALUE AND NOT BY BYTES, because the writer is free to choose its spelling of a
+    // float; what must agree is the rig and the motion.
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    // THE REGENERATION PATH IS THIS TEST, not a sentence in a comment. Both files are written out on
+    // every run, so "the corpus disagrees with the construction" and "here are the bytes that fix it"
+    // are the same event — and a recipe that is executed every run cannot rot the way an instruction
+    // in a header does.
+    const std::filesystem::path rigOut  = std::filesystem::temp_directory_path() / "ForeignArm.skeleton";
+    const std::filesystem::path clipOut = std::filesystem::temp_directory_path() / "ForeignArm_Swing.anim";
+    {
+        std::ofstream( rigOut, std::ios::binary ) << rfl::json::write( ForeignArmRigData() );
+        std::ofstream( clipOut, std::ios::binary ) << rfl::json::write( ForeignArmClipData() );
+    }
+
+    const auto shippedRig =
+         rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>( ReadFile( root + kSourceRig ) );
+    ASSERT_TRUE( shippedRig.has_value() )
+         << kSourceRig << " is missing or is not a skeleton; copy " << rigOut.string() << " over it";
+
+    const File::SkeletonAssetData builtRig = ForeignArmRigData();
+    ASSERT_EQ( shippedRig.value().Bones.size(), builtRig.Bones.size() );
+    EXPECT_EQ( shippedRig.value().Signature, builtRig.Signature );
+    for ( size_t i = 0; i < builtRig.Bones.size(); ++i )
+    {
+        EXPECT_EQ( shippedRig.value().Bones[i].Name, builtRig.Bones[i].Name ) << "bone " << i;
+        EXPECT_EQ( shippedRig.value().Bones[i].ParentBoneID, builtRig.Bones[i].ParentBoneID ) << "bone " << i;
+        EXPECT_LT(
+             MaxAbsDelta( shippedRig.value().Bones[i].LocalBindTransform, builtRig.Bones[i].LocalBindTransform ),
+             1.0e-3F )
+             << builtRig.Bones[i].Name << "'s bind transform is not the one this suite builds";
+        EXPECT_LT( MaxAbsDelta( shippedRig.value().Bones[i].OffsetMatrix, builtRig.Bones[i].OffsetMatrix ),
+                   1.0e-3F )
+             << builtRig.Bones[i].Name << "'s inverse bind pose is not the one this suite builds";
+    }
+
+    const auto shippedClip =
+         rfl::json::read<File::AnimationAssetData, rfl::DefaultIfMissing>( ReadFile( root + kSourceClip ) );
+    ASSERT_TRUE( shippedClip.has_value() )
+         << kSourceClip << " is missing or is not a clip; copy " << clipOut.string() << " over it";
+
+    const File::AnimationAssetData builtClip = ForeignArmClipData();
+    EXPECT_EQ( shippedClip.value().Version, builtClip.Version );
+    EXPECT_EQ( shippedClip.value().Name, builtClip.Name );
+    EXPECT_EQ( shippedClip.value().DurationTicks, builtClip.DurationTicks );
+    EXPECT_EQ( shippedClip.value().SkeletonSignature, builtClip.SkeletonSignature );
+    EXPECT_EQ( shippedClip.value().TickRate.Numerator, builtClip.TickRate.Numerator );
+    EXPECT_EQ( shippedClip.value().TickRate.Denominator, builtClip.TickRate.Denominator );
+    ASSERT_EQ( shippedClip.value().Channels.size(), builtClip.Channels.size() );
+    for ( size_t c = 0; c < builtClip.Channels.size(); ++c )
+    {
+        const File::ChannelData& shipped = shippedClip.value().Channels[c];
+        const File::ChannelData& built   = builtClip.Channels[c];
+        EXPECT_EQ( shipped.BoneName, built.BoneName ) << "channel " << c;
+        ASSERT_EQ( shipped.Positions.size(), built.Positions.size() ) << built.BoneName;
+        ASSERT_EQ( shipped.Rotations.size(), built.Rotations.size() ) << built.BoneName;
+        for ( size_t k = 0; k < built.Positions.size(); ++k )
+        {
+            EXPECT_EQ( shipped.Positions[k].Tick, built.Positions[k].Tick ) << built.BoneName;
+            EXPECT_LT( glm::length( shipped.Positions[k].Value - built.Positions[k].Value ), 1.0e-2F )
+                 << built.BoneName << " position key " << k;
+        }
+        for ( size_t k = 0; k < built.Rotations.size(); ++k )
+        {
+            EXPECT_EQ( shipped.Rotations[k].Tick, built.Rotations[k].Tick ) << built.BoneName;
+            EXPECT_LT( glm::length( shipped.Rotations[k].Value - built.Rotations[k].Value ), 1.0e-3F )
+                 << built.BoneName << " rotation key " << k;
+        }
+    }
 }
 
 TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
