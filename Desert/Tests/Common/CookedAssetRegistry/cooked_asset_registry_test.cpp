@@ -14,6 +14,7 @@
 //     column: each is answered with an error that names the row, never with a row silently dropped or
 //     overwritten. A registry that quietly loses a line is a game that quietly ships without a texture.
 
+#include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
@@ -21,7 +22,11 @@
 
 #include <gtest/gtest.h>
 
+#include <initializer_list>
+#include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 using Common::Utils::AssetRegistry;
 using Common::Utils::AssetRegistryEntry;
@@ -286,6 +291,104 @@ TEST( CookedAssetRegistry, RemovingARowTakesBothOfItsNumbersWithIt )
     EXPECT_EQ( registry.FindByHandle( 0xFEEDul ), nullptr );
     EXPECT_EQ( registry.FindByHandle( derived ), nullptr );
     EXPECT_FALSE( registry.Remove( "cooked:Textures/T.tex" ) );
+}
+
+// ── THE COMPARATOR THE COOK GATE IS MADE OF ─────────────────────────────────────────────────────────
+//
+// WHY THESE EXIST, AND IT IS A MUTATION THAT PUT THEM HERE. `Desert/Tests/Editor/CookedRegistryGate`
+// holds the committed registry against the committed tree, and it is the thing CI fails on. But it
+// asserts the DATA, not the COMPARATOR: with `CompareWithDisk` mutated to never report an orphan row,
+// and an orphan row planted in the registry, the gate came back GREEN. A green mutation means the test
+// does not reach the property, and the answer is to reach it rather than to record the green.
+//
+// `CompareWithDisk` is PURE — a registry and a map in, a list of sentences out — so the four ways a
+// registry can disagree with a tree are assertable here, with no disk at all.
+
+namespace
+{
+    std::map<std::string, Common::Content::ContentFile> Disk(
+         std::initializer_list<std::pair<std::string, Common::Content::ContentFile>> rows )
+    {
+        std::map<std::string, Common::Content::ContentFile> out;
+        for ( const auto& row : rows )
+            out.emplace( row.first, row.second );
+        return out;
+    }
+
+    bool Reports( const std::vector<Common::Content::RegistryDisagreement>& problems,
+                  Common::Content::RegistryDisagreement::Kind what, const std::string& key )
+    {
+        for ( const auto& problem : problems )
+        {
+            if ( problem.What == what && problem.Key == key )
+                return true;
+        }
+        return false;
+    }
+} // namespace
+
+TEST( CookedAssetRegistry, AnAgreeingRegistryAndTreeProduceNoDisagreements )
+{
+    // THE POSITIVE CONTROL. Without it every case below could pass on a comparator that reports
+    // everything, which is a gate nobody can ever satisfy and therefore a gate somebody deletes.
+    AssetRegistry registry;
+    ASSERT_TRUE( registry.Insert( Row( "assets:Materials/M.demat", "Material", 512 ) ) );
+
+    const auto onDisk = Disk( { { "assets:Materials/M.demat",
+                                  { Common::Content::ContentKind::Material, 512 } } } );
+
+    EXPECT_TRUE( Common::Content::CompareWithDisk( registry, onDisk ).empty() );
+}
+
+TEST( CookedAssetRegistry, AFileWithNoRowIsReportedBecauseItWouldNotReachAPackagedBuild )
+{
+    // The T2.7 hazard itself: since the boot stopped scanning the content roots, a file with no row
+    // is a file the engine does not have — and the failure is packaged-build-only.
+    AssetRegistry registry;
+
+    const auto onDisk = Disk( { { "assets:Materials/M.demat",
+                                  { Common::Content::ContentKind::Material, 512 } } } );
+
+    const auto problems = Common::Content::CompareWithDisk( registry, onDisk );
+    ASSERT_EQ( problems.size(), 1u );
+    EXPECT_TRUE( Reports( problems, Common::Content::RegistryDisagreement::Kind::MissingRow,
+                          "assets:Materials/M.demat" ) );
+    // The remedy has to BE in the sentence: a gate that names a problem without naming the command
+    // that fixes it is a gate people learn to disable.
+    EXPECT_NE( problems.front().Detail.find( "AssetRegistryTool cook" ), std::string::npos )
+         << problems.front().Detail;
+}
+
+TEST( CookedAssetRegistry, ARowWithNoFileIsReportedBecauseTheLoaderWillChaseItForEver )
+{
+    // THE CASE A MUTATION FOUND UNGUARDED. `CompareWithDisk` was changed to skip this loop entirely
+    // and the CI gate stayed green over a registry with a planted orphan row.
+    AssetRegistry registry;
+    ASSERT_TRUE( registry.Insert( Row( "assets:Materials/Gone.demat", "Material", 512 ) ) );
+
+    const auto problems = Common::Content::CompareWithDisk( registry, {} );
+    ASSERT_EQ( problems.size(), 1u );
+    EXPECT_TRUE( Reports( problems, Common::Content::RegistryDisagreement::Kind::OrphanRow,
+                          "assets:Materials/Gone.demat" ) );
+}
+
+TEST( CookedAssetRegistry, AKindOrASizeThatDisagreesIsReportedAndTheRowIsStillFound )
+{
+    // Two independent ways one row can be wrong while the file exists, and they must be reported
+    // SEPARATELY: the wrong kind means the loader builds the wrong class, the wrong size means the
+    // file was edited after the cook and the identity column may name a number it no longer carries.
+    AssetRegistry registry;
+    ASSERT_TRUE( registry.Insert( Row( "assets:Materials/M.demat", "Texture", 512 ) ) );
+
+    const auto onDisk = Disk( { { "assets:Materials/M.demat",
+                                  { Common::Content::ContentKind::Material, 900 } } } );
+
+    const auto problems = Common::Content::CompareWithDisk( registry, onDisk );
+    EXPECT_TRUE( Reports( problems, Common::Content::RegistryDisagreement::Kind::WrongKind,
+                          "assets:Materials/M.demat" ) );
+    EXPECT_TRUE( Reports( problems, Common::Content::RegistryDisagreement::Kind::StaleSize,
+                          "assets:Materials/M.demat" ) );
+    EXPECT_EQ( problems.size(), 2u ) << "one row, two independent faults, two sentences";
 }
 
 int main( int argc, char** argv )
