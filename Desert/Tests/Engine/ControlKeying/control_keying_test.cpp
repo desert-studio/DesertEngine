@@ -834,3 +834,177 @@ TEST( ControlKeying, AControlNamedAfterABoneIsStillRefusedButTheBoneItselfIsNot 
                           ControlWriteSource::Authored );
     EXPECT_FALSE( written.IsSuccess() ) << "a control named after a bone would drive that bone";
 }
+
+// ── THE KEYING VOCABULARY (report 05 §939), AND THE DEFAULT THAT IS A FACT ABOUT UE ──────────────────
+//
+// Two enums, not three. `EAllowEditsMode` is refused in `ControlKeyer.hpp` with the count that refuses
+// it; there is nothing here to assert about an enum that does not exist, which is the point.
+//
+// Every mode below is asserted WITH ITS POSITIVE CONTROL, for the reason the top of this file gives: a
+// keyer that wrote nothing at all would pass "auto-key off writes nothing" perfectly.
+
+namespace
+{
+    using Desert::Animation::AutoChangeMode;
+    using Desert::Animation::KeyGroupMode;
+    using Desert::Animation::KeyingModes;
+    using Desert::Animation::KeySubject;
+    using Desert::Animation::KeySubjectKind;
+
+    constexpr KeySubject kChest{ KeySubjectKind::Bone, 1 };
+
+    /// A held drag over `kRecordFrames` frames driven entirely through `Observe`, released at the end.
+    /// Returns the keys the keyer reported writing across the whole gesture.
+    uint32_t ObserveDrag( Fixture& fix, bool movePlayhead = true )
+    {
+        uint32_t keyed = 0;
+        for ( int frame = 0; frame < kRecordFrames; ++frame )
+        {
+            fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, static_cast<float>( frame ) );
+            const auto written =
+                 fix.Keyer.Observe( fix.At( movePlayhead ? frame : 0 ), kChest, /*pointerHeld=*/true,
+                                    /*subjectMoved=*/true );
+            EXPECT_TRUE( written.IsSuccess() ) << written.GetError();
+            keyed += written.IsSuccess() ? written.GetValue() : 0;
+        }
+        const auto released = fix.Keyer.Observe( fix.At( movePlayhead ? kRecordFrames - 1 : 0 ), kChest,
+                                                 /*pointerHeld=*/false, /*subjectMoved=*/false );
+        EXPECT_TRUE( released.IsSuccess() ) << released.GetError();
+        return keyed + ( released.IsSuccess() ? released.GetValue() : 0 );
+    }
+
+    KeyingModes With( AutoChangeMode change, KeyGroupMode group = KeyGroupMode::Subject )
+    {
+        KeyingModes modes;
+        modes.AutoChange = change;
+        modes.KeyGroup   = group;
+        return modes;
+    }
+} // namespace
+
+TEST( ControlKeying, AutoKeyShipsOffAndADragUnderItChangesNothingOnDisk )
+{
+    Fixture fix;
+    EXPECT_EQ( fix.Keyer.Modes().AutoChange, AutoChangeMode::None )
+         << "UE ships auto-key off; a default of 'convenient' is a clip an animator did not agree to";
+
+    EXPECT_EQ( ObserveDrag( fix ), 0U );
+    EXPECT_EQ( fix.Clip.Tracks.size(), 0U ) << "not even an empty track: nothing was recording";
+}
+
+TEST( ControlKeying, TheSameDragWithAutoKeyOnLeavesExactlyOneKey )
+{
+    // THE POSITIVE CONTROL for the test above AND the whole of Record mode driven through one call, which
+    // is the part `SequencerPanel.cpp` is no longer allowed to spell for itself.
+    Fixture fix;
+    fix.Keyer.SetModes( With( AutoChangeMode::All ) );
+
+    EXPECT_EQ( ObserveDrag( fix ), 1U ) << "sixty held frames across sixty ticks, one key";
+
+    const BoneTrack* track = FindTrack( fix.Clip, "chest" );
+    ASSERT_NE( track, nullptr );
+    ASSERT_EQ( track->PositionKeys.size(), 1U );
+    EXPECT_EQ( track->PositionKeys[0].Tick.Value, kRecordFrames - 1 ) << "at the tick the pointer let go";
+    EXPECT_EQ( track->PositionKeys[0].Position.z, static_cast<float>( kRecordFrames - 1 ) );
+}
+
+TEST( ControlKeying, SwitchingAutoKeyOffMidDragCommitsNothingWhenThePointerIsReleased )
+{
+    // The failure this forbids is a drag that was never being recorded committing a key on release
+    // because an interaction was still open from before the mode changed.
+    Fixture fix;
+    fix.Keyer.SetModes( With( AutoChangeMode::All ) );
+
+    fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, 1.0F );
+    ASSERT_TRUE( fix.Keyer.Observe( fix.At( 4 ), kChest, true, true ).IsSuccess() );
+    EXPECT_EQ( fix.Keyer.Pending(), 1U );
+
+    fix.Keyer.SetModes( With( AutoChangeMode::None ) );
+    const auto released = fix.Keyer.Observe( fix.At( 6 ), kChest, false, false );
+    ASSERT_TRUE( released.IsSuccess() ) << released.GetError();
+    EXPECT_EQ( released.GetValue(), 0U );
+    EXPECT_FALSE( fix.Keyer.Interacting() ) << "the abandoned interaction is closed, not left open";
+    EXPECT_EQ( fix.Clip.Tracks.size(), 0U );
+}
+
+TEST( ControlKeying, AnExplicitKeyIsNotSilencedByAutoKeyBeingOff )
+{
+    // `AutoChangeMode` speaks for the AUTOMATIC path only. A mode named "auto-key off" that also disabled
+    // the Key button would be a button that does nothing, with no way to find out why.
+    Fixture fix;
+    ASSERT_EQ( fix.Keyer.Modes().AutoChange, AutoChangeMode::None );
+
+    fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, 7.0F );
+    const auto written = fix.Keyer.WriteBone( fix.At( 12 ), 1 );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    EXPECT_EQ( written.GetValue(), 1U );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 1U );
+}
+
+TEST( ControlKeying, AutoKeyLeavesASubjectWithNoTrackAloneAndKeysOneThatHasOne )
+{
+    Fixture fix;
+    fix.Keyer.SetModes( With( AutoChangeMode::AutoKey ) );
+
+    EXPECT_EQ( ObserveDrag( fix ), 0U ) << "'key what is already animated' does not start animating it";
+    EXPECT_EQ( fix.Clip.Tracks.size(), 0U ) << "and does not leave an empty track behind either";
+
+    // POSITIVE CONTROL: give the bone a track by hand, then drag again.
+    fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, 0.0F );
+    ASSERT_TRUE( fix.Keyer.WriteBone( fix.At( 0 ), 1 ).IsSuccess() );
+    EXPECT_EQ( ObserveDrag( fix ), 1U );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 2U ) << "the seeded key, and the one the drag added";
+}
+
+TEST( ControlKeying, AutoTrackCreatesTheTrackAndWritesNoKey )
+{
+    Fixture fix;
+    fix.Keyer.SetModes( With( AutoChangeMode::AutoTrack ) );
+
+    EXPECT_EQ( ObserveDrag( fix ), 0U );
+    const BoneTrack* track = FindTrack( fix.Clip, "chest" );
+    ASSERT_NE( track, nullptr ) << "the track is what this mode DOES do";
+    EXPECT_FALSE( track->HasKeys() ) << "and the key is what it withholds";
+}
+
+TEST( ControlKeying, KeyGroupChangedSkipsASubjectTheCurveAlreadyAgreesWith )
+{
+    Fixture fix;
+    fix.Keyer.SetModes( With( AutoChangeMode::All, KeyGroupMode::Changed ) );
+
+    // Two keys holding the same value, so the curve says that value everywhere between them.
+    fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, 5.0F );
+    ASSERT_TRUE( fix.Keyer.WriteBone( fix.At( 0 ), 1 ).IsSuccess() );
+    ASSERT_TRUE( fix.Keyer.WriteBone( fix.At( 40 ), 1 ).IsSuccess() );
+    ASSERT_EQ( PositionKeyCount( fix.Clip, "chest" ), 2U );
+
+    // Held still at tick 20: the clip already says this, so nothing is pinned into the middle of it.
+    const auto still = fix.Keyer.Observe( fix.At( 20 ), kChest, /*pointerHeld=*/true, /*subjectMoved=*/true );
+    ASSERT_TRUE( still.IsSuccess() ) << still.GetError();
+    ASSERT_TRUE( fix.Keyer.Observe( fix.At( 20 ), kChest, false, false ).IsSuccess() );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 2U ) << "an agreed-with pose is not an edit";
+
+    // POSITIVE CONTROL: move it, and the same gesture at the same tick does key.
+    fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, 9.0F );
+    ASSERT_TRUE( fix.Keyer.Observe( fix.At( 20 ), kChest, true, true ).IsSuccess() );
+    ASSERT_TRUE( fix.Keyer.Observe( fix.At( 20 ), kChest, false, false ).IsSuccess() );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 3U );
+}
+
+TEST( ControlKeying, KeyGroupAllKeysEveryBoneOfTheRigAndNotTheControls )
+{
+    // "Everything" means the KINDS the interaction touched. A drag on a bone that also keyed the rig's
+    // controls would be a gesture writing tracks for a hierarchy the animator was not working in.
+    Fixture fix;
+    fix.Keyer.SetModes( With( AutoChangeMode::All, KeyGroupMode::All ) );
+
+    fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, 3.0F );
+    ASSERT_TRUE( fix.Keyer.Observe( fix.At( 8 ), kChest, true, true ).IsSuccess() );
+    const auto released = fix.Keyer.Observe( fix.At( 8 ), kChest, false, false );
+    ASSERT_TRUE( released.IsSuccess() ) << released.GetError();
+
+    EXPECT_EQ( released.GetValue(), 2U ) << "both bones of this skeleton, from one bone being moved";
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "root" ), 1U );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "chest" ), 1U );
+    EXPECT_EQ( PositionKeyCount( fix.Clip, "hand_ctrl" ), 0U ) << "no control was touched by this gesture";
+}

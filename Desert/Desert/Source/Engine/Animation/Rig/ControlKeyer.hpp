@@ -131,6 +131,71 @@ namespace Desert::Animation
     };
 
     /**
+     * @brief WHEN A CHANGE BECOMES A KEY. Report 05 §939's first enum, and it ships OFF.
+     *
+     * UE's `EAutoChangeMode` has four values and so does this, because the four are not a scale: they are
+     * two independent answers ("may a track be created?" and "may a key be written?") that UE happens to
+     * have flattened. Flattening them again here is deliberate — the vocabulary is the point of copying
+     * it, and two bools at the call site would be a fifth and sixth state nobody means.
+     *
+     * `None` IS THE SHIPPED DEFAULT, and that is a fact about UE rather than a preference: auto-key is off
+     * in a fresh Sequencer, so an animator who poses a character and does not press a key button has
+     * changed nothing on disk. The editor's Record toggle is now exactly `AutoChange != None`; it used to
+     * be a second bool beside it, which is how a "recording" light and an actual keyer come to disagree.
+     */
+    enum class AutoChangeMode : uint8_t
+    {
+        None,      ///< SHIPPED DEFAULT. A pose change writes nothing into the clip.
+        AutoKey,   ///< key a subject that ALREADY has a track; a new subject is left alone
+        AutoTrack, ///< give a new subject its (empty) track, but write no key
+        All,       ///< create the track and key it
+    };
+
+    /**
+     * @brief WHAT ELSE GETS A KEY WHEN ONE SUBJECT IS KEYED. Report 05 §939's third enum.
+     *
+     * The unit is a SUBJECT, not a channel, and the naming says so rather than borrowing UE's `KeyAll`
+     * /`KeyGroup`/`KeyChanged` wholesale: our three channels are written by one `SetTransformKey` and
+     * splitting them would be a change to that function's contract, not to this enum. So `Changed` here
+     * means "a subject whose pose already equals what the clip says at this tick is not keyed", never
+     * "the two channels that moved".
+     *
+     * `Changed` APPLIES TO THE AUTOMATIC PATH ONLY, exactly as `AutoChangeMode` does. Pressing Key at a
+     * tick the curve already covers means "pin it here", and a button that silently writes nothing
+     * because an interpolated value happened to match is the failure mode this enum is supposed to
+     * prevent, not cause.
+     */
+    enum class KeyGroupMode : uint8_t
+    {
+        Changed, ///< skip a subject the clip already agrees with at this tick
+        Subject, ///< SHIPPED DEFAULT: every subject the interaction moved. What the tree did before.
+        All,     ///< every subject of the kinds the interaction touched, moved or not
+    };
+
+    /**
+     * @brief The two modes, together, because they are read together and a refusal has to name both.
+     *
+     * ── `EAllowEditsMode` IS DELIBERATELY ABSENT, AND THE COUNT IS THE ARGUMENT (A28) ────────────────
+     *
+     * §939 names three enums; this is two. UE's third one distinguishes WHERE an edit came from —
+     * `AllEdits` / `AllowSequencerEditsOnly` / `AllowLevelEditsOnly` — and separating those requires at
+     * least two authoring surfaces that can write a control or a bone pose. This tree has ONE: every pose
+     * write goes through `Core::ActiveAuthoringContext()`, which publishes exactly one owner at a time,
+     * and `ControlWriteSource` already answers the only distinction a reader can make here (a person, or
+     * an evaluated clip). Two of the three values would therefore be unreachable by construction — a knob
+     * that cannot move, which the contract forbids.
+     *
+     * IT COMES BACK WHEN THE COUNT DOES: the moment a second surface can write a pose without going
+     * through the Sequencer's context — a Details-panel control field, or a control gizmo in a viewport
+     * with no sequence open — the enum has something to say and should be added with that surface.
+     */
+    struct KeyingModes
+    {
+        AutoChangeMode AutoChange = AutoChangeMode::None;
+        KeyGroupMode   KeyGroup   = KeyGroupMode::Subject;
+    };
+
+    /**
      * @brief Which of a rig's two kinds of animatable thing a key is about.
      *
      * A track name is the only binding key there is (see the file note), so from the CLIP's point of view
@@ -231,6 +296,37 @@ namespace Desert::Animation
          */
         [[nodiscard]] Common::ResultStr<uint32_t> WriteBone( const ControlKeyTarget& target, uint32_t bone );
 
+        /// The keying vocabulary this keyer is working in. A MODE, not a target: it is the tool's state
+        /// (which toolbar toggle is lit), it survives between interactions, and every interaction in one
+        /// window is in the same one — so passing it per call would invite two calls to disagree.
+        void SetModes( KeyingModes modes )
+        {
+            m_Modes = modes;
+        }
+
+        [[nodiscard]] KeyingModes Modes() const
+        {
+            return m_Modes;
+        }
+
+        /**
+         * @brief THE WHOLE OF RECORD MODE, IN ONE CALL PER FRAME, so that the authoring surface holds no
+         *        rule of its own.
+         *
+         * `SequencerPanel.cpp` and `GizmoController.cpp` are compiled by no test suite
+         * (scripts/CI/UnreachedSources.sh), and the rule that has to be right here is an EDGE: miss the
+         * falling one and the deferred key is never written at all — a Record mode that records nothing,
+         * which every count-based assertion in the suite would pass. So the edge lives here, where it is
+         * reachable, and the panel passes the two facts it is the only one that knows.
+         *
+         * @param pointerHeld is the manipulator being held THIS frame (one pointer, so one bit).
+         * @param subjectMoved did this subject's pose differ from the previous frame's.
+         * @return keys written by this call — 0 on every frame of a drag, and the interaction's whole
+         *         count on the frame the pointer is released.
+         */
+        [[nodiscard]] Common::ResultStr<uint32_t> Observe( const ControlKeyTarget& target, KeySubject subject,
+                                                           bool pointerHeld, bool subjectMoved );
+
         /**
          * @brief Close the interaction and key every control that moved during it, once each.
          *
@@ -255,8 +351,29 @@ namespace Desert::Animation
         void CancelInteraction();
 
     private:
-        bool                    m_Interacting = false;
-        std::vector<KeySubject> m_Pending;
+        /// A remembered subject, and WHERE IT CAME FROM. The second field is why this is not a bare
+        /// `KeySubject`: `AutoChangeMode` governs the automatic path and must not silence the button an
+        /// animator pressed, so the answer has to travel with the subject from the write to the commit —
+        /// an interaction can hold both kinds at once (a drag while a Key button is pressed).
+        struct PendingSubject
+        {
+            KeySubject Subject;
+            bool       Automatic = false;
+        };
+
+        /// Add a subject to the open interaction, or merge it with the one already there.
+        void Remember( PendingSubject pending );
+
+        /// Shared by `Write`, `WriteBone` and `EndInteraction`. Applies `KeyGroupMode::Changed` and the
+        /// track half of `AutoChangeMode`; returns how many keys it wrote (0 or 1).
+        [[nodiscard]] Common::ResultStr<uint32_t> Commit( const ControlKeyTarget& target, PendingSubject subject );
+
+        bool m_Interacting = false;
+        /// Last frame's `pointerHeld`, and the only state `Observe` adds. It is here rather than in the
+        /// panel because a bool owned by an untested translation unit is a rule nothing can assert.
+        bool                        m_PointerHeld = false;
+        KeyingModes                 m_Modes;
+        std::vector<PendingSubject> m_Pending;
     };
 
     /**
