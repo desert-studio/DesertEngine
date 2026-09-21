@@ -94,6 +94,24 @@ namespace Common::Content
              "/dev/null";
 #endif
 
+        // Drops a trailing separator before the path is quoted, and on Windows this is a correctness
+        // fix rather than tidiness. `std::filesystem::path( "./" ).string()` is `".\\"` there, and the
+        // argument parser git-for-Windows uses (the MSVCRT rule) reads a backslash before a closing
+        // quote as an ESCAPED QUOTE — so `git -C ".\\"` loses its quoting, the command fails, and the
+        // capture returns an empty string that reads exactly like "this repository tracks nothing".
+        // The root is never the bare `\\` or `/` here, so removing the last separator cannot empty it.
+        std::string WithoutTrailingSeparator( std::string path )
+        {
+            while ( path.size() > 1 && ( path.back() == '/' || path.back() == '\\' ) )
+            {
+                // Keep `C:\\` whole — a drive with no directory is not the same place as `C:`.
+                if ( path.size() == 3 && path[1] == ':' )
+                    break;
+                path.pop_back();
+            }
+            return path;
+        }
+
         // Quotes a path for the shell `popen` hands the command to, so a checkout under a directory
         // with a space in it does not silently become two arguments and an empty answer.
         //
@@ -212,7 +230,8 @@ namespace Common::Content
         // is about, committed once more inside its own repair: an instrument answered a different
         // question and had nothing in its output to say so. Hence: resolve the root, and let the caller
         // pass any directory inside the checkout.
-        const std::string toplevelCommand = "git -C " + QuoteForShell( repoRoot.string() ) +
+        const std::string toplevelCommand = "git -C " +
+                                            QuoteForShell( WithoutTrailingSeparator( repoRoot.string() ) ) +
                                             " rev-parse --show-toplevel 2>" + std::string( kNullDevice );
         std::string toplevel = RunAndCapture( toplevelCommand );
         while ( !toplevel.empty() && ( toplevel.back() == '\n' || toplevel.back() == '\r' ) )
@@ -222,8 +241,8 @@ namespace Common::Content
 
         const std::filesystem::path root = std::filesystem::path( toplevel ).lexically_normal();
 
-        const std::string command = "git -C " + QuoteForShell( root.string() ) + " ls-files -z --full-name 2>" +
-                                    std::string( kNullDevice );
+        const std::string command = "git -C " + QuoteForShell( WithoutTrailingSeparator( root.string() ) ) +
+                                    " ls-files -z --full-name 2>" + std::string( kNullDevice );
 
         const std::string output = RunAndCapture( command );
         if ( output.empty() )
