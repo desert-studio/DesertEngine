@@ -29,6 +29,9 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
+#include <string>
+#include <vector>
 
 using Desert::Animation::AnimationClip;
 using Desert::Animation::ApplySection;
@@ -43,6 +46,16 @@ using Desert::Animation::RotationKeyFrame;
 using Desert::Animation::ScalarKey;
 using Desert::Animation::ScaleKeyFrame;
 using Desert::Animation::SectionBlendType;
+using Desert::Animation::AddSection;
+using Desert::Animation::ClearSectionWeight;
+using Desert::Animation::MoveSection;
+using Desert::Animation::RemoveSection;
+using Desert::Animation::RemoveSectionWeightKey;
+using Desert::Animation::ReorderSection;
+using Desert::Animation::SetSectionRange;
+using Desert::Animation::SetSectionSpeaksFor;
+using Desert::Animation::SetSectionSpeaksForEveryTrack;
+using Desert::Animation::SetSectionWeightKey;
 
 namespace
 {
@@ -374,6 +387,215 @@ TEST( ClipSections, TheLATERSectionWinsAnOverlap )
     const ClipSection* winner = clip.SectionFor( "arm", FrameNumber{ 10 } );
     ASSERT_NE( winner, nullptr );
     EXPECT_EQ( winner->Blend, SectionBlendType::Additive );
+}
+
+// ── 4. AUTHORING ONE (A32) ───────────────────────────────────────────────────────────────────────────
+//
+// The operations behind the Sequencer's section lane. They live in the engine and not in the panel for
+// the reason scripts/CI/UnreachedSources.sh keeps naming: SequencerPanel.cpp is compiled by no suite, so
+// a rule written there is a rule nothing can check. Everything below is a rule the panel would otherwise
+// have had to state itself.
+
+TEST( ClipSections, AddSectionRefusesARangeThatLeavesTheClip )
+{
+    std::vector<ClipSection> sections;
+    const auto beyond = AddSection( sections, "late", FrameNumber{ kDuration - 10 },
+                                    FrameNumber{ kDuration + 1 }, SectionBlendType::Absolute,
+                                    FrameNumber{ kDuration } );
+    EXPECT_FALSE( beyond.IsSuccess() );
+    EXPECT_TRUE( sections.empty() ) << "a refused add must leave the list alone, not half-write it";
+
+    const auto backwards = AddSection( sections, "backwards", FrameNumber{ 100 }, FrameNumber{ 10 },
+                                       SectionBlendType::Absolute, FrameNumber{ kDuration } );
+    EXPECT_FALSE( backwards.IsSuccess() );
+
+    const auto unnamed = AddSection( sections, "", FrameNumber{ 0 }, FrameNumber{ 10 },
+                                     SectionBlendType::Absolute, FrameNumber{ kDuration } );
+    EXPECT_FALSE( unnamed.IsSuccess() ) << "a section with no name is a row the animator cannot point at";
+
+    EXPECT_TRUE( sections.empty() );
+}
+
+TEST( ClipSections, ANewSectionIsTheCLIPWIDEIdentityAndNotAnEmptyOne )
+{
+    // The two "empty means" fields are what a new section MEANS, and getting either backwards would ship
+    // a button that mutes a track (Weight = one key of 0) or narrows it to nothing (Tracks = {}).
+    std::vector<ClipSection> sections;
+    ASSERT_TRUE( AddSection( sections, "Section 1", FrameNumber{ 0 }, FrameNumber{ kDuration },
+                             SectionBlendType::Absolute, FrameNumber{ kDuration } )
+                      .IsSuccess() );
+    ASSERT_EQ( sections.size(), 1U );
+    EXPECT_TRUE( sections[0].Tracks.empty() ) << "empty IS every track";
+    EXPECT_TRUE( sections[0].Weight.empty() ) << "empty IS full weight";
+    EXPECT_TRUE( sections[0].Speaks( "anything" ) );
+    EXPECT_FLOAT_EQ( sections[0].WeightAt( FrameTime{ FrameNumber{ 0 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ),
+                     1.0F );
+}
+
+TEST( ClipSections, MovingASectionKEEPSItsLengthAndStopsAtTheClipsEndRatherThanShortening )
+{
+    std::vector<ClipSection> sections;
+    ASSERT_TRUE( AddSection( sections, "s", FrameNumber{ 1000 }, FrameNumber{ 3000 },
+                             SectionBlendType::Absolute, FrameNumber{ kDuration } )
+                      .IsSuccess() );
+
+    ASSERT_TRUE( MoveSection( sections, 0, 500, FrameNumber{ kDuration } ).IsSuccess() );
+    EXPECT_EQ( sections[0].Start.Value, 1500 );
+    EXPECT_EQ( sections[0].End.Value, 3500 );
+
+    // Past the end: REFUSED WHOLE. A clamp that moved the start and pinned the end would silently turn a
+    // move into a resize, which is the one thing this operation exists not to do.
+    const auto refused = MoveSection( sections, 0, kDuration, FrameNumber{ kDuration } );
+    EXPECT_FALSE( refused.IsSuccess() );
+    EXPECT_EQ( sections[0].Start.Value, 1500 );
+    EXPECT_EQ( sections[0].End.Value, 3500 ) << "the length survived a refused move";
+
+    const auto before = MoveSection( sections, 0, -2000, FrameNumber{ kDuration } );
+    EXPECT_FALSE( before.IsSuccess() ) << "and it refuses at tick 0 for the same reason";
+    EXPECT_EQ( sections[0].Start.Value, 1500 );
+}
+
+TEST( ClipSections, ARangeEditRefusesAnEndBeforeItsStartAndAnIndexThatIsNotThere )
+{
+    std::vector<ClipSection> sections;
+    ASSERT_TRUE( AddSection( sections, "s", FrameNumber{ 0 }, FrameNumber{ 1000 },
+                             SectionBlendType::Absolute, FrameNumber{ kDuration } )
+                      .IsSuccess() );
+
+    EXPECT_FALSE(
+         SetSectionRange( sections, 0, FrameNumber{ 900 }, FrameNumber{ 100 }, FrameNumber{ kDuration } )
+              .IsSuccess() );
+    EXPECT_EQ( sections[0].End.Value, 1000 );
+
+    EXPECT_FALSE(
+         SetSectionRange( sections, 7, FrameNumber{ 0 }, FrameNumber{ 10 }, FrameNumber{ kDuration } )
+              .IsSuccess() );
+    EXPECT_FALSE( RemoveSection( sections, 7 ).IsSuccess() );
+    EXPECT_EQ( sections.size(), 1U );
+
+    // start == end is ONE TICK and legal: the end is inclusive, so a range cannot be empty.
+    EXPECT_TRUE(
+         SetSectionRange( sections, 0, FrameNumber{ 500 }, FrameNumber{ 500 }, FrameNumber{ kDuration } )
+              .IsSuccess() );
+}
+
+TEST( ClipSections, ReorderingIsWhatChangesWhichSectionWinsAnOverlap )
+{
+    // The rule under test is `AnimationClip::SectionFor`'s, and this is the only handle on it. Without
+    // the reorder the animator's remedy for "the wrong one wins" is delete-and-re-author, which loses the
+    // weight curve -- so the assertion is about the WINNER and not about the vector's order.
+    AnimationClip clip = ClipWith( MovingTrack( "arm" ) );
+    clip.Sections.push_back( WholeClip( SectionBlendType::Absolute ) );
+    clip.Sections.push_back( WholeClip( SectionBlendType::Additive ) );
+    ASSERT_EQ( clip.SectionFor( "arm", FrameNumber{ 10 } )->Blend, SectionBlendType::Additive );
+
+    ASSERT_TRUE( ReorderSection( clip.Sections, 0, 1 ).IsSuccess() );
+    EXPECT_EQ( clip.SectionFor( "arm", FrameNumber{ 10 } )->Blend, SectionBlendType::Absolute )
+         << "raising the Absolute one past the Additive one is what makes it win";
+
+    EXPECT_FALSE( ReorderSection( clip.Sections, 1, 1 ).IsSuccess() ) << "already at the end";
+    EXPECT_FALSE( ReorderSection( clip.Sections, 0, -1 ).IsSuccess() ) << "already at the start";
+    EXPECT_FALSE( ReorderSection( clip.Sections, 0, 2 ).IsSuccess() ) << "one place at a time";
+}
+
+TEST( ClipSections, NarrowingAClipWideSectionEXPANDSTheEmptyListBeforeRemovingFromIt )
+{
+    // THE TRAP. "All tracks except the hand" cannot be written as a removal from an empty list: the naive
+    // version finds nothing to erase, leaves the list empty, and the section goes on speaking for every
+    // track while the inspector shows the box unticked.
+    const std::vector<std::string> all{ "root", "arm", "hand" };
+    ClipSection                    section = WholeClip( SectionBlendType::Absolute );
+    ASSERT_TRUE( section.Tracks.empty() );
+
+    ASSERT_TRUE( SetSectionSpeaksFor( section, "hand", false, all ).IsSuccess() );
+    EXPECT_EQ( section.Tracks.size(), 2U );
+    EXPECT_TRUE( section.Speaks( "root" ) );
+    EXPECT_TRUE( section.Speaks( "arm" ) );
+    EXPECT_FALSE( section.Speaks( "hand" ) ) << "the removal actually took effect";
+}
+
+TEST( ClipSections, TickingTheLastTrackBackOnCollapsesTheListToTheEmptySpelling )
+{
+    // ONE MEANING, ONE SPELLING. A list naming every track behaves identically today and goes stale the
+    // first time the keyer adds a track, so the file must never be allowed to carry it.
+    const std::vector<std::string> all{ "root", "arm", "hand" };
+    ClipSection                    section = WholeClip( SectionBlendType::Absolute );
+    section.Tracks                         = { "root", "arm" };
+
+    ASSERT_TRUE( SetSectionSpeaksFor( section, "hand", true, all ).IsSuccess() );
+    EXPECT_TRUE( section.Tracks.empty() )
+         << "naming all three would be a second copy of the track list, which goes stale";
+    EXPECT_TRUE( section.Speaks( "a track added tomorrow" ) );
+}
+
+TEST( ClipSections, ASectionThatWouldSpeakForNOTHINGIsRefused )
+{
+    // An empty list is every track, so "untick the last one" cannot be written. Refusing is the only
+    // answer that does not mean the opposite of what the animator asked for.
+    const std::vector<std::string> all{ "root" };
+    ClipSection                    section = WholeClip( SectionBlendType::Absolute );
+    section.Tracks                         = { "root" };
+
+    EXPECT_FALSE( SetSectionSpeaksFor( section, "root", false, all ).IsSuccess() );
+    EXPECT_EQ( section.Tracks.size(), 1U ) << "and it left the list as it was";
+
+    EXPECT_FALSE( SetSectionSpeaksFor( section, "ghost", true, all ).IsSuccess() )
+         << "a track the clip does not have is a typo that would only show up as silence";
+
+    SetSectionSpeaksForEveryTrack( section );
+    EXPECT_TRUE( section.Tracks.empty() );
+}
+
+TEST( ClipSections, AWeightKeyIsUpsertedInTickOrderClampedAndKeepsAnExistingKeysSHAPE )
+{
+    ClipSection section = WholeClip( SectionBlendType::Absolute );
+
+    ASSERT_TRUE( SetSectionWeightKey( section, FrameNumber{ 2000 }, 0.25F ).IsSuccess() );
+    ASSERT_TRUE( SetSectionWeightKey( section, FrameNumber{ 0 }, 1.0F ).IsSuccess() );
+    ASSERT_EQ( section.Weight.size(), 2U );
+    EXPECT_EQ( section.Weight[0].Tick.Value, 0 ) << "the channel stays sorted, as every sampler assumes";
+    EXPECT_EQ( section.Weight[1].Tick.Value, 2000 );
+
+    // An authored shape survives a value change -- the same rule TrackEditing::SetTransformKey states.
+    section.Weight[1].Interp = KeyInterp::Cubic;
+    section.Weight[1].Mode   = Desert::Animation::TangentMode::User;
+    section.Weight[1].LeaveTangent = 7.0F;
+    ASSERT_TRUE( SetSectionWeightKey( section, FrameNumber{ 2000 }, 0.5F ).IsSuccess() );
+    EXPECT_EQ( section.Weight.size(), 2U ) << "an upsert, not an insert";
+    EXPECT_FLOAT_EQ( section.Weight[1].Value, 0.5F );
+    EXPECT_EQ( section.Weight[1].Interp, KeyInterp::Cubic );
+    EXPECT_FLOAT_EQ( section.Weight[1].LeaveTangent, 7.0F );
+
+    ASSERT_TRUE( SetSectionWeightKey( section, FrameNumber{ 2000 }, 9.0F ).IsSuccess() );
+    EXPECT_FLOAT_EQ( section.Weight[1].Value, 1.0F ) << "weight is a proportion, so it clamps";
+    ASSERT_TRUE( SetSectionWeightKey( section, FrameNumber{ 2000 }, -3.0F ).IsSuccess() );
+    EXPECT_FLOAT_EQ( section.Weight[1].Value, 0.0F );
+
+    EXPECT_FALSE( SetSectionWeightKey( section, FrameNumber{ 2000 },
+                                       std::numeric_limits<float>::quiet_NaN() )
+                       .IsSuccess() )
+         << "not a number that was too big — a value that is not one";
+    EXPECT_FLOAT_EQ( section.Weight[1].Value, 0.0F );
+}
+
+TEST( ClipSections, RemovingEveryWeightKeyIsFullWeightAndNotSilence )
+{
+    ClipSection section = WholeClip( SectionBlendType::Absolute );
+    ASSERT_TRUE( SetSectionWeightKey( section, FrameNumber{ 0 }, 0.0F ).IsSuccess() );
+    ASSERT_FLOAT_EQ( section.WeightAt( FrameTime{ FrameNumber{ 0 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ),
+                     0.0F );
+
+    EXPECT_FALSE( RemoveSectionWeightKey( section, 4 ).IsSuccess() );
+    ASSERT_TRUE( RemoveSectionWeightKey( section, 0 ).IsSuccess() );
+    EXPECT_FLOAT_EQ( section.WeightAt( FrameTime{ FrameNumber{ 0 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ),
+                     1.0F )
+         << "an empty channel is FULL weight; reading it as 0 would mute the whole corpus";
+
+    ASSERT_TRUE( SetSectionWeightKey( section, FrameNumber{ 0 }, 0.0F ).IsSuccess() );
+    ClearSectionWeight( section );
+    EXPECT_TRUE( section.Weight.empty() );
+    EXPECT_FLOAT_EQ( section.WeightAt( FrameTime{ FrameNumber{ 0 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ),
+                     1.0F );
 }
 
 int main( int argc, char** argv )

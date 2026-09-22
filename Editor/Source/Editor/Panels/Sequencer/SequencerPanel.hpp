@@ -13,6 +13,11 @@
 
 #include <glm/glm.hpp>
 
+#include <Engine/Animation/ClipSection.hpp>
+
+#include <Common/Core/ResultStr.hpp>
+
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -208,6 +213,53 @@ namespace Desert::Editor
         void DrawCurveView( Animation::AnimationClip* clip, Animation::Animator* animator, float contentX0,
                             float gutter, float laneW, float duration );
 
+        // ── SECTIONS (A32) ────────────────────────────────────────────────────────────────────────
+        //
+        // THE LANE IS A BAR PER SECTION, not a row per section, and that is what a section is: a RANGE
+        // over the same time axis the ruler and the key lanes use. Stacking them as rows would have made
+        // an overlap — the one case where the list order decides anything (`AnimationClip::SectionFor`
+        // takes the LAST match) — the one case you cannot see.
+        //
+        // The weight channel is drawn INSIDE the bar rather than as a fourth lane below the keys: a fade
+        // is a property of the section it fades, and a curve twenty pixels away from the bar it belongs
+        // to is the arrangement that made `Additive Layers` above unreadable.
+        void DrawSectionLane( Animation::AnimationClip* clip, Animation::Animator* animator, float contentX0,
+                              float gutter, float laneW, float duration );
+
+        // Everything about the selected section that is not a range: its name, its blend type, the tracks
+        // it speaks for and its weight keys. Below the lanes, because it is about ONE section while the
+        // lane is about all of them.
+        void DrawSectionInspector( Animation::AnimationClip* clip, Animation::Animator* animator );
+
+        // WHAT A SECTION COMMAND ACTS ON, resolved the same way the draw resolves it. `Actions()` is
+        // handed no entity — the palette calls it on a document, not on a selection — so a command that
+        // reached for the clip its own way would be a second answer to "which clip is open", and the two
+        // would part company the first time the picker changed one of them.
+        struct SectionTarget
+        {
+            Animation::Animator*      Animator = nullptr;
+            Animation::AnimationClip* Clip     = nullptr;
+        };
+        [[nodiscard]] std::optional<SectionTarget> ResolveSectionTarget() const;
+
+        // One palette command's body: open an undo step, run @p edit, report a refusal to the animator.
+        // ONE PLACE, because the alternative is thirteen copies of the same four lines and thirteen
+        // chances for one of them to forget the transaction — which is how half an editor ends up outside
+        // the undo stack (see PoseEditTransaction.hpp for the last time that happened here).
+        void RunSectionEdit( const char*                                                          what,
+                             const std::function<Common::BoolResultStr( SectionTarget&, size_t )>& edit );
+
+        // Selecting a section, in one place: the rename buffer is refilled from whichever section this
+        // points at, so every path that changes the selection has to go through the line that invalidates
+        // it. Assigning m_SelSection directly is how the field came to show the previous section's name.
+        void SelectSection( int index );
+
+        // The two edits a button and a palette command BOTH offer, written once. "Add" needs the playhead
+        // and the clip's length; "reorder" needs the selection and the rule that the list order is the
+        // priority order — and a second copy of either in `Actions()` is a second answer that drifts.
+        void AddSectionAtPlayhead();
+        void ReorderSelectedSection( int delta );
+
         // UI mode: the subject is this element's UIAnimComponent. Draws the clip's property lanes
         // (Offset / Size / Opacity / Color) with draggable keys and a scrubbable playhead.
         void DrawUITracks( ECS::Entity& entity );
@@ -280,6 +332,28 @@ namespace Desert::Editor
         // UI-clip editing state (which lane/key is selected in UI mode).
         int m_UITrack = -1;
         int m_UIKey   = -1;
+
+        // ── SECTION AUTHORING STATE ───────────────────────────────────────────────────────────────
+        //
+        // Per DOCUMENT, like the bone selection above and for the same reason: two Sequencers over two
+        // characters are two animators pointing at two sections, and a `static inline` here would make
+        // them fight exactly as the pose mode used to.
+        int m_SelSection = -1;
+        // The rename field's buffer and WHICH section filled it. Two fields because "the buffer holds
+        // section 2's name" is a fact the buffer itself cannot state, and the version without it showed
+        // the previously selected section's name until the first keystroke.
+        char m_SectionName[64] = {};
+        int  m_SectionNameFor  = -1;
+        // The value the "Key weight" button writes. A field rather than a literal so the button and the
+        // slider beside it are one control: a button that always wrote 1 would make a fade-out
+        // unauthorable from the inspector.
+        float m_SectionWeight = 1.0f;
+        // What the mouse has hold of in the lane: which section, and whether the body (0), the start
+        // edge (1) or the end edge (2). The anchor tick is advanced only by a move that was ACCEPTED, so
+        // a section pushed against the end of the clip stops there and comes back on the way in.
+        int                    m_SectionDrag     = -1;
+        int                    m_SectionDragEdge = 0;
+        Animation::FrameNumber m_SectionDragTick;
 
         // Layer-preview authoring state (transient — previews on the live Animator).
         int   m_LayerClip         = -1;

@@ -22,6 +22,7 @@
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -41,6 +42,8 @@ using Desert::Animation::AutoChangeMode;
 using Desert::Animation::BoneInfo;
 using Desert::Animation::BoneTrack;
 using Desert::Animation::BoneTransform;
+using Desert::Animation::ClipSection;
+using Desert::Animation::SectionBlendType;
 using Desert::Animation::ControlKeyer;
 using Desert::Animation::ControlKeyTarget;
 using Desert::Animation::DEFAULT_DISPLAY_RATE;
@@ -639,6 +642,168 @@ TEST_F( ClipEditUndo, AnEntryRecordedAgainstAnotherRigIsDiscardedRatherThanAppli
                            ClipPoseCommand::SectionEdit{} );
     EXPECT_FALSE( stale.Undo() );
     EXPECT_FALSE( stale.Redo() );
+}
+
+// ── SECTIONS ARE PART OF THE CLIP, SO THEY ARE PART OF THE ENTRY (A32) ───────────────────────────────
+//
+// The Sequencer's new section lane edits `AnimationClip::Sections`, which this transaction did not look
+// at: one field over from the tracks it already diffs. Every assertion below is the same shape as the
+// ones above -- how many entries one interaction is, and whether the entry puts the thing back BY VALUE.
+
+namespace
+{
+    ClipSection WholeClipSection( const char* name, int32_t start, int32_t end )
+    {
+        ClipSection section;
+        section.Name  = name;
+        section.Start = FrameNumber{ start };
+        section.End   = FrameNumber{ end };
+        section.Blend = SectionBlendType::Absolute;
+        return section; // Tracks empty = every track, Weight empty = full weight
+    }
+
+    bool SameSections( const std::vector<ClipSection>& a, const std::vector<ClipSection>& b )
+    {
+        if ( a.size() != b.size() )
+        {
+            return false;
+        }
+        for ( size_t i = 0; i < a.size(); ++i )
+        {
+            if ( !SameStoredValue( a[i], b[i] ) )
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+} // namespace
+
+TEST_F( ClipEditUndo, OneSectionEditIsOneUndoStepAndBothDirectionsRestoreItByValue )
+{
+    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    rig.m_Clip.Sections.push_back( WholeClipSection( "Whole clip", 0, PROJECT_TICK_RATE.Numerator ) );
+    const std::vector<ClipSection> before = rig.m_Clip.Sections;
+
+    {
+        ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
+        ASSERT_TRUE( Desert::Animation::AddSection( rig.m_Clip.Sections, "Section 2", FrameNumber{ 1000 },
+                                                    FrameNumber{ 5000 }, SectionBlendType::Additive,
+                                                    rig.m_Clip.DurationTicks )
+                          .IsSuccess() );
+        ASSERT_TRUE( Desert::Animation::SetSectionWeightKey( rig.m_Clip.Sections[1], FrameNumber{ 1000 },
+                                                             0.25f )
+                          .IsSuccess() );
+    }
+    // THE SCENARIO IS GUARDED AGAINST BEING VACUOUS, as every round trip in this file is: a transaction
+    // over an edit that did nothing would satisfy "undo restored it" perfectly.
+    ASSERT_EQ( rig.m_Clip.Sections.size(), 2U );
+    const std::vector<ClipSection> after = rig.m_Clip.Sections;
+    ASSERT_FALSE( SameSections( before, after ) );
+
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "one interaction, one step";
+    const auto* entry = dynamic_cast<const ClipPoseCommand*>( CommandHistory::Get().UndoStack().back().get() );
+    ASSERT_NE( entry, nullptr );
+    EXPECT_TRUE( entry->CarriesSections() ) << "an entry that pushed with nothing in it undoes nothing";
+    EXPECT_EQ( entry->ChangedBones(), 0U ) << "a section edit moves no bone";
+    EXPECT_EQ( entry->ChangedTracks(), 0U ) << "and writes no key";
+    EXPECT_EQ( entry->GetLabel(), "Edit section" )
+         << "the History panel is read to find where to stop; 'Pose bone' would send the reader past it";
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( SameSections( rig.m_Clip.Sections, before ) ) << "by VALUE, weight channel included";
+    ASSERT_TRUE( CommandHistory::Get().Redo() );
+    EXPECT_TRUE( SameSections( rig.m_Clip.Sections, after ) );
+}
+
+TEST_F( ClipEditUndo, WithoutTheTransactionASectionEditLeavesNoEntryAtAll )
+{
+    // THE POSITIVE CONTROL for the count above. Without it, "the stack has one entry" is satisfied by a
+    // stack that always has one -- which is the shape §8.4 calls a green mutation.
+    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    rig.m_Clip.Sections.push_back( WholeClipSection( "Whole clip", 0, PROJECT_TICK_RATE.Numerator ) );
+
+    ASSERT_TRUE( Desert::Animation::AddSection( rig.m_Clip.Sections, "Section 2", FrameNumber{ 1000 },
+                                                FrameNumber{ 5000 }, SectionBlendType::Absolute,
+                                                rig.m_Clip.DurationTicks )
+                      .IsSuccess() );
+    EXPECT_EQ( rig.m_Clip.Sections.size(), 2U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+}
+
+TEST_F( ClipEditUndo, ASectionInteractionThatChangedNothingIsNotAnUndoStep )
+{
+    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    rig.m_Clip.Sections.push_back( WholeClipSection( "Whole clip", 0, PROJECT_TICK_RATE.Numerator ) );
+
+    {
+        // A click on the lane that missed every section: the transaction opens on the press and closes on
+        // the release with the list untouched. An entry here would spend a Ctrl+Z doing nothing.
+        ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
+        const auto     refused = Desert::Animation::ReorderSection( rig.m_Clip.Sections, 0, 1 );
+        EXPECT_FALSE( refused.IsSuccess() );
+    }
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+}
+
+TEST_F( ClipEditUndo, ADragOfASectionEdgeAcrossFortyFramesIsSTILLOneUndoStep )
+{
+    // The lane's drag is bracketed by ImGui's two edges, exactly as the dope sheet's numeric fields are.
+    // Forty intermediate ranges are written into the clip; ONE of them is an undo step, and Ctrl+Z goes
+    // back to where the drag started rather than to the previous frame of it.
+    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    rig.m_Clip.Sections.push_back( WholeClipSection( "Whole clip", 0, PROJECT_TICK_RATE.Numerator ) );
+    const std::vector<ClipSection> before = rig.m_Clip.Sections;
+
+    ASSERT_TRUE( rig.m_Transaction.Begin( &rig.m_Animator, &rig.m_Clip ).IsSuccess() );
+    for ( int frame = 1; frame <= 40; ++frame )
+    {
+        ASSERT_TRUE( Desert::Animation::SetSectionRange( rig.m_Clip.Sections, 0,
+                                                         FrameNumber{ frame * kDisplayFrameTicks },
+                                                         rig.m_Clip.Sections[0].End,
+                                                         rig.m_Clip.DurationTicks )
+                          .IsSuccess() );
+    }
+    const auto pushed = rig.m_Transaction.End();
+    ASSERT_TRUE( pushed.IsSuccess() ) << pushed.GetError();
+    EXPECT_EQ( pushed.GetValue(), 1U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+
+    ASSERT_EQ( rig.m_Clip.Sections[0].Start.Value, 40 * kDisplayFrameTicks );
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( SameSections( rig.m_Clip.Sections, before ) )
+         << "one press of Ctrl+Z goes back to where the drag began, not to its 39th frame";
+}
+
+TEST_F( ClipEditUndo, ONEEntryCarriesTheKEYSAndTheSECTIONWhenOneInteractionDidBoth )
+{
+    // The hardest form of "one interaction is one step": the press wrote a key AND narrowed the section.
+    // Two commands would make Ctrl+Z put back half of what the animator did and leave the screen and the
+    // clip disagreeing -- which is the state this whole file exists to prevent.
+    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    rig.m_Clip.Sections.push_back( WholeClipSection( "Whole clip", 0, PROJECT_TICK_RATE.Numerator ) );
+    const std::vector<ClipSection> sectionsBefore = rig.m_Clip.Sections;
+    const std::vector<BoneTrack>   tracksBefore   = rig.m_Clip.Tracks;
+
+    rig.SetTick( kDisplayFrameTicks * 15 );
+    {
+        ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
+        const auto     keyed = rig.m_Keyer.WriteBone( rig.Target(), kChild );
+        ASSERT_TRUE( keyed.IsSuccess() ) << keyed.GetError();
+        rig.m_Clip.Sections[0].Blend = SectionBlendType::Additive;
+    }
+
+    ASSERT_FALSE( SameTracks( rig.m_Clip.Tracks, tracksBefore ) ) << "the key really landed";
+    ASSERT_FALSE( SameSections( rig.m_Clip.Sections, sectionsBefore ) ) << "and the section really moved";
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+    const auto* entry = dynamic_cast<const ClipPoseCommand*>( CommandHistory::Get().UndoStack().back().get() );
+    ASSERT_NE( entry, nullptr );
+    EXPECT_TRUE( entry->CarriesSections() );
+    EXPECT_GT( entry->ChangedTracks(), 0U );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( SameTracks( rig.m_Clip.Tracks, tracksBefore ) );
+    EXPECT_TRUE( SameSections( rig.m_Clip.Sections, sectionsBefore ) );
 }
 
 int main( int argc, char** argv )

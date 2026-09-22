@@ -785,6 +785,13 @@ namespace Desert::Editor
             //
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
             auto* editable = const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() );
+
+            // THE SECTION LANE SITS BETWEEN THE RULER AND THE KEYS, and in both view modes. A section is
+            // a statement about a RANGE of this clip, so it belongs against the same time axis whether
+            // the keys below are drawn as diamonds or as curves — putting it inside one of the two
+            // branches would make "which section am I in" a question only one of the views could answer.
+            DrawSectionLane( editable, animator, origin.x, gutter, laneW, duration );
+
             if ( m_CurveView )
             {
                 DrawCurveView( editable, animator, origin.x, gutter, laneW, duration );
@@ -797,6 +804,14 @@ namespace Desert::Editor
         else
         {
             ImGui::TextDisabled( "No clip playing — pick a clip above (or the mesh has no animations)." );
+        }
+
+        // ---- Sections (the range/blend/weight authoring surface) ----
+        if ( animator != nullptr )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — the cast the dope sheet documents
+            DrawSectionInspector( const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() ),
+                                  animator );
         }
 
         // ---- Additive layers (advanced, collapsed by default) ----
@@ -1242,17 +1257,833 @@ namespace Desert::Editor
     // The skeletal editor above keys bones; this keys a UI element's Offset / Size / Opacity / Color.
     // It edits UIAnimComponent directly: lanes with draggable key diamonds, a scrubbable ruler, and a
     // transport. The playhead is a runtime-only field, so scrubbing never dirties the scene.
+    // ── SECTIONS: THE LANE, THE INSPECTOR AND THE THIRTEEN COMMANDS ──────────────────────────────────
+    //
+    // Before this, `kAnimationVersion` 3 could describe a section and nothing in the editor could author
+    // one: the migrator wrote "Whole clip" into every file and that was the only section any animator
+    // would ever see. What a section IS lives in Engine/Animation/ClipSection.hpp — including the two
+    // rules about its two "empty means" fields — and every edit below goes through the functions there,
+    // so the lane, the inspector and the palette cannot disagree about what a section edit is.
+
+    void SequencerPanel::SelectSection( int index )
+    {
+        m_SelSection = index;
+        // THE RENAME BUFFER IS INVALIDATED HERE AND NOWHERE ELSE. It is refilled lazily by the inspector,
+        // which is the only thing that knows the section's current name; a copy made here would go stale
+        // the moment a palette command renamed the same section.
+        m_SectionNameFor = -1;
+    }
+
+    std::optional<SequencerPanel::SectionTarget> SequencerPanel::ResolveSectionTarget() const
+    {
+        if ( m_Timeline != Timeline::Skeletal )
+        {
+            return std::nullopt;
+        }
+        const auto resolved = ResolveEntity();
+        if ( !resolved )
+        {
+            return std::nullopt;
+        }
+        const ECS::Entity& entity = resolved->get();
+        if ( !entity.HasComponent<ECS::AnimationComponent>() )
+        {
+            return std::nullopt;
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — the same cast, and the same seam, the
+        // dope sheet documents above: `Animator` holds the clip it PLAYS as const, and this window edits
+        // the clip the library owns.
+        auto& anim = const_cast<ECS::AnimationComponent&>( entity.GetComponent<ECS::AnimationComponent>() );
+        Animation::Animator* animator = anim.Animator.get();
+        if ( animator == nullptr )
+        {
+            return std::nullopt;
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        auto* clip = const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() );
+        if ( clip == nullptr )
+        {
+            return std::nullopt;
+        }
+        return SectionTarget{ animator, clip };
+    }
+
+    void SequencerPanel::RunSectionEdit(
+         const char* what, const std::function<Common::BoolResultStr( SectionTarget&, size_t )>& edit )
+    {
+        auto target = ResolveSectionTarget();
+        if ( !target )
+        {
+            ToastManager::Push( std::string( what ) + ": no clip is open on this timeline", ToastLevel::Error,
+                                6.0f );
+            return;
+        }
+        if ( m_SelSection < 0 || m_SelSection >= static_cast<int>( target->Clip->Sections.size() ) )
+        {
+            // A COMMAND WITH NO SELECTION IS A REFUSAL IN WORDS, not a no-op. The palette runs without a
+            // mouse, so "nothing happened" is the one answer that cannot be told apart from a defect.
+            ToastManager::Push( std::string( what ) + ": select a section first (the clip has " +
+                                     std::to_string( target->Clip->Sections.size() ) + ")",
+                                ToastLevel::Error, 6.0f );
+            return;
+        }
+        const size_t index = static_cast<size_t>( m_SelSection );
+        // ONE INTERACTION, ONE UNDO STEP. The guard opens before the edit and closes after it, so a
+        // command that changes nothing pushes nothing (PoseEditTransaction::End says why).
+        Common::BoolResultStr done = Common::MakeError<bool>( "the edit did not run" );
+        {
+            ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, target->Clip );
+            done = edit( *target, index );
+        }
+        if ( !done.IsSuccess() )
+        {
+            LOG_ERROR( "[Sequencer] {}: {}", what, done.GetError() );
+            ToastManager::Push( std::string( what ) + ": " + done.GetError(), ToastLevel::Error, 8.0f );
+        }
+    }
+
+    void SequencerPanel::DrawSectionLane( Animation::AnimationClip* clip, Animation::Animator* animator,
+                                          float contentX0, float gutter, float laneW, float duration )
+    {
+        if ( clip == nullptr || animator == nullptr || laneW <= 0.0f )
+        {
+            return;
+        }
+        if ( m_SelSection >= static_cast<int>( clip->Sections.size() ) )
+        {
+            SelectSection( -1 ); // the picker changed the clip under the selection
+        }
+
+        constexpr float kLaneH = 28.0f;
+        const ImVec2    origin = ImGui::GetCursorScreenPos();
+        const float     laneX0 = contentX0 + gutter;
+        ImDrawList*     dl     = ImGui::GetWindowDrawList();
+
+        const Sequencer::CurveViewport axis = TimeAxis( laneX0, laneW, duration );
+        const float                    y0   = origin.y;
+        const float                    y1   = origin.y + kLaneH;
+
+        dl->AddRectFilled( ImVec2( laneX0, y0 ), ImVec2( laneX0 + laneW, y1 ), IM_COL32( 20, 20, 24, 255 ) );
+        dl->AddText( ImVec2( contentX0 + 6.0f, y0 + 7.0f ), IM_COL32( 170, 170, 180, 255 ), "SECTIONS" );
+
+        for ( size_t i = 0; i < clip->Sections.size(); ++i )
+        {
+            const Animation::ClipSection& section = clip->Sections[i];
+            const float xa = axis.TimeToX( TickToSeconds( section.Start, clip->TickRate ) );
+            // THE END IS INCLUSIVE (ClipSection.hpp), so the bar is drawn to the end of that tick and not
+            // to its left edge — a section ending on the last frame that stopped one frame short of the
+            // ruler would read as an off-by-one in the FORMAT rather than in this line.
+            const float xb = axis.TimeToX( TickToSeconds( section.End, clip->TickRate ) );
+            const bool  additive = section.Blend == Animation::SectionBlendType::Additive;
+            const bool  selected = static_cast<int>( i ) == m_SelSection;
+
+            const ImU32 fill = additive ? ( selected ? IM_COL32( 190, 135, 55, 235 ) : IM_COL32( 130, 92, 38, 200 ) )
+                                        : ( selected ? IM_COL32( 78, 124, 180, 235 ) : IM_COL32( 52, 82, 122, 200 ) );
+            dl->AddRectFilled( ImVec2( xa, y0 + 3.0f ), ImVec2( std::max( xb, xa + 2.0f ), y1 - 3.0f ), fill,
+                               3.0f );
+            dl->AddRect( ImVec2( xa, y0 + 3.0f ), ImVec2( std::max( xb, xa + 2.0f ), y1 - 3.0f ),
+                         selected ? IM_COL32( 255, 255, 255, 220 ) : IM_COL32( 0, 0, 0, 140 ), 3.0f, 0,
+                         selected ? 2.0f : 1.0f );
+
+            // THE FADE, INSIDE THE BAR IT BELONGS TO. Drawn only when the channel HAS keys: an empty
+            // channel is full weight (ClipSection.hpp), and a flat line along the top of every migrated
+            // clip in the repository would be ink that says nothing.
+            if ( !section.Weight.empty() && xb > xa + 2.0f )
+            {
+                const float  top    = y0 + 4.0f;
+                const float  bottom = y1 - 4.0f;
+                const int    steps  = std::min( 160, static_cast<int>( xb - xa ) );
+                ImVec2       previous( 0.0f, 0.0f );
+                for ( int s = 0; s <= steps; ++s )
+                {
+                    const float    t       = static_cast<float>( s ) / static_cast<float>( std::max( 1, steps ) );
+                    const float    seconds = TickToSeconds( section.Start, clip->TickRate ) +
+                                          t * ( TickToSeconds( section.End, clip->TickRate ) -
+                                                TickToSeconds( section.Start, clip->TickRate ) );
+                    const auto     at = Animation::SecondsToFrameTime( static_cast<double>( seconds ),
+                                                                       clip->TickRate );
+                    const float    w  = section.WeightAt( at, clip->TickRate );
+                    const ImVec2   pt( xa + t * ( xb - xa ), bottom - std::clamp( w, 0.0f, 1.0f ) * ( bottom - top ) );
+                    if ( s > 0 )
+                    {
+                        dl->AddLine( previous, pt, IM_COL32( 255, 240, 190, 235 ), 1.6f );
+                    }
+                    previous = pt;
+                }
+            }
+
+            char label[96];
+            std::snprintf( label, sizeof( label ), "%zu  %s  %s", i, section.Name.c_str(),
+                           Animation::SectionBlendName( section.Blend ) );
+            dl->PushClipRect( ImVec2( xa + 2.0f, y0 ), ImVec2( std::max( xb, xa + 2.0f ), y1 ), true );
+            dl->AddText( ImVec2( xa + 5.0f, y0 + 7.0f ), IM_COL32( 240, 240, 245, 255 ), label );
+            dl->PopClipRect();
+        }
+
+        // ---- Pick, move and resize ----
+        ImGui::SetCursorScreenPos( ImVec2( laneX0, y0 ) );
+        ImGui::InvisibleButton( "##sectionLane", ImVec2( laneW, kLaneH ) );
+        const auto tickUnderMouse = [&]()
+        {
+            const float seconds = std::clamp( ( ImGui::GetMousePos().x - laneX0 ) / laneW, 0.0f, 1.0f ) * duration;
+            return SecondsToSnappedTick( seconds, clip->TickRate, clip->DisplayRate );
+        };
+
+        if ( ImGui::IsItemActivated() )
+        {
+            constexpr float kGrab = 5.0f; // pixels of edge that resize rather than move
+            const float     mx    = ImGui::GetMousePos().x;
+            m_SectionDrag         = -1;
+            // BACK TO FRONT, because the front of the list is drawn first and the LAST section is the one
+            // that wins an overlap (AnimationClip::SectionFor). Picking front-to-back would hand the
+            // animator the section whose value they are not seeing.
+            for ( size_t j = clip->Sections.size(); j-- > 0; )
+            {
+                const float xa = axis.TimeToX( TickToSeconds( clip->Sections[j].Start, clip->TickRate ) );
+                const float xb = axis.TimeToX( TickToSeconds( clip->Sections[j].End, clip->TickRate ) );
+                if ( mx < xa - kGrab || mx > xb + kGrab )
+                {
+                    continue;
+                }
+                m_SectionDrag     = static_cast<int>( j );
+                m_SectionDragEdge = ( mx <= xa + kGrab ) ? 1 : ( mx >= xb - kGrab ? 2 : 0 );
+                break;
+            }
+            SelectSection( m_SectionDrag );
+            m_SectionDragTick = tickUnderMouse();
+            if ( m_SectionDrag >= 0 )
+            {
+                if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+                {
+                    LOG_ERROR( "[Sequencer] section edit not undoable: {}", began.GetError() );
+                }
+            }
+        }
+
+        if ( ImGui::IsItemActive() && m_SectionDrag >= 0 &&
+             m_SectionDrag < static_cast<int>( clip->Sections.size() ) )
+        {
+            const auto   now   = tickUnderMouse();
+            const size_t index = static_cast<size_t>( m_SectionDrag );
+            if ( !( now == m_SectionDragTick ) )
+            {
+                Common::BoolResultStr moved = Common::MakeSuccess( true );
+                if ( m_SectionDragEdge == 0 )
+                {
+                    moved = Animation::MoveSection( clip->Sections, index, now.Value - m_SectionDragTick.Value,
+                                                    clip->DurationTicks );
+                }
+                else if ( m_SectionDragEdge == 1 )
+                {
+                    moved = Animation::SetSectionRange( clip->Sections, index, now, clip->Sections[index].End,
+                                                        clip->DurationTicks );
+                }
+                else
+                {
+                    moved = Animation::SetSectionRange( clip->Sections, index, clip->Sections[index].Start, now,
+                                                        clip->DurationTicks );
+                }
+                // THE ANCHOR ADVANCES ONLY ON AN ACCEPTED MOVE. A section pushed against tick 0 stops
+                // there and starts moving again the instant the mouse comes back past where it stopped —
+                // the version that advanced unconditionally teleported it as soon as the mouse reversed.
+                if ( moved.IsSuccess() )
+                {
+                    m_SectionDragTick = now;
+                }
+            }
+        }
+
+        if ( ImGui::IsItemDeactivated() )
+        {
+            m_SectionDrag = -1;
+            if ( m_ClipEdit.OpenExplicitly() )
+            {
+                if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
+                {
+                    LOG_ERROR( "[Sequencer] section edit not undoable: {}", ended.GetError() );
+                }
+            }
+        }
+
+        ImGui::SetCursorScreenPos( ImVec2( contentX0, y1 + 3.0f ) );
+    }
+
+    void SequencerPanel::DrawSectionInspector( Animation::AnimationClip* clip, Animation::Animator* animator )
+    {
+        if ( clip == nullptr || animator == nullptr )
+        {
+            return;
+        }
+        ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
+        const bool open = Utils::ImGuiUtilities::SectionHeader( ICON_MDI_VIEW_SEQUENTIAL "  Sections", true );
+        ImGui::SameLine();
+        // THE SENTENCE Docs/Animation/09_sections_and_weight.md COMMITS US TO, ON THE SURFACE THAT SETS
+        // THE NUMBER. Report 05 §972 warns that UE's section weight blends POSES on an Absolute section
+        // and VALUES on an Additive one — one slider, two visibly different results. We blend values in
+        // both cases, and the place that has to say so is the place an animator reads before dragging.
+        HelpMarker( "A section is a RANGE of this clip, the tracks it speaks for, how its values reach the "
+                    "pose, and how much of it arrives.\n\n"
+                    "WEIGHT IS A PROPORTION OF THE VALUE, NOT A BLEND OF TWO POSES.\n"
+                    "At 50 % an Absolute section drives each track halfway from the rest pose to the number "
+                    "on the curve; an Additive one applies half the authored offset. Either way it is the "
+                    "NUMBER the curve shows that is halved — never the place the bones ended up, which is "
+                    "what a pose blend would give and what the curve could not predict.\n\n"
+                    "Tracks empty = every track in the clip. Weight empty = full weight, which is not the "
+                    "same as a single key of 0.\n"
+                    "Two sections over one track at one tick: the LOWER one in the list wins." );
+        if ( !open )
+        {
+            return;
+        }
+
+        // ---- The list, and the four operations on it ----
+        ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.20f, 0.40f, 0.28f, 1.0f ) );
+        ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.26f, 0.50f, 0.36f, 1.0f ) );
+        if ( ImGui::Button( ICON_MDI_PLUS " Add Section" ) )
+        {
+            AddSectionAtPlayhead();
+        }
+        ImGui::PopStyleColor( 2 );
+        Utils::ImGuiUtilities::Tooltip( "A new section from the playhead to the end of the clip: every "
+                                        "track, Absolute, full weight — which is what a section that has "
+                                        "not been narrowed yet MEANS." );
+
+        const bool hasSelection =
+             m_SelSection >= 0 && m_SelSection < static_cast<int>( clip->Sections.size() );
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled( !hasSelection );
+        if ( ImGui::Button( ICON_MDI_DELETE " Delete" ) )
+        {
+            RunSectionEdit( "delete section",
+                            []( SectionTarget& target, size_t index )
+                            { return Animation::RemoveSection( target.Clip->Sections, index ); } );
+            SelectSection( -1 );
+        }
+        ImGui::SameLine();
+        if ( ImGui::Button( ICON_MDI_ARROW_UP " Lower priority" ) )
+        {
+            ReorderSelectedSection( -1 );
+        }
+        Utils::ImGuiUtilities::Tooltip( "Move it one place EARLIER in the list. The later of two sections "
+                                        "over the same track wins, so earlier means it loses." );
+        ImGui::SameLine();
+        if ( ImGui::Button( ICON_MDI_ARROW_DOWN " Raise priority" ) )
+        {
+            ReorderSelectedSection( 1 );
+        }
+        Utils::ImGuiUtilities::Tooltip( "Move it one place LATER in the list, where it wins an overlap." );
+        ImGui::EndDisabled();
+
+        if ( clip->Sections.empty() )
+        {
+            ImGui::TextDisabled( "This clip states no section. Every track plays exactly as authored." );
+            return;
+        }
+
+        // The picker. A list rather than a combo: the ORDER is the priority rule, so a control that hides
+        // all but one row hides the only thing the order does.
+        for ( size_t i = 0; i < clip->Sections.size(); ++i )
+        {
+            const Animation::ClipSection& section = clip->Sections[i];
+            char                          row[160];
+            std::snprintf( row, sizeof( row ), "%zu   %s   [%d..%d]   %s   %s##sectionRow%zu", i,
+                           section.Name.c_str(),
+                           Animation::DisplayFrameIndex( section.Start, clip->TickRate, clip->DisplayRate ),
+                           Animation::DisplayFrameIndex( section.End, clip->TickRate, clip->DisplayRate ),
+                           Animation::SectionBlendName( section.Blend ),
+                           section.Tracks.empty() ? "all tracks" : "some tracks", i );
+            if ( ImGui::Selectable( row, static_cast<int>( i ) == m_SelSection ) )
+            {
+                SelectSection( static_cast<int>( i ) );
+            }
+        }
+
+        if ( !hasSelection )
+        {
+            ImGui::TextDisabled( "Pick a section above to edit it." );
+            return;
+        }
+
+        const size_t            index   = static_cast<size_t>( m_SelSection );
+        Animation::ClipSection& section = clip->Sections[index];
+
+        // A DRAG ACROSS FORTY FRAMES IS ONE UNDO STEP, and this is the bracket the dope-sheet fields use
+        // above — the same two ImGui edges, so a section field and a key field cannot disagree about what
+        // one interaction is.
+        const auto bracketField = [&]()
+        {
+            if ( ImGui::IsItemActivated() )
+            {
+                if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+                {
+                    LOG_ERROR( "[Sequencer] section edit not undoable: {}", began.GetError() );
+                }
+            }
+            if ( ImGui::IsItemDeactivated() && m_ClipEdit.OpenExplicitly() )
+            {
+                if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
+                {
+                    LOG_ERROR( "[Sequencer] section edit not undoable: {}", ended.GetError() );
+                }
+            }
+        };
+
+        ImGui::Separator();
+
+        // ---- Name ----
+        if ( m_SectionNameFor != m_SelSection )
+        {
+            std::snprintf( m_SectionName, sizeof( m_SectionName ), "%s", section.Name.c_str() );
+            m_SectionNameFor = m_SelSection;
+        }
+        ImGui::SetNextItemWidth( 240.0f );
+        if ( ImGui::InputText( "Name", m_SectionName, sizeof( m_SectionName ) ) )
+        {
+            section.Name = m_SectionName;
+        }
+        bracketField();
+
+        // ---- Range, in the frames the ruler shows ----
+        int first = Animation::DisplayFrameIndex( section.Start, clip->TickRate, clip->DisplayRate );
+        int last  = Animation::DisplayFrameIndex( section.End, clip->TickRate, clip->DisplayRate );
+        const int lastFrame =
+             Animation::DisplayFrameIndex( clip->DurationTicks, clip->TickRate, clip->DisplayRate );
+        const double ticksPerFrame = clip->TickRate.AsDouble() / clip->DisplayRate.AsDouble();
+        const auto   frameToTick   = [&]( int frame )
+        {
+            return Animation::FrameNumber{ static_cast<int32_t>(
+                 std::llround( static_cast<double>( frame ) * ticksPerFrame ) ) };
+        };
+
+        ImGui::SetNextItemWidth( 120.0f );
+        if ( ImGui::DragInt( "Start frame", &first, 1.0f, 0, lastFrame ) )
+        {
+            // REFUSALS ARE LOGGED AND NOT TOASTED HERE. A drag crosses the clip's end on its way to a
+            // legal value and would otherwise raise one toast per frame; the field simply does not move,
+            // which is the answer a drag can read.
+            if ( const auto set = Animation::SetSectionRange( clip->Sections, index, frameToTick( first ),
+                                                              section.End, clip->DurationTicks );
+                 !set.IsSuccess() )
+            {
+                LOG_TRACE( "[Sequencer] section start refused: {}", set.GetError() );
+            }
+        }
+        bracketField();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( 120.0f );
+        if ( ImGui::DragInt( "End frame", &last, 1.0f, 0, lastFrame ) )
+        {
+            if ( const auto set = Animation::SetSectionRange( clip->Sections, index, section.Start,
+                                                              frameToTick( last ), clip->DurationTicks );
+                 !set.IsSuccess() )
+            {
+                LOG_TRACE( "[Sequencer] section end refused: {}", set.GetError() );
+            }
+        }
+        bracketField();
+        ImGui::SameLine();
+        ImGui::TextDisabled( "inclusive, of %d", lastFrame );
+
+        // ---- Blend type ----
+        int         blend      = static_cast<int>( section.Blend );
+        const char* blendNames = "Absolute\0Additive\0";
+        ImGui::SetNextItemWidth( 160.0f );
+        if ( ImGui::Combo( "Blend", &blend, blendNames ) )
+        {
+            ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+            section.Blend = static_cast<Animation::SectionBlendType>( blend );
+        }
+        ImGui::SameLine();
+        HelpMarker( "Absolute — the track's value IS the pose; weight walks each number from the rest pose "
+                    "towards it.\n"
+                    "Additive — the track's value is an OFFSET on top of the rest pose; weight scales the "
+                    "offset, so an identity value changes nothing at any weight.\n\n"
+                    "Both blend VALUES. Neither interpolates between two evaluated poses." );
+
+        // ---- Which tracks it speaks for ----
+        bool everyTrack = section.Tracks.empty();
+        if ( ImGui::Checkbox( "Speaks for every track in the clip", &everyTrack ) )
+        {
+            ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+            if ( everyTrack )
+            {
+                Animation::SetSectionSpeaksForEveryTrack( section );
+            }
+            else if ( !clip->Tracks.empty() )
+            {
+                // UNTICKING IT HAS TO NAME SOMETHING, and the honest something is what it already speaks
+                // for minus one — the first track. Leaving the list empty would tick the box again next
+                // frame, which reads as the control being broken.
+                std::vector<std::string> named;
+                named.reserve( clip->Tracks.size() );
+                for ( const auto& track : clip->Tracks )
+                {
+                    named.push_back( track.BoneName );
+                }
+                section.Tracks = std::move( named );
+                if ( section.Tracks.size() > 1 )
+                {
+                    section.Tracks.pop_back();
+                }
+            }
+        }
+        ImGui::SameLine();
+        HelpMarker( "An empty list IS 'every track', and that is not a shorthand: a list naming every "
+                    "track goes stale the first time the keyer adds one. Ticking the last box here puts "
+                    "the list back to empty for that reason." );
+
+        if ( !section.Tracks.empty() )
+        {
+            ImGui::Indent();
+            if ( ImGui::BeginChild( "##sectionTracks", ImVec2( 0.0f, 120.0f ), true ) )
+            {
+                std::vector<std::string> allTracks;
+                allTracks.reserve( clip->Tracks.size() );
+                for ( const auto& track : clip->Tracks )
+                {
+                    allTracks.push_back( track.BoneName );
+                }
+                for ( const auto& name : allTracks )
+                {
+                    bool on = section.Speaks( name );
+                    if ( ImGui::Checkbox( name.c_str(), &on ) )
+                    {
+                        ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+                        if ( const auto set =
+                                  Animation::SetSectionSpeaksFor( section, name, on, allTracks );
+                             !set.IsSuccess() )
+                        {
+                            ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
+                        }
+                    }
+                }
+            }
+            ImGui::EndChild();
+            ImGui::Unindent();
+        }
+
+        // ---- The weight channel ----
+        ImGui::Separator();
+        const Animation::FrameTime playhead = animator->GetCurrentTick();
+        ImGui::Text( "Weight here: %.3f", section.WeightAt( playhead, clip->TickRate ) );
+        ImGui::SameLine();
+        if ( section.Weight.empty() )
+        {
+            ImGui::TextDisabled( "(no fade authored — full weight, which is not silence)" );
+        }
+        else
+        {
+            ImGui::TextDisabled( "(%zu key(s))", section.Weight.size() );
+        }
+
+        ImGui::SetNextItemWidth( 160.0f );
+        ImGui::SliderFloat( "##sectionWeightValue", &m_SectionWeight, 0.0f, 1.0f, "%.2f" );
+        ImGui::SameLine();
+        if ( ImGui::Button( ICON_MDI_KEY_PLUS " Key weight @ playhead" ) )
+        {
+            ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+            if ( const auto keyed =
+                      Animation::SetSectionWeightKey( section, playhead.Frame, m_SectionWeight );
+                 !keyed.IsSuccess() )
+            {
+                ToastManager::Push( keyed.GetError(), ToastLevel::Error, 6.0f );
+            }
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled( section.Weight.empty() );
+        if ( ImGui::Button( "Clear fade" ) )
+        {
+            ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+            Animation::ClearSectionWeight( section );
+        }
+        ImGui::EndDisabled();
+        Utils::ImGuiUtilities::Tooltip( "Back to no fade, which is FULL weight — not silence." );
+
+        for ( size_t k = 0; k < section.Weight.size(); ++k )
+        {
+            ImGui::PushID( static_cast<int>( k ) );
+            ImGui::SetNextItemWidth( 90.0f );
+            float value = section.Weight[k].Value;
+            ImGui::Text( "f%d", Animation::DisplayFrameIndex( section.Weight[k].Tick, clip->TickRate,
+                                                              clip->DisplayRate ) );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 110.0f );
+            if ( ImGui::DragFloat( "##weightKey", &value, 0.005f, 0.0f, 1.0f, "%.3f" ) )
+            {
+                if ( const auto set =
+                          Animation::SetSectionWeightKey( section, section.Weight[k].Tick, value );
+                     !set.IsSuccess() )
+                {
+                    LOG_TRACE( "[Sequencer] weight key refused: {}", set.GetError() );
+                }
+            }
+            bracketField();
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( ICON_MDI_CLOSE ) )
+            {
+                ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+                if ( const auto removed = Animation::RemoveSectionWeightKey( section, k );
+                     !removed.IsSuccess() )
+                {
+                    ToastManager::Push( removed.GetError(), ToastLevel::Error, 6.0f );
+                }
+                ImGui::PopID();
+                break;
+            }
+            ImGui::PopID();
+        }
+    }
+
+    void SequencerPanel::AddSectionAtPlayhead()
+    {
+        auto target = ResolveSectionTarget();
+        if ( !target )
+        {
+            ToastManager::Push( "add section: no clip is open on this timeline", ToastLevel::Error, 6.0f );
+            return;
+        }
+        Animation::AnimationClip* clip = target->Clip;
+        // FROM THE PLAYHEAD TO THE END, and named by its own position in the list. A range of zero length
+        // would be legal (the end is inclusive, so it is a one-tick section) and useless: the first thing
+        // the animator would do is drag it open, and a new section that has to be repaired before it says
+        // anything is a button that half-works.
+        const Animation::FrameNumber start = target->Animator->GetCurrentTick().Frame;
+        char                         name[48];
+        std::snprintf( name, sizeof( name ), "Section %zu", clip->Sections.size() + 1 );
+
+        ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, clip );
+        const auto     added = Animation::AddSection( clip->Sections, name, start, clip->DurationTicks,
+                                                      Animation::SectionBlendType::Absolute,
+                                                      clip->DurationTicks );
+        if ( !added.IsSuccess() )
+        {
+            LOG_ERROR( "[Sequencer] add section: {}", added.GetError() );
+            ToastManager::Push( std::string( "add section: " ) + added.GetError(), ToastLevel::Error, 8.0f );
+            return;
+        }
+        // THE NEW SECTION IS SELECTED, and it is the LAST one — which is also the one that wins an
+        // overlap. Selecting it is how the animator finds out.
+        SelectSection( static_cast<int>( clip->Sections.size() ) - 1 );
+    }
+
+    void SequencerPanel::ReorderSelectedSection( int delta )
+    {
+        auto target = ResolveSectionTarget();
+        if ( !target || m_SelSection < 0 ||
+             m_SelSection >= static_cast<int>( target->Clip->Sections.size() ) )
+        {
+            ToastManager::Push( "reorder section: select a section first", ToastLevel::Error, 6.0f );
+            return;
+        }
+        const size_t index = static_cast<size_t>( m_SelSection );
+        Common::BoolResultStr moved = Common::MakeError<bool>( "the edit did not run" );
+        {
+            ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, target->Clip );
+            moved = Animation::ReorderSection( target->Clip->Sections, index, delta );
+        }
+        if ( !moved.IsSuccess() )
+        {
+            ToastManager::Push( std::string( "reorder section: " ) + moved.GetError(), ToastLevel::Error, 6.0f );
+            return;
+        }
+        // THE SELECTION FOLLOWS THE SECTION, not the index. Leaving it behind would point the inspector at
+        // whichever section was swapped INTO the slot, and the next edit would land on the wrong one.
+        SelectSection( m_SelSection + delta );
+    }
+
     std::vector<SequencerPanel::DocumentAction> SequencerPanel::Actions()
     {
         if ( m_Timeline != Timeline::Skeletal )
         {
             return {};
         }
-        return { DocumentAction{ m_CurveView ? "Show the dope sheet" : "Show the curves", [this]
-                                 {
-                                     m_CurveView       = !m_CurveView;
-                                     m_CurveFitPending = true;
-                                 } } };
+        std::vector<DocumentAction> actions;
+        actions.push_back( DocumentAction{ m_CurveView ? "Show the dope sheet" : "Show the curves", [this]
+                                           {
+                                               m_CurveView       = !m_CurveView;
+                                               m_CurveFitPending = true;
+                                           } } );
+
+        // ── EVERY SECTION EDIT, REACHABLE WITHOUT A MOUSE ────────────────────────────────────────────
+        //
+        // Not a convenience. Synthetic input is closed at both doors on this platform, so a control that
+        // exists only as a widget is a control no unattended run can exercise and no screenshot can
+        // prove — which is the argument a previous attempt at this task used to refuse it, and the
+        // argument IPanel::DocumentAction exists to retire. The lane and the inspector call the SAME
+        // functions these do (`AddSectionAtPlayhead`, `ReorderSelectedSection`, `RunSectionEdit`), so a
+        // command and a button cannot drift into meaning different things.
+        //
+        // THEY ARE OFFERED EVEN WITH NOTHING SELECTED, and refuse in words when run. A palette that
+        // hid them would make "the command is missing" and "the command did nothing" the same
+        // observation from outside — the empty successful answer, one layer up.
+        actions.push_back(
+             DocumentAction{ "Add a section at the playhead", [this] { AddSectionAtPlayhead(); } } );
+        actions.push_back( DocumentAction{ "Select the next section",
+                                           [this]
+                                           {
+                                               const auto target = ResolveSectionTarget();
+                                               if ( !target || target->Clip->Sections.empty() )
+                                               {
+                                                   ToastManager::Push( "this clip states no section",
+                                                                       ToastLevel::Error, 6.0f );
+                                                   return;
+                                               }
+                                               const int count =
+                                                    static_cast<int>( target->Clip->Sections.size() );
+                                               SelectSection( ( m_SelSection + 1 ) % count );
+                                           } } );
+        actions.push_back( DocumentAction{ "Delete the selected section",
+                                           [this]
+                                           {
+                                               RunSectionEdit( "delete section",
+                                                               []( SectionTarget& target, size_t index )
+                                                               {
+                                                                   return Animation::RemoveSection(
+                                                                        target.Clip->Sections, index );
+                                                               } );
+                                               SelectSection( -1 );
+                                           } } );
+        actions.push_back( DocumentAction{ "Set the selected section's start to the playhead",
+                                           [this]
+                                           {
+                                               RunSectionEdit(
+                                                    "section start",
+                                                    []( SectionTarget& target, size_t index )
+                                                    {
+                                                        return Animation::SetSectionRange(
+                                                             target.Clip->Sections, index,
+                                                             target.Animator->GetCurrentTick().Frame,
+                                                             target.Clip->Sections[index].End,
+                                                             target.Clip->DurationTicks );
+                                                    } );
+                                           } } );
+        actions.push_back( DocumentAction{ "Set the selected section's end to the playhead",
+                                           [this]
+                                           {
+                                               RunSectionEdit(
+                                                    "section end",
+                                                    []( SectionTarget& target, size_t index )
+                                                    {
+                                                        return Animation::SetSectionRange(
+                                                             target.Clip->Sections, index,
+                                                             target.Clip->Sections[index].Start,
+                                                             target.Animator->GetCurrentTick().Frame,
+                                                             target.Clip->DurationTicks );
+                                                    } );
+                                           } } );
+        actions.push_back( DocumentAction{ "Set the selected section to Additive",
+                                           [this]
+                                           {
+                                               RunSectionEdit( "section blend",
+                                                               []( SectionTarget& target, size_t index )
+                                                               {
+                                                                   target.Clip->Sections[index].Blend =
+                                                                        Animation::SectionBlendType::Additive;
+                                                                   return Common::MakeSuccess( true );
+                                                               } );
+                                           } } );
+        actions.push_back( DocumentAction{ "Set the selected section to Absolute",
+                                           [this]
+                                           {
+                                               RunSectionEdit( "section blend",
+                                                               []( SectionTarget& target, size_t index )
+                                                               {
+                                                                   target.Clip->Sections[index].Blend =
+                                                                        Animation::SectionBlendType::Absolute;
+                                                                   return Common::MakeSuccess( true );
+                                                               } );
+                                           } } );
+        // TWO FIXED VALUES AND NOT ONE PARAMETERISED ENTRY, because a palette entry carries no argument.
+        // Nought and one are also the two an animator actually authors — a fade-out and a fade-in — and
+        // anything between them is the slider in the inspector.
+        actions.push_back( DocumentAction{ "Fade the selected section to 0 at the playhead",
+                                           [this]
+                                           {
+                                               RunSectionEdit(
+                                                    "section weight",
+                                                    []( SectionTarget& target, size_t index )
+                                                    {
+                                                        return Animation::SetSectionWeightKey(
+                                                             target.Clip->Sections[index],
+                                                             target.Animator->GetCurrentTick().Frame, 0.0f );
+                                                    } );
+                                           } } );
+        actions.push_back( DocumentAction{ "Fade the selected section to 1 at the playhead",
+                                           [this]
+                                           {
+                                               RunSectionEdit(
+                                                    "section weight",
+                                                    []( SectionTarget& target, size_t index )
+                                                    {
+                                                        return Animation::SetSectionWeightKey(
+                                                             target.Clip->Sections[index],
+                                                             target.Animator->GetCurrentTick().Frame, 1.0f );
+                                                    } );
+                                           } } );
+        actions.push_back( DocumentAction{ "Clear the selected section's fade",
+                                           [this]
+                                           {
+                                               RunSectionEdit( "clear fade",
+                                                               []( SectionTarget& target, size_t index )
+                                                               {
+                                                                   Animation::ClearSectionWeight(
+                                                                        target.Clip->Sections[index] );
+                                                                   return Common::MakeSuccess( true );
+                                                               } );
+                                           } } );
+        actions.push_back(
+             DocumentAction{ "Limit the selected section to the selected bone's track",
+                             [this]
+                             {
+                                 RunSectionEdit(
+                                      "section tracks",
+                                      []( SectionTarget& target, size_t index ) -> Common::BoolResultStr
+                                      {
+                                          const int bone = Core::ActiveAuthoringContext().SelectedBoneIndex();
+                                          if ( bone < 0 || bone >= static_cast<int>(
+                                                                       target.Animator->GetSkeleton()
+                                                                            .GetBones()
+                                                                            .size() ) )
+                                          {
+                                              return Common::MakeError<bool>(
+                                                   "no bone is selected — pick one in the lanes below" );
+                                          }
+                                          const std::string& name =
+                                               target.Animator->GetSkeleton().GetBones()[static_cast<size_t>(
+                                                                                              bone )]
+                                                    .Name;
+                                          // The whole list is replaced rather than narrowed: "limit to
+                                          // THIS one" is one statement, and doing it as a sequence of
+                                          // removals would leave a different list behind on every rig.
+                                          for ( const auto& track : target.Clip->Tracks )
+                                          {
+                                              if ( track.BoneName == name )
+                                              {
+                                                  target.Clip->Sections[index].Tracks = { name };
+                                                  return Common::MakeSuccess( true );
+                                              }
+                                          }
+                                          return Common::MakeFormattedError<bool>(
+                                               "the clip has no track for bone '{}'", name );
+                                      } );
+                             } } );
+        actions.push_back( DocumentAction{ "Let the selected section speak for every track",
+                                           [this]
+                                           {
+                                               RunSectionEdit( "section tracks",
+                                                               []( SectionTarget& target, size_t index )
+                                                               {
+                                                                   Animation::SetSectionSpeaksForEveryTrack(
+                                                                        target.Clip->Sections[index] );
+                                                                   return Common::MakeSuccess( true );
+                                                               } );
+                                           } } );
+        actions.push_back( DocumentAction{ "Raise the selected section's priority",
+                                           [this] { ReorderSelectedSection( 1 ); } } );
+        actions.push_back( DocumentAction{ "Lower the selected section's priority",
+                                           [this] { ReorderSelectedSection( -1 ); } } );
+        return actions;
     }
 
     void SequencerPanel::DrawCurveView( Animation::AnimationClip* clip, Animation::Animator* animator,
