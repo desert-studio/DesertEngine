@@ -19,11 +19,20 @@ namespace Desert::Project
 
     Common::BoolResultStr RegisterThisEngine( const std::string& configDirectory, const std::string& engineRoot )
     {
+        // WHAT THIS MESSAGE USED TO DO WRONG, because the repair is the whole reason it changed. It
+        // said "DESERT_ROOT is not set ... start the Editor through scripts/MacOS/RunEditor.sh (or
+        // scripts\\Windows\\RunEditor.bat)". A DOWNLOADED BUILD CARRIES NEITHER SCRIPT — they live in
+        // the repository — so an artifact the owner unzipped and double-clicked printed an
+        // instruction that could not be followed, for a variable it no longer needs: the caller now
+        // derives the tree from its own executable (Engine/Project/StartupLayout.hpp) and only ever
+        // reaches this refusal with an empty root it could not derive AND was not told.
+        //
+        // So this says what is missing and nothing about how to obtain it: the caller is the one
+        // that knows where it looked, and it prints that.
         if ( engineRoot.empty() )
             return Common::MakeError<bool>(
-                 "DESERT_ROOT is not set, so this engine could not record itself in engines.json and the "
-                 "launcher will not list it - start the Editor through scripts/MacOS/RunEditor.sh (or "
-                 "scripts\\Windows\\RunEditor.bat), which exports it." );
+                 "no engine root was given or could be derived, so this engine could not record itself "
+                 "in engines.json and the launcher will not list it." );
 
         std::error_code             ec;
         const std::filesystem::path root = std::filesystem::absolute( engineRoot, ec );
