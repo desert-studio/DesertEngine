@@ -62,26 +62,35 @@ namespace Desert::Runtime
         Assets::AssetHandle GetAssetHandleByExternal( const Common::UUID& uuid ) const;
         void                Clear();
 
-        // The SAME `.demat` and the SAME vertex path, drawn into a different PASS — built on miss, exactly
-        // as Get does. This is how a render pass that owns no material asks for one: it holds the runtime
-        // material a mesh slot resolved to (forward), and needs the sibling whose descriptor sets were
-        // allocated from ITS OWN shader's reflection.
+        // The SAME `.demat`, in a different CELL — built on miss, exactly as Get does. This is how a
+        // render pass that owns no material asks for one: it holds the runtime material a mesh slot
+        // resolved to (static, forward), and needs the sibling whose descriptor sets were allocated from
+        // ITS OWN shader's reflection.
         //
         // It exists rather than the renderer calling Get(handle, path, pass) because the renderer does not
         // have the handle: a draw carries MaterialInstance* slots, not asset handles. Answering from the
         // material keeps the asset->material table the single place that knows which `.demat` a runtime
         // material came from.
         //
+        // BOTH AXES, AND THE PATH WAS THE ONE THAT WENT MISSING. This used to take the pass alone and
+        // read the path off @p built, argued as "the path is not the caller's to choose: the geometry
+        // already decided it when the slot resolved". The geometry decides the SLOT's path; whether the
+        // draw is hardware-instanced is decided by the RENDERER, per frame, by counting how many objects
+        // share a mesh — which is the definition of axis 2 in MeshVertexPath.hpp. With no way to ask for
+        // the instanced sibling, MeshRenderer recorded every batch with a material of its own and every
+        // batched surface lost its textures (InstancedRecorder.hpp).
+        //
         // Null when the engine has no shader for the requested cell, or when @p built is not service-owned
         // — ask Owns() first if the two need telling apart, because they need different handling and a
         // caller that treats them alike either drops geometry or draws it with the wrong textures.
-        Graphic::MaterialPBR* GetPassVariant( const Graphic::MaterialPBR* built, Graphic::MeshPass pass ) const;
+        Graphic::MaterialPBR* GetVariant( const Graphic::MaterialPBR* built, Graphic::MeshVertexPath path,
+                                          Graphic::MeshPass pass ) const;
 
         // Whether this runtime material came from a `.demat` this service holds. FALSE for a material a
         // renderer built for itself — the glass pass, the RSM pass, the instanced batch material, and
         // MeshECSSystem's default material, which stands in for every mesh whose slot does not resolve.
         //
-        // It exists because "GetPassVariant returned null" has two causes and only one of them is an
+        // It exists because "GetVariant returned null" has two causes and only one of them is an
         // error. Found by rendering, not by reading: a deferred scene containing a mesh with no material
         // slot lost that mesh entirely, because its default material has no asset and so no sibling for
         // any other pass. The caller now recognises that case and draws it with a material of its own.
@@ -245,13 +254,13 @@ namespace Desert::Runtime
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>> m_MaterialAssets;
 
         // Which `.demat` a built runtime material came from — the inverse of m_Materials, and the only way
-        // GetPassVariant can answer without the caller carrying an asset handle it does not have.
+        // GetVariant can answer without the caller carrying an asset handle it does not have.
         //
         // It is an INDEX and not a second source of truth: m_Materials decides which materials exist, and
         // every one of the four places that changes it (Register, the lazy build in Get, Invalidate,
         // Clear) updates this in the same statement. No test can hold it to that — building a runtime
         // material needs a device, so a headless suite cannot construct this class at all — so what keeps
-        // it honest is that a stale entry is not silent: GetPassVariant would hand a render pass a
+        // it honest is that a stale entry is not silent: GetVariant would hand a render pass a
         // material that is on its way to the graveyard, and the pass would draw with descriptors the next
         // CollectGarbage destroys. That is why Invalidate erases here and not in CollectGarbage.
         mutable std::unordered_map<const Graphic::Material*, Assets::AssetHandle> m_BuiltToAsset;
