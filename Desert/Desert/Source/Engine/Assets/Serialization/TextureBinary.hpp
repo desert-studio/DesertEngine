@@ -12,13 +12,24 @@
 //
 // ── THE FORMAT ───────────────────────────────────────────────────────────────────────────────────
 //
-//   [Header, 64 B][LevelRow, LevelCount * 24 B][source key bytes, padded to 8][level payloads, tight]
+//   [Header, 128 B][LevelRow, LevelCount * 16 B][source key bytes][pad][levels, SMALLEST FIRST]
 //
-// The payloads are tightly packed, deliberately: their sizes are whole multiples of the texel size
-// (4 bytes for RGBA8, 16 for RGBA32F), so every level's offset inside the payload run is a legal
-// `VkBufferImageCopy::bufferOffset` without padding — and one `memcpy` of the whole run into one
-// staging buffer serves every level, which is what makes the upload one copy command per level rather
-// than one allocation per level.
+// The layout is `Docs/Textures/T3_FORMAT_PLAN.md` §5c, which is binding, and two of its decisions are
+// not cosmetic:
+//
+//  * THE LEVELS ARE STORED SMALLEST FIRST. The resident tail — the levels at 16x16 and below that a
+//    streaming build keeps in memory for every texture, so that "an object on screen with no texture"
+//    stops being a possible state — is then a CONTIGUOUS PREFIX of the file, together with the header
+//    and the table. One read of a few hundred bytes gets all of it. Stored in image order the tail
+//    would sit at the END of every file and cost a seek per texture, for ever. Mip 0 loses nothing:
+//    it is read by offset, not sequentially.
+//  * EVERY LEVEL STARTS 16-BYTE ALIGNED. That is what lets a level be `memcpy`ed into mapped memory
+//    without an unaligned access, and it keeps every level's `VkBufferImageCopy::bufferOffset` a legal
+//    multiple of the texel block size for both an RGBA8 and an RGBA32F payload. The price is under
+//    fifteen bytes per level — below 200 bytes for a whole texture.
+//
+// The whole payload run is one `memcpy` into one staging buffer and one copy region per level, which
+// is what makes the upload one allocation rather than one per level.
 //
 // ── WINDOWS IS THE TARGET AND THIS MACHINE IS NOT WINDOWS ────────────────────────────────────────
 //
@@ -86,13 +97,18 @@ namespace Desert::Assets::Serialization
 
     /// "DESTTEXT". Eight ASCII bytes, so the sequence on disk is the same whatever the host's word
     /// order — a magic written as an integer would itself need a byte-order rule in order to be read.
-    inline constexpr char kTextureBinaryMagic[8] = { 'D', 'E', 'S', 'T', 'T', 'E', 'X', 'T' };
+    inline constexpr char kTextureBinaryMagic[8] = { 'D', 'E', 'S', 'T', 'T', 'E', 'X', '\0' };
 
-    /// The bytes of the header plus one level row — the most a reader ever needs in order to answer
-    /// "what is this texture" without touching a pixel. `TextureAsset::LoadFromFile` reads exactly this
-    /// prefix, which is what keeps `TextureService`'s "cheap: reads the metadata, not pixels" true now
-    /// that the file is megabytes rather than bytes.
-    inline constexpr std::size_t kTextureBinaryHeaderSize = 64;
+    /// Every level begins on this boundary inside the file. See the header note.
+    inline constexpr uint64_t kTextureLevelAlignment = 16;
+
+    /// The header is a FIXED SIZE AT A FIXED OFFSET and answers every question the registry, the content
+    /// browser and reference resolution ask, without a forward reference to anything: extent, format,
+    /// level count, source hash, identity. `TextureAsset::LoadFromFile` reads this prefix and no more,
+    /// which is what keeps `TextureService`'s "cheap: reads the metadata, not pixels" true now that the
+    /// file is megabytes rather than bytes. `HeaderSize` is in the header itself so a reader can step
+    /// over a header that a later version grew.
+    inline constexpr std::size_t kTextureBinaryHeaderSize = 128;
 
     /// The window a loader reads first. Big enough that one read covers the header, the level table of
     /// any texture this engine can create (a 16384-texel chain is 15 rows of 24 bytes) and a source key
@@ -107,15 +123,24 @@ namespace Desert::Assets::Serialization
     /// the decoder produce the refusal.
     [[nodiscard]] uint64_t TextureBinaryMetadataBytes( std::string_view headerBytes );
 
-    /// One level of the chain. `ByteOffset` is measured from the START OF THE PAYLOAD RUN, not from the
-    /// start of the file, because that is the number the GPU upload needs: the whole run is copied into
-    /// one staging buffer and each level is copied out of it at this offset.
+    /// One level of the chain, INDEXED BY MIP LEVEL — `Levels[0]` is always the full-size image, whatever
+    /// order the bytes sit in on disk. Only the physical order is reversed; the table is not.
+    ///
+    /// `ByteOffset` here is measured from the START OF THE PAYLOAD RUN, while the file's own row measures
+    /// it from the start of the FILE. That is deliberate and it is the one place this format converts a
+    /// number, so it is also the one place a middle link could drop a property: the whole run is copied
+    /// into one staging buffer, and the GPU needs the offset INSIDE that buffer. The decoder subtracts
+    /// the payload's start exactly once and the suite pins both spellings.
     struct TextureLevel
     {
         uint32_t Width      = 0;
         uint32_t Height     = 0;
         uint64_t ByteOffset = 0;
         uint64_t ByteSize   = 0;
+        /// Bytes from the start of one row of this level to the next. For an uncompressed format it is
+        /// `Width * bytes-per-pixel`; it is in the file because for a BLOCK format a row's stride is not
+        /// a function of the width alone, and the day that arrives the reader must not have to guess.
+        uint32_t RowPitch   = 0;
     };
 
     /// Everything a cooked texture is. `Pixels` holds every level of the chain back to back; `Levels`
@@ -136,8 +161,10 @@ namespace Desert::Assets::Serialization
         /// sources by it.
         std::string SourcePath;
 
-        /// CRC-32C of the source image file's bytes at cook time. See the header comment.
-        uint32_t SourceContentHash = 0;
+        /// The source image file's 64-bit signature at cook time: CRC-32C of its bytes in the low half,
+        /// its byte length in the high half. See the header comment for why it is the FILE's bytes and
+        /// not the decoded pixels, and `SourceSignature` below for why both halves.
+        uint64_t SourceContentHash = 0;
 
         uint32_t                   Width  = 0;
         uint32_t                   Height = 0;
@@ -159,13 +186,25 @@ namespace Desert::Assets::Serialization
     {
         Common::UUID               Handle;
         std::string                SourcePath;
-        uint32_t                   SourceContentHash = 0;
+        uint64_t                   SourceContentHash = 0;
         uint32_t                   Width             = 0;
         uint32_t                   Height            = 0;
         Core::Formats::ImageFormat Format            = Core::Formats::ImageFormat::RGBA8F;
         uint32_t                   LevelCount        = 0;
+        uint64_t                   PayloadBytes      = 0;
         uint64_t                   FileSize          = 0;
     };
+
+    /// The source signature the cook records and the freshness check compares: CRC-32C of @p bytes in
+    /// the low 32 bits, `size` in the high 32.
+    ///
+    /// WHY BOTH HALVES. T3 §5c asks for eight bytes and for the hash to be taken over the source FILE's
+    /// bytes rather than its decoded pixels, because a check that has to decode every source is a check
+    /// people stop running. CRC-32C is what this project already has as its byte-integrity primitive
+    /// (8.17 GB/s on the instruction here against FNV-1a's 0.77 — `Common/Utilities/Crc32c.hpp`), and it
+    /// is 32 bits. The upper half is filled with the length rather than left empty: it costs nothing,
+    /// and it removes the whole class of collisions where two differently-sized files share a CRC.
+    [[nodiscard]] uint64_t SourceSignature( const void* bytes, std::size_t size );
 
     /// Does @p bytes begin with the container magic? The one question either reader will answer about a
     /// payload it has not parsed, and the one that separates a cooked texture from the retired manifest.

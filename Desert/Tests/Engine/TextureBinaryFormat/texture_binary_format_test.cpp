@@ -144,7 +144,7 @@ namespace
         TextureAssetData data;
         data.Handle            = Common::UUID( 0x0123456789ABCDEFull );
         data.SourcePath        = key;
-        data.SourceContentHash = 0xDEADBEEFu;
+        data.SourceContentHash = 0x00001234DEADBEEFull;
         data.Width             = width;
         data.Height            = height;
         data.Format            = ImageFormat::RGBA8F;
@@ -241,9 +241,10 @@ TEST( TextureBinaryFormat, APngSurvivesTheContainerByteForByte )
 
     // LEVEL 0 IS THE SOURCE'S OWN PIXELS, not merely "close to them". This is the claim the whole
     // container rests on: the decoder that used to run on every load ran once, at cook time, and
-    // nothing since has touched the bytes.
+    // nothing since has touched the bytes. Addressed through its own offset, because level 0 is the
+    // LAST thing in the file -- the levels are stored smallest first.
     ASSERT_EQ( back.Levels[0].ByteSize, baseBytes );
-    EXPECT_EQ( std::memcmp( back.Pixels.data(), base.data(), baseBytes ), 0 );
+    EXPECT_EQ( std::memcmp( back.Pixels.data() + back.Levels[0].ByteOffset, base.data(), baseBytes ), 0 );
 
     ASSERT_EQ( back.Levels.size(), reference.size() );
     for ( size_t i = 0; i < reference.size(); ++i )
@@ -295,18 +296,33 @@ TEST( TextureBinaryFormat, ALevelOffsetThatStillFitsIsRefused )
     const uint32_t w = 32, h = 32;
     std::string    encoded = EncodeTextureBinary( Cook( w, h, SyntheticRGBA8( w, h ) ) );
 
-    // Level 1's ByteOffset lives at header(64) + one row(24) + 8. Move it forward by 64 bytes: still
-    // inside the payload, still a multiple of the texel size, still leaving room for the declared
-    // count — and the image it would produce is a complete, plausible, WRONG one.
-    const size_t offsetField = kTextureBinaryHeaderSize + 24u + 8u;
+    // Level 1's ByteOffset is the first field of the second row, at header(128) + one row(16). Move it
+    // forward by 16 bytes: still inside the payload, still level-aligned, still leaving room for the
+    // declared size — and the image it would produce is a complete, plausible, WRONG one.
+    const size_t offsetField = kTextureBinaryHeaderSize + 16u;
     uint64_t     moved       = 0;
     std::memcpy( &moved, encoded.data() + offsetField, sizeof( moved ) );
-    moved += 64;
+    moved += 16;
     std::memcpy( encoded.data() + offsetField, &moved, sizeof( moved ) );
 
     const auto read = DecodeTextureBinary( encoded, "tampered.tex" );
     EXPECT_FALSE( read.IsSuccess() ) << "a level offset moved 64 bytes forward was followed";
     EXPECT_NE( read.GetError().find( "level 1" ), std::string::npos ) << read.GetError();
+}
+
+TEST( TextureBinaryFormat, ADeclaredPayloadTotalThatTheTableContradictsIsRefused )
+{
+    // THIS TEST EXISTS BECAUSE THE MUTATION STAYED GREEN WITHOUT IT. Deleting the PayloadBytes
+    // comparison outright changed nothing that any other test could see: the field is a SECOND
+    // statement of a quantity the table already carries, so nothing reads it unless something forges
+    // it. A guard nobody exercises is a guard that is not there, whatever the source says.
+    std::string    encoded = EncodeTextureBinary( Cook( 16, 16, SyntheticRGBA8( 16, 16 ) ) );
+    const uint64_t lie     = 12345;
+    std::memcpy( encoded.data() + 64, &lie, sizeof( lie ) ); // PayloadBytes
+
+    const auto read = DecodeTextureBinary( encoded, "miscounted.tex" );
+    EXPECT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "level table adds up" ), std::string::npos ) << read.GetError();
 }
 
 TEST( TextureBinaryFormat, AVersionThisBuildDoesNotReadIsRefusedByName )
@@ -374,6 +390,11 @@ TEST( TextureBinaryFormat, TheHeaderPrefixAnswersWithoutThePayload )
     EXPECT_EQ( fromPrefix.GetValue().Height, h );
     EXPECT_EQ( fromPrefix.GetValue().LevelCount, data.Levels.size() );
     EXPECT_EQ( fromPrefix.GetValue().FileSize, encoded.size() );
+    uint64_t sumOfLevels = 0;
+    for ( const TextureLevel& level : data.Levels )
+        sumOfLevels += level.ByteSize;
+    EXPECT_EQ( fromPrefix.GetValue().PayloadBytes, sumOfLevels )
+         << "the declared payload total is a second statement of the level table's own sum";
 
     // ONE BYTE SHORT OF WHAT IT NEEDS IS A REFUSAL, not a header with an empty source key. A prefix
     // reader that silently accepted a short key would hand back a texture whose source is "" — and
@@ -472,6 +493,84 @@ TEST( TextureBinaryFormat, TheTrackedCheckerTextureIsAContainer )
     // The handle eleven scenes resolve their floor material through. It is derived from the SOURCE
     // image's project-relative key, so this number is the same on every machine.
     EXPECT_EQ( static_cast<uint64_t>( read.GetValue().Handle ), 4588246833979984450ull );
+}
+
+// ── 10. THE LEVELS ARE STORED SMALLEST FIRST, AND THAT IS WHAT THE NEXT STEP BUYS ─────────────────
+
+TEST( TextureBinaryFormat, TheResidentTailIsAContiguousPrefixOfTheFile )
+{
+    // The decision T3 S5c calls the layout's main one. Its whole value is that the small levels — the
+    // ones a streaming build keeps resident for every texture so that "an object on screen with no
+    // texture" stops being a reachable state — sit at the FRONT, next to the header and the table, and
+    // are read by one sequential read. Stored in image order they would be at the end of every file
+    // and cost a seek per texture, for ever.
+    const uint32_t w = 256, h = 256;
+    const auto     data    = Cook( w, h, SyntheticRGBA8( w, h ) );
+    const auto     encoded = EncodeTextureBinary( data );
+
+    const auto read = DecodeTextureBinary( encoded, "order" );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    const auto& levels = read.GetValue().Levels;
+
+    // Table order is MIP order: Levels[0] is the full-size image whatever the bytes do.
+    EXPECT_EQ( levels[0].Width, w );
+    EXPECT_EQ( levels[0].Height, h );
+    EXPECT_EQ( levels.back().Width, 1u );
+    EXPECT_EQ( levels.back().Height, 1u );
+
+    // Byte order is the reverse, and every level is 16-byte aligned.
+    for ( size_t i = 0; i + 1 < levels.size(); ++i )
+    {
+        EXPECT_GT( levels[i].ByteOffset, levels[i + 1].ByteOffset )
+             << "level " << i << " is stored before level " << ( i + 1 ) << "; the tail is not a prefix";
+    }
+    for ( const TextureLevel& level : levels )
+        EXPECT_EQ( level.ByteOffset % kTextureLevelAlignment, 0u );
+
+    // Everything at 16x16 and below, plus the header and the table, inside one small read.
+    uint64_t tailEnd = 0;
+    for ( const TextureLevel& level : levels )
+        if ( level.Width <= 16 && level.Height <= 16 )
+            tailEnd = std::max( tailEnd, level.ByteOffset + level.ByteSize );
+    EXPECT_LT( tailEnd, 2048u ) << "the resident tail does not fit in one small read";
+}
+
+TEST( TextureBinaryFormat, AFlagOrAnEncoderThisVersionCannotHonourIsRefused )
+{
+    // Both fields are written as zero by version 1 and both are guards rather than dead space: a file
+    // that sets one was made by a build that knows something this one does not, and decoding it anyway
+    // would draw the texture in the wrong colour space or out of the wrong bytes -- silently.
+    {
+        std::string    encoded = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
+        const uint32_t srgb    = 1u;
+        std::memcpy( encoded.data() + 36, &srgb, sizeof( srgb ) ); // Flags
+        const auto read = DecodeTextureBinary( encoded, "flagged.tex" );
+        EXPECT_FALSE( read.IsSuccess() );
+        EXPECT_NE( read.GetError().find( "content flags" ), std::string::npos ) << read.GetError();
+    }
+    {
+        std::string    encoded = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
+        const uint64_t settings = 0x1122334455667788ull;
+        std::memcpy( encoded.data() + 56, &settings, sizeof( settings ) ); // EncoderHash
+        const auto read = DecodeTextureBinary( encoded, "encoded.tex" );
+        EXPECT_FALSE( read.IsSuccess() );
+        EXPECT_NE( read.GetError().find( "encoder settings" ), std::string::npos ) << read.GetError();
+    }
+}
+
+TEST( TextureBinaryFormat, TheSourceSignatureSeparatesFilesOfTheSameLengthAndOfTheSameContent )
+{
+    const std::string a = "the same length, different bytes";
+    const std::string b = "THE SAME LENGTH, DIFFERENT BYTES";
+    ASSERT_EQ( a.size(), b.size() );
+    EXPECT_NE( SourceSignature( a.data(), a.size() ), SourceSignature( b.data(), b.size() ) );
+
+    // And the upper half is the length, so two files can never share a signature while differing in
+    // size -- the collision class a bare 32-bit CRC leaves open.
+    const std::string longer = a + "!";
+    EXPECT_NE( SourceSignature( a.data(), a.size() ) >> 32,
+               SourceSignature( longer.data(), longer.size() ) >> 32 );
+    EXPECT_EQ( SourceSignature( a.data(), a.size() ) >> 32, a.size() );
 }
 
 int main( int argc, char** argv )

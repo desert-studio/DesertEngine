@@ -1,6 +1,7 @@
 #include "TextureBinary.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/Crc32c.hpp>
 
 #include <fmt/format.h>
 
@@ -26,30 +27,34 @@ namespace Desert::Assets::Serialization
             char     Magic[8];
             uint32_t ByteOrder;
             uint32_t Version;
-            uint64_t FileSize; // declared; compared against the bytes actually in hand
-            uint64_t Handle;
+            uint32_t HeaderSize; // so a reader can step over a header a later version grew
             uint32_t Width;
             uint32_t Height;
             uint32_t Format;     // an ImageFormat enumerator, travelling at a width the file fixes
             uint32_t LevelCount;
-            uint32_t SourceKeyOffset; // from file start
+            uint32_t Flags;           // v1 defines none; a non-zero value is REFUSED, see below
             uint32_t SourceKeyLength;
-            uint32_t SourceContentHash;
-            uint32_t Reserved;
+            uint32_t SourceKeyOffset; // from file start
+            uint64_t SourceContentHash;
+            uint64_t EncoderHash;  // v1 has no encoder; a non-zero value is REFUSED, see below
+            uint64_t PayloadBytes; // declared sum of the level sizes, padding excluded
+            uint64_t FileSize;     // declared; compared against the bytes actually in hand
+            uint64_t Handle;
+            uint32_t Reserved[10];
         };
         static_assert( sizeof( FileHeader ) == kTextureBinaryHeaderSize );
         static_assert( alignof( FileHeader ) == 8 );
-        static_assert( offsetof( FileHeader, FileSize ) == 16 );
-        static_assert( offsetof( FileHeader, Handle ) == 24 );
+        static_assert( offsetof( FileHeader, SourceContentHash ) == 48 );
+        static_assert( offsetof( FileHeader, FileSize ) == 72 );
+        static_assert( offsetof( FileHeader, Handle ) == 80 );
 
         struct LevelRow
         {
-            uint32_t Width;
-            uint32_t Height;
-            uint64_t ByteOffset; // from the START OF THE PAYLOAD RUN
-            uint64_t ByteSize;
+            uint64_t ByteOffset; // from FILE start -- so a streaming read can seek straight to it
+            uint32_t ByteSize;
+            uint32_t RowPitch;
         };
-        static_assert( sizeof( LevelRow ) == 24 );
+        static_assert( sizeof( LevelRow ) == 16 );
         static_assert( alignof( LevelRow ) == 8 );
 
         /// Reads back as 0x01020304 on a big-endian host, which is the whole point of writing it.
@@ -69,12 +74,17 @@ namespace Desert::Assets::Serialization
             out.append( static_cast<const char*>( bytes ), count );
         }
 
-        /// Pad @p out to the next 8-byte boundary, so the payload run starts aligned for any texel
-        /// size a future version stores. Nothing in this file depends on it — every read goes through
-        /// `memcpy` — but a reader that maps the file instead of copying it would.
-        void PadToEight( std::string& out )
+        constexpr uint64_t AlignUp( const uint64_t at )
         {
-            while ( ( out.size() % 8 ) != 0 )
+            return ( at + ( kTextureLevelAlignment - 1 ) ) & ~( kTextureLevelAlignment - 1 );
+        }
+
+        /// Pad @p out up to the next level boundary. Every level starts there, which is what makes a
+        /// level `memcpy`-able into mapped memory and its `VkBufferImageCopy::bufferOffset` a legal
+        /// multiple of any texel block size this format will carry.
+        void PadToLevelBoundary( std::string& out )
+        {
+            while ( ( out.size() % kTextureLevelAlignment ) != 0 )
                 out.push_back( '\0' );
         }
 
@@ -143,6 +153,12 @@ namespace Desert::Assets::Serialization
         return static_cast<uint64_t>( header.SourceKeyOffset ) + header.SourceKeyLength;
     }
 
+    uint64_t SourceSignature( const void* bytes, const std::size_t size )
+    {
+        return ( static_cast<uint64_t>( static_cast<uint32_t>( size ) ) << 32 ) |
+               Common::Utils::Crc32c( bytes, size );
+    }
+
     std::string StaleCookRefusal( const std::string_view whatFor )
     {
         return fmt::format(
@@ -185,48 +201,64 @@ namespace Desert::Assets::Serialization
                  width, height, bpp, baseSize, base.size() );
         }
 
-        const uint32_t levelCount =
-             Core::Formats::MipChainLength( std::max( width, height ) );
+        const uint32_t levelCount = Core::Formats::MipChainLength( std::max( width, height ) );
 
-        std::vector<TextureLevel> levels;
-        levels.reserve( levelCount );
-
-        chainOut.clear();
-        chainOut.reserve( baseSize + baseSize / 2u );
-        chainOut.insert( chainOut.end(), base.begin(), base.end() );
-        levels.push_back( TextureLevel{ width, height, 0, baseSize } );
+        // BUILT LARGEST FIRST, STORED SMALLEST FIRST. The filter can only run downwards — level i+1 is
+        // made out of level i — so the chain is computed in image order into a scratch buffer and then
+        // emitted in reverse. The reversal is the file's layout decision (T3 §5c, the resident tail as
+        // a contiguous prefix), not the filter's, and keeping the two apart is what stops a future
+        // change to one from silently changing the other.
+        std::vector<std::vector<unsigned char>> scratch;
+        scratch.reserve( levelCount );
+        scratch.push_back( base );
 
         uint32_t srcW = width, srcH = height;
         for ( uint32_t level = 1; level < levelCount; ++level )
         {
             const uint32_t dstW = HalfExtent( srcW );
             const uint32_t dstH = HalfExtent( srcH );
-            const size_t   dstSize = static_cast<size_t>( dstW ) * dstH * bpp;
 
-            const size_t srcOffset = levels.back().ByteOffset;
-            const size_t dstOffset = chainOut.size();
-            chainOut.resize( dstOffset + dstSize );
-
-            // The source is addressed through the vector AFTER the resize, never through a pointer
-            // taken before it: `resize` may reallocate, and a pointer into the old buffer is the
-            // classic way a mip chain ends up reading freed memory on exactly one allocator.
+            std::vector<unsigned char> next( static_cast<size_t>( dstW ) * dstH * bpp );
             if ( format == Fmt::RGBA8F )
             {
-                BoxDownsample<unsigned char, uint32_t>(
-                     chainOut.data() + srcOffset, srcW, srcH,
-                     chainOut.data() + dstOffset, dstW, dstH, 4u );
+                BoxDownsample<unsigned char, uint32_t>( scratch.back().data(), srcW, srcH, next.data(),
+                                                        dstW, dstH, 4u );
             }
             else
             {
-                BoxDownsample<float, float>( reinterpret_cast<const float*>( chainOut.data() + srcOffset ),
-                                             srcW, srcH,
-                                             reinterpret_cast<float*>( chainOut.data() + dstOffset ), dstW,
-                                             dstH, 4u );
+                BoxDownsample<float, float>( reinterpret_cast<const float*>( scratch.back().data() ), srcW,
+                                             srcH, reinterpret_cast<float*>( next.data() ), dstW, dstH, 4u );
             }
-
-            levels.push_back( TextureLevel{ dstW, dstH, dstOffset, dstSize } );
+            scratch.push_back( std::move( next ) );
             srcW = dstW;
             srcH = dstH;
+        }
+
+        std::vector<TextureLevel> levels( levelCount );
+        chainOut.clear();
+
+        uint32_t levelW = width, levelH = height;
+        std::vector<std::pair<uint32_t, uint32_t>> extents( levelCount );
+        for ( uint32_t level = 0; level < levelCount; ++level )
+        {
+            extents[level] = { levelW, levelH };
+            levelW         = HalfExtent( levelW );
+            levelH         = HalfExtent( levelH );
+        }
+
+        for ( uint32_t i = 0; i < levelCount; ++i )
+        {
+            const uint32_t level = levelCount - 1 - i; // smallest first
+            while ( ( chainOut.size() % kTextureLevelAlignment ) != 0 )
+                chainOut.push_back( 0 );
+
+            levels[level].Width      = extents[level].first;
+            levels[level].Height     = extents[level].second;
+            levels[level].ByteOffset = chainOut.size();
+            levels[level].ByteSize   = scratch[level].size();
+            levels[level].RowPitch   = extents[level].first * bpp;
+
+            chainOut.insert( chainOut.end(), scratch[level].begin(), scratch[level].end() );
         }
 
         return Common::MakeSuccess( std::move( levels ) );
@@ -236,37 +268,46 @@ namespace Desert::Assets::Serialization
     {
         const uint32_t levelCount = static_cast<uint32_t>( data.Levels.size() );
 
-        const uint64_t tableEnd  = sizeof( FileHeader ) + static_cast<uint64_t>( levelCount ) * sizeof( LevelRow );
-        const uint64_t keyOffset = tableEnd;
-        uint64_t       payloadOffset = keyOffset + data.SourcePath.size();
-        payloadOffset = ( payloadOffset + 7u ) & ~static_cast<uint64_t>( 7u );
+        const uint64_t keyOffset =
+             sizeof( FileHeader ) + static_cast<uint64_t>( levelCount ) * sizeof( LevelRow );
+        const uint64_t payloadOffset = AlignUp( keyOffset + data.SourcePath.size() );
 
+        uint64_t payloadBytes = 0;
+        for ( const TextureLevel& level : data.Levels )
+            payloadBytes += level.ByteSize;
+
+        // The table's offsets are FILE-relative; `TextureLevel::ByteOffset` is payload-relative. This is
+        // the one conversion in the format and it lives here and in the decoder, nowhere else.
         std::vector<LevelRow> table;
         table.reserve( levelCount );
         for ( const TextureLevel& level : data.Levels )
-            table.push_back( LevelRow{ level.Width, level.Height, level.ByteOffset, level.ByteSize } );
+            table.push_back( LevelRow{ payloadOffset + level.ByteOffset,
+                                       static_cast<uint32_t>( level.ByteSize ), level.RowPitch } );
 
         FileHeader header{};
         std::memcpy( header.Magic, kTextureBinaryMagic, sizeof( header.Magic ) );
         header.ByteOrder         = kByteOrderTag;
         header.Version           = kTextureBinaryVersion;
-        header.FileSize          = payloadOffset + data.Pixels.size();
-        header.Handle            = static_cast<uint64_t>( data.Handle );
+        header.HeaderSize        = static_cast<uint32_t>( sizeof( FileHeader ) );
         header.Width             = data.Width;
         header.Height            = data.Height;
         header.Format            = static_cast<uint32_t>( data.Format );
         header.LevelCount        = levelCount;
-        header.SourceKeyOffset   = static_cast<uint32_t>( keyOffset );
+        header.Flags             = 0;
         header.SourceKeyLength   = static_cast<uint32_t>( data.SourcePath.size() );
+        header.SourceKeyOffset   = static_cast<uint32_t>( keyOffset );
         header.SourceContentHash = data.SourceContentHash;
-        header.Reserved          = 0;
+        header.EncoderHash       = 0;
+        header.PayloadBytes      = payloadBytes;
+        header.FileSize          = payloadOffset + data.Pixels.size();
+        header.Handle            = static_cast<uint64_t>( data.Handle );
 
         std::string out;
         out.reserve( static_cast<size_t>( header.FileSize ) );
         Append( out, &header, sizeof( header ) );
         Append( out, table.data(), table.size() * sizeof( LevelRow ) );
         Append( out, data.SourcePath.data(), data.SourcePath.size() );
-        PadToEight( out );
+        PadToLevelBoundary( out );
         Append( out, data.Pixels.data(), data.Pixels.size() );
         return out;
     }
@@ -314,6 +355,35 @@ namespace Desert::Assets::Serialization
                      who, header.Version, kTextureBinaryVersion );
             }
 
+            if ( header.HeaderSize < sizeof( FileHeader ) )
+            {
+                return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                     "'{}' declares a {}-byte header and version {} has {}. A header cannot be smaller "
+                     "than the fields this version reads out of it.",
+                     who, header.HeaderSize, kTextureBinaryVersion, sizeof( FileHeader ) );
+            }
+
+            // FORWARD-COMPATIBILITY GUARDS, NOT DEAD FIELDS. Version 1 defines no flag and has no
+            // encoder, so both of these are written as zero. A file that sets either was produced by a
+            // build that knows something this one does not — an sRGB marking it would have to honour,
+            // an encoder whose output it cannot interpret — and the only safe answer is to say so.
+            // Ignoring them would be the silent wrong answer: the texture would decode and draw, in the
+            // wrong colour space or from the wrong bytes.
+            if ( header.Flags != 0 )
+            {
+                return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                     "'{}' sets content flags {:#010x}; version {} defines none and cannot honour them. "
+                     "Re-cook it with a build that does.",
+                     who, header.Flags, kTextureBinaryVersion );
+            }
+            if ( header.EncoderHash != 0 )
+            {
+                return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                     "'{}' names encoder settings {:#018x}; version {} cooks uncompressed levels only "
+                     "and has no encoder to compare against. Re-cook it.",
+                     who, header.EncoderHash, kTextureBinaryVersion );
+            }
+
             if ( header.Format >= Core::Formats::kImageFormatCount )
             {
                 return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
@@ -332,7 +402,8 @@ namespace Desert::Assets::Serialization
             }
 
             const uint64_t tableEnd =
-                 sizeof( FileHeader ) + static_cast<uint64_t>( header.LevelCount ) * sizeof( LevelRow );
+                 static_cast<uint64_t>( header.HeaderSize ) +
+                 static_cast<uint64_t>( header.LevelCount ) * sizeof( LevelRow );
             if ( tableEnd > bytes.size() )
             {
                 return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
@@ -350,53 +421,22 @@ namespace Desert::Assets::Serialization
                      bytes.size() );
             }
 
-            uint64_t payloadOffset = static_cast<uint64_t>( header.SourceKeyOffset ) + header.SourceKeyLength;
-            payloadOffset          = ( payloadOffset + 7u ) & ~static_cast<uint64_t>( 7u );
+            const uint64_t payloadOffset =
+                 AlignUp( static_cast<uint64_t>( header.SourceKeyOffset ) + header.SourceKeyLength );
 
             tableOut.resize( header.LevelCount );
-            std::memcpy( tableOut.data(), bytes.data() + sizeof( FileHeader ),
+            std::memcpy( tableOut.data(), bytes.data() + header.HeaderSize,
                          tableOut.size() * sizeof( LevelRow ) );
 
             // THE LAYOUT IS DERIVED, NOT TRUSTED — the lesson `MeshBinary.cpp` paid for. Checking only
             // that a level lies inside the file is not enough: a corrupted offset that still fits reads
-            // back a complete, plausible, WRONG image. Version 1 packs the levels tightly in table
-            // order, each extent halving down from the base, so every row's contents follow from the
-            // header alone, and a row that disagrees is refused rather than followed.
-            uint64_t       expectedOffset = 0;
-            uint32_t       expectW        = header.Width;
-            uint32_t       expectH        = header.Height;
-            const uint32_t bpp = Core::Formats::GetBytesPerPixel( static_cast<Core::Formats::ImageFormat>( header.Format ) );
-            for ( uint32_t i = 0; i < header.LevelCount; ++i )
-            {
-                const LevelRow& row = tableOut[i];
-                if ( row.Width != expectW || row.Height != expectH )
-                {
-                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                         "'{}' level {} is {}x{}, and halving down from the declared {}x{} puts {}x{} there.",
-                         who, i, row.Width, row.Height, header.Width, header.Height, expectW, expectH );
-                }
-                const uint64_t expectSize = static_cast<uint64_t>( expectW ) * expectH * bpp;
-                if ( row.ByteSize != expectSize )
-                {
-                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                         "'{}' level {} ({}x{}) claims {} bytes; {} bytes per pixel makes it {}.", who, i,
-                         row.Width, row.Height, row.ByteSize, bpp, expectSize );
-                }
-                if ( row.ByteOffset != expectedOffset )
-                {
-                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                         "'{}' level {} starts at {} inside the payload, and the levels before it put it at "
-                         "{}. The level table does not describe this file.",
-                         who, i, row.ByteOffset, expectedOffset );
-                }
-                expectedOffset += expectSize;
-                expectW = HalfExtent( expectW );
-                expectH = HalfExtent( expectH );
-            }
+            // back a complete, plausible, WRONG image. Every level's extent follows from the header by
+            // halving, its size from the extent and the format, and its offset from the level PHYSICALLY
+            // before it — which, since the levels are stored smallest first, is the level one NUMBER
+            // higher. A row that disagrees is refused rather than followed.
+            const Core::Formats::ImageFormat format = static_cast<Core::Formats::ImageFormat>( header.Format );
+            const uint32_t                   bpp    = Core::Formats::GetBytesPerPixel( format );
 
-            // And the chain must be COMPLETE: a container that stops at level 3 of a ten-level chain is
-            // a partial cook, and the day mip streaming arrives it must be told apart from a file that
-            // legitimately ships a residual tail. Version 1 has no tail, so the count is the chain.
             const uint32_t expectLevels =
                  Core::Formats::MipChainLength( std::max( header.Width, header.Height ) );
             if ( header.LevelCount != expectLevels )
@@ -406,14 +446,69 @@ namespace Desert::Assets::Serialization
                      who, header.LevelCount, header.Width, header.Height, expectLevels );
             }
 
+            std::vector<std::pair<uint32_t, uint32_t>> extents( header.LevelCount );
+            {
+                uint32_t w = header.Width, h = header.Height;
+                for ( uint32_t level = 0; level < header.LevelCount; ++level )
+                {
+                    extents[level] = { w, h };
+                    w              = HalfExtent( w );
+                    h              = HalfExtent( h );
+                }
+            }
+
+            uint64_t expectedOffset = payloadOffset;
+            uint64_t declaredBytes  = 0;
+            for ( uint32_t i = 0; i < header.LevelCount; ++i )
+            {
+                const uint32_t  level = header.LevelCount - 1 - i; // physical order: smallest first
+                const LevelRow& row   = tableOut[level];
+
+                const uint64_t expectSize =
+                     static_cast<uint64_t>( extents[level].first ) * extents[level].second * bpp;
+                if ( row.ByteSize != expectSize )
+                {
+                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                         "'{}' level {} ({}x{}) claims {} bytes; {} bytes per pixel makes it {}.", who, level,
+                         extents[level].first, extents[level].second, row.ByteSize, bpp, expectSize );
+                }
+                if ( row.RowPitch != extents[level].first * bpp )
+                {
+                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                         "'{}' level {} declares a row pitch of {}; a {}-texel row at {} bytes per pixel "
+                         "is {}.",
+                         who, level, row.RowPitch, extents[level].first, bpp, extents[level].first * bpp );
+                }
+                if ( row.ByteOffset != expectedOffset )
+                {
+                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                         "'{}' level {} starts at {}, and the levels stored before it put it at {}. The "
+                         "level table does not describe this file.",
+                         who, level, row.ByteOffset, expectedOffset );
+                }
+
+                declaredBytes += row.ByteSize;
+                expectedOffset = AlignUp( row.ByteOffset + row.ByteSize );
+            }
+
+            // The declared payload total is a second, independent statement of the same quantity, and
+            // §5c asks for it precisely so that the sum and the table have to agree with each other.
+            if ( header.PayloadBytes != declaredBytes )
+            {
+                return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                     "'{}' declares {} bytes of pixels and its level table adds up to {}.", who,
+                     header.PayloadBytes, declaredBytes );
+            }
+
             TextureBinaryHeaderInfo info;
             info.Handle            = Common::UUID( header.Handle );
             info.SourcePath.assign( bytes.data() + header.SourceKeyOffset, header.SourceKeyLength );
             info.SourceContentHash = header.SourceContentHash;
             info.Width             = header.Width;
             info.Height            = header.Height;
-            info.Format            = static_cast<Core::Formats::ImageFormat>( header.Format );
+            info.Format            = format;
             info.LevelCount        = header.LevelCount;
+            info.PayloadBytes      = header.PayloadBytes;
             info.FileSize          = header.FileSize;
 
             payloadOffsetOut = payloadOffset;
@@ -452,17 +547,18 @@ namespace Desert::Assets::Serialization
                  who, info.GetValue().FileSize, bytes.size() );
         }
 
-        uint64_t payloadBytes = 0;
-        for ( const LevelRow& row : table )
-            payloadBytes += row.ByteSize;
-
-        if ( payloadOffset + payloadBytes != info.GetValue().FileSize )
+        // The payload run ends where the LAST-STORED level ends — which, with the levels reversed, is
+        // level 0. Padding between levels is inside the run, so the run's length is not the sum of the
+        // sizes; the sum is checked separately, against `PayloadBytes`, in the shared reader.
+        const uint64_t payloadEnd = table.front().ByteOffset + table.front().ByteSize;
+        if ( payloadEnd != info.GetValue().FileSize )
         {
             return Common::MakeFormattedError<TextureAssetData>(
-                 "'{}' puts {} bytes of pixels at offset {}, which ends at {}, and the file declares {}. "
-                 "Trailing or missing bytes nobody reads are a file this cook could not have produced.",
-                 who, payloadBytes, payloadOffset, payloadOffset + payloadBytes, info.GetValue().FileSize );
+                 "'{}' ends its last stored level at {} and declares a file of {} bytes. Trailing or "
+                 "missing bytes nobody reads are a file this cook could not have produced.",
+                 who, payloadEnd, info.GetValue().FileSize );
         }
+        const uint64_t payloadRun = payloadEnd - payloadOffset;
 
         TextureAssetData data;
         data.Handle            = info.GetValue().Handle;
@@ -472,13 +568,21 @@ namespace Desert::Assets::Serialization
         data.Height            = info.GetValue().Height;
         data.Format            = info.GetValue().Format;
 
+        // THE ONE CONVERSION IN THIS FORMAT, made exactly once. The file's rows are FILE-relative; the
+        // GPU needs offsets inside the staging buffer, which holds the payload run and nothing else.
+        uint32_t levelW = info.GetValue().Width, levelH = info.GetValue().Height;
         data.Levels.reserve( table.size() );
         for ( const LevelRow& row : table )
-            data.Levels.push_back( TextureLevel{ row.Width, row.Height, row.ByteOffset, row.ByteSize } );
+        {
+            data.Levels.push_back(
+                 TextureLevel{ levelW, levelH, row.ByteOffset - payloadOffset, row.ByteSize, row.RowPitch } );
+            levelW = levelW > 1u ? levelW / 2u : 1u;
+            levelH = levelH > 1u ? levelH / 2u : 1u;
+        }
 
-        data.Pixels.resize( static_cast<size_t>( payloadBytes ) );
-        if ( payloadBytes > 0 )
-            std::memcpy( data.Pixels.data(), bytes.data() + payloadOffset, static_cast<size_t>( payloadBytes ) );
+        data.Pixels.resize( static_cast<size_t>( payloadRun ) );
+        if ( payloadRun > 0 )
+            std::memcpy( data.Pixels.data(), bytes.data() + payloadOffset, static_cast<size_t>( payloadRun ) );
 
         return Common::MakeSuccess( std::move( data ) );
     }

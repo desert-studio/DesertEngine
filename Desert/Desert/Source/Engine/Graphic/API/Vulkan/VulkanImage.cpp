@@ -362,12 +362,10 @@ namespace Desert::Graphic::API::Vulkan
             // THE WHOLE CHAIN IS ONE STAGING BUFFER AND ONE `memcpy`, then one copy region per level.
             // The alternative — a buffer per level — is what makes a ten-level 2048x2048 texture ten
             // allocations and ten map/unmap pairs on the frame that first touches it.
-            uint64_t size = suppliedChain
-                                 ? ( m_Specification.MipLevels.back().ByteOffset +
-                                     m_Specification.MipLevels.back().ByteSize )
-                                 : Core::Formats::CalculateImageSize( m_Specification.Width,
-                                                                      m_Specification.Height,
-                                                                      m_Specification.Format );
+            uint64_t size = suppliedChain ? Core::Formats::GetPixelDataSize( m_Specification.Data )
+                                          : Core::Formats::CalculateImageSize( m_Specification.Width,
+                                                                               m_Specification.Height,
+                                                                               m_Specification.Format );
             VkBuffer staging; VmaAllocation stagingAlloc;
             VkBufferCreateInfo bInfo = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = size, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
             const auto stagingResult =

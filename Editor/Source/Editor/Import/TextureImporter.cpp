@@ -11,7 +11,6 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <cstring>
@@ -92,8 +91,8 @@ namespace Desert::Editor
                        abs, sourceBytes.GetError() );
             return Common::AssetHandle::Null();
         }
-        const uint32_t sourceHash =
-             Common::Utils::Crc32c( sourceBytes.GetValue().data(), sourceBytes.GetValue().size() );
+        const uint64_t sourceHash = Assets::Serialization::SourceSignature( sourceBytes.GetValue().data(),
+                                                                             sourceBytes.GetValue().size() );
 
         // FRESHNESS IS A FACT ABOUT BYTES NOW, NOT ABOUT TIMESTAMPS. The `.tex` records the CRC-32C of
         // the source it was cooked from; the cook is up to date exactly when that number still matches,
@@ -126,8 +125,8 @@ namespace Desert::Editor
             else
             {
                 LOG_INFO( "[TextureImporter] Re-cooking '{0}': it stores Handle={1} SourcePath='{2}' "
-                          "source CRC {3:#010x}; the source now derives Handle={4} SourcePath='{5}' CRC "
-                          "{6:#010x}.",
+                          "source signature {3:#018x}; the source now derives Handle={4} SourcePath='{5}' signature "
+                          "{6:#018x}.",
                           meta.string(), static_cast<uint64_t>( stored.GetValue().Handle ),
                           stored.GetValue().SourcePath, stored.GetValue().SourceContentHash,
                           static_cast<uint64_t>( handle ), sourceKey, sourceHash );

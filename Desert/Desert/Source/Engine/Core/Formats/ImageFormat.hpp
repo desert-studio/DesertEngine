@@ -207,6 +207,24 @@ namespace Desert::Core::Formats
         return std::nullopt;
     }
 
+    /// How many bytes the variant is holding, or 0 when it holds nothing or a bare pointer (whose
+    /// length it does not carry — that is the whole difference between the two).
+    ///
+    /// ADDED WITH THE MIP TABLE, AND FOR A DEFECT IT PREVENTS. The staging buffer for a supplied chain
+    /// was first sized as `MipLevels.back().ByteOffset + .ByteSize`, which silently encoded "the last
+    /// level is the last bytes". The cooked container stores its levels SMALLEST FIRST, so `back()` is
+    /// the 1x1 level at offset 0 and the buffer came out four bytes long: every copy region then lay
+    /// outside it (VUID-vkCmdCopyBufferToImage-pRegions-00171, eleven of them on one frame) and the
+    /// whole scene lost its textures. The blob's own length cannot encode an assumption about order.
+    inline std::size_t GetPixelDataSize( const ImagePixelData& data )
+    {
+        if ( const auto* u8 = std::get_if<std::vector<unsigned char>>( &data ) )
+            return u8->size();
+        if ( const auto* f32 = std::get_if<std::vector<float>>( &data ) )
+            return f32->size() * sizeof( float );
+        return 0;
+    }
+
     inline const std::byte* GetRawData( const ImagePixelData& data )
     {
         if ( const auto* ptr = std::get_if<std::byte*>( &data ) )
