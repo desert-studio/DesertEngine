@@ -133,6 +133,11 @@ namespace
            "hashes a SOURCE tree to produce a release artifact. The manifest of a mounted archive comes "
            "from FromPak, which reads the index instead of the bytes.",
            "" },
+         { "Desert/Desert/Source/Engine/Project/StartupLayout.cpp", Verdict::NotContent,
+           "looks beside THIS EXECUTABLE for the one .deproj a drop carries, before any project is open "
+           "and therefore before any content exists to enumerate. It answers 'which project am I', not "
+           "'what content is there' - and it must not go through a mount, because nothing is mounted yet.",
+           "" },
          { "Editor/Source/Editor/Core/CrashRecovery.cpp", Verdict::NotContent,
            "the user's own ~/.desertengine session directory. Never packaged, never a project's content.", "" },
          { "Editor/Source/Editor/Core/LayoutManager.cpp", Verdict::NotContent,

@@ -199,8 +199,14 @@ namespace
     constexpr DroppedResult k_Census[] = {
          // ---- returns void: nothing to check, listed for completeness -------------------------------
          { "VulkanAllocator.cpp", "vmaUnmapMemory", 1, "void" },
-         // Г7-C: the mapping's SIZE, so MappedMemory can refuse a write that runs off the end of it.
-         { "VulkanAllocator.cpp", "vmaGetAllocationInfo", 1, "void" },
+         // TWO SITES, AND THEY ANSWER DIFFERENT QUESTIONS — the count is derived from both, not bumped.
+         //   1. Г7-C, in MapMemory: the mapping's SIZE, so MappedMemory can refuse a write that runs off
+         //      the end of it.
+         //   2. B16, in AllocationSize(): what an image actually COST, read from the allocator instead of
+         //      from the spec the caller believed it asked for. The ledger had been computing cost in a
+         //      factory that seven allocation sites bypass, so it was blind to 2.79 GB of what it exists
+         //      to count.
+         { "VulkanAllocator.cpp", "vmaGetAllocationInfo", 2, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceProperties", 3, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFeatures", 1, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFormatProperties", 3, "void" },

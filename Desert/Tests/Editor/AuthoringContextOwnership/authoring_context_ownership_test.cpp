@@ -749,6 +749,15 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
          // named rows rather than as a bumped count.
          "Editor/Source/Editor/Panels/Animation/ControlRigPanel.cpp",
          "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp",
+         // THE COMMAND PALETTE IS A SURFACE, and it earns the row on the same terms the panels do: it
+         // holds its OWN owner token and its OWN context (`m_PaletteAuthoringOwner`, `m_PaletteAuthoring`)
+         // and goes through `Focus`/`SetMode` like everyone else. It is not a leak from the layer.
+         //
+         // Delegating to ControlRigPanel instead was considered and refused: the command would then
+         // require that panel to be OPEN, and the whole reason the palette entries exist is to act when
+         // no panel is — which is what made `ControlDrag` observable from the control channel for the
+         // first time, synthetic input being closed on this machine.
+         "Editor/Source/EditorLayer.cpp",
     };
 
     std::set<std::string> writers;
