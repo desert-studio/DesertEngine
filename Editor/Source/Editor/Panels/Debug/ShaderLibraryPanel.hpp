@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Editor/Panels/IPanel.hpp"
+
+#include <ImGui/imgui.h> // the panel interface no longer hands the toolkit over (IPanel.hpp)
 #include <Engine/Desert.hpp>
 
 namespace Desert::Editor

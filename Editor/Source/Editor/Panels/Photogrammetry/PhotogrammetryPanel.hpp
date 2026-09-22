@@ -2,6 +2,8 @@
 
 #include "../IPanel.hpp"
 
+#include <ImGui/imgui.h> // the panel interface no longer hands the toolkit over (IPanel.hpp)
+
 #include <Engine/Assets/Common.hpp>
 #include <Engine/ECS/Entity.hpp>
 

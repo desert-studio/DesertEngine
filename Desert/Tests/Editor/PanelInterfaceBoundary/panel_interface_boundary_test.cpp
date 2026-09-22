@@ -59,10 +59,14 @@ namespace
     // THE SUITES THAT COMPILE IT, AS NAMED ROWS RATHER THAN AS A COUNT. A gate pinning a NUMBER can be
     // satisfied by editing the number; each row here is one premake that must go on building IPanel.hpp
     // with no toolkit on its include path. Add a suite that includes the header and add it here.
+    // CloudStages is on the list because it compiles Editor/Core/SubjectEditorRegistry.cpp, whose header
+    // opens IPanel.hpp -- the interface arrives TRANSITIVELY there, which is the spelling a reader looking
+    // for `#include <Editor/Panels/IPanel.hpp>` in the test source would miss.
     constexpr const char* kToolkitFreeConsumers[] = {
          "Desert/Tests/Editor/PanelInterfaceBoundary/premake5.lua",
          "Desert/Tests/Editor/AssetDocumentIdentity/premake5.lua",
          "Desert/Tests/Editor/DocumentOwnership/premake5.lua",
+         "Desert/Tests/Editor/CloudStages/premake5.lua",
     };
 
     // THE CONVERSION SITE -- where a panel's glm::vec2 becomes the toolkit's ImVec2, which is the other

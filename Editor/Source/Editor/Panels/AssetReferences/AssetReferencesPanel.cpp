@@ -1,5 +1,7 @@
 #include "AssetReferencesPanel.hpp"
 
+#include <ImGui/imgui.h> // the panel interface no longer hands the toolkit over (IPanel.hpp)
+
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 
 #include <Common/Core/Constants.hpp>

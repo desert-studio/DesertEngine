@@ -1,5 +1,7 @@
 #include "BuildSettingsPanel.hpp"
 
+#include <ImGui/imgui.h> // the panel interface no longer hands the toolkit over (IPanel.hpp)
+
 #include <Editor/Packaging/GamePackager.hpp>
 #include <Editor/Packaging/PackageTarget.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
