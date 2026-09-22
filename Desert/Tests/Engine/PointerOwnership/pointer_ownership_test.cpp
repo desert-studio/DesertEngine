@@ -411,11 +411,22 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   m_ControlDragOwner and read neither, under a comment saying an entry was pushed from them. The
     //   UUID goes with this change too, and it moves NO number here -- a Common::UUID is not a pointer
     //   and was never in this census, which is exactly why nothing went red while it sat there unread.
-    EXPECT_EQ( CountOf( Form::Raw ), 378 );
-    EXPECT_EQ( CountOf( Form::Shared ), 330 );
-    EXPECT_EQ( CountOf( Form::Unique ), 117 );
+    //   and +2 Raw, +1 Shared, +1 Unique with Г28 (378 -> 380, 863 -> 867): `MeshRenderer` stopped
+    //   accumulating every instanced batch into one triple of scratch vectors and now keeps one
+    //   `InstancedBatchSet` per RECORDING material, because a batch has to be drawn with its own
+    //   `.demat`'s (Instanced x pass) material or it loses every texture that material names. The two Raw
+    //   are that set's `Mat` and `Inst`; the Shared is `m_InstancedVariantInstances`, one
+    //   MaterialInstance per variant, dropped whole when MaterialService's invalidation stamp moves; the
+    //   Unique is `m_ScratchInstSets`, and it is a `vector<unique_ptr<...>>` RATHER THAN a `vector<T>`
+    //   for a reason this register cares about: the accumulation hands out a pointer to one set and goes
+    //   on to create others, so a growing vector of values would move the pointee under a live pointer.
+    //   That is the `OwnedByThisObject` guard's own small print -- "the row must also say why the address
+    //   is stable" -- satisfied by the layout instead of by a promise.
+    EXPECT_EQ( CountOf( Form::Raw ), 380 );
+    EXPECT_EQ( CountOf( Form::Shared ), 331 );
+    EXPECT_EQ( CountOf( Form::Unique ), 118 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 863 )
+    EXPECT_EQ( (int)Members().size(), 867 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -650,7 +661,11 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // whose deaths cannot be ordered, which is the one case Q1 answers with shared_ptr and not a
     // preference. The fourth, an announced-but-unread asset in the noise service, is co-held with the
     // AssetManager. See the arithmetic at TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 330 );
+    // 330 -> 331 with Г28: MeshRenderer::m_InstancedVariantInstances, one MaterialInstance per instanced
+    // material variant. Shared because MaterialInstancePtr is the engine's one spelling of an instance
+    // handle and every other holder of one is a shared_ptr too; what makes it safe is not the count but
+    // the stamp check that empties the map when MaterialService retires the materials they point at.
+    EXPECT_EQ( CountOf( Form::Shared ), 331 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

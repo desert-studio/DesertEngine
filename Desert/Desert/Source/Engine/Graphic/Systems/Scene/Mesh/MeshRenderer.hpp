@@ -24,6 +24,7 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -661,8 +662,17 @@ namespace Desert::Graphic::System
         // rather than cleared, so the inner vectors keep their capacity across frames — clearing the
         // outer vector would destroy them and hand the steady state an allocation per material per frame.
         // `m_ScratchInstSetCount` is how many of them this frame is using.
-        std::vector<InstancedBatchSet> m_ScratchInstSets;
-        std::size_t                    m_ScratchInstSetCount = 0;
+        //
+        // INDIRECT, AND THAT IS THE POINT AND NOT AN OVERSIGHT. The accumulation hands out a POINTER to
+        // one set and then keeps filling it while later groups may ask for sets of their own; held by
+        // value, the first `emplace_back` that grows this vector would move every set and leave that
+        // pointer dangling — a use-after-free that no frame would show, because the freed memory is the
+        // vector this thread just wrote. The control flow happens not to interleave the two today, which
+        // is exactly the kind of "safe for now" that the next edit in DrawStaticMeshes turns into a
+        // corrupted draw list. A unique_ptr costs one indirection per access and makes the address
+        // stable by construction.
+        std::vector<std::unique_ptr<InstancedBatchSet>> m_ScratchInstSets;
+        std::size_t                                     m_ScratchInstSetCount = 0;
         std::vector<PBRGpuMaterial> m_ScratchGpuMaterials; // per-object Materials[] SSBO
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;

@@ -14,15 +14,22 @@ namespace Desert::Graphic
     // WHAT THIS EXISTS TO STOP, MEASURED. MeshRenderer used to record every auto-batched group and every
     // Instanced Static Mesh with ONE material it built for itself (`m_StaticInstancedMaterial` /
     // `m_InstancedGBufferMaterial`). That material has no `.demat` behind it, so MaterialFactory never
-    // ran over it and every 2D sampler it declares holds the shader schema's default — a 1x1 WHITE
-    // image. The consequence is a texture channel that is loaded, resident and drawn by nothing:
+    // ran over it, so nothing ever called `SetImage` on any of its samplers — and what they keep is what
+    // `VulkanMaterialBackend::InitializeWithFallbacks` wrote into them at creation:
+    // `VulkanFallbackTextures::CreateFallbackTexture2D`'s 1x1 image of {1,1,1,1}. Not the schema default
+    // (`Material::BindSchemaDefaultTexture` is reached only from MaterialFactory, which never ran) —
+    // the two happen to agree on white, and the line that DOES the thing is the backend's.
+    // The consequence is a texture channel that is loaded, resident and drawn by nothing:
     //
     //   * on the 50 179-entity world scene, whose floor is 1024 cubes sharing `M_CheckerFloor.demat`,
     //     swapping that material's `u_AlbedoTexture` for a completely different image moved 0 of
     //     560 560 pixels, at all three elevations;
     //   * `UVTiling` 500 -> 1 moved 0 pixels too, because tiling the lookup of a 1x1 image is a no-op;
     //   * `AlbedoColor` -> red moved 77.78 % of the frame, because a colour rides the Materials[] row
-    //     and a row IS per instance.
+    //     and a row IS per instance;
+    //   * and the frame taken with the texture handle pointed at nothing was BYTE-IDENTICAL to the
+    //     frame taken with it pointed at the real image. That equality is the proof, and it needs no
+    //     claim about which white the sampler held.
     //
     // So the material "worked" by every knob a reviewer is likely to try, and the failure looked like
     // aliasing (`Docs/World/WORLD_SCENE.md` §6 said so in writing) rather than like a lost binding.

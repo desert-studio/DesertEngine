@@ -906,11 +906,11 @@ namespace Desert::Graphic::System
         const auto setFor    = [&]( MaterialPBR* recorder, MaterialInstance* inst ) -> InstancedBatchSet&
         {
             for ( std::size_t i = 0; i < m_ScratchInstSetCount; ++i )
-                if ( instSets[i].Mat == recorder )
-                    return instSets[i];
+                if ( instSets[i]->Mat == recorder )
+                    return *instSets[i];
             if ( m_ScratchInstSetCount == instSets.size() )
-                instSets.emplace_back();
-            InstancedBatchSet& set = instSets[m_ScratchInstSetCount++];
+                instSets.push_back( std::make_unique<InstancedBatchSet>() );
+            InstancedBatchSet& set = *instSets[m_ScratchInstSetCount++];
             set.Mat                = recorder;
             set.Inst               = inst;
             set.Transforms.clear();
@@ -1330,7 +1330,7 @@ namespace Desert::Graphic::System
 
             for ( std::size_t si = 0; si < m_ScratchInstSetCount; ++si )
             {
-                InstancedBatchSet& set = instSets[si];
+                InstancedBatchSet& set = *instSets[si];
                 if ( set.Draws.empty() )
                     continue;
 
