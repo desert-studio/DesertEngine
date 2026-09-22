@@ -18,8 +18,8 @@ namespace Common::Utils
     {
         constexpr char     kMagicV1[4] = { 'D', 'P', 'K', '1' }; // pre-hash (still readable)
         constexpr char     kMagicV2[4] = { 'D', 'P', 'K', '2' }; // + u64 content hash per entry
-        constexpr char     kMagicV3[4] = { 'D', 'P', 'K', '3' }; // + storedSize / crc / codec per entry
-        constexpr char     kMagicPrefix[3] = { 'D', 'P', 'K' };  // so a FUTURE version is named, not guessed
+        constexpr char     kMagicV3[4]     = { 'D', 'P', 'K', '3' }; // + storedSize / crc / codec per entry
+        constexpr char     kMagicPrefix[3] = { 'D', 'P', 'K' };      // so a FUTURE version is named, not guessed
         constexpr uint64_t kHeaderSize = 4 + sizeof( uint32_t ) + sizeof( uint64_t );
 
         // THE FORMAT IS A BYTE ORDER, A SET OF FIELD WIDTHS AND NOTHING ELSE, so both are pinned at
@@ -174,9 +174,9 @@ namespace Common::Utils
         // cleared the threshold; everything else is stored verbatim and costs the reader nothing.
         // An extension list would have to be maintained against a content tree that grows, and it
         // would be wrong the first time a .desce became a container or a .tex became BCn.
-        const char* stored     = static_cast<const char*>( data );
-        uint64_t    storedSize = size;
-        PakCodec    codec      = PakCodec::Store;
+        const char*       stored     = static_cast<const char*>( data );
+        uint64_t          storedSize = size;
+        PakCodec          codec      = PakCodec::Store;
         std::vector<char> compressed;
         if ( size > 0 )
         {
@@ -418,7 +418,7 @@ namespace Common::Utils
             if ( complete && v3 )
             {
                 uint32_t codec = 0;
-                complete = ReadPod( in, span.StoredSize ) && ReadPod( in, span.Size ) &&
+                complete       = ReadPod( in, span.StoredSize ) && ReadPod( in, span.Size ) &&
                            ReadPod( in, span.Hash ) && ReadPod( in, span.Crc ) && ReadPod( in, codec );
                 if ( complete )
                 {
@@ -438,7 +438,7 @@ namespace Common::Utils
             {
                 // v1 and v2 have ONE size column, and it means both things at once: nothing before v3
                 // is compressed, so the stored bytes are the content.
-                complete = ReadPod( in, span.StoredSize ) && ( !v2 || ReadPod( in, span.Hash ) );
+                complete  = ReadPod( in, span.StoredSize ) && ( !v2 || ReadPod( in, span.Hash ) );
                 span.Size = span.StoredSize;
             }
             if ( !complete )
@@ -684,8 +684,7 @@ namespace Common::Utils
             {
                 LOG_ERROR( "[Pak] {}: entry '{}' is CORRUPT — content hash {:#x}, index says {:#x} ({} "
                            "bytes at offset {}). The archive is damaged or was modified after packing.",
-                           m_Path.string(), key, actual, it->second.Hash, it->second.Size,
-                           it->second.Offset );
+                           m_Path.string(), key, actual, it->second.Hash, it->second.Size, it->second.Offset );
                 return std::nullopt;
             }
         }
@@ -701,8 +700,8 @@ namespace Common::Utils
             // format. A refusal, not a truncated buffer: half an asset is worse than none.
             LOG_ERROR( "[Pak] {}: entry '{}' passed its CRC but does not decode — {} stored bytes were "
                        "packed as codec {} and should yield {} bytes",
-                       m_Path.string(), key, it->second.StoredSize,
-                       static_cast<uint32_t>( it->second.Codec ), it->second.Size );
+                       m_Path.string(), key, it->second.StoredSize, static_cast<uint32_t>( it->second.Codec ),
+                       it->second.Size );
             return std::nullopt;
         }
         return data;

@@ -116,8 +116,7 @@ namespace
             std::printf( "%10ju %10ju %10ju  %-5s  %s\n", (uintmax_t)reader.EntrySize( key ).value_or( 0 ),
                          (uintmax_t)reader.EntryStoredSize( key ).value_or( 0 ),
                          (uintmax_t)reader.EntryOffset( key ).value_or( 0 ),
-                         reader.EntryCodec( key ) == Common::Utils::PakCodec::LZ4 ? "lz4" : "store",
-                         key.c_str() );
+                         reader.EntryCodec( key ) == Common::Utils::PakCodec::LZ4 ? "lz4" : "store", key.c_str() );
         // Deletions are printed EXPLICITLY because they are invisible everywhere else: the reserved
         // entry is hidden from every content accessor on purpose, so a patch that removes ten files and
         // adds none would otherwise list as an empty archive.

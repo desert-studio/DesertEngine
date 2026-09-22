@@ -73,9 +73,9 @@ namespace Common::Utils
 
     uint32_t Crc32cPortable( const void* data, size_t size )
     {
-        const auto*    p = static_cast<const unsigned char*>( data );
-        const Tables&  t = Tbl();
-        uint32_t       c = 0xFFFFFFFFu;
+        const auto*   p = static_cast<const unsigned char*>( data );
+        const Tables& t = Tbl();
+        uint32_t      c = 0xFFFFFFFFu;
         while ( size >= 8 )
         {
             // The low four bytes are folded into the running value first; the high four index the
@@ -83,8 +83,8 @@ namespace Common::Utils
             // the same on a big-endian host as on a little-endian one.
             c ^= static_cast<uint32_t>( p[0] ) | ( static_cast<uint32_t>( p[1] ) << 8 ) |
                  ( static_cast<uint32_t>( p[2] ) << 16 ) | ( static_cast<uint32_t>( p[3] ) << 24 );
-            c = t.T[7][c & 0xFFu] ^ t.T[6][( c >> 8 ) & 0xFFu] ^ t.T[5][( c >> 16 ) & 0xFFu] ^
-                t.T[4][c >> 24] ^ t.T[3][p[4]] ^ t.T[2][p[5]] ^ t.T[1][p[6]] ^ t.T[0][p[7]];
+            c = t.T[7][c & 0xFFu] ^ t.T[6][( c >> 8 ) & 0xFFu] ^ t.T[5][( c >> 16 ) & 0xFFu] ^ t.T[4][c >> 24] ^
+                t.T[3][p[4]] ^ t.T[2][p[5]] ^ t.T[1][p[6]] ^ t.T[0][p[7]];
             p += 8;
             size -= 8;
         }

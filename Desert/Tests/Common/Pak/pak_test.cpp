@@ -590,8 +590,8 @@ namespace
             PushPod<uint64_t>( out, offsets[i] );
             PushPod<uint64_t>( out, entries[i].second.size() );
             if ( version == 2 )
-                PushPod<uint64_t>( out, Common::Utils::PakContentHash( entries[i].second.data(),
-                                                                       entries[i].second.size() ) );
+                PushPod<uint64_t>(
+                     out, Common::Utils::PakContentHash( entries[i].second.data(), entries[i].second.size() ) );
         }
         std::memcpy( out.data() + indexOffsetField, &indexOffset, sizeof( indexOffset ) );
         return out;
@@ -620,13 +620,23 @@ TEST( Pak, TheV3RecordLayoutIsPinnedByteForByte )
     ASSERT_EQ( bytes.size(), 16u + 3u + 45u );
     EXPECT_EQ( bytes.substr( 0, 4 ), "DPK3" );
 
-    const auto u32At = [&]( size_t at ) { uint32_t v = 0; std::memcpy( &v, bytes.data() + at, 4 ); return v; };
-    const auto u64At = [&]( size_t at ) { uint64_t v = 0; std::memcpy( &v, bytes.data() + at, 8 ); return v; };
+    const auto u32At = [&]( size_t at )
+    {
+        uint32_t v = 0;
+        std::memcpy( &v, bytes.data() + at, 4 );
+        return v;
+    };
+    const auto u64At = [&]( size_t at )
+    {
+        uint64_t v = 0;
+        std::memcpy( &v, bytes.data() + at, 8 );
+        return v;
+    };
 
-    EXPECT_EQ( u32At( 4 ), 1u );   // entry count
-    EXPECT_EQ( u64At( 8 ), 19u );  // index offset = header + the one blob
+    EXPECT_EQ( u32At( 4 ), 1u );  // entry count
+    EXPECT_EQ( u64At( 8 ), 19u ); // index offset = header + the one blob
     EXPECT_EQ( bytes.substr( 16, 3 ), "xyz" );
-    EXPECT_EQ( u32At( 19 ), 1u );  // path length
+    EXPECT_EQ( u32At( 19 ), 1u ); // path length
     EXPECT_EQ( bytes[23], 'a' );
     EXPECT_EQ( u64At( 24 ), 16u ); // offset
     EXPECT_EQ( u64At( 32 ), 3u );  // stored size
@@ -645,8 +655,8 @@ TEST( Pak, TheV3RecordLayoutIsPinnedByteForByte )
     // every assertion so far passing. Measured — that exact mutation was green here and only turned
     // the round-trip tests red, which is a defect found three tests away from the file layout it is
     // about.
-    const fs::path      packed = fs::path( pak ).parent_path() / "layout_lz4.dpak";
-    const std::string   runs( 40000, 'C' );
+    const fs::path    packed = fs::path( pak ).parent_path() / "layout_lz4.dpak";
+    const std::string runs( 40000, 'C' );
     {
         Common::Utils::PakWriter writer( packed );
         ASSERT_TRUE( writer.IsOpen() );
@@ -655,11 +665,15 @@ TEST( Pak, TheV3RecordLayoutIsPinnedByteForByte )
     }
     const std::string packedBytes = Slurp( packed );
     const auto        pu64At      = [&]( size_t at )
-    { uint64_t v = 0; std::memcpy( &v, packedBytes.data() + at, 8 ); return v; };
+    {
+        uint64_t v = 0;
+        std::memcpy( &v, packedBytes.data() + at, 8 );
+        return v;
+    };
     uint64_t packedIndex = 0;
     std::memcpy( &packedIndex, packedBytes.data() + 8, 8 );
-    const size_t record = static_cast<size_t>( packedIndex ) + 4 + 1; // u32 pathLen + "c"
-    const uint64_t storedSize = pu64At( record + 8 );
+    const size_t   record      = static_cast<size_t>( packedIndex ) + 4 + 1; // u32 pathLen + "c"
+    const uint64_t storedSize  = pu64At( record + 8 );
     const uint64_t contentSize = pu64At( record + 16 );
     EXPECT_EQ( contentSize, runs.size() );
     EXPECT_LT( storedSize, contentSize ) << "the stored size column is not where the format says";
@@ -677,8 +691,8 @@ TEST( Pak, EveryKindOfContentInTheTreeSurvivesPackAndReadByteForByte )
     // Up to two files per extension, biggest first so the sample is the one most likely to compress.
     std::map<std::string, std::vector<fs::path>> byKind;
     std::error_code                              ec;
-    for ( auto it = fs::recursive_directory_iterator( content, ec );
-          it != fs::recursive_directory_iterator(); it.increment( ec ) )
+    for ( auto it = fs::recursive_directory_iterator( content, ec ); it != fs::recursive_directory_iterator();
+          it.increment( ec ) )
     {
         if ( ec || !it->is_regular_file() )
             continue;
@@ -696,7 +710,7 @@ TEST( Pak, EveryKindOfContentInTheTreeSurvivesPackAndReadByteForByte )
     ASSERT_GE( byKind.size(), 12u ) << "only " << byKind.size() << " kinds of content found under "
                                     << content.string();
 
-    const fs::path pak = MakeTempDir() / "kinds.dpak";
+    const fs::path                     pak = MakeTempDir() / "kinds.dpak";
     std::map<std::string, std::string> expected;
     {
         Common::Utils::PakWriter writer( pak );
@@ -748,7 +762,7 @@ TEST( Pak, EveryKindOfContentInTheTreeSurvivesPackAndReadByteForByte )
 // packer must reach opposite conclusions about them without being told which is which.
 TEST( Pak, CompressionIsDecidedPerEntryByWhatTheBytesDo )
 {
-    const fs::path pak = MakeTempDir() / "policy.dpak";
+    const fs::path    pak = MakeTempDir() / "policy.dpak";
     const std::string repetitive( 200000, 'R' );
     std::string       noise( 200000, '\0' );
     std::mt19937      rng( 4242 );
@@ -784,8 +798,8 @@ TEST( Pak, CompressionIsDecidedPerEntryByWhatTheBytesDo )
 // valid, so nothing but the per-entry check can see it.
 TEST( Pak, AFlippedBitIsRefusedAndTheFAILURENamesTheEntry )
 {
-    const fs::path dir = MakeTempDir();
-    const fs::path pak = dir / "bitrot.dpak";
+    const fs::path    dir = MakeTempDir();
+    const fs::path    pak = dir / "bitrot.dpak";
     const std::string good( 40000, 'G' ); // compresses: the damage must be caught before decoding
     const std::string other = "untouched";
     {
@@ -796,8 +810,8 @@ TEST( Pak, AFlippedBitIsRefusedAndTheFAILURENamesTheEntry )
         ASSERT_EQ( writer.Finalize(), 2u );
     }
 
-    const uint64_t at = *Common::Utils::PakReader( pak ).EntryOffset( "Assets/good.bin" ) + 7;
-    std::string    bytes = Slurp( pak );
+    const uint64_t at                = *Common::Utils::PakReader( pak ).EntryOffset( "Assets/good.bin" ) + 7;
+    std::string    bytes             = Slurp( pak );
     bytes[static_cast<size_t>( at )] = static_cast<char>( bytes[static_cast<size_t>( at )] ^ 0x01 );
     Spit( pak, bytes );
 
@@ -813,8 +827,8 @@ TEST( Pak, AFlippedBitIsRefusedAndTheFAILURENamesTheEntry )
 
 TEST( Pak, AnArchiveFromAFutureVersionIsRefusedByItsName )
 {
-    const fs::path dir = MakeTempDir();
-    const fs::path pak = dir / "future.dpak";
+    const fs::path dir   = MakeTempDir();
+    const fs::path pak   = dir / "future.dpak";
     std::string    bytes = LegacyArchive( 2, { { "a", "b" } } );
     bytes[3]             = '7'; // DPK7: a version this build cannot know about
     Spit( pak, bytes );
@@ -839,9 +853,9 @@ TEST( Pak, AnArchiveFromAFutureVersionIsRefusedByItsName )
 // either old version any more, so these bytes are the only remaining definition of their layouts.
 TEST( Pak, ArchivesFromEveryEarlierVersionStillRead )
 {
-    const fs::path dir     = MakeTempDir();
-    const fs::path v1      = dir / "old1.dpak";
-    const fs::path v2      = dir / "old2.dpak";
+    const fs::path    dir   = MakeTempDir();
+    const fs::path    v1    = dir / "old1.dpak";
+    const fs::path    v2    = dir / "old2.dpak";
     const std::string alpha = "content of alpha";
     const std::string beta  = "content of beta";
     Spit( v1, LegacyArchive( 1, { { "a.txt", alpha }, { "b.txt", beta } } ) );
@@ -874,8 +888,8 @@ TEST( Pak, ArchivesFromEveryEarlierVersionStillRead )
 
 TEST( Pak, AppendAddsWithoutMovingOrRewritingWhatWasAlreadyThere )
 {
-    const fs::path dir = MakeTempDir();
-    const fs::path pak = dir / "grow.dpak";
+    const fs::path    dir = MakeTempDir();
+    const fs::path    pak = dir / "grow.dpak";
     const std::string first( 30000, 'F' );
     const std::string second = "a second entry";
     {
@@ -930,8 +944,8 @@ TEST( Pak, AppendAddsWithoutMovingOrRewritingWhatWasAlreadyThere )
 // like BEFORE the last sixteen bytes land, and that is what these two assertions are.
 TEST( Pak, AnAppendInterruptedBeforeItsHeaderLeavesTheArchiveExactlyAsItWas )
 {
-    const fs::path    dir  = MakeTempDir();
-    const fs::path    pak  = dir / "torn.dpak";
+    const fs::path    dir = MakeTempDir();
+    const fs::path    pak = dir / "torn.dpak";
     const std::string first( 5000, 'P' );
     const std::string second = "the second entry, which sits right before the index";
     {
@@ -1008,9 +1022,9 @@ TEST( Pak, AppendRefusesTheArchivesItWouldHaveToRewrite )
 // precedence invisible to any comparison of the content.
 TEST( Pak, TheMountStackCanBeAskedWhichArchiveServesAKey )
 {
-    const fs::path dir  = MakeTempDir();
-    const fs::path base = dir / "base.dpak";
-    const fs::path over = dir / "over.dpak";
+    const fs::path    dir  = MakeTempDir();
+    const fs::path    base = dir / "base.dpak";
+    const fs::path    over = dir / "over.dpak";
     const std::string same = "identical in both archives";
     {
         Common::Utils::PakWriter writer( base );

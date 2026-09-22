@@ -10,9 +10,9 @@ namespace Common::Utils
         // Positions are indexed by the hash of the four bytes that start them. 16 bits of table is
         // 64 Ki slots against the format's 64 KiB window: one slot per window position, so the table
         // cannot be the thing that loses a match that the window still holds.
-        constexpr uint32_t kHashBits   = 16;
-        constexpr size_t   kWindow     = 65535; // the offset field is 16 bits and 0 is not a legal offset
-        constexpr size_t   kMinMatch   = 4;
+        constexpr uint32_t kHashBits     = 16;
+        constexpr size_t   kWindow       = 65535; // the offset field is 16 bits and 0 is not a legal offset
+        constexpr size_t   kMinMatch     = 4;
         constexpr size_t   kLastLiterals = 5;  // the format forbids a match inside the final 5 bytes
         constexpr size_t   kMatchLimit   = 12; // ... and forbids a match STARTING in the final 12
 
@@ -54,9 +54,9 @@ namespace Common::Utils
 
     size_t Lz4BlockCompress( const void* src, size_t srcSize, void* dst, size_t dstCapacity )
     {
-        const auto* const base = static_cast<const unsigned char*>( src );
-        auto* const       obeg = static_cast<unsigned char*>( dst );
-        unsigned char*    op   = obeg;
+        const auto* const    base = static_cast<const unsigned char*>( src );
+        auto* const          obeg = static_cast<unsigned char*>( dst );
+        unsigned char*       op   = obeg;
         unsigned char* const oend = obeg + dstCapacity;
 
         // A position is stored as index+1 so that 0 can mean "never seen". That is why the input is
@@ -64,9 +64,9 @@ namespace Common::Utils
         if ( srcSize == 0 || srcSize >= 0xFFFFFFFFu )
             return 0;
 
-        const unsigned char* ip     = base;
-        const unsigned char* anchor = base;
-        const unsigned char* const iend = base + srcSize;
+        const unsigned char*       ip     = base;
+        const unsigned char*       anchor = base;
+        const unsigned char* const iend   = base + srcSize;
 
         const auto emitSequence = [&]( const unsigned char* matchRef, size_t matchLength ) -> bool
         {
