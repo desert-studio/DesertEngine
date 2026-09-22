@@ -2607,6 +2607,20 @@ namespace Desert::Editor
         auto&             doc  = m_ExtraScenes[*index];
         const std::string name = doc->Name;
 
+        // EVERY EXTRA ANGLE ON THIS DOCUMENT GOES WITH IT. A viewport opened on a document's scene holds
+        // that scene by shared_ptr, so leaving it open would keep a closed document's world alive and
+        // rendering — through a RenderRegistry that is about to be destroyed — in a window whose title
+        // names a document that no longer exists. Collected first and closed after, because
+        // CloseSceneViewport erases from the container this walks.
+        {
+            std::vector<uint64_t> onThisDocument;
+            for ( const auto& view : m_ExtraViewports )
+                if ( view->Scene.lock() == doc->Scene )
+                    onThisDocument.push_back( view->Id );
+            for ( const uint64_t viewportId : onThisDocument )
+                CloseSceneViewport( viewportId );
+        }
+
         // The destruction order is the one ~PreviewViewport established and it is not interchangeable: the
         // last submitted frame may still be executing against this document's pipelines, framebuffers and
         // descriptor pools. Idle the device; then drop the PANEL (its UIHelper holds descriptor sets that
