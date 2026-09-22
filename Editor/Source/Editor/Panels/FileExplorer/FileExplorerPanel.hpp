@@ -350,8 +350,6 @@ namespace Desert::Editor
         // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
         bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );
 
-
-
         // Bottom preview strip for the currently selected file: thumbnail (texture/material/mesh) or a
         // text excerpt (scripts, .demat/.deprefab/.desce JSON), plus name/type/size.
         void DrawPreviewPane();

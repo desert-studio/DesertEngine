@@ -151,5 +151,4 @@ namespace Desert::Editor::ThumbnailSubject
         out.Material   = MeshMaterial::ResolveSidecar( manager, sourcePath );
         return Common::MakeSuccess( out );
     }
-
 } // namespace Desert::Editor::ThumbnailSubject

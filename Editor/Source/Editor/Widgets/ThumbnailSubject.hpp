@@ -161,5 +161,4 @@ namespace Desert::Editor::ThumbnailSubject
      */
     [[nodiscard]] Common::ResultStr<Mesh> ResolveMesh( Assets::AssetManager& manager,
                                                        const std::string&    sourcePath );
-
 } // namespace Desert::Editor::ThumbnailSubject
