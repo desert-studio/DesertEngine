@@ -37,7 +37,7 @@ namespace Desert::Editor
     public:
         explicit ControlRigPanel( std::shared_ptr<::Desert::Core::Scene> scene );
 
-        [[nodiscard]] ImVec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 320.0f, 380.0f };
         }

@@ -92,9 +92,9 @@ namespace Desert::Editor
         // Render2D pipelines built against it, which a submitted frame may still be executing.
         ~UIEditorPanel() override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 900.0f, 560.0f );
+            return { 900.0f, 560.0f };
         }
 
         // Records this frame's canvas render into the offscreen target (see the class comment).

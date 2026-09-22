@@ -121,9 +121,9 @@ namespace Desert::Editor
         // Out of line only to give the authoring context back; see the definition.
         ~SequencerPanel() override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 980.0f, 320.0f );
+            return { 980.0f, 320.0f };
         }
         void OnUIRender() override;
 

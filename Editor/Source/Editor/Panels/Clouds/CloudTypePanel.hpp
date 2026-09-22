@@ -48,9 +48,9 @@ namespace Desert::Editor
     public:
         CloudTypePanel( const Assets::AssetHandle& subject, Assets::AssetManager* assets );
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 520.0f, 760.0f );
+            return { 520.0f, 760.0f };
         }
 
         void OnUIRender() override;

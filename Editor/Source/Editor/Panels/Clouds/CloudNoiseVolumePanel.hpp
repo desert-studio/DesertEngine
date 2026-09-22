@@ -53,9 +53,9 @@ namespace Desert::Editor
         CloudNoiseVolumePanel( const Assets::AssetHandle& subject, Assets::AssetManager* assets );
         ~CloudNoiseVolumePanel() override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 560.0f, 720.0f );
+            return { 560.0f, 720.0f };
         }
 
         void OnUIRender() override;

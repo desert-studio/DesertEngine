@@ -179,12 +179,12 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr         SetEditableProperty( const std::string&        name,
                                                                          const std::vector<float>& value ) override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
             // TALL, and the number came from looking at it. The panel carries two square panes and a
             // paragraph of verdict under them; at 900 the map was cut off by the window's own bottom
             // edge, which is the one part an artist opens this panel FOR.
-            return ImVec2( 760.0f, 1120.0f );
+            return { 760.0f, 1120.0f };
         }
 
         void OnUIRender() override;

@@ -13,9 +13,9 @@ namespace Desert::Editor
         {
         }
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 300.0f, 420.0f );
+            return { 300.0f, 420.0f };
         }
         void OnUIRender() override;
     };

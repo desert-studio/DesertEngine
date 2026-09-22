@@ -30,9 +30,9 @@ namespace Desert::Editor
         LuaConsolePanel( ::Desert::Core::Scene* scene, ::Desert::Assets::AssetManager* assetManager );
         ~LuaConsolePanel() override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 720.0f, 420.0f );
+            return { 720.0f, 420.0f };
         }
 
         void OnUIRender() override;

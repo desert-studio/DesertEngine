@@ -27,9 +27,9 @@ namespace Desert::Editor
     public:
         SceneValidationPanel( std::shared_ptr<::Desert::Core::Scene> scene, Assets::AssetManager* assets );
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 420.0f, 300.0f );
+            return { 420.0f, 300.0f };
         }
         void OnUIRender() override;
 

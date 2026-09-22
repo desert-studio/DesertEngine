@@ -54,9 +54,9 @@ namespace Desert::Editor
         PhotogrammetryPanel( const std::shared_ptr<::Desert::Core::Scene>& scene, Assets::AssetManager* assets );
         ~PhotogrammetryPanel() override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 1040.0f, 660.0f );
+            return { 1040.0f, 660.0f };
         }
         void OnUIRender() override;
         // Runs for EVERY panel, hidden ones included — which is what makes it the right place to give the

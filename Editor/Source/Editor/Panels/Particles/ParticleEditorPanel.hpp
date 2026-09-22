@@ -52,9 +52,9 @@ namespace Desert::Editor
         ParticleEditorPanel( const SubjectId& subject, const std::string& displayName,
                              const std::shared_ptr<::Desert::Core::Scene>& scene );
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 460.0f, 620.0f );
+            return { 460.0f, 620.0f };
         }
         void OnUIRender() override;
 

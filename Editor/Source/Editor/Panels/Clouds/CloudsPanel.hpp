@@ -75,9 +75,9 @@ namespace Desert::Editor
         void OnUIRender() override;
         void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 1180.0f, 780.0f );
+            return { 1180.0f, 780.0f };
         }
 
         // ── DETAILS -> HERE ────────────────────────────────────────────────────────────────────────────

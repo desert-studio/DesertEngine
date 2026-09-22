@@ -3345,14 +3345,17 @@ namespace Desert::Editor
 
             namespace ImGui = ::ImGui;
             // One padding rule for the whole editor, declared by the panel (the viewport asks for zero).
-            ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, panel->GetWindowPadding() );
+            // The panel states it as a glm::vec2 -- IPanel.hpp must not name the toolkit -- and this is
+            // the line that draws, so this is where it becomes an ImVec2.
+            const glm::vec2 padding = panel->GetWindowPadding();
+            ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( padding.x, padding.y ) );
 
             // First-ever open: give the panel its preferred size, centered on the main viewport —
             // floating tools no longer pop up as tiny windows in a corner. imgui.ini keeps the
             // user's layout afterwards (FirstUseEver never fights it).
-            if ( const ImVec2 defSize = panel->GetDefaultSize(); defSize.x > 0.0f && defSize.y > 0.0f )
+            if ( const glm::vec2 defSize = panel->GetDefaultSize(); defSize.x > 0.0f && defSize.y > 0.0f )
             {
-                ImGui::SetNextWindowSize( defSize, ImGuiCond_FirstUseEver );
+                ImGui::SetNextWindowSize( ImVec2( defSize.x, defSize.y ), ImGuiCond_FirstUseEver );
                 ImGui::SetNextWindowPos( ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver,
                                          ImVec2( 0.5f, 0.5f ) );
             }
@@ -4518,8 +4521,8 @@ namespace Desert::Editor
             // has since dragged out stays where they put it.
             if ( m_DocumentDockId != 0 )
                 ImGui::SetNextWindowDockID( m_DocumentDockId, ImGuiCond_FirstUseEver );
-            if ( const ImVec2 defSize = document->GetDefaultSize(); defSize.x > 0.0f && defSize.y > 0.0f )
-                ImGui::SetNextWindowSize( defSize, ImGuiCond_FirstUseEver );
+            if ( const glm::vec2 defSize = document->GetDefaultSize(); defSize.x > 0.0f && defSize.y > 0.0f )
+                ImGui::SetNextWindowSize( ImVec2( defSize.x, defSize.y ), ImGuiCond_FirstUseEver );
 
             if ( !m_FocusPanel.empty() && document->GetName() == m_FocusPanel )
             {
@@ -4535,7 +4538,8 @@ namespace Desert::Editor
             // destroy a document with a tick and had no way to bring it back. A document has no visibility:
             // it is open, or it does not exist.
             bool open = true;
-            ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, document->GetWindowPadding() );
+            const glm::vec2 docPadding = document->GetWindowPadding();
+            ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( docPadding.x, docPadding.y ) );
             // BEGIN'S RETURN VALUE IS "IS THIS DOCUMENT ON SCREEN", and it was being thrown away. It is
             // false for a window that is collapsed and for one whose dock tab is not the active one — so
             // four documents in one dock node were all drawing their contents every frame while one of
