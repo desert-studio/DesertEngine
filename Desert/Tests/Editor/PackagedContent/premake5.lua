@@ -47,7 +47,6 @@ project(test_name)
     }
     externalincludedirs {
         "%{wks.location}/ThirdParty/reflect-cpp/include",
-        "%{wks.location}/ThirdParty",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

@@ -3,8 +3,9 @@
 -- The unit under test is a header (Editor/Panels/UI/UIElementCatalog.hpp) for the same reason
 -- AssetDocumentIdentity's is: the panels themselves are compiled by no suite, so anything assertable has to
 -- be lifted out of them. The renderer's half of the census is READ FROM ITS SOURCE at run time rather than
--- linked, so nothing from the engine or the editor is compiled or linked here; the ImGui include path is
--- present only because the catalog pulls in the icon defines' neighbourhood.
+-- linked, so nothing from the engine or the editor is compiled or linked here. The ThirdParty root used to
+-- be on the include path so that <ImGui/imgui.h> would resolve; the catalog never needed it, and with
+-- IPanel.hpp's ImVec2 members gone it resolves nothing this suite asks for.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)
@@ -24,10 +25,6 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source",
         "%{wks.location}/Editor/Source",
     }
-    externalincludedirs {
-        "%{wks.location}/ThirdParty",
-    }
-
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end

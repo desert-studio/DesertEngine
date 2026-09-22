@@ -6,8 +6,10 @@
 -- Engine/Core/RendererSlotPool.hpp the lease a closed document has to give back. They sit in headers for the
 -- reason Editor/Core/SceneViewIdentity.hpp and Editor/Core/SubjectEditorRegistry.hpp do -- EditorLayer.cpp is
 -- compiled by no suite (scripts/CI/UnreachedSources.sh), so anything assertable has to be lifted out of it.
--- Nothing to link from the engine or the editor; the ImGui and glm include paths are here because IPanel.hpp
--- declares ImVec2 members, not because any ImGui function is called.
+-- Nothing to link from the engine or the editor. glm is on the path because IPanel.hpp's
+-- GetWindowPadding/GetDefaultSize return glm::vec2; the TOOLKIT is not, and that is pinned rather than
+-- incidental -- those two used to return ImVec2 and this suite had to carry the ThirdParty root to compile
+-- a rule about ownership. See Desert/Tests/Editor/PanelInterfaceBoundary.
 --
 -- ONE EDITOR .cpp IS COMPILED IN: SubjectEditorRegistry.cpp. The registry is the seam this suite is about
 -- ("the set of open documents is the set of registered editors"), and its Register/Create carry the refusals
@@ -33,10 +35,6 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source",
         "%{wks.location}/Editor/Source",
     }
-    externalincludedirs {
-        "%{wks.location}/ThirdParty",
-    }
-
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end

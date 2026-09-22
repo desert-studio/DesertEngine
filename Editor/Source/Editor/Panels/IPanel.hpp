@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include <ImGui/imgui.h>
+#include <glm/ext/vector_float2.hpp>
 
 #include <Common/Core/Events/Event.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -83,21 +83,28 @@ namespace Desert::Editor
             return m_Pinned;
         }
 
-        // Window padding for this panel. One number for the whole editor keeps every panel's content
-        // breathing the same way; the viewport overrides it to zero because its image must reach the
-        // window edges. (Pushed by the panel loop around Begin/End — panels don't do it themselves.)
-        virtual ImVec2 GetWindowPadding() const
+        // Window padding for this panel, in pixels. One number for the whole editor keeps every panel's
+        // content breathing the same way; the viewport overrides it to zero because its image must reach
+        // the window edges. (Pushed by the panel loop around Begin/End — panels don't do it themselves.)
+        //
+        // A `glm::vec2` AND NOT THE TOOLKIT'S OWN PAIR, which is what this used to be. Declaring `ImVec2`
+        // here made `#include <ImGui/imgui.h>` part of this header, and therefore part of everything that
+        // merely NAMES a panel — including suites that never draw anything and had to carry the toolkit's
+        // include path to compile a document's ownership rules. glm is this project's vocabulary for two
+        // floats everywhere else, so nothing new is introduced; the conversion to `ImVec2` happens where
+        // the value is actually handed to ImGui (EditorLayer's panel loop), which is code that draws.
+        virtual glm::vec2 GetWindowPadding() const
         {
-            return ImVec2( 8.0f, 8.0f );
+            return { 8.0f, 8.0f };
         }
 
         // Preferred window size the FIRST time the panel ever opens (0,0 = let ImGui decide). Once
         // the user moves/resizes it, imgui.ini remembers their layout instead. Floating tool windows
         // (Node Graph, Sequencer, Build Settings) override this so they don't pop up as tiny
         // arbitrarily-placed windows.
-        virtual ImVec2 GetDefaultSize() const
+        virtual glm::vec2 GetDefaultSize() const
         {
-            return ImVec2( 0.0f, 0.0f );
+            return { 0.0f, 0.0f };
         }
 
     protected:

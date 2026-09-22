@@ -56,9 +56,9 @@ namespace Desert::Editor
                              const std::shared_ptr<Assets::AssetManager>& assetManager );
         ~MaterialEditorPanel() override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 760.0f, 560.0f );
+            return { 760.0f, 560.0f };
         }
 
         void OnUIRender() override;

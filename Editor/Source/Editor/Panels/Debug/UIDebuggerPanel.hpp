@@ -33,9 +33,9 @@ namespace Desert::Editor
         explicit UIDebuggerPanel( std::shared_ptr<::Desert::Core::Scene> scene );
         ~UIDebuggerPanel() override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 560.0f, 520.0f );
+            return { 560.0f, 520.0f };
         }
 
         void SetScene( const std::shared_ptr<::Desert::Core::Scene>& scene ) override

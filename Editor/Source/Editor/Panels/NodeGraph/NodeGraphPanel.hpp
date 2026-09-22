@@ -66,9 +66,9 @@ namespace Desert::Editor
                         const std::shared_ptr<Assets::AssetManager>& assetManager );
         ~NodeGraphPanel() override;
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 1100.0f, 680.0f );
+            return { 1100.0f, 680.0f };
         }
 
         void OnUIRender() override;

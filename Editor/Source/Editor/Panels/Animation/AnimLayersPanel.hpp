@@ -24,9 +24,9 @@ namespace Desert::Editor
     public:
         AnimLayersPanel( std::shared_ptr<::Desert::Core::Scene> scene, Animation::AnimationLibrary* library );
 
-        ImVec2 GetDefaultSize() const override
+        glm::vec2 GetDefaultSize() const override
         {
-            return ImVec2( 340.0f, 300.0f );
+            return { 340.0f, 300.0f };
         }
         void OnUIRender() override;
 

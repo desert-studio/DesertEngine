@@ -24,10 +24,6 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source",
         "%{wks.location}/Editor/Source",
     }
-    externalincludedirs {
-        "%{wks.location}/ThirdParty",
-    }
-
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end

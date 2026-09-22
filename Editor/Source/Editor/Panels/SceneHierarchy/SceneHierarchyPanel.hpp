@@ -6,6 +6,8 @@
 #include <Common/Core/Constants.hpp>
 
 #include "../IPanel.hpp"
+
+#include <ImGui/imgui.h> // the panel interface no longer hands the toolkit over (IPanel.hpp)
 #include "EntityTypeCensus.hpp"
 
 #include <unordered_set>
