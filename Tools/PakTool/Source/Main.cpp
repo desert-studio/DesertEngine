@@ -3,7 +3,13 @@
 //
 //   PakTool create   <out.dpak> <srcDir> [--prefix P]  pack every file under srcDir (keys relative
 //                                                      to it, optionally prefixed "P/...")
-//   PakTool list     <archive.dpak>                    print every entry with its size
+//   PakTool append   <archive.dpak> <srcDir> [--prefix P]  add those files to an EXISTING v3 archive
+//                                                      without rewriting a byte of it (see
+//                                                      PakWriter::Mode::Append) — a cook operation,
+//                                                      never a delivery one
+//   PakTool list     <archive.dpak>                    every entry with its content size, its stored
+//                                                      size, its offset and its codec, then the
+//                                                      format version
 //   PakTool extract  <archive.dpak> <outDir>           unpack all entries into outDir
 //   PakTool manifest <archive.dpak|srcDir> <out.txt>   record what this release hands out
 //                                                      [--prefix P]
@@ -37,7 +43,11 @@ namespace fs = std::filesystem;
 
 namespace
 {
-    int Create( const fs::path& out, const fs::path& srcDir, const std::string& prefix )
+    // Create and append are ONE function taking the mode, not two that look alike: the walk, the key
+    // derivation, the prefix rule and the refusal on a failed add must be the same for both, and two
+    // copies of them is how the second one drifts.
+    int Pack( const fs::path& out, const fs::path& srcDir, const std::string& prefix,
+              Common::Utils::PakWriter::Mode mode )
     {
         std::error_code ec;
         if ( !fs::is_directory( srcDir, ec ) )
@@ -46,10 +56,12 @@ namespace
             return 1;
         }
 
-        Common::Utils::PakWriter writer( out );
+        Common::Utils::PakWriter writer( out, mode );
         if ( !writer.IsOpen() )
         {
-            std::fprintf( stderr, "PakTool: cannot create %s\n", out.string().c_str() );
+            std::fprintf( stderr, "PakTool: cannot %s %s\n",
+                          mode == Common::Utils::PakWriter::Mode::Append ? "append to" : "create",
+                          out.string().c_str() );
             return 1;
         }
 
@@ -73,13 +85,16 @@ namespace
             bytes += fs::file_size( it->path(), ec );
         }
 
-        if ( writer.Finalize() == 0 )
+        const size_t records = writer.Finalize();
+        if ( records == 0 )
         {
             std::fprintf( stderr, "PakTool: finalize failed (empty archive?)\n" );
             return 1;
         }
-        std::printf( "PakTool: %zu file(s), %ju bytes -> %s\n", added, (uintmax_t)bytes,
-                     out.string().c_str() );
+        // The archive's total is printed beside the batch's, because on an append they differ and the
+        // difference is the only thing that says the existing entries survived.
+        std::printf( "PakTool: %zu file(s), %ju bytes -> %s (%zu entr%s in the archive)\n", added,
+                     (uintmax_t)bytes, out.string().c_str(), records, records == 1 ? "y" : "ies" );
         return 0;
     }
 
@@ -94,16 +109,23 @@ namespace
                           reader.OpenError().c_str() );
             return 1;
         }
+        // Both sizes and the codec, because "why is this archive that big" and "why is this entry slow
+        // to read" are the two questions this listing is run to answer, and one size column cannot
+        // distinguish an entry that did not compress from one that was not worth compressing.
         for ( const auto& key : reader.KeysWithPrefix( "" ) )
-            std::printf( "%10ju  %s\n", (uintmax_t)reader.EntrySize( key ).value_or( 0 ), key.c_str() );
+            std::printf( "%10ju %10ju %10ju  %-5s  %s\n", (uintmax_t)reader.EntrySize( key ).value_or( 0 ),
+                         (uintmax_t)reader.EntryStoredSize( key ).value_or( 0 ),
+                         (uintmax_t)reader.EntryOffset( key ).value_or( 0 ),
+                         reader.EntryCodec( key ) == Common::Utils::PakCodec::LZ4 ? "lz4" : "store",
+                         key.c_str() );
         // Deletions are printed EXPLICITLY because they are invisible everywhere else: the reserved
         // entry is hidden from every content accessor on purpose, so a patch that removes ten files and
         // adds none would otherwise list as an empty archive.
         for ( const auto& key : reader.DeletedKeys() )
             std::printf( "%10s  %s\n", "DELETED", key.c_str() );
-        std::printf( "PakTool: %zu entr%s, %zu deletion(s) in %s\n", reader.EntryCount(),
+        std::printf( "PakTool: %zu entr%s, %zu deletion(s), format v%u in %s\n", reader.EntryCount(),
                      reader.EntryCount() == 1 ? "y" : "ies", reader.DeletedKeys().size(),
-                     pakPath.string().c_str() );
+                     static_cast<unsigned>( reader.Version() ), pakPath.string().c_str() );
         return 0;
     }
 
@@ -224,6 +246,7 @@ namespace
     {
         std::fprintf( stderr, "Usage:\n"
                               "  PakTool create   <out.dpak> <srcDir> [--prefix P]\n"
+                              "  PakTool append   <archive.dpak> <srcDir> [--prefix P]\n"
                               "  PakTool list     <archive.dpak>\n"
                               "  PakTool extract  <archive.dpak> <outDir>\n"
                               "  PakTool manifest <archive.dpak|srcDir> <out.txt> [--prefix P]\n"
@@ -238,13 +261,15 @@ static int RunTool( int argc, char** argv )
         return Usage();
 
     const std::string cmd = argv[1];
-    if ( cmd == "create" && argc >= 4 )
+    if ( ( cmd == "create" || cmd == "append" ) && argc >= 4 )
     {
         std::string prefix;
         for ( int i = 4; i < argc - 1; ++i )
             if ( std::strcmp( argv[i], "--prefix" ) == 0 )
                 prefix = argv[i + 1];
-        return Create( argv[2], argv[3], prefix );
+        return Pack( argv[2], argv[3], prefix,
+                     cmd == "append" ? Common::Utils::PakWriter::Mode::Append
+                                     : Common::Utils::PakWriter::Mode::Create );
     }
     if ( cmd == "list" )
         return List( argv[2] );

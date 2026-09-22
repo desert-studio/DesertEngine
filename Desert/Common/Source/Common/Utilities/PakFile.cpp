@@ -1,10 +1,16 @@
 #include "PakFile.hpp"
 
+#include "Crc32c.hpp"
+#include "Lz4Block.hpp"
+
 #include <Common/Core/Logger.hpp>
 
+#include <bit>
+#include <climits>
 #include <cstring>
 #include <fstream>
 #include <system_error>
+#include <vector>
 
 namespace Common::Utils
 {
@@ -12,7 +18,21 @@ namespace Common::Utils
     {
         constexpr char     kMagicV1[4] = { 'D', 'P', 'K', '1' }; // pre-hash (still readable)
         constexpr char     kMagicV2[4] = { 'D', 'P', 'K', '2' }; // + u64 content hash per entry
+        constexpr char     kMagicV3[4] = { 'D', 'P', 'K', '3' }; // + storedSize / crc / codec per entry
+        constexpr char     kMagicPrefix[3] = { 'D', 'P', 'K' };  // so a FUTURE version is named, not guessed
         constexpr uint64_t kHeaderSize = 4 + sizeof( uint32_t ) + sizeof( uint64_t );
+
+        // THE FORMAT IS A BYTE ORDER, A SET OF FIELD WIDTHS AND NOTHING ELSE, so both are pinned at
+        // the BUILD rather than described in a comment. Every field below is written by copying a
+        // fixed-width object's representation into the stream, so a big-endian build would silently
+        // emit an archive that every shipping target rejects, and a host with a different int width
+        // would emit one nothing can parse at all. Both shipping targets are little-endian with 8-bit
+        // bytes; a port that breaks either is told here, at compile time, and not at a player's load.
+        static_assert( std::endian::native == std::endian::little, "the .dpak index is little-endian" );
+        static_assert( CHAR_BIT == 8, "the .dpak index's sizes are in 8-bit bytes" );
+        static_assert( sizeof( uint32_t ) == 4 && sizeof( uint64_t ) == 8 );
+        static_assert( sizeof( PakCodec ) == 4, "the codec column is a u32 in the file" );
+        static_assert( kHeaderSize == 16, "the header is magic + u32 + u64" );
 
         // Longest key the reader will accept. A sanity bound, not a format limit: a damaged index
         // otherwise asks for a multi-gigabyte string before anything else can notice it is wrong.
@@ -57,10 +77,61 @@ namespace Common::Utils
 
     // ---------------------------------------------------------------- PakWriter
 
-    PakWriter::PakWriter( const std::filesystem::path& pakPath ) : m_Path( pakPath )
+    PakWriter::PakWriter( const std::filesystem::path& pakPath ) : PakWriter( pakPath, Mode::Create )
+    {
+    }
+
+    PakWriter::PakWriter( const std::filesystem::path& pakPath, Mode mode ) : m_Path( pakPath )
     {
         std::error_code ec;
         std::filesystem::create_directories( pakPath.parent_path(), ec );
+
+        if ( mode == Mode::Append )
+        {
+            // THE ARCHIVE IS OPENED AND VALIDATED BEFORE A BYTE IS ADDED TO IT. Appending to a file
+            // that does not parse would produce an archive that is damaged in two places instead of
+            // one, and the second damage would be ours.
+            PakReader existing( pakPath );
+            if ( !existing.IsOpen() )
+            {
+                LOG_ERROR( "[Pak] cannot append to {}: {}", pakPath.string(), existing.OpenError() );
+                return;
+            }
+            if ( existing.Version() != PakVersion::V3 )
+            {
+                // Refused rather than upgraded in place: rewriting a v1/v2 index as v3 means moving
+                // every byte of the file, which is a repack, and a repack is not an append. The caller
+                // that wants one calls it by its name.
+                LOG_ERROR( "[Pak] cannot append to {}: it is a v{} archive and appending writes a v3 "
+                           "index; repack it instead",
+                           pakPath.string(), static_cast<uint32_t>( existing.Version() ) );
+                return;
+            }
+            if ( !existing.DeletedKeys().empty() )
+            {
+                // A patch archive states a complete removal set. Appending content to one would leave
+                // a file whose deletion list was authored against a different set of entries, and
+                // there is no way to tell from the file which entries the list was meant to cover.
+                LOG_ERROR( "[Pak] cannot append to {}: it is a patch archive (it carries {} deletion(s))",
+                           pakPath.string(), existing.DeletedKeys().size() );
+                return;
+            }
+
+            for ( const auto& key : existing.KeysWithPrefix( "" ) )
+                m_Entries.push_back( { key, *existing.EntryOffset( key ), *existing.EntryStoredSize( key ),
+                                       *existing.EntrySize( key ), *existing.EntryHash( key ),
+                                       *existing.EntryCrc( key ), *existing.EntryCodec( key ) } );
+
+            m_Out.open( m_Path, std::ios::binary | std::ios::in | std::ios::out );
+            if ( !m_Out )
+                return;
+            // PAST THE OLD INDEX, NOT OVER IT — the rule the whole mode exists for (PakFile.hpp).
+            // The old index ends at the end of the file, so that is where the new blobs begin.
+            m_Out.seekp( 0, std::ios::end );
+            m_Cursor = static_cast<uint64_t>( m_Out.tellp() );
+            m_Ok     = static_cast<bool>( m_Out ) && m_Cursor >= kHeaderSize;
+            return;
+        }
 
         // in|out|trunc rather than plain trunc: this one stream both appends blobs and later seeks back
         // to patch the header, which is what makes a second handle (and a second unchecked destructor)
@@ -70,7 +141,7 @@ namespace Common::Utils
             return;
 
         // Placeholder header; Finalize() rewrites it with the real index offset.
-        m_Out.write( kMagicV2, 4 );
+        m_Out.write( kMagicV3, 4 );
         WritePod<uint32_t>( m_Out, 0 );
         WritePod<uint64_t>( m_Out, 0 );
         m_Cursor = kHeaderSize;
@@ -99,8 +170,29 @@ namespace Common::Utils
         if ( !m_Ok )
             return false;
 
+        // THE DATA DECIDES, not a table of extensions. Compress, and keep the result only if it
+        // cleared the threshold; everything else is stored verbatim and costs the reader nothing.
+        // An extension list would have to be maintained against a content tree that grows, and it
+        // would be wrong the first time a .desce became a container or a .tex became BCn.
+        const char* stored     = static_cast<const char*>( data );
+        uint64_t    storedSize = size;
+        PakCodec    codec      = PakCodec::Store;
+        std::vector<char> compressed;
+        if ( size > 0 )
+        {
+            compressed.resize( Lz4BlockBound( size ) );
+            const size_t packed = Lz4BlockCompress( data, size, compressed.data(), compressed.size() );
+            if ( packed > 0 && static_cast<uint64_t>( packed ) * kCompressionDenominator <=
+                                    static_cast<uint64_t>( size ) * kCompressionNumerator )
+            {
+                stored     = compressed.data();
+                storedSize = packed;
+                codec      = PakCodec::LZ4;
+            }
+        }
+
         m_Out.seekp( static_cast<std::streamoff>( m_Cursor ) );
-        m_Out.write( static_cast<const char*>( data ), static_cast<std::streamsize>( size ) );
+        m_Out.write( stored, static_cast<std::streamsize>( storedSize ) );
         if ( !m_Out )
         {
             // Sticky, so the failure cannot be walked past. An archive that lost one blob must not go
@@ -110,8 +202,12 @@ namespace Common::Utils
             return false;
         }
 
-        m_Entries.push_back( { key, m_Cursor, static_cast<uint64_t>( size ), PakContentHash( data, size ) } );
-        m_Cursor += size;
+        // Two values over two different buffers, and the difference is the whole v3 design: the HASH
+        // is of the content (identity, diffed by releases), the CRC is of what actually lies on the
+        // disk (integrity, checked at every read).
+        m_Entries.push_back( { key, m_Cursor, storedSize, static_cast<uint64_t>( size ),
+                               PakContentHash( data, size ), Crc32c( stored, storedSize ), codec } );
+        m_Cursor += storedSize;
         return true;
     }
 
@@ -166,12 +262,24 @@ namespace Common::Utils
             WritePod<uint32_t>( m_Out, static_cast<uint32_t>( entry.Key.size() ) );
             m_Out.write( entry.Key.data(), static_cast<std::streamsize>( entry.Key.size() ) );
             WritePod<uint64_t>( m_Out, entry.Offset );
+            WritePod<uint64_t>( m_Out, entry.StoredSize );
             WritePod<uint64_t>( m_Out, entry.Size );
             WritePod<uint64_t>( m_Out, entry.Hash );
+            WritePod<uint32_t>( m_Out, entry.Crc );
+            WritePod<uint32_t>( m_Out, static_cast<uint32_t>( entry.Codec ) );
         }
 
+        // THE HEADER IS THE LAST THING WRITTEN, and on an append it is the ONLY thing in the file that
+        // changes. Everything above went after the old index, so until these sixteen bytes land the
+        // file still describes exactly the archive it described before — which is what makes an
+        // interrupted append cost nothing and need no rollback. Flushed before the seek so the
+        // process cannot hand the operating system a header that names an index it has not yet given
+        // it. (Against a power cut that ordering is the device's to keep, not ours; what survives
+        // there is the other half of the design — a torn append is caught at open, by name, because
+        // the index it points at is short, or at read, by name, because an entry's CRC does not hold.)
+        m_Out.flush();
         m_Out.seekp( 0 );
-        m_Out.write( kMagicV2, 4 );
+        m_Out.write( kMagicV3, 4 );
         WritePod<uint32_t>( m_Out, static_cast<uint32_t>( m_Entries.size() ) );
         WritePod<uint64_t>( m_Out, indexOffset );
 
@@ -236,13 +344,28 @@ namespace Common::Utils
         const std::streamsize magicRead = in.gcount();
         const bool            v1        = in && std::memcmp( magic, kMagicV1, 4 ) == 0;
         const bool            v2        = in && std::memcmp( magic, kMagicV2, 4 ) == 0;
-        if ( !v1 && !v2 )
+        const bool            v3        = in && std::memcmp( magic, kMagicV3, 4 ) == 0;
+        if ( !v1 && !v2 && !v3 )
         {
-            m_OpenError = fmt::format( "not a Desert archive: it begins with {}, expected \"DPK1\" or "
-                                       "\"DPK2\" (the file is {} bytes)",
+            // A VERSION THIS BUILD DOES NOT KNOW IS REFUSED BY ITS NAME, not as "corrupt". The two
+            // have opposite remedies — one is "this game is older than this content", the other is
+            // "download it again" — and the magic is the only place the difference is legible. The
+            // check is the three-character prefix, so every future version is named by the build that
+            // predates it instead of being reported as a file that is not an archive at all.
+            if ( magicRead == 4 && std::memcmp( magic, kMagicPrefix, 3 ) == 0 )
+            {
+                m_OpenError = fmt::format( "this is a {} archive and this build reads \"DPK1\", \"DPK2\" "
+                                           "and \"DPK3\" — the content is newer than the program "
+                                           "reading it (the file is {} bytes)",
+                                           QuoteMagic( magic, magicRead ), bytes );
+                return;
+            }
+            m_OpenError = fmt::format( "not a Desert archive: it begins with {}, expected \"DPK1\", "
+                                       "\"DPK2\" or \"DPK3\" (the file is {} bytes)",
                                        QuoteMagic( magic, magicRead ), bytes );
             return;
         }
+        m_Version = v3 ? PakVersion::V3 : ( v2 ? PakVersion::V2 : PakVersion::V1 );
 
         uint32_t entryCount  = 0;
         uint64_t indexOffset = 0;
@@ -286,27 +409,62 @@ namespace Common::Utils
             std::string key( pathLen, '\0' );
             in.read( key.data(), pathLen );
             Span span;
-            if ( !in || !ReadPod( in, span.Offset ) || !ReadPod( in, span.Size ) )
+            // ONE BRANCH PER VERSION, reading the columns that version has in the order Finalize
+            // writes them. An earlier draft read the shared prefix once and then patched the fields
+            // that moved, which made a v3 record's THIRD u64 arrive in a variable named Hash — true,
+            // and unreadable. A format with three versions is three record layouts; spelling them out
+            // is what makes adding a fourth a visible edit.
+            bool complete = static_cast<bool>( in ) && ReadPod( in, span.Offset );
+            if ( complete && v3 )
+            {
+                uint32_t codec = 0;
+                complete = ReadPod( in, span.StoredSize ) && ReadPod( in, span.Size ) &&
+                           ReadPod( in, span.Hash ) && ReadPod( in, span.Crc ) && ReadPod( in, codec );
+                if ( complete )
+                {
+                    if ( codec > static_cast<uint32_t>( PakCodec::LZ4 ) )
+                    {
+                        // A codec this build cannot run is named, for the same reason the magic is:
+                        // the remedy is a newer build, not a repaired download.
+                        m_OpenError = fmt::format( "index entry {} of {} ('{}') is stored with codec {}, "
+                                                   "which this build does not implement",
+                                                   i + 1, entryCount, key, codec );
+                        return;
+                    }
+                    span.Codec = static_cast<PakCodec>( codec );
+                }
+            }
+            else if ( complete )
+            {
+                // v1 and v2 have ONE size column, and it means both things at once: nothing before v3
+                // is compressed, so the stored bytes are the content.
+                complete = ReadPod( in, span.StoredSize ) && ( !v2 || ReadPod( in, span.Hash ) );
+                span.Size = span.StoredSize;
+            }
+            if ( !complete )
             {
                 m_OpenError = fmt::format( "index entry {} of {} is cut short — the index is truncated", i + 1,
                                            entryCount );
                 return;
             }
-            if ( v2 && !ReadPod( in, span.Hash ) ) // v1 has no hash column -> stays 0
+            if ( span.Codec == PakCodec::Store && span.Size != span.StoredSize )
             {
-                m_OpenError = fmt::format( "index entry {} of {} ('{}') has no content hash — the index is "
-                                           "truncated",
-                                           i + 1, entryCount, key );
+                // A stored entry whose two sizes disagree is an index that contradicts itself, and
+                // believing either column would hand the caller a buffer of the wrong length.
+                m_OpenError = fmt::format( "index entry {} of {} ('{}') is stored uncompressed but declares "
+                                           "{} content bytes in {} stored bytes — the index is corrupt",
+                                           i + 1, entryCount, key, span.Size, span.StoredSize );
                 return;
             }
             // A span that leaves the data region would read the index back as file content, or run off
             // the end of the file. Checked HERE rather than at the read, because one bad span means the
             // index itself is damaged and nothing in this archive can be trusted.
-            if ( span.Offset < kHeaderSize || span.Size > indexOffset || span.Offset > indexOffset - span.Size )
+            if ( span.Offset < kHeaderSize || span.StoredSize > indexOffset ||
+                 span.Offset > indexOffset - span.StoredSize )
             {
                 m_OpenError = fmt::format( "index entry {} of {} ('{}') points at bytes {}..{}, outside the "
                                            "{}-byte content region — the index is corrupt",
-                                           i + 1, entryCount, key, span.Offset, span.Offset + span.Size,
+                                           i + 1, entryCount, key, span.Offset, span.Offset + span.StoredSize,
                                            indexOffset - kHeaderSize );
                 return;
             }
@@ -323,7 +481,6 @@ namespace Common::Utils
                 return;
             }
         }
-        m_HasHashes = v2;
 
         // THE DELETION LIST IS PARSED AT OPEN, NOT AT THE FIRST LOOKUP. A patch whose list is corrupt,
         // unreadable or self-contradictory must fail to OPEN, with a reason — because the alternative
@@ -396,24 +553,58 @@ namespace Common::Utils
         return key != kDeletedEntriesKey && m_Index.contains( key );
     }
 
-    std::optional<uint64_t> PakReader::EntrySize( const std::string& key ) const
+    PakVersion PakReader::Version() const
+    {
+        return m_Version;
+    }
+
+    const std::filesystem::path& PakReader::ArchivePath() const
+    {
+        return m_Path;
+    }
+
+    // One lookup, one refusal of the reserved key, and each accessor names the column it wants. Six
+    // copies of the same five lines was the alternative, and the copy that drifts is the one nobody
+    // reads again.
+    template <typename T>
+    std::optional<T> PakReader::Column( const std::string& key, T Span::*column ) const
     {
         if ( key == kDeletedEntriesKey )
             return std::nullopt;
         const auto it = m_Index.find( key );
         if ( it == m_Index.end() )
             return std::nullopt;
-        return it->second.Size;
+        return it->second.*column;
+    }
+
+    std::optional<uint64_t> PakReader::EntrySize( const std::string& key ) const
+    {
+        return Column( key, &Span::Size );
+    }
+
+    std::optional<uint64_t> PakReader::EntryStoredSize( const std::string& key ) const
+    {
+        return Column( key, &Span::StoredSize );
+    }
+
+    std::optional<PakCodec> PakReader::EntryCodec( const std::string& key ) const
+    {
+        return Column( key, &Span::Codec );
     }
 
     std::optional<uint64_t> PakReader::EntryHash( const std::string& key ) const
     {
-        if ( key == kDeletedEntriesKey )
-            return std::nullopt;
-        const auto it = m_Index.find( key );
-        if ( it == m_Index.end() )
-            return std::nullopt;
-        return it->second.Hash;
+        return Column( key, &Span::Hash );
+    }
+
+    std::optional<uint32_t> PakReader::EntryCrc( const std::string& key ) const
+    {
+        return Column( key, &Span::Crc );
+    }
+
+    std::optional<uint64_t> PakReader::EntryOffset( const std::string& key ) const
+    {
+        return Column( key, &Span::Offset );
     }
 
     const std::vector<std::string>& PakReader::DeletedKeys() const
@@ -450,48 +641,69 @@ namespace Common::Utils
             return std::nullopt;
         }
 
-        std::string data( static_cast<size_t>( it->second.Size ), '\0' );
+        std::string stored( static_cast<size_t>( it->second.StoredSize ), '\0' );
         in.seekg( static_cast<std::streamoff>( it->second.Offset ) );
-        in.read( data.data(), static_cast<std::streamsize>( it->second.Size ) );
+        in.read( stored.data(), static_cast<std::streamsize>( it->second.StoredSize ) );
         if ( !in )
         {
             LOG_ERROR( "[Pak] {}: entry '{}' could not be read ({} bytes at offset {})", m_Path.string(), key,
-                       it->second.Size, it->second.Offset );
+                       it->second.StoredSize, it->second.Offset );
             return std::nullopt;
         }
 
-        // THE FORMAT HAS CARRIED A PER-ENTRY CONTENT HASH SINCE v2 AND NOTHING HAS EVER COMPARED IT.
-        // Its own header comment promises it drives "post-download integrity checks"; the only reader
-        // of EntryHash was the patch generator. That gap is not cosmetic: the constructor's checks are all
-        // structural, so a flipped bit anywhere in the DATA region leaves the header, the index and
-        // every span perfectly valid. The archive mounts, this read succeeds, and the game runs on
-        // corrupt content without one line anywhere — the exact silent-fallback shape §1.4 forbids.
+        // THE ENTRY IS VERIFIED BEFORE ANYTHING IS DONE WITH IT, and the failure names which check it
+        // was. Before v3 the archive had NOTHING to verify against and the reader said nothing about
+        // it either — a flipped bit anywhere in the data region left the header, the index and every
+        // span perfectly valid, so the archive mounted, the read succeeded, and the game ran on
+        // corrupt content without one line anywhere.
         //
-        // Here, and not at mount, because the bytes are already in hand: verifying costs one pass over
-        // a buffer that was just read, whereas proving the whole archive intact at startup would mean
-        // reading all of it before the first frame.
-        //
-        // WHAT IT COSTS, measured rather than assumed (2026-09-07, -O2, 256 MB, best of 5, machine
-        // shared with other agents; the five runs spanned 0.78-0.80 GB/s): 0.80 GB/s single-threaded.
-        // FNV-1a is a serial chain — each byte multiplies the previous state — so that is the ceiling,
-        // and it is BELOW this machine's storage bandwidth rather than above it. For a package of size
-        // S the added load cost is therefore about S/0.8 GB/s, spread across the preloader's workers
-        // (Read opens its own stream per call precisely so it can run on any thread). Against the
-        // alternative — a game that loads corrupt bytes and says nothing — that is worth paying.
-        // What would change the answer: if this ever shows up in a load profile, the fix is a faster
-        // hash — a hardware CRC32C or xxHash breaks the serial dependency and should be well clear of
-        // storage bandwidth, though that was NOT measured here — and that means a v3 magic, not a
-        // silent skip of the check.
-        if ( m_HasHashes )
+        // WHAT IT COSTS, measured rather than assumed (2026-09-22, -O2, 256 MiB, 5 repeats, this
+        // machine): CRC-32C runs at 8.17 GB/s against FNV-1a's 0.77, which took the whole-archive
+        // verification of the shipping cooked tree from 297.4 ms to ~28 ms and moved it from four
+        // fifths of the read path to a twelfth of it. Crc32c.hpp carries what the change did to what
+        // is DETECTED, which is the half of this that is not about speed.
+        if ( m_Version == PakVersion::V3 )
         {
-            const uint64_t actual = PakContentHash( data.data(), data.size() );
+            const uint32_t actual = Crc32c( stored.data(), stored.size() );
+            if ( actual != it->second.Crc )
+            {
+                LOG_ERROR( "[Pak] {}: entry '{}' is CORRUPT — stored CRC32C {:#010x}, index says {:#010x} "
+                           "({} bytes at offset {}). The archive is damaged or was modified after packing.",
+                           m_Path.string(), key, actual, it->second.Crc, it->second.StoredSize,
+                           it->second.Offset );
+                return std::nullopt;
+            }
+        }
+        else if ( m_Version == PakVersion::V2 )
+        {
+            // A v2 archive carries only the content hash, so that is what it is checked with — at v2's
+            // price. Kept rather than dropped because an archive already on a disk somewhere must not
+            // become LESS checked by the arrival of a newer format.
+            const uint64_t actual = PakContentHash( stored.data(), stored.size() );
             if ( actual != it->second.Hash )
             {
                 LOG_ERROR( "[Pak] {}: entry '{}' is CORRUPT — content hash {:#x}, index says {:#x} ({} "
                            "bytes at offset {}). The archive is damaged or was modified after packing.",
-                           m_Path.string(), key, actual, it->second.Hash, it->second.Size, it->second.Offset );
+                           m_Path.string(), key, actual, it->second.Hash, it->second.Size,
+                           it->second.Offset );
                 return std::nullopt;
             }
+        }
+
+        if ( it->second.Codec == PakCodec::Store )
+            return stored;
+
+        std::string data( static_cast<size_t>( it->second.Size ), '\0' );
+        if ( !Lz4BlockDecompress( stored.data(), stored.size(), data.data(), data.size() ) )
+        {
+            // Reachable only when the stored bytes are exactly what was packed (the CRC above already
+            // said so) and still do not decode — i.e. the packer and the reader disagree about the
+            // format. A refusal, not a truncated buffer: half an asset is worse than none.
+            LOG_ERROR( "[Pak] {}: entry '{}' passed its CRC but does not decode — {} stored bytes were "
+                       "packed as codec {} and should yield {} bytes",
+                       m_Path.string(), key, it->second.StoredSize,
+                       static_cast<uint32_t>( it->second.Codec ), it->second.Size );
+            return std::nullopt;
         }
         return data;
     }

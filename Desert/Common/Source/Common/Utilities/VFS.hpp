@@ -44,6 +44,21 @@ namespace Common::Utils
         static void                             Unmount();
 
         static bool                        Exists( const std::filesystem::path& path );
+
+        // WHICH ARCHIVE WOULD ANSWER a read of this path, or nullopt when nothing mounted would.
+        //
+        // The stack's whole purpose is that a later mount overrides an earlier one for the same key,
+        // and until now that was a property nobody could ASK about: ReadFile handed back bytes and the
+        // caller had to infer the winner from their content. Inferring it is exactly what a patch test
+        // must not do — two archives shipping the same key with the same bytes is a legal and common
+        // case (a patch that re-ships a file unchanged), and it makes "which won" invisible to a
+        // comparison of the bytes. A precedence that cannot be observed is a precedence that will be
+        // silently wrong one day.
+        //
+        // Answered through the same Resolve walk as Exists and ReadFile, so it cannot disagree with
+        // them: whatever this names IS what ReadFile would return, masking included (a key a patch has
+        // deleted resolves to nothing here too).
+        static std::optional<std::filesystem::path> SourcePak( const std::filesystem::path& path );
         static std::optional<std::string>  ReadFile( const std::filesystem::path& path );
         static std::optional<uint64_t>     FileSize( const std::filesystem::path& path );
 
