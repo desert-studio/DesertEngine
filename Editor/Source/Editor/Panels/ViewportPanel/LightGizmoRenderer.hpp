@@ -166,6 +166,13 @@ namespace Desert::Editor
         // nothing global — see ControlDrag's note on why remembering the global is a defect that reads as a
         // rig failure rather than a manipulator one.
         Animation::ControlDrag m_ControlDrag;
+
+        // Perform one queued nudge (Editor/Core/ControlNudgeRequest.hpp) on the selected control. It is a
+        // method of this class and not a free function because the two things a drag needs — the grabbed
+        // shape's projected origin and the in-progress drag itself — are members of it.
+        void PerformQueuedControlNudge( Animation::ControlHierarchy&      hierarchy,
+                                        const Animation::ManipulatorView& view, const Common::UUID& owner );
+
         // The pose the grab captured, kept beside the drag so one undo entry per completed drag is pushed
         // from the value that was actually there. Held BY VALUE, never as an address — DragValueHandle's
         // note is about exactly this.

@@ -26,7 +26,10 @@
 #include <Common/Core/Units.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/ProceduralCharacterFactory.hpp>
+#include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/ProceduralCharacterAnimations.hpp>
+#include <Engine/Animation/Rig/ControlHierarchy.hpp>
+#include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
@@ -116,6 +119,7 @@
 #include "Editor/Core/OpenableAssets.hpp"
 #include "Editor/Core/ViewportCameraProperties.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
+#include "Editor/Core/ControlNudgeRequest.hpp"
 #include "Editor/Core/SubjectOpenRequest.hpp"
 
 // 4. Misc
@@ -1048,6 +1052,11 @@ namespace Desert::Editor
         // look, from the outside, exactly like an editor that had hung. It answers `state` throughout, so
         // the client can watch the boot; anything that changes the picture is held by the quiescence gate
         // until the staged load is done, which is what PendingWork::StartupLoading is for.
+        // THE NUDGE CLOCK, AND IT RUNS BEFORE THE CHANNEL DELIBERATELY. A request queued by a command
+        // this frame must not be aged by the same frame's tick, or the drop that protects the reply gate
+        // would fire a frame early and a slow viewport would lose a nudge it was about to perform.
+        Core::ControlNudgeRequests::Tick();
+
         ServiceControlChannel();
 
         // Staged startup loading: run ONE heavy stage per frame — but only after at least one frame with
@@ -1867,6 +1876,10 @@ namespace Desert::Editor
         // answer, and the two would disagree on exactly the frame an open was handled halfway.
         quiescence.Set( Control::PendingWork::AssetOpens, Core::SubjectOpenRequests::HasPending() );
         quiescence.Set( Control::PendingWork::OpenRefusal, m_OpenRefusalPending );
+        // Asked of the request itself, for SubjectOpenRequests' reason above. It stays pending for one
+        // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
+        // draws it -- see Editor/Core/ControlNudgeRequest.hpp.
+        quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
         m_FrameQuiescence = quiescence;
     }
 
@@ -3745,6 +3758,103 @@ namespace Desert::Editor
                                                selected > 0,
                                                "The selected entity carries no static mesh to match." );
                                       } } );
+            }
+        }
+
+        // ── THE CONTROL RIG, UNDER NAMES ─────────────────────────────────────────────────────────────
+        //
+        // FOUND BY NEEDING IT, exactly as the snap steps and the transform tools above were. Every gesture
+        // in `ControlManipulator` is a MOUSE gesture -- enter Control mode with a checkbox, click a shape,
+        // drag it -- and synthetic input is closed on this machine at both doors. So `ControlDrag`, which
+        // a suite and a census both cover, had never appeared in a single frame: there was no way to put
+        // it on screen without a human. Three entries close that, and none of them is a second
+        // implementation: the mode goes through the authoring context's own gate, the selection through
+        // `SetSelectedControl`, and the nudge through the very `ControlDrag` object the mouse grabs.
+        //
+        // THE PALETTE IS AN OWNER LIKE ANY OTHER. It takes the authoring context as `Kind::Panel`, so a
+        // viewport or a Sequencer that wants it back takes it the same way they take it from each other,
+        // and the refusals name who holds it.
+        if ( m_MainScene )
+        {
+            if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
+            {
+                const Common::UUID subject = *primary;
+                commands.push_back(
+                     { "Control Rig", "Author the control rig on the selection", [this, subject]
+                       {
+                           auto& host           = Core::ActiveAuthoringContext();
+                           m_PaletteAuthoring.Entity = subject;
+                           // Focus FIRST and set the mode after: Focus adopts the published context when
+                           // the entity matches, so a mode written into `mine` beforehand is overwritten
+                           // by whatever the previous holder was in.
+                           (void)host.Focus( m_PaletteAuthoringOwner, m_PaletteAuthoring );
+                           return host.SetMode( m_PaletteAuthoringOwner, m_PaletteAuthoring,
+                                                Core::AuthoringMode::Control );
+                       } } );
+
+                // ONE ENTRY PER CONTROL, built from the rig the selection actually carries -- the same
+                // shape the per-entity and per-document entries above use. A single "select control by
+                // index" entry could not be offered, because `PaletteCommand::Run` takes no arguments;
+                // and a client that cannot see the viewport needs to ask for a control BY NAME anyway.
+                if ( const auto& found = m_MainScene->FindEntityByID( subject ) )
+                {
+                    const ECS::Entity& entity = found->get();
+                    if ( entity.HasComponent<ECS::AnimationComponent>() )
+                    {
+                        const auto& animation = entity.GetComponent<ECS::AnimationComponent>();
+                        if ( animation.Animator && animation.Animator->GetRig() != nullptr )
+                        {
+                            const Animation::ControlHierarchy& hierarchy =
+                                 animation.Animator->GetRig()->GetHierarchy();
+                            for ( uint32_t control = 0;
+                                  control < static_cast<uint32_t>( hierarchy.Size() ); ++control )
+                            {
+                                const std::string name = hierarchy.Get( control ).Name;
+                                commands.push_back(
+                                     { "Control Rig", "Select control " + name, [this, control]
+                                       {
+                                           auto& host = Core::ActiveAuthoringContext();
+                                           return host.SetSelectedControl( m_PaletteAuthoringOwner,
+                                                                           m_PaletteAuthoring, control );
+                                       } } );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // THE DRAG ITSELF. Offered unconditionally, like the snap steps: the refusal a client gets when
+        // no control is selected is more useful than an entry that quietly is not in the dictionary, and
+        // the dictionary is rebuilt per query anyway so a conditional one would come and go.
+        //
+        // PIXELS, NOT WORLD UNITS, and that is not a shortcut: `ControlDrag` converts a POINTER OFFSET
+        // into the control's parent space, so the honest parameter of the gesture is the one the gesture
+        // takes. A "move 10 cm" entry would have to invent the projection the drag exists to do, and the
+        // two would disagree at every zoom but one.
+        {
+            constexpr struct
+            {
+                const char* Label;
+                float       X;
+                float       Y;
+            } kNudges[] = {
+                 { "Nudge the selected control 20 px right", 20.0f, 0.0f },
+                 { "Nudge the selected control 20 px left", -20.0f, 0.0f },
+                 { "Nudge the selected control 20 px up", 0.0f, -20.0f },
+                 { "Nudge the selected control 20 px down", 0.0f, 20.0f },
+                 { "Nudge the selected control 80 px right", 80.0f, 0.0f },
+                 { "Nudge the selected control 80 px left", -80.0f, 0.0f },
+                 { "Nudge the selected control 80 px up", 0.0f, -80.0f },
+                 { "Nudge the selected control 80 px down", 0.0f, 80.0f },
+            };
+            for ( const auto& nudge : kNudges )
+            {
+                // Y GROWS DOWNWARD -- ImGui's convention and therefore the viewport's
+                // (ControlManipulator.hpp), which is why "up" is negative here.
+                const glm::vec2 delta( nudge.X, nudge.Y );
+                commands.push_back( { "Control Rig", nudge.Label,
+                                      [delta] { return Core::ControlNudgeRequests::Request( delta ); } } );
             }
         }
 

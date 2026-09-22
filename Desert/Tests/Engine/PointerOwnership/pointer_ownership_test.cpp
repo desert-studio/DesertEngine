@@ -400,11 +400,17 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   against its own base (365 -> 367 and 365 -> 366) and the sum is neither; a merge that took
     //   either side whole would have been a number that compiles, passes review, and is wrong. The
     //   count is derived from the rows, so the rows are what to read when it moves.
-    EXPECT_EQ( CountOf( Form::Raw ), 375 );
+    //   and +2 Raw with A33 (375 -> 377, 860 -> 862): `UIClipCommand::m_Clip` and
+    //   `UIClipEditTransaction::m_Clip`, the UI timeline's own undo entry and the transaction that pushes
+    //   it. Same guard and same drop as the four A29 rows, for a hazard that is if anything plainer: the
+    //   pointer is INTO an entt pool, so the address can die while the entity lives. The transaction adds
+    //   one guarantee the pose one does not -- the panel compares Subject() with the component it
+    //   resolved this frame and abandons the entry when they differ.
+    EXPECT_EQ( CountOf( Form::Raw ), 377 );
     EXPECT_EQ( CountOf( Form::Shared ), 330 );
     EXPECT_EQ( CountOf( Form::Unique ), 117 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 860 )
+    EXPECT_EQ( (int)Members().size(), 862 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

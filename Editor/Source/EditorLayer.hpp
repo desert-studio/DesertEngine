@@ -16,6 +16,7 @@
 #include "Editor/Core/Control/ControlSocket.hpp"
 #include "Editor/Core/Control/ControlState.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
+#include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/DocumentWell.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
@@ -682,6 +683,16 @@ namespace Desert::Editor
         // The outstanding work sampled while THIS frame was being built. Not read at the moment the gate
         // judges it: by then the answer has moved on, and the question is about the picture.
         Control::EditorQuiescence m_FrameQuiescence;
+
+        // ── THE PALETTE AS AN AUTHORING OWNER ─────────────────────────────────────────────────────
+        //
+        // The command palette can put the editor into Control mode and pick a control, so it is a WRITER
+        // of the authoring context and therefore has to hold it like every other writer -- Kind::Panel,
+        // its own durable copy, and refusals that name it. Without this the two entries would have to
+        // reach into a viewport's context, which is the process-wide-statics shape AuthoringContext.hpp
+        // was written to end.
+        Core::AuthoringContext     m_PaletteAuthoring;
+        const Core::AuthoringOwner m_PaletteAuthoringOwner = Core::AuthoringOwner::ForPanel( "Command Palette" );
 
         // Frames since the layer attached. The gate's clock — deliberately this layer's own count and not
         // the renderer's frame-in-flight index, which wraps at three and could not order anything.

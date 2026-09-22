@@ -11,6 +11,8 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
+
+#include <Editor/Core/ControlNudgeRequest.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>
@@ -229,6 +231,11 @@ namespace Desert::Editor
                       unknown );
         }
 
+        // THE DRAG WITHOUT A MOUSE, and it is placed HERE — after the frame is built and before the
+        // pointer is read — because those are the two things it needs and the only point in the frame at
+        // which both are true. Editor/Core/ControlNudgeRequest.hpp has the whole argument.
+        PerformQueuedControlNudge( hierarchy, view, *selected );
+
         const ImVec2      pointer  = ImGui::GetMousePos();
         const glm::vec2   pointerV = glm::vec2( pointer.x, pointer.y );
         ImDrawList* const drawList = ImGui::GetWindowDrawList();
@@ -343,6 +350,81 @@ namespace Desert::Editor
                 }
             }
         }
+    }
+
+    void LightGizmoRenderer::PerformQueuedControlNudge( Animation::ControlHierarchy&      hierarchy,
+                                                        const Animation::ManipulatorView& view,
+                                                        const Common::UUID&               owner )
+    {
+        if ( !Core::ControlNudgeRequests::HasPending() )
+        {
+            return;
+        }
+        // A LIVE MOUSE DRAG OWNS THE MANIPULATOR. Beginning a second grab under it is what
+        // ControlDrag::Begin exists to refuse, and the queued nudge is not lost — it is offered again
+        // next frame and dropped, with a reason, if nothing ever takes it.
+        if ( m_ControlDrag.Active() )
+        {
+            return;
+        }
+
+        auto&      authoring = Core::ActiveAuthoringContext();
+        const auto selected  = authoring.SelectedControl();
+        if ( !selected.has_value() )
+        {
+            return;
+        }
+
+        // THE GRAB POINT IS THE CONTROL'S OWN ORIGIN, as this frame projected it. Not the pointer, and
+        // not a remembered pixel: a nudge is "drag this control from where it is", and the only honest
+        // spelling of "where it is" is the projection the overlay just drew.
+        const Animation::ControlShapeDraw* grabbed = nullptr;
+        for ( const Animation::ControlShapeDraw& shape : m_ControlFrame.Shapes )
+        {
+            if ( shape.Control == *selected )
+            {
+                grabbed = &shape;
+                break;
+            }
+        }
+        if ( grabbed == nullptr || !grabbed->Origin.InFront )
+        {
+            // A control behind the eye has no pixel to grab at, and dividing by its w anyway is the ghost
+            // the ProjectedPoint::InFront flag exists for. Left queued; Tick() will say so.
+            return;
+        }
+
+        const std::optional<glm::vec2> delta = Core::ControlNudgeRequests::Take();
+        if ( !delta.has_value() )
+        {
+            return;
+        }
+
+        const glm::vec2 from   = grabbed->Origin.Pixel;
+        const float     radius = grabbed->ScreenRadius > 0.0f ? grabbed->ScreenRadius : 1.0f;
+        const Animation::ManipulatorMode mode =
+             authoring.ControlRotate() ? Animation::ManipulatorMode::Rotate : Animation::ManipulatorMode::Translate;
+
+        // THE SAME THREE CALLS THE MOUSE MAKES, on the same object, in the same order. That is the whole
+        // point of naming the gesture rather than faking the pointer: what the screenshot shows is the
+        // path an animator uses, not a second one written to be photographable.
+        if ( const auto begun = m_ControlDrag.Begin( hierarchy, *selected, mode, view, from, radius ); !begun )
+        {
+            LOG_WARN( "[Animation] Control '{}' could not be grabbed for a nudge: {}",
+                      hierarchy.Get( *selected ).Name, begun.GetError() );
+            return;
+        }
+        m_ControlPoseAtGrab = m_ControlDrag.PoseAtGrab();
+        m_ControlDragOwner  = owner;
+
+        if ( const auto moved = m_ControlDrag.Update( hierarchy, view, from + *delta ); !moved )
+        {
+            LOG_WARN( "[Animation] Control nudge refused: {}", moved.GetError() );
+        }
+        m_ControlDrag.End();
+
+        LOG_INFO( "[Animation] Control '{}' nudged by ({:.0f}, {:.0f}) px from ({:.0f}, {:.0f}).",
+                  hierarchy.Get( *selected ).Name, delta->x, delta->y, from.x, from.y );
     }
 
     void LightGizmoRenderer::RenderPointLights( const std::shared_ptr<Desert::Core::Camera>& camera, float width,
