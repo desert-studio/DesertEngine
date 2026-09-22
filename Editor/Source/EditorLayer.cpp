@@ -5,6 +5,7 @@
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
@@ -1510,6 +1511,23 @@ namespace Desert::Editor
                 }
                 if ( shot.GpuProfile )
                     DumpProfilerToLog();
+
+                // WHAT THE CAPTURE COST ON THE DEVICE, AT THE ONE INSTANT THE PICTURE DESCRIBES.
+                //
+                // Until this line the only memory readings a headless run produced came from BOOT and
+                // from the moment a renderer slot was built — both of them BEFORE any texture the scene
+                // needs has been uploaded, because `TextureService::Get` builds the GPU texture on first
+                // use and first use is a frame. Measured on the world scene: at "Renderer slot 0 built"
+                // the ledger reports AssetService holding 76 shaders and ZERO Image2D, and the scene's
+                // one texture only appears a hundred frames later. So every figure anybody had for
+                // "texture memory on this scene" was taken before the textures existed.
+                //
+                // Unconditional, and not behind `--gpu-profile`: a reading nobody remembers to ask for
+                // is a reading nobody has. It is three queries and one locked walk, once, on the frame
+                // that ends the process.
+                LOG_INFO( "[Memory] shot taken — {}", Graphic::MemoryReadout::Take().Report() );
+                LOG_INFO( "[Resources] {}", Graphic::ResourceLedger::Report() );
+                LOG_INFO( "[Memory] {}", Graphic::MemoryWatch::Report() );
                 // A capture that wrote no PNG must not leave a zero exit status behind: the whole value of
                 // an exit code is that a script can trust it, and this one used to say "fine" either way.
                 const_cast<Engine::Application*>( m_Application )->Close( m_ShotFailed ? 1 : 0 );

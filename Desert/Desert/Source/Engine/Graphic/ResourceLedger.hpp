@@ -302,6 +302,58 @@ namespace Desert::Graphic
         /// Live rows per (owner x kind) — the table that answers "who owns the objects nobody claimed".
         uint32_t PerOwnerKind[static_cast<std::size_t>( ResourceOwner::Count )]
                              [static_cast<std::size_t>( ResourceKind::Count )] = {};
+
+        /// DEVICE BYTES per (owner x kind), and how many rows of each cell reported one.
+        ///
+        /// WHY COUNTING OBJECTS WAS NOT ENOUGH, AND IT IS A MEASUREMENT RATHER THAN A PREFERENCE.
+        /// `Docs/World/PROGRAMME.md` §7 turns on one quantity — how much of a scene's device memory is
+        /// TEXTURE. Until these two tables existed the ledger could say "AssetService holds one Image2D"
+        /// and could not say that the Image2D costs 5 592 405 bytes, so the share had to be worked out
+        /// by hand, outside the engine, from the texture's dimensions and a mip-tail fraction. An
+        /// instrument built to observe memory could not observe the one number the step is decided on,
+        /// and every answer about it was therefore somebody's arithmetic rather than a reading.
+        ///
+        /// EACH CELL CARRIES ITS OWN COVERAGE, for the reason the grand total already does: a cell with
+        /// live rows and no known size sums to 0 bytes, and 0 reads as "this owner holds nothing on the
+        /// device" rather than as "nobody measured these". Those are opposite diagnoses.
+        uint64_t BytesPerOwnerKind[static_cast<std::size_t>( ResourceOwner::Count )]
+                                  [static_cast<std::size_t>( ResourceKind::Count )] = {};
+        uint32_t BytesKnownPerOwnerKind[static_cast<std::size_t>( ResourceOwner::Count )]
+                                       [static_cast<std::size_t>( ResourceKind::Count )] = {};
+
+        /// SUMMED FROM THE TABLE ON EVERY CALL, NEVER STORED BESIDE IT. A per-owner byte total kept as
+        /// its own field is a second statement of a quantity the table already makes, and the two drift
+        /// the day a row is added to one and not the other — this repository's most repeated defect
+        /// shape. Summing twelve cells costs nothing at the rate this is read (between frames).
+        [[nodiscard]] uint64_t BytesForOwner( const ResourceOwner owner ) const
+        {
+            uint64_t sum = 0;
+            for ( std::size_t kind = 0; kind < static_cast<std::size_t>( ResourceKind::Count ); ++kind )
+                sum += BytesPerOwnerKind[static_cast<std::size_t>( owner )][kind];
+            return sum;
+        }
+
+        [[nodiscard]] uint32_t BytesKnownForOwner( const ResourceOwner owner ) const
+        {
+            uint32_t rows = 0;
+            for ( std::size_t kind = 0; kind < static_cast<std::size_t>( ResourceKind::Count ); ++kind )
+                rows += BytesKnownPerOwnerKind[static_cast<std::size_t>( owner )][kind];
+            return rows;
+        }
+
+        /// The one cell the texture work asks for, and the pair of questions it answers together:
+        /// `BytesFor( AssetService, Image2D )` is every byte of texture pixel data this process holds on
+        /// the device, and `KnownFor` beside it says over how many of those images the figure is true.
+        [[nodiscard]] uint64_t BytesFor( const ResourceOwner owner, const ResourceKind kind ) const
+        {
+            return BytesPerOwnerKind[static_cast<std::size_t>( owner )][static_cast<std::size_t>( kind )];
+        }
+
+        [[nodiscard]] uint32_t KnownFor( const ResourceOwner owner, const ResourceKind kind ) const
+        {
+            return BytesKnownPerOwnerKind[static_cast<std::size_t>( owner )]
+                                         [static_cast<std::size_t>( kind )];
+        }
     };
 
     class ResourceLedger final
@@ -540,6 +592,14 @@ namespace Desert::Graphic
             {
                 census.Bytes += row.Bytes;
                 ++census.BytesKnownFor;
+                // In the SAME pass as the counts above, deliberately. A second walk taken later would
+                // attribute an instant that is not the one the totals describe, and the difference
+                // between the two instants reads exactly like a leak — the reason this whole census is
+                // one function rather than two queries.
+                census.BytesPerOwnerKind[static_cast<std::size_t>( row.Owner )]
+                                        [static_cast<std::size_t>( row.Kind )] += row.Bytes;
+                ++census.BytesKnownPerOwnerKind[static_cast<std::size_t>( row.Owner )]
+                                               [static_cast<std::size_t>( row.Kind )];
             }
         }
         return census;
@@ -563,9 +623,17 @@ namespace Desert::Graphic
             if ( census.PerOwner[owner] == 0 )
                 continue;
 
+            const auto asOwner = static_cast<ResourceOwner>( owner );
+
             text += "\n  ";
-            text += ResourceOwnerName( static_cast<ResourceOwner>( owner ) );
-            text += " = " + std::to_string( census.PerOwner[owner] ) + ":";
+            text += ResourceOwnerName( asOwner );
+            text += " = " + std::to_string( census.PerOwner[owner] );
+            // BYTES AND THE ROWS THEY ARE TRUE OVER, on the owner line and on every kind under it. The
+            // count alone said "AssetService holds one Image2D", which is the same sentence whether that
+            // image is a 64x64 icon or a 2048x2048 albedo with its chain — a factor of a thousand the
+            // reader could not see.
+            text += " bytes=" + std::to_string( census.BytesForOwner( asOwner ) ) + " known=" +
+                    std::to_string( census.BytesKnownForOwner( asOwner ) ) + ":";
 
             for ( std::size_t kind = 0; kind < static_cast<std::size_t>( ResourceKind::Count ); ++kind )
             {
@@ -574,6 +642,8 @@ namespace Desert::Graphic
                 text += ' ';
                 text += ResourceKindName( static_cast<ResourceKind>( kind ) );
                 text += '=' + std::to_string( census.PerOwnerKind[owner][kind] );
+                text += " bytes=" + std::to_string( census.BytesPerOwnerKind[owner][kind] );
+                text += " known=" + std::to_string( census.BytesKnownPerOwnerKind[owner][kind] );
             }
         }
 

@@ -379,6 +379,173 @@ TEST( MemoryDetectorCensus, ThePerFrameSampleDoesNotWalkTheResourceLedger )
     EXPECT_LT( source.find( "ResourceLedger::Take" ), frameSample );
 }
 
+
+// ── 6. WHOSE BYTES — THE CENSUS ATTRIBUTES DEVICE MEMORY, NOT ONLY OBJECT COUNTS ────────────────────
+//
+// WHAT WAS MISSING, AND WHICH DECISION IT BLOCKED. `Docs/World/PROGRAMME.md` §7 (streaming mip levels)
+// is decided on one quantity: how much of a scene's device memory is texture. The ledger could name
+// every owner and every kind and could report ONE total for all of them, so "AssetService holds one
+// Image2D" was the whole answer — the same sentence whether that image is a 64x64 icon or a 2048x2048
+// albedo with its mip chain, a factor of a thousand apart. The share therefore had to be worked out by
+// hand from a texture's dimensions, outside the engine, which makes it an argument rather than a
+// reading. The cell `(AssetService, Image2D)` is that reading.
+//
+// The three things that can go wrong with a table of bytes, one test each:
+//   1. bytes land in the WRONG cell — a table indexed by two enumerators is exactly where that happens;
+//   2. an owner total DISAGREES with the cells it is made of, which is what a stored total does the day
+//      one of the two writers is forgotten;
+//   3. a cell with rows and no known size reports 0 and reads as "this owner holds nothing".
+
+namespace
+{
+    using Desert::Graphic::ResourceCensus;
+    using Desert::Graphic::ResourceKind;
+    using Desert::Graphic::ResourceLedger;
+    using Desert::Graphic::ResourceOwner;
+    using Desert::Graphic::ResourceOwnership;
+
+    /// Deltas, never absolutes. The ledger is one map for the whole process and every other test in this
+    /// binary may hold rows in it; an assertion on an absolute figure would be an assertion about test
+    /// ORDER.
+    uint64_t BytesDelta( const ResourceCensus& before, const ResourceCensus& after, const ResourceOwner owner,
+                         const ResourceKind kind )
+    {
+        return after.BytesFor( owner, kind ) - before.BytesFor( owner, kind );
+    }
+} // namespace
+
+TEST( ResourceCensusBytes, BytesLandInTheCellOfTheOwnerAndKindThatHoldsThem )
+{
+    const ResourceCensus before = ResourceLedger::Take();
+
+    // The two rows the world scene actually has, with its measured sizes: one 1024x1024 RGBA8 texture
+    // with its mip chain, and one renderer holding four 2048x2048 shadow cascades.
+    auto texture = ResourceOwnership::Take( ResourceKind::Image2D, 5'592'405 );
+    texture.Claim( ResourceOwner::AssetService );
+
+    auto cascades = ResourceOwnership::Take( ResourceKind::Image2D, 335'544'320 );
+    cascades.Claim( ResourceOwner::SceneRenderer );
+
+    auto mesh = ResourceOwnership::Take( ResourceKind::VertexBuffer, 7'338'168 );
+    mesh.Claim( ResourceOwner::AssetService );
+
+    const ResourceCensus after = ResourceLedger::Take();
+
+    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::AssetService, ResourceKind::Image2D ), 5'592'405u );
+    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::SceneRenderer, ResourceKind::Image2D ),
+               335'544'320u );
+    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::AssetService, ResourceKind::VertexBuffer ),
+               7'338'168u );
+
+    // AND THE CELL THAT MUST NOT HAVE MOVED. Without this half the assertions above pass for an
+    // implementation that adds every row's bytes to every cell.
+    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::SceneRenderer, ResourceKind::VertexBuffer ), 0u );
+    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::EditorTool, ResourceKind::Image2D ), 0u );
+}
+
+TEST( ResourceCensusBytes, ClosingTheRowTakesItsBytesWithIt )
+{
+    const ResourceCensus before = ResourceLedger::Take();
+    {
+        auto texture = ResourceOwnership::Take( ResourceKind::Image2D, 21'845'000 );
+        texture.Claim( ResourceOwner::AssetService );
+        const ResourceCensus during = ResourceLedger::Take();
+        ASSERT_EQ( BytesDelta( before, during, ResourceOwner::AssetService, ResourceKind::Image2D ),
+                   21'845'000u );
+    }
+    // A ledger that reports memory for objects that are gone drifts upward for ever and nothing can tell
+    // that it has — the defect `ResourceLedger.hpp` refuses to allow, now asserted for the byte half too.
+    const ResourceCensus after = ResourceLedger::Take();
+    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::AssetService, ResourceKind::Image2D ), 0u );
+}
+
+TEST( ResourceCensusBytes, AnOwnerTotalIsExactlyTheSumOfItsOwnCells )
+{
+    const ResourceCensus before = ResourceLedger::Take();
+
+    auto image  = ResourceOwnership::Take( ResourceKind::Image2D, 1'000 );
+    auto buffer = ResourceOwnership::Take( ResourceKind::VertexBuffer, 200 );
+    auto shader = ResourceOwnership::Take( ResourceKind::Shader, 30 );
+    image.Claim( ResourceOwner::AssetService );
+    buffer.Claim( ResourceOwner::AssetService );
+    shader.Claim( ResourceOwner::AssetService );
+
+    const ResourceCensus after = ResourceLedger::Take();
+
+    EXPECT_EQ( after.BytesForOwner( ResourceOwner::AssetService ) -
+                    before.BytesForOwner( ResourceOwner::AssetService ),
+               1'230u );
+    EXPECT_EQ( after.BytesKnownForOwner( ResourceOwner::AssetService ) -
+                    before.BytesKnownForOwner( ResourceOwner::AssetService ),
+               3u );
+
+    // THE RELATION, not the two numbers separately. The owner total is DERIVED, so the only thing worth
+    // asserting about it is that it equals the cells it is derived from — which is the property a stored
+    // total loses the day somebody adds a row to the table and not to the total.
+    uint64_t summed = 0;
+    for ( std::size_t kind = 0; kind < static_cast<std::size_t>( ResourceKind::Count ); ++kind )
+        summed += after.BytesPerOwnerKind[static_cast<std::size_t>( ResourceOwner::AssetService )][kind];
+    EXPECT_EQ( after.BytesForOwner( ResourceOwner::AssetService ), summed );
+}
+
+TEST( ResourceCensusBytes, ACellWithRowsAndNoKnownSizeSaysSoRatherThanReadingAsEmpty )
+{
+    const ResourceCensus before = ResourceLedger::Take();
+
+    // A GPU object whose owner never reported a footprint: legal, and the majority of rows on every
+    // scene measured so far (566 of 602 on the world scene).
+    auto unmeasured = ResourceOwnership::Take( ResourceKind::Framebuffer );
+    unmeasured.Claim( ResourceOwner::SceneRenderer );
+
+    const ResourceCensus after = ResourceLedger::Take();
+
+    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::SceneRenderer, ResourceKind::Framebuffer ), 0u );
+    EXPECT_EQ( after.KnownFor( ResourceOwner::SceneRenderer, ResourceKind::Framebuffer ) -
+                    before.KnownFor( ResourceOwner::SceneRenderer, ResourceKind::Framebuffer ),
+               0u );
+    EXPECT_EQ( after.PerOwnerKind[static_cast<std::size_t>( ResourceOwner::SceneRenderer )]
+                                 [static_cast<std::size_t>( ResourceKind::Framebuffer )] -
+                    before.PerOwnerKind[static_cast<std::size_t>( ResourceOwner::SceneRenderer )]
+                                       [static_cast<std::size_t>( ResourceKind::Framebuffer )],
+               1u )
+         << "the row is not in the census at all, so 'no known size' cannot be distinguished from 'no row'";
+}
+
+TEST( ResourceCensusBytes, TheReportPrintsTheBytesAndTheirCoverageNextToEveryCount )
+{
+    auto texture = ResourceOwnership::Take( ResourceKind::Image2D, 5'592'405 );
+    texture.Claim( ResourceOwner::AssetService );
+
+    const std::string text = ResourceLedger::Report();
+
+    // The line a person greps for when asking "how much of this scene is texture".
+    EXPECT_NE( text.find( "AssetService" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( "Image2D=" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( "bytes=5592405" ), std::string::npos ) << text;
+    // Coverage travels with the figure, for the same reason the grand total carries its own: a cell that
+    // sums to zero because nobody measured it must not read like a cell that is empty.
+    EXPECT_NE( text.find( " known=" ), std::string::npos ) << text;
+}
+
+TEST( ResourceCensusBytes, NoPerOwnerOrPerKindByteTotalIsStoredBesideTheTable )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    // COMMENTS STRIPPED FIRST. A census that reads prose goes red on its own explanation of what it
+    // forbids, and then it gets switched off and takes a real finding with it.
+    const std::string header = Desert::Tests::ConsumerText::StripComments(
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/ResourceLedger.hpp" ) );
+    ASSERT_FALSE( header.empty() );
+
+    // The table is the single statement of the quantity; a field holding a per-owner or per-kind byte
+    // total is a second one, and the two disagree the day a writer is added to one of them.
+    EXPECT_EQ( header.find( "BytesPerOwner[" ), std::string::npos )
+         << "a per-owner byte total is stored beside the table it can be summed from";
+    EXPECT_EQ( header.find( "BytesPerKind[" ), std::string::npos )
+         << "a per-kind byte total is stored beside the table it can be summed from";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
