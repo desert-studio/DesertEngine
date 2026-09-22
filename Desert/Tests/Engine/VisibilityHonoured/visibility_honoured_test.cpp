@@ -166,8 +166,12 @@ namespace
               "the sky, the HDR cubemap AND the sun candidate list — the three halves of the report "
               "that opened this task." },
          Row{ "SpotLightSystem.hpp", Verdict::Honours, "same rule and same reason as the point light." },
-         Row{ "TerrainECSSystem.hpp", Verdict::Honours, "one of the original three." },
-         Row{ "TextECSSystem.hpp", Verdict::Honours, "one of the original three." },
+         Row{ "TerrainECSSystem.hpp", Verdict::Honours,
+              "one of the original three sites that made the flag look like it worked at all; a "
+              "terrain tile is geometry and hiding it must remove it." },
+         Row{ "TextECSSystem.hpp", Verdict::Honours,
+              "one of the original three; world text is drawn geometry like any mesh, and the label "
+              "of a hidden object has to go with it." },
          Row{ "TimeOfDayECSSystem.hpp", Verdict::MustNot,
               "it is a CLOCK: it advances TimeOfDay and writes the sun's transform. Freezing that on "
               "hide would make unhiding a sun a jump back in time, and the sky collector already "
@@ -197,7 +201,7 @@ namespace
          Site{ "MeshECSSystem.hpp", "instanced static meshes (ISM)", "InstancedStaticMeshComponent& ism" },
          Site{ "MeshECSSystem.hpp", "skinned meshes", "SkinnedMeshComponent& mesh," },
          Site{ "TerrainECSSystem.hpp", "terrain tiles", "view<TerrainComponent, TransformComponent>" },
-         Site{ "TextECSSystem.hpp", "world text", "TextComponent& text," },
+         Site{ "TextECSSystem.hpp", "world text", "view<TextComponent, TransformComponent>" },
          Site{ "HeightFogECSSystem.hpp", "the fog volume election",
                "view<ECS::ExponentialHeightFogComponent>" },
          Site{ "VolumetricCloudECSSystem.hpp", "the cloud layer election",
@@ -493,4 +497,10 @@ TEST( VisibilityCensus, TheDirectionalLightSiteHonoursItToo )
          << "the directional light is collected without asking whether its entity is hidden, so "
             "unticking Visible on the SUN leaves the scene lit and shadowed by it — the owner's first "
             "example, and the one no sweep of the ECS systems can see.";
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

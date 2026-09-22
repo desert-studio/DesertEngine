@@ -22,6 +22,10 @@ namespace Desert::ECS
     // The arithmetic is in Graphic::SunDirectionFromTimeOfDay / AdvanceTimeOfDay; this class only fetches
     // its arguments and writes the result back, which is what keeps the interesting half testable with no
     // GPU and no scene.
+    // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: it is a CLOCK. It advances TimeOfDay and writes the
+    // sun's transform, so freezing it on hide would make unhiding a sun a jump back in time. Nothing lit is
+    // affected -- SkyboxECSSystem drops the hidden light from its sun candidates and Scene.cpp drops it from
+    // the deferred light list. Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
     class TimeOfDayECSSystem : public System
     {
     public:
