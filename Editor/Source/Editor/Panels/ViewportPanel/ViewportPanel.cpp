@@ -517,23 +517,54 @@ namespace Desert::Editor
         }
     }
 
-    Common::BoolResultStr ViewportPanel::RequestAuthoringMode( Core::AuthoringMode mode )
+    ViewportPanel* ViewportPanel::ActiveViewport()
     {
         if ( s_Live.empty() )
-            return Common::MakeError<bool>( "there is no viewport to put into a rig mode." );
-
-        // THE VIEWPORT THAT ALREADY HOLDS THE CONTEXT, or the first live one. Picking "the first" blindly
-        // would move the mode off whichever view the user is in the moment a second viewport exists, and
-        // several viewports at once is a shipped feature here, not a corner case.
-        ViewportPanel* target = s_Live.front();
+            return nullptr;
         for ( ViewportPanel* panel : s_Live )
-        {
             if ( Core::ActiveAuthoringContext().Holder() == panel->m_AuthoringOwner )
-            {
-                target = panel;
-                break;
-            }
+                return panel;
+        return s_Live.front();
+    }
+
+    Common::BoolResultStr ViewportPanel::ApplyCameraPreset( ViewportCameraPreset preset )
+    {
+        const auto camera    = ViewCamera();
+        auto*      editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
+        if ( !editorCam )
+        {
+            // NOT SILENT. ViewCamera() is empty when this panel's view has been closed under it, and the
+            // camera is a GameplayCamera in Play mode — in both cases there is nothing here the user may
+            // orbit, and over the control channel a silent success would read as an angle that was taken.
+            return Common::MakeFormattedError<bool>(
+                 "'{}' has no editor camera to aim (the view was closed, or the scene is playing).",
+                 GetName() );
         }
+        ApplyViewportCameraPreset( *editorCam, preset );
+        return Common::MakeSuccess<bool>( true );
+    }
+
+    Common::BoolResultStr ViewportPanel::RequestCameraPreset( ViewportCameraPreset preset )
+    {
+        ViewportPanel* target = ActiveViewport();
+        if ( !target )
+            return Common::MakeError<bool>( "there is no viewport to aim." );
+        return target->ApplyCameraPreset( preset );
+    }
+
+    Common::BoolResultStr ViewportPanel::SetCameraPreset( uint64_t sceneViewId, ViewportCameraPreset preset )
+    {
+        for ( ViewportPanel* panel : s_Live )
+            if ( panel->m_SceneViewId == sceneViewId )
+                return panel->ApplyCameraPreset( preset );
+        return Common::MakeFormattedError<bool>( "no viewport is named {}.", sceneViewId );
+    }
+
+    Common::BoolResultStr ViewportPanel::RequestAuthoringMode( Core::AuthoringMode mode )
+    {
+        ViewportPanel* target = ActiveViewport();
+        if ( !target )
+            return Common::MakeError<bool>( "there is no viewport to put into a rig mode." );
 
         if ( const auto available = target->ModeAvailability( mode ); !available )
         {
@@ -1093,6 +1124,29 @@ namespace Desert::Editor
                 {
                     constexpr float kW = 170.0f;
 
+                    // ── THE NAMED ANGLE ───────────────────────────────────────────────────────────
+                    //
+                    // Perspective / Top / Bottom / Front / Back / Left / Right, which is UE's viewport
+                    // type menu and the half of its four-up pattern that carries meaning. It sets the
+                    // DIRECTION and the projection together; the Type combo below stays because an
+                    // orthographic view from a user-chosen angle is a legitimate thing this does not
+                    // cover, and it is the raw knob rather than a second copy of this one.
+                    //
+                    // THE PREVIEW IS DERIVED FROM THE CAMERA, never remembered: orbit one pixel off Top
+                    // and it says "Ortho", because a label that keeps claiming "Top" after the camera
+                    // has moved is worse than no label.
+                    ImGui::SetNextItemWidth( kW );
+                    if ( ImGui::BeginCombo( "View", ViewportCameraPresetLabel( *editorCam ) ) )
+                    {
+                        const auto current = PresetOfCamera( *editorCam );
+                        for ( const ViewportCameraPresetRow& row : kViewportCameraPresets )
+                        {
+                            if ( ImGui::Selectable( row.Name, current && *current == row.Preset ) )
+                                ApplyViewportCameraPreset( *editorCam, row.Preset );
+                        }
+                        ImGui::EndCombo();
+                    }
+
                     // Projection type: Perspective / Orthographic (view is unchanged; only the projection).
                     const char* kTypes[] = { "Perspective", "Orthographic" };
                     int         type     = static_cast<int>( editorCam->GetProjectionType() );
@@ -1109,9 +1163,17 @@ namespace Desert::Editor
                     }
                     else
                     {
+                        // IN CENTIMETRES, AND IT COULD NOT REACH ITS OWN DEFAULT. The range was
+                        // 1..100 against a Camera::m_OrthoSize default of 1000 — a leftover from the
+                        // metre era (1 world unit = 1 cm project-wide). The slider was therefore pinned
+                        // at its maximum the moment anyone opened it, and dragging it could only ever
+                        // shrink the view to a 2 cm-tall sliver: an orthographic view was unusable
+                        // through the one control that frames it. Logarithmic, because 10 cm and 100 m
+                        // are both wanted and a linear slider spends 99 % of its travel above 1 km.
                         float size = editorCam->GetOrthoSize();
                         ImGui::SetNextItemWidth( kW );
-                        if ( ImGui::SliderFloat( "Ortho Size", &size, 1.0f, 100.0f, "%.1f" ) )
+                        if ( ImGui::SliderFloat( "Ortho Size", &size, 10.0f, 100000.0f, "%.0f cm",
+                                                 ImGuiSliderFlags_Logarithmic ) )
                             editorCam->SetOrthoSize( size );
                     }
 
@@ -1437,6 +1499,33 @@ namespace Desert::Editor
             m_LightGizmoRenderer->Render( ViewCamera(), m_ViewportData.Size.x, m_ViewportData.Size.y,
                                           m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y,
                                           m_AuthoringOwner, m_Authoring );
+
+        // ── WHICH PANE IS THIS ────────────────────────────────────────────────────────────────────
+        //
+        // The camera's angle, printed into the top-left corner of the image the way UE labels each of
+        // its four panes. It is the whole reason a grid of viewports is legible: four pictures of one
+        // scene from four directions are indistinguishable until each says which direction it is.
+        //
+        // DERIVED EVERY FRAME from the camera (ViewportCameraPreset.hpp), so orbiting off Top turns the
+        // label into "Ortho" rather than leaving a claim the picture no longer supports. Hidden in 2D UI
+        // mode with the triad, for the same reason: there is no world angle to name there.
+        if ( !m_Modes.UI2D )
+        {
+            if ( const auto camera = ViewCamera() )
+            {
+                if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) )
+                {
+                    const char* label = ViewportCameraPresetLabel( *editorCam );
+                    const ImVec2 at( m_ViewportData.ViewportPos.x + 10.0f,
+                                     m_ViewportData.ViewportPos.y + 8.0f );
+                    ImDrawList*  dl = ::ImGui::GetWindowDrawList();
+                    // One dark tap behind it, not a panel: a plate would occlude scene pixels in the one
+                    // corner a modeller works in, and the label has to survive a white sky all the same.
+                    dl->AddText( ImVec2( at.x + 1.0f, at.y + 1.0f ), IM_COL32( 0, 0, 0, 200 ), label );
+                    dl->AddText( at, IM_COL32( 235, 238, 245, 235 ), label );
+                }
+            }
+        }
 
         // Corner XYZ orientation triad — a 3D aid, so hide it in 2D UI mode (like Unity's 2D scene view).
         // THE MODEL THE GRID NOW FOLLOWS: the mode decides what it draws at the moment it draws it and
