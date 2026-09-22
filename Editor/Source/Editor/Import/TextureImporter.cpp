@@ -7,17 +7,14 @@
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
-#include <Engine/Assets/Serialization/Texture.hpp>
+#include <Engine/Assets/Serialization/TextureBinary.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
-
-#include <fstream>
-#include <sstream>
+#include <cstring>
 
 #include <stb_image/stb_image.h>
 
@@ -85,95 +82,156 @@ namespace Desert::Editor
         // fall back to the absolute spelling anyway. StableKeyForPath owns the root table and the fallback.
         const std::string sourceKey = Common::AssetHandle::StableKeyForPath( path );
 
-        std::error_code ec;
-        if ( std::filesystem::exists( meta, ec ) )
+        // THE SOURCE'S BYTES, READ ONCE AND USED FOR BOTH QUESTIONS: is the cook stale, and what goes
+        // into the container. A decode needs them anyway, so the CRC is not a second pass over the file.
+        const auto sourceBytes = Common::Utils::FileSystem::ReadFileContent( path );
+        if ( !sourceBytes.IsSuccess() )
         {
-            std::error_code ec2;
-            const auto      metaT = std::filesystem::last_write_time( meta, ec2 );
-            const auto      srcT  = std::filesystem::last_write_time( path, ec2 );
-            if ( !ec2 && metaT >= srcT )
-            {
-                // mtime alone used to decide, and the derived handle was returned without anything checking
-                // that the FILE stores the same one — while the runtime takes its handle from the file
-                // (TextureAsset::Load), not from this return value. Nobody owned the relation
-                // "returned == stored", and git sets mtimes to checkout time, so a committed stale .tex was
-                // "up to date" for ever by construction. The file is now read back and kept only if it
-                // agrees with the derivation on BOTH identity fields; anything else is re-cooked, loudly.
-                std::ifstream     in( meta, std::ios::binary );
-                std::stringstream buffer;
-                buffer << in.rdbuf();
-                const auto stored = rfl::json::read<Assets::Serialization::TextureAssetData>( buffer.str() );
-                if ( stored.has_value() &&
-                     static_cast<uint64_t>( stored->Handle ) == static_cast<uint64_t>( handle ) &&
-                     stored->SourcePath == sourceKey )
-                {
-                    m_Cache[abs] = handle; // up-to-date AND consistent — keep the cooked metadata as-is
-                    return handle;
-                }
+            LOG_ERROR( "[TextureImporter] '{0}' could not be read ({1}); no cooked texture was written and "
+                       "the null handle is returned.",
+                       abs, sourceBytes.GetError() );
+            return Common::AssetHandle::Null();
+        }
+        const uint32_t sourceHash =
+             Common::Utils::Crc32c( sourceBytes.GetValue().data(), sourceBytes.GetValue().size() );
 
-                if ( !stored.has_value() )
-                {
-                    LOG_WARN( "[TextureImporter] '{0}' is up to date by mtime but does not parse ({1}); "
-                              "re-cooking it.",
-                              meta.string(), stored.error().what() );
-                }
-                else
-                {
-                    LOG_INFO( "[TextureImporter] Re-stamping '{0}': it stores Handle={1} SourcePath='{2}', "
-                              "the derivation says Handle={3} SourcePath='{4}'.",
-                              meta.string(), static_cast<uint64_t>( stored->Handle ), stored->SourcePath,
-                              static_cast<uint64_t>( handle ), sourceKey );
-                }
+        // FRESHNESS IS A FACT ABOUT BYTES NOW, NOT ABOUT TIMESTAMPS. The `.tex` records the CRC-32C of
+        // the source it was cooked from; the cook is up to date exactly when that number still matches,
+        // and when the two identity fields agree with their derivations.
+        //
+        // WHAT THE mtime COMPARISON THIS REPLACED COULD NOT DO, in this repository's own words: "git
+        // sets mtimes to checkout time, so a committed stale .tex was up to date for ever by
+        // construction". It also could not see the case an artist actually produces — a PNG re-exported
+        // with the same content, or edited and then restored — and it re-cooked on every clone. Reading
+        // and hashing the source costs one pass at 8.17 GB/s (Common/Utilities/Crc32c.hpp), against a
+        // decode plus a full mip chain for the answer "nothing changed".
+        if ( const auto existing = Common::Utils::FileSystem::ReadFileContentPrefix(
+                  meta, Assets::Serialization::kTextureBinaryPrefixBytes );
+             existing.IsSuccess() )
+        {
+            const auto stored =
+                 Assets::Serialization::DecodeTextureHeader( existing.GetValue(), meta.string() );
+            if ( stored.IsSuccess() && stored.GetValue().SourceContentHash == sourceHash &&
+                 static_cast<uint64_t>( stored.GetValue().Handle ) == static_cast<uint64_t>( handle ) &&
+                 stored.GetValue().SourcePath == sourceKey )
+            {
+                m_Cache[abs] = handle; // up to date AND consistent — keep the cooked container as it is
+                return handle;
+            }
+
+            if ( !stored.IsSuccess() )
+            {
+                LOG_INFO( "[TextureImporter] Re-cooking '{0}': {1}", meta.string(), stored.GetError() );
+            }
+            else
+            {
+                LOG_INFO( "[TextureImporter] Re-cooking '{0}': it stores Handle={1} SourcePath='{2}' "
+                          "source CRC {3:#010x}; the source now derives Handle={4} SourcePath='{5}' CRC "
+                          "{6:#010x}.",
+                          meta.string(), static_cast<uint64_t>( stored.GetValue().Handle ),
+                          stored.GetValue().SourcePath, stored.GetValue().SourceContentHash,
+                          static_cast<uint64_t>( handle ), sourceKey, sourceHash );
             }
         }
 
-        int      w = 0, h = 0, ch = 0;
-        stbi_uc* pixels = stbi_load( abs.c_str(), &w, &h, &ch, 4 );
-        if ( !pixels )
-        {
-            // No .tex is written and the null handle is returned: a failed decode used to fall through and
-            // freeze the UNINITIALIZED w/h into the cooked file, silently — garbage dimensions in a file
-            // that mtime then declares up to date for ever. The failure is not cached either, so fixing the
-            // image and importing again works without restarting the editor.
-            const char* reason = stbi_failure_reason();
-            LOG_ERROR( "[TextureImporter] stbi_load failed for '{0}' ({1}); no cooked metadata was written "
-                       "and the null handle is returned.",
-                       abs, reason ? reason : "no reason reported" );
-            return Common::AssetHandle::Null();
-        }
+        // A SOURCE FORMAT IS AN INPUT, NOT A STORAGE FORMAT — `Docs/Textures/T2_CONTAINER_DECISION.md`.
+        // This is the ONE place in the project that decodes one, and everything downstream reads the
+        // container this function writes.
+        //
+        // HDR SOURCES KEEP THEIR RANGE. The cooked file used to record `Format: RGBA8F` for every
+        // source including `.hdr` — a field that was simultaneously wrong and unread, because the
+        // loader sniffed the source file itself and decided again. The container's format field is the
+        // answer now, so it has to be the true one.
+        const bool isHDR = stbi_is_hdr_from_memory(
+             reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
+             static_cast<int>( sourceBytes.GetValue().size() ) ) != 0;
 
-        // Only the dimensions are needed here; the pixels are loaded again at draw time from SourcePath.
-        stbi_image_free( pixels );
+        int                          w = 0, h = 0, ch = 0;
+        std::vector<std::byte>       base;
+        Desert::Core::Formats::ImageFormat format = Desert::Core::Formats::ImageFormat::RGBA8F;
+
+        if ( isHDR )
+        {
+            float* pixels = stbi_loadf_from_memory(
+                 reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
+                 static_cast<int>( sourceBytes.GetValue().size() ), &w, &h, &ch, 4 );
+            if ( !pixels )
+            {
+                const char* reason = stbi_failure_reason();
+                LOG_ERROR( "[TextureImporter] stbi_loadf failed for '{0}' ({1}); no cooked texture was "
+                           "written and the null handle is returned.",
+                           abs, reason ? reason : "no reason reported" );
+                return Common::AssetHandle::Null();
+            }
+            format = Desert::Core::Formats::ImageFormat::RGBA32F;
+            base.resize( static_cast<size_t>( w ) * h * 4u * sizeof( float ) );
+            std::memcpy( base.data(), pixels, base.size() );
+            stbi_image_free( pixels );
+        }
+        else
+        {
+            stbi_uc* pixels = stbi_load_from_memory(
+                 reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
+                 static_cast<int>( sourceBytes.GetValue().size() ), &w, &h, &ch, 4 );
+            if ( !pixels )
+            {
+                // No `.tex` is written and the null handle is returned: a failed decode used to fall
+                // through and freeze the UNINITIALIZED w/h into the cooked file, silently. The failure
+                // is not cached either, so fixing the image and importing again works without
+                // restarting the editor.
+                const char* reason = stbi_failure_reason();
+                LOG_ERROR( "[TextureImporter] stbi_load failed for '{0}' ({1}); no cooked texture was "
+                           "written and the null handle is returned.",
+                           abs, reason ? reason : "no reason reported" );
+                return Common::AssetHandle::Null();
+            }
+            base.resize( static_cast<size_t>( w ) * h * 4u );
+            std::memcpy( base.data(), pixels, base.size() );
+            stbi_image_free( pixels );
+        }
 
         // A source outside every content root has no project-relative name to store, so the key IS the
         // absolute spelling (StableKeyForPath's documented behaviour) and the cooked file is bound to this
         // machine. Say so once, at cook time, instead of letting the artist discover it on a colleague's
-        // machine as an empty material slot. The predicate is AssetHandle's, not a loop over the root
-        // table spelled here: TextureAsset::Load asks the same question for the opposite reason, and two
-        // readings of one table is the drift this file's own history is made of.
+        // machine as an empty material slot.
         if ( !Common::AssetHandle::IsProjectRelativeKey( sourceKey ) )
         {
-            LOG_WARN( "[TextureImporter] '{0}' lies outside every content root, so its cooked metadata "
+            LOG_WARN( "[TextureImporter] '{0}' lies outside every content root, so its cooked container "
                       "stores the absolute path and will not resolve on another machine.",
                       abs );
         }
 
         Assets::Serialization::TextureAssetData data;
-        data.Handle     = handle;
-        data.SourcePath = sourceKey;
-        data.Width      = static_cast<uint32_t>( w );
-        data.Height     = static_cast<uint32_t>( h );
-        data.Channels   = 4;
-        data.Format     = Desert::Core::Formats::ImageFormat::RGBA8F;
+        data.Handle            = handle;
+        data.SourcePath        = sourceKey;
+        data.SourceContentHash = sourceHash;
+        data.Width             = static_cast<uint32_t>( w );
+        data.Height            = static_cast<uint32_t>( h );
+        data.Format            = format;
 
-        // A HANDLE IS ONLY RETURNED FOR METADATA THAT IS ON THE DISK. The write used to be unchecked
-        // (Д31-D), and the handle plus the cache entry went back regardless — so the very next lookup
-        // was served out of memory, the missing `.tex` was not noticed until the next session, and
-        // mtime then declared the absent file up to date. The null handle is this function's existing
-        // "it did not happen" (see the stbi_load branch above) and it is the right answer here too.
-        if ( const auto written = WriteCookedJson( data, meta ); !written )
+        // THE MIP CHAIN IS BUILT HERE, ON THE CPU, ONCE PER COOK. It used to be built on the GPU on
+        // every load with `vkCmdBlitImage`, which is impossible for the block-compressed formats this
+        // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
+        // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
+        auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base,
+                                                           data.Pixels );
+        if ( !chain.IsSuccess() )
         {
-            LOG_ERROR( "[TextureImporter] '{0}' was decoded but its cooked metadata was not written: {1}. "
+            LOG_ERROR( "[TextureImporter] '{0}' was decoded but its mip chain could not be built: {1}. "
+                       "The null handle is returned and nothing is cached.",
+                       abs, chain.GetError() );
+            return Common::AssetHandle::Null();
+        }
+        data.Levels = chain.ExtractValue();
+
+        // A HANDLE IS ONLY RETURNED FOR A CONTAINER THAT IS ON THE DISK. The write used to be unchecked
+        // (Д31-D), and the handle plus the cache entry went back regardless — so the very next lookup
+        // was served out of memory and the missing `.tex` was not noticed until the next session.
+        if ( const auto written =
+                  WriteCookedBytes( Assets::Serialization::EncodeTextureBinary( data ), meta );
+             !written )
+        {
+            LOG_ERROR( "[TextureImporter] '{0}' was decoded but its cooked container was not written: {1}. "
                        "The null handle is returned and nothing is cached, so importing again after fixing "
                        "the cause works without restarting the editor.",
                        abs, written.GetError() );

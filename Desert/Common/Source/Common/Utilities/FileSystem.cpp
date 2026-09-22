@@ -228,6 +228,51 @@ namespace Common::Utils
         return Common::MakeSuccess( std::move( fileContent ) );
     }
 
+    Common::ResultStr<std::string> FileSystem::ReadFileContentPrefix( const std::filesystem::path& filepath,
+                                                                      const std::size_t            maxBytes )
+    {
+        std::ifstream in( filepath, std::ios::in | std::ios::binary );
+        if ( !in )
+        {
+            // Not on disk: fall through to the archive, which has no ranged read — see the header for
+            // why that is stated rather than worked around.
+            if ( auto packed = VFS::ReadFile( filepath ) )
+            {
+                if ( packed->size() > maxBytes )
+                    packed->resize( maxBytes );
+                return Common::MakeSuccess( std::move( *packed ) );
+            }
+
+            const std::string reason = MissReason( filepath );
+            LOG_ERROR( "[FileSystem] Could not read file ({}): {}", reason, filepath.string() );
+            return Common::MakeFormattedError<std::string>( "Could not read file ({}): {}", reason,
+                                                            filepath.string() );
+        }
+
+        std::string prefix;
+        prefix.resize( maxBytes );
+
+        // `read` sets failbit when it stops short of the request, which is the NORMAL outcome for a
+        // file smaller than the window — so the outcome is judged by `gcount()`, and failbit alone is
+        // not treated as an error. `bad()` still is: that is an actual I/O fault rather than a short
+        // file, and the difference is why this is not a copy of ReadFileContent's check.
+        if ( maxBytes > 0 )
+        {
+            in.read( &prefix[0], static_cast<std::streamsize>( maxBytes ) );
+            if ( in.bad() )
+            {
+                LOG_ERROR( "[FileSystem] Could not read the first {} bytes of file: {}", maxBytes,
+                           filepath.string() );
+                return Common::MakeFormattedError<std::string>(
+                     "Could not read the first {} bytes of file: {}", maxBytes, filepath.string() );
+            }
+            prefix.resize( static_cast<std::size_t>( in.gcount() ) );
+        }
+        in.close();
+
+        return Common::MakeSuccess( std::move( prefix ) );
+    }
+
     Common::ResultStr<std::vector<uint8_t>>
     FileSystem::ReadByteFileContent( const std::filesystem::path& filepath )
     {

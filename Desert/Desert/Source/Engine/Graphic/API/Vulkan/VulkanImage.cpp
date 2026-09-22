@@ -251,11 +251,27 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t maxMipLevels = 1;
         while ( maxChainDim > 1 ) { maxChainDim >>= 1; ++maxMipLevels; }
 
-        // Full mip chain requested: use the whole chain (generated from mip 0 below).
-        const bool generateMips = m_Specification.GenerateMips && Core::Formats::HasData( m_Specification.Data );
-        if ( generateMips )
+        // A CHAIN SUPPLIED BY THE CALLER IS THE CHAIN. `MipLevels` is the authority when it is
+        // non-empty, and `Mips` is then not consulted — see Image2DSpecification. Setting both is
+        // refused rather than resolved: a count and a table that disagree can only be a mistake, and
+        // the wrong half of it draws.
+        const bool suppliedChain = !m_Specification.MipLevels.empty();
+        if ( suppliedChain )
         {
-            m_Resource.MipLevels = maxMipLevels;
+            if ( m_Specification.Mips != 1 )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "Image2D '{}' supplies a {}-level mip chain AND asks for Mips={}. The table is the "
+                     "chain; Mips must be left at its default when one is supplied.",
+                     m_Specification.Tag, m_Specification.MipLevels.size(), m_Specification.Mips );
+            }
+            if ( !Core::Formats::HasData( m_Specification.Data ) )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "Image2D '{}' supplies a {}-level mip table and no pixel data for it to describe.",
+                     m_Specification.Tag, m_Specification.MipLevels.size() );
+            }
+            m_Resource.MipLevels = static_cast<uint32_t>( m_Specification.MipLevels.size() );
         }
 
         // Clamp to the chain length regardless of source. An over-specified Mips count (e.g. a small render
@@ -343,8 +359,15 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( Core::Formats::HasData( m_Specification.Data ) )
         {
-            uint64_t size = Core::Formats::CalculateImageSize( m_Specification.Width, m_Specification.Height,
-                                                               m_Specification.Format );
+            // THE WHOLE CHAIN IS ONE STAGING BUFFER AND ONE `memcpy`, then one copy region per level.
+            // The alternative — a buffer per level — is what makes a ten-level 2048x2048 texture ten
+            // allocations and ten map/unmap pairs on the frame that first touches it.
+            uint64_t size = suppliedChain
+                                 ? ( m_Specification.MipLevels.back().ByteOffset +
+                                     m_Specification.MipLevels.back().ByteSize )
+                                 : Core::Formats::CalculateImageSize( m_Specification.Width,
+                                                                      m_Specification.Height,
+                                                                      m_Specification.Format );
             VkBuffer staging; VmaAllocation stagingAlloc;
             VkBufferCreateInfo bInfo = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = size, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
             const auto stagingResult =
@@ -372,15 +395,38 @@ namespace Desert::Graphic::API::Vulkan
 
             // Transition UNDEFINED -> TRANSFER_DST_OPTIMAL -> finalDefaultLayout
             TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
-            
-            VkBufferImageCopy copy = { .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
-                                       .imageExtent = { m_Specification.Width, m_Specification.Height, 1 } };
-            vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
 
-            if ( generateMips && m_Resource.MipLevels > 1 )
-                GenerateMips( cmd, finalDefaultLayout ); // blit mip 0 down the chain, leaving all in finalLayout
+            if ( suppliedChain )
+            {
+                // One region per level, all out of the one buffer. `bufferOffset` is legal without
+                // padding because every level's byte size is a whole multiple of the texel size, so a
+                // tightly packed chain lands every level on a texel-size boundary — the container
+                // writes it that way for exactly this reason (TextureBinary.hpp).
+                std::vector<VkBufferImageCopy> regions;
+                regions.reserve( m_Resource.MipLevels );
+                uint32_t levelW = m_Specification.Width, levelH = m_Specification.Height;
+                for ( uint32_t level = 0; level < m_Resource.MipLevels; ++level )
+                {
+                    regions.push_back( VkBufferImageCopy{
+                         .bufferOffset      = m_Specification.MipLevels[level].ByteOffset,
+                         .imageSubresource  = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                .mipLevel   = level,
+                                                .layerCount = 1 },
+                         .imageExtent       = { levelW, levelH, 1 } } );
+                    levelW = levelW > 1 ? levelW / 2 : 1;
+                    levelH = levelH > 1 ? levelH / 2 : 1;
+                }
+                vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                        static_cast<uint32_t>( regions.size() ), regions.data() );
+            }
             else
-                TransitionLayout( cmd, finalDefaultLayout );
+            {
+                VkBufferImageCopy copy = { .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
+                                           .imageExtent = { m_Specification.Width, m_Specification.Height, 1 } };
+                vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
+            }
+
+            TransitionLayout( cmd, finalDefaultLayout );
 
             allocator->RT_DestroyBuffer( staging, stagingAlloc );
         }

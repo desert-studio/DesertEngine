@@ -216,6 +216,15 @@ namespace Desert::Core::Formats
         return nullptr;
     }
 
+    // One level of a mip chain that is ALREADY BUILT and sitting in `Image2DSpecification::Data`.
+    // Offsets are measured from the start of that blob, so the whole chain is one allocation and one
+    // upload rather than one per level.
+    struct MipLevelSpan
+    {
+        uint64_t ByteOffset = 0;
+        uint64_t ByteSize   = 0;
+    };
+
     struct Image2DSpecification
     {
         const std::string     Tag;
@@ -229,10 +238,24 @@ namespace Desert::Core::Formats
         ImagePixelData        Data;
         const Image2DUsage    Usage;
         const ImageProperties Properties;
-        // When true, the backend allocates a FULL mip chain (floor(log2(max(w,h)))+1) and generates the
-        // lower mips from mip 0 via linear blits. Use for sampled textures that minify (e.g. foliage) so
-        // they filter at distance instead of aliasing. Ignored if no pixel Data is supplied.
-        bool                  GenerateMips = false;
+
+        // THE CHAIN THE CALLER ALREADY HAS, level 0 first. When this is non-empty it IS the chain: the
+        // backend takes its level count from here, uploads exactly these spans out of `Data`, and
+        // generates nothing. When it is empty the image has `Mips` levels and whatever is in `Data`
+        // goes to level 0, which is what every render target and every procedural texture wants.
+        //
+        // ONE AUTHORITY, NOT TWO FIELDS THAT MUST AGREE. `Mips` is not consulted while this is
+        // non-empty, and the backend REFUSES a specification that sets both rather than silently
+        // preferring one — a count and a table that disagree is the "middle link drops a property"
+        // shape, and the only safe answer to it is to make the ambiguous call impossible to ship.
+        //
+        // IT REPLACED A `bool GenerateMips` THAT WAS NEVER TRUE. That flag asked the backend to blit
+        // mip 0 down the chain, and every one of its five call sites set it to false — the mips that
+        // reached the screen came from `MipMap2DGenerator`, a second mechanism passed to
+        // `Image2D::Create`. A setting whose only branch is never taken is the dead knob §3 forbids,
+        // and it would have become a lie the day a block-compressed format arrived: `blitDst=0` for
+        // BC1/BC4/BC5/BC7 on this device, so there is no blit chain to ask for.
+        std::vector<MipLevelSpan> MipLevels;
     };
 
     // Length of the full mip chain for a texture whose largest dimension is @p dim

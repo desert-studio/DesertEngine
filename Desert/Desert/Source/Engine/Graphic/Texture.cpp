@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 
+#include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/IO/ImageReader.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -92,6 +93,59 @@ namespace Desert::Graphic
         {
             return Common::MakeError<std::shared_ptr<Texture2D>>( invResult.GetError() );
         }
+        return Common::MakeSuccess( texture );
+    }
+
+    Common::ResultStr<std::shared_ptr<Texture2D>>
+    Texture2D::CreateFromCooked( const std::filesystem::path& cookedPath )
+    {
+        const auto raw = Common::Utils::FileSystem::ReadFileContent( cookedPath );
+        if ( !raw.IsSuccess() )
+            return Common::MakeError<std::shared_ptr<Texture2D>>( raw.GetError() );
+
+        const auto decoded =
+             Assets::Serialization::DecodeTextureBinary( raw.GetValue(), cookedPath.string() );
+        if ( !decoded.IsSuccess() )
+            return Common::MakeError<std::shared_ptr<Texture2D>>( decoded.GetError() );
+
+        const auto& data = decoded.GetValue();
+
+        std::vector<Core::Formats::MipLevelSpan> spans;
+        spans.reserve( data.Levels.size() );
+        for ( const Assets::Serialization::TextureLevel& level : data.Levels )
+            spans.push_back( Core::Formats::MipLevelSpan{ level.ByteOffset, level.ByteSize } );
+
+        // The payload crosses as unsigned char, which is the alternative `ImagePixelData` already
+        // carries for 8-bit content and the one `GetPixelDataPtr` reads for every format: the blob is
+        // opaque bytes to everything below this line, and the spans say what is in it.
+        std::vector<unsigned char> pixels( reinterpret_cast<const unsigned char*>( data.Pixels.data() ),
+                                           reinterpret_cast<const unsigned char*>( data.Pixels.data() ) +
+                                                data.Pixels.size() );
+
+        auto texture      = std::make_shared<Texture2D>( TextureSpecification{ false }, cookedPath );
+        texture->m_Width  = data.Width;
+        texture->m_Height = data.Height;
+
+        const Core::Formats::Image2DSpecification imageSpec = {
+            .Tag        = Common::Utils::FileSystem::GetFileName( cookedPath ),
+            .Width      = data.Width,
+            .Height     = data.Height,
+            .Format     = data.Format,
+            .Data       = std::move( pixels ),
+            .Usage      = Core::Formats::Image2DUsage::Image2D,
+            .Properties = Core::Formats::Sample,
+            .MipLevels  = std::move( spans ) };
+
+        auto image = Image2D::Create( imageSpec, nullptr );
+        if ( !image )
+        {
+            return Common::MakeFormattedError<std::shared_ptr<Texture2D>>(
+                 "the GPU image for cooked texture '{}' ({}x{}, {} levels) was not created.",
+                 cookedPath.string(), data.Width, data.Height, data.Levels.size() );
+        }
+
+        texture->m_Handle = Runtime::ResourceRegistry::GetImageService()->Register(
+             std::move( image ), Runtime::ImageHandle::Type::Image2D );
         return Common::MakeSuccess( texture );
     }
 
