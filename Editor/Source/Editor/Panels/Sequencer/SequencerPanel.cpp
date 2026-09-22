@@ -1886,8 +1886,66 @@ namespace Desert::Editor
         SelectSection( m_SelSection + delta );
     }
 
+    // ── THE UI TIMELINE'S EDITS, REACHABLE WITHOUT A MOUSE ───────────────────────────────────────────
+    //
+    // The same argument the section actions below carry, applied to the other timeline: every edit in
+    // DrawUITracks is a widget, synthetic input is closed on this machine at both doors, and an edit that
+    // only a hand can make is an edit no screenshot can show and no unattended run can undo. These call
+    // the SAME bodies the widgets call, so a command and a button cannot come to mean different things.
+    //
+    // WHY NOT EVERY EDIT. A value drag and a retime take a NUMBER, and PaletteCommand::Run takes no
+    // arguments -- a tableful of "set the key to 0.1, 0.2, 0.3" entries would be a dictionary nobody
+    // could read. What is offered is the two gestures that need no argument: pick a lane, and key it at
+    // the playhead. Between them they reach the transaction, which is what had to become observable.
+    std::vector<SequencerPanel::DocumentAction> SequencerPanel::UIActions()
+    {
+        std::vector<DocumentAction> actions;
+        actions.push_back( DocumentAction{ "Select the next lane", [this]
+                                           {
+                                               const auto clip = ResolveUIClip();
+                                               if ( clip == nullptr || clip->Tracks.empty() )
+                                               {
+                                                   ToastManager::Push( "this clip has no lane",
+                                                                       ToastLevel::Error, 6.0f );
+                                                   return;
+                                               }
+                                               const int count = static_cast<int>( clip->Tracks.size() );
+                                               m_UITrack       = ( m_UITrack + 1 ) % count;
+                                               m_UIKey         = -1;
+                                           } } );
+        actions.push_back( DocumentAction{ "Add a key at the playhead on the selected lane", [this]
+                                           {
+                                               if ( ECS::UIAnimData* clip = ResolveUIClip() )
+                                               {
+                                                   AddUIKeyAtPlayhead( *clip, m_UITrack );
+                                               }
+                                           } } );
+        return actions;
+    }
+
+    ECS::UIAnimData* SequencerPanel::ResolveUIClip()
+    {
+        // RESOLVED PER CALL AND NEVER STORED. The component lives in an entt pool that relocates when it
+        // grows, so an address kept between frames is the hazard UIClipEdit.hpp's register row is about.
+        const auto entOpt = ResolveEntity();
+        if ( !entOpt )
+        {
+            return nullptr;
+        }
+        ECS::Entity entity = entOpt->get();
+        if ( !entity.HasComponent<ECS::UIAnimComponent>() )
+        {
+            return nullptr;
+        }
+        return &entity.GetComponent<ECS::UIAnimComponent>().Data;
+    }
+
     std::vector<SequencerPanel::DocumentAction> SequencerPanel::Actions()
     {
+        if ( m_Timeline == Timeline::UI )
+        {
+            return UIActions();
+        }
         if ( m_Timeline != Timeline::Skeletal )
         {
             return {};
@@ -2483,6 +2541,16 @@ namespace Desert::Editor
         // create-then-open the terrain and cloud material rows use.
         auto& clip = entity.GetComponent<ECS::UIAnimComponent>().Data;
 
+        // A TRANSACTION MUST NEVER SPAN TWO SUBJECTS. This window is a document over one element, but the
+        // component's ADDRESS moves when entt grows the pool, and a transaction opened last frame against
+        // the old address would commit a "before" that belongs to memory the registry has reused. The
+        // subject is therefore compared every frame, and a mismatch abandons the entry rather than
+        // guessing which clip it was about.
+        if ( m_UIClipEdit.Open() && m_UIClipEdit.Subject() != &clip )
+        {
+            m_UIClipEdit.Cancel();
+        }
+
         // --- transport -------------------------------------------------------------------------------
         if ( ImGui::Button( clip.Playing ? ICON_MDI_PAUSE "  Pause" : ICON_MDI_PLAY "  Play" ) )
             clip.Playing = !clip.Playing;
@@ -2490,10 +2558,17 @@ namespace Desert::Editor
         if ( ImGui::Button( ICON_MDI_STOP "  Rewind" ) )
             clip.Time = 0.0f;
         ImGui::SameLine();
-        ImGui::Checkbox( "Loop", &clip.Loop );
+        if ( ImGui::Checkbox( "Loop", &clip.Loop ) )
+        {
+            // The checkbox has ALREADY written the field, so the scope cannot bracket the write the way
+            // the other instantaneous edits do. The "before" is therefore reconstructed from the value in
+            // hand -- one bool, and the only field this edit can have touched.
+            RecordUIClipToggle( clip, !clip.Loop );
+        }
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 110.0f );
         ImGui::DragFloat( "Duration", &clip.Duration, 0.05f, 0.05f, 120.0f, "%.2f s" );
+        BracketUIClipEditFromItem( clip );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 140.0f );
         ImGui::SliderFloat( "Time", &clip.Time, 0.0f, std::max( 0.05f, clip.Duration ), "%.2f s" );
@@ -2509,7 +2584,8 @@ namespace Desert::Editor
         ImGui::SameLine();
         if ( ImGui::Button( ICON_MDI_PLUS "  Track" ) )
         {
-            ECS::UIAnimTrack tr;
+            const ScopedUIClipEdit step( m_UIClipEdit, &clip );
+            ECS::UIAnimTrack       tr;
             tr.Property = static_cast<ECS::UITweenProperty>( newProp );
             tr.Keys.push_back( { 0.0f, glm::vec4( 0.0f ), ECS::UIEasing::CubicOut } );
             clip.Tracks.push_back( std::move( tr ) );
@@ -2556,10 +2632,7 @@ namespace Desert::Editor
             ImGui::PushID( ti * 8192 + 7 );
             if ( ImGui::SmallButton( "+" ) )
             {
-                tr.Keys.push_back( { clip.Time, tr.Keys.empty() ? glm::vec4( 0.0f ) : tr.Keys.back().Value,
-                                     ECS::UIEasing::CubicOut } );
-                std::sort( tr.Keys.begin(), tr.Keys.end(),
-                           []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b ) { return a.Time < b.Time; } );
+                AddUIKeyAtPlayhead( clip, ti );
             }
             ImGui::SameLine();
             if ( ImGui::SmallButton( "x" ) )
@@ -2582,6 +2655,10 @@ namespace Desert::Editor
                 {
                     m_UITrack = ti;
                     m_UIKey   = ki;
+                    if ( const auto began = m_UIClipEdit.Begin( &clip ); !began.IsSuccess() )
+                    {
+                        LOG_ERROR( "[UIClipUndo] this key drag will not be undoable: {}", began.GetError() );
+                    }
                 }
                 if ( ImGui::IsItemActive() && ImGui::IsMouseDragging( ImGuiMouseButton_Left ) )
                 {
@@ -2601,6 +2678,9 @@ namespace Desert::Editor
                             m_UIKey = i; // keep the dragged key selected after the re-sort
                             break;
                         }
+                    // CLOSED AFTER THE SORT, not before it: the sort is part of what the drag did, and an
+                    // entry recorded before it would hold an ordering the lane never had.
+                    EndUIClipEdit();
                 }
                 ImGui::PopID();
             }
@@ -2617,6 +2697,7 @@ namespace Desert::Editor
 
         if ( deleteTrack >= 0 )
         {
+            const ScopedUIClipEdit step( m_UIClipEdit, &clip );
             clip.Tracks.erase( clip.Tracks.begin() + deleteTrack );
             m_UITrack = m_UIKey = -1;
         }
@@ -2633,6 +2714,7 @@ namespace Desert::Editor
                 ImGui::SetNextItemWidth( 120.0f );
                 if ( ImGui::DragFloat( "Time", &k.Time, 0.01f, 0.0f, duration, "%.2f s" ) )
                     clip.Time = k.Time;
+                BracketUIClipEditFromItem( clip );
 
                 // The value is read per property, exactly as the renderer reads it.
                 switch ( tr.Property )
@@ -2641,14 +2723,17 @@ namespace Desert::Editor
                     case ECS::UITweenProperty::Size:
                         ImGui::SetNextItemWidth( 200.0f );
                         ImGui::DragFloat2( "Value (px)", &k.Value.x, 1.0f );
+                        BracketUIClipEditFromItem( clip );
                         break;
                     case ECS::UITweenProperty::Opacity:
                         ImGui::SetNextItemWidth( 200.0f );
                         ImGui::SliderFloat( "Opacity", &k.Value.x, 0.0f, 1.0f );
+                        BracketUIClipEditFromItem( clip );
                         break;
                     case ECS::UITweenProperty::Color:
                         ImGui::SetNextItemWidth( 200.0f );
                         ImGui::ColorEdit3( "Color", &k.Value.x );
+                        BracketUIClipEditFromItem( clip );
                         break;
                 }
 
@@ -2657,14 +2742,87 @@ namespace Desert::Editor
                 int               ease        = static_cast<int>( k.Easing );
                 ImGui::SetNextItemWidth( 140.0f );
                 if ( ImGui::Combo( "Ease in", &ease, easeNames, 10 ) )
+                {
+                    const ScopedUIClipEdit step( m_UIClipEdit, &clip );
                     k.Easing = static_cast<ECS::UIEasing>( ease );
+                }
                 ImGui::SameLine();
                 if ( ImGui::SmallButton( "Delete key" ) )
                 {
+                    const ScopedUIClipEdit step( m_UIClipEdit, &clip );
                     tr.Keys.erase( tr.Keys.begin() + m_UIKey );
                     m_UIKey = -1;
                 }
             }
+        }
+
+        // THE SWEEP, and it is the same one PoseEditTransaction::OpenExplicitly exists for. Every opener
+        // above is a WIDGET being held, so a transaction still open while ImGui reports no active item has
+        // lost its closer -- the lane it belonged to was deleted, or the property combo changed the branch
+        // that was drawing the field. Leaving it open would swallow every later edit into one enormous
+        // undo step, which is worse than having none.
+        if ( m_UIClipEdit.Open() && !ImGui::IsAnyItemActive() )
+        {
+            EndUIClipEdit();
+        }
+    }
+
+    void SequencerPanel::AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane )
+    {
+        // ONE BODY FOR THE BUTTON AND THE COMMAND, for the reason RunSectionEdit above exists: two copies
+        // of "add a key" are two answers that drift, and the command is the ONLY one of the two that an
+        // unattended run can reach -- so a drift would be invisible in exactly the run that checks it.
+        if ( lane < 0 || lane >= static_cast<int>( clip.Tracks.size() ) )
+        {
+            ToastManager::Push( "add UI key: no lane is selected", ToastLevel::Error, 6.0f );
+            return;
+        }
+        const ScopedUIClipEdit step( m_UIClipEdit, &clip );
+        ECS::UIAnimTrack&      track = clip.Tracks[lane];
+        track.Keys.push_back( { clip.Time, track.Keys.empty() ? glm::vec4( 0.0f ) : track.Keys.back().Value,
+                                ECS::UIEasing::CubicOut } );
+        std::sort( track.Keys.begin(), track.Keys.end(),
+                   []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b ) { return a.Time < b.Time; } );
+    }
+
+    void SequencerPanel::BracketUIClipEditFromItem( ECS::UIAnimData& clip )
+    {
+        // ONE PLACE FOR THE TWO EDGES OF A HELD WIDGET. Written as a member rather than as a lambda at
+        // each call site because there are six of them and six copies is six chances to bracket only one
+        // end -- which produces an undo step that begins in one interaction and ends in another.
+        //
+        // IsItemDeactivated, NOT IsItemDeactivatedAfterEdit: a widget grabbed and released without a
+        // change fires only the former, and a transaction closed by the latter alone would stay open into
+        // the next interaction. The "nothing changed" case costs nothing -- End() answers 0 and pushes no
+        // entry, which is the contract that makes closing on every release safe.
+        if ( ::ImGui::IsItemActivated() )
+        {
+            if ( const auto began = m_UIClipEdit.Begin( &clip ); !began.IsSuccess() )
+            {
+                LOG_ERROR( "[UIClipUndo] this edit will not be undoable: {}", began.GetError() );
+            }
+        }
+        if ( ::ImGui::IsItemDeactivated() )
+        {
+            EndUIClipEdit();
+        }
+    }
+
+    void SequencerPanel::RecordUIClipToggle( ECS::UIAnimData& clip, bool loopBefore )
+    {
+        const bool loopAfter = clip.Loop;
+        clip.Loop            = loopBefore;
+        {
+            const ScopedUIClipEdit step( m_UIClipEdit, &clip );
+            clip.Loop = loopAfter;
+        }
+    }
+
+    void SequencerPanel::EndUIClipEdit()
+    {
+        if ( const auto ended = m_UIClipEdit.End(); !ended.IsSuccess() )
+        {
+            LOG_ERROR( "[UIClipUndo] {}", ended.GetError() );
         }
     }
 

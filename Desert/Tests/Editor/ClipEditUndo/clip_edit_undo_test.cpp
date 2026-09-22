@@ -839,3 +839,117 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// ── THE CONTROL-RIG DRAG (A33) ───────────────────────────────────────────────────────────────────────
+//
+// The third thing in this editor that authors a pose, and until now the one with no undo at all. Same
+// two-directional measurement as the dope-sheet drag above: the gesture alone leaves 0 entries and is
+// proved to have CHANGED something, and the recorded gesture leaves 1 that restores it by value.
+
+namespace
+{
+    Desert::Animation::ControlHierarchy MakeRig( uint32_t& control )
+    {
+        Desert::Animation::ControlHierarchy rig;
+        Desert::Animation::ControlElement   hand;
+        hand.Name      = "hand_ctrl";
+        hand.ShapeName = "CircleXY";
+        hand.Parents.push_back( Desert::Animation::ControlSpace{
+             Desert::Animation::ControlSpaceKind::Component, 0, 1.0F } );
+        const auto added = rig.Add( hand );
+        control          = added.IsSuccess() ? added.GetValue() : Desert::Animation::ControlHierarchy::INVALID;
+        return rig;
+    }
+
+    BoneTransform Displaced()
+    {
+        BoneTransform pose;
+        pose.Translation = glm::vec3( 12.0F, -3.5F, 40.0F );
+        pose.Rotation    = glm::quat( glm::vec3( 0.0F, 0.4F, 0.0F ) );
+        pose.Scale       = glm::vec3( 1.0F );
+        return pose;
+    }
+} // namespace
+
+TEST( ControlDragUndo, TheSameDragIsZeroEntriesUnrecordedAndOneRecorded )
+{
+    CommandHistory::Get().Clear();
+
+    // WITHOUT. This is what LightGizmoRenderer did before A33: it captured the pose at the grab into a
+    // member, released the drag, and pushed nothing.
+    {
+        uint32_t  control = 0;
+        auto      rig     = MakeRig( control );
+        ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+        const BoneTransform before = rig.Get( control ).Pose;
+
+        ASSERT_TRUE( rig.SetPose( control, Displaced() ).IsSuccess() );
+
+        // The drag REALLY MOVED the control -- the zero below is about an edit that happened.
+        EXPECT_FALSE( SameStoredValue( before, rig.Get( control ).Pose ) );
+        EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+        EXPECT_FALSE( CommandHistory::Get().Undo() );
+    }
+
+    CommandHistory::Get().Clear();
+
+    // WITH.
+    {
+        uint32_t  control = 0;
+        auto      rig     = MakeRig( control );
+        ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+        const BoneTransform before = rig.Get( control ).Pose;
+
+        ASSERT_TRUE( rig.SetPose( control, Displaced() ).IsSuccess() );
+        const auto recorded = Desert::Editor::RecordControlDrag( &rig, control, before );
+        ASSERT_TRUE( recorded.IsSuccess() );
+        EXPECT_EQ( recorded.GetValue(), 1U );
+        ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+
+        const BoneTransform after = rig.Get( control ).Pose;
+        ASSERT_TRUE( CommandHistory::Get().Undo() );
+        EXPECT_TRUE( SameStoredValue( before, rig.Get( control ).Pose ) );
+
+        ASSERT_TRUE( CommandHistory::Get().Redo() );
+        EXPECT_TRUE( SameStoredValue( after, rig.Get( control ).Pose ) );
+    }
+
+    CommandHistory::Get().Clear();
+}
+
+TEST( ControlDragUndo, AGrabThatMovedNothingIsNotAnUndoStep )
+{
+    CommandHistory::Get().Clear();
+    uint32_t control = 0;
+    auto     rig     = MakeRig( control );
+    ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+
+    const auto recorded = Desert::Editor::RecordControlDrag( &rig, control, rig.Get( control ).Pose );
+    ASSERT_TRUE( recorded.IsSuccess() );
+    EXPECT_EQ( recorded.GetValue(), 0U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+    CommandHistory::Get().Clear();
+}
+
+TEST( ControlDragUndo, TheEntryIsVolatileAndNamesAControlThatMustStillExist )
+{
+    CommandHistory::Get().Clear();
+    uint32_t control = 0;
+    auto     rig     = MakeRig( control );
+    ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+    const BoneTransform before = rig.Get( control ).Pose;
+    ASSERT_TRUE( rig.SetPose( control, Displaced() ).IsSuccess() );
+    ASSERT_TRUE( Desert::Editor::RecordControlDrag( &rig, control, before ).IsSuccess() );
+
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+    EXPECT_TRUE( CommandHistory::Get().UndoStack().back()->IsVolatile() );
+    CommandHistory::Get().DropVolatile();
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+
+    // ...and a recording against a control the rig does not have is refused rather than stored: an entry
+    // holding an out-of-range index would crash the first Ctrl+Z after it.
+    EXPECT_FALSE( Desert::Editor::RecordControlDrag( &rig, 99U, before ).IsSuccess() );
+    EXPECT_FALSE( Desert::Editor::RecordControlDrag( nullptr, control, before ).IsSuccess() );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+    CommandHistory::Get().Clear();
+}

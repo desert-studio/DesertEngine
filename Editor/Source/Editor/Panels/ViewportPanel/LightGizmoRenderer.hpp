@@ -166,11 +166,22 @@ namespace Desert::Editor
         // nothing global — see ControlDrag's note on why remembering the global is a defect that reads as a
         // rig failure rather than a manipulator one.
         Animation::ControlDrag m_ControlDrag;
-        // The pose the grab captured, kept beside the drag so one undo entry per completed drag is pushed
-        // from the value that was actually there. Held BY VALUE, never as an address — DragValueHandle's
-        // note is about exactly this.
+
+        // Perform one queued nudge (Editor/Core/ControlNudgeRequest.hpp) on the selected control. It is a
+        // method of this class and not a free function because the two things a drag needs — the grabbed
+        // shape's projected origin and the in-progress drag itself — are members of it.
+        void PerformQueuedControlNudge( Animation::ControlHierarchy&      hierarchy,
+                                        const Animation::ManipulatorView& view );
+
+        // The pose the grab captured. READ by RecordControlDrag when the drag completes -- which is what
+        // makes "one undo entry per completed drag" a line of code rather than, as it was until A33, a
+        // sentence in this comment with nothing behind it. Held BY VALUE, never as an address;
+        // DragValueHandle's note is about exactly that.
+        //
+        // The UUID that used to sit beside it is GONE rather than kept: nothing ever read it either, and
+        // the entry is volatile, so DropVolatile takes it on the very selection change the UUID existed
+        // to notice.
         Animation::BoneTransform m_ControlPoseAtGrab;
-        Common::UUID             m_ControlDragOwner;
 
         // Reused between frames so a steady state allocates nothing after the first — the frame builder
         // takes it as an output parameter for that reason.

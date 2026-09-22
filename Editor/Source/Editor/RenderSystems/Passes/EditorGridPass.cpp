@@ -12,7 +12,7 @@ namespace Desert::Editor::Render
             scene->UnregisterExternalPass( "EditorGrid" );
     }
 
-    Common::BoolResultStr EditorGridPass::Install( const std::shared_ptr<Core::Scene>& scene )
+    Common::BoolResultStr EditorGridPass::Install( const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
         m_Scene = scene;
 

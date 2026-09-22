@@ -11,7 +11,7 @@ namespace Desert::Editor::Render
             scene->UnregisterExternalPass( "CubemapPreview" );
     }
 
-    Common::BoolResultStr EditorCubemapPreviewPass::Install( const std::shared_ptr<Core::Scene>& scene )
+    Common::BoolResultStr EditorCubemapPreviewPass::Install( const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
         m_Scene = scene;
 

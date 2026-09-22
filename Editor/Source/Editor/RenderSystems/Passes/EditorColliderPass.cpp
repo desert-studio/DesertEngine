@@ -59,7 +59,7 @@ namespace Desert::Editor::Render
             scene->UnregisterExternalPass( "EditorColliders" );
     }
 
-    Common::BoolResultStr EditorColliderPass::Install( const std::shared_ptr<Core::Scene>& scene )
+    Common::BoolResultStr EditorColliderPass::Install( const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
         m_Scene = scene;
 

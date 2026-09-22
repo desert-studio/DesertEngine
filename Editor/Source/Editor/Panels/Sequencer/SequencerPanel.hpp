@@ -4,6 +4,7 @@
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
+#include <Editor/Core/Commands/UIClipEdit.hpp>
 
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
 
@@ -264,6 +265,23 @@ namespace Desert::Editor
         // (Offset / Size / Opacity / Color) with draggable keys and a scrubbable playhead.
         void DrawUITracks( ECS::Entity& entity );
 
+        // The UI timeline's own palette actions, and the clip they act on. Split out of Actions() the
+        // way DrawUITracks is split out of OnUIRender: two timelines with nothing in common but a window.
+        std::vector<DocumentAction> UIActions();
+        [[nodiscard]] ECS::UIAnimData* ResolveUIClip();
+        // "Key this lane at the playhead", shared by the lane's + button and by the palette action.
+        void AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane );
+
+        // The two edges of a HELD widget in the UI timeline (a Duration drag, a key's value field), in one
+        // place. See the definition for why it closes on IsItemDeactivated and not on the AfterEdit form.
+        void BracketUIClipEditFromItem( ECS::UIAnimData& clip );
+        // The Loop checkbox, which has already written the field by the time it answers true: the value is
+        // put back for the length of one transaction so the entry's "before" is the state that was there.
+        void RecordUIClipToggle( ECS::UIAnimData& clip, bool loopBefore );
+        // Close the open UI-clip transaction and say so if it refuses. A refusal here is a real defect (an
+        // end with no begin) and the one thing a silent close would hide.
+        void EndUIClipEdit();
+
         // WEAK, not shared — see AnimGraphPanel for the argument. A closed scene is one of the ways this
         // document's subject dies, and a strong reference would hide that and leak the level with it.
         std::weak_ptr<::Desert::Core::Scene> m_Scene;
@@ -318,6 +336,12 @@ namespace Desert::Editor
         // not be taken back. ONE PER WINDOW, for the keyer's reason — an interaction is about the
         // character this document is over.
         PoseEditTransaction m_ClipEdit;
+        // THE UI TIMELINE'S OWN TRANSACTION, and it is a second type rather than a second use of the one
+        // above because the subjects have nothing in common: this one edits a UIAnimComponent ON AN ENTITY
+        // -- no animator, no authoring pose, no BoneTrack -- so neither half of a ClipPoseCommand is about
+        // it. See UIClipEdit.hpp. ONE PER WINDOW, for the reason the keyer is: an interaction is about the
+        // element this document is over.
+        UIClipEditTransaction m_UIClipEdit;
         // The last-seen posed transform of the selected bone, which is how this window decides a gizmo drag
         // moved something. It stays here because it is about THIS document's bone selection.
         int       m_RecordBone = -1;
