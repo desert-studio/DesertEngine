@@ -397,8 +397,14 @@ namespace Desert::Editor
                              archive.string() + " could not be reopened to record the release manifest: " +
                                   packed.OpenError(),
                              "" };
-                for ( const Common::Utils::ContentManifestEntry& entry :
-                      Common::Utils::ContentManifest::FromPak( packed ).Entries() )
+                // NAMED, NOT A TEMPORARY IN THE RANGE EXPRESSION. `for ( x : FromPak(p).Entries() )`
+                // compiles and is undefined before C++23: the ContentManifest dies at the end of the
+                // expression that initializes the range, and the loop then walks a freed vector. It
+                // did exactly that here — the recorded manifest came out with ZERO entries against a
+                // four-entry archive, and PackagedContent said so.
+                const Common::Utils::ContentManifest ofArchive =
+                     Common::Utils::ContentManifest::FromPak( packed );
+                for ( const Common::Utils::ContentManifestEntry& entry : ofArchive.Entries() )
                     release.Insert( entry );
             }
 
