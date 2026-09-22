@@ -246,6 +246,18 @@ namespace Desert::Editor
         // legal from inside the ImGui pass that is iterating it.
         void CloseDismissedSceneViews();
 
+        // ===== Several ANGLES on ONE scene (what "New Scene View" was not) =====
+        // Opens another viewport onto the ACTIVE document: its own SceneRenderer and its own camera, the
+        // same world. Not a second Scene — that is AddSceneView above, and it is a second DOCUMENT: an
+        // independent copy that drifts from this one the moment either is edited. The engine side is
+        // Scene::AddView (Engine/Core/SceneViewList.hpp); the ECS is still walked once per frame no
+        // matter how many of these are open.
+        void AddSceneViewport();
+        // Destroys viewport @p id: its panel, then the renderer whose destructor hands the slot back.
+        // The scene is NOT touched beyond dropping the view — the other viewports of that world go on.
+        void CloseSceneViewport( uint64_t id );
+        void CloseDismissedSceneViewports();
+
         // ===== Asset documents (one window per asset, opened from the browser) =====
         // Drains Core::SubjectOpenRequests and, per request, focuses the document already open on that subject
         // or builds a new one through m_AssetEditors. Runs from OnUpdate (between frames) because it adds to
@@ -481,6 +493,25 @@ namespace Desert::Editor
             ViewportPanel*                          Viewport = nullptr;
         };
         std::vector<std::unique_ptr<SceneDocument>> m_ExtraScenes;
+
+        // A SECOND ANGLE, not a second document: no Scene of its own and no RenderRegistry of its own —
+        // the scene replays its external passes onto every view's renderer, so the grid, the collider
+        // wireframes and the 2D UI overlay arrive here without a second copy of the editor's pass set.
+        struct SceneViewport
+        {
+            uint64_t    Id = kPrimarySceneViewId;
+            std::string Name;
+            // WEAK. The document this looks at can be closed while this viewport is open; a shared_ptr
+            // here would keep a dead scene's registry alive and the viewport would keep rendering it.
+            std::weak_ptr<Desert::Core::Scene>      Scene;
+            std::unique_ptr<Graphic::SceneRenderer> Renderer;
+            ViewportPanel*                          Viewport = nullptr;
+        };
+        std::vector<std::unique_ptr<SceneViewport>> m_ExtraViewports;
+
+        // ONE id source for documents AND viewports. They share the ImGui window-id space and the
+        // authoring-context owner space, so two surfaces holding the same number would dock into one
+        // window and fight over the selected bone.
         SceneViewIdSource                           m_SceneViewIds;
         uint64_t m_ActiveSceneId = kPrimarySceneViewId; // which document the editor is bound to
 
@@ -601,6 +632,9 @@ namespace Desert::Editor
         std::string                             m_SaveAndOpenError;
         bool                                    m_NewSceneRequested     = false;
         bool                                    m_AddSceneViewRequested = false; // Scenes -> New Scene View
+        // Deferred for the same reason as the flag above: opening a viewport leases a renderer slot and
+        // builds GPU resources, neither of which may happen inside the ImGui pass.
+        bool                                    m_AddSceneViewportRequested = false;
 
         // Staged startup loading (UI loader): the heavy boot work (mesh cooking, asset preload) runs one
         // stage per frame from OnUpdate while OnUIRender shows a fullscreen progress overlay — instead

@@ -69,11 +69,12 @@ namespace Desert::Editor::Tools
         };
     } // namespace
 
-    void GizmoController::RenderObject( ::Desert::Core::Scene& scene, const glm::vec2& viewportPos,
-                                        const glm::vec2& viewportSize )
+    void GizmoController::RenderObject( ::Desert::Core::Scene&                             scene,
+                                        const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                        const glm::vec2& viewportPos, const glm::vec2& viewportSize )
     {
         // NOTE: ImGuizmo::BeginFrame() is issued once per frame by EditorLayer, before any panel runs.
-        const auto& mainCamera = scene.GetMainCamera().lock();
+        const auto& mainCamera = camera;
         if ( !mainCamera )
             return;
 
@@ -265,10 +266,11 @@ namespace Desert::Editor::Tools
         Core::GizmoState::SetPoseInteraction( false );
     }
 
-    void GizmoController::RenderBone( ::Desert::Core::Scene& scene, const glm::vec2& viewportPos,
-                                      const glm::vec2& viewportSize )
+    void GizmoController::RenderBone( ::Desert::Core::Scene&                             scene,
+                                      const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                      const glm::vec2& viewportPos, const glm::vec2& viewportSize )
     {
-        const auto& mainCamera = scene.GetMainCamera().lock();
+        const auto& mainCamera = camera;
         if ( !mainCamera )
             return;
 

@@ -42,7 +42,11 @@ namespace Desert::Editor::Tools
         //
         // NO_DISCARD because the refusals are the interesting half: a caller that throws the answer away
         // is a caller that cannot tell a locked entity from an empty sky.
-        [[nodiscard]] PickOutcome Pick( ::Desert::Core::Scene& scene, const glm::vec2& mouseViewport,
+        // @p camera is THIS VIEWPORT's camera — the ray is cast from the angle the user clicked in, not
+        // from view 0's. Asking the scene picked the wrong entity from a second viewport.
+        [[nodiscard]] PickOutcome Pick( ::Desert::Core::Scene&                             scene,
+                                        const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                        const glm::vec2& mouseViewport,
                                         const glm::vec2& viewportSize, bool gizmoHovered, bool additive = false );
     };
 } // namespace Desert::Editor::Tools

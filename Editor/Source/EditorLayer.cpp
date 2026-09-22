@@ -1237,11 +1237,19 @@ namespace Desert::Editor
             AddSceneView();
         }
 
+        // A second ANGLE on the active document — same deferral, same reasons.
+        if ( m_AddSceneViewportRequested && !StartupLoading() )
+        {
+            m_AddSceneViewportRequested = false;
+            AddSceneViewport();
+        }
+
         // ...and closing one destroys the same resources, so it is deferred to the same place. It must also
         // run BEFORE the OnPreUpdate loop below and before UpdateSceneFrame: a document whose window the user
         // dismissed last frame would otherwise get one more full scene render, and — until this existed at
         // all — every subsequent frame for the rest of the session, holding one of the six renderer slots.
         CloseDismissedSceneViews();
+        CloseDismissedSceneViewports();
 
         // A DOCUMENT WHOSE SUBJECT HAS GONE IS QUEUED FOR CLOSING BEFORE THE QUEUE IS SERVICED, so the
         // window disappears on the same frame the entity or the asset did rather than one later. It runs
@@ -1886,7 +1894,8 @@ namespace Desert::Editor
         quiescence.Set( Control::PendingWork::StartupLoading, StartupLoading() || ContentSettling() );
         quiescence.Set( Control::PendingWork::SceneLoad, m_SceneLoadRequested.has_value() );
         quiescence.Set( Control::PendingWork::NewScene, m_NewSceneRequested );
-        quiescence.Set( Control::PendingWork::SceneView, m_AddSceneViewRequested );
+        quiescence.Set( Control::PendingWork::SceneView,
+                        m_AddSceneViewRequested || m_AddSceneViewportRequested );
         quiescence.Set( Control::PendingWork::SceneStop, m_PendingSceneStop );
         quiescence.Set( Control::PendingWork::DocumentCloses, !m_DocumentsToClose.empty() );
         // The queue is a file-static inbox drained by ServiceSubjectOpenRequests, so "is anything queued"
@@ -2476,8 +2485,16 @@ namespace Desert::Editor
         // inspector-preview and photogrammetry renderers own their own SceneRenderer, are never fed here,
         // and therefore keep DebugViewState's all-off defaults. They used to have to remember to switch the
         // grid off by hand on a scene they owned.
-        if ( auto* sr = scene.GetSceneRenderer() )
+        //
+        // ONCE PER VIEW, not once per scene. These reach the renderer's systems from BeginScene, and a
+        // scene has a LIST of renderers now — pushing only to view 0 left every second viewport with
+        // DebugViewState's all-off defaults, i.e. no grid, no collider wireframes, and the machine
+        // quality schema defaults instead of this machine's.
+        for ( size_t viewIndex = 0; viewIndex < scene.GetViewCount(); ++viewIndex )
         {
+            auto* sr = scene.GetViewRenderer( viewIndex );
+            if ( sr == nullptr )
+                continue;
             const auto& prefs = EditorPreferences::Get();
             sr->SetOutlineSettings( prefs.OutlineColor, prefs.OutlineWidth, prefs.OutlineSmoothness,
                                     prefs.EnableOutline );
@@ -2621,6 +2638,93 @@ namespace Desert::Editor
                   EngineContext::kMaxRendererSlots );
     }
 
+    void EditorLayer::AddSceneViewport()
+    {
+        const auto scene = m_MainScene;
+        if ( !scene )
+        {
+            LOG_ERROR( "[Editor] no active scene to open a second viewport on." );
+            return;
+        }
+
+        auto           renderer = std::make_unique<Graphic::SceneRenderer>();
+        const auto     viewIndex = scene->AddView( renderer.get() );
+        if ( !viewIndex )
+        {
+            // Scene::AddView has already said why. The renderer is destroyed on the way out of this
+            // scope, which is what gives its slot straight back — a refused view must not cost one.
+            LOG_ERROR( "[Editor] '{}' refused a second viewport.", scene->GetSceneName() );
+            return;
+        }
+
+        auto view    = std::make_unique<SceneViewport>();
+        view->Id     = m_SceneViewIds.Next();
+        view->Name   = scene->GetSceneName() + " (view " + std::to_string( *viewIndex + 1 ) + ")";
+        view->Scene  = scene;
+
+        // Unique ImGui id per window, keyed on the id and not the index — a closed window's saved
+        // imgui.ini entry must never be inherited by an unrelated later one.
+        const std::string title = view->Name + "###sceneviewport" + std::to_string( view->Id );
+        auto              vp =
+             std::make_unique<Editor::ViewportPanel>( scene, m_AssetManager.get(), title, view->Id, renderer.get() );
+        vp->GetVisibility() = true;
+        view->Viewport      = vp.get();
+        m_Panels.Adopt( std::move( vp ) );
+
+        view->Renderer = std::move( renderer );
+        m_ExtraViewports.emplace_back( std::move( view ) );
+
+        LOG_INFO( "[Editor] Opened viewport #{} on '{}' ({} view(s) of that world, {}/{} renderer slots in "
+                  "use)",
+                  m_ExtraViewports.back()->Id, scene->GetSceneName(), scene->GetViewCount(),
+                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+    }
+
+    void EditorLayer::CloseDismissedSceneViewports()
+    {
+        std::vector<uint64_t> dismissed;
+        for ( const auto& view : m_ExtraViewports )
+            if ( view->Viewport && !view->Viewport->GetVisibility() )
+                dismissed.push_back( view->Id );
+
+        for ( const uint64_t id : dismissed )
+            CloseSceneViewport( id );
+    }
+
+    void EditorLayer::CloseSceneViewport( uint64_t id )
+    {
+        const auto index = IndexOfSceneView(
+             m_ExtraViewports, []( const std::unique_ptr<SceneViewport>& view ) { return view->Id; }, id );
+        if ( !index )
+            return; // already closed
+
+        auto&             view = m_ExtraViewports[*index];
+        const std::string name = view->Name;
+
+        // Same order as CloseSceneView, minus the scene: idle the device, drop the panel (its UIHelper
+        // holds descriptor sets referencing this renderer's images), take the view off the scene so no
+        // frame records into it again, and only then destroy the renderer — whose destructor hands the
+        // renderer slot back.
+        Graphic::Renderer::GetInstance().WaitDeviceIdle();
+
+        m_Panels.Remove( view->Viewport );
+        view->Viewport = nullptr;
+
+        if ( const auto scene = view->Scene.lock() )
+        {
+            // Reported, not asserted: the scene may have been closed first, in which case the view went
+            // with it and there is nothing here to remove.
+            if ( !scene->RemoveView( view->Renderer.get() ) )
+                LOG_WARN( "[Editor] viewport '{}' was not a view of '{}' when it closed.", name,
+                          scene->GetSceneName() );
+        }
+        view->Renderer.reset();
+        m_ExtraViewports.erase( m_ExtraViewports.begin() + static_cast<ptrdiff_t>( *index ) );
+
+        LOG_INFO( "[Editor] Closed viewport '{}' ({}/{} renderer slots in use)", name,
+                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+    }
+
     std::vector<EditorLayer::RendererSlotConsumer> EditorLayer::RendererSlotCensus() const
     {
         std::vector<RendererSlotConsumer> census;
@@ -2628,6 +2732,11 @@ namespace Desert::Editor
 
         for ( const auto& doc : m_ExtraScenes )
             census.push_back( { "scene view '" + doc->Name + "'", true } );
+
+        // A second ANGLE holds a slot exactly as a second document does — leaving it out of the census
+        // would make the budget's own report disagree with SceneRenderer::GetLiveRendererCount().
+        for ( const auto& view : m_ExtraViewports )
+            census.push_back( { "viewport '" + view->Name + "'", view->Renderer != nullptr } );
 
         // The Details preview is a TOOL that happens to own a renderer, so it is found among the panels.
         for ( const auto& panel : m_Panels )
@@ -4177,6 +4286,37 @@ namespace Desert::Editor
                                   m_AddSceneViewRequested = true;
                                   return PaletteCommandDone();
                               } } );
+
+        // A SECOND ANGLE ON THE SAME WORLD, which is what "New Scene View" above sounds like and is not:
+        // that one opens a second empty DOCUMENT. This one adds a view to the active scene — same
+        // entities, same edits, a different camera — and is the entry the owner's request names.
+        commands.push_back( { "Scene", "New Viewport (same scene)", [this]
+                              {
+                                  m_AddSceneViewportRequested = true;
+                                  return PaletteCommandDone();
+                              } } );
+
+        for ( const auto& view : m_ExtraViewports )
+        {
+            const uint64_t id = view->Id;
+            commands.push_back(
+                 { "Scene", "Close Viewport " + view->Name,
+                   [this, id]() -> Common::BoolResultStr
+                   {
+                       const auto index = IndexOfSceneView(
+                            m_ExtraViewports, []( const std::unique_ptr<SceneViewport>& v ) { return v->Id; },
+                            id );
+                       if ( !index || !m_ExtraViewports[*index]->Viewport )
+                       {
+                           return Common::MakeFormattedError<bool>(
+                                "viewport #{} is already closed; nothing to close.", id );
+                       }
+                       // Hidden rather than destroyed here, exactly as the scene-view entry above does:
+                       // the teardown waits on the device and must not run inside the ImGui pass.
+                       m_ExtraViewports[*index]->Viewport->GetVisibility() = false;
+                       return PaletteCommandDone();
+                   } } );
+        }
 
         // AND THE WAY BACK, which did not exist. Opening a scene view was in the palette; closing one was
         // reachable only through the window's X — and the X needs a mouse, which this machine cannot

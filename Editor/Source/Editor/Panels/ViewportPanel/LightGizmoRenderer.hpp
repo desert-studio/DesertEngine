@@ -29,7 +29,10 @@ namespace Desert::Editor
          * @param mine   that owner's durable copy of the context, written through in the same step as the
          *               publication (see AuthoringContextHost::Write).
          */
-        void Render( float width, float height, float xpos, float ypos, const Core::AuthoringOwner& owner,
+        // @p camera: THIS VIEWPORT's angle. The icons are projected with it, so taking the scene's would
+        // have drawn every light's billboard where view 0 sees it.
+        void Render( const std::shared_ptr<::Desert::Core::Camera>& camera, float width, float height,
+                     float xpos, float ypos, const Core::AuthoringOwner& owner,
                      Core::AuthoringContext& mine );
 
         // Nearest skeleton bone head within radiusPx of the (absolute-screen) mouse position, taken from the

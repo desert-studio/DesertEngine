@@ -33,10 +33,15 @@ namespace Desert::Editor::Tools
         void ResetHovered();
 
         // Object transform gizmo on the current selection. viewportPos/Size = the rendered scene-image rect.
-        void RenderObject( ::Desert::Core::Scene& scene, const glm::vec2& viewportPos,
+        // @p camera is THIS VIEWPORT's camera, handed in rather than taken from the scene: a scene has a
+        // list of views now and `Scene::GetMainCamera()` answers for view 0, so a second viewport would
+        // have placed its gizmo through another one's projection and dragged the wrong direction.
+        void RenderObject( ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Core::Camera>& camera,
+                           const glm::vec2& viewportPos,
                            const glm::vec2& viewportSize );
         // Bone gizmo (Skeleton Edit mode) — edits the selected bone's LocalBindTransform.
-        void RenderBone( ::Desert::Core::Scene& scene, const glm::vec2& viewportPos,
+        void RenderBone( ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Core::Camera>& camera,
+                         const glm::vec2& viewportPos,
                          const glm::vec2& viewportSize );
 
     private:

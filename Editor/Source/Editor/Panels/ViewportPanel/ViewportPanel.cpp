@@ -172,10 +172,26 @@ namespace Desert::Editor
 
     std::vector<ViewportPanel*> ViewportPanel::s_Live;
 
+    size_t ViewportPanel::ViewIndex() const
+    {
+        if ( !m_Scene )
+            return 0;
+        if ( m_ViewRenderer == nullptr )
+            return 0; // the primary viewport is view 0 for as long as the scene exists
+        const auto index = m_Scene->IndexOfView( m_ViewRenderer );
+        return index ? *index : m_Scene->GetViewCount(); // past the end == "this view is gone"
+    }
+
+    std::shared_ptr<::Desert::Core::Camera> ViewportPanel::ViewCamera() const
+    {
+        return m_Scene ? m_Scene->GetViewCamera( ViewIndex() ) : nullptr;
+    }
+
     ViewportPanel::ViewportPanel( const std::shared_ptr<Desert::Core::Scene>& scene,
                                   const Assets::AssetManager* assetManager, std::string title,
-                                  uint64_t sceneViewId )
+                                  uint64_t sceneViewId, Graphic::SceneRenderer* viewRenderer )
          : IPanel( std::move( title ) ), m_Scene( scene ), m_SceneViewId( sceneViewId ),
+           m_ViewRenderer( viewRenderer ),
            m_AuthoringOwner( Core::AuthoringOwner::ForSceneView( sceneViewId ) ), m_AssetManager( assetManager )
     {
         m_UIHelper = std::make_unique<Editor::UI::UIHelper>();
@@ -1071,7 +1087,7 @@ namespace Desert::Editor
             ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 8.0f, 8.0f ) );
             ImGui::TextUnformatted( "Editor Camera" );
             ImGui::Separator();
-            if ( auto cam = m_Scene->GetMainCamera().lock() )
+            if ( auto cam = ViewCamera() )
             {
                 if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
                 {
@@ -1133,7 +1149,7 @@ namespace Desert::Editor
     {
         UpdateAsyncLoads(); // spawn any meshes whose background cook just finished (+ progress bar)
 
-        const auto& mainCamera = m_Scene->GetMainCamera().lock();
+        const auto mainCamera = ViewCamera();
         if ( !mainCamera )
         {
             ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), "Camera was not found" );
@@ -1190,7 +1206,8 @@ namespace Desert::Editor
         }
 
         // Render scene
-        m_UIHelper->Image( m_Scene->GetFinalImage(), { m_ViewportData.Size.x, m_ViewportData.Size.y } );
+        m_UIHelper->Image( m_Scene->GetFinalImage( ViewIndex() ),
+                           { m_ViewportData.Size.x, m_ViewportData.Size.y } );
 
         // UI Preview vs Design. Preview: publish the viewport pointer/keyboard so the EditorUIPass drives the
         // canvas with real input (buttons interactive) and SKIP the authoring overlays/handles. Design: the
@@ -1348,11 +1365,11 @@ namespace Desert::Editor
             if ( Core::ActiveAuthoringContext().ShowsBones() )
             {
                 // bone authoring owns the gizmo (edits the selected bone, not the object)
-                m_Gizmo.RenderBone( *m_Scene, m_ViewportData.ViewportPos, m_ViewportData.Size );
+                m_Gizmo.RenderBone( *m_Scene, ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
             else if ( m_Gizmo.IsActive() && !painting && !selectedIsUI )
             {
-                m_Gizmo.RenderObject( *m_Scene, m_ViewportData.ViewportPos, m_ViewportData.Size );
+                m_Gizmo.RenderObject( *m_Scene, ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
         }
 
@@ -1360,7 +1377,7 @@ namespace Desert::Editor
         {
             // Replace the OS pointer with the brush: hide the arrow and draw the world-space radius ring.
             ImGui::SetMouseCursor( ImGuiMouseCursor_None );
-            if ( const auto& camera = m_Scene->GetMainCamera().lock() )
+            if ( const auto camera = ViewCamera() )
             {
                 auto [mx, my]  = GetMouseViewportSpace();
                 const auto ray = Common::Math::Ray::FromScreenPosition(
@@ -1384,7 +1401,7 @@ namespace Desert::Editor
             if ( m_ViewportData.IsHovered && Core::FoliagePaint::HasActive() &&
                  ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive() )
             {
-                if ( const auto& camera = m_Scene->GetMainCamera().lock() )
+                if ( const auto camera = ViewCamera() )
                 {
                     auto [mx, my]  = GetMouseViewportSpace();
                     const auto ray = Common::Math::Ray::FromScreenPosition(
@@ -1399,7 +1416,7 @@ namespace Desert::Editor
         // --- Modeling mode: UE5-style CubeGrid blockout (add/remove grid cubes -> live DynamicMesh). ---
         if ( modelingMode )
         {
-            if ( const auto& camera = m_Scene->GetMainCamera().lock() )
+            if ( const auto camera = ViewCamera() )
             {
                 auto [mx, my]  = GetMouseViewportSpace();
                 const auto ray = Common::Math::Ray::FromScreenPosition(
@@ -1417,7 +1434,7 @@ namespace Desert::Editor
         // Editor gizmos (light/camera icons + frustums) are authoring aids — hide them in Play/Paused so the
         // running game view is clean.
         if ( m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit )
-            m_LightGizmoRenderer->Render( m_ViewportData.Size.x, m_ViewportData.Size.y,
+            m_LightGizmoRenderer->Render( ViewCamera(), m_ViewportData.Size.x, m_ViewportData.Size.y,
                                           m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y,
                                           m_AuthoringOwner, m_Authoring );
 
@@ -1438,7 +1455,8 @@ namespace Desert::Editor
     {
         if ( m_PendingViewportSize.has_value() )
         {
-            m_Scene->Resize( (uint32_t)m_PendingViewportSize->x, (uint32_t)m_PendingViewportSize->y );
+            m_Scene->ResizeView( ViewIndex(), (uint32_t)m_PendingViewportSize->x,
+                                 (uint32_t)m_PendingViewportSize->y );
             m_PendingViewportSize.reset();
         }
 
@@ -1852,7 +1870,7 @@ namespace Desert::Editor
 
     void ViewportPanel::DrawViewAxisGizmo( const glm::vec2& viewportPos, const glm::vec2& viewportSize )
     {
-        const auto camera = m_Scene->GetMainCamera().lock();
+        const auto camera = ViewCamera();
         if ( !camera )
             return;
 
@@ -2074,7 +2092,7 @@ namespace Desert::Editor
             else
             {
                 const auto outcome = m_Picking.Pick(
-                     *m_Scene, m_ViewportData.MousePosition, m_ViewportData.Size,
+                     *m_Scene, ViewCamera(), m_ViewportData.MousePosition, m_ViewportData.Size,
                      m_Gizmo.IsHovered() || m_LightGizmoRenderer->IsLightIconHovered(), ::ImGui::GetIO().KeyCtrl );
 
                 // A refused click has to SAY so. Clicking a locked entity and watching the selection not
@@ -2113,7 +2131,7 @@ namespace Desert::Editor
             case Common::KeyCode::F:
                 // Frame the selected entity (Unity/Godot 'F').
                 if ( const auto sel = Core::SelectionManager::GetSelected() )
-                    if ( auto cam = m_Scene->GetMainCamera().lock() )
+                    if ( auto cam = ViewCamera() )
                         if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
                             if ( auto ref = m_Scene->FindEntityByID( *sel ) )
                                 editorCam->Focus( glm::vec3( ref->get().GetWorldTransform()[3] ) );
@@ -2150,7 +2168,7 @@ namespace Desert::Editor
 
     void ViewportPanel::AssignMaterialAtCursor( const std::string& materialPath )
     {
-        const auto& mainCamera = m_Scene->GetMainCamera().lock();
+        const auto mainCamera = ViewCamera();
         if ( !mainCamera || !m_AssetManager )
             return;
 
