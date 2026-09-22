@@ -100,9 +100,9 @@ namespace
     // IMMEDIATE, IMPLEMENTATION and IMPLIED out of the SHOUTED headings this project writes.
     bool IsToolkitIdentifier( const std::string& id )
     {
-        static const std::vector<std::string> kPrefixes = { "ImGui", "ImVec",  "ImDraw", "ImFont",
+        static const std::vector<std::string> kPrefixes = { "ImGui",     "ImVec",   "ImDraw", "ImFont",
                                                             "ImTexture", "ImColor", "ImRect", "ImU",
-                                                            "ImWchar", "IMGUI_", "IM_" };
+                                                            "ImWchar",   "IMGUI_",  "IM_" };
         for ( const std::string& prefix : kPrefixes )
             if ( id.compare( 0, prefix.size(), prefix ) == 0 )
                 return true;
@@ -159,7 +159,7 @@ namespace
 
             std::string lowered = line.substr( word + 7 );
             std::transform( lowered.begin(), lowered.end(), lowered.begin(),
-                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ) ; } );
+                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
             if ( lowered.find( "imgui" ) != std::string::npos )
                 found.push_back( line.substr( hash ) + " (line " + std::to_string( number ) + ")" );
         }
@@ -222,7 +222,7 @@ namespace
             if ( src.compare( i, 4, "--[[" ) == 0 )
             {
                 const std::size_t end = src.find( "]]", i + 4 );
-                i = end == std::string::npos ? src.size() : end + 2;
+                i                     = end == std::string::npos ? src.size() : end + 2;
                 continue;
             }
             if ( src.compare( i, 2, "--" ) == 0 )
@@ -296,7 +296,7 @@ TEST( ImGuiBoundary, TheEngineNeverIncludesAnEditorHeader )
     {
         for ( const Source& source : SourcesOf( root, subtree ) )
         {
-            const std::string text = CT::StripComments( source.Raw );
+            const std::string  text = CT::StripComments( source.Raw );
             std::istringstream in( text );
             std::string        line;
             int                number = 0;
@@ -316,8 +316,8 @@ TEST( ImGuiBoundary, TheEngineNeverIncludesAnEditorHeader )
         }
     }
 
-    EXPECT_TRUE( offenders.empty() )
-         << "the engine and the runtime are BELOW the editor and cannot name it." << Join( offenders );
+    EXPECT_TRUE( offenders.empty() ) << "the engine and the runtime are BELOW the editor and cannot name it."
+                                     << Join( offenders );
 }
 
 // ----------------------------------------------------------------------------------------------------
@@ -375,10 +375,8 @@ TEST( ImGuiBoundary, ProseAndStringLiteralsAreNotCode )
     // ...and the POSITIVE half, in the same test, because a stripper that blanked everything would pass
     // all three expectations above.
     EXPECT_FALSE( ToolkitIdentifiersIn( CT::StripCommentsAndLiterals( "ImGui::Begin( \"x\" );\n" ) ).empty() );
-    EXPECT_FALSE(
-         ToolkitIncludesIn( CT::StripComments( "#include <ImGui/imgui.h>\n" ) ).empty() );
-    EXPECT_FALSE(
-         ToolkitIncludesIn( CT::StripComments( "#include \"ImGui/imgui.h\"\n" ) ).empty() )
+    EXPECT_FALSE( ToolkitIncludesIn( CT::StripComments( "#include <ImGui/imgui.h>\n" ) ).empty() );
+    EXPECT_FALSE( ToolkitIncludesIn( CT::StripComments( "#include \"ImGui/imgui.h\"\n" ) ).empty() )
          << "the quoted spelling of an include is a STRING LITERAL: an include scan run over text whose "
             "literals were blanked cannot see it, which is why this scan keeps them";
 }
@@ -391,8 +389,9 @@ TEST( ImGuiBoundary, TheProseFilesStayGreenAndAreStillProse )
     for ( const char* file : kProseRows )
     {
         const std::string raw = ReadAll( root / file );
-        ASSERT_FALSE( raw.empty() ) << file << " is gone; a negative control naming a missing file is a "
-                                               "row that passes without checking anything";
+        ASSERT_FALSE( raw.empty() ) << file
+                                    << " is gone; a negative control naming a missing file is a "
+                                       "row that passes without checking anything";
 
         // The row is only a control while the file really does talk about the toolkit.
         EXPECT_FALSE( ToolkitIdentifiersIn( raw ).empty() )

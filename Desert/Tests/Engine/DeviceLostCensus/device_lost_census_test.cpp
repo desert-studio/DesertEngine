@@ -264,15 +264,15 @@ namespace
     // code that issues Vulkan work, not the folder it happens to live in.
     std::vector<Found> ScanStatementPositionCalls( const std::string& root )
     {
-        std::vector<Found> found;
+        std::vector<Found>    found;
         std::error_code    ec;
         std::vector<fs::path> files;
-        for ( const char* subtree : { "Desert/Desert/Source/Engine/Graphic",
-                                      "Editor/Source/Editor/ImGuiIntegration" } )
+        for ( const char* subtree :
+              { "Desert/Desert/Source/Engine/Graphic", "Editor/Source/Editor/ImGuiIntegration" } )
         {
             const fs::path base = fs::path( root ) / subtree;
-            for ( auto it = fs::recursive_directory_iterator( base, ec );
-                  it != fs::recursive_directory_iterator(); ++it )
+            for ( auto it = fs::recursive_directory_iterator( base, ec ); it != fs::recursive_directory_iterator();
+                  ++it )
             {
                 if ( ec )
                     break;

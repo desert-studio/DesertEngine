@@ -41,7 +41,7 @@ namespace Desert::Graphic::API::Vulkan
         ImGuiStyle& style = ::ImGui::GetStyle();
         if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
         {
-            style.WindowRounding    = 0.0f;
+            style.WindowRounding              = 0.0f;
             style.Colors[ImGuiCol_WindowBg].w = 1.0f;
         }
 
@@ -52,27 +52,24 @@ namespace Desert::Graphic::API::Vulkan
         VkDevice device = SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() )->GetVulkanLogicalDevice();
 
         // Create Descriptor Pool for ImGui
-        VkDescriptorPoolSize pool_sizes[] =
-        {
-            { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-            { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-        };
-        VkDescriptorPoolCreateInfo pool_info = {};
-        pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        pool_info.maxSets = 1000 * IM_ARRAYSIZE(pool_sizes);
-        pool_info.poolSizeCount = (uint32_t)IM_ARRAYSIZE(pool_sizes);
-        pool_info.pPoolSizes = pool_sizes;
-        VK_CHECK_RESULT(vkCreateDescriptorPool(device, &pool_info, nullptr, &m_ImguiPool));
+        VkDescriptorPoolSize       pool_sizes[] = { { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+                                                    { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } };
+        VkDescriptorPoolCreateInfo pool_info    = {};
+        pool_info.sType                         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_info.flags                         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        pool_info.maxSets                       = 1000 * IM_ARRAYSIZE( pool_sizes );
+        pool_info.poolSizeCount                 = (uint32_t)IM_ARRAYSIZE( pool_sizes );
+        pool_info.pPoolSizes                    = pool_sizes;
+        VK_CHECK_RESULT( vkCreateDescriptorPool( device, &pool_info, nullptr, &m_ImguiPool ) );
 
         ImGui_ImplGlfw_InitForVulkan( static_cast<GLFWwindow*>( engineContext.GetNativeWindowHandle() ), true );
 
@@ -96,21 +93,21 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         ImGui_ImplVulkan_InitInfo init_info = {};
-        init_info.Instance                  = SP_CAST( VulkanContext, engineContext.GetRendererContext() )->GetVulkanInstance();
-        init_info.PhysicalDevice            = SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() )
+        init_info.Instance = SP_CAST( VulkanContext, engineContext.GetRendererContext() )->GetVulkanInstance();
+        init_info.PhysicalDevice = SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() )
                                         ->GetPhysicalDevice()
                                         ->GetVulkanPhysicalDevice();
-        init_info.Device        = device;
+        init_info.Device = device;
         init_info.QueueFamily =
              SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() )->GetPhysicalDevice()->GetGraphicsFamily();
-        init_info.Queue         = SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() )->GetGraphicsQueue();
-        init_info.PipelineCache = VK_NULL_HANDLE;
+        init_info.Queue          = SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() )->GetGraphicsQueue();
+        init_info.PipelineCache  = VK_NULL_HANDLE;
         init_info.DescriptorPool = m_ImguiPool;
-        init_info.Subpass       = 0;
-        init_info.MinImageCount = swapchain->GetBackBufferCount();
-        init_info.ImageCount    = swapchain->GetBackBufferCount();
-        init_info.MSAASamples   = VK_SAMPLE_COUNT_1_BIT;
-        init_info.Allocator     = nullptr;
+        init_info.Subpass        = 0;
+        init_info.MinImageCount  = swapchain->GetBackBufferCount();
+        init_info.ImageCount     = swapchain->GetBackBufferCount();
+        init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
+        init_info.Allocator      = nullptr;
 
         ImGui_ImplVulkan_Init( &init_info, swapchain->GetRenderPass() );
 
@@ -132,7 +129,8 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanImGui::OnDetach()
     {
-        auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        auto device =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
 
         // Nothing is outstanding on a lost device, so the wait can only answer VK_ERROR_DEVICE_LOST; the
         // ImGui teardown below is destruction, which stays legal.
@@ -142,9 +140,9 @@ namespace Desert::Graphic::API::Vulkan
         ImGui_ImplGlfw_Shutdown();
         ::ImGui::DestroyContext();
 
-        if (m_ImguiPool != VK_NULL_HANDLE)
+        if ( m_ImguiPool != VK_NULL_HANDLE )
         {
-            vkDestroyDescriptorPool(device, m_ImguiPool, nullptr);
+            vkDestroyDescriptorPool( device, m_ImguiPool, nullptr );
             m_ImguiPool = VK_NULL_HANDLE;
         }
 
@@ -184,17 +182,19 @@ namespace Desert::Graphic::API::Vulkan
 
         ImGuiIO& io     = ::ImGui::GetIO();
         auto     window = EngineContext::GetInstance().GetWindow();
-        io.DisplaySize = ImVec2( (float)window->GetWidth(), (float)window->GetHeight() );
+        io.DisplaySize  = ImVec2( (float)window->GetWidth(), (float)window->GetHeight() );
 
         ::ImGui::Render();
 
-        auto swapChain = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
-        auto& renderer = static_cast<VulkanRendererAPI&>( *::Desert::Graphic::Renderer::GetInstance().GetRendererAPI() );
+        auto  swapChain = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
+        auto& renderer =
+             static_cast<VulkanRendererAPI&>( *::Desert::Graphic::Renderer::GetInstance().GetRendererAPI() );
 
         // ImGui must be rendered within a render pass that target the swapchain
         renderer.BeginSwapChainRenderPass();
-        
-        ImGui_ImplVulkan_RenderDrawData( ::ImGui::GetDrawData(), swapChain->GetVulkanQueue()->GetDrawCommandBuffer() );
+
+        ImGui_ImplVulkan_RenderDrawData( ::ImGui::GetDrawData(),
+                                         swapChain->GetVulkanQueue()->GetDrawCommandBuffer() );
 
         // Reported rather than returned: this helper is void and its caller is ImGui's own render path.
         // A pass that will not close leaves the command buffer inside a render pass, and everything

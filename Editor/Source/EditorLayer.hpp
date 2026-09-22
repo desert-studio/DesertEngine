@@ -583,7 +583,7 @@ namespace Desert::Editor
         bool    m_BottomCollapsed = false;
         float   m_BottomHeight    = 0.0f;
         void    DrawBottomDrawerToggle();
-        char m_LayoutNameBuf[64]   = {};
+        char                                    m_LayoutNameBuf[64] = {};
         std::unique_ptr<Graphic::SceneRenderer> m_SceneRenderer;
         bool                                    m_OpenScenePopup        = false;
         bool                                    m_SaveSceneRequested    = false;
