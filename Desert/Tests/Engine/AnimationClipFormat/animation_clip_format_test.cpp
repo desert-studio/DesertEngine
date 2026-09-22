@@ -424,9 +424,8 @@ TEST( AnimationClipFormat, ASectionAUTHOREDTheWayTheSequencerAuthorsOneSurvivesT
     ASSERT_TRUE( Anim::AddSection( clip.Sections, "Whole clip", Anim::FrameNumber{ 0 }, clip.DurationTicks,
                                    Anim::SectionBlendType::Absolute, clip.DurationTicks )
                       .IsSuccess() );
-    ASSERT_TRUE( Anim::AddSection( clip.Sections, "Lean", Anim::FrameNumber{ 800 },
-                                   Anim::FrameNumber{ 2400 }, Anim::SectionBlendType::Additive,
-                                   clip.DurationTicks )
+    ASSERT_TRUE( Anim::AddSection( clip.Sections, "Lean", Anim::FrameNumber{ 800 }, Anim::FrameNumber{ 2400 },
+                                   Anim::SectionBlendType::Additive, clip.DurationTicks )
                       .IsSuccess() );
 
     // Narrow the second one to a strict subset, which is the case that has a list on disk at all -- and
@@ -439,10 +438,8 @@ TEST( AnimationClipFormat, ASectionAUTHOREDTheWayTheSequencerAuthorsOneSurvivesT
     ASSERT_GE( allTracks.size(), 1U );
     clip.Sections[1].Tracks = { allTracks.front() };
 
-    ASSERT_TRUE(
-         Anim::SetSectionWeightKey( clip.Sections[1], Anim::FrameNumber{ 800 }, 0.0f ).IsSuccess() );
-    ASSERT_TRUE(
-         Anim::SetSectionWeightKey( clip.Sections[1], Anim::FrameNumber{ 2400 }, 0.75f ).IsSuccess() );
+    ASSERT_TRUE( Anim::SetSectionWeightKey( clip.Sections[1], Anim::FrameNumber{ 800 }, 0.0f ).IsSuccess() );
+    ASSERT_TRUE( Anim::SetSectionWeightKey( clip.Sections[1], Anim::FrameNumber{ 2400 }, 0.75f ).IsSuccess() );
 
     const auto path  = ClipScratch() / "_Sectioned.anim";
     const auto saved = Desert::Assets::Serialization::SaveClipToFile( path, clip );

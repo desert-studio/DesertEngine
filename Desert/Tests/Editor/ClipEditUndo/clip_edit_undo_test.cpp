@@ -43,7 +43,6 @@ using Desert::Animation::BoneInfo;
 using Desert::Animation::BoneTrack;
 using Desert::Animation::BoneTransform;
 using Desert::Animation::ClipSection;
-using Desert::Animation::SectionBlendType;
 using Desert::Animation::ControlKeyer;
 using Desert::Animation::ControlKeyTarget;
 using Desert::Animation::DEFAULT_DISPLAY_RATE;
@@ -55,6 +54,7 @@ using Desert::Animation::KeySubject;
 using Desert::Animation::KeySubjectKind;
 using Desert::Animation::LocalPose;
 using Desert::Animation::PROJECT_TICK_RATE;
+using Desert::Animation::SectionBlendType;
 using Desert::Animation::Skeleton;
 using Desert::Editor::ClipPoseCommand;
 using Desert::Editor::CommandHistory;
@@ -638,8 +638,7 @@ TEST_F( ClipEditUndo, AnEntryRecordedAgainstAnotherRigIsDiscardedRatherThanAppli
     // An entry that believes the rig had three bones. `CommandHistory::Undo` discards a command that
     // reports failure and keeps walking down, which is how a stale entry is supposed to die.
     ClipPoseCommand stale( &rig.m_Animator, &rig.m_Clip, { ClipPoseCommand::BoneDelta{ 0, {}, {} } }, {}, 3, 3,
-                           rig.m_Clip.Tracks.size(), rig.m_Clip.Tracks.size(),
-                           ClipPoseCommand::SectionEdit{} );
+                           rig.m_Clip.Tracks.size(), rig.m_Clip.Tracks.size(), ClipPoseCommand::SectionEdit{} );
     EXPECT_FALSE( stale.Undo() );
     EXPECT_FALSE( stale.Redo() );
 }
@@ -691,8 +690,7 @@ TEST_F( ClipEditUndo, OneSectionEditIsOneUndoStepAndBothDirectionsRestoreItByVal
                                                     FrameNumber{ 5000 }, SectionBlendType::Additive,
                                                     rig.m_Clip.DurationTicks )
                           .IsSuccess() );
-        ASSERT_TRUE( Desert::Animation::SetSectionWeightKey( rig.m_Clip.Sections[1], FrameNumber{ 1000 },
-                                                             0.25f )
+        ASSERT_TRUE( Desert::Animation::SetSectionWeightKey( rig.m_Clip.Sections[1], FrameNumber{ 1000 }, 0.25f )
                           .IsSuccess() );
     }
     // THE SCENARIO IS GUARDED AGAINST BEING VACUOUS, as every round trip in this file is: a transaction
@@ -762,10 +760,8 @@ TEST_F( ClipEditUndo, ADragOfASectionEdgeAcrossFortyFramesIsSTILLOneUndoStep )
     constexpr int32_t kPerFrame = 500;
     for ( int frame = 1; frame <= 40; ++frame )
     {
-        ASSERT_TRUE( Desert::Animation::SetSectionRange( rig.m_Clip.Sections, 0,
-                                                         FrameNumber{ frame * kPerFrame },
-                                                         rig.m_Clip.Sections[0].End,
-                                                         rig.m_Clip.DurationTicks )
+        ASSERT_TRUE( Desert::Animation::SetSectionRange( rig.m_Clip.Sections, 0, FrameNumber{ frame * kPerFrame },
+                                                         rig.m_Clip.Sections[0].End, rig.m_Clip.DurationTicks )
                           .IsSuccess() )
              << "frame " << frame;
     }

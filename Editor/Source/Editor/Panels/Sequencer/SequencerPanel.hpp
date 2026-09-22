@@ -246,7 +246,7 @@ namespace Desert::Editor
         // ONE PLACE, because the alternative is thirteen copies of the same four lines and thirteen
         // chances for one of them to forget the transaction — which is how half an editor ends up outside
         // the undo stack (see PoseEditTransaction.hpp for the last time that happened here).
-        void RunSectionEdit( const char*                                                          what,
+        void RunSectionEdit( const char*                                                           what,
                              const std::function<Common::BoolResultStr( SectionTarget&, size_t )>& edit );
 
         // Selecting a section, in one place: the rename buffer is refilled from whichever section this

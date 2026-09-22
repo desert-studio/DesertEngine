@@ -42,8 +42,7 @@ namespace Common::Content
             if ( name.empty() )
                 return false;
             return std::all_of( name.begin(), name.end(),
-                                []( unsigned char c )
-                                { return std::isalnum( c ) != 0 || c == '_' || c == '-'; } );
+                                []( unsigned char c ) { return std::isalnum( c ) != 0 || c == '_' || c == '-'; } );
         }
     } // namespace
 
@@ -251,7 +250,7 @@ namespace Common::Content
 
     ResultStr<ChunkedWriteStats>
     WriteChunkedPaks( const fs::path& baseArchive, const ChunkPlan& plan,
-                      const std::vector<std::pair<std::string, fs::path>>&   files,
+                      const std::vector<std::pair<std::string, fs::path>>&    files,
                       const std::vector<std::pair<std::string, std::string>>& baseBlobs )
     {
         ChunkedWriteStats stats;
@@ -274,8 +273,7 @@ namespace Common::Content
         {
             const std::size_t chunk = plan.ChunkFor( AssetHandle::StableKeyForPath( source ) );
             if ( !writers[chunk]->AddFile( key, source ) )
-                return MakeFormattedError<ChunkedWriteStats>( "pak write failed for {} into {}",
-                                                              source.string(),
+                return MakeFormattedError<ChunkedWriteStats>( "pak write failed for {} into {}", source.string(),
                                                               stats.Archives[chunk].string() );
             ++stats.Entries[chunk];
             std::error_code ec;
@@ -316,7 +314,8 @@ namespace Common::Content
             // Finalize is the archive's ONLY verdict (PakFile.hpp) — a zero here means the bytes
             // never reached the disk, whatever the adds returned.
             if ( writers[i]->Finalize() == 0 )
-                return MakeFormattedError<ChunkedWriteStats>( "failed to finalize {}", stats.Archives[i].string() );
+                return MakeFormattedError<ChunkedWriteStats>( "failed to finalize {}",
+                                                              stats.Archives[i].string() );
         }
 
         return MakeSuccess( std::move( stats ) );

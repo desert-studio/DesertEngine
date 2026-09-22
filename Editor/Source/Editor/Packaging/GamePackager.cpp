@@ -148,8 +148,8 @@ namespace Desert::Editor
                          "{} exists but could not be read: {}", schemePath.string(), text.GetError() );
                 auto parsed = Common::Content::ParseChunkScheme( text.GetValue() );
                 if ( !parsed )
-                    return Common::MakeFormattedError<Common::Content::ChunkPlan>(
-                         "{}: {}", schemePath.string(), parsed.GetError() );
+                    return Common::MakeFormattedError<Common::Content::ChunkPlan>( "{}: {}", schemePath.string(),
+                                                                                   parsed.GetError() );
                 scheme = parsed.GetValue();
             }
             return Common::Content::BuildChunkPlan( Assets::ContentRegistry::Get(), scheme );
@@ -157,7 +157,7 @@ namespace Desert::Editor
 
         // What the packager says about the division, so a one-archive project and a divided one are
         // distinguishable in the log rather than by counting files in a folder afterwards.
-        std::string DivisionSummary( const Common::Content::ChunkPlan&        plan,
+        std::string DivisionSummary( const Common::Content::ChunkPlan&         plan,
                                      const Common::Content::ChunkedWriteStats& written )
         {
             if ( plan.Count() == 1 )
@@ -335,7 +335,7 @@ namespace Desert::Editor
         // AN UNDIVIDED PROJECT STILL PRODUCES EXACTLY ONE Content.dpak. The plan's base chunk is the
         // total default, so a project with no scheme file packages byte-for-byte the way it did
         // before chunks existed.
-        std::vector<std::pair<std::string, fs::path>>   contentFiles;
+        std::vector<std::pair<std::string, fs::path>>    contentFiles;
         std::vector<std::pair<std::string, std::string>> baseBlobs;
         Common::Content::ChunkedWriteStats               writtenArchives;
         std::string                                      divisionSummary;
@@ -394,16 +394,15 @@ namespace Desert::Editor
                 const Common::Utils::PakReader packed( archive );
                 if ( !packed.IsOpen() )
                     return { false,
-                             archive.string() + " could not be reopened to record the release manifest: " +
-                                  packed.OpenError(),
+                             archive.string() +
+                                  " could not be reopened to record the release manifest: " + packed.OpenError(),
                              "" };
                 // NAMED, NOT A TEMPORARY IN THE RANGE EXPRESSION. `for ( x : FromPak(p).Entries() )`
                 // compiles and is undefined before C++23: the ContentManifest dies at the end of the
                 // expression that initializes the range, and the loop then walks a freed vector. It
                 // did exactly that here — the recorded manifest came out with ZERO entries against a
                 // four-entry archive, and PackagedContent said so.
-                const Common::Utils::ContentManifest ofArchive =
-                     Common::Utils::ContentManifest::FromPak( packed );
+                const Common::Utils::ContentManifest ofArchive = Common::Utils::ContentManifest::FromPak( packed );
                 for ( const Common::Utils::ContentManifestEntry& entry : ofArchive.Entries() )
                     release.Insert( entry );
             }
@@ -610,7 +609,6 @@ namespace Desert::Editor
 
         CopyStats   stats;
         std::string error;
-
 
         // Same cook as PackageGame, for THIS build's profile: the dev pak serves the runtime the
         // developer launches next to this editor, which is built in the same configuration. (A

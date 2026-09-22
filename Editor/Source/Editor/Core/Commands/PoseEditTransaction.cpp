@@ -305,7 +305,7 @@ namespace Desert::Editor
             tracks.push_back( std::move( delta ) );
         }
 
-        ClipPoseCommand::SectionEdit sections;
+        ClipPoseCommand::SectionEdit               sections;
         const std::vector<Animation::ClipSection>& sectionsAfter = m_Clip->Sections;
         if ( sectionsAfter.size() != m_SectionsBefore.size() )
         {

@@ -33,25 +33,25 @@
 #include <string>
 #include <vector>
 
+using Desert::Animation::AddSection;
 using Desert::Animation::AnimationClip;
 using Desert::Animation::ApplySection;
 using Desert::Animation::BoneTrack;
 using Desert::Animation::BoneTransform;
+using Desert::Animation::ClearSectionWeight;
 using Desert::Animation::ClipSection;
 using Desert::Animation::FrameNumber;
 using Desert::Animation::FrameTime;
 using Desert::Animation::KeyInterp;
+using Desert::Animation::MoveSection;
 using Desert::Animation::PositionKeyFrame;
+using Desert::Animation::RemoveSection;
+using Desert::Animation::RemoveSectionWeightKey;
+using Desert::Animation::ReorderSection;
 using Desert::Animation::RotationKeyFrame;
 using Desert::Animation::ScalarKey;
 using Desert::Animation::ScaleKeyFrame;
 using Desert::Animation::SectionBlendType;
-using Desert::Animation::AddSection;
-using Desert::Animation::ClearSectionWeight;
-using Desert::Animation::MoveSection;
-using Desert::Animation::RemoveSection;
-using Desert::Animation::RemoveSectionWeightKey;
-using Desert::Animation::ReorderSection;
 using Desert::Animation::SetSectionRange;
 using Desert::Animation::SetSectionSpeaksFor;
 using Desert::Animation::SetSectionSpeaksForEveryTrack;
@@ -399,9 +399,8 @@ TEST( ClipSections, TheLATERSectionWinsAnOverlap )
 TEST( ClipSections, AddSectionRefusesARangeThatLeavesTheClip )
 {
     std::vector<ClipSection> sections;
-    const auto beyond = AddSection( sections, "late", FrameNumber{ kDuration - 10 },
-                                    FrameNumber{ kDuration + 1 }, SectionBlendType::Absolute,
-                                    FrameNumber{ kDuration } );
+    const auto beyond = AddSection( sections, "late", FrameNumber{ kDuration - 10 }, FrameNumber{ kDuration + 1 },
+                                    SectionBlendType::Absolute, FrameNumber{ kDuration } );
     EXPECT_FALSE( beyond.IsSuccess() );
     EXPECT_TRUE( sections.empty() ) << "a refused add must leave the list alone, not half-write it";
 
@@ -409,8 +408,8 @@ TEST( ClipSections, AddSectionRefusesARangeThatLeavesTheClip )
                                        SectionBlendType::Absolute, FrameNumber{ kDuration } );
     EXPECT_FALSE( backwards.IsSuccess() );
 
-    const auto unnamed = AddSection( sections, "", FrameNumber{ 0 }, FrameNumber{ 10 },
-                                     SectionBlendType::Absolute, FrameNumber{ kDuration } );
+    const auto unnamed = AddSection( sections, "", FrameNumber{ 0 }, FrameNumber{ 10 }, SectionBlendType::Absolute,
+                                     FrameNumber{ kDuration } );
     EXPECT_FALSE( unnamed.IsSuccess() ) << "a section with no name is a row the animator cannot point at";
 
     EXPECT_TRUE( sections.empty() );
@@ -428,15 +427,15 @@ TEST( ClipSections, ANewSectionIsTheCLIPWIDEIdentityAndNotAnEmptyOne )
     EXPECT_TRUE( sections[0].Tracks.empty() ) << "empty IS every track";
     EXPECT_TRUE( sections[0].Weight.empty() ) << "empty IS full weight";
     EXPECT_TRUE( sections[0].Speaks( "anything" ) );
-    EXPECT_FLOAT_EQ( sections[0].WeightAt( FrameTime{ FrameNumber{ 0 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ),
-                     1.0F );
+    EXPECT_FLOAT_EQ(
+         sections[0].WeightAt( FrameTime{ FrameNumber{ 0 }, 0.0F }, Desert::Animation::PROJECT_TICK_RATE ), 1.0F );
 }
 
 TEST( ClipSections, MovingASectionKEEPSItsLengthAndStopsAtTheClipsEndRatherThanShortening )
 {
     std::vector<ClipSection> sections;
-    ASSERT_TRUE( AddSection( sections, "s", FrameNumber{ 1000 }, FrameNumber{ 3000 },
-                             SectionBlendType::Absolute, FrameNumber{ kDuration } )
+    ASSERT_TRUE( AddSection( sections, "s", FrameNumber{ 1000 }, FrameNumber{ 3000 }, SectionBlendType::Absolute,
+                             FrameNumber{ kDuration } )
                       .IsSuccess() );
 
     ASSERT_TRUE( MoveSection( sections, 0, 500, FrameNumber{ kDuration } ).IsSuccess() );
@@ -458,25 +457,22 @@ TEST( ClipSections, MovingASectionKEEPSItsLengthAndStopsAtTheClipsEndRatherThanS
 TEST( ClipSections, ARangeEditRefusesAnEndBeforeItsStartAndAnIndexThatIsNotThere )
 {
     std::vector<ClipSection> sections;
-    ASSERT_TRUE( AddSection( sections, "s", FrameNumber{ 0 }, FrameNumber{ 1000 },
-                             SectionBlendType::Absolute, FrameNumber{ kDuration } )
+    ASSERT_TRUE( AddSection( sections, "s", FrameNumber{ 0 }, FrameNumber{ 1000 }, SectionBlendType::Absolute,
+                             FrameNumber{ kDuration } )
                       .IsSuccess() );
 
-    EXPECT_FALSE(
-         SetSectionRange( sections, 0, FrameNumber{ 900 }, FrameNumber{ 100 }, FrameNumber{ kDuration } )
-              .IsSuccess() );
+    EXPECT_FALSE( SetSectionRange( sections, 0, FrameNumber{ 900 }, FrameNumber{ 100 }, FrameNumber{ kDuration } )
+                       .IsSuccess() );
     EXPECT_EQ( sections[0].End.Value, 1000 );
 
-    EXPECT_FALSE(
-         SetSectionRange( sections, 7, FrameNumber{ 0 }, FrameNumber{ 10 }, FrameNumber{ kDuration } )
-              .IsSuccess() );
+    EXPECT_FALSE( SetSectionRange( sections, 7, FrameNumber{ 0 }, FrameNumber{ 10 }, FrameNumber{ kDuration } )
+                       .IsSuccess() );
     EXPECT_FALSE( RemoveSection( sections, 7 ).IsSuccess() );
     EXPECT_EQ( sections.size(), 1U );
 
     // start == end is ONE TICK and legal: the end is inclusive, so a range cannot be empty.
-    EXPECT_TRUE(
-         SetSectionRange( sections, 0, FrameNumber{ 500 }, FrameNumber{ 500 }, FrameNumber{ kDuration } )
-              .IsSuccess() );
+    EXPECT_TRUE( SetSectionRange( sections, 0, FrameNumber{ 500 }, FrameNumber{ 500 }, FrameNumber{ kDuration } )
+                      .IsSuccess() );
 }
 
 TEST( ClipSections, ReorderingIsWhatChangesWhichSectionWinsAnOverlap )
@@ -557,8 +553,8 @@ TEST( ClipSections, AWeightKeyIsUpsertedInTickOrderClampedAndKeepsAnExistingKeys
     EXPECT_EQ( section.Weight[1].Tick.Value, 2000 );
 
     // An authored shape survives a value change -- the same rule TrackEditing::SetTransformKey states.
-    section.Weight[1].Interp = KeyInterp::Cubic;
-    section.Weight[1].Mode   = Desert::Animation::TangentMode::User;
+    section.Weight[1].Interp       = KeyInterp::Cubic;
+    section.Weight[1].Mode         = Desert::Animation::TangentMode::User;
     section.Weight[1].LeaveTangent = 7.0F;
     ASSERT_TRUE( SetSectionWeightKey( section, FrameNumber{ 2000 }, 0.5F ).IsSuccess() );
     EXPECT_EQ( section.Weight.size(), 2U ) << "an upsert, not an insert";
@@ -571,9 +567,8 @@ TEST( ClipSections, AWeightKeyIsUpsertedInTickOrderClampedAndKeepsAnExistingKeys
     ASSERT_TRUE( SetSectionWeightKey( section, FrameNumber{ 2000 }, -3.0F ).IsSuccess() );
     EXPECT_FLOAT_EQ( section.Weight[1].Value, 0.0F );
 
-    EXPECT_FALSE( SetSectionWeightKey( section, FrameNumber{ 2000 },
-                                       std::numeric_limits<float>::quiet_NaN() )
-                       .IsSuccess() )
+    EXPECT_FALSE(
+         SetSectionWeightKey( section, FrameNumber{ 2000 }, std::numeric_limits<float>::quiet_NaN() ).IsSuccess() )
          << "not a number that was too big — a value that is not one";
     EXPECT_FLOAT_EQ( section.Weight[1].Value, 0.0F );
 }

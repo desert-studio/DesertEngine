@@ -116,9 +116,8 @@ namespace Desert::Player
         if ( !result.BasePak.empty() )
         {
             std::vector<std::string> chunkNames;
-            if ( const auto listed =
-                      Common::Utils::VFS::ReadFile( result.BasePak.parent_path() /
-                                                    std::string( Common::Content::CHUNK_MANIFEST_KEY ) ) )
+            if ( const auto listed = Common::Utils::VFS::ReadFile(
+                      result.BasePak.parent_path() / std::string( Common::Content::CHUNK_MANIFEST_KEY ) ) )
             {
                 const auto parsed = Common::Content::ParseChunkManifest( *listed );
                 if ( !parsed )
@@ -139,7 +138,7 @@ namespace Desert::Player
 
             for ( const std::string& name : chunkNames )
             {
-                const fs::path chunk = Common::Content::ChunkArchivePath( result.BasePak, name );
+                const fs::path chunk   = Common::Content::ChunkArchivePath( result.BasePak, name );
                 const auto     mounted = Common::Utils::VFS::MountPak( chunk );
                 if ( !mounted )
                 {
@@ -152,16 +151,16 @@ namespace Desert::Player
                     result.ExitCode = kContentChunkArchiveFailed;
                     result.Message  = RefusalMessage(
                          fmt::format( "The game is divided into parts and the part called '{}' could not "
-                                      "be opened, so some of its content is missing.",
-                                      name ),
+                                        "be opened, so some of its content is missing.",
+                                       name ),
                          mounted.GetError(),
                          fmt::format( "  Starting anyway would run a game with a piece of its content "
-                                      "absent, and\n  the first sign of it would be somewhere else "
-                                      "entirely.\n\n"
-                                      "  What to do: reinstall the game, or use your store's "
-                                      "\"verify/repair files\" option.\n              The missing file "
-                                      "is\n              {}",
-                                      chunk.string() ) );
+                                        "absent, and\n  the first sign of it would be somewhere else "
+                                        "entirely.\n\n"
+                                        "  What to do: reinstall the game, or use your store's "
+                                        "\"verify/repair files\" option.\n              The missing file "
+                                        "is\n              {}",
+                                       chunk.string() ) );
                     return result;
                 }
                 result.Chunks.push_back( chunk );

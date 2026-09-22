@@ -138,9 +138,9 @@ namespace
     {
         std::vector<fs::path> files;
         std::set<fs::path>    seen;
-        for ( const fs::path* root : { &Common::Constants::Path::ASSETS_PATH,
-                                       &Common::Constants::Path::COOKED_PATH,
-                                       &Common::Constants::Path::RESOURCE_PATH } )
+        for ( const fs::path* root :
+              { &Common::Constants::Path::ASSETS_PATH, &Common::Constants::Path::COOKED_PATH,
+                &Common::Constants::Path::RESOURCE_PATH } )
         {
             std::error_code ec;
             if ( !fs::exists( *root, ec ) )
@@ -174,11 +174,11 @@ namespace
     // is the census's real subject: those are exactly the files that have no registry row, so a
     // derivation-driven packer is at its most likely to drop them, and that is the defect this
     // repository has already shipped once.
-    std::vector<fs::path> OneOfEveryKindAndEveryOtherExtension( const std::vector<fs::path>& tree,
+    std::vector<fs::path> OneOfEveryKindAndEveryOtherExtension( const std::vector<fs::path>&     tree,
                                                                 std::map<std::string, fs::path>& byKind )
     {
-        std::vector<fs::path>        picked;
-        std::set<std::string>        extensionsTaken;
+        std::vector<fs::path>              picked;
+        std::set<std::string>              extensionsTaken;
         std::map<std::string, std::string> kindByExtension;
         for ( std::size_t i = 0; i < CONTENT_KIND_COUNT; ++i )
         {
@@ -230,13 +230,13 @@ namespace
              Common::Utils::FileSystem::ReadFileContent( Common::Utils::AssetRegistry::DefaultPath().string() );
         if ( !text )
             return Common::MakeFormattedError<AssetRegistry>( "the project registry could not be read: {}",
-                                                      text.GetError() );
+                                                              text.GetError() );
         return AssetRegistry::Parse( text.GetValue() );
     }
 
     fs::path MakeTempDir( const std::string& name )
     {
-        const fs::path dir = fs::temp_directory_path() / ( "desert_pak_chunks_" + name );
+        const fs::path  dir = fs::temp_directory_path() / ( "desert_pak_chunks_" + name );
         std::error_code ec;
         fs::remove_all( dir, ec );
         fs::create_directories( dir, ec );
@@ -521,10 +521,9 @@ TEST( PakChunks, TheWholeContentTreeIsAssignedAndTheAssignmentIsAFunction )
         const std::size_t chunk = plan.GetValue().ChunkFor( Common::AssetHandle::StableKeyForPath( file ) );
         ASSERT_LT( chunk, plan.GetValue().Count() ) << file.string();
 
-        const std::string key = ArchiveKey( file );
+        const std::string key  = ArchiveKey( file );
         const auto [it, fresh] = keyOwner.emplace( key, file );
-        EXPECT_TRUE( fresh ) << key << " is claimed by both " << it->second.string() << " and "
-                             << file.string();
+        EXPECT_TRUE( fresh ) << key << " is claimed by both " << it->second.string() << " and " << file.string();
     }
     EXPECT_EQ( keyOwner.size(), tree.size() );
 }
@@ -646,9 +645,8 @@ TEST( PakChunks, EveryContentKindSurvivesTheDivisionByteForByte )
     const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
     ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT );
 
-    const std::string materialKey =
-         Common::AssetHandle::StableKeyForPath( byKind.at( "Material" ) );
-    ChunkScheme scheme;
+    const std::string materialKey = Common::AssetHandle::StableKeyForPath( byKind.at( "Material" ) );
+    ChunkScheme       scheme;
     scheme.Chunks.push_back( ChunkRule{ "Region", { materialKey } } );
     const auto plan = BuildChunkPlan( registry.GetValue(), scheme );
     ASSERT_TRUE( plan ) << plan.GetError();
@@ -669,8 +667,8 @@ TEST( PakChunks, EveryContentKindSurvivesTheDivisionByteForByte )
     // and a compressed-binary kind take different paths through the writer and the reader.
     for ( const auto& [kind, file] : byKind )
     {
-        const std::string key      = ArchiveKey( file );
-        const std::string onDisk   = ReadBytes( file );
+        const std::string key         = ArchiveKey( file );
+        const std::string onDisk      = ReadBytes( file );
         const auto        fromArchive = VFS::ReadFile( dir / fs::path( key ) );
         ASSERT_TRUE( fromArchive.has_value() ) << kind << ": " << key << " did not read back";
         EXPECT_EQ( *fromArchive, onDisk ) << kind << ": " << key << " changed in the archive";
@@ -704,8 +702,8 @@ TEST( PakChunks, ADeclaredChunkThatReceivesNoFileIsARefusalAndNotAnEmptyArchive 
 
     // The chunk's root asset is not among the packed files, so the chunk gets nothing. An empty
     // archive here reads exactly like a correct small region, which is why it is refused.
-    const auto written = WriteChunkedPaks( dir / "Content.dpak", plan.GetValue(),
-                                           { { "Assets/unrelated.txt", source } } );
+    const auto written =
+         WriteChunkedPaks( dir / "Content.dpak", plan.GetValue(), { { "Assets/unrelated.txt", source } } );
     EXPECT_FALSE( written.IsSuccess() );
     EXPECT_NE( written.GetError().find( "Region" ), std::string::npos ) << written.GetError();
     // AND IT SAYS WHY, which is the whole reason this refusal exists separately. `Finalize()` already

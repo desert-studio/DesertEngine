@@ -139,9 +139,9 @@ namespace Desert::Editor
          */
         struct SectionEdit
         {
-            bool                                 Changed = false;
-            std::vector<Animation::ClipSection>  Before;
-            std::vector<Animation::ClipSection>  After;
+            bool                                Changed = false;
+            std::vector<Animation::ClipSection> Before;
+            std::vector<Animation::ClipSection> After;
         };
 
         ClipPoseCommand( Animation::Animator* animator, Animation::AnimationClip* clip,

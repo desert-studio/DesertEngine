@@ -193,8 +193,8 @@ namespace Desert::Animation
     /// checked against it rather than clamped to it, because a button that quietly authored a DIFFERENT
     /// range from the one it was asked for is how a section comes to disagree with the ruler above it.
     [[nodiscard]] Common::BoolResultStr AddSection( std::vector<ClipSection>& sections, std::string name,
-                                                    FrameNumber start, FrameNumber end,
-                                                    SectionBlendType blend, FrameNumber duration );
+                                                    FrameNumber start, FrameNumber end, SectionBlendType blend,
+                                                    FrameNumber duration );
 
     /**
      * @brief Move both ends of a section at once, KEEPING ITS LENGTH, or refuse.
@@ -243,8 +243,7 @@ namespace Desert::Animation
      *                  the clip does not have is a typo that only shows up as silence.
      */
     [[nodiscard]] Common::BoolResultStr SetSectionSpeaksFor( ClipSection& section, const std::string& track,
-                                                             bool on,
-                                                             const std::vector<std::string>& allTracks );
+                                                             bool on, const std::vector<std::string>& allTracks );
 
     /// Back to the clip-wide spelling: `Tracks` EMPTY. Not "tick every box", which is the stale copy above.
     void SetSectionSpeaksForEveryTrack( ClipSection& section );
@@ -262,8 +261,7 @@ namespace Desert::Animation
      * NEW KEYS ARE LINEAR. A weight fade is a ramp; a cubic weight overshoots past 1 and past 0 between
      * its keys, which on an Absolute section reads as the pose flying past the authored one.
      */
-    [[nodiscard]] Common::BoolResultStr SetSectionWeightKey( ClipSection& section, FrameNumber tick,
-                                                             float value );
+    [[nodiscard]] Common::BoolResultStr SetSectionWeightKey( ClipSection& section, FrameNumber tick, float value );
 
     [[nodiscard]] Common::BoolResultStr RemoveSectionWeightKey( ClipSection& section, size_t keyIndex );
 

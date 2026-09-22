@@ -179,7 +179,7 @@ namespace Common::Content
     ResultStr<ChunkedWriteStats>
     WriteChunkedPaks( const std::filesystem::path& baseArchive, const ChunkPlan& plan,
                       const std::vector<std::pair<std::string, std::filesystem::path>>& files,
-                      const std::vector<std::pair<std::string, std::string>>&            baseBlobs = {} );
+                      const std::vector<std::pair<std::string, std::string>>&           baseBlobs = {} );
 
     // The chunk names the manifest text lists, in mount order. Base is NOT in it — the base is the
     // archive the manifest was read out of.

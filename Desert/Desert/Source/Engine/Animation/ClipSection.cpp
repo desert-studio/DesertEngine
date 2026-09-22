@@ -108,13 +108,13 @@ namespace Desert::Animation
             }
             if ( end < start )
             {
-                return Common::MakeFormattedError<bool>(
-                     "a section ends before it starts: [{}, {}]", start.Value, end.Value );
+                return Common::MakeFormattedError<bool>( "a section ends before it starts: [{}, {}]", start.Value,
+                                                         end.Value );
             }
             if ( start.Value < 0 || duration < end )
             {
-                return Common::MakeFormattedError<bool>(
-                     "[{}, {}] leaves the clip, which is [0, {}]", start.Value, end.Value, duration.Value );
+                return Common::MakeFormattedError<bool>( "[{}, {}] leaves the clip, which is [0, {}]", start.Value,
+                                                         end.Value, duration.Value );
             }
             return Common::MakeSuccess( true );
         }
@@ -123,8 +123,8 @@ namespace Desert::Animation
         {
             if ( index >= sections.size() )
             {
-                return Common::MakeFormattedError<bool>( "section {} of {}: there is no such section",
-                                                         index, sections.size() );
+                return Common::MakeFormattedError<bool>( "section {} of {}: there is no such section", index,
+                                                         sections.size() );
             }
             return Common::MakeSuccess( true );
         }
@@ -283,9 +283,9 @@ namespace Desert::Animation
         }
         const float clamped = std::clamp( value, 0.0F, 1.0F );
 
-        const auto at = std::lower_bound( section.Weight.begin(), section.Weight.end(), tick,
-                                          []( const ScalarKey& key, FrameNumber want )
-                                          { return key.Tick < want; } );
+        const auto at =
+             std::lower_bound( section.Weight.begin(), section.Weight.end(), tick,
+                               []( const ScalarKey& key, FrameNumber want ) { return key.Tick < want; } );
         if ( at != section.Weight.end() && !( tick < at->Tick ) )
         {
             // AN EXISTING KEY KEEPS ITS SHAPE, exactly as `TrackEditing::SetTransformKey` does: changing a

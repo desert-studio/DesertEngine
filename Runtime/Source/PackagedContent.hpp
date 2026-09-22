@@ -55,8 +55,8 @@ namespace Desert::Player
     //   2. Content.dpak      (the default packaging name)
     //   3. the ONLY *.dpak in the folder, if exactly one exists (survives a rename of the pak alone)
     // Patch*.dpak and Chunk_*.dpak are excluded (both mount on top of the base afterwards, and
-    // neither is a game on its own — a chunk in particular carries no descriptor at all). Returns empty when there is none, and
-    // ALSO when several are candidates — in that case `ambiguous` receives their names, because "no
+    // neither is a game on its own — a chunk in particular carries no descriptor at all). Returns empty when there
+    // is none, and ALSO when several are candidates — in that case `ambiguous` receives their names, because "no
     // archive here" and "I cannot tell which of these three is the game" need different answers.
     std::filesystem::path FindBasePak( const std::filesystem::path& dir, const std::string& exeStem,
                                        std::vector<std::filesystem::path>* ambiguous = nullptr );

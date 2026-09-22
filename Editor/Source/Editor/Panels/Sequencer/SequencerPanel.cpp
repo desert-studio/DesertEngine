@@ -810,8 +810,7 @@ namespace Desert::Editor
         if ( animator != nullptr )
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — the cast the dope sheet documents
-            DrawSectionInspector( const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() ),
-                                  animator );
+            DrawSectionInspector( const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() ), animator );
         }
 
         // ---- Additive layers (advanced, collapsed by default) ----
@@ -1308,8 +1307,9 @@ namespace Desert::Editor
         return SectionTarget{ animator, clip };
     }
 
-    void SequencerPanel::RunSectionEdit(
-         const char* what, const std::function<Common::BoolResultStr( SectionTarget&, size_t )>& edit )
+    void
+    SequencerPanel::RunSectionEdit( const char*                                                           what,
+                                    const std::function<Common::BoolResultStr( SectionTarget&, size_t )>& edit )
     {
         auto target = ResolveSectionTarget();
         if ( !target )
@@ -1369,16 +1369,17 @@ namespace Desert::Editor
         for ( size_t i = 0; i < clip->Sections.size(); ++i )
         {
             const Animation::ClipSection& section = clip->Sections[i];
-            const float xa = axis.TimeToX( TickToSeconds( section.Start, clip->TickRate ) );
+            const float                   xa      = axis.TimeToX( TickToSeconds( section.Start, clip->TickRate ) );
             // THE END IS INCLUSIVE (ClipSection.hpp), so the bar is drawn to the end of that tick and not
             // to its left edge — a section ending on the last frame that stopped one frame short of the
             // ruler would read as an off-by-one in the FORMAT rather than in this line.
-            const float xb = axis.TimeToX( TickToSeconds( section.End, clip->TickRate ) );
+            const float xb       = axis.TimeToX( TickToSeconds( section.End, clip->TickRate ) );
             const bool  additive = section.Blend == Animation::SectionBlendType::Additive;
             const bool  selected = static_cast<int>( i ) == m_SelSection;
 
-            const ImU32 fill = additive ? ( selected ? IM_COL32( 190, 135, 55, 235 ) : IM_COL32( 130, 92, 38, 200 ) )
-                                        : ( selected ? IM_COL32( 78, 124, 180, 235 ) : IM_COL32( 52, 82, 122, 200 ) );
+            const ImU32 fill = additive
+                                    ? ( selected ? IM_COL32( 190, 135, 55, 235 ) : IM_COL32( 130, 92, 38, 200 ) )
+                                    : ( selected ? IM_COL32( 78, 124, 180, 235 ) : IM_COL32( 52, 82, 122, 200 ) );
             dl->AddRectFilled( ImVec2( xa, y0 + 3.0f ), ImVec2( std::max( xb, xa + 2.0f ), y1 - 3.0f ), fill,
                                3.0f );
             dl->AddRect( ImVec2( xa, y0 + 3.0f ), ImVec2( std::max( xb, xa + 2.0f ), y1 - 3.0f ),
@@ -1390,20 +1391,21 @@ namespace Desert::Editor
             // clip in the repository would be ink that says nothing.
             if ( !section.Weight.empty() && xb > xa + 2.0f )
             {
-                const float  top    = y0 + 4.0f;
-                const float  bottom = y1 - 4.0f;
-                const int    steps  = std::min( 160, static_cast<int>( xb - xa ) );
-                ImVec2       previous( 0.0f, 0.0f );
+                const float top    = y0 + 4.0f;
+                const float bottom = y1 - 4.0f;
+                const int   steps  = std::min( 160, static_cast<int>( xb - xa ) );
+                ImVec2      previous( 0.0f, 0.0f );
                 for ( int s = 0; s <= steps; ++s )
                 {
-                    const float    t       = static_cast<float>( s ) / static_cast<float>( std::max( 1, steps ) );
-                    const float    seconds = TickToSeconds( section.Start, clip->TickRate ) +
+                    const float t       = static_cast<float>( s ) / static_cast<float>( std::max( 1, steps ) );
+                    const float seconds = TickToSeconds( section.Start, clip->TickRate ) +
                                           t * ( TickToSeconds( section.End, clip->TickRate ) -
                                                 TickToSeconds( section.Start, clip->TickRate ) );
-                    const auto     at = Animation::SecondsToFrameTime( static_cast<double>( seconds ),
-                                                                       clip->TickRate );
-                    const float    w  = section.WeightAt( at, clip->TickRate );
-                    const ImVec2   pt( xa + t * ( xb - xa ), bottom - std::clamp( w, 0.0f, 1.0f ) * ( bottom - top ) );
+                    const auto at =
+                         Animation::SecondsToFrameTime( static_cast<double>( seconds ), clip->TickRate );
+                    const float  w = section.WeightAt( at, clip->TickRate );
+                    const ImVec2 pt( xa + t * ( xb - xa ),
+                                     bottom - std::clamp( w, 0.0f, 1.0f ) * ( bottom - top ) );
                     if ( s > 0 )
                     {
                         dl->AddLine( previous, pt, IM_COL32( 255, 240, 190, 235 ), 1.6f );
@@ -1548,15 +1550,13 @@ namespace Desert::Editor
                                         "track, Absolute, full weight — which is what a section that has "
                                         "not been narrowed yet MEANS." );
 
-        const bool hasSelection =
-             m_SelSection >= 0 && m_SelSection < static_cast<int>( clip->Sections.size() );
+        const bool hasSelection = m_SelSection >= 0 && m_SelSection < static_cast<int>( clip->Sections.size() );
 
         ImGui::SameLine();
         ImGui::BeginDisabled( !hasSelection );
         if ( ImGui::Button( ICON_MDI_DELETE " Delete" ) )
         {
-            RunSectionEdit( "delete section",
-                            []( SectionTarget& target, size_t index )
+            RunSectionEdit( "delete section", []( SectionTarget& target, size_t index )
                             { return Animation::RemoveSection( target.Clip->Sections, index ); } );
             SelectSection( -1 );
         }
@@ -1645,15 +1645,15 @@ namespace Desert::Editor
         bracketField();
 
         // ---- Range, in the frames the ruler shows ----
-        int first = Animation::DisplayFrameIndex( section.Start, clip->TickRate, clip->DisplayRate );
-        int last  = Animation::DisplayFrameIndex( section.End, clip->TickRate, clip->DisplayRate );
+        int       first = Animation::DisplayFrameIndex( section.Start, clip->TickRate, clip->DisplayRate );
+        int       last  = Animation::DisplayFrameIndex( section.End, clip->TickRate, clip->DisplayRate );
         const int lastFrame =
              Animation::DisplayFrameIndex( clip->DurationTicks, clip->TickRate, clip->DisplayRate );
         const double ticksPerFrame = clip->TickRate.AsDouble() / clip->DisplayRate.AsDouble();
         const auto   frameToTick   = [&]( int frame )
         {
-            return Animation::FrameNumber{ static_cast<int32_t>(
-                 std::llround( static_cast<double>( frame ) * ticksPerFrame ) ) };
+            return Animation::FrameNumber{
+                 static_cast<int32_t>( std::llround( static_cast<double>( frame ) * ticksPerFrame ) ) };
         };
 
         ImGui::SetNextItemWidth( 120.0f );
@@ -1750,8 +1750,7 @@ namespace Desert::Editor
                     if ( ImGui::Checkbox( name.c_str(), &on ) )
                     {
                         ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-                        if ( const auto set =
-                                  Animation::SetSectionSpeaksFor( section, name, on, allTracks );
+                        if ( const auto set = Animation::SetSectionSpeaksFor( section, name, on, allTracks );
                              !set.IsSuccess() )
                         {
                             ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
@@ -1783,8 +1782,7 @@ namespace Desert::Editor
         if ( ImGui::Button( ICON_MDI_KEY_PLUS " Key weight @ playhead" ) )
         {
             ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-            if ( const auto keyed =
-                      Animation::SetSectionWeightKey( section, playhead.Frame, m_SectionWeight );
+            if ( const auto keyed = Animation::SetSectionWeightKey( section, playhead.Frame, m_SectionWeight );
                  !keyed.IsSuccess() )
             {
                 ToastManager::Push( keyed.GetError(), ToastLevel::Error, 6.0f );
@@ -1811,8 +1809,7 @@ namespace Desert::Editor
             ImGui::SetNextItemWidth( 110.0f );
             if ( ImGui::DragFloat( "##weightKey", &value, 0.005f, 0.0f, 1.0f, "%.3f" ) )
             {
-                if ( const auto set =
-                          Animation::SetSectionWeightKey( section, section.Weight[k].Tick, value );
+                if ( const auto set = Animation::SetSectionWeightKey( section, section.Weight[k].Tick, value );
                      !set.IsSuccess() )
                 {
                     LOG_TRACE( "[Sequencer] weight key refused: {}", set.GetError() );
@@ -1823,8 +1820,7 @@ namespace Desert::Editor
             if ( ImGui::SmallButton( ICON_MDI_CLOSE ) )
             {
                 ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-                if ( const auto removed = Animation::RemoveSectionWeightKey( section, k );
-                     !removed.IsSuccess() )
+                if ( const auto removed = Animation::RemoveSectionWeightKey( section, k ); !removed.IsSuccess() )
                 {
                     ToastManager::Push( removed.GetError(), ToastLevel::Error, 6.0f );
                 }
@@ -1854,8 +1850,7 @@ namespace Desert::Editor
 
         ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, clip );
         const auto     added = Animation::AddSection( clip->Sections, name, start, clip->DurationTicks,
-                                                      Animation::SectionBlendType::Absolute,
-                                                      clip->DurationTicks );
+                                                      Animation::SectionBlendType::Absolute, clip->DurationTicks );
         if ( !added.IsSuccess() )
         {
             LOG_ERROR( "[Sequencer] add section: {}", added.GetError() );
@@ -1870,13 +1865,12 @@ namespace Desert::Editor
     void SequencerPanel::ReorderSelectedSection( int delta )
     {
         auto target = ResolveSectionTarget();
-        if ( !target || m_SelSection < 0 ||
-             m_SelSection >= static_cast<int>( target->Clip->Sections.size() ) )
+        if ( !target || m_SelSection < 0 || m_SelSection >= static_cast<int>( target->Clip->Sections.size() ) )
         {
             ToastManager::Push( "reorder section: select a section first", ToastLevel::Error, 6.0f );
             return;
         }
-        const size_t index = static_cast<size_t>( m_SelSection );
+        const size_t          index = static_cast<size_t>( m_SelSection );
         Common::BoolResultStr moved = Common::MakeError<bool>( "the edit did not run" );
         {
             ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, target->Clip );
@@ -1917,36 +1911,31 @@ namespace Desert::Editor
         // THEY ARE OFFERED EVEN WITH NOTHING SELECTED, and refuse in words when run. A palette that
         // hid them would make "the command is missing" and "the command did nothing" the same
         // observation from outside — the empty successful answer, one layer up.
-        actions.push_back(
-             DocumentAction{ "Add a section at the playhead", [this] { AddSectionAtPlayhead(); } } );
+        actions.push_back( DocumentAction{ "Add a section at the playhead", [this] { AddSectionAtPlayhead(); } } );
         // SAVING IS THE OTHER HALF OF AUTHORING, and it was a button too. Without it a section authored
         // through the palette exists only in memory, so "the editor can author a section" could be shown
         // and "the section it authored survives a save and a load" could not — and the second is the one
         // that matters to the animator. The same call the Save button makes, with the same refusal.
-        actions.push_back( DocumentAction{ "Save this clip to disk",
-                                           [this]
-                                           {
-                                               const auto target = ResolveSectionTarget();
-                                               if ( !target )
-                                               {
-                                                   ToastManager::Push( "save clip: no clip is open",
-                                                                       ToastLevel::Error, 6.0f );
-                                                   return;
-                                               }
-                                               const auto saved = SaveClipToDisk( *target->Clip );
-                                               if ( saved )
-                                               {
-                                                   ToastManager::Push( "Saved clip to " + saved.GetValue(),
-                                                                       ToastLevel::Success );
-                                               }
-                                               else
-                                               {
-                                                   ToastManager::Push( "Clip NOT saved: " + saved.GetError(),
-                                                                       ToastLevel::Error, 8.0f );
-                                               }
-                                           } } );
-        actions.push_back( DocumentAction{ "Select the next section",
-                                           [this]
+        actions.push_back( DocumentAction{
+             "Save this clip to disk", [this]
+             {
+                 const auto target = ResolveSectionTarget();
+                 if ( !target )
+                 {
+                     ToastManager::Push( "save clip: no clip is open", ToastLevel::Error, 6.0f );
+                     return;
+                 }
+                 const auto saved = SaveClipToDisk( *target->Clip );
+                 if ( saved )
+                 {
+                     ToastManager::Push( "Saved clip to " + saved.GetValue(), ToastLevel::Success );
+                 }
+                 else
+                 {
+                     ToastManager::Push( "Clip NOT saved: " + saved.GetError(), ToastLevel::Error, 8.0f );
+                 }
+             } } );
+        actions.push_back( DocumentAction{ "Select the next section", [this]
                                            {
                                                const auto target = ResolveSectionTarget();
                                                if ( !target || target->Clip->Sections.empty() )
@@ -1955,51 +1944,41 @@ namespace Desert::Editor
                                                                        ToastLevel::Error, 6.0f );
                                                    return;
                                                }
-                                               const int count =
-                                                    static_cast<int>( target->Clip->Sections.size() );
+                                               const int count = static_cast<int>( target->Clip->Sections.size() );
                                                SelectSection( ( m_SelSection + 1 ) % count );
                                            } } );
-        actions.push_back( DocumentAction{ "Delete the selected section",
-                                           [this]
+        actions.push_back( DocumentAction{
+             "Delete the selected section", [this]
+             {
+                 RunSectionEdit( "delete section", []( SectionTarget& target, size_t index )
+                                 { return Animation::RemoveSection( target.Clip->Sections, index ); } );
+                 SelectSection( -1 );
+             } } );
+        actions.push_back( DocumentAction{ "Set the selected section's start to the playhead", [this]
                                            {
-                                               RunSectionEdit( "delete section",
+                                               RunSectionEdit( "section start",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   return Animation::RemoveSection(
-                                                                        target.Clip->Sections, index );
+                                                                   return Animation::SetSectionRange(
+                                                                        target.Clip->Sections, index,
+                                                                        target.Animator->GetCurrentTick().Frame,
+                                                                        target.Clip->Sections[index].End,
+                                                                        target.Clip->DurationTicks );
                                                                } );
-                                               SelectSection( -1 );
                                            } } );
-        actions.push_back( DocumentAction{ "Set the selected section's start to the playhead",
-                                           [this]
+        actions.push_back( DocumentAction{ "Set the selected section's end to the playhead", [this]
                                            {
-                                               RunSectionEdit(
-                                                    "section start",
-                                                    []( SectionTarget& target, size_t index )
-                                                    {
-                                                        return Animation::SetSectionRange(
-                                                             target.Clip->Sections, index,
-                                                             target.Animator->GetCurrentTick().Frame,
-                                                             target.Clip->Sections[index].End,
-                                                             target.Clip->DurationTicks );
-                                                    } );
+                                               RunSectionEdit( "section end",
+                                                               []( SectionTarget& target, size_t index )
+                                                               {
+                                                                   return Animation::SetSectionRange(
+                                                                        target.Clip->Sections, index,
+                                                                        target.Clip->Sections[index].Start,
+                                                                        target.Animator->GetCurrentTick().Frame,
+                                                                        target.Clip->DurationTicks );
+                                                               } );
                                            } } );
-        actions.push_back( DocumentAction{ "Set the selected section's end to the playhead",
-                                           [this]
-                                           {
-                                               RunSectionEdit(
-                                                    "section end",
-                                                    []( SectionTarget& target, size_t index )
-                                                    {
-                                                        return Animation::SetSectionRange(
-                                                             target.Clip->Sections, index,
-                                                             target.Clip->Sections[index].Start,
-                                                             target.Animator->GetCurrentTick().Frame,
-                                                             target.Clip->DurationTicks );
-                                                    } );
-                                           } } );
-        actions.push_back( DocumentAction{ "Set the selected section to Additive",
-                                           [this]
+        actions.push_back( DocumentAction{ "Set the selected section to Additive", [this]
                                            {
                                                RunSectionEdit( "section blend",
                                                                []( SectionTarget& target, size_t index )
@@ -2009,8 +1988,7 @@ namespace Desert::Editor
                                                                    return Common::MakeSuccess( true );
                                                                } );
                                            } } );
-        actions.push_back( DocumentAction{ "Set the selected section to Absolute",
-                                           [this]
+        actions.push_back( DocumentAction{ "Set the selected section to Absolute", [this]
                                            {
                                                RunSectionEdit( "section blend",
                                                                []( SectionTarget& target, size_t index )
@@ -2023,32 +2001,29 @@ namespace Desert::Editor
         // TWO FIXED VALUES AND NOT ONE PARAMETERISED ENTRY, because a palette entry carries no argument.
         // Nought and one are also the two an animator actually authors — a fade-out and a fade-in — and
         // anything between them is the slider in the inspector.
-        actions.push_back( DocumentAction{ "Fade the selected section to 0 at the playhead",
-                                           [this]
+        actions.push_back( DocumentAction{ "Fade the selected section to 0 at the playhead", [this]
                                            {
-                                               RunSectionEdit(
-                                                    "section weight",
-                                                    []( SectionTarget& target, size_t index )
-                                                    {
-                                                        return Animation::SetSectionWeightKey(
-                                                             target.Clip->Sections[index],
-                                                             target.Animator->GetCurrentTick().Frame, 0.0f );
-                                                    } );
+                                               RunSectionEdit( "section weight",
+                                                               []( SectionTarget& target, size_t index )
+                                                               {
+                                                                   return Animation::SetSectionWeightKey(
+                                                                        target.Clip->Sections[index],
+                                                                        target.Animator->GetCurrentTick().Frame,
+                                                                        0.0f );
+                                                               } );
                                            } } );
-        actions.push_back( DocumentAction{ "Fade the selected section to 1 at the playhead",
-                                           [this]
+        actions.push_back( DocumentAction{ "Fade the selected section to 1 at the playhead", [this]
                                            {
-                                               RunSectionEdit(
-                                                    "section weight",
-                                                    []( SectionTarget& target, size_t index )
-                                                    {
-                                                        return Animation::SetSectionWeightKey(
-                                                             target.Clip->Sections[index],
-                                                             target.Animator->GetCurrentTick().Frame, 1.0f );
-                                                    } );
+                                               RunSectionEdit( "section weight",
+                                                               []( SectionTarget& target, size_t index )
+                                                               {
+                                                                   return Animation::SetSectionWeightKey(
+                                                                        target.Clip->Sections[index],
+                                                                        target.Animator->GetCurrentTick().Frame,
+                                                                        1.0f );
+                                                               } );
                                            } } );
-        actions.push_back( DocumentAction{ "Clear the selected section's fade",
-                                           [this]
+        actions.push_back( DocumentAction{ "Clear the selected section's fade", [this]
                                            {
                                                RunSectionEdit( "clear fade",
                                                                []( SectionTarget& target, size_t index )
@@ -2058,44 +2033,37 @@ namespace Desert::Editor
                                                                    return Common::MakeSuccess( true );
                                                                } );
                                            } } );
-        actions.push_back(
-             DocumentAction{ "Limit the selected section to the selected bone's track",
-                             [this]
-                             {
-                                 RunSectionEdit(
-                                      "section tracks",
-                                      []( SectionTarget& target, size_t index ) -> Common::BoolResultStr
-                                      {
-                                          const int bone = Core::ActiveAuthoringContext().SelectedBoneIndex();
-                                          if ( bone < 0 || bone >= static_cast<int>(
-                                                                       target.Animator->GetSkeleton()
-                                                                            .GetBones()
-                                                                            .size() ) )
-                                          {
-                                              return Common::MakeError<bool>(
-                                                   "no bone is selected — pick one in the lanes below" );
-                                          }
-                                          const std::string& name =
-                                               target.Animator->GetSkeleton().GetBones()[static_cast<size_t>(
-                                                                                              bone )]
-                                                    .Name;
-                                          // The whole list is replaced rather than narrowed: "limit to
-                                          // THIS one" is one statement, and doing it as a sequence of
-                                          // removals would leave a different list behind on every rig.
-                                          for ( const auto& track : target.Clip->Tracks )
-                                          {
-                                              if ( track.BoneName == name )
-                                              {
-                                                  target.Clip->Sections[index].Tracks = { name };
-                                                  return Common::MakeSuccess( true );
-                                              }
-                                          }
-                                          return Common::MakeFormattedError<bool>(
-                                               "the clip has no track for bone '{}'", name );
-                                      } );
-                             } } );
-        actions.push_back( DocumentAction{ "Let the selected section speak for every track",
-                                           [this]
+        actions.push_back( DocumentAction{
+             "Limit the selected section to the selected bone's track", [this]
+             {
+                 RunSectionEdit(
+                      "section tracks",
+                      []( SectionTarget& target, size_t index ) -> Common::BoolResultStr
+                      {
+                          const int bone = Core::ActiveAuthoringContext().SelectedBoneIndex();
+                          if ( bone < 0 ||
+                               bone >= static_cast<int>( target.Animator->GetSkeleton().GetBones().size() ) )
+                          {
+                              return Common::MakeError<bool>(
+                                   "no bone is selected — pick one in the lanes below" );
+                          }
+                          const std::string& name =
+                               target.Animator->GetSkeleton().GetBones()[static_cast<size_t>( bone )].Name;
+                          // The whole list is replaced rather than narrowed: "limit to
+                          // THIS one" is one statement, and doing it as a sequence of
+                          // removals would leave a different list behind on every rig.
+                          for ( const auto& track : target.Clip->Tracks )
+                          {
+                              if ( track.BoneName == name )
+                              {
+                                  target.Clip->Sections[index].Tracks = { name };
+                                  return Common::MakeSuccess( true );
+                              }
+                          }
+                          return Common::MakeFormattedError<bool>( "the clip has no track for bone '{}'", name );
+                      } );
+             } } );
+        actions.push_back( DocumentAction{ "Let the selected section speak for every track", [this]
                                            {
                                                RunSectionEdit( "section tracks",
                                                                []( SectionTarget& target, size_t index )
@@ -2105,10 +2073,10 @@ namespace Desert::Editor
                                                                    return Common::MakeSuccess( true );
                                                                } );
                                            } } );
-        actions.push_back( DocumentAction{ "Raise the selected section's priority",
-                                           [this] { ReorderSelectedSection( 1 ); } } );
-        actions.push_back( DocumentAction{ "Lower the selected section's priority",
-                                           [this] { ReorderSelectedSection( -1 ); } } );
+        actions.push_back(
+             DocumentAction{ "Raise the selected section's priority", [this] { ReorderSelectedSection( 1 ); } } );
+        actions.push_back(
+             DocumentAction{ "Lower the selected section's priority", [this] { ReorderSelectedSection( -1 ); } } );
         return actions;
     }
 
