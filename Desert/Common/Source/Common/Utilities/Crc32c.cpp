@@ -5,7 +5,12 @@
 #include <climits>
 #include <cstring>
 
-#if defined( __aarch64__ ) || defined( _M_ARM64 )
+// THE FEATURE MACRO, NOT THE ARCHITECTURE MACRO. `__aarch64__` says the instruction set; only
+// `__ARM_FEATURE_CRC32` says this compiler will emit the CRC instruction, and MSVC on ARM64 defines
+// neither it nor ships <arm_acle.h> — so keying on the architecture would be a build failure on a
+// platform this cannot be compiled on here to find out. Without it the portable table runs, which is
+// correct and slower, and the equality test still compares the two arms on whatever host it meets.
+#if defined( __aarch64__ ) && defined( __ARM_FEATURE_CRC32 )
 #define DESERT_CRC32C_ARM 1
 #include <arm_acle.h>
 #elif defined( __x86_64__ ) || defined( _M_X64 )

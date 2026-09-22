@@ -8,7 +8,8 @@
 //                                                      PakWriter::Mode::Append) — a cook operation,
 //                                                      never a delivery one
 //   PakTool list     <archive.dpak>                    every entry with its content size, its stored
-//                                                      size and its codec, then the format version
+//                                                      size, its offset and its codec, then the
+//                                                      format version
 //   PakTool extract  <archive.dpak> <outDir>           unpack all entries into outDir
 //   PakTool manifest <archive.dpak|srcDir> <out.txt>   record what this release hands out
 //                                                      [--prefix P]
@@ -112,8 +113,9 @@ namespace
         // to read" are the two questions this listing is run to answer, and one size column cannot
         // distinguish an entry that did not compress from one that was not worth compressing.
         for ( const auto& key : reader.KeysWithPrefix( "" ) )
-            std::printf( "%10ju %10ju  %-5s  %s\n", (uintmax_t)reader.EntrySize( key ).value_or( 0 ),
+            std::printf( "%10ju %10ju %10ju  %-5s  %s\n", (uintmax_t)reader.EntrySize( key ).value_or( 0 ),
                          (uintmax_t)reader.EntryStoredSize( key ).value_or( 0 ),
+                         (uintmax_t)reader.EntryOffset( key ).value_or( 0 ),
                          reader.EntryCodec( key ) == Common::Utils::PakCodec::LZ4 ? "lz4" : "store",
                          key.c_str() );
         // Deletions are printed EXPLICITLY because they are invisible everywhere else: the reserved

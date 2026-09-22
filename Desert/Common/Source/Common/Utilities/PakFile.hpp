@@ -286,8 +286,9 @@ namespace Common::Utils
         // CRC-32C of the stored bytes (0 before v3, which has no such column).
         std::optional<uint32_t> EntryCrc( const std::string& key ) const;
         // Where the payload begins in the file. Exposed because an APPEND must carry every existing
-        // entry's span across unchanged — the one thing the mode promises — and because `PakTool list`
-        // is what a person reads when an archive will not open.
+        // entry's span across unchanged — the one thing the mode promises — and because the reader's
+        // own corruption message quotes an offset, so `PakTool list` has to be able to print the same
+        // number beside the key when somebody goes looking for which entry it belongs to.
         std::optional<uint64_t> EntryOffset( const std::string& key ) const;
 
         // Keys this archive MASKS in everything mounted beneath it, parsed and validated at open (a
