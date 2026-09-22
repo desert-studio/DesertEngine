@@ -810,7 +810,17 @@ TEST( Pak, AFlippedBitIsRefusedAndTheFAILURENamesTheEntry )
         ASSERT_EQ( writer.Finalize(), 2u );
     }
 
-    const uint64_t at                = *Common::Utils::PakReader( pak ).EntryOffset( "Assets/good.bin" ) + 7;
+    // THE OFFSET IS CHECKED BEFORE IT IS USED, not asserted and dereferenced. `ASSERT_TRUE` expands
+    // to a `return`, which `bugprone-unchecked-optional-access` does not follow — so the assertion
+    // reads as a guard to a person and as nothing at all to the analyser. A plain `if` is the
+    // spelling both of them understand, and NOLINT here would silence the one check that noticed.
+    const auto offset = Common::Utils::PakReader( pak ).EntryOffset( "Assets/good.bin" );
+    if ( !offset.has_value() )
+    {
+        FAIL() << "the entry this test damages is not in the archive it just wrote — the damage would "
+                  "have landed at an arbitrary place and the refusal below would mean nothing";
+    }
+    const uint64_t at                = *offset + 7;
     std::string    bytes             = Slurp( pak );
     bytes[static_cast<size_t>( at )] = static_cast<char>( bytes[static_cast<size_t>( at )] ^ 0x01 );
     Spit( pak, bytes );
