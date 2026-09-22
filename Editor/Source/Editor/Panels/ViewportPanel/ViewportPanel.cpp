@@ -197,7 +197,7 @@ namespace Desert::Editor
         m_UIHelper = std::make_unique<Editor::UI::UIHelper>();
         m_UIHelper->Init();
 
-        m_LightGizmoRenderer = std::make_unique<LightGizmoRenderer>( scene );
+        m_LightGizmoRenderer = std::make_unique<LightGizmoRenderer>( scene, m_UIHelper.get() );
         m_AsyncLoader        = std::make_unique<AsyncMeshLoader>(); // starts the background cook worker
 
         s_Live.push_back( this );

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
+#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Desert.hpp>
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
@@ -16,7 +17,11 @@ namespace Desert::Editor
     class LightGizmoRenderer
     {
     public:
-        explicit LightGizmoRenderer( const std::shared_ptr<Desert::Core::Scene>& scene );
+        // @p uiHelper is how a billboard reaches the ICON ATLAS: the artwork is an .svg baked to a
+        // distance field and drawn as an ImGui image, and the ImTextureID for an engine image is the
+        // helper's descriptor-set cache. Non-owning — the ViewportPanel owns both, and declares the
+        // helper BEFORE this renderer so it is still alive while this one is destroyed.
+        LightGizmoRenderer( const std::shared_ptr<Desert::Core::Scene>& scene, Editor::UI::UIHelper* uiHelper );
         ~LightGizmoRenderer() = default;
 
         /**
@@ -157,6 +162,7 @@ namespace Desert::Editor
 
     private:
         std::shared_ptr<Desert::Core::Scene> m_Scene;
+        Editor::UI::UIHelper*                m_UIHelper = nullptr; // see the constructor
 
         // (boneIndex, absolute-screen head position) captured each frame RenderSkeleton draws — the source
         // for PickBone. Cleared when Skeleton Edit mode is inactive so stale positions never pick.
