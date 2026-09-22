@@ -95,8 +95,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     //    directory alone — which is what every `scripts/*/RunEditor.*` launch gets, because it has
     //    already changed into `Editor/` — or moves to the executable's own folder, which is the drop.
     {
-        std::error_code                          cwdError;
-        const std::filesystem::path              here = std::filesystem::current_path( cwdError );
+        std::error_code                           cwdError;
+        const std::filesystem::path               here = std::filesystem::current_path( cwdError );
         const Desert::Project::ResourceRootLookup resources =
              Desert::Project::ResolveResourceRoot( cwdError ? std::filesystem::path{} : here, executableIn );
         if ( !resources.Explanation.empty() )
@@ -113,9 +113,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             // would silently reinterpret those paths against a different folder.
             if ( !options.Project.empty() )
             {
-                std::error_code absError;
-                const std::filesystem::path resolved =
-                     std::filesystem::absolute( options.Project, absError );
+                std::error_code             absError;
+                const std::filesystem::path resolved = std::filesystem::absolute( options.Project, absError );
                 if ( !absError )
                     options.Project = resolved.string();
             }
@@ -123,8 +122,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             std::filesystem::current_path( resources.WorkingDirectory, moveError );
             if ( moveError )
             {
-                std::fprintf( stderr, "[Engine] the engine resources are in '%s' but this process could "
-                                      "not work from there: %s\n",
+                std::fprintf( stderr,
+                              "[Engine] the engine resources are in '%s' but this process could "
+                              "not work from there: %s\n",
                               resources.WorkingDirectory.c_str(), moveError.message().c_str() );
                 std::exit( 1 );
             }
@@ -179,9 +179,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         // launched", and an explicit statement by the operator must beat an inference. What it
         // stops being is REQUIRED: with nothing set, the tree is derived from where this executable
         // is, which is how `build/Bin/<Config>/Editor` started directly now registers correctly too.
-        const char*                          fromEnvironment = std::getenv( "DESERT_ROOT" );
-        const Desert::Project::EngineRootLookup derived = Desert::Project::DeriveEngineRoot( executable );
-        const std::string                    engineRoot =
+        const char*                             fromEnvironment = std::getenv( "DESERT_ROOT" );
+        const Desert::Project::EngineRootLookup derived         = Desert::Project::DeriveEngineRoot( executable );
+        const std::string                       engineRoot =
              fromEnvironment && fromEnvironment[0] ? std::string( fromEnvironment ) : derived.Root;
 
         if ( engineRoot.empty() )
@@ -226,7 +226,6 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // measured, and its frame time is the one a budget decision should be taken on.
     Common::Profiling::Profiler::Get().GpuEnabled()    = options.Shot.GpuProfile && options.Shot.GpuTiming;
     Common::Profiling::Profiler::Get().GpuPassScopes() = !options.Shot.GpuFrameOnly;
-
 
     ApplicationInfo appInfo;
     appInfo.Title = "Desert Engine — " + Desert::Editor::ProjectContext::Current().Name;

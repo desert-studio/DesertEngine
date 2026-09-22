@@ -61,8 +61,7 @@ namespace Desert::Project
         const fs::path buildDirectory  = binDirectory.parent_path();
         const fs::path root            = buildDirectory.parent_path();
 
-        if ( binDirectory.filename() == "Bin" && buildDirectory.filename() == "build" &&
-             IsEngineRoot( root ) )
+        if ( binDirectory.filename() == "Bin" && buildDirectory.filename() == "build" && IsEngineRoot( root ) )
         {
             lookup.Root = root.string();
             return lookup;
@@ -148,13 +147,12 @@ namespace Desert::Project
              directory.string(), descriptors.size(), names );
     }
 
-    ResourceRootLookup ResolveResourceRoot( const fs::path& workingDirectory,
-                                            const fs::path& executableDirectory )
+    ResourceRootLookup ResolveResourceRoot( const fs::path& workingDirectory, const fs::path& executableDirectory )
     {
         ResourceRootLookup lookup;
 
         std::error_code ec;
-        const fs::path   marker = fs::path( "Resources" ) / "Shaders";
+        const fs::path  marker = fs::path( "Resources" ) / "Shaders";
 
         if ( fs::is_directory( workingDirectory / marker, ec ) )
             return lookup; // nothing moves - this is every existing launch
@@ -172,8 +170,7 @@ namespace Desert::Project
                           "there are no shaders, no fonts and no icons, so this stops here rather than "
                           "opening a window that can draw nothing.",
                           workingDirectory.string(),
-                          executableDirectory.empty() ? std::string( "unknown" )
-                                                      : executableDirectory.string() );
+                          executableDirectory.empty() ? std::string( "unknown" ) : executableDirectory.string() );
         return lookup;
     }
 } // namespace Desert::Project

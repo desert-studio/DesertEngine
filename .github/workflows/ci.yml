@@ -308,6 +308,21 @@ jobs:
         if: matrix.config == 'Shipping'
         run: ./scripts/CI/ShippingSymbols.sh
 
+      # THE PLAYER'S ARTIFACT, and it belongs in the SHIPPING leg rather than beside the drop: the
+      # Shipping Runtime is built here and nowhere else, and a game packaged against a Release runtime
+      # would ship the debug instruments the Shipping configuration exists to cut.
+      - name: Package the sandbox game
+        if: matrix.config == 'Shipping'
+        run: ./build/Bin/Shipping/GamePackager Editor/Desert.deproj --config Shipping --out dist/Game
+
+      - name: Upload the game
+        if: matrix.config == 'Shipping'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DesertSandbox-macOS
+          path: dist/Game/
+          retention-days: 14
+
       # Surface the test reports even when a step above failed.
       - name: Upload test reports
         if: always()
@@ -317,9 +332,18 @@ jobs:
           path: build/TestReports/
           if-no-files-found: ignore
 
-      # THE ENGINE DROP: the editor + the tools + the loose engine resources they read. NOT a game —
-      # a game is packaged by the editor's own PackageGame(), which needs an open project that CI does
-      # not have. Release only; a Debug artifact would be huge and unused.
+      # THE ENGINE DROP: the editor + the tools + the loose engine resources they read. NOT a game;
+      # the game is a SEPARATE artifact, built in the Shipping leg below.
+      #
+      # THE REASON THIS COMMENT USED TO GIVE WAS FALSE, and it kept a player-facing artifact out of CI
+      # for weeks. It said a game "is packaged by the editor's own PackageGame(), which needs an open
+      # project that CI does not have". Measured 2026-09-22, both halves wrong: `PackageGame` touches
+      # no renderer, no VkDevice, no Application and no editor singleton — `Desert/Tests/Editor/
+      # PackagedContent` has been calling it inside a gtest binary on both platforms for weeks — and
+      # `Editor/Desert.deproj` is tracked, so CI has had a project all along. `Tools/GamePackager` is
+      # that call with a `main` around it, not a second packaging system.
+      #
+      # Release only for the drop; a Debug artifact would be huge and unused.
       #
       # This comment used to say "binaries + Content.dpak (built with the same PakTool the Runtime
       # mounts) + loose Resources", and П5 measured that claim false on 2026-09-08: the pak's only

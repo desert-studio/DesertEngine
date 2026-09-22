@@ -31,7 +31,7 @@ namespace
 {
     fs::path FreshDirectory( const std::string& name )
     {
-        const fs::path directory = fs::temp_directory_path() / ( "desert_startup_" + name );
+        const fs::path  directory = fs::temp_directory_path() / ( "desert_startup_" + name );
         std::error_code ec;
         fs::remove_all( directory, ec );
         fs::create_directories( directory, ec );
@@ -68,7 +68,7 @@ namespace
     // to start the editor with. The executable sits where the build puts it.
     fs::path MakeCheckout( const std::string& name )
     {
-        const fs::path root = FreshDirectory( name );
+        const fs::path  root = FreshDirectory( name );
         std::error_code ec;
         fs::create_directories( root / "Templates" / "Blank", ec );
         fs::create_directories( root / "scripts" / "MacOS", ec );
@@ -136,7 +136,7 @@ TEST( StartupLayout, HalfAnEngineRootIsNotAnEngineRoot )
     // BOTH MARKERS, NOT EITHER. `Templates/` alone is what the shared format's comment names, and a
     // rule built on it alone would call any directory with a folder of that name an engine — the
     // launcher would then be handed a root it can create projects from and cannot start.
-    const fs::path onlyTemplates = FreshDirectory( "half_templates" );
+    const fs::path  onlyTemplates = FreshDirectory( "half_templates" );
     std::error_code ec;
     fs::create_directories( onlyTemplates / "Templates", ec );
     Touch( onlyTemplates / "build" / "Bin" / "Release" / "Editor" );
@@ -164,8 +164,7 @@ TEST( StartupLayout, ADropUNZIPPEDINSIDEACheckoutStillDoesNotRegisterThatCheckou
 
     const auto lookup = DeriveEngineRoot( drop / "Editor" );
     EXPECT_TRUE( lookup.Root.empty() )
-         << "a drop sitting inside a checkout registered that checkout as the engine to start: "
-         << lookup.Root;
+         << "a drop sitting inside a checkout registered that checkout as the engine to start: " << lookup.Root;
     EXPECT_FALSE( lookup.Explanation.empty() );
 }
 
@@ -269,7 +268,7 @@ TEST( StartupLayout, ADirectoryNamedLikeADescriptorIsNotADescriptor )
     // A negative control for the extension test: `Cooked.deproj/` as a FOLDER would satisfy a
     // suffix compare on the name and then fail to parse, which is a message about JSON for a
     // problem about layout.
-    const fs::path drop = MakeDrop( "dir_named_deproj" );
+    const fs::path  drop = MakeDrop( "dir_named_deproj" );
     std::error_code ec;
     fs::create_directories( drop / "Decoy.deproj", ec );
 
@@ -291,7 +290,7 @@ TEST( StartupLayout, AWorkingDirectoryThatAlreadyHoldsTheResourcesIsLeftAlone )
     // test green, which makes it a test of nothing. So BOTH candidates hold `Resources/Shaders`
     // here, which is a real layout — a drop's Editor run from inside a checkout — and the answer
     // "do not move" can then only come from the working directory being asked FIRST.
-    const fs::path root = MakeCheckout( "cwd_has_resources" );
+    const fs::path  root = MakeCheckout( "cwd_has_resources" );
     std::error_code ec;
     fs::create_directories( root / "Editor" / "Resources" / "Shaders", ec );
     fs::create_directories( root / "build" / "Bin" / "Release" / "Resources" / "Shaders", ec );
@@ -317,7 +316,7 @@ TEST( StartupLayout, AnEmptyResourcesFolderIsNotTheEngineResources )
 {
     // The marker is `Resources/Shaders`, not `Resources`. A drop that lost its shader tree would
     // satisfy the weaker test, start, and fail 43 shaders later with a message about one shader.
-    const fs::path hollow = FreshDirectory( "hollow_resources" );
+    const fs::path  hollow = FreshDirectory( "hollow_resources" );
     std::error_code ec;
     fs::create_directories( hollow / "Resources", ec );
 
@@ -335,10 +334,8 @@ TEST( StartupLayout, WithNoResourcesAnywhereTheRefusalNamesBothPlacesItLooked )
     const auto lookup = ResolveResourceRoot( nothing, alsoEmpty );
     EXPECT_TRUE( lookup.WorkingDirectory.empty() );
     ASSERT_FALSE( lookup.Explanation.empty() );
-    EXPECT_NE( lookup.Explanation.find( nothing.filename().string() ), std::string::npos )
-         << lookup.Explanation;
-    EXPECT_NE( lookup.Explanation.find( alsoEmpty.filename().string() ), std::string::npos )
-         << lookup.Explanation;
+    EXPECT_NE( lookup.Explanation.find( nothing.filename().string() ), std::string::npos ) << lookup.Explanation;
+    EXPECT_NE( lookup.Explanation.find( alsoEmpty.filename().string() ), std::string::npos ) << lookup.Explanation;
 }
 
 // ── 4. THE RELATION BETWEEN THE PACKAGER AND THE DERIVATIONS ────────────────────────────────────
@@ -369,8 +366,9 @@ namespace
         // And NOT Templates/: a drop must not become something the launcher will pick and fail to
         // start. This is the census half of the refusal asserted above.
         EXPECT_EQ( text.find( "Templates" ), std::string::npos )
-             << what << " now ships Templates/, which would make a drop look like a checkout to the "
-                        "launcher while still carrying no way for it to start this editor";
+             << what
+             << " now ships Templates/, which would make a drop look like a checkout to the "
+                "launcher while still carrying no way for it to start this editor";
 
         // THE DROP'S OWN ASSET REGISTRY. Since T2.4 neither host walks the content roots at boot,
         // so a packaged editor with no registry preloads zero shaders and dies at the first
@@ -378,8 +376,9 @@ namespace
         // not a copy: the drop carries one scene's closure and the dev tree's registry describes
         // the whole repository.
         EXPECT_NE( text.find( "AssetRegistryTool" ), std::string::npos )
-             << what << " no longer cooks the drop's asset registry, so the packaged editor would "
-                        "start with zero shaders and abort before its first frame";
+             << what
+             << " no longer cooks the drop's asset registry, so the packaged editor would "
+                "start with zero shaders and abort before its first frame";
     }
 } // namespace
 

@@ -92,8 +92,7 @@ namespace Desert::Project
     //
     // The search is the executable's own directory and nothing else — not the working directory, not
     // an ancestor. A second place to look is a second rule, and two rules disagree eventually.
-    [[nodiscard]] Common::ResultStr<std::string>
-    ProjectBesideExecutable( const std::filesystem::path& directory );
+    [[nodiscard]] Common::ResultStr<std::string> ProjectBesideExecutable( const std::filesystem::path& directory );
 
     // ── 3. WHERE `Resources/` IS ─────────────────────────────────────────────────────────────────
 
