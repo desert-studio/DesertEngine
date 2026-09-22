@@ -8,6 +8,7 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <deque>
 #include <memory>
 #include <unordered_set>
