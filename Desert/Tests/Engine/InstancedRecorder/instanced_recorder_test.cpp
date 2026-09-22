@@ -6,11 +6,18 @@
 // it, so its samplers hold the shader schema's 1x1 white default. Measured on the world scene
 // (Worlds/World_Grid8km.desce, 1024 floor cubes on `M_CheckerFloor.demat`):
 //
-//   | knob                                   | pixels moved of 560 560 |
-//   | replace u_AlbedoTexture with a         | 0 at street, 0 at mid,  |
-//   | completely different image             | 0 at altitude           |
-//   | UVTiling 500 -> 1                      | 0                       |
-//   | AlbedoColor -> red (negative control)  | 435 998 (77.78 %)       |
+//   | knob                                   | before          | after                  |
+//   | replace u_AlbedoTexture's handle       | 0 / 0 / 0       | 317 852 / 436 601 /    |
+//   | (street / mid / altitude, of 560 560)  |                 | 547 802                |
+//   | UVTiling 500 -> 1                      | 0 / 0 / 0       | 313 064 / 434 787 /    |
+//   |                                        |                 | 546 609                |
+//   | AlbedoColor -> red (positive control)  | 317 889 / 436 005 / 547 534              |
+//
+// Noise floor: 0 of 560 560, measured over three independent runs of the same binary on the same
+// scene — byte-identical PNGs, the warm-up run included. And the same texture swap on
+// MAT_ProbeGeoShadows, which holds ONE floor cube and therefore takes the PER-OBJECT path, moved
+// 490 090 pixels (87.43 %) BEFORE the fix: the texture channel was alive everywhere a draw was not
+// batched, which is why no scene in the repository ever showed this.
 //
 // The colour moved because a colour rides the Materials[] storage row, which IS per instance. The
 // texture did not, because a texture is a descriptor and a draw binds one set.
@@ -78,4 +85,10 @@ TEST( InstancedRecorder, BothInstancedCellsOfThePbrSurfaceExist )
 {
     EXPECT_NE( MeshShaderFor( MeshVertexPath::Instanced, MeshPass::Forward ), nullptr );
     EXPECT_NE( MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer ), nullptr );
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
