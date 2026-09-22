@@ -382,15 +382,23 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   `EndInteraction` exists: §971 keys the value the drag ENDED at, which means reading the buffer at
     //   the commit rather than remembering a copy from the write.
     //
+    //   and +4 Raw with A29 (369 -> 373, 854 -> 858): the pose/clip undo transaction and the command it
+    //   pushes, two pointers each. All four take ByteCommand's guard rather than a stronger one, and the
+    //   reason is a FACT about the types and not a preference: `AnimationComponent::Animator` is a
+    //   `unique_ptr`, so there is no `weak_ptr` to observe it with, and the clip lives inside an
+    //   `AnimationAsset` an eviction may unload — which is the argument `ControlKeyTarget` already makes
+    //   at its own declaration when it refuses to store one. The command reports `IsVolatile()`, so
+    //   `DropVolatile` drops it on every structural change and every selection change.
+    //
     //   THESE TWO ROWS ARRIVED ON DIFFERENT BRANCHES AND BOTH EDITED THIS NUMBER. Each was green
     //   against its own base (365 -> 367 and 365 -> 366) and the sum is neither; a merge that took
     //   either side whole would have been a number that compiles, passes review, and is wrong. The
     //   count is derived from the rows, so the rows are what to read when it moves.
-    EXPECT_EQ( CountOf( Form::Raw ), 369 );
+    EXPECT_EQ( CountOf( Form::Raw ), 373 );
     EXPECT_EQ( CountOf( Form::Shared ), 330 );
     EXPECT_EQ( CountOf( Form::Unique ), 117 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 854 )
+    EXPECT_EQ( (int)Members().size(), 858 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
