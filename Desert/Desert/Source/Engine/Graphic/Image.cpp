@@ -36,15 +36,11 @@ namespace Desert::Graphic
                     mipGenerator->GenerateMips( image );
                 }
 
-                // WHAT IT COSTS ON THE DEVICE, INTO ITS LEDGER ROW. Recorded from the SPECIFICATION here
-                // rather than left to whoever ends up holding the image, because this is the one place
-                // every 2D image in the engine passes through — the eight callers of ImageService::Register
-                // are a fraction of them. The mip tail is the 1/3 geometric series, taken only when the
-                // chain was actually asked for. See Engine/Graphic/ResourceLedger.hpp.
-                image->RecordDeviceBytes( static_cast<std::size_t>(
-                     Core::Formats::CalculateImageSize( spec.Width, spec.Height, spec.Format ) *
-                     ( spec.Mips > 1 ? 4U : 3U ) / 3U ) );
-
+                // THE SIZE IS RECORDED BY THE BACKEND'S ALLOCATION, NOT HERE. It used to be computed from
+                // the specification at this line, and "this is the one place every 2D image passes
+                // through" — the reason given — was false: seven sites (2 in VulkanFramebuffer.cpp, 5 in
+                // VulkanFallbackTextures.cpp) construct the backend image directly, which is how 320 MiB
+                // of shadow cascades reported zero bytes. See VulkanImage.cpp, beside the allocation.
                 return image;
             }
         }
@@ -75,13 +71,7 @@ namespace Desert::Graphic
                     mipGenerator->GenerateMips( image );
                 }
 
-                // Six SQUARE faces of FaceSize, and the same mip tail as the 2D case. FaceSize and not a
-                // width/height pair on purpose — see ImageCubeSpecification, where three defects came from
-                // consumers dividing a 4x3 cross back to a face and one side of the division going missing.
-                image->RecordDeviceBytes( static_cast<std::size_t>(
-                     Core::Formats::CalculateImageSize( spec.FaceSize, spec.FaceSize, spec.Format ) * 6U *
-                     ( spec.Mips > 1 ? 4U : 3U ) / 3U ) );
-
+                // Size recorded by the allocation — see VulkanImage.cpp and the note on the 2D arm above.
                 return image;
             }
         }
@@ -107,10 +97,7 @@ namespace Desert::Graphic
                     return nullptr;
                 }
 
-                // A volume is a single mip by construction (Image3DSpecification says why), so no tail.
-                image->RecordDeviceBytes( static_cast<std::size_t>(
-                     Core::Formats::CalculateImageSize( spec.Width, spec.Height, spec.Format ) * spec.Depth ) );
-
+                // Size recorded by the allocation — see VulkanImage.cpp and the note on the 2D arm above.
                 return image;
             }
         }

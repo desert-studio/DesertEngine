@@ -1,6 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -297,6 +298,24 @@ namespace Desert::Graphic::API::Vulkan
         auto allocResult = allocator->RT_AllocateImage( m_Specification.Tag, info, VMA_MEMORY_USAGE_GPU_ONLY, m_Resource.Image );
         if ( !allocResult.IsSuccess() ) return Common::MakeError<bool>( allocResult.GetError() );
         m_Resource.Allocation = allocResult.GetValue();
+
+        // ITS COST ON THE DEVICE, RECORDED WHERE THE ALLOCATION HAPPENS.
+        //
+        // THIS USED TO LIVE IN `Image2D::Create`, AND TWO FILES WENT AROUND IT. `VulkanFramebuffer.cpp`
+        // builds its colour/depth attachments and its MSAA resolves with `std::make_shared<VulkanImage2D>`
+        // directly (2 sites), and `VulkanFallbackTextures.cpp` does the same for 2D, cube and volume
+        // fallbacks (5 sites) — seven images in all took a ledger row from the `Image` base constructor
+        // and then never reported a size. The images that
+        // skipped it are the BIGGEST ones the engine owns: the log's own line says "4 cascade(s) at
+        // 2048x2048 ... = 320.0 MiB of attachments", and every one of those bytes was invisible to the
+        // only memory figure the engine prints. That is why the ledger total was a floor over 36 of 602
+        // rows on the world scene, and why `Image.hpp` claimed that every attachment goes through
+        // `Image2D::Create` — a comment, not the code.
+        //
+        // Here it cannot be skipped: an image that did not run this line did not allocate. And the figure
+        // is the allocator's, not a width x height x bytes-per-pixel product computed elsewhere — which
+        // additionally is the number that stops existing the day a format is block-compressed.
+        RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
 
         // The Tag already named the VMA allocation, which only shows up in a VMA dump. Name the VkImage
         // itself as well so a graphics debugger lists "GBuffer_attachment0" instead of "Image 1234" —
@@ -643,6 +662,24 @@ namespace Desert::Graphic::API::Vulkan
         if ( !allocResult.IsSuccess() ) return Common::MakeError<bool>( allocResult.GetError() );
         m_Resource.Allocation = allocResult.GetValue();
 
+        // ITS COST ON THE DEVICE, RECORDED WHERE THE ALLOCATION HAPPENS.
+        //
+        // THIS USED TO LIVE IN `Image2D::Create`, AND TWO FILES WENT AROUND IT. `VulkanFramebuffer.cpp`
+        // builds its colour/depth attachments and its MSAA resolves with `std::make_shared<VulkanImage2D>`
+        // directly (2 sites), and `VulkanFallbackTextures.cpp` does the same for 2D, cube and volume
+        // fallbacks (5 sites) — seven images in all took a ledger row from the `Image` base constructor
+        // and then never reported a size. The images that
+        // skipped it are the BIGGEST ones the engine owns: the log's own line says "4 cascade(s) at
+        // 2048x2048 ... = 320.0 MiB of attachments", and every one of those bytes was invisible to the
+        // only memory figure the engine prints. That is why the ledger total was a floor over 36 of 602
+        // rows on the world scene, and why `Image.hpp` claimed that every attachment goes through
+        // `Image2D::Create` — a comment, not the code.
+        //
+        // Here it cannot be skipped: an image that did not run this line did not allocate. And the figure
+        // is the allocator's, not a width x height x bytes-per-pixel product computed elsewhere — which
+        // additionally is the number that stops existing the day a format is block-compressed.
+        RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
+
         m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_CUBE, 6, m_Resource.MipLevels );
         Utils::CreateSampler( vkDevice, m_Resource.Sampler, Utils::SamplerFilterPolicy::Global );
 
@@ -817,6 +854,24 @@ namespace Desert::Graphic::API::Vulkan
         if ( !allocResult.IsSuccess() )
             return Common::MakeError<bool>( allocResult.GetError() );
         m_Resource.Allocation = allocResult.GetValue();
+
+        // ITS COST ON THE DEVICE, RECORDED WHERE THE ALLOCATION HAPPENS.
+        //
+        // THIS USED TO LIVE IN `Image2D::Create`, AND TWO FILES WENT AROUND IT. `VulkanFramebuffer.cpp`
+        // builds its colour/depth attachments and its MSAA resolves with `std::make_shared<VulkanImage2D>`
+        // directly (2 sites), and `VulkanFallbackTextures.cpp` does the same for 2D, cube and volume
+        // fallbacks (5 sites) — seven images in all took a ledger row from the `Image` base constructor
+        // and then never reported a size. The images that
+        // skipped it are the BIGGEST ones the engine owns: the log's own line says "4 cascade(s) at
+        // 2048x2048 ... = 320.0 MiB of attachments", and every one of those bytes was invisible to the
+        // only memory figure the engine prints. That is why the ledger total was a floor over 36 of 602
+        // rows on the world scene, and why `Image.hpp` claimed that every attachment goes through
+        // `Image2D::Create` — a comment, not the code.
+        //
+        // Here it cannot be skipped: an image that did not run this line did not allocate. And the figure
+        // is the allocator's, not a width x height x bytes-per-pixel product computed elsewhere — which
+        // additionally is the number that stops existing the day a format is block-compressed.
+        RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
 
         // Name the VkImage as well as the VMA allocation, so a capture lists "SkyTransmittanceLut" rather
         // than a nameless 128x128x128 volume.
