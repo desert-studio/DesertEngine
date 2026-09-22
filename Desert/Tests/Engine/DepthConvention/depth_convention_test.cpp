@@ -14,6 +14,8 @@
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 
+#include "ViewRayReference.hpp"
+
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 
@@ -341,6 +343,148 @@ TEST( DepthConvention, TheFrustumAcceptsTheVisibleRangeAndRejectsOutsideIt )
     // And outside the sides, so the near/far fix cannot have been made by loosening everything.
     EXPECT_FALSE( frustum.IsInside( glm::vec3( 100000.0f, 0.0f, -200.0f ) ) );
     EXPECT_FALSE( frustum.IsInside( glm::vec3( 0.0f, 100000.0f, -200.0f ) ) );
+}
+
+// ------------------------------------------------------------------------------------------------
+// THE BACKGROUND RAY. Reconstructing it is an agreement with the projection above: the sky passes
+// hand `WorldViewRay` a clip z of 1.0, which is the NEAR plane only because this engine is reversed-Z.
+//
+// The three tests below are on Editor/Resources/Shaders/Common/ViewRay.glslh compiled AS C++ (see
+// ViewRayReference.hpp), so they are statements about the text the GPU runs.
+//
+// WHY THEY EXIST. The HDR skybox reconstructed its ray as `inverse( Projection * View ) * clip` and
+// read `.xyz` with no perspective divide, which adds `cameraPos / near`. With a 10 cm near plane a
+// camera 200 cm up contributed a term twenty times longer than the ray, so every pixel of the sky
+// sampled one direction — the camera's own position — and the cubemap showed ONE face on all sides.
+// No frame taken from a camera at the origin can see that, and no frame at all can see it as a rule.
+// ------------------------------------------------------------------------------------------------
+
+namespace
+{
+    // What a full-screen-quad sky vertex stage actually passes in: NDC xy, near-plane z, w = 1.
+    glm::vec4 SkyQuadClip( float ndcX, float ndcY )
+    {
+        return { ndcX, ndcY, kDepthNear, 1.0f };
+    }
+
+    glm::mat4 ViewAt( const glm::vec3& eye, const glm::vec3& forward )
+    {
+        return glm::lookAt( eye, eye + forward, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+    }
+
+    // The five points a sky is judged at: centre and the four corners of the screen.
+    const std::vector<glm::vec2>& ScreenCorners()
+    {
+        static const std::vector<glm::vec2> pts = { { 0.0f, 0.0f },
+                                                    { -1.0f, -1.0f },
+                                                    { 1.0f, -1.0f },
+                                                    { -1.0f, 1.0f },
+                                                    { 1.0f, 1.0f } };
+        return pts;
+    }
+} // namespace
+
+// THE DEFECT ITSELF, as a rule. Same orientation, four wildly different camera positions: a background
+// at infinity has no parallax, so the ray must be bit-for-bit the same function of the pixel.
+TEST( DepthConvention, TheSkyRayIgnoresWhereTheCameraStands )
+{
+    const glm::mat4 projection =
+         MakePerspective( glm::radians( 45.0f ), 16.0f / 9.0f, kDefaultNearPlane, kDefaultFarPlane );
+    const glm::vec3 forward( 0.0f, 0.0f, -1.0f );
+
+    const std::vector<glm::vec3> eyes = { { 0.0f, 0.0f, 0.0f },
+                                          { 0.0f, 200.0f, 0.0f },     // the probe scene's camera
+                                          { -3000.0f, 1500.0f, 4200.0f },
+                                          { 0.0f, 500000.0f, 0.0f } }; // 5 km up, still the same sky
+
+    for ( const glm::vec2& ndc : ScreenCorners() )
+    {
+        const glm::vec3 reference = Desert::Tests::ViewRayRef::WorldViewRay(
+             projection, ViewAt( eyes.front(), forward ), SkyQuadClip( ndc.x, ndc.y ) );
+
+        for ( const glm::vec3& eye : eyes )
+        {
+            const glm::vec3 ray = Desert::Tests::ViewRayRef::WorldViewRay(
+                 projection, ViewAt( eye, forward ), SkyQuadClip( ndc.x, ndc.y ) );
+
+            // Absolute, not relative: the ray's own length is about the near plane's, so a tolerance
+            // proportional to the eye's distance would grow to admit exactly the defect being excluded.
+            EXPECT_NEAR( ray.x, reference.x, 1e-3f ) << "ndc " << ndc.x << ',' << ndc.y << " eye " << eye.y;
+            EXPECT_NEAR( ray.y, reference.y, 1e-3f ) << "ndc " << ndc.x << ',' << ndc.y << " eye " << eye.y;
+            EXPECT_NEAR( ray.z, reference.z, 1e-3f ) << "ndc " << ndc.x << ',' << ndc.y << " eye " << eye.y;
+        }
+    }
+}
+
+// The other half, and it has to be here: a reconstruction that returned a constant would pass the test
+// above perfectly. Through the middle of the screen the ray IS the direction the camera looks.
+TEST( DepthConvention, TheSkyRayFollowsWhereTheCameraLooks )
+{
+    const glm::mat4 projection =
+         MakePerspective( glm::radians( 45.0f ), 16.0f / 9.0f, kDefaultNearPlane, kDefaultFarPlane );
+    const glm::vec3 eye( 0.0f, 200.0f, 0.0f );
+
+    const std::vector<glm::vec3> forwards = { { 0.0f, 0.0f, -1.0f },  // -Z
+                                              { 1.0f, 0.0f, 0.0f },   // +X
+                                              { 0.0f, 0.0f, 1.0f },   // +Z
+                                              { -1.0f, 0.0f, 0.0f },  // -X
+                                              { 0.0f, 0.99f, -0.14f } }; // near the zenith
+
+    for ( const glm::vec3& forward : forwards )
+    {
+        const glm::vec3 ray = glm::normalize( Desert::Tests::ViewRayRef::WorldViewRay(
+             projection, ViewAt( eye, forward ), SkyQuadClip( 0.0f, 0.0f ) ) );
+        const glm::vec3 want = glm::normalize( forward );
+
+        EXPECT_NEAR( glm::dot( ray, want ), 1.0f, 1e-4f )
+             << "centre ray " << ray.x << ',' << ray.y << ',' << ray.z;
+    }
+}
+
+// And that the projection is genuinely consulted: the top edge of the screen is half the vertical field
+// of view away from the centre. An identity in place of `inverse( projection )` passes both tests above.
+TEST( DepthConvention, TheSkyRaySpreadsByTheFieldOfView )
+{
+    const float     fovY       = glm::radians( 45.0f );
+    const glm::mat4 projection = MakePerspective( fovY, 16.0f / 9.0f, kDefaultNearPlane, kDefaultFarPlane );
+    const glm::mat4 view       = ViewAt( glm::vec3( 0.0f, 200.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ) );
+
+    const glm::vec3 centre =
+         glm::normalize( Desert::Tests::ViewRayRef::WorldViewRay( projection, view, SkyQuadClip( 0.0f, 0.0f ) ) );
+    const glm::vec3 top =
+         glm::normalize( Desert::Tests::ViewRayRef::WorldViewRay( projection, view, SkyQuadClip( 0.0f, 1.0f ) ) );
+
+    EXPECT_NEAR( std::acos( std::clamp( glm::dot( centre, top ), -1.0f, 1.0f ) ), fovY * 0.5f, 1e-4f );
+
+    // The horizontal half-angle follows from the aspect, which is what makes this a test of the matrix
+    // and not of one number: atan( aspect * tan( fovY/2 ) ).
+    const glm::vec3 right =
+         glm::normalize( Desert::Tests::ViewRayRef::WorldViewRay( projection, view, SkyQuadClip( 1.0f, 0.0f ) ) );
+    const float wantX = std::atan( ( 16.0f / 9.0f ) * std::tan( fovY * 0.5f ) );
+    EXPECT_NEAR( std::acos( std::clamp( glm::dot( centre, right ), -1.0f, 1.0f ) ), wantX, 1e-4f );
+}
+
+// The ray's LENGTH is a claim too, and without this the perspective divide inside WorldViewRay is
+// unobservable: dividing a direction by a positive constant leaves the direction alone, so the divide
+// survived a mutation that removed it entirely. What it buys is that the ray lands exactly ON the near
+// plane — its component along the view axis is the near distance for EVERY pixel, which is what makes
+// the value a near-plane offset rather than an arbitrarily scaled arrow, and what keeps the procedural
+// sky's arithmetic unchanged now that it shares this text.
+TEST( DepthConvention, TheSkyRayReachesTheNearPlaneAndNoFurther )
+{
+    const glm::mat4 projection =
+         MakePerspective( glm::radians( 45.0f ), 16.0f / 9.0f, kDefaultNearPlane, kDefaultFarPlane );
+    const glm::vec3 forward( 0.0f, 0.0f, -1.0f );
+    const glm::mat4 view = ViewAt( glm::vec3( 0.0f, 200.0f, 0.0f ), forward );
+
+    for ( const glm::vec2& ndc : ScreenCorners() )
+    {
+        const glm::vec3 ray =
+             Desert::Tests::ViewRayRef::WorldViewRay( projection, view, SkyQuadClip( ndc.x, ndc.y ) );
+
+        EXPECT_NEAR( glm::dot( ray, glm::normalize( forward ) ), kDefaultNearPlane, 1e-3f )
+             << "ndc " << ndc.x << ',' << ndc.y;
+    }
 }
 
 int main( int argc, char** argv )

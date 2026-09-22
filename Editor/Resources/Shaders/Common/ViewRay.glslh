@@ -1,0 +1,40 @@
+// #pragma once
+
+// THE WORLD-SPACE VIEW RAY for a full-screen quad, and the one place the engine reconstructs it.
+//
+// WHY IT IS NOT `inverse( Projection * View ) * clip`, which is the spelling everyone reaches for first.
+// That product's inverse carries the camera's TRANSLATION. Feeding it a clip-space point with w = 1 and
+// reading `.xyz` without the perspective divide lands on
+//
+//     rotation * viewRay  +  cameraPos / near
+//
+// because the homogeneous w that comes back out is exactly 1/near. The near plane is 10 cm
+// (Core/Projection.hpp), so a camera standing 200 cm above the origin adds a term TWENTY TIMES longer
+// than the ray itself, and every pixel of the background then reads one and the same direction: the
+// camera's own position. That was the HDR skybox's defect — one face of the cubemap on all six sides,
+// and which face depended on where the camera happened to stand, not on where it looked.
+//
+// Unprojecting to VIEW space and rotating with `mat3( inverse( view ) )` drops the translation BY
+// CONSTRUCTION, so the ray cannot depend on the camera's position at all. That independence is the
+// property Desert/Tests/Engine/DepthConvention asserts over this exact text (compiled as C++), and it is
+// the only property a background at infinity has: a sky is a function of direction alone.
+//
+// It is also why the procedural sky was already written this way. Reconstructing a far-plane world point
+// and subtracting the camera position is algebraically correct and numerically not: two large world-space
+// points cancel to a small difference, and as the camera moved the surviving bits made its stars boil.
+//
+// @p clipPosition is the quad vertex's own gl_Position — NDC xy, and a z of 1.0, which under this
+// engine's reversed-Z convention is the NEAR plane. Any plane gives the same DIRECTION; the near one
+// keeps the unprojected point smallest, which is where a float has the most fraction left.
+//
+// The result is not normalized. Nothing that samples a cubemap or an analytic sky needs it to be, and
+// normalizing here would hide a zero-length ray behind a NaN instead of a black pixel.
+//
+// `vec3( viewH )` rather than `viewH.xyz`: this text is compiled BOTH as GLSL and as C++, and glm only
+// grows swizzles under GLM_FORCE_SWIZZLE, which is a workspace-wide switch that changes glm's own types.
+// The truncating constructor means the same thing in both languages and costs nothing.
+vec3 WorldViewRay(mat4 projection, mat4 view, vec4 clipPosition)
+{
+    vec4 viewH = inverse(projection) * clipPosition;
+    return mat3(inverse(view)) * (vec3(viewH) / viewH.w);
+}

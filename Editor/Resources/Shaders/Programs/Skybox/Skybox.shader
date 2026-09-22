@@ -35,12 +35,14 @@ Shader "Skybox"
             vec4 u_SkyboxParams;
         };
 
-        In(3) vec3 inUVW;
-        In(4) vec3  v_Position;
+        // The WORLD-SPACE VIEW RAY, not a position: a cubemap is sampled by direction, and the name
+        // `v_Position` is part of why this program spent its whole life reading the camera's own
+        // position as if it were one. Common/ViewRay.glslh carries the account.
+        In(3) vec3 v_ViewRay;
 
         void main()
         {
-        	oColor = texture(samplerCubeMap, v_Position) * u_SkyboxParams.x;
+        	oColor = texture(samplerCubeMap, v_ViewRay) * u_SkyboxParams.x;
         }
     }
 
@@ -48,18 +50,24 @@ Shader "Skybox"
     {
         #include <Common/QuadPositions.glslh>
         #include <Common/CameraUB.glslh>
+        #include <Common/ViewRay.glslh>
 
-        Out(3) vec3 outUVW ;
-        Out(4) vec3   v_Position ;
+        Out(3) vec3 v_ViewRay;
 
         void main()
         {
+            // z = 1.0 is the NEAR plane under reversed-Z (Core/Projection.hpp). It is not a depth
+            // decision here at all -- the Skybox pass runs with depth test AND depth write off
+            // (SkyboxRenderer.cpp) -- it is the clip-space point WorldViewRay unprojects.
             vec4 position = vec4(QUAD_POSITIONS[gl_VertexIndex], 1.0, 1.0);
         	gl_Position = position;
 
-            mat4 inverseVP = inverse(cameraUB.Projection * cameraUB.View);
-
-        	v_Position = ((inverseVP * position).xyz);
+            // WAS `inverse(Projection * View) * position`, read as .xyz with no perspective divide.
+            // That carries the camera's TRANSLATION and adds cameraPos/near to every ray: with a 10 cm
+            // near plane a camera 200 cm up drowned the ray under a term twenty times longer, and the
+            // background showed a single direction -- the camera's own position -- on all six sides.
+            // See Common/ViewRay.glslh, and Tests/Engine/DepthConvention for the rule.
+        	v_ViewRay = WorldViewRay(cameraUB.Projection, cameraUB.View, position);
         }
     }
 }
