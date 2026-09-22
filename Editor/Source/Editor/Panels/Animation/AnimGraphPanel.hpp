@@ -85,7 +85,7 @@ namespace Desert::Editor
                         const Animation::AnimationLibrary* library, Assets::AssetManager* assetManager );
         ~AnimGraphPanel() override;
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 1040.0f, 640.0f };
         }

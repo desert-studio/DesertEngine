@@ -33,7 +33,7 @@ namespace Desert::Editor
         explicit UIDebuggerPanel( std::shared_ptr<::Desert::Core::Scene> scene );
         ~UIDebuggerPanel() override;
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 560.0f, 520.0f };
         }

@@ -56,7 +56,7 @@ namespace Desert::Editor
         PhotogrammetryPanel( const std::shared_ptr<::Desert::Core::Scene>& scene, Assets::AssetManager* assets );
         ~PhotogrammetryPanel() override;
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 1040.0f, 660.0f };
         }

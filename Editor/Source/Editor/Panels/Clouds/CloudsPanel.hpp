@@ -75,7 +75,7 @@ namespace Desert::Editor
         void OnUIRender() override;
         void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override;
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 1180.0f, 780.0f };
         }

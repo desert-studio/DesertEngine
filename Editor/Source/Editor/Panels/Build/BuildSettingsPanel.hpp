@@ -29,7 +29,7 @@ namespace Desert::Editor
         {
         }
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 560.0f, 640.0f };
         }

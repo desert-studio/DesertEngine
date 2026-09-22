@@ -179,7 +179,7 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr         SetEditableProperty( const std::string&        name,
                                                                          const std::vector<float>& value ) override;
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             // TALL, and the number came from looking at it. The panel carries two square panes and a
             // paragraph of verdict under them; at 900 the map was cut off by the window's own bottom

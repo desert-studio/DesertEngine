@@ -80,7 +80,7 @@ namespace Desert::Editor
         CloudModellingVolumePanel( const Assets::AssetHandle& subject, Assets::AssetManager* assets );
         ~CloudModellingVolumePanel() override;
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 620.0f, 780.0f };
         }

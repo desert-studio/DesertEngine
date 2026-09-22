@@ -27,7 +27,7 @@ namespace Desert::Editor
     public:
         SceneValidationPanel( std::shared_ptr<::Desert::Core::Scene> scene, Assets::AssetManager* assets );
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 420.0f, 300.0f };
         }

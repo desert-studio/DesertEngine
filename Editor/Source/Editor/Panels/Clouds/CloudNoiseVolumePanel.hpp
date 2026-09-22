@@ -53,7 +53,7 @@ namespace Desert::Editor
         CloudNoiseVolumePanel( const Assets::AssetHandle& subject, Assets::AssetManager* assets );
         ~CloudNoiseVolumePanel() override;
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 560.0f, 720.0f };
         }

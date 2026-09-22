@@ -48,7 +48,7 @@ namespace Desert::Editor
     public:
         CloudTypePanel( const Assets::AssetHandle& subject, Assets::AssetManager* assets );
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 520.0f, 760.0f };
         }

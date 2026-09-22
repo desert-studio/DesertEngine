@@ -24,7 +24,7 @@ namespace Desert::Editor
     public:
         AnimLayersPanel( std::shared_ptr<::Desert::Core::Scene> scene, Animation::AnimationLibrary* library );
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 340.0f, 300.0f };
         }

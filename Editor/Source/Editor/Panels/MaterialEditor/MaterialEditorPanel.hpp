@@ -56,7 +56,7 @@ namespace Desert::Editor
                              const std::shared_ptr<Assets::AssetManager>& assetManager );
         ~MaterialEditorPanel() override;
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 760.0f, 560.0f };
         }

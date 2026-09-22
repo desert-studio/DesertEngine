@@ -72,7 +72,7 @@ namespace Desert::Editor
         void OnUIRender() override;
 
         // The scene image must reach the window edges — any padding would frame it with dead pixels.
-        glm::vec2 GetWindowPadding() const override
+        [[nodiscard]] glm::vec2 GetWindowPadding() const override
         {
             return { 0.0f, 0.0f };
         }

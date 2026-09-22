@@ -92,7 +92,7 @@ namespace Desert::Editor
         // Render2D pipelines built against it, which a submitted frame may still be executing.
         ~UIEditorPanel() override;
 
-        glm::vec2 GetDefaultSize() const override
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
             return { 900.0f, 560.0f };
         }
