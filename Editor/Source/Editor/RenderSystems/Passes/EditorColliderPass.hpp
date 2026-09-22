@@ -18,12 +18,12 @@ namespace Desert::Editor::Render
 
         // (Re)creates the line pipeline against the scene's CURRENT target framebuffer and registers
         // the pass. Call after every Scene::Init.
-        Common::BoolResultStr Install( const std::shared_ptr<Core::Scene>& scene );
+        Common::BoolResultStr Install( const std::shared_ptr<::Desert::Core::Scene>& scene );
 
     private:
         void BuildLines( std::vector<Graphic::MaterialDebugLine::LineVertex>& outLines ) const;
 
-        std::weak_ptr<Core::Scene>                  m_Scene;
+        std::weak_ptr<::Desert::Core::Scene>                  m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline>  m_Pipeline;
         std::unique_ptr<Graphic::MaterialDebugLine> m_Material;
     };

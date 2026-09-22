@@ -2,7 +2,7 @@
 
 namespace Desert::Editor::Render
 {
-    RenderRegistry::RenderRegistry( const std::shared_ptr<Core::Scene>& scene ) : m_Scene( scene )
+    RenderRegistry::RenderRegistry( const std::shared_ptr<::Desert::Core::Scene>& scene ) : m_Scene( scene )
     {
         m_GridPass = std::make_unique<EditorGridPass>();
         if ( const auto result = m_GridPass->Install( scene ); !result )

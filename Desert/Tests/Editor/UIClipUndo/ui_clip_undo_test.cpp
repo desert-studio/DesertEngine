@@ -418,3 +418,9 @@ TEST_F( UIClipUndoTest, TheComparisonSeesEveryFieldItIsAskedAbout )
     // always says "different".
     EXPECT_TRUE( SameStoredValue( base, CaptureUIClip( clip ) ) );
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}

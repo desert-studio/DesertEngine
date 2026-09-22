@@ -14,7 +14,14 @@ namespace Desert::Editor::Render
     class RenderRegistry
     {
     public:
-        RenderRegistry( const std::shared_ptr<Core::Scene>& scene );
+        // FULLY QUALIFIED, AND THAT IS THE BUG FIX. Inside `Desert::Editor::...` an unqualified `Core::`
+        // finds `Desert::Editor::Core` FIRST, and that namespace exists -- AuthoringContext.hpp and
+        // SelectionManager live in it. These headers compiled only because nothing that declared it
+        // happened to be included before them, so adding one include anywhere upstream turned every line
+        // below into "no member named 'Scene' in namespace 'Desert::Editor::Core'". EditorUIPass.cpp
+        // already carried the qualified spelling on ONE of its lines, which is what that looked like the
+        // last time somebody hit it.
+        RenderRegistry( const std::shared_ptr<::Desert::Core::Scene>& scene );
 
         void Render();
 
@@ -24,7 +31,7 @@ namespace Desert::Editor::Render
         void TickRenderTextures( Assets::AssetManager& assetManager, const Common::Timestep& ts );
 
     private:
-        std::weak_ptr<Core::Scene> m_Scene;
+        std::weak_ptr<::Desert::Core::Scene> m_Scene;
 
         std::unique_ptr<EditorGridPass>     m_GridPass;
         std::unique_ptr<EditorColliderPass> m_ColliderPass;

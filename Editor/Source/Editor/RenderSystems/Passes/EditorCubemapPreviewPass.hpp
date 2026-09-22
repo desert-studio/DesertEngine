@@ -29,7 +29,7 @@ namespace Desert::Editor::Render
 
         // (Re)creates the pipeline against the scene's CURRENT target framebuffer and registers the
         // pass. Call after every Scene::Init — the framebuffers are recreated there.
-        Common::BoolResultStr Install( const std::shared_ptr<Core::Scene>& scene );
+        Common::BoolResultStr Install( const std::shared_ptr<::Desert::Core::Scene>& scene );
 
         // What to show: the cube resolved fresh each frame, and the ball's radius in world units.
         // A null resolver — or a resolver answering null — draws nothing (the pane's refusal text is
@@ -46,7 +46,7 @@ namespace Desert::Editor::Render
         }
 
     private:
-        std::weak_ptr<Core::Scene>                      m_Scene;
+        std::weak_ptr<::Desert::Core::Scene>                      m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline>      m_Pipeline;
         std::unique_ptr<Graphic::MaterialCubemapSphere> m_Material;
         std::function<const Graphic::ImageCube*()>      m_ResolveCube;

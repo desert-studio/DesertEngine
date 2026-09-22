@@ -19,7 +19,7 @@ namespace Desert::Editor::Render
 
         // (Re)creates the Render2D pipeline against the scene's CURRENT target framebuffer and registers
         // the pass. Call after every Scene::Init — the framebuffers are recreated there.
-        Common::BoolResultStr Install( const std::shared_ptr<Core::Scene>& scene );
+        Common::BoolResultStr Install( const std::shared_ptr<::Desert::Core::Scene>& scene );
 
         // ADVANCE THE WORLDS THIS VIEW'S RENDER-TEXTURE ELEMENTS SHOW (Ю16). MUST be called from the
         // editor's pre-update, before any scene of this frame opens a pass: a capture records a whole
@@ -32,7 +32,7 @@ namespace Desert::Editor::Render
         }
 
     private:
-        std::weak_ptr<Core::Scene>  m_Scene;
+        std::weak_ptr<::Desert::Core::Scene>  m_Scene;
         Graphic::Render2D::Render2D m_Render2D;
 
         // The UI runtime state of THIS viewport — one cell per (canvas x this view). One EditorUIPass
