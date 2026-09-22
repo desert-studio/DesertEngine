@@ -4,9 +4,15 @@
 
 #include <gtest/gtest.h>
 
+#include <Common/Utilities/Crc32c.hpp>
+
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <random>
 #include <string>
+#include <vector>
 
 #ifndef _WIN32
 #include <csignal>
@@ -516,6 +522,473 @@ TEST( Pak, AnUnwritablePathIsRefusedAtOpenRatherThanAtFinalize )
     const std::string a = "hello";
     EXPECT_FALSE( writer.AddData( "Assets/a.txt", a.data(), a.size() ) );
     EXPECT_EQ( writer.Finalize(), 0u );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// v3: integrity, compression, migration, appending and mount provenance.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+namespace
+{
+    // The repository root, walked up from wherever the binary was started — the same approach the
+    // migration suites use, so this test does not have to be run from one exact directory.
+    fs::path RepoRoot()
+    {
+        fs::path prefix = ".";
+        for ( int up = 0; up < 6; ++up )
+        {
+            std::error_code ec;
+            if ( fs::exists( prefix / "Desert/Common/Source/Common/Utilities/PakFile.hpp", ec ) )
+                return prefix;
+            prefix /= "..";
+        }
+        return {};
+    }
+
+    std::string Slurp( const fs::path& p )
+    {
+        std::ifstream in( p, std::ios::binary );
+        return std::string( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    }
+
+    void Spit( const fs::path& p, const std::string& bytes )
+    {
+        std::ofstream out( p, std::ios::binary );
+        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+    }
+
+    template <typename T>
+    void PushPod( std::string& out, T value )
+    {
+        out.append( reinterpret_cast<const char*>( &value ), sizeof( T ) );
+    }
+
+    // A v1 or v2 archive, built by hand. There is no writer for either any more — the tree keeps ONE
+    // way to write an archive and it writes v3 — so the only honest way to prove the reader still
+    // reads them is to lay out their bytes here, which is also the only place the OLD layouts are
+    // now written down.
+    std::string LegacyArchive( int version, const std::vector<std::pair<std::string, std::string>>& entries )
+    {
+        std::string out;
+        out += version == 1 ? "DPK1" : "DPK2";
+        PushPod<uint32_t>( out, static_cast<uint32_t>( entries.size() ) );
+        const size_t indexOffsetField = out.size();
+        PushPod<uint64_t>( out, 0 );
+
+        std::vector<uint64_t> offsets;
+        for ( const auto& [key, data] : entries )
+        {
+            (void)key;
+            offsets.push_back( out.size() );
+            out += data;
+        }
+        const uint64_t indexOffset = out.size();
+        for ( size_t i = 0; i < entries.size(); ++i )
+        {
+            PushPod<uint32_t>( out, static_cast<uint32_t>( entries[i].first.size() ) );
+            out += entries[i].first;
+            PushPod<uint64_t>( out, offsets[i] );
+            PushPod<uint64_t>( out, entries[i].second.size() );
+            if ( version == 2 )
+                PushPod<uint64_t>( out, Common::Utils::PakContentHash( entries[i].second.data(),
+                                                                       entries[i].second.size() ) );
+        }
+        std::memcpy( out.data() + indexOffsetField, &indexOffset, sizeof( indexOffset ) );
+        return out;
+    }
+} // namespace
+
+// THE FORMAT IS A BYTE LAYOUT, so it is pinned as one. The build already refuses a host whose byte
+// order or type widths would break it (PakFile.cpp's static_asserts), and this is the other half:
+// what the writer ACTUALLY emits, field by field, at known offsets. Windows is the primary shipping
+// target and this machine is not Windows — a green macOS sweep is not a green build — so the check
+// that matters is one that names the bytes rather than round-tripping them through the same code on
+// one platform.
+TEST( Pak, TheV3RecordLayoutIsPinnedByteForByte )
+{
+    const fs::path dir = MakeTempDir();
+    const fs::path pak = dir / "layout.dpak";
+    {
+        Common::Utils::PakWriter writer( pak );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "a", "xyz", 3 ) ); // 3 bytes never compress: stored verbatim
+        ASSERT_EQ( writer.Finalize(), 1u );
+    }
+
+    const std::string bytes = Slurp( pak );
+    // header(16) + blob(3) + record(4 + 1 + 8 + 8 + 8 + 8 + 4 + 4)
+    ASSERT_EQ( bytes.size(), 16u + 3u + 45u );
+    EXPECT_EQ( bytes.substr( 0, 4 ), "DPK3" );
+
+    const auto u32At = [&]( size_t at ) { uint32_t v = 0; std::memcpy( &v, bytes.data() + at, 4 ); return v; };
+    const auto u64At = [&]( size_t at ) { uint64_t v = 0; std::memcpy( &v, bytes.data() + at, 8 ); return v; };
+
+    EXPECT_EQ( u32At( 4 ), 1u );   // entry count
+    EXPECT_EQ( u64At( 8 ), 19u );  // index offset = header + the one blob
+    EXPECT_EQ( bytes.substr( 16, 3 ), "xyz" );
+    EXPECT_EQ( u32At( 19 ), 1u );  // path length
+    EXPECT_EQ( bytes[23], 'a' );
+    EXPECT_EQ( u64At( 24 ), 16u ); // offset
+    EXPECT_EQ( u64At( 32 ), 3u );  // stored size
+    EXPECT_EQ( u64At( 40 ), 3u );  // content size
+    EXPECT_EQ( u64At( 48 ), Common::Utils::PakContentHash( "xyz", 3 ) );
+    EXPECT_EQ( u32At( 56 ), Common::Utils::Crc32c( "xyz", 3 ) );
+    EXPECT_EQ( u32At( 60 ), static_cast<uint32_t>( Common::Utils::PakCodec::Store ) );
+
+    // The low byte first, spelled out: on a big-endian host every field above would still compare
+    // equal to itself and this is the one assertion that would not.
+    EXPECT_EQ( static_cast<unsigned char>( bytes[4] ), 1u );
+    EXPECT_EQ( static_cast<unsigned char>( bytes[7] ), 0u );
+}
+
+// EVERY KIND OF CONTENT, not one convenient file. A codec that mangles one class of bytes is the
+// defect this whole step could introduce, and a round trip on a text asset would never see it.
+TEST( Pak, EveryKindOfContentInTheTreeSurvivesPackAndReadByteForByte )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
+    const fs::path content = root / "Editor/Resources";
+
+    // Up to two files per extension, biggest first so the sample is the one most likely to compress.
+    std::map<std::string, std::vector<fs::path>> byKind;
+    std::error_code                              ec;
+    for ( auto it = fs::recursive_directory_iterator( content, ec );
+          it != fs::recursive_directory_iterator(); it.increment( ec ) )
+    {
+        if ( ec || !it->is_regular_file() )
+            continue;
+        const std::string ext = it->path().extension().string();
+        if ( ext.empty() || ext == ".DS_Store" )
+            continue;
+        if ( fs::file_size( it->path(), ec ) > 8u * 1024 * 1024 )
+            continue; // the suite must stay quick; the big ones are measured elsewhere
+        auto& list = byKind[ext];
+        if ( list.size() < 2 )
+            list.push_back( it->path() );
+    }
+
+    // A disk walk that found nothing would otherwise pass this test in silence.
+    ASSERT_GE( byKind.size(), 12u ) << "only " << byKind.size() << " kinds of content found under "
+                                    << content.string();
+
+    const fs::path pak = MakeTempDir() / "kinds.dpak";
+    std::map<std::string, std::string> expected;
+    {
+        Common::Utils::PakWriter writer( pak );
+        ASSERT_TRUE( writer.IsOpen() );
+        for ( const auto& [ext, files] : byKind )
+        {
+            for ( const auto& file : files )
+            {
+                const std::string key = file.filename().string() + ext;
+                expected[key]         = Slurp( file );
+                ASSERT_TRUE( writer.AddFile( key, file ) ) << file.string();
+            }
+        }
+        ASSERT_EQ( writer.Finalize(), expected.size() );
+    }
+
+    Common::Utils::PakReader reader( pak );
+    ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
+    EXPECT_EQ( reader.Version(), Common::Utils::PakVersion::V3 );
+
+    size_t compressed = 0;
+    size_t stored     = 0;
+    for ( const auto& [key, bytes] : expected )
+    {
+        const auto read = reader.Read( key );
+        ASSERT_TRUE( read.has_value() ) << key;
+        EXPECT_EQ( *read, bytes ) << key << " did not survive the round trip";
+        EXPECT_EQ( reader.EntrySize( key ).value_or( 0 ), bytes.size() ) << key;
+        if ( reader.EntryCodec( key ) == Common::Utils::PakCodec::LZ4 )
+        {
+            ++compressed;
+            EXPECT_LT( reader.EntryStoredSize( key ).value_or( 0 ), bytes.size() ) << key;
+        }
+        else
+        {
+            ++stored;
+            EXPECT_EQ( reader.EntryStoredSize( key ).value_or( 0 ), bytes.size() ) << key;
+        }
+    }
+
+    // BOTH ARMS MUST HAVE BEEN TAKEN. A corpus that happened to compress entirely would leave the
+    // stored path untested while the test still went green, and the reverse would mean the codec was
+    // never exercised at all — the shape of a test that measures its own absence.
+    EXPECT_GT( compressed, 0u ) << "nothing in the tree compressed; the codec path was never taken";
+    EXPECT_GT( stored, 0u ) << "everything compressed; the stored path was never taken";
+}
+
+// The knob has to be the DATA's, not a list someone maintains. Two entries, one of each kind, and the
+// packer must reach opposite conclusions about them without being told which is which.
+TEST( Pak, CompressionIsDecidedPerEntryByWhatTheBytesDo )
+{
+    const fs::path pak = MakeTempDir() / "policy.dpak";
+    const std::string repetitive( 200000, 'R' );
+    std::string       noise( 200000, '\0' );
+    std::mt19937      rng( 4242 );
+    for ( auto& c : noise )
+        c = static_cast<char>( rng() & 0xFF );
+
+    {
+        Common::Utils::PakWriter writer( pak );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "compressible", repetitive.data(), repetitive.size() ) );
+        ASSERT_TRUE( writer.AddData( "incompressible", noise.data(), noise.size() ) );
+        ASSERT_EQ( writer.Finalize(), 2u );
+    }
+
+    Common::Utils::PakReader reader( pak );
+    ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
+    EXPECT_EQ( reader.EntryCodec( "compressible" ), Common::Utils::PakCodec::LZ4 );
+    EXPECT_EQ( reader.EntryCodec( "incompressible" ), Common::Utils::PakCodec::Store );
+
+    // The threshold is a RELATION, so it is asserted as one rather than against a remembered number:
+    // a kept compression must have saved at least what the policy demands, and a stored entry must
+    // occupy exactly its content.
+    EXPECT_LE( reader.EntryStoredSize( "compressible" ).value_or( 0 ) * Common::Utils::kCompressionDenominator,
+               repetitive.size() * Common::Utils::kCompressionNumerator );
+    EXPECT_EQ( reader.EntryStoredSize( "incompressible" ).value_or( 0 ), noise.size() );
+
+    EXPECT_EQ( reader.Read( "compressible" ), repetitive );
+    EXPECT_EQ( reader.Read( "incompressible" ), noise );
+}
+
+// THE GATE THAT MUST NOT GET WEAKER. A damaged archive stopped the game before v3 and must stop it
+// after: a flipped bit in the data region leaves the header, the index and every span perfectly
+// valid, so nothing but the per-entry check can see it.
+TEST( Pak, AFlippedBitIsRefusedAndTheFAILURENamesTheEntry )
+{
+    const fs::path dir = MakeTempDir();
+    const fs::path pak = dir / "bitrot.dpak";
+    const std::string good( 40000, 'G' ); // compresses: the damage must be caught before decoding
+    const std::string other = "untouched";
+    {
+        Common::Utils::PakWriter writer( pak );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "Assets/good.bin", good.data(), good.size() ) );
+        ASSERT_TRUE( writer.AddData( "Assets/other.txt", other.data(), other.size() ) );
+        ASSERT_EQ( writer.Finalize(), 2u );
+    }
+
+    const uint64_t at = *Common::Utils::PakReader( pak ).EntryOffset( "Assets/good.bin" ) + 7;
+    std::string    bytes = Slurp( pak );
+    bytes[static_cast<size_t>( at )] = static_cast<char>( bytes[static_cast<size_t>( at )] ^ 0x01 );
+    Spit( pak, bytes );
+
+    Common::Utils::PakReader reader( pak );
+    // It still OPENS — that is the point. Every structural check passes, so the only thing between
+    // the game and corrupt content is the read's own verification.
+    ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
+    EXPECT_FALSE( reader.Read( "Assets/good.bin" ).has_value() );
+    // And the damage is confined to the entry that has it: refusing the whole archive would turn one
+    // bad sector into a game that will not start at all.
+    EXPECT_EQ( reader.Read( "Assets/other.txt" ), other );
+}
+
+TEST( Pak, AnArchiveFromAFutureVersionIsRefusedByItsName )
+{
+    const fs::path dir = MakeTempDir();
+    const fs::path pak = dir / "future.dpak";
+    std::string    bytes = LegacyArchive( 2, { { "a", "b" } } );
+    bytes[3]             = '7'; // DPK7: a version this build cannot know about
+    Spit( pak, bytes );
+
+    Common::Utils::PakReader reader( pak );
+    EXPECT_FALSE( reader.IsOpen() );
+    // "Corrupt" and "newer than this build" have opposite remedies — re-download against upgrade —
+    // and the magic is the only place the difference is legible.
+    EXPECT_NE( reader.OpenError().find( "DPK7" ), std::string::npos ) << reader.OpenError();
+    EXPECT_NE( reader.OpenError().find( "newer" ), std::string::npos ) << reader.OpenError();
+
+    // A file that is not a Desert archive at all still says so, rather than being reported as a
+    // version problem: the prefix is what separates the two.
+    const fs::path zip = dir / "notours.dpak";
+    Spit( zip, std::string( "PK\x03\x04padding-that-is-long-enough", 30 ) );
+    Common::Utils::PakReader other( zip );
+    EXPECT_FALSE( other.IsOpen() );
+    EXPECT_NE( other.OpenError().find( "not a Desert archive" ), std::string::npos ) << other.OpenError();
+}
+
+// MIGRATION IS "IT STILL READS", stated as a test rather than as a promise. There is no writer for
+// either old version any more, so these bytes are the only remaining definition of their layouts.
+TEST( Pak, ArchivesFromEveryEarlierVersionStillRead )
+{
+    const fs::path dir     = MakeTempDir();
+    const fs::path v1      = dir / "old1.dpak";
+    const fs::path v2      = dir / "old2.dpak";
+    const std::string alpha = "content of alpha";
+    const std::string beta  = "content of beta";
+    Spit( v1, LegacyArchive( 1, { { "a.txt", alpha }, { "b.txt", beta } } ) );
+    Spit( v2, LegacyArchive( 2, { { "a.txt", alpha }, { "b.txt", beta } } ) );
+
+    Common::Utils::PakReader r1( v1 );
+    ASSERT_TRUE( r1.IsOpen() ) << r1.OpenError();
+    EXPECT_EQ( r1.Version(), Common::Utils::PakVersion::V1 );
+    EXPECT_EQ( r1.Read( "a.txt" ), alpha );
+    EXPECT_EQ( r1.EntryHash( "a.txt" ).value_or( 1 ), 0u ); // v1 carries no identity column
+    EXPECT_EQ( r1.EntryCodec( "a.txt" ), Common::Utils::PakCodec::Store );
+    EXPECT_EQ( r1.EntryStoredSize( "a.txt" ).value_or( 0 ), alpha.size() );
+
+    Common::Utils::PakReader r2( v2 );
+    ASSERT_TRUE( r2.IsOpen() ) << r2.OpenError();
+    EXPECT_EQ( r2.Version(), Common::Utils::PakVersion::V2 );
+    EXPECT_EQ( r2.Read( "b.txt" ), beta );
+    EXPECT_EQ( r2.EntryHash( "b.txt" ).value_or( 0 ), Common::Utils::PakContentHash( beta.data(), beta.size() ) );
+
+    // AND A v2 ARCHIVE IS STILL VERIFIED, at v2's price. An archive already sitting on a disk must
+    // not become LESS checked because a newer format arrived.
+    std::string damaged = LegacyArchive( 2, { { "a.txt", alpha } } );
+    damaged[18]         = static_cast<char>( damaged[18] ^ 0x01 );
+    const fs::path bad  = dir / "old2bad.dpak";
+    Spit( bad, damaged );
+    Common::Utils::PakReader r2bad( bad );
+    ASSERT_TRUE( r2bad.IsOpen() ) << r2bad.OpenError();
+    EXPECT_FALSE( r2bad.Read( "a.txt" ).has_value() );
+}
+
+TEST( Pak, AppendAddsWithoutMovingOrRewritingWhatWasAlreadyThere )
+{
+    const fs::path dir = MakeTempDir();
+    const fs::path pak = dir / "grow.dpak";
+    const std::string first( 30000, 'F' );
+    const std::string second = "a second entry";
+    {
+        Common::Utils::PakWriter writer( pak );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "one.bin", first.data(), first.size() ) );
+        ASSERT_TRUE( writer.AddData( "two.txt", second.data(), second.size() ) );
+        ASSERT_EQ( writer.Finalize(), 2u );
+    }
+
+    uint64_t offsetBefore = 0;
+    uint64_t hashBefore   = 0;
+    {
+        Common::Utils::PakReader before( pak );
+        ASSERT_TRUE( before.IsOpen() );
+        offsetBefore = *before.EntryOffset( "one.bin" );
+        hashBefore   = *before.EntryHash( "one.bin" );
+    }
+
+    const std::string third( 12000, 'T' );
+    {
+        Common::Utils::PakWriter appender( pak, Common::Utils::PakWriter::Mode::Append );
+        ASSERT_TRUE( appender.IsOpen() );
+        ASSERT_TRUE( appender.AddData( "three.bin", third.data(), third.size() ) );
+        // The count is the archive's, not the batch's — two old records plus one new.
+        EXPECT_EQ( appender.Finalize(), 3u );
+    }
+
+    Common::Utils::PakReader after( pak );
+    ASSERT_TRUE( after.IsOpen() ) << after.OpenError();
+    EXPECT_EQ( after.EntryCount(), 3u );
+    EXPECT_EQ( after.Read( "one.bin" ), first );
+    EXPECT_EQ( after.Read( "two.txt" ), second );
+    EXPECT_EQ( after.Read( "three.bin" ), third );
+    // THE PROMISE OF THE MODE, asserted rather than described: the bytes already in the archive were
+    // not moved and not re-identified.
+    EXPECT_EQ( after.EntryOffset( "one.bin" ).value_or( 0 ), offsetBefore );
+    EXPECT_EQ( after.EntryHash( "one.bin" ).value_or( 0 ), hashBefore );
+    // And the new payload went past the old index rather than over it.
+    EXPECT_GT( after.EntryOffset( "three.bin" ).value_or( 0 ), offsetBefore );
+}
+
+// AN INTERRUPTED APPEND COSTS NOTHING, and this is the state a crash leaves behind: blobs (and
+// possibly an index) written past the end, and a header that has not been updated to name them.
+TEST( Pak, AnAppendInterruptedBeforeItsHeaderLeavesTheArchiveExactlyAsItWas )
+{
+    const fs::path dir = MakeTempDir();
+    const fs::path pak = dir / "torn.dpak";
+    const std::string payload( 5000, 'P' );
+    {
+        Common::Utils::PakWriter writer( pak );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "kept.bin", payload.data(), payload.size() ) );
+        ASSERT_EQ( writer.Finalize(), 1u );
+    }
+    const std::string before = Slurp( pak );
+
+    // Everything an append writes before its last act, and nothing of the last act itself.
+    {
+        std::ofstream out( pak, std::ios::binary | std::ios::app );
+        const std::string garbage( 20000, '\xAB' );
+        out.write( garbage.data(), static_cast<std::streamsize>( garbage.size() ) );
+    }
+
+    Common::Utils::PakReader reader( pak );
+    ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
+    EXPECT_EQ( reader.EntryCount(), 1u );
+    EXPECT_EQ( reader.Read( "kept.bin" ), payload );
+    // The original bytes are still there, untouched, which is what makes the rollback free: the file
+    // is a prefix of itself plus rubbish nothing points at.
+    EXPECT_EQ( Slurp( pak ).compare( 0, before.size(), before ), 0 );
+}
+
+TEST( Pak, AppendRefusesTheArchivesItWouldHaveToRewrite )
+{
+    const fs::path dir = MakeTempDir();
+
+    // A v2 archive: appending would write a v3 index into a file whose own header says v2.
+    const fs::path legacy = dir / "legacy.dpak";
+    Spit( legacy, LegacyArchive( 2, { { "a.txt", "alpha" } } ) );
+    Common::Utils::PakWriter onLegacy( legacy, Common::Utils::PakWriter::Mode::Append );
+    EXPECT_FALSE( onLegacy.IsOpen() );
+
+    // A patch archive: its deletion list was authored against a set of entries this would change.
+    const fs::path patch = dir / "patch.dpak";
+    {
+        Common::Utils::PakWriter writer( patch );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "kept.txt", "k", 1 ) );
+        ASSERT_TRUE( writer.SetDeletedKeys( { "gone.txt" } ) );
+        ASSERT_EQ( writer.Finalize(), 2u );
+    }
+    Common::Utils::PakWriter onPatch( patch, Common::Utils::PakWriter::Mode::Append );
+    EXPECT_FALSE( onPatch.IsOpen() );
+
+    // A file that is not there at all: an append is not a create in disguise.
+    Common::Utils::PakWriter onNothing( dir / "absent.dpak", Common::Utils::PakWriter::Mode::Append );
+    EXPECT_FALSE( onNothing.IsOpen() );
+}
+
+// WHICH ARCHIVE ANSWERED, asked rather than inferred. Two paks shipping the SAME key with the SAME
+// bytes is a legal and common case — a patch that re-ships a file unchanged — and it makes the
+// precedence invisible to any comparison of the content.
+TEST( Pak, TheMountStackCanBeAskedWhichArchiveServesAKey )
+{
+    const fs::path dir  = MakeTempDir();
+    const fs::path base = dir / "base.dpak";
+    const fs::path over = dir / "over.dpak";
+    const std::string same = "identical in both archives";
+    {
+        Common::Utils::PakWriter writer( base );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "Assets/same.txt", same.data(), same.size() ) );
+        ASSERT_TRUE( writer.AddData( "Assets/onlybase.txt", "b", 1 ) );
+        ASSERT_EQ( writer.Finalize(), 2u );
+    }
+    {
+        Common::Utils::PakWriter writer( over );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "Assets/same.txt", same.data(), same.size() ) );
+        ASSERT_EQ( writer.Finalize(), 1u );
+    }
+
+    const auto mountedBase = Common::Utils::VFS::MountPak( base );
+    ASSERT_TRUE( mountedBase.IsSuccess() ) << mountedBase.GetError();
+    const auto mountedOver = Common::Utils::VFS::MountPak( over );
+    ASSERT_TRUE( mountedOver.IsSuccess() ) << mountedOver.GetError();
+
+    EXPECT_EQ( Common::Utils::VFS::ReadFile( dir / "Assets/same.txt" ), same );
+    // The later mount wins, and the answer says so by name — which the bytes cannot.
+    ASSERT_TRUE( Common::Utils::VFS::SourcePak( dir / "Assets/same.txt" ).has_value() );
+    EXPECT_EQ( *Common::Utils::VFS::SourcePak( dir / "Assets/same.txt" ), over );
+    EXPECT_EQ( *Common::Utils::VFS::SourcePak( dir / "Assets/onlybase.txt" ), base );
+    // And it agrees with the read: a key nothing serves has no source either.
+    EXPECT_FALSE( Common::Utils::VFS::SourcePak( dir / "Assets/absent.txt" ).has_value() );
+    EXPECT_FALSE( Common::Utils::VFS::ReadFile( dir / "Assets/absent.txt" ).has_value() );
+
+    Common::Utils::VFS::Unmount();
 }
 
 int main( int argc, char** argv )
