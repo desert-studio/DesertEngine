@@ -16,6 +16,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/AssetEviction.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp", -- TextureAsset reads the cooked container through it
         -- A25: the closure marks the retarget's SOURCE RIG, which is reachable through nothing else,
         -- so the sweep has to link the type it probes for. The format comes with it because the asset
         -- parses its own file.

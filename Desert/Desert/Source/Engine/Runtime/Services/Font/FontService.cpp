@@ -76,11 +76,13 @@ namespace Desert::Runtime
              .Width  = baked.AtlasWidth,
              .Height = baked.AtlasHeight,
              .Format = Core::Formats::ImageFormat::RGBA8F,
-             // NO MIPS, AND NOT BY OMISSION. `GenerateMips` builds lower levels with linear blits, and
-             // averaging the three channels of a multi-channel field destroys it: the median of averaged
-             // channels is not the average of medians, so a minified glyph would reconstruct edges that
-             // are in none of its outlines. There is no CPU-supplied mip-chain upload path to hand it a
-             // correctly built chain instead. Minification is answered in the shader, where the edge ramp
+             // NO MIPS, AND NOT BY OMISSION. Averaging the three channels of a multi-channel distance
+             // field destroys it: the median of averaged channels is not the average of medians, so a
+             // minified glyph would reconstruct edges that are in none of its outlines. Since B17 there
+             // IS a CPU-supplied mip-chain upload path (Image2DSpecification::MipLevels), so the reason
+             // is now entirely the field and not the absence of a mechanism — and a correctly built MSDF
+             // chain is a separate piece of work, not a `MipLevels` table away. Minification is answered
+             // in the shader instead, where the edge ramp
              // is floored at one screen pixel (Common/SdfText.glslh); scored against a glyph's own
              // supersampled coverage, that is worst-pixel 0.22 at 5 px of rendered height and 0.21 at
              // 3 px — Desert/Tests/Engine/FontBaker has the numbers and the alternative it beat.
