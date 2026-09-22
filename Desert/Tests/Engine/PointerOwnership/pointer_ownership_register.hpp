@@ -699,6 +699,23 @@ namespace Desert::Tests::PointerCensus
           "InstancedDraw", "Mesh", Guard::FrameScoped,
           "held by the ECS component or the primitive factory for the whole frame" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "InstancedBatchSet", "Mat", Guard::FrameScoped,
+          "the material that will RECORD this set's draws, and it is owned for longer than the pass by "
+          "one of exactly two holders: MaterialService (an asset's (Instanced x pass) variant) or the "
+          "MeshRenderer itself (m_StaticInstancedMaterial / m_InstancedGBufferMaterial, both shared_ptr "
+          "members). The service is the side that can retire one, and it cannot do so inside the window: "
+          "Invalidate MOVES a material to the graveyard and CollectGarbage destroys it only at a frame "
+          "start, after WaitDeviceIdle -- while these sets are filled and drained entirely inside one "
+          "DrawStaticMeshes call" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "InstancedBatchSet", "Inst", Guard::OwnedByThisObject,
+          "the MaterialInstance to Bind Mat with, and every one of them is held by a MeshRenderer member "
+          "for longer than the pass: m_InstancedVariantInstances (a MaterialInstancePtr per asset variant, "
+          "dropped WHOLE when MaterialService's invalidation stamp moves, which is what stops an instance "
+          "outliving the material it points at) or m_StaticInstancedInstance / m_InstancedGBufferInstance. "
+          "Unlike ObjDraw::Inst it is NOT selected out of an entity's slot binding, so no entity's death "
+          "can reach it" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "GenericDraw", "Data", Guard::OwnedByThisObject,
           "points into m_GenericQueue, fully populated before the pass that builds these" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",

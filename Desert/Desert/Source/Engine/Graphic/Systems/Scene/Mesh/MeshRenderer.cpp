@@ -11,6 +11,7 @@
 #include <Engine/Graphic/VisibilityCulling.hpp>
 // MeshShaderFor / MeshVertexPath / MeshPass — the (path x pass) table this file asks for its pipelines.
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
+#include <Engine/Graphic/Materials/Mesh/InstancedRecorder.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/Units.hpp>
 
@@ -891,12 +892,84 @@ namespace Desert::Graphic::System
              m_DeferredGeometry ? m_InstancedGBufferInstance.get() : m_StaticInstancedInstance.get();
         const bool instancingOn = instancedPipeline != nullptr && instancedMaterial != nullptr &&
                                   instancedInstance != nullptr && !WireframeView();
-        auto& instTransforms = m_ScratchInstTransforms;
-        auto& instMaterials  = m_ScratchInstMaterials;
-        auto& instDraws      = m_ScratchInstDraws;
-        instTransforms.clear();
-        instMaterials.clear();
-        instDraws.clear();
+        const MeshPass instancedPass = m_DeferredGeometry ? MeshPass::GBuffer : MeshPass::Forward;
+
+        // ONE ACCUMULATOR PER RECORDING MATERIAL, and that is Г28's change. There used to be a single
+        // triple here — transforms, material rows, draws — shared by every batch in the pass, which is
+        // only a coherent shape while every batch is recorded by the SAME material. It was, and that is
+        // exactly what cost every batched surface its textures (InstancedRecorder.hpp).
+        //
+        // Reused by index so the inner vectors keep their capacity; clearing the outer vector would
+        // destroy them and put an allocation per material back into the steady state.
+        auto& instSets       = m_ScratchInstSets;
+        m_ScratchInstSetCount = 0;
+        const auto setFor    = [&]( MaterialPBR* recorder, MaterialInstance* inst ) -> InstancedBatchSet&
+        {
+            for ( std::size_t i = 0; i < m_ScratchInstSetCount; ++i )
+                if ( instSets[i]->Mat == recorder )
+                    return *instSets[i];
+            if ( m_ScratchInstSetCount == instSets.size() )
+                instSets.push_back( std::make_unique<InstancedBatchSet>() );
+            InstancedBatchSet& set = *instSets[m_ScratchInstSetCount++];
+            set.Mat                = recorder;
+            set.Inst               = inst;
+            set.Transforms.clear();
+            set.Materials.clear();
+            set.Draws.clear();
+            return set;
+        };
+
+        // The accumulator a group's batches belong to, or null when this group must not be batched at
+        // all. The DECISION is SelectInstancedRecorder — two booleans, so that the branch that was wrong
+        // is testable without a Vulkan device; this lambda is only the wiring from the answer to a
+        // material, an instance and a bucket.
+        const auto setForGroup = [&]( MaterialPBR* group ) -> InstancedBatchSet*
+        {
+            if ( !instancingOn || !group )
+                return nullptr;
+
+            auto*       materials = Runtime::ResourceRegistry::GetMaterialService();
+            const bool  hasAsset  = materials != nullptr && materials->Owns( group );
+            MaterialPBR* variant =
+                 hasAsset ? materials->GetVariant( group, MeshVertexPath::Instanced, instancedPass ) : nullptr;
+
+            switch ( SelectInstancedRecorder( hasAsset, variant != nullptr ) )
+            {
+                case InstancedRecorder::RendererSpare:
+                    return &setFor( instancedMaterial, instancedInstance );
+
+                case InstancedRecorder::AssetVariant:
+                {
+                    // The instance is per MATERIAL and is cached, because allocating one per frame would
+                    // allocate a property set per material per frame for a value that never changes.
+                    if ( materials->GetInvalidationVersion() != m_InstancedVariantStamp )
+                    {
+                        m_InstancedVariantInstances.clear();
+                        m_InstancedVariantStamp = materials->GetInvalidationVersion();
+                    }
+                    auto& cached = m_InstancedVariantInstances[variant];
+                    if ( !cached )
+                        cached = variant->CreateInstance( std::string( "InstancedBatch_" ) +
+                                                          MeshPassName( instancedPass ) );
+                    return &setFor( variant, cached.get() );
+                }
+
+                case InstancedRecorder::None:
+                {
+                    // Said once per material, not once per frame: the caller's fallback (per-object
+                    // draws) is correct but silently slower, and an ISM has no fallback at all.
+                    static std::unordered_set<const MaterialPBR*> s_WarnedNoInstancedVariant;
+                    if ( s_WarnedNoInstancedVariant.insert( group ).second )
+                        LOG_ERROR( "[MeshRenderer] A material has no (Instanced x {}) variant, so its "
+                                   "objects cannot be hardware-batched in this pass. Auto-batched statics "
+                                   "fall back to one draw each; an Instanced Static Mesh on this material "
+                                   "does NOT appear at all. MaterialFactory logged which shader refused.",
+                                   MeshPassName( instancedPass ) );
+                    return nullptr;
+                }
+            }
+            return nullptr;
+        };
 
         // The one renderer-owned forward material the G-buffer pass's spare material is serving in this
         // pass, so a second distinct one is noticed instead of silently sharing the spare's Materials[]
@@ -907,6 +980,11 @@ namespace Desert::Graphic::System
         {
             if ( objects.empty() )
                 continue;
+
+            // Where this group's batches accumulate, and WITH WHICH MATERIAL they will be recorded.
+            // Asked once per group rather than per mesh bucket: the answer depends on the material
+            // alone, and the ISM loop below asks the same question of its own materials.
+            InstancedBatchSet* groupSet = setForGroup( mat );
 
             // Sub-group this material's objects by Mesh*; a sub-group of >= 2 identical meshes collapses into
             // one instanced draw. Singletons (and everything when instancing is off / wireframe) take the
@@ -962,7 +1040,7 @@ namespace Desert::Graphic::System
                         batchable.push_back( od );
                 }
 
-                if ( instancingOn && batchable.size() >= 2 )
+                if ( groupSet != nullptr && batchable.size() >= 2 )
                 {
                     // PER-INSTANCE LOD, AND THE DEFECT IT CLOSES IS THAT BATCHING DROPPED THE LEVEL.
                     // The per-object path below computes a LOD and passes it to the draw; this path
@@ -984,17 +1062,18 @@ namespace Desert::Graphic::System
 
                     for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                     {
-                        const auto firstInstance = static_cast<uint32_t>( instTransforms.size() );
+                        const auto firstInstance = static_cast<uint32_t>( groupSet->Transforms.size() );
                         for ( std::size_t i = 0; i < batchable.size(); ++i )
                             if ( levels[i] == level )
-                                instTransforms.push_back( batchable[i].Obj->Transform );
+                                groupSet->Transforms.push_back( batchable[i].Obj->Transform );
 
-                        const uint32_t count = static_cast<uint32_t>( instTransforms.size() ) - firstInstance;
+                        const uint32_t count =
+                             static_cast<uint32_t>( groupSet->Transforms.size() ) - firstInstance;
                         if ( count < 2 )
                         {
                             // A level with a single member is cheaper as a per-object draw, and that is
                             // the same threshold the batch itself is chosen by.
-                            instTransforms.resize( firstInstance );
+                            groupSet->Transforms.resize( firstInstance );
                             for ( std::size_t i = 0; i < batchable.size(); ++i )
                                 if ( levels[i] == level )
                                     singles.push_back( batchable[i] );
@@ -1005,12 +1084,12 @@ namespace Desert::Graphic::System
                         d.Mesh          = mesh;
                         d.InstanceCount = count;
                         d.FirstInstance = firstInstance;
-                        d.MaterialIndex = static_cast<uint32_t>( instMaterials.size() );
+                        d.MaterialIndex = static_cast<uint32_t>( groupSet->Materials.size() );
                         d.LodLevel      = level;
                         // No batchable object carries overrides (filtered above), so every instance of
                         // the batch genuinely shares the parent material's effective values.
-                        instMaterials.push_back( batchable[0].Gm );
-                        instDraws.push_back( d );
+                        groupSet->Materials.push_back( batchable[0].Gm );
+                        groupSet->Draws.push_back( d );
                     }
                 }
                 else
@@ -1040,7 +1119,7 @@ namespace Desert::Graphic::System
                 auto* materials = Runtime::ResourceRegistry::GetMaterialService();
                 if ( materials->Owns( mat ) )
                 {
-                    drawMat = materials->GetPassVariant( mat, MeshPass::GBuffer );
+                    drawMat = materials->GetVariant( mat, MeshVertexPath::Static, MeshPass::GBuffer );
                 }
                 else
                 {
@@ -1178,6 +1257,14 @@ namespace Desert::Graphic::System
                 if ( !mat )
                     continue;
 
+                // THE SAME QUESTION THE AUTO-BATCHED GROUPS ASK, and it has to be asked here too: an ISM
+                // reaches this loop with the (Static x Forward) material its slot resolved to, so taking
+                // the pass's spare would draw a forest of forty thousand trees with a white 1x1 where its
+                // bark map should be. setForGroup names the refusal when the cell does not exist.
+                InstancedBatchSet* ismSet = setForGroup( mat );
+                if ( !ismSet )
+                    continue;
+
                 // PER-INSTANCE, and that is the whole point of culling an ISM at all. A batch is ONE draw
                 // call carrying N transforms, so a batch-level test would answer "some of it is on screen"
                 // and then submit every instance — a forest whose one visible tree costs the vertex stage
@@ -1211,21 +1298,21 @@ namespace Desert::Graphic::System
 
                 // ONE material row for the whole ISM, named by every one of its per-level draws: the
                 // level splits the geometry, not the material.
-                const auto materialIndex = static_cast<uint32_t>( instMaterials.size() );
-                instMaterials.push_back( BuildEffectiveMaterial( mat, ism.Material.get() ) );
+                const auto materialIndex = static_cast<uint32_t>( ismSet->Materials.size() );
+                ismSet->Materials.push_back( BuildEffectiveMaterial( mat, ism.Material.get() ) );
 
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                 {
                     InstancedDraw d;
                     d.Mesh          = ism.Mesh;
-                    d.FirstInstance = static_cast<uint32_t>( instTransforms.size() );
+                    d.FirstInstance = static_cast<uint32_t>( ismSet->Transforms.size() );
                     d.MaterialIndex = materialIndex;
                     d.LodLevel      = level;
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
-                            instTransforms.push_back( visible[i] );
-                    d.InstanceCount = static_cast<uint32_t>( instTransforms.size() ) - d.FirstInstance;
-                    instDraws.push_back( d );
+                            ismSet->Transforms.push_back( visible[i] );
+                    d.InstanceCount = static_cast<uint32_t>( ismSet->Transforms.size() ) - d.FirstInstance;
+                    ismSet->Draws.push_back( d );
                 }
             }
         }
@@ -1233,32 +1320,43 @@ namespace Desert::Graphic::System
         // ---- Instanced path: upload the packed SSBOs ONCE (at final size) before recording any instanced
         // draw, so the descriptor points at the final VkBuffer (a later grow reallocates it). Scene data is
         // uploaded a single time for the whole frame; each batch is then one instanced draw call. ----
-        if ( instancingOn && !instDraws.empty() )
+        if ( m_ScratchInstSetCount != 0 )
         {
             DESERT_PROFILE_SCOPE( "Mesh: Instanced Batches" );
-            auto* instMat  = instancedMaterial;
-            auto* instInst = instancedInstance;
-
-            if ( auto* sb = instMat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
-                sb->SetRawData( instTransforms.data(),
-                                static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
-            if ( auto* sb = instMat->Get<StorageBufferProperty>( "Materials" ) )
-                sb->SetRawData( instMaterials.data(),
-                                static_cast<uint32_t>( instMaterials.size() * sizeof( PBRGpuMaterial ) ) );
-
-            frameState.ApplyTo( instInst );
-            MaterialPBR::UpdateTransform( instInst, glm::mat4( 1.0f ) ); // unused by the instanced VS
 
             // The instanced vertex stage reads its model matrix from the InstanceTransforms SSBO, so the
             // per-draw transform is unused; it is named rather than repeated as a literal.
             const glm::mat4 unusedModelTransform( 1.0F );
-            for ( const auto& d : instDraws )
+
+            for ( std::size_t si = 0; si < m_ScratchInstSetCount; ++si )
             {
-                instMat->SetMaterialIndex( d.MaterialIndex );
-                instMat->Bind( instInst );
-                renderer.RenderMesh( instancedPipeline, d.Mesh, unusedModelTransform,
-                                     instMat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance,
-                                     /*hiddenSubmeshMask*/ 0, d.LodLevel );
+                InstancedBatchSet& set = *instSets[si];
+                if ( set.Draws.empty() )
+                    continue;
+
+                // UPLOAD AT FINAL SIZE BEFORE THE FIRST DRAW OF THIS SET IS RECORDED — growing a storage
+                // buffer reallocates the VkBuffer under a draw already recorded against the old one. It
+                // is per SET and no longer per pass, and that is not a weakening: a set's buffers are
+                // only ever written here, once, and the draws that read them are recorded immediately
+                // after, before any other set touches its own.
+                if ( auto* sb = set.Mat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
+                    sb->SetRawData( set.Transforms.data(),
+                                    static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+                if ( auto* sb = set.Mat->Get<StorageBufferProperty>( "Materials" ) )
+                    sb->SetRawData( set.Materials.data(),
+                                    static_cast<uint32_t>( set.Materials.size() * sizeof( PBRGpuMaterial ) ) );
+
+                frameState.ApplyTo( set.Inst );
+                MaterialPBR::UpdateTransform( set.Inst, glm::mat4( 1.0f ) ); // unused by the instanced VS
+
+                for ( const auto& d : set.Draws )
+                {
+                    set.Mat->SetMaterialIndex( d.MaterialIndex );
+                    set.Mat->Bind( set.Inst );
+                    renderer.RenderMesh( instancedPipeline, d.Mesh, unusedModelTransform,
+                                         set.Mat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance,
+                                         /*hiddenSubmeshMask*/ 0, d.LodLevel );
+                }
             }
         }
     }

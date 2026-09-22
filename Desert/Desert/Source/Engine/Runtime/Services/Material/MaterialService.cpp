@@ -175,8 +175,9 @@ namespace Desert::Runtime
         return nullptr;
     }
 
-    Graphic::MaterialPBR* MaterialService::GetPassVariant( const Graphic::MaterialPBR* built,
-                                                           Graphic::MeshPass           pass ) const
+    Graphic::MaterialPBR* MaterialService::GetVariant( const Graphic::MaterialPBR* built,
+                                                       Graphic::MeshVertexPath     path,
+                                                       Graphic::MeshPass           pass ) const
     {
         if ( !built )
             return nullptr;
@@ -185,10 +186,11 @@ namespace Desert::Runtime
         if ( it == m_BuiltToAsset.end() )
             return nullptr; // not service-owned: a renderer's own dedicated material has no `.demat`
 
-        // The VERTEX PATH comes from the material itself and is not a second argument, because it is not
-        // the caller's to choose: the geometry already decided it when the slot resolved. Only the pass
-        // changes here, which is exactly the axis a render pass owns.
-        return dynamic_cast<Graphic::MaterialPBR*>( Get( it->second, built->VertexPath(), pass ) );
+        // Both axes come from the caller, because both are the caller's: a render pass owns the pass, and
+        // the renderer owns whether this draw is instanced. What is NOT the caller's is the asset, and
+        // that is the one thing this function supplies — the sibling is the same `.demat`, so it carries
+        // the same parameters and the same textures by construction.
+        return dynamic_cast<Graphic::MaterialPBR*>( Get( it->second, path, pass ) );
     }
 
     bool MaterialService::Owns( const Graphic::Material* material ) const
@@ -362,7 +364,7 @@ namespace Desert::Runtime
         //
         // The reverse index is dropped HERE and not in CollectGarbage: a graveyarded material is still
         // alive (frames in flight reference its pools) but it is no longer THE material for this asset,
-        // and GetPassVariant answering from it would hand a render pass a sibling of a material that is
+        // and GetVariant answering from it would hand a render pass a sibling of a material that is
         // about to be destroyed.
         for ( auto& variant : it->second )
             if ( variant )

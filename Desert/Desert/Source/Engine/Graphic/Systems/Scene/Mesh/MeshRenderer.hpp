@@ -24,6 +24,7 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -431,9 +432,16 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>   m_GeometryShader;
         std::shared_ptr<Shader>   m_InstancedGeometryShader;
 
-        // Auto-batching: identical (same parent material + same Mesh*) static meshes are collapsed into one
-        // hardware-instanced draw via this shared material. Per-instance model matrices are packed into its
-        // InstanceTransforms SSBO; the shared scene data (camera/lights/shadow/env) is uploaded once/frame.
+        // Auto-batching SPARE: the material an instanced batch is recorded with when the batch's own
+        // material came from no `.demat` at all — in practice MeshECSSystem's default, standing in for a
+        // mesh whose slot did not resolve.
+        //
+        // IT USED TO RECORD EVERY BATCH, AND THAT WAS THE DEFECT. A material built here has never been
+        // through MaterialFactory, so every 2D sampler it declares holds the shader schema's 1x1 white.
+        // Recording an asset-backed group with it deleted that surface's whole texture channel while
+        // leaving its colours, tiling-independent, intact — see InstancedRecorder.hpp for the numbers and
+        // for why rebinding this one material per batch cannot be the fix. A batch now finds its own
+        // (Instanced x pass) sibling through MaterialService; this stays for the one group that has none.
         std::shared_ptr<Graphic::MaterialPBR> m_StaticInstancedMaterial;
         MaterialInstancePtr                   m_StaticInstancedInstance;
         // The same pair for the G-buffer pass. A material is one shader's descriptor sets plus a payload,
@@ -442,6 +450,16 @@ namespace Desert::Graphic::System
         // the static path.
         std::shared_ptr<Graphic::MaterialPBR> m_InstancedGBufferMaterial;
         MaterialInstancePtr                   m_InstancedGBufferInstance;
+
+        // ONE MaterialInstance per instanced material the service hands out, kept because an instance is
+        // allocated per material and a batch needs one to Bind with — not per frame and not per object.
+        //
+        // Keyed by the raw material and dropped WHOLE whenever MaterialService's invalidation stamp
+        // moves: a reloaded `.demat` graveyards every runtime material it built, so an entry surviving
+        // that bump is a MaterialInstance holding a parent pointer into a material about to be destroyed.
+        // The same stamp MeshECSSystem already rebuilds its cached slots on.
+        std::unordered_map<const Graphic::MaterialPBR*, MaterialInstancePtr> m_InstancedVariantInstances;
+        uint32_t                                                             m_InstancedVariantStamp = 0;
 
         // Skinned
         std::shared_ptr<GraphicsPipeline> m_SkinnedPipeline;
@@ -587,6 +605,24 @@ namespace Desert::Graphic::System
             uint32_t LodLevel = 0;
         };
 
+        // EVERY INSTANCED DRAW THAT ONE MATERIAL RECORDS, plus the two buffers those draws read.
+        //
+        // There is one of these per distinct recording material in the pass, and that count is the
+        // change: the accumulation used to be a single triple shared by every batch of every material,
+        // which is only expressible because every batch was recorded by the same renderer-owned material
+        // — the thing that cost every batched surface its textures. A set's Materials[] rows are named by
+        // a push constant (snapshotted per draw), so many batches of ONE material still share one buffer
+        // and one upload; two MATERIALS cannot, because a descriptor set written twice in a frame keeps
+        // only the last write (VulkanMaterialBackend::ApplyTexture2D reports the swallowed rebind).
+        struct InstancedBatchSet
+        {
+            Graphic::MaterialPBR*       Mat  = nullptr;
+            MaterialInstance*           Inst = nullptr;
+            std::vector<glm::mat4>      Transforms;
+            std::vector<PBRGpuMaterial> Materials;
+            std::vector<InstancedDraw>  Draws;
+        };
+
         // One recorded generic draw, resolved in DrawGenericMeshes' first pass and executed in its third.
         // The passes are separate because every row has to be uploaded at FINAL size before the first draw
         // is recorded — growing a storage buffer reallocates the VkBuffer under a draw already recorded
@@ -622,8 +658,21 @@ namespace Desert::Graphic::System
         // 49 000 instances out of 49 152 allocates nothing.
         std::vector<uint32_t>                    m_ScratchLodLevels;
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
-        std::vector<PBRGpuMaterial> m_ScratchInstMaterials;
-        std::vector<InstancedDraw>  m_ScratchInstDraws;
+        // The instanced batches of ONE geometry pass, one entry per recording material. Reused BY INDEX
+        // rather than cleared, so the inner vectors keep their capacity across frames — clearing the
+        // outer vector would destroy them and hand the steady state an allocation per material per frame.
+        // `m_ScratchInstSetCount` is how many of them this frame is using.
+        //
+        // INDIRECT, AND THAT IS THE POINT AND NOT AN OVERSIGHT. The accumulation hands out a POINTER to
+        // one set and then keeps filling it while later groups may ask for sets of their own; held by
+        // value, the first `emplace_back` that grows this vector would move every set and leave that
+        // pointer dangling — a use-after-free that no frame would show, because the freed memory is the
+        // vector this thread just wrote. The control flow happens not to interleave the two today, which
+        // is exactly the kind of "safe for now" that the next edit in DrawStaticMeshes turns into a
+        // corrupted draw list. A unique_ptr costs one indirection per access and makes the address
+        // stable by construction.
+        std::vector<std::unique_ptr<InstancedBatchSet>> m_ScratchInstSets;
+        std::size_t                                     m_ScratchInstSetCount = 0;
         std::vector<PBRGpuMaterial> m_ScratchGpuMaterials; // per-object Materials[] SSBO
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
