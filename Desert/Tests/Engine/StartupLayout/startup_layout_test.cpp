@@ -234,9 +234,16 @@ TEST( StartupLayout, AWorkingDirectoryThatAlreadyHoldsTheResourcesIsLeftAlone )
     // THE NEGATIVE CONTROL FOR EVERY EXISTING LAUNCH. `scripts/*/RunEditor.*` change into
     // `Editor/`, which holds `Resources/Shaders`; this must answer "do not move", or the change
     // would silently rebase every relative path a developer passes on the command line.
+    //
+    // THE SCENARIO IS DELIBERATELY THE HARD ONE. With resources in only one of the two places, the
+    // ORDER of the two checks cannot be observed at all: swapping them was measured to leave this
+    // test green, which makes it a test of nothing. So BOTH candidates hold `Resources/Shaders`
+    // here, which is a real layout — a drop's Editor run from inside a checkout — and the answer
+    // "do not move" can then only come from the working directory being asked FIRST.
     const fs::path root = MakeCheckout( "cwd_has_resources" );
     std::error_code ec;
     fs::create_directories( root / "Editor" / "Resources" / "Shaders", ec );
+    fs::create_directories( root / "build" / "Bin" / "Release" / "Resources" / "Shaders", ec );
 
     const auto lookup = ResolveResourceRoot( root / "Editor", root / "build" / "Bin" / "Release" );
     EXPECT_TRUE( lookup.WorkingDirectory.empty() )
