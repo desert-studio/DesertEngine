@@ -1,7 +1,6 @@
 #include "AssetThumbnailRenderer.hpp"
 
 #include <Editor/Widgets/ThumbnailFraming.hpp>
-#include <Editor/RenderSystems/Passes/EditorCubemapPreviewPass.hpp>
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
@@ -57,8 +56,6 @@ namespace Desert::Editor
         // Assets::kCloudProceduralVolumeSideMin states, so this sits ON the cheapest grid measured honest.
         constexpr int32_t kDomeVolumeResolution = 128;
     } // namespace
-
-    AssetThumbnailRenderer::AssetThumbnailRenderer() = default;
 
     AssetThumbnailRenderer::~AssetThumbnailRenderer()
     {
@@ -352,42 +349,6 @@ namespace Desert::Editor
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr AssetThumbnailRenderer::RequestSkybox( const Assets::AssetHandle& skyboxHandle,
-                                                                 const std::string&         outPng )
-    {
-        if ( static_cast<uint64_t>( skyboxHandle ) == 0 )
-            return Common::MakeFormattedError( "no skybox handle for '{}'", outPng );
-        if ( m_Phase != 0 )
-            return Common::MakeFormattedError( "a capture is already in flight; '{}' was not queued", outPng );
-
-        // THE CUBES HAVE TO EXIST NOW. The same guard, for the same measured reason, as RequestMesh's:
-        // without them the ball resolves to nothing, the capture photographs the backdrop, and the PNG is
-        // filed as this sky's picture with nothing able to tell it apart from a real one.
-        const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( skyboxHandle );
-        if ( !material )
-        {
-            return Common::MakeFormattedError(
-                 "skybox {} is not registered in the skybox service, so a capture would photograph an "
-                 "empty scene and write it to '{}' as if it were the sky",
-                 static_cast<uint64_t>( skyboxHandle ), outPng );
-        }
-        if ( !material->GetEnvironment().RadianceMap.IsValid() )
-        {
-            return Common::MakeFormattedError(
-                 "skybox {} has no radiance cube (its panorama did not bake), so there is nothing to "
-                 "photograph for '{}'",
-                 static_cast<uint64_t>( skyboxHandle ), outPng );
-        }
-
-        m_PendingHandle  = skyboxHandle;
-        m_PendingPng     = outPng;
-        m_PendingSubject = Subject::Skybox;
-        m_Phase          = kRenderFrames;
-        m_DomeSettle     = 0;
-        m_DomeFrames     = 0;
-        return Common::MakeSuccess( true );
-    }
-
     void AssetThumbnailRenderer::StageSubject()
     {
         auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
@@ -440,69 +401,6 @@ namespace Desert::Editor
             m_Scene->PinActiveCamera( m_DomeCamera );
             return;
         }
-
-        // ── THE HDR SKY: A CUBEMAP ON A BALL ──────────────────────────────────────────────────────────
-        //
-        // Nothing rides the mesh path here either. A cubemap has no surface: the engine's own skybox
-        // program shows it BY DIRECTION on the far plane, which is a picture of a background and not of
-        // a thing. The ball is the other presentation — the environment wrapped on an object — and it is
-        // drawn by the very pass the Material Editor's cubemap pane uses, so the tile and the pane cannot
-        // show two different skies.
-        if ( m_PendingSubject == Subject::Skybox )
-        {
-            smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-            smc.Primitive.reset();
-            smc.MaterialSlots.clear();
-            smc.RuntimeMaterialInstances.clear();
-            smc.RuntimeMesh.reset();
-
-            if ( !m_CubemapPass )
-            {
-                auto pass = std::make_unique<Render::EditorCubemapPreviewPass>();
-                if ( const auto installed = pass->Install( m_Scene ); !installed )
-                {
-                    // ABANDON, NAMED. Returning with the phase intact would photograph an empty scene
-                    // five frames later and file it as this sky.
-                    LOG_ERROR( "[AssetThumbnailRenderer] '{}' not captured: the cubemap pass is "
-                               "unavailable: {}",
-                               m_PendingPng, installed.GetError() );
-                    m_Phase = 0;
-                    return;
-                }
-                m_CubemapPass = std::move( pass );
-            }
-
-            // RE-RESOLVED EVERY FRAME through the handle, never captured as a pointer: the cubes are
-            // rebuilt whenever the sky's authored look changes (MaterialSkybox::EnsureBaked), and a
-            // pointer taken here would outlive the image it names by exactly one rebake.
-            const Assets::AssetHandle handle = m_PendingHandle;
-            m_CubemapPass->SetSource(
-                 [handle]() -> const Graphic::ImageCube*
-                 {
-                     const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( handle );
-                     if ( !material )
-                         return nullptr;
-                     const auto& environment = material->GetEnvironment();
-                     if ( !environment.RadianceMap.IsValid() )
-                         return nullptr;
-                     return static_cast<Graphic::ImageCube*>(
-                          Runtime::ResourceRegistry::GetImageService()->Resolve( environment.RadianceMap ) );
-                 },
-                 kSkyboxBallRadius );
-
-            // The ball's DIAMETER is what has to fit the frame, and FitTarget takes the subject's world
-            // size. Passing the radius here would frame half the ball and crop the rest — the same
-            // half-vs-whole slip the mesh branch's AABB extent had to be measured out of.
-            FitTarget( glm::vec3( 0.0f ), kSkyboxBallRadius * 2.0f );
-            return;
-        }
-
-        // ── NOT THE DOME OR THE BALL: TAKE THEM DOWN ──────────────────────────────────────────────────
-        //
-        // The ball is an external pass with its own source, so switching subject must clear it or every
-        // material captured after one sky would be photographed standing behind that sky's ball.
-        if ( m_CubemapPass )
-            m_CubemapPass->ClearSource();
 
         // ── NOT THE DOME: TAKE IT DOWN ────────────────────────────────────────────────────────────────
         //

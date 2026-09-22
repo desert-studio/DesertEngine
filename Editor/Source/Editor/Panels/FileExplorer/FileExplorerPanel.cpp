@@ -1759,47 +1759,6 @@ namespace Desert::Editor
         return false;
     }
 
-    bool FileExplorerPanel::DrawSkyboxThumbnail( DirectoryInformation* entry, const ImVec2& size )
-    {
-        if ( !m_UIHelper || !m_Thumbnails || !m_AssetManager )
-            return false;
-        if ( m_FailedThumbs.count( entry->AssetPath ) )
-            return false;
-
-        const std::string pngPath = ThumbnailKey::DiskPath( entry->AssetPath );
-
-        const bool haveFresh =
-             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, entry->AssetPath ) ) ==
-             ThumbnailFreshness::Verdict::Show;
-        if ( !haveFresh )
-            m_Thumbnails->Invalidate( pngPath );
-
-        if ( haveFresh )
-        {
-            if ( auto img = m_Thumbnails->Get( pngPath ) )
-            {
-                m_UIHelper->ImageButton( "##thumb", img, size );
-                return true;
-            }
-        }
-
-        // THE BAKE IS PAID HERE, once per asset, and it is why this tile blacklists a refusal: registering
-        // a skybox runs the panorama -> cube -> irradiance -> prefilter chain with the device idle, and a
-        // file that cannot be registered would otherwise try it again on every frame this folder is open.
-        const auto subject = ThumbnailSubject::ResolveSkybox( *m_AssetManager, entry->AssetPath );
-        if ( !subject )
-        {
-            m_FailedThumbs.insert( entry->AssetPath );
-            return false;
-        }
-
-        ThumbnailService::Get().RequestSkybox( subject.GetValue(), entry->AssetPath );
-
-        // The HDR type icon until the PNG lands. No placeholder swatch: unlike a material there is no one
-        // colour that says anything true about a sky.
-        return false;
-    }
-
     void FileExplorerPanel::ImportExternalTexture()
     {
         const auto picked =
@@ -2267,14 +2226,14 @@ namespace Desert::Editor
             // thumbnail/icon IS the hoverable/selectable/draggable item.
             const bool drewThumb =
                  entry->IsFile &&
-                 ( ( entry->Type == FileType::Texture && DrawTextureThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
+                 ( ( ( entry->Type == FileType::Texture || entry->Type == FileType::Cubemap ) &&
+                     DrawTextureThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
                    ( entry->Type == FileType::Material &&
                      DrawRenderedMaterialThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
                    ( entry->Type == FileType::Model &&
                      DrawRenderedMeshThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
-                   ( entry->Type == FileType::Cloud && DrawPaintedThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
-                   ( entry->Type == FileType::Cubemap &&
-                     DrawSkyboxThumbnail( entry, ImVec2( thumb, thumb ) ) ) );
+                   ( ( entry->Type == FileType::Cloud || entry->Type == FileType::UITheme ) &&
+                     DrawPaintedThumbnail( entry, ImVec2( thumb, thumb ) ) ) );
             if ( !drewThumb )
             {
                 const ImVec4 col = entry->IsFile ? entry->FileTypeColour : ImVec4( 0.95f, 0.82f, 0.42f, 1.0f );
@@ -2509,16 +2468,14 @@ namespace Desert::Editor
         const ImVec2 thumbSize( 140.0f, 140.0f );
         ImGui::BeginGroup();
         bool drewThumb = false;
-        if ( entry->Type == FileType::Texture )
+        if ( entry->Type == FileType::Texture || entry->Type == FileType::Cubemap )
             drewThumb = DrawTextureThumbnail( entry, thumbSize );
         else if ( entry->Type == FileType::Material )
             drewThumb = DrawRenderedMaterialThumbnail( entry, thumbSize );
         else if ( entry->Type == FileType::Model )
             drewThumb = DrawRenderedMeshThumbnail( entry, thumbSize );
-        else if ( entry->Type == FileType::Cloud )
+        else if ( entry->Type == FileType::Cloud || entry->Type == FileType::UITheme )
             drewThumb = DrawPaintedThumbnail( entry, thumbSize );
-        else if ( entry->Type == FileType::Cubemap )
-            drewThumb = DrawSkyboxThumbnail( entry, thumbSize );
         if ( !drewThumb )
         {
             ImGui::PushStyleColor( ImGuiCol_ChildBg, ImVec4( 0.12f, 0.12f, 0.14f, 1.0f ) );

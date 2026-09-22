@@ -350,11 +350,7 @@ namespace Desert::Editor
         // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
         bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );
 
-        // An HDR panorama, photographed as the cubemap it becomes — wrapped on a ball. NOT the flat
-        // picture DrawTextureThumbnail would give it: an equirectangular image read as a rectangle is
-        // recognisable as a file and says nothing about the sky it makes, which is the whole question a
-        // person is asking when they look for one.
-        bool DrawSkyboxThumbnail( DirectoryInformation* entry, const ImVec2& size );
+
 
         // Bottom preview strip for the currently selected file: thumbnail (texture/material/mesh) or a
         // text excerpt (scripts, .demat/.deprefab/.desce JSON), plus name/type/size.

@@ -11,11 +11,6 @@
 #include <memory>
 #include <string>
 
-namespace Desert::Editor::Render
-{
-    class EditorCubemapPreviewPass;
-}
-
 namespace Desert::Editor
 {
     // Renders small offscreen previews of assets (a material on a sphere) and writes them to PNG files on
@@ -32,10 +27,6 @@ namespace Desert::Editor
         // order and the same reason as ~PreviewViewport: this is destroyed when the thumbnail queue has been
         // idle for a while (so the renderer slot goes back), which can happen while the last frame this
         // recorded into is still executing against its pipelines and descriptor pools.
-        // BOTH OUT OF LINE, and the constructor is not decoration: m_CubemapPass is a unique_ptr to a
-        // forward-declared pass, so an implicit constructor would instantiate its deleter at every
-        // `make_unique<AssetThumbnailRenderer>()` call site — where the type is incomplete.
-        AssetThumbnailRenderer();
         ~AssetThumbnailRenderer();
 
         /**
@@ -73,23 +64,6 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr
         RequestMesh( const Assets::AssetHandle& meshHandle, const std::string& outPng,
                      const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
-
-        /**
-         * @brief Queue an HDR SKYBOX, photographed as a cubemap wrapped on a ball.
-         *
-         * THE THIRD SUBJECT, AND IT IS NOT A MATERIAL. An `.hdr` has no shader and no domain, so it
-         * cannot travel through RequestMaterial's routing; what it has is a MaterialSkybox in the skybox
-         * service holding a radiance cube. The picture is the same one the Material Editor shows for a
-         * Skybox-domain material — the environment wrapped on an object you can recognise — drawn by the
-         * same pass (EditorCubemapPreviewPass), because a second way to draw a cubemap on a sphere is a
-         * second thing that can disagree about what the sky looks like.
-         *
-         * IT ANSWERS, like RequestMesh and for the same measured reason: a handle whose cubes are not
-         * baked would photograph the empty backdrop, and the PNG would then be filed as the picture of
-         * the sky for ever. ThumbnailSubject::ResolveSkybox is what makes the answer yes.
-         */
-        [[nodiscard]] Common::BoolResultStr RequestSkybox( const Assets::AssetHandle& skyboxHandle,
-                                                           const std::string&         outPng );
 
         // Is a capture in flight? Gates requests to one at a time.
         [[nodiscard]] bool HasPending() const { return m_Phase != 0; }
@@ -137,21 +111,16 @@ namespace Desert::Editor
         // it out of the scene again after a dome capture would get the dome's.
         std::shared_ptr<::Desert::Core::Camera> m_ObjectCamera;
 
-        // The cubemap-on-a-ball draw, created on the first skybox capture and never before — same lazy
-        // rule, same reason, as the dome's furniture above. It is the Material Editor preview's own pass.
-        std::unique_ptr<Render::EditorCubemapPreviewPass> m_CubemapPass;
-
         Assets::AssetHandle m_PendingHandle{ static_cast<uint64_t>( 0 ) };
         Assets::AssetHandle m_PendingMaterial{ static_cast<uint64_t>( 0 ) }; // mesh's linked material (0 = default)
         std::string         m_PendingPng;
-        // WHAT IS BEING PHOTOGRAPHED. Was a bool while there were two answers; a third one arrived and a
-        // bool cannot carry it, which is exactly the moment to name the question instead of adding a
-        // second flag that has to agree with the first.
+        // WHAT IS BEING PHOTOGRAPHED. A named question rather than the bool this replaced: "not a mesh"
+        // is not the same statement as "a material", and the branch that reads it should not have to know
+        // that they coincide.
         enum class Subject
         {
             Material,
-            Mesh,
-            Skybox
+            Mesh
         };
         Subject m_PendingSubject = Subject::Material;
         // How a MATERIAL capture is drawn. Meaningless unless m_PendingSubject is Material.
@@ -188,11 +157,6 @@ namespace Desert::Editor
         // (the largest grid card is 528 physical pixels on a 2x display — see ThumbnailCache.hpp for the
         // arithmetic), so what reaches the screen gets SHARPER here, not softer. This is the first version
         // in which the pixels stored are the pixels drawn.
-// The ball the cubemap is wrapped on, in world units. THE SAME 50 the interactive pane uses
-        // (PreviewViewport::SetCubemapMaterial), so a browser tile and the pane it opens into frame the
-        // same sphere at the same size.
-        static constexpr float kSkyboxBallRadius = 50.0f;
-
         static constexpr uint32_t kSize         = 512;       // output PNG size == ThumbnailCache::kThumbMaxDim
         static constexpr uint32_t kRenderSize   = kSize * 2; // offscreen render size (2x supersample -> kSize)
         static constexpr int      kRenderFrames = 5;         // warm-up render frames before the capture readback
