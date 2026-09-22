@@ -63,6 +63,18 @@ namespace Desert::Animation
         explicit Animator( const Skeleton& skeleton );
 
         void Play( const AnimationClip& clip, bool loop = true );
+
+        /// THE RVALUE OVERLOAD IS DELETED BECAUSE THIS CLASS KEEPS THE ADDRESS. `Playhead::Clip` is a
+        /// NON-OWNING `const AnimationClip*`, which is right — clips live in an `AnimationAsset` that
+        /// outlives every animator playing them — but `const&` cannot say so, and a caller reasonably
+        /// reads it as "used for the duration of the call".
+        ///
+        /// It bound happily to a temporary, and the result was a dangling pointer that no test could
+        /// see: the animator kept working, reading a stack frame that had been reused. ASan found it
+        /// (stack-use-after-scope in `SetTick`, reading `m_Current.Clip->DurationTicks`) and nothing
+        /// else would have. Deleting this turns that into a COMPILE error at the call site, which is
+        /// the only place that knows how long the clip is going to live.
+        void Play( AnimationClip&& clip, bool loop = true ) = delete;
         void CrossFade( const AnimationClip& clip, float duration, bool loop = true );
         void Stop();
 
@@ -206,6 +218,10 @@ namespace Desert::Animation
         // Layers run THROUGH a crossfade: the base they fold over is the blend itself. AddLayer returns the
         // new layer index; the setters no-op on an out-of-range index.
         int  AddLayer( const AnimationClip& clip, float weight = 1.0F, bool additive = false, bool loop = true );
+
+        /// Deleted for `Play`'s reason: a layer keeps the clip's address too.
+        int  AddLayer( AnimationClip&& clip, float weight = 1.0F, bool additive = false,
+                       bool loop = true ) = delete;
         void SetLayerClip( int index, const AnimationClip& clip );
         void SetLayerWeight( int index, float weight );
         void SetLayerAdditive( int index, bool additive );

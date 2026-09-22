@@ -868,8 +868,13 @@ TEST( RetargetAssetTest, AnAdditiveLayerOfNothingIsANoOpOnlyBecauseItsReferenceI
     empty.DurationTicks = FrameNumber{ 48000 };
     empty.TickRate      = Desert::Animation::FrameRate{ 24000, 1 };
 
+    // A NAMED LOCAL, not the call's own temporary: the animator keeps the clip's ADDRESS, so the clip
+    // has to outlive it. This line used to read `Play( SourceClip(), false )` and left a dangling
+    // pointer that only ASan could see.
+    const AnimationClip sourceClip = SourceClip();
+
     Animator animator( target );
-    animator.Play( SourceClip(), false );
+    animator.Play( sourceClip, false );
     ASSERT_TRUE( animator.AttachRetarget( BuildSource( posed, source, target ) ).IsSuccess() );
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const std::vector<glm::mat4> withoutLayer = animator.GetPose().Matrices;
