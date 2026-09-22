@@ -155,8 +155,8 @@ namespace Desert::Assets::Serialization
 
     Common::ResultStr<std::vector<TextureLevel>> BuildMipChain( const uint32_t width, const uint32_t height,
                                                                 const Core::Formats::ImageFormat format,
-                                                                const std::vector<std::byte>&    base,
-                                                                std::vector<std::byte>&          chainOut )
+                                                                const std::vector<unsigned char>& base,
+                                                                std::vector<unsigned char>&      chainOut )
     {
         using Fmt = Core::Formats::ImageFormat;
 
@@ -213,8 +213,8 @@ namespace Desert::Assets::Serialization
             if ( format == Fmt::RGBA8F )
             {
                 BoxDownsample<unsigned char, uint32_t>(
-                     reinterpret_cast<const unsigned char*>( chainOut.data() + srcOffset ), srcW, srcH,
-                     reinterpret_cast<unsigned char*>( chainOut.data() + dstOffset ), dstW, dstH, 4u );
+                     chainOut.data() + srcOffset, srcW, srcH,
+                     chainOut.data() + dstOffset, dstW, dstH, 4u );
             }
             else
             {

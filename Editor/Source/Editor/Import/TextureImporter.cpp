@@ -147,7 +147,7 @@ namespace Desert::Editor
              static_cast<int>( sourceBytes.GetValue().size() ) ) != 0;
 
         int                          w = 0, h = 0, ch = 0;
-        std::vector<std::byte>       base;
+        std::vector<unsigned char>   base;
         Desert::Core::Formats::ImageFormat format = Desert::Core::Formats::ImageFormat::RGBA8F;
 
         if ( isHDR )

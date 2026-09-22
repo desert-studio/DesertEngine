@@ -103,24 +103,21 @@ namespace Desert::Graphic
         if ( !raw.IsSuccess() )
             return Common::MakeError<std::shared_ptr<Texture2D>>( raw.GetError() );
 
-        const auto decoded =
+        auto decoded =
              Assets::Serialization::DecodeTextureBinary( raw.GetValue(), cookedPath.string() );
         if ( !decoded.IsSuccess() )
             return Common::MakeError<std::shared_ptr<Texture2D>>( decoded.GetError() );
 
-        const auto& data = decoded.GetValue();
+        // MOVED OUT, NOT COPIED. The payload is 21.3 MB for a 2048x2048 texture, and every copy of it
+        // between the file and the staging buffer is that many bytes of pure memcpy on the frame that
+        // first touches the texture. `ImagePixelData` carries exactly this vector type, so the move
+        // below is the whole handover.
+        auto data = decoded.ExtractValue();
 
         std::vector<Core::Formats::MipLevelSpan> spans;
         spans.reserve( data.Levels.size() );
         for ( const Assets::Serialization::TextureLevel& level : data.Levels )
             spans.push_back( Core::Formats::MipLevelSpan{ level.ByteOffset, level.ByteSize } );
-
-        // The payload crosses as unsigned char, which is the alternative `ImagePixelData` already
-        // carries for 8-bit content and the one `GetPixelDataPtr` reads for every format: the blob is
-        // opaque bytes to everything below this line, and the spans say what is in it.
-        std::vector<unsigned char> pixels( reinterpret_cast<const unsigned char*>( data.Pixels.data() ),
-                                           reinterpret_cast<const unsigned char*>( data.Pixels.data() ) +
-                                                data.Pixels.size() );
 
         auto texture      = std::make_shared<Texture2D>( TextureSpecification{ false }, cookedPath );
         texture->m_Width  = data.Width;
@@ -131,7 +128,7 @@ namespace Desert::Graphic
             .Width      = data.Width,
             .Height     = data.Height,
             .Format     = data.Format,
-            .Data       = std::move( pixels ),
+            .Data       = std::move( data.Pixels ),
             .Usage      = Core::Formats::Image2DUsage::Image2D,
             .Properties = Core::Formats::Sample,
             .MipLevels  = std::move( spans ) };

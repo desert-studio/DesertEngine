@@ -144,7 +144,13 @@ namespace Desert::Assets::Serialization
         Core::Formats::ImageFormat Format = Core::Formats::ImageFormat::RGBA8F;
 
         std::vector<TextureLevel> Levels;
-        std::vector<std::byte>    Pixels;
+
+        /// `unsigned char` AND NOT `std::byte`, because this vector is handed to the GPU upload as-is.
+        /// `Core::Formats::ImagePixelData` carries a `std::vector<unsigned char>` alternative, so this
+        /// type MOVES into it; a `std::vector<std::byte>` had to be copied element by element first,
+        /// and on a 2048x2048 texture that copy is 21.3 MB nobody asked for. The bytes are opaque
+        /// either way — `Levels` says what is in them.
+        std::vector<unsigned char> Pixels;
     };
 
     /// What the header alone says. Enough to identify the texture, to decide whether its cook is stale
@@ -180,7 +186,7 @@ namespace Desert::Assets::Serialization
     /// @p base must hold exactly `width * height * GetBytesPerPixel(format)` bytes.
     [[nodiscard]] Common::ResultStr<std::vector<TextureLevel>>
     BuildMipChain( uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
-                   const std::vector<std::byte>& base, std::vector<std::byte>& chainOut );
+                   const std::vector<unsigned char>& base, std::vector<unsigned char>& chainOut );
 
     /// `TextureAssetData` -> container bytes. Total: every field of the struct is written, so a round
     /// trip is an identity and the suite asserts it as one.

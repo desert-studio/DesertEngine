@@ -121,24 +121,24 @@ namespace
 
     /// A deterministic image with structure in it. A flat colour would survive a box filter that
     /// averaged the wrong neighbours, and a chain built from the wrong rows would still look right.
-    std::vector<std::byte> SyntheticRGBA8( const uint32_t width, const uint32_t height )
+    std::vector<unsigned char> SyntheticRGBA8( const uint32_t width, const uint32_t height )
     {
-        std::vector<std::byte> pixels( static_cast<size_t>( width ) * height * 4 );
+        std::vector<unsigned char> pixels( static_cast<size_t>( width ) * height * 4 );
         for ( uint32_t y = 0; y < height; ++y )
         {
             for ( uint32_t x = 0; x < width; ++x )
             {
                 const size_t at = ( static_cast<size_t>( y ) * width + x ) * 4;
-                pixels[at + 0]  = static_cast<std::byte>( ( x * 7u + y * 13u ) & 0xFFu );
-                pixels[at + 1]  = static_cast<std::byte>( ( x ^ y ) & 0xFFu );
-                pixels[at + 2]  = static_cast<std::byte>( ( x * 3u ) & 0xFFu );
-                pixels[at + 3]  = static_cast<std::byte>( 255u - ( ( y * 5u ) & 0xFFu ) );
+                pixels[at + 0]  = static_cast<unsigned char>( ( x * 7u + y * 13u ) & 0xFFu );
+                pixels[at + 1]  = static_cast<unsigned char>( ( x ^ y ) & 0xFFu );
+                pixels[at + 2]  = static_cast<unsigned char>( ( x * 3u ) & 0xFFu );
+                pixels[at + 3]  = static_cast<unsigned char>( 255u - ( ( y * 5u ) & 0xFFu ) );
             }
         }
         return pixels;
     }
 
-    TextureAssetData Cook( const uint32_t width, const uint32_t height, const std::vector<std::byte>& base,
+    TextureAssetData Cook( const uint32_t width, const uint32_t height, const std::vector<unsigned char>& base,
                            const std::string& key = "assets:Textures/Probe.png" )
     {
         TextureAssetData data;
@@ -192,9 +192,7 @@ TEST( TextureBinaryFormat, EveryLevelMatchesAnIndependentChain )
     const uint32_t w = 37, h = 20; // deliberately odd: the halving rule and the clamp both have to work
     const auto     base = SyntheticRGBA8( w, h );
 
-    std::vector<unsigned char> baseChars( reinterpret_cast<const unsigned char*>( base.data() ),
-                                          reinterpret_cast<const unsigned char*>( base.data() ) + base.size() );
-    const auto reference = ReferenceChainRGBA8( baseChars, w, h );
+    const auto reference = ReferenceChainRGBA8( base, w, h );
 
     const auto encoded = EncodeTextureBinary( Cook( w, h, base ) );
     const auto decoded = DecodeTextureBinary( encoded, "levels" );
@@ -229,12 +227,10 @@ TEST( TextureBinaryFormat, APngSurvivesTheContainerByteForByte )
     ASSERT_NE( raw, nullptr ) << stbi_failure_reason();
 
     const size_t                 baseBytes = static_cast<size_t>( w ) * h * 4;
-    std::vector<unsigned char>   baseChars( raw, raw + baseBytes );
+    std::vector<unsigned char>   base( raw, raw + baseBytes );
     stbi_image_free( raw );
-    std::vector<std::byte> base( baseBytes );
-    std::memcpy( base.data(), baseChars.data(), baseBytes );
 
-    const auto reference = ReferenceChainRGBA8( baseChars, static_cast<uint32_t>( w ),
+    const auto reference = ReferenceChainRGBA8( base, static_cast<uint32_t>( w ),
                                                 static_cast<uint32_t>( h ) );
 
     const auto encoded = EncodeTextureBinary(
@@ -247,7 +243,7 @@ TEST( TextureBinaryFormat, APngSurvivesTheContainerByteForByte )
     // container rests on: the decoder that used to run on every load ran once, at cook time, and
     // nothing since has touched the bytes.
     ASSERT_EQ( back.Levels[0].ByteSize, baseBytes );
-    EXPECT_EQ( std::memcmp( back.Pixels.data(), baseChars.data(), baseBytes ), 0 );
+    EXPECT_EQ( std::memcmp( back.Pixels.data(), base.data(), baseBytes ), 0 );
 
     ASSERT_EQ( back.Levels.size(), reference.size() );
     for ( size_t i = 0; i < reference.size(); ++i )
@@ -264,11 +260,11 @@ TEST( TextureBinaryFormat, APngSurvivesTheContainerByteForByte )
 TEST( TextureBinaryFormat, TruncationIsDistinguishableFromASmallTexture )
 {
     // The smallest container there is: one texel, one level. It is LEGAL and must decode.
-    std::vector<std::byte> single( 4 );
-    single[0] = static_cast<std::byte>( 10 );
-    single[1] = static_cast<std::byte>( 20 );
-    single[2] = static_cast<std::byte>( 30 );
-    single[3] = static_cast<std::byte>( 40 );
+    std::vector<unsigned char> single( 4 );
+    single[0] = 10;
+    single[1] = 20;
+    single[2] = 30;
+    single[3] = 40;
     const auto tiny = EncodeTextureBinary( Cook( 1, 1, single ) );
 
     const auto tinyDecoded = DecodeTextureBinary( tiny, "1x1" );
@@ -407,8 +403,8 @@ TEST( TextureBinaryFormat, ASourceKeyLongerThanTheReadWindowStillDecodes )
 
 TEST( TextureBinaryFormat, TheMipBuilderRefusesAMismatchedBase )
 {
-    std::vector<std::byte> tooSmall( 16 ); // 2x2 worth of bytes for a 64x64 image
-    std::vector<std::byte> out;
+    std::vector<unsigned char> tooSmall( 16 ); // 2x2 worth of bytes for a 64x64 image
+    std::vector<unsigned char> out;
     const auto             chain = BuildMipChain( 64, 64, ImageFormat::RGBA8F, tooSmall, out );
     EXPECT_FALSE( chain.IsSuccess() );
     EXPECT_NE( chain.GetError().find( "16384" ), std::string::npos ) << chain.GetError();
@@ -416,8 +412,8 @@ TEST( TextureBinaryFormat, TheMipBuilderRefusesAMismatchedBase )
 
 TEST( TextureBinaryFormat, TheMipBuilderRefusesAFormatItCannotFilter )
 {
-    std::vector<std::byte> base( 8ull * 8ull * 8ull ); // RGBA16F would be 8 bytes per pixel
-    std::vector<std::byte> out;
+    std::vector<unsigned char> base( 8ull * 8ull * 8ull ); // RGBA16F would be 8 bytes per pixel
+    std::vector<unsigned char> out;
     const auto             chain = BuildMipChain( 8, 8, ImageFormat::RGBA16F, base, out );
     EXPECT_FALSE( chain.IsSuccess() );
     EXPECT_NE( chain.GetError().find( "RGBA8F and RGBA32F" ), std::string::npos ) << chain.GetError();
@@ -430,7 +426,7 @@ TEST( TextureBinaryFormat, HdrSourcesKeepTheirRange )
     const uint32_t     w = 2, h = 2;
     std::vector<float> values{ 4.0f, 0.0f, 0.0f, 1.0f, 0.0f, 8.0f, 0.0f, 1.0f,
                                0.0f, 0.0f, 16.0f, 1.0f, 2.0f, 2.0f, 2.0f, 1.0f };
-    std::vector<std::byte> base( values.size() * sizeof( float ) );
+    std::vector<unsigned char> base( values.size() * sizeof( float ) );
     std::memcpy( base.data(), values.data(), base.size() );
 
     TextureAssetData data;
