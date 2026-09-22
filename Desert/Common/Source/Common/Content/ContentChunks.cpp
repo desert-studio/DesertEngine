@@ -250,7 +250,8 @@ namespace Common::Content
 
     ResultStr<ChunkedWriteStats>
     WriteChunkedPaks( const fs::path& baseArchive, const ChunkPlan& plan,
-                      const std::vector<std::pair<std::string, fs::path>>& files )
+                      const std::vector<std::pair<std::string, fs::path>>&   files,
+                      const std::vector<std::pair<std::string, std::string>>& baseBlobs )
     {
         ChunkedWriteStats stats;
         stats.Archives.resize( plan.Count() );
@@ -280,6 +281,14 @@ namespace Common::Content
             const auto      size = fs::file_size( source, ec );
             if ( !ec )
                 stats.Bytes[chunk] += size;
+        }
+
+        for ( const auto& [key, bytes] : baseBlobs )
+        {
+            if ( !writers[BASE_CHUNK]->AddData( key, bytes.data(), bytes.size() ) )
+                return MakeFormattedError<ChunkedWriteStats>( "cannot write {} into {}", key,
+                                                              stats.Archives[BASE_CHUNK].string() );
+            ++stats.Entries[BASE_CHUNK];
         }
 
         // THE LIST TRAVELS WITH THE BASE. Written after the content so a caller that added nothing

@@ -172,9 +172,14 @@ namespace Common::Content
     // whose roots are all shared with another chunk produces, and an empty archive reads exactly like
     // a correct small region. This is the half of "no asset in zero chunks" that fires on the
     // PRODUCER side, before anything ships.
+    // `baseBlobs` are (key, bytes) that are NOT files on disk and always belong to the base: the
+    // packaged project descriptor is the one that exists today. They go to the base rather than
+    // through the plan because they have no path to derive a stable key from — and because a game
+    // that cannot be identified without mounting a chunk is a game that cannot be identified.
     ResultStr<ChunkedWriteStats>
     WriteChunkedPaks( const std::filesystem::path& baseArchive, const ChunkPlan& plan,
-                      const std::vector<std::pair<std::string, std::filesystem::path>>& files );
+                      const std::vector<std::pair<std::string, std::filesystem::path>>& files,
+                      const std::vector<std::pair<std::string, std::string>>&            baseBlobs = {} );
 
     // The chunk names the manifest text lists, in mount order. Base is NOT in it — the base is the
     // archive the manifest was read out of.

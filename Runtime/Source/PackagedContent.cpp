@@ -1,5 +1,7 @@
 #include "PackagedContent.hpp"
 
+#include <Common/Content/ContentChunks.hpp>
+#include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/VFS.hpp>
 
 #include <spdlog/fmt/fmt.h>
@@ -40,7 +42,8 @@ namespace Desert::Player
         std::vector<fs::path> candidates;
         for ( const auto& de : fs::directory_iterator( dir, ec ) )
             if ( de.is_regular_file( ec ) && de.path().extension() == ".dpak" &&
-                 de.path().filename().string().rfind( "Patch", 0 ) != 0 )
+                 de.path().filename().string().rfind( "Patch", 0 ) != 0 &&
+                 de.path().filename().string().rfind( "Chunk_", 0 ) != 0 )
                 candidates.push_back( de.path() );
         if ( candidates.size() == 1 )
             return candidates.front();
@@ -105,6 +108,66 @@ namespace Desert::Player
             result.BasePak = base;
         }
 
+        // ── THE CHUNKS THE BASE ITSELF NAMES ────────────────────────────────────────────────────
+        //
+        // Read out of the mounted base rather than scanned off the folder: see the header. A base
+        // that carries no list is a game that was never divided, which is every game built before
+        // chunks existed and must keep starting.
+        if ( !result.BasePak.empty() )
+        {
+            std::vector<std::string> chunkNames;
+            if ( const auto listed =
+                      Common::Utils::VFS::ReadFile( result.BasePak.parent_path() /
+                                                    std::string( Common::Content::CHUNK_MANIFEST_KEY ) ) )
+            {
+                const auto parsed = Common::Content::ParseChunkManifest( *listed );
+                if ( !parsed )
+                {
+                    Common::Utils::VFS::Unmount();
+                    result.BasePak.clear();
+                    result.ExitCode = kContentChunkArchiveFailed;
+                    result.Message  = RefusalMessage(
+                         "The game's content archive lists the parts it is divided into, and that list "
+                          "could not be read.",
+                         parsed.GetError(),
+                         "  What to do: reinstall the game, or use your store's \"verify/repair files\" "
+                          "option, then start it again." );
+                    return result;
+                }
+                chunkNames = parsed.GetValue();
+            }
+
+            for ( const std::string& name : chunkNames )
+            {
+                const fs::path chunk = Common::Content::ChunkArchivePath( result.BasePak, name );
+                const auto     mounted = Common::Utils::VFS::MountPak( chunk );
+                if ( !mounted )
+                {
+                    // REFUSES INSTEAD OF STARTING SHORT. A missing chunk is not a smaller game: it is
+                    // a game whose content is partly absent, and every symptom of that arrives far
+                    // from here as a missing model, a black texture or a scene that will not open.
+                    Common::Utils::VFS::Unmount();
+                    result.BasePak.clear();
+                    result.Chunks.clear();
+                    result.ExitCode = kContentChunkArchiveFailed;
+                    result.Message  = RefusalMessage(
+                         fmt::format( "The game is divided into parts and the part called '{}' could not "
+                                      "be opened, so some of its content is missing.",
+                                      name ),
+                         mounted.GetError(),
+                         fmt::format( "  Starting anyway would run a game with a piece of its content "
+                                      "absent, and\n  the first sign of it would be somewhere else "
+                                      "entirely.\n\n"
+                                      "  What to do: reinstall the game, or use your store's "
+                                      "\"verify/repair files\" option.\n              The missing file "
+                                      "is\n              {}",
+                                      chunk.string() ) );
+                    return result;
+                }
+                result.Chunks.push_back( chunk );
+            }
+        }
+
         std::vector<fs::path> patches;
         std::error_code       ec;
         for ( const auto& de : fs::directory_iterator( baseDir, ec ) )
@@ -119,6 +182,7 @@ namespace Desert::Player
             {
                 Common::Utils::VFS::Unmount();
                 result.BasePak.clear();
+                result.Chunks.clear();
                 result.Patches.clear();
                 result.ExitCode = kContentPatchArchiveFailed;
                 result.Message  = RefusalMessage(
