@@ -50,7 +50,7 @@ namespace
 {
     // ── SYNTHETIC CORPUS: the derivation, with the graph in plain sight ──────────────────────────
 
-    AssetRegistryEntry Row( std::string key, std::vector<std::string> dependsOnKeys )
+    AssetRegistryEntry Row( std::string key, const std::vector<std::string>& dependsOnKeys )
     {
         AssetRegistryEntry entry;
         entry.Key  = std::move( key );
@@ -246,7 +246,7 @@ namespace
     std::string ReadBytes( const fs::path& path )
     {
         std::ifstream in( path, std::ios::binary );
-        return std::string( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        return { ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() };
     }
 } // namespace
 
@@ -266,13 +266,14 @@ TEST( PakChunks, AChunkIsTheDependencyClosureOfItsRootsAndNobodyAuthorsTheMember
     } );
 
     ChunkScheme scheme;
-    scheme.Chunks.push_back( ChunkRule{ "North", { "assets:A.demat" } } );
-    scheme.Chunks.push_back( ChunkRule{ "South", { "assets:D.demat" } } );
+    scheme.Chunks.emplace_back( ChunkRule{ "North", { "assets:A.demat" } } );
+    scheme.Chunks.emplace_back( ChunkRule{ "South", { "assets:D.demat" } } );
 
     const auto plan = BuildChunkPlan( registry, scheme );
     ASSERT_TRUE( plan ) << plan.GetError();
 
-    const std::size_t north = 1, south = 2;
+    const std::size_t north = 1;
+    const std::size_t south = 2;
     EXPECT_EQ( plan.GetValue().ChunkFor( "assets:A.demat" ), north );
     // B was never named by the scheme. It travels with North because A depends on it — this is the
     // whole point: adding the edge is what moves the asset, not editing a list.
@@ -298,7 +299,7 @@ TEST( PakChunks, APinnedKeyReturnsToTheBaseHoweverTheDerivationPlacedIt )
     } );
 
     ChunkScheme scheme;
-    scheme.Chunks.push_back( ChunkRule{ "Menu", { "assets:Menu.demat" } } );
+    scheme.Chunks.emplace_back( ChunkRule{ "Menu", { "assets:Menu.demat" } } );
 
     const auto derived = BuildChunkPlan( registry, scheme );
     ASSERT_TRUE( derived ) << derived.GetError();
@@ -320,7 +321,7 @@ TEST( PakChunks, ADependencyThatNamesNoRowIsReportedRatherThanDropped )
     ASSERT_TRUE( registry.Insert( broken ) );
 
     ChunkScheme scheme;
-    scheme.Chunks.push_back( ChunkRule{ "North", { "assets:A.demat" } } );
+    scheme.Chunks.emplace_back( ChunkRule{ "North", { "assets:A.demat" } } );
 
     const auto plan = BuildChunkPlan( registry, scheme );
     ASSERT_TRUE( plan ) << plan.GetError();
@@ -337,50 +338,50 @@ TEST( PakChunks, EveryWayOfAskingForAnEmptyOrAmbiguousChunkIsRefusedByName )
 {
     const AssetRegistry registry = RegistryOf( { Row( "assets:A.demat", {} ) } );
 
-    const auto Refused = []( const AssetRegistry& reg, ChunkScheme scheme )
+    const auto Refused = []( const AssetRegistry& reg, const ChunkScheme& scheme )
     {
         const auto plan = BuildChunkPlan( reg, scheme );
         return !plan.IsSuccess();
     };
 
     ChunkScheme unknownRoot;
-    unknownRoot.Chunks.push_back( ChunkRule{ "North", { "assets:TypoedName.demat" } } );
+    unknownRoot.Chunks.emplace_back( ChunkRule{ "North", { "assets:TypoedName.demat" } } );
     EXPECT_TRUE( Refused( registry, unknownRoot ) ) << "a root that names nothing yields an EMPTY chunk, "
                                                        "which reads exactly like a correct small region";
 
     ChunkScheme noRoots;
-    noRoots.Chunks.push_back( ChunkRule{ "North", {} } );
+    noRoots.Chunks.emplace_back( ChunkRule{ "North", {} } );
     EXPECT_TRUE( Refused( registry, noRoots ) );
 
     ChunkScheme duplicate;
-    duplicate.Chunks.push_back( ChunkRule{ "North", { "assets:A.demat" } } );
-    duplicate.Chunks.push_back( ChunkRule{ "North", { "assets:A.demat" } } );
+    duplicate.Chunks.emplace_back( ChunkRule{ "North", { "assets:A.demat" } } );
+    duplicate.Chunks.emplace_back( ChunkRule{ "North", { "assets:A.demat" } } );
     EXPECT_TRUE( Refused( registry, duplicate ) );
 
     ChunkScheme callsItselfBase;
-    callsItselfBase.Chunks.push_back( ChunkRule{ std::string( BASE_CHUNK_NAME ), { "assets:A.demat" } } );
+    callsItselfBase.Chunks.emplace_back( ChunkRule{ std::string( BASE_CHUNK_NAME ), { "assets:A.demat" } } );
     EXPECT_TRUE( Refused( registry, callsItselfBase ) );
 
     ChunkScheme unnameable;
-    unnameable.Chunks.push_back( ChunkRule{ "../../etc", { "assets:A.demat" } } );
+    unnameable.Chunks.emplace_back( ChunkRule{ "../../etc", { "assets:A.demat" } } );
     EXPECT_TRUE( Refused( registry, unnameable ) ) << "a chunk name becomes part of an archive filename";
 
     ChunkScheme pinnedGhost;
-    pinnedGhost.Chunks.push_back( ChunkRule{ "North", { "assets:A.demat" } } );
+    pinnedGhost.Chunks.emplace_back( ChunkRule{ "North", { "assets:A.demat" } } );
     pinnedGhost.AlwaysBase.push_back( "assets:NotHere.demat" );
     EXPECT_TRUE( Refused( registry, pinnedGhost ) );
 
     // And the control: the shape they are all deviations from must pass, or the assertions above
     // would be satisfied by a function that refuses everything.
     ChunkScheme good;
-    good.Chunks.push_back( ChunkRule{ "North", { "assets:A.demat" } } );
+    good.Chunks.emplace_back( ChunkRule{ "North", { "assets:A.demat" } } );
     EXPECT_FALSE( Refused( registry, good ) );
 }
 
 TEST( PakChunks, TheSchemeRoundTripsAndAnEmptyFileIsAProjectThatWasNeverDivided )
 {
     ChunkScheme scheme;
-    scheme.Chunks.push_back( ChunkRule{ "North", { "assets:A.demat", "assets:B.demat" } } );
+    scheme.Chunks.emplace_back( ChunkRule{ "North", { "assets:A.demat", "assets:B.demat" } } );
     scheme.AlwaysBase.push_back( "assets:Loading.demat" );
 
     const auto parsed = ParseChunkScheme( WriteChunkScheme( scheme ) );
@@ -427,7 +428,7 @@ TEST( PakChunks, EveryFileOfEveryContentKindLandsInExactlyOneArchiveAndNoneInZer
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() ) << "the repository root could not be found from the test's cwd";
-    SandboxProject project( repo );
+    const SandboxProject project( repo );
     ASSERT_TRUE( project.Opened() ) << "Editor/Desert.deproj could not be read";
 
     const auto registry = LoadCommittedRegistry();
@@ -450,13 +451,14 @@ TEST( PakChunks, EveryFileOfEveryContentKindLandsInExactlyOneArchiveAndNoneInZer
     ASSERT_NE( registry.GetValue().FindByKey( materialKey ), nullptr ) << materialKey;
 
     ChunkScheme scheme;
-    scheme.Chunks.push_back( ChunkRule{ "Region", { materialKey } } );
+    scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
 
     const auto plan = BuildChunkPlan( registry.GetValue(), scheme );
     ASSERT_TRUE( plan ) << plan.GetError();
     ASSERT_EQ( plan.GetValue().Count(), 2u );
 
     std::vector<std::pair<std::string, fs::path>> files;
+    files.reserve( files.size() + corpus.size() );
     for ( const fs::path& file : corpus )
         files.emplace_back( ArchiveKey( file ), file );
 
@@ -499,7 +501,7 @@ TEST( PakChunks, TheWholeContentTreeIsAssignedAndTheAssignmentIsAFunction )
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    SandboxProject project( repo );
+    const SandboxProject project( repo );
     ASSERT_TRUE( project.Opened() );
 
     const auto registry = LoadCommittedRegistry();
@@ -536,7 +538,7 @@ TEST( PakChunks, APatchOverridesBaseAndChunkAndTheSourceArchiveIsAnAnswerNotAnIn
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    SandboxProject project( repo );
+    const SandboxProject project( repo );
     ASSERT_TRUE( project.Opened() );
 
     const auto registry = LoadCommittedRegistry();
@@ -551,12 +553,13 @@ TEST( PakChunks, APatchOverridesBaseAndChunkAndTheSourceArchiveIsAnAnswerNotAnIn
     const fs::path    materialFile = byKind.at( "Material" );
     const std::string materialKey  = Common::AssetHandle::StableKeyForPath( materialFile );
     ChunkScheme       scheme;
-    scheme.Chunks.push_back( ChunkRule{ "Region", { materialKey } } );
+    scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
 
     const auto plan = BuildChunkPlan( registry.GetValue(), scheme );
     ASSERT_TRUE( plan ) << plan.GetError();
 
     std::vector<std::pair<std::string, fs::path>> files;
+    files.reserve( files.size() + corpus.size() );
     for ( const fs::path& file : corpus )
         files.emplace_back( ArchiveKey( file ), file );
 
@@ -633,7 +636,7 @@ TEST( PakChunks, EveryContentKindSurvivesTheDivisionByteForByte )
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    SandboxProject project( repo );
+    const SandboxProject project( repo );
     ASSERT_TRUE( project.Opened() );
 
     const auto registry = LoadCommittedRegistry();
@@ -647,11 +650,12 @@ TEST( PakChunks, EveryContentKindSurvivesTheDivisionByteForByte )
 
     const std::string materialKey = Common::AssetHandle::StableKeyForPath( byKind.at( "Material" ) );
     ChunkScheme       scheme;
-    scheme.Chunks.push_back( ChunkRule{ "Region", { materialKey } } );
+    scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
     const auto plan = BuildChunkPlan( registry.GetValue(), scheme );
     ASSERT_TRUE( plan ) << plan.GetError();
 
     std::vector<std::pair<std::string, fs::path>> files;
+    files.reserve( files.size() + corpus.size() );
     for ( const fs::path& file : corpus )
         files.emplace_back( ArchiveKey( file ), file );
 
@@ -689,7 +693,7 @@ TEST( PakChunks, ADeclaredChunkThatReceivesNoFileIsARefusalAndNotAnEmptyArchive 
 {
     const AssetRegistry registry = RegistryOf( { Row( "assets:A.demat", {} ) } );
     ChunkScheme         scheme;
-    scheme.Chunks.push_back( ChunkRule{ "Region", { "assets:A.demat" } } );
+    scheme.Chunks.emplace_back( ChunkRule{ "Region", { "assets:A.demat" } } );
     const auto plan = BuildChunkPlan( registry, scheme );
     ASSERT_TRUE( plan ) << plan.GetError();
 

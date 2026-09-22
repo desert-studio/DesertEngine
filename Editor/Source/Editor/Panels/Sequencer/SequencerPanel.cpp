@@ -632,7 +632,7 @@ namespace Desert::Editor
                 // ONE UNDO STEP FOR THE WHOLE PRESS, and the scope has to cover `showKeyedPose` below as
                 // well as the key: that call reloads the WHOLE authoring buffer from the clip, so the pose
                 // the animator is left looking at is part of what this press did.
-                ScopedPoseEdit undoStep( m_ClipEdit, animator, editClip );
+                const ScopedPoseEdit undoStep( m_ClipEdit, animator, editClip );
                 const auto keyed =
                      m_Keyer.WriteBone( KeyTargetFor( editClip, *animator ), static_cast<uint32_t>( selBone ) );
                 if ( !keyed.IsSuccess() )
@@ -1144,7 +1144,7 @@ namespace Desert::Editor
                 }
                 // BETWEEN THE WIDGET AND THE WRITE. `Combo` edits the local `current`, so the key still
                 // holds its old value on this line and the transaction's "before" is the true one.
-                ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+                const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
                 interp = static_cast<Animation::KeyInterp>( current );
                 return true;
             };
@@ -1156,7 +1156,7 @@ namespace Desert::Editor
                 {
                     return false;
                 }
-                ScopedPoseEdit undoStep( m_ClipEdit, animator, clip ); // see interpCombo above
+                const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip ); // see interpCombo above
                 mode = static_cast<Animation::TangentMode>( current );
                 return true;
             };
@@ -1217,7 +1217,7 @@ namespace Desert::Editor
 
                 if ( ImGui::Button( ICON_MDI_DELETE "  Delete Key" ) )
                 {
-                    ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+                    const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
                     if ( m_SelChannel == 0 )
                         tr.PositionKeys.erase( tr.PositionKeys.begin() + m_SelKey );
                     else if ( m_SelChannel == 1 )
@@ -1327,12 +1327,12 @@ namespace Desert::Editor
                                 ToastLevel::Error, 6.0f );
             return;
         }
-        const size_t index = static_cast<size_t>( m_SelSection );
+        const auto index = static_cast<size_t>( m_SelSection );
         // ONE INTERACTION, ONE UNDO STEP. The guard opens before the edit and closes after it, so a
         // command that changes nothing pushes nothing (PoseEditTransaction::End says why).
         Common::BoolResultStr done = Common::MakeError<bool>( "the edit did not run" );
         {
-            ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, target->Clip );
+            const ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, target->Clip );
             done = edit( *target, index );
         }
         if ( !done.IsSuccess() )
@@ -1466,7 +1466,7 @@ namespace Desert::Editor
              m_SectionDrag < static_cast<int>( clip->Sections.size() ) )
         {
             const auto   now   = tickUnderMouse();
-            const size_t index = static_cast<size_t>( m_SectionDrag );
+            const auto   index = static_cast<size_t>( m_SectionDrag );
             if ( !( now == m_SectionDragTick ) )
             {
                 Common::BoolResultStr moved = Common::MakeSuccess( true );
@@ -1605,7 +1605,7 @@ namespace Desert::Editor
             return;
         }
 
-        const size_t            index   = static_cast<size_t>( m_SelSection );
+        const auto              index   = static_cast<size_t>( m_SelSection );
         Animation::ClipSection& section = clip->Sections[index];
 
         // A DRAG ACROSS FORTY FRAMES IS ONE UNDO STEP, and this is the bracket the dope-sheet fields use
@@ -1691,7 +1691,7 @@ namespace Desert::Editor
         ImGui::SetNextItemWidth( 160.0f );
         if ( ImGui::Combo( "Blend", &blend, blendNames ) )
         {
-            ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+            const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
             section.Blend = static_cast<Animation::SectionBlendType>( blend );
         }
         ImGui::SameLine();
@@ -1705,7 +1705,7 @@ namespace Desert::Editor
         bool everyTrack = section.Tracks.empty();
         if ( ImGui::Checkbox( "Speaks for every track in the clip", &everyTrack ) )
         {
-            ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+            const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
             if ( everyTrack )
             {
                 Animation::SetSectionSpeaksForEveryTrack( section );
@@ -1749,7 +1749,7 @@ namespace Desert::Editor
                     bool on = section.Speaks( name );
                     if ( ImGui::Checkbox( name.c_str(), &on ) )
                     {
-                        ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+                        const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
                         if ( const auto set = Animation::SetSectionSpeaksFor( section, name, on, allTracks );
                              !set.IsSuccess() )
                         {
@@ -1781,7 +1781,7 @@ namespace Desert::Editor
         ImGui::SameLine();
         if ( ImGui::Button( ICON_MDI_KEY_PLUS " Key weight @ playhead" ) )
         {
-            ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+            const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
             if ( const auto keyed = Animation::SetSectionWeightKey( section, playhead.Frame, m_SectionWeight );
                  !keyed.IsSuccess() )
             {
@@ -1792,7 +1792,7 @@ namespace Desert::Editor
         ImGui::BeginDisabled( section.Weight.empty() );
         if ( ImGui::Button( "Clear fade" ) )
         {
-            ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+            const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
             Animation::ClearSectionWeight( section );
         }
         ImGui::EndDisabled();
@@ -1819,7 +1819,7 @@ namespace Desert::Editor
             ImGui::SameLine();
             if ( ImGui::SmallButton( ICON_MDI_CLOSE ) )
             {
-                ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+                const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
                 if ( const auto removed = Animation::RemoveSectionWeightKey( section, k ); !removed.IsSuccess() )
                 {
                     ToastManager::Push( removed.GetError(), ToastLevel::Error, 6.0f );
@@ -1848,7 +1848,7 @@ namespace Desert::Editor
         char                         name[48];
         std::snprintf( name, sizeof( name ), "Section %zu", clip->Sections.size() + 1 );
 
-        ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, clip );
+        const ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, clip );
         const auto     added = Animation::AddSection( clip->Sections, name, start, clip->DurationTicks,
                                                       Animation::SectionBlendType::Absolute, clip->DurationTicks );
         if ( !added.IsSuccess() )
@@ -1870,10 +1870,10 @@ namespace Desert::Editor
             ToastManager::Push( "reorder section: select a section first", ToastLevel::Error, 6.0f );
             return;
         }
-        const size_t          index = static_cast<size_t>( m_SelSection );
+        const auto            index = static_cast<size_t>( m_SelSection );
         Common::BoolResultStr moved = Common::MakeError<bool>( "the edit did not run" );
         {
-            ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, target->Clip );
+            const ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, target->Clip );
             moved = Animation::ReorderSection( target->Clip->Sections, index, delta );
         }
         if ( !moved.IsSuccess() )

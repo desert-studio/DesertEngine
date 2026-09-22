@@ -372,7 +372,7 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClip )
     const auto saved = Desert::Assets::Serialization::SaveClipToFile( path, clip );
     ASSERT_TRUE( saved ) << saved.GetError();
 
-    std::ifstream     in( path, std::ios::binary );
+    const std::ifstream in( path, std::ios::binary );
     std::stringstream text;
     text << in.rdbuf();
     const auto parsed = rfl::json::read<Ser::AnimationAssetData>( text.str() );
@@ -431,6 +431,7 @@ TEST( AnimationClipFormat, ASectionAUTHOREDTheWayTheSequencerAuthorsOneSurvivesT
     // Narrow the second one to a strict subset, which is the case that has a list on disk at all -- and
     // the case whose two spellings ClipSection.hpp collapses to one.
     std::vector<std::string> allTracks;
+    allTracks.reserve( allTracks.size() + clip.Tracks.size() );
     for ( const auto& track : clip.Tracks )
     {
         allTracks.push_back( track.BoneName );
@@ -445,7 +446,7 @@ TEST( AnimationClipFormat, ASectionAUTHOREDTheWayTheSequencerAuthorsOneSurvivesT
     const auto saved = Desert::Assets::Serialization::SaveClipToFile( path, clip );
     ASSERT_TRUE( saved ) << saved.GetError();
 
-    std::ifstream     in( path, std::ios::binary );
+    const std::ifstream in( path, std::ios::binary );
     std::stringstream text;
     text << in.rdbuf();
     const auto parsed = rfl::json::read<Ser::AnimationAssetData>( text.str() );
@@ -508,7 +509,7 @@ TEST( AnimationClipFormat, AClipSaveThatCannotBeWrittenIsARefusalNamingTheClip )
     EXPECT_NE( saved.GetError().find( "Walk" ), std::string::npos )
          << "the refusal must name the clip the person pressed Save on: " << saved.GetError();
 
-    std::ifstream     in( path, std::ios::binary );
+    const std::ifstream in( path, std::ios::binary );
     std::stringstream still;
     still << in.rdbuf();
     EXPECT_EQ( still.str(), previousClip ) << "the failed save cost the clip that was already on disk";

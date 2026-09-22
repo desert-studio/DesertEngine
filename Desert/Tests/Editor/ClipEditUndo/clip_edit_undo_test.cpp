@@ -685,7 +685,7 @@ TEST_F( ClipEditUndo, OneSectionEditIsOneUndoStepAndBothDirectionsRestoreItByVal
     const std::vector<ClipSection> before = rig.m_Clip.Sections;
 
     {
-        ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
+        const ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
         ASSERT_TRUE( Desert::Animation::AddSection( rig.m_Clip.Sections, "Section 2", FrameNumber{ 1000 },
                                                     FrameNumber{ 5000 }, SectionBlendType::Additive,
                                                     rig.m_Clip.DurationTicks )
@@ -737,7 +737,7 @@ TEST_F( ClipEditUndo, ASectionInteractionThatChangedNothingIsNotAnUndoStep )
     {
         // A click on the lane that missed every section: the transaction opens on the press and closes on
         // the release with the list untouched. An entry here would spend a Ctrl+Z doing nothing.
-        ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
+        const ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
         const auto     refused = Desert::Animation::ReorderSection( rig.m_Clip.Sections, 0, 1 );
         EXPECT_FALSE( refused.IsSuccess() );
     }
@@ -787,7 +787,7 @@ TEST_F( ClipEditUndo, AFADEISUndoableOnItsOwnAndComesBackAsAnEMPTYChannel )
     ASSERT_TRUE( rig.m_Clip.Sections[0].Weight.empty() );
 
     {
-        ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
+        const ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
         ASSERT_TRUE( Desert::Animation::SetSectionWeightKey( rig.m_Clip.Sections[0], FrameNumber{ 0 }, 0.0f )
                           .IsSuccess() );
     }
@@ -815,7 +815,7 @@ TEST_F( ClipEditUndo, ONEEntryCarriesTheKEYSAndTheSECTIONWhenOneInteractionDidBo
 
     rig.SetTick( kDisplayFrameTicks * 15 );
     {
-        ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
+        const ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
         const auto     keyed = rig.m_Keyer.WriteBone( rig.Target(), kChild );
         ASSERT_TRUE( keyed.IsSuccess() ) << keyed.GetError();
         rig.m_Clip.Sections[0].Blend = SectionBlendType::Additive;

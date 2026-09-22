@@ -93,7 +93,7 @@ namespace
 
 TEST( PackagedMount, AnIntactUpdateMountsAndTheGameSeesItsContent )
 {
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "intact" );
 
     WritePak( dir / "Content.dpak",
@@ -117,7 +117,7 @@ TEST( PackagedMount, AnIntactUpdateMountsAndTheGameSeesItsContent )
 
 TEST( PackagedMount, AnUpdateThatREMOVESAFileIsAppliedAtStartup )
 {
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "removal" );
 
     WritePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" },
@@ -154,7 +154,7 @@ TEST( PackagedMount, AnUpdateThatREMOVESAFileIsAppliedAtStartup )
 
 TEST( PackagedMount, AnUpdateBuiltAgainstADifferentBaseStopsStartup )
 {
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "wrongbase" );
 
     WritePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" } } );
@@ -179,7 +179,7 @@ TEST( PackagedMount, AnUpdateBuiltAgainstADifferentBaseStopsStartup )
 
 TEST( PackagedMount, NoArchiveAtAllIsADevTreeAndNotAFailure )
 {
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "loose" );
 
     // A checkout with loose content on disk and no pak anywhere. Every read is a plain disk read, and
@@ -196,7 +196,7 @@ TEST( PackagedMount, NoArchiveAtAllIsADevTreeAndNotAFailure )
 
 TEST( PackagedMount, ADamagedUpdateStopsStartupAndNothingIsLeftMounted )
 {
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "bad_patch" );
 
     WritePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" } } );
@@ -223,7 +223,7 @@ TEST( PackagedMount, ADamagedUpdateStopsStartupAndNothingIsLeftMounted )
 
 TEST( PackagedMount, ADamagedGameArchiveStopsStartupWithADifferentCode )
 {
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "bad_base" );
 
     WritePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" } } );
@@ -263,7 +263,7 @@ TEST( PackagedMount, TheBaseArchiveIsChosenByAFixedPreferenceOrder )
 
 TEST( PackagedMount, SeveralUnnamedArchivesRefuseRatherThanGuess )
 {
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "ambiguous" );
 
     WritePak( dir / "Alpha.dpak", { { "a.txt", "a" } } );
@@ -320,7 +320,7 @@ TEST( PackagedMount, DamageInsideTheContentItselfFailsTheREADRatherThanReturning
     // archive mounts and startup is right to allow it — the damage is invisible until somebody asks
     // for those exact bytes. Without the hash check the read succeeds and the game runs on content
     // nobody built.
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "bad_blob" );
 
     const std::string payload = "the level the player is about to load";
@@ -341,7 +341,7 @@ TEST( PackagedMount, AnUndamagedArchiveStillReadsBackEveryByte )
 {
     // The guard on the check above: hash verification must not reject anything sound. Sizes chosen to
     // cross the reader's buffering — empty, one byte, and larger than a block.
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "sizes" );
 
     const std::string empty;
@@ -368,7 +368,7 @@ TEST( PackagedMount, AnUndamagedArchiveStillReadsBackEveryByte )
 
 TEST( PackagedMount, TheBaseNamesItsChunksAndTheGameGetsTheirContent )
 {
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "chunks" );
 
     WritePak( dir / "Content.dpak", { { "Assets/menu.desce", "in the base" },
@@ -399,7 +399,7 @@ TEST( PackagedMount, AChunkIsNotAGameAndOneThatDidNotArriveStopsStartup )
         // A folder holding only chunk archives is not a folder holding several games: FindBasePak
         // must not offer one as the thing to start, or a partial download would come up as a game
         // made of one region.
-        MountGuard     guard;
+        const MountGuard guard;
         const fs::path dir = MakeTempDir( "chunk_is_not_a_game" );
         WritePak( dir / "Chunk_North.dpak", { { "Assets/north.desce", "region" } } );
         WritePak( dir / "Chunk_South.dpak", { { "Assets/south.desce", "region" } } );
@@ -409,7 +409,7 @@ TEST( PackagedMount, AChunkIsNotAGameAndOneThatDidNotArriveStopsStartup )
         EXPECT_TRUE( ambiguous.empty() ) << "chunk archives were offered as candidate games";
     }
     {
-        MountGuard     guard;
+        const MountGuard guard;
         const fs::path dir = MakeTempDir( "chunk_missing" );
         WritePak( dir / "Content.dpak",
                   { { "Assets/menu.desce", "in the base" },
@@ -429,7 +429,7 @@ TEST( PackagedMount, AChunkIsNotAGameAndOneThatDidNotArriveStopsStartup )
 
 TEST( PackagedMount, AnArchiveThatNamesNoChunksIsAGameThatWasNeverDivided )
 {
-    MountGuard     guard;
+    const MountGuard guard;
     const fs::path dir = MakeTempDir( "undivided" );
     WritePak( dir / "Content.dpak", { { "Assets/menu.desce", "the whole game" } } );
 

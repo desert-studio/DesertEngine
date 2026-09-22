@@ -42,8 +42,8 @@ namespace Desert::Player
         std::vector<fs::path> candidates;
         for ( const auto& de : fs::directory_iterator( dir, ec ) )
             if ( de.is_regular_file( ec ) && de.path().extension() == ".dpak" &&
-                 de.path().filename().string().rfind( "Patch", 0 ) != 0 &&
-                 de.path().filename().string().rfind( "Chunk_", 0 ) != 0 )
+                 !de.path().filename().string().starts_with( "Patch" ) &&
+                 !de.path().filename().string().starts_with( "Chunk_" ) )
                 candidates.push_back( de.path() );
         if ( candidates.size() == 1 )
             return candidates.front();
