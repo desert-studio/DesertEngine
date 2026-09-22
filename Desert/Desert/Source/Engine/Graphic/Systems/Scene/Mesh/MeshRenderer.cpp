@@ -901,9 +901,9 @@ namespace Desert::Graphic::System
         //
         // Reused by index so the inner vectors keep their capacity; clearing the outer vector would
         // destroy them and put an allocation per material back into the steady state.
-        auto& instSets       = m_ScratchInstSets;
+        auto& instSets        = m_ScratchInstSets;
         m_ScratchInstSetCount = 0;
-        const auto setFor    = [&]( MaterialPBR* recorder, MaterialInstance* inst ) -> InstancedBatchSet&
+        const auto setFor     = [&]( MaterialPBR* recorder, MaterialInstance* inst ) -> InstancedBatchSet&
         {
             for ( std::size_t i = 0; i < m_ScratchInstSetCount; ++i )
                 if ( instSets[i]->Mat == recorder )
@@ -928,8 +928,8 @@ namespace Desert::Graphic::System
             if ( !instancingOn || !group )
                 return nullptr;
 
-            auto*       materials = Runtime::ResourceRegistry::GetMaterialService();
-            const bool  hasAsset  = materials != nullptr && materials->Owns( group );
+            auto*        materials = Runtime::ResourceRegistry::GetMaterialService();
+            const bool   hasAsset  = materials != nullptr && materials->Owns( group );
             MaterialPBR* variant =
                  hasAsset ? materials->GetVariant( group, MeshVertexPath::Instanced, instancedPass ) : nullptr;
 

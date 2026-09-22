@@ -44,9 +44,9 @@ namespace Desert::Editor::Tools
         // is a caller that cannot tell a locked entity from an empty sky.
         // @p camera is THIS VIEWPORT's camera — the ray is cast from the angle the user clicked in, not
         // from view 0's. Asking the scene picked the wrong entity from a second viewport.
-        [[nodiscard]] PickOutcome Pick( ::Desert::Core::Scene&                             scene,
+        [[nodiscard]] PickOutcome Pick( ::Desert::Core::Scene&                         scene,
                                         const std::shared_ptr<::Desert::Core::Camera>& camera,
-                                        const glm::vec2& mouseViewport,
-                                        const glm::vec2& viewportSize, bool gizmoHovered, bool additive = false );
+                                        const glm::vec2& mouseViewport, const glm::vec2& viewportSize,
+                                        bool gizmoHovered, bool additive = false );
     };
 } // namespace Desert::Editor::Tools

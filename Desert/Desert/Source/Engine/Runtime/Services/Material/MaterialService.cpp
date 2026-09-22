@@ -176,8 +176,7 @@ namespace Desert::Runtime
     }
 
     Graphic::MaterialPBR* MaterialService::GetVariant( const Graphic::MaterialPBR* built,
-                                                       Graphic::MeshVertexPath     path,
-                                                       Graphic::MeshPass           pass ) const
+                                                       Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const
     {
         if ( !built )
             return nullptr;

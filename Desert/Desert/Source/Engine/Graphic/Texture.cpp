@@ -103,8 +103,7 @@ namespace Desert::Graphic
         if ( !raw.IsSuccess() )
             return Common::MakeError<std::shared_ptr<Texture2D>>( raw.GetError() );
 
-        auto decoded =
-             Assets::Serialization::DecodeTextureBinary( raw.GetValue(), cookedPath.string() );
+        auto decoded = Assets::Serialization::DecodeTextureBinary( raw.GetValue(), cookedPath.string() );
         if ( !decoded.IsSuccess() )
             return Common::MakeError<std::shared_ptr<Texture2D>>( decoded.GetError() );
 
@@ -124,21 +123,21 @@ namespace Desert::Graphic
         texture->m_Height = data.Height;
 
         const Core::Formats::Image2DSpecification imageSpec = {
-            .Tag        = Common::Utils::FileSystem::GetFileName( cookedPath ),
-            .Width      = data.Width,
-            .Height     = data.Height,
-            .Format     = data.Format,
-            .Data       = std::move( data.Pixels ),
-            .Usage      = Core::Formats::Image2DUsage::Image2D,
-            .Properties = Core::Formats::Sample,
-            .MipLevels  = std::move( spans ) };
+             .Tag        = Common::Utils::FileSystem::GetFileName( cookedPath ),
+             .Width      = data.Width,
+             .Height     = data.Height,
+             .Format     = data.Format,
+             .Data       = std::move( data.Pixels ),
+             .Usage      = Core::Formats::Image2DUsage::Image2D,
+             .Properties = Core::Formats::Sample,
+             .MipLevels  = std::move( spans ) };
 
         auto image = Image2D::Create( imageSpec, nullptr );
         if ( !image )
         {
             return Common::MakeFormattedError<std::shared_ptr<Texture2D>>(
-                 "the GPU image for cooked texture '{}' ({}x{}, {} levels) was not created.",
-                 cookedPath.string(), data.Width, data.Height, data.Levels.size() );
+                 "the GPU image for cooked texture '{}' ({}x{}, {} levels) was not created.", cookedPath.string(),
+                 data.Width, data.Height, data.Levels.size() );
         }
 
         texture->m_Handle = Runtime::ResourceRegistry::GetImageService()->Register(

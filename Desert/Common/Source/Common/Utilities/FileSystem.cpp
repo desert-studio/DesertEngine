@@ -263,8 +263,8 @@ namespace Common::Utils
             {
                 LOG_ERROR( "[FileSystem] Could not read the first {} bytes of file: {}", maxBytes,
                            filepath.string() );
-                return Common::MakeFormattedError<std::string>(
-                     "Could not read the first {} bytes of file: {}", maxBytes, filepath.string() );
+                return Common::MakeFormattedError<std::string>( "Could not read the first {} bytes of file: {}",
+                                                                maxBytes, filepath.string() );
             }
             prefix.resize( static_cast<std::size_t>( in.gcount() ) );
         }

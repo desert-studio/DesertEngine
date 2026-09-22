@@ -800,8 +800,7 @@ namespace Desert::Core
         if ( !m_Views.Remove( renderer ) )
             return false;
 
-        LOG_INFO( "[Scene] '{}' closed a view ({} view(s) left on this world).", m_SceneName,
-                  m_Views.Count() );
+        LOG_INFO( "[Scene] '{}' closed a view ({} view(s) left on this world).", m_SceneName, m_Views.Count() );
         return true;
     }
 

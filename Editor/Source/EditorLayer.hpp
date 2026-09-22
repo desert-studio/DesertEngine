@@ -634,7 +634,7 @@ namespace Desert::Editor
         bool                                    m_AddSceneViewRequested = false; // Scenes -> New Scene View
         // Deferred for the same reason as the flag above: opening a viewport leases a renderer slot and
         // builds GPU resources, neither of which may happen inside the ImGui pass.
-        bool                                    m_AddSceneViewportRequested = false;
+        bool m_AddSceneViewportRequested = false;
 
         // Staged startup loading (UI loader): the heavy boot work (mesh cooking, asset preload) runs one
         // stage per frame from OnUpdate while OnUIRender shows a fullscreen progress overlay — instead

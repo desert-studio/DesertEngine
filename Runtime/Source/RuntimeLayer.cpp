@@ -620,8 +620,7 @@ namespace Desert::Player
         // nobody had ordered and the gate would never open. What must not run is TIME: without this the
         // player's first visible frame is already several frames into the game, with the physics stepped
         // and every script's OnUpdate called against a world they could not be seen reacting to.
-        if ( const auto frame = m_Scene->OnUpdate( m_Content.Loading() ? Common::Timestep( 0.0f ) : ts );
-             !frame )
+        if ( const auto frame = m_Scene->OnUpdate( m_Content.Loading() ? Common::Timestep( 0.0f ) : ts ); !frame )
             return Common::MakeError( frame.GetError() );
 
         return BOOLSUCCESS;

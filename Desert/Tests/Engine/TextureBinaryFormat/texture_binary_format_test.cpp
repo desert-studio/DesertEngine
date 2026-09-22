@@ -88,9 +88,9 @@ namespace
         uint32_t                                w = width, h = height;
         while ( w > 1 || h > 1 )
         {
-            const uint32_t              nw = w > 1 ? w / 2 : 1;
-            const uint32_t              nh = h > 1 ? h / 2 : 1;
-            std::vector<unsigned char>  next( static_cast<size_t>( nw ) * nh * 4 );
+            const uint32_t                    nw = w > 1 ? w / 2 : 1;
+            const uint32_t                    nh = h > 1 ? h / 2 : 1;
+            std::vector<unsigned char>        next( static_cast<size_t>( nw ) * nh * 4 );
             const std::vector<unsigned char>& src = levels.back();
             for ( uint32_t y = 0; y < nh; ++y )
             {
@@ -226,12 +226,11 @@ TEST( TextureBinaryFormat, APngSurvivesTheContainerByteForByte )
                                                    static_cast<int>( bytes.size() ), &w, &h, &ch, 4 );
     ASSERT_NE( raw, nullptr ) << stbi_failure_reason();
 
-    const size_t                 baseBytes = static_cast<size_t>( w ) * h * 4;
-    std::vector<unsigned char>   base( raw, raw + baseBytes );
+    const size_t               baseBytes = static_cast<size_t>( w ) * h * 4;
+    std::vector<unsigned char> base( raw, raw + baseBytes );
     stbi_image_free( raw );
 
-    const auto reference = ReferenceChainRGBA8( base, static_cast<uint32_t>( w ),
-                                                static_cast<uint32_t>( h ) );
+    const auto reference = ReferenceChainRGBA8( base, static_cast<uint32_t>( w ), static_cast<uint32_t>( h ) );
 
     const auto encoded = EncodeTextureBinary(
          Cook( static_cast<uint32_t>( w ), static_cast<uint32_t>( h ), base, "assets:Textures/T_Checker.png" ) );
@@ -262,10 +261,10 @@ TEST( TextureBinaryFormat, TruncationIsDistinguishableFromASmallTexture )
 {
     // The smallest container there is: one texel, one level. It is LEGAL and must decode.
     std::vector<unsigned char> single( 4 );
-    single[0] = 10;
-    single[1] = 20;
-    single[2] = 30;
-    single[3] = 40;
+    single[0]       = 10;
+    single[1]       = 20;
+    single[2]       = 30;
+    single[3]       = 40;
     const auto tiny = EncodeTextureBinary( Cook( 1, 1, single ) );
 
     const auto tinyDecoded = DecodeTextureBinary( tiny, "1x1" );
@@ -278,8 +277,8 @@ TEST( TextureBinaryFormat, TruncationIsDistinguishableFromASmallTexture )
     const auto     full = EncodeTextureBinary( Cook( w, h, SyntheticRGBA8( w, h ) ) );
     ASSERT_GT( full.size(), 1024u );
 
-    const std::string cut      = full.substr( 0, full.size() - 512 );
-    const auto        cutRead  = DecodeTextureBinary( cut, "cut.tex" );
+    const std::string cut     = full.substr( 0, full.size() - 512 );
+    const auto        cutRead = DecodeTextureBinary( cut, "cut.tex" );
     EXPECT_FALSE( cutRead.IsSuccess() )
          << "a file 512 bytes short decoded as a texture; the declared FileSize did its job nowhere";
     EXPECT_NE( cutRead.GetError().find( "truncated" ), std::string::npos ) << cutRead.GetError();
@@ -426,7 +425,7 @@ TEST( TextureBinaryFormat, TheMipBuilderRefusesAMismatchedBase )
 {
     std::vector<unsigned char> tooSmall( 16 ); // 2x2 worth of bytes for a 64x64 image
     std::vector<unsigned char> out;
-    const auto             chain = BuildMipChain( 64, 64, ImageFormat::RGBA8F, tooSmall, out );
+    const auto                 chain = BuildMipChain( 64, 64, ImageFormat::RGBA8F, tooSmall, out );
     EXPECT_FALSE( chain.IsSuccess() );
     EXPECT_NE( chain.GetError().find( "16384" ), std::string::npos ) << chain.GetError();
 }
@@ -435,7 +434,7 @@ TEST( TextureBinaryFormat, TheMipBuilderRefusesAFormatItCannotFilter )
 {
     std::vector<unsigned char> base( 8ull * 8ull * 8ull ); // RGBA16F would be 8 bytes per pixel
     std::vector<unsigned char> out;
-    const auto             chain = BuildMipChain( 8, 8, ImageFormat::RGBA16F, base, out );
+    const auto                 chain = BuildMipChain( 8, 8, ImageFormat::RGBA16F, base, out );
     EXPECT_FALSE( chain.IsSuccess() );
     EXPECT_NE( chain.GetError().find( "RGBA8F and RGBA32F" ), std::string::npos ) << chain.GetError();
 }
@@ -444,8 +443,8 @@ TEST( TextureBinaryFormat, HdrSourcesKeepTheirRange )
 {
     // Four float texels whose values are outside [0,1] — the whole reason an HDR source cannot be
     // stored as RGBA8. The chain has to average them as floats, not as bytes.
-    const uint32_t     w = 2, h = 2;
-    std::vector<float> values{ 4.0f, 0.0f, 0.0f, 1.0f, 0.0f, 8.0f, 0.0f, 1.0f,
+    const uint32_t             w = 2, h = 2;
+    std::vector<float>         values{ 4.0f, 0.0f, 0.0f,  1.0f, 0.0f, 8.0f, 0.0f, 1.0f,
                                0.0f, 0.0f, 16.0f, 1.0f, 2.0f, 2.0f, 2.0f, 1.0f };
     std::vector<unsigned char> base( values.size() * sizeof( float ) );
     std::memcpy( base.data(), values.data(), base.size() );
@@ -549,7 +548,7 @@ TEST( TextureBinaryFormat, AFlagOrAnEncoderThisVersionCannotHonourIsRefused )
         EXPECT_NE( read.GetError().find( "content flags" ), std::string::npos ) << read.GetError();
     }
     {
-        std::string    encoded = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
+        std::string    encoded  = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
         const uint64_t settings = 0x1122334455667788ull;
         std::memcpy( encoded.data() + 56, &settings, sizeof( settings ) ); // EncoderHash
         const auto read = DecodeTextureBinary( encoded, "encoded.tex" );

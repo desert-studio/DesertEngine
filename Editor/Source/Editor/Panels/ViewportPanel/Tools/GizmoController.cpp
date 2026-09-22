@@ -69,7 +69,7 @@ namespace Desert::Editor::Tools
         };
     } // namespace
 
-    void GizmoController::RenderObject( ::Desert::Core::Scene&                             scene,
+    void GizmoController::RenderObject( ::Desert::Core::Scene&                         scene,
                                         const std::shared_ptr<::Desert::Core::Camera>& camera,
                                         const glm::vec2& viewportPos, const glm::vec2& viewportSize )
     {
@@ -266,7 +266,7 @@ namespace Desert::Editor::Tools
         Core::GizmoState::SetPoseInteraction( false );
     }
 
-    void GizmoController::RenderBone( ::Desert::Core::Scene&                             scene,
+    void GizmoController::RenderBone( ::Desert::Core::Scene&                         scene,
                                       const std::shared_ptr<::Desert::Core::Camera>& camera,
                                       const glm::vec2& viewportPos, const glm::vec2& viewportSize )
     {
