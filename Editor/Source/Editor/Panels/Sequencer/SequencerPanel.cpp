@@ -1919,6 +1919,32 @@ namespace Desert::Editor
         // observation from outside — the empty successful answer, one layer up.
         actions.push_back(
              DocumentAction{ "Add a section at the playhead", [this] { AddSectionAtPlayhead(); } } );
+        // SAVING IS THE OTHER HALF OF AUTHORING, and it was a button too. Without it a section authored
+        // through the palette exists only in memory, so "the editor can author a section" could be shown
+        // and "the section it authored survives a save and a load" could not — and the second is the one
+        // that matters to the animator. The same call the Save button makes, with the same refusal.
+        actions.push_back( DocumentAction{ "Save this clip to disk",
+                                           [this]
+                                           {
+                                               const auto target = ResolveSectionTarget();
+                                               if ( !target )
+                                               {
+                                                   ToastManager::Push( "save clip: no clip is open",
+                                                                       ToastLevel::Error, 6.0f );
+                                                   return;
+                                               }
+                                               const auto saved = SaveClipToDisk( *target->Clip );
+                                               if ( saved )
+                                               {
+                                                   ToastManager::Push( "Saved clip to " + saved.GetValue(),
+                                                                       ToastLevel::Success );
+                                               }
+                                               else
+                                               {
+                                                   ToastManager::Push( "Clip NOT saved: " + saved.GetError(),
+                                                                       ToastLevel::Error, 8.0f );
+                                               }
+                                           } } );
         actions.push_back( DocumentAction{ "Select the next section",
                                            [this]
                                            {

@@ -756,23 +756,55 @@ TEST_F( ClipEditUndo, ADragOfASectionEdgeAcrossFortyFramesIsSTILLOneUndoStep )
     const std::vector<ClipSection> before = rig.m_Clip.Sections;
 
     ASSERT_TRUE( rig.m_Transaction.Begin( &rig.m_Animator, &rig.m_Clip ).IsSuccess() );
+    // 500 ticks per frame and not one DISPLAY frame per frame: forty display frames is 32000 ticks on a
+    // 24000-tick clip, so the drag would leave the clip and every step would be refused -- a scenario
+    // that proves nothing about the transaction, which is §8.4's degenerate shape.
+    constexpr int32_t kPerFrame = 500;
     for ( int frame = 1; frame <= 40; ++frame )
     {
         ASSERT_TRUE( Desert::Animation::SetSectionRange( rig.m_Clip.Sections, 0,
-                                                         FrameNumber{ frame * kDisplayFrameTicks },
+                                                         FrameNumber{ frame * kPerFrame },
                                                          rig.m_Clip.Sections[0].End,
                                                          rig.m_Clip.DurationTicks )
-                          .IsSuccess() );
+                          .IsSuccess() )
+             << "frame " << frame;
     }
     const auto pushed = rig.m_Transaction.End();
     ASSERT_TRUE( pushed.IsSuccess() ) << pushed.GetError();
     EXPECT_EQ( pushed.GetValue(), 1U );
     EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
 
-    ASSERT_EQ( rig.m_Clip.Sections[0].Start.Value, 40 * kDisplayFrameTicks );
+    ASSERT_EQ( rig.m_Clip.Sections[0].Start.Value, 40 * kPerFrame );
     ASSERT_TRUE( CommandHistory::Get().Undo() );
     EXPECT_TRUE( SameSections( rig.m_Clip.Sections, before ) )
          << "one press of Ctrl+Z goes back to where the drag began, not to its 39th frame";
+}
+
+TEST_F( ClipEditUndo, AFADEISUndoableOnItsOwnAndComesBackAsAnEMPTYChannel )
+{
+    // A WEIGHT-ONLY EDIT, asserted WITHOUT `SameStoredValue`. Every other section assertion in this file
+    // goes through that comparison, so a comparison that stopped looking at the weight channel would let
+    // all of them pass while the fade was never restored -- the entry would be pushed for some other
+    // difference and the channel would ride along unchecked. Here the channel is read directly.
+    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    rig.m_Clip.Sections.push_back( WholeClipSection( "Whole clip", 0, PROJECT_TICK_RATE.Numerator ) );
+    ASSERT_TRUE( rig.m_Clip.Sections[0].Weight.empty() );
+
+    {
+        ScopedPoseEdit step( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip );
+        ASSERT_TRUE( Desert::Animation::SetSectionWeightKey( rig.m_Clip.Sections[0], FrameNumber{ 0 }, 0.0f )
+                          .IsSuccess() );
+    }
+    ASSERT_EQ( rig.m_Clip.Sections[0].Weight.size(), 1U ) << "the fade really landed";
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U )
+         << "a fade is an edit to the clip, so it is an undo step";
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( rig.m_Clip.Sections[0].Weight.empty() )
+         << "and an empty channel is FULL weight, not a key of 0 — the corpus depends on the difference";
+    ASSERT_TRUE( CommandHistory::Get().Redo() );
+    ASSERT_EQ( rig.m_Clip.Sections[0].Weight.size(), 1U );
+    EXPECT_FLOAT_EQ( rig.m_Clip.Sections[0].Weight[0].Value, 0.0f );
 }
 
 TEST_F( ClipEditUndo, ONEEntryCarriesTheKEYSAndTheSECTIONWhenOneInteractionDidBoth )
