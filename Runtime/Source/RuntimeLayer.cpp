@@ -16,7 +16,6 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
-#include <Engine/Graphic/UICacheTexture.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetPreloader.hpp>
@@ -140,8 +139,8 @@ namespace Desert::Player
 
     Common::BoolResultStr RuntimeLayer::OnAttach()
     {
-        // No ImGui: the runtime presents the frame + draws UI/splash with the engine's own Render2D (set up
-        // lazily on the first present, once the swapchain framebuffer exists).
+        // The runtime presents the frame + draws UI/splash with the engine's own Render2D (set up lazily on
+        // the first present, once the swapchain framebuffer exists).
 
         // The runtime does NOT cook: it plays what the editor cooked. Assets load from the project's
         // Cooked/ tree (missing cooked content = open the project in the editor once).
@@ -664,10 +663,10 @@ namespace Desert::Player
         return BOOLSUCCESS;
     }
 
-    // The runtime's frame present — no ImGui. Opens the swapchain pass, blits the scene's final image
-    // fullscreen, then draws the UI canvas + splash with the engine's Render2D batcher. (Named OnImGuiRender
-    // only because that's the per-frame Layer hook the Application invokes between BeginFrame and Present.)
-    Common::BoolResultStr RuntimeLayer::OnImGuiRender()
+    // The runtime's frame present. Opens the swapchain pass, blits the scene's final image fullscreen,
+    // then draws the UI canvas + splash with the engine's Render2D batcher. No interface toolkit is in
+    // this process at all — Desert/Tests/Engine/ImGuiBoundary is the census that keeps it that way.
+    Common::BoolResultStr RuntimeLayer::OnUIRender()
     {
         auto& renderer = Graphic::Renderer::GetInstance();
         renderer.BeginSwapChainRenderPass();

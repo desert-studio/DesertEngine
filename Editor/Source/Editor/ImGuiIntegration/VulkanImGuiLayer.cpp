@@ -1,4 +1,4 @@
-#include <Engine/Graphic/API/Vulkan/imgui/VulkanImGuiLayer.hpp>
+#include <Editor/ImGuiIntegration/VulkanImGuiLayer.hpp>
 
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>

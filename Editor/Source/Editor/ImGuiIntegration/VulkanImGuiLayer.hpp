@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/imgui/ImGuiLayer.hpp>
+#include <Editor/ImGuiIntegration/ImGuiLayer.hpp>
 #include <Common/Core/Timestep.hpp>
 
 #include <vulkan/vulkan.h>
@@ -17,7 +17,7 @@ namespace Desert::Graphic::API::Vulkan
         virtual void               Begin() override;
         virtual void               End() override;
 
-        virtual Common::BoolResultStr OnImGuiRender() override
+        virtual Common::BoolResultStr OnUIRender() override
         {
             return BOOLSUCCESS;
         }

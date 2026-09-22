@@ -79,8 +79,8 @@
  *         was surface, not milliseconds.
  *   - `Engine/Core/EngineStats.hpp` — frame time and FPS, updated every frame in `Application::Run`,
  *     read only by the editor's HUD. Cheap, but it is an instrument, and cheap is not a reason.
- *   - ImGui, and `Layer::OnImGuiRender` — the player's LOADING SCREEN is drawn through that call
- *     (RuntimeLayer::OnImGuiRender -> Render2D). The name says debug UI; the path says product.
+ *   - ImGui, and `Layer::OnUIRender` — the player's LOADING SCREEN is drawn through that call
+ *     (RuntimeLayer::OnUIRender -> Render2D). The name says debug UI; the path says product.
  *
  * Also not cut, and deliberately so: the `DebugName` strings handed to Vulkan objects (~20 sites). They
  * are what makes a device-lost report name the pipeline that died, which is a PLAYER's bug report, not a

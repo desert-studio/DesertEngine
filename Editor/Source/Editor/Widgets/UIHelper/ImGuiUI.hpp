@@ -2,6 +2,8 @@
 
 #include <ImGui/imgui.h>
 
+#include <Editor/Widgets/UIHelper/UICacheTextureImGui.hpp>
+
 #include <Engine/Desert.hpp>
 
 namespace Desert::Editor::UI
@@ -28,6 +30,6 @@ namespace Desert::Editor::UI
         const void* GetTextureID( const std::shared_ptr<Graphic::Image2D>& image );
 
     private:
-        std::unique_ptr<Graphic::UICacheTexture> m_CacherTexture;
+        std::unique_ptr<UICacheTextureImGui> m_CacherTexture;
     };
 } // namespace Desert::Editor::UI

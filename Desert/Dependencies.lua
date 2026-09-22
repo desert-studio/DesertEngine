@@ -200,7 +200,6 @@ Dependencies = {
             base = baseDir,
             stb = baseDir .. "/stb/include",
             vkallocator = baseDir .. "/VulkanAllocator",
-            imgui = baseDir .. "/stb/ImGui",
             entt = baseDir .. "/entt/include",
             reflect_cpp = baseDir .. "/reflect-cpp/include",
             meshoptimizer = baseDir .. "/meshoptimizer/src",

@@ -111,7 +111,7 @@ namespace Desert::Engine
     void Application::ReportLayerFailure( const char* stage, Common::Layer* layer, const std::string& error )
     {
         // ONCE PER DISTINCT MESSAGE, and the deduplication is the point rather than tidiness. `OnUpdate`
-        // and `OnImGuiRender` run every frame, so a failure that persists — a scene that will not begin,
+        // and `OnUIRender` run every frame, so a failure that persists — a scene that will not begin,
         // a pipeline that will not build — is not one event but sixty a second. Logging each one makes
         // the log unreadable, which is the same outcome as not logging at all; these four results were
         // dropped on the floor before this commit and the cure must not be a flood.
@@ -249,12 +249,12 @@ namespace Desert::Engine
 
             // 5. UI Rendering
             {
-                DESERT_PROFILE_SCOPE( "ImGui Render" );
+                DESERT_PROFILE_SCOPE( "UI Render" );
                 for ( const auto& layer : m_LayerStack )
                 {
-                    const auto rendered = layer->OnImGuiRender();
+                    const auto rendered = layer->OnUIRender();
                     if ( !rendered.IsSuccess() )
-                        ReportLayerFailure( "OnImGuiRender", layer.get(), rendered.GetError() );
+                        ReportLayerFailure( "OnUIRender", layer.get(), rendered.GetError() );
                 }
             }
 
@@ -303,10 +303,6 @@ namespace Desert::Engine
     }
 
     void Application::Destroy()
-    {
-    }
-
-    void Application::ProcessImGui()
     {
     }
 

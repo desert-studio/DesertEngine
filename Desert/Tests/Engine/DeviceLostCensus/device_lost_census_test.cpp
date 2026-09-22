@@ -178,7 +178,7 @@ namespace
          // THE EXCEPTION TO THE PARAGRAPH ABOVE, and the reason it is a row rather than a footnote. This
          // one records interface geometry into `queue->GetDrawCommandBuffer()` DIRECTLY, reaching past
          // m_CurrentCommandBuffer, so the single gate in BeginFrame does not reach it.
-         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/imgui/VulkanImGuiLayer.cpp", "VulkanImGui::End",
+         { "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp", "VulkanImGui::End",
            "a swapchain render pass and the whole interface's draw data" },
     };
 

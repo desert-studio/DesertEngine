@@ -556,7 +556,7 @@ TEST( GraphicsPipelineRefusal, EveryBareSharedPtrFactoryIsOnTheRegister )
          "Engine/ShaderResources/UniformBuffer.hpp",
          "Engine/ShaderResources/UniformImage2D.hpp",
          "Engine/ShaderResources/UniformImageCube.hpp",
-         "Engine/imgui/ImGuiLayer.hpp",
+         "Editor/ImGuiIntegration/ImGuiLayer.hpp",
     };
 
     const std::string needle = "static std::shared_ptr<";

@@ -1,5 +1,9 @@
 -- Dear ImGui static library (core only; the GLFW/Vulkan backends are compiled
--- into the engine via Engine/imgui/ImGuiBuild.cpp).
+-- into the EDITOR via Editor/Source/Editor/ImGuiIntegration/ImGuiBuild.cpp -- they need the Vulkan and
+-- GLFW headers, which this core library is deliberately independent of).
+--
+-- Only the Editor links this project. The engine does not: Desert/Tests/Engine/ImGuiBoundary is the
+-- census that keeps it that way.
 
 local root = _MAIN_SCRIPT_DIR .. "/ThirdParty/ImGui"
 

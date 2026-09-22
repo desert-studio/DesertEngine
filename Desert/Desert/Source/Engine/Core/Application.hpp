@@ -18,9 +18,11 @@
 
 #include <Engine/Graphic/RendererContext.hpp>
 
-#ifdef EBABLE_IMGUI
-#include <Engine/imgui/ImGuiLayer.hpp>
-#endif // EBABLE_IMGUI
+// THE ENGINE CORE KNOWS NOTHING ABOUT ANY INTERFACE TOOLKIT. `<Engine/imgui/ImGuiLayer.hpp>` was
+// included here, which is how Dear ImGui reached every consumer of the engine — the packaged Runtime
+// included: Application.hpp is the header every layer host opens. The per-frame UI hook it drives is
+// `Common::Layer::OnUIRender`, and what a layer draws in it is the layer's business (the Editor records
+// ImGui; the Runtime records its own Render2D batches).
 
 namespace Desert::Engine
 {
@@ -114,8 +116,6 @@ namespace Desert::Engine
             return true;
         }
         void ProcessEvents( Common::Event& e );
-
-        void ProcessImGui();
 
         // MEMBER ORDER IS LOAD-BEARING. Members die in REVERSE declaration order, and the window owns the
         // swapchain, its framebuffers and their images — device-owned objects that must be released while

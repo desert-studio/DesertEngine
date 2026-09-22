@@ -4,7 +4,7 @@
 // built one for the empty "New Scene" — pipelines, framebuffers, cascade attachments, a device-idle wait
 // — and the project's default scene, queued for load by the CONSTRUCTOR that ran a moment earlier, threw
 // all of it away as soon as the staged startup finished. Nobody ever saw a frame of that first scene:
-// `OnUpdate` returns before any scene render for the whole of the startup load, and `OnImGuiRender` draws
+// `OnUpdate` returns before any scene render for the whole of the startup load, and `OnUIRender` draws
 // the loading overlay and nothing else. Measured cost in Debug: see the task's report.
 //
 // WHY IT NEEDS A TEST RATHER THAN A COMMENT. The fix is one condition in OnAttach and one fallback in
