@@ -20,8 +20,8 @@ namespace Desert::Editor
     {
         const auto& [aTick, aValue, aInterp, aMode, aArrive, aLeave, aArriveW, aLeaveW] = a;
         const auto& [bTick, bValue, bInterp, bMode, bArrive, bLeave, bArriveW, bLeaveW] = b;
-        return aTick == bTick && aValue == bValue && aInterp == bInterp && aMode == bMode &&
-               aArrive == bArrive && aLeave == bLeave && aArriveW == bArriveW && aLeaveW == bLeaveW;
+        return aTick == bTick && aValue == bValue && aInterp == bInterp && aMode == bMode && aArrive == bArrive &&
+               aLeave == bLeave && aArriveW == bArriveW && aLeaveW == bLeaveW;
     }
 
     bool SameStoredValue( const Animation::RotationKeyFrame& a, const Animation::RotationKeyFrame& b )
@@ -35,8 +35,8 @@ namespace Desert::Editor
     {
         const auto& [aTick, aValue, aInterp, aMode, aArrive, aLeave, aArriveW, aLeaveW] = a;
         const auto& [bTick, bValue, bInterp, bMode, bArrive, bLeave, bArriveW, bLeaveW] = b;
-        return aTick == bTick && aValue == bValue && aInterp == bInterp && aMode == bMode &&
-               aArrive == bArrive && aLeave == bLeave && aArriveW == bArriveW && aLeaveW == bLeaveW;
+        return aTick == bTick && aValue == bValue && aInterp == bInterp && aMode == bMode && aArrive == bArrive &&
+               aLeave == bLeave && aArriveW == bArriveW && aLeaveW == bLeaveW;
     }
 
     namespace
@@ -89,10 +89,9 @@ namespace Desert::Editor
                                       std::vector<BoneDelta> bones, std::vector<TrackDelta> tracks,
                                       size_t poseSizeBefore, size_t poseSizeAfter, size_t trackCountBefore,
                                       size_t trackCountAfter )
-         : m_Animator( animator ), m_Clip( clip ), m_Bones( std::move( bones ) ),
-           m_Tracks( std::move( tracks ) ), m_PoseSizeBefore( poseSizeBefore ),
-           m_PoseSizeAfter( poseSizeAfter ), m_TrackCountBefore( trackCountBefore ),
-           m_TrackCountAfter( trackCountAfter )
+         : m_Animator( animator ), m_Clip( clip ), m_Bones( std::move( bones ) ), m_Tracks( std::move( tracks ) ),
+           m_PoseSizeBefore( poseSizeBefore ), m_PoseSizeAfter( poseSizeAfter ),
+           m_TrackCountBefore( trackCountBefore ), m_TrackCountAfter( trackCountAfter )
     {
     }
 
@@ -142,8 +141,8 @@ namespace Desert::Editor
         // changed bones one at a time would go through `SetBoneLocalPose`'s matrix round trip — which is
         // not the identity, so the "before" the animator gets back would not be the "before" that was
         // captured. `Animator::SetAuthoringPose` says the same thing at its declaration.
-        const size_t poseWanted = undo ? m_PoseSizeBefore : m_PoseSizeAfter;
-        Animation::LocalPose pose = m_Animator->GetAuthoringPose();
+        const size_t         poseWanted = undo ? m_PoseSizeBefore : m_PoseSizeAfter;
+        Animation::LocalPose pose       = m_Animator->GetAuthoringPose();
         if ( pose.Size() != poseWanted )
         {
             // The rig under this entry is not the rig it was recorded against (a skeleton reload, a
@@ -236,13 +235,13 @@ namespace Desert::Editor
         {
             if ( !SameStoredValue( m_PoseBefore[i], poseAfter[i] ) )
             {
-                bones.push_back( ClipPoseCommand::BoneDelta{ static_cast<uint32_t>( i ), m_PoseBefore[i],
-                                                             poseAfter[i] } );
+                bones.push_back(
+                     ClipPoseCommand::BoneDelta{ static_cast<uint32_t>( i ), m_PoseBefore[i], poseAfter[i] } );
             }
         }
 
         std::vector<ClipPoseCommand::TrackDelta> tracks;
-        const size_t maxTracks = std::max( m_TracksBefore.size(), tracksAfter.size() );
+        const size_t                             maxTracks = std::max( m_TracksBefore.size(), tracksAfter.size() );
         for ( size_t i = 0; i < maxTracks; ++i )
         {
             const bool hasBefore = i < m_TracksBefore.size();

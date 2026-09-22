@@ -110,7 +110,7 @@ namespace Desert::Editor
         /// for — and undo must take it away again, not leave an empty one behind.
         struct TrackDelta
         {
-            size_t               Index = 0;
+            size_t               Index     = 0;
             bool                 HasBefore = false;
             bool                 HasAfter  = false;
             Animation::BoneTrack Before;
@@ -193,8 +193,7 @@ namespace Desert::Editor
         /// Open a transaction the caller will close itself. Refuses (and says so) while one is open:
         /// nesting would have to decide whose `End` commits, which is `ControlKeyer::BeginInteraction`'s
         /// argument and the same answer.
-        [[nodiscard]] Common::BoolResultStr Begin( Animation::Animator* animator,
-                                                   Animation::AnimationClip* clip );
+        [[nodiscard]] Common::BoolResultStr Begin( Animation::Animator* animator, Animation::AnimationClip* clip );
 
         /// Close it and push AT MOST ONE history entry. Returns how many entries were pushed: 0 when
         /// nothing changed (a drag that moved nothing is not an undo step), 1 otherwise.

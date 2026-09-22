@@ -904,7 +904,7 @@ namespace Desert::Editor
                     // Opened BEFORE the insert below, which is the only place it can be opened: the button
                     // both adds the key and refreshes the whole channel's tangents, and the "before" has to
                     // predate both.
-                    ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+                    ScopedPoseEdit               undoStep( m_ClipEdit, animator, clip );
                     const Animation::FrameNumber t =
                          Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
                     const Animation::TrackChannel channel = ChannelOfLane( ch );

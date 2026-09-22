@@ -268,11 +268,11 @@ namespace
             uint32_t pushed = Frame( false, std::nullopt, withTransaction );
             for ( int i = 1; i <= frames; ++i )
             {
-                pushed += Frame( true,
-                                 glm::translate( glm::mat4( 1.0f ),
-                                                 glm::vec3( 0.0f, 1.0f + perFrame * static_cast<float>( i ),
-                                                            0.0f ) ),
-                                 withTransaction );
+                pushed +=
+                     Frame( true,
+                            glm::translate( glm::mat4( 1.0f ),
+                                            glm::vec3( 0.0f, 1.0f + perFrame * static_cast<float>( i ), 0.0f ) ),
+                            withTransaction );
             }
             pushed += Frame( false, std::nullopt, withTransaction );
             return pushed;
@@ -544,7 +544,7 @@ TEST_F( ClipEditUndo, ObserveDoesNotCommitATransactionBeginOpened )
 
 TEST_F( ClipEditUndo, ScopedEditMakesAButtonPressOneUndoStep )
 {
-    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    Rig                          rig( MakeClipWithEndpoints(), AutoChangeMode::None );
     const std::vector<BoneTrack> tracksBefore = rig.m_Clip.Tracks;
     const LocalPose              poseBefore   = rig.m_Animator.GetAuthoringPose();
 
@@ -578,7 +578,7 @@ TEST_F( ClipEditUndo, TransactionsDoNotNest )
 
 TEST_F( ClipEditUndo, ATransactionWithNoClipIsRefusedRatherThanHalfRecorded )
 {
-    Rig rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    Rig        rig( MakeClipWithEndpoints(), AutoChangeMode::None );
     const auto began = rig.m_Transaction.Begin( &rig.m_Animator, nullptr );
     EXPECT_FALSE( began.IsSuccess() );
     EXPECT_FALSE( rig.m_Transaction.Open() );
@@ -600,7 +600,7 @@ TEST_F( ClipEditUndo, StoredValueComparesTheRepresentationAndNotJustTheAnimation
     b.LeaveWeight = glm::vec3( 0.25f );
     EXPECT_FALSE( SameStoredValue( a, b ) );
 
-    b             = a;
+    b               = a;
     b.ArriveTangent = glm::vec3( 0.0f, 0.0f, 1e-6f );
     EXPECT_FALSE( SameStoredValue( a, b ) ) << "tangents are what a neighbouring key's insertion changes";
 }
@@ -622,7 +622,7 @@ TEST_F( ClipEditUndo, TheAnimatorRefusesAPoseThatIsNotItsRigs )
     // And it changed nothing: a partially installed pose is the worst of the three outcomes.
     EXPECT_EQ( rig.m_Animator.GetAuthoringPose().Size(), 2u );
 
-    LocalPose thisRig = rig.m_Animator.GetAuthoringPose();
+    LocalPose thisRig      = rig.m_Animator.GetAuthoringPose();
     thisRig[1].Translation = glm::vec3( 0.0f, 42.0f, 0.0f );
     ASSERT_TRUE( rig.m_Animator.SetAuthoringPose( thisRig ).IsSuccess() );
     EXPECT_EQ( rig.m_Animator.GetAuthoringPose()[1].Translation, glm::vec3( 0.0f, 42.0f, 0.0f ) );
