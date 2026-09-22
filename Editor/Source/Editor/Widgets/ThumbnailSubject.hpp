@@ -161,4 +161,26 @@ namespace Desert::Editor::ThumbnailSubject
      */
     [[nodiscard]] Common::ResultStr<Mesh> ResolveMesh( Assets::AssetManager& manager,
                                                        const std::string&    sourcePath );
+
+    /**
+     * @brief Load, create-if-missing and register the HDR SKYBOX at @p assetPath, and hand back the
+     *        handle its radiance cube can be reached through.
+     *
+     * WHY A SKYBOX NEEDS ITS OWN RESOLUTION AND NOT ResolveMaterial'S. An `.hdr` is not a `.demat`: it
+     * carries no shader, no domain and no parameters, so PreviewRouteFor has nothing to ask. What makes
+     * it photographable is that the SKYBOX SERVICE holds a MaterialSkybox for it — the object that owns
+     * the three baked cubes — and building one runs the panorama->cube->irradiance->prefilter chain,
+     * which is the better part of a second with the device idle.
+     *
+     * THAT COST IS WHY THE REGISTRATION IS HERE RATHER THAN IN THE RENDERER'S REQUEST. Registering costs
+     * a bake, and a bake at request time would be paid inside whichever panel happened to draw the tile
+     * first, on its frame. Here it is paid by the resolution the caller already knows is expensive,
+     * once per asset, and every later request finds the cubes standing.
+     *
+     * REFUSES WITH THE REASON when the file is not a skybox the manager accepts or the service declines
+     * it: a capture without a cube photographs an empty backdrop and files it as the picture of the sky,
+     * which is the exact failure the mesh path's guard exists to prevent.
+     */
+    [[nodiscard]] Common::ResultStr<Common::AssetHandle> ResolveSkybox( Assets::AssetManager& manager,
+                                                                        const std::string&    assetPath );
 } // namespace Desert::Editor::ThumbnailSubject

@@ -12,6 +12,17 @@ Shader "DiffuseIrradiance"
         Uniform(0) sampler2D  inputTexture;
         layout(binding=1, rgba32f) restrict writeonly uniform imageCube outputTexture;
 
+        // The same block, with the same meaning and the same identity default, as PanoramaToCubemap's.
+        // The two programs read ONE panorama and their results light one scene: a rotation that reached
+        // only one of them would turn the visible sky away from the ambient it casts.
+        PushConstant SkyLook
+        {
+            vec4 YawCosSin; // xy = (cos yaw, sin yaw); zw unused
+            vec4 Gain;      // rgb = tint * intensity; a unused
+        } skyLook;
+
+        #include <Common/SkyPanorama.glslh>
+
         float radicalInverse_VdC(uint bits)
         {
         	bits = (bits << 16u) | (bits >> 16u);
@@ -98,13 +109,13 @@ Shader "DiffuseIrradiance"
         		vec3 Li = tangentToWorld(sampleHemisphere(u.x, u.y), N, S, T);
         		float cosTheta = max(0.0, dot(Li, N));
 
-        		float phi = atan(Li.z, Li.x);
-        		float theta = acos(Li.y);
-
-        		vec2 sampleUV = vec2(phi / (2.0 * PI) + 0.5, theta / PI);
+        		// Shared with PanoramaToCubemap — see Common/SkyPanorama.glslh for why the mapping and
+        		// the yaw may not exist twice.
+        		vec2 sampleUV = PanoramaSampleUV(Li, skyLook.YawCosSin.xy);
 
         		// PIs here cancel out because of division by pdf.
-        		irradiance += 2.0 * textureLod(inputTexture, sampleUV, 0).rgb * cosTheta;
+        		irradiance += 2.0 * ApplySkyGain(textureLod(inputTexture, sampleUV, 0).rgb, skyLook.Gain.rgb)
+        		              * cosTheta;
         	}
         	irradiance /= vec3(NumSamples);
 

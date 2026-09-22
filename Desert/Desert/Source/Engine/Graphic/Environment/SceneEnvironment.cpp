@@ -11,7 +11,8 @@
 
 namespace Desert::Graphic
 {
-    Environment EnvironmentManager::Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset )
+    Environment EnvironmentManager::Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset,
+                                            const SkyLook&                             look )
     {
         // The panorama, the three cubes and the transient compute pipelines the bake creates are all the
         // ENVIRONMENT's, not the skybox asset's: the recipe that rebuilds them is the sky settings plus a
@@ -43,12 +44,12 @@ namespace Desert::Graphic
             auto* imageService = Runtime::ResourceRegistry::GetImageService();
 
             // 1) Radiance cube (sharp environment) — also the source the prefilter convolves.
-            auto        radianceCube   = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle() );
+            auto        radianceCube   = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle(), look );
             const auto  radianceHandle = imageService->Register( std::move( radianceCube ),
                                                                  Runtime::ImageHandle::Type::ImageCube );
 
             // 2) Diffuse irradiance (from the panorama directly).
-            auto       diffuseIrradiance       = CreateDiffuseIrradiance( imagePanorama->GetImageHandle() );
+            auto       diffuseIrradiance       = CreateDiffuseIrradiance( imagePanorama->GetImageHandle(), look );
             const auto diffuseIrradianceHandle = imageService->Register(
                  std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
 
@@ -65,10 +66,11 @@ namespace Desert::Graphic
     }
 
     std::shared_ptr<Desert::Graphic::ImageCube>
-    EnvironmentManager::ConvertPanoramaToRadianceCube( const Runtime::ImageHandle& panorama )
+    EnvironmentManager::ConvertPanoramaToRadianceCube( const Runtime::ImageHandle& panorama, const SkyLook& look )
     {
         ComputeImagesSpecification processingInfo;
         processingInfo.InputHandle = panorama;
+        processingInfo.Look        = look;
         processingInfo.ShaderName  = "PanoramaToCubemap";
         // The tag becomes the image's own name AND the compute pipeline's Vulkan debug label
         // (ComputeImages.cpp:103 and :116). It is NOT a cache key — PipelineCache deliberately does not
@@ -87,10 +89,14 @@ namespace Desert::Graphic
     }
 
     std::shared_ptr<Desert::Graphic::ImageCube>
-    EnvironmentManager::CreateDiffuseIrradiance( const Runtime::ImageHandle& panorama )
+    EnvironmentManager::CreateDiffuseIrradiance( const Runtime::ImageHandle& panorama, const SkyLook& look )
     {
         ComputeImagesSpecification processingInfo;
         processingInfo.InputHandle = panorama;
+        // THE SECOND HALF OF THE SAME ANSWER. This cube is convolved from the panorama directly, not
+        // from the radiance cube, so it needs the look in its own right — and that is precisely the
+        // asymmetry that would have let an authored rotation reach the visible sky and miss the ambient.
+        processingInfo.Look        = look;
         processingInfo.ShaderName  = "DiffuseIrradiance";
         // Names the 301.8 ms stage of the bake — see the note in ConvertPanoramaToRadianceCube.
         processingInfo.Tag       = "EnvDiffuseIrradiance";

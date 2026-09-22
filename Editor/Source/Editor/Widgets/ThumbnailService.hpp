@@ -87,6 +87,14 @@ namespace Desert::Editor
         std::string RequestMaterial( const Assets::AssetHandle& material, const std::string& assetPath,
                                      ThumbnailSubject::Preview how );
 
+        /**
+         * @brief Queue an HDR SKYBOX preview — the cubemap wrapped on a ball.
+         *
+         * The handle must already be registered in the skybox service; ThumbnailSubject::ResolveSkybox is
+         * what does that, and it is where the bake is paid. This entry point only queues.
+         */
+        std::string RequestSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath );
+
         // Queue a mesh preview, optionally with the material to apply to every slot.
         std::string RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
                                  const Assets::AssetHandle& material = Assets::AssetHandle(
@@ -162,7 +170,8 @@ namespace Desert::Editor
         enum class Kind
         {
             Material,
-            Mesh
+            Mesh,
+            Skybox
         };
         struct Request
         {

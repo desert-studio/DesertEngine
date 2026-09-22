@@ -105,6 +105,20 @@ namespace Desert::Editor
         return png;
     }
 
+    std::string ThumbnailService::RequestSkybox( const Assets::AssetHandle& skybox,
+                                                 const std::string&         assetPath )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        const std::string png      = ThumbnailKey::DiskPath( assetPath );
+        if ( ShouldQueue( identity, png, assetPath ) )
+        {
+            m_Queue.push_back( { Kind::Skybox, skybox, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                                 identity, assetPath, png, ThumbnailSubject::Preview::Sphere } );
+            m_Queued.insert( identity );
+        }
+        return png;
+    }
+
     std::string ThumbnailService::RequestPainted( const std::string& assetPath )
     {
         // THE SAME GATE AS THE OTHER TWO ENTRY POINTS. A painted picture is cheaper to make, which is a
@@ -402,9 +416,22 @@ namespace Desert::Editor
         // "never completed" — with no idea why. The renderer knows why at the moment it says no, and the
         // most common reason is one no amount of waiting fixes: a mesh whose geometry is not built, whose
         // capture would have written a photograph of empty sky and called it the asset.
-        const auto queued = req.Type == Kind::Material
-                                 ? m_Renderer->RequestMaterial( req.Handle, req.Png, req.How )
-                                 : m_Renderer->RequestMesh( req.Handle, req.Png, req.Material );
+        // A SWITCH RATHER THAN A TERNARY, and it earned the change: with two kinds the ternary read as
+        // "material or mesh", and adding a third to it would have silently sent every skybox down the
+        // mesh branch — a capture of an empty scene, written to disk and filed as the sky.
+        Common::BoolResultStr queued = Common::MakeFormattedError( "unhandled thumbnail kind" );
+        switch ( req.Type )
+        {
+            case Kind::Material:
+                queued = m_Renderer->RequestMaterial( req.Handle, req.Png, req.How );
+                break;
+            case Kind::Mesh:
+                queued = m_Renderer->RequestMesh( req.Handle, req.Png, req.Material );
+                break;
+            case Kind::Skybox:
+                queued = m_Renderer->RequestSkybox( req.Handle, req.Png );
+                break;
+        }
         if ( !queued.IsSuccess() )
         {
             // A REFUSAL IS PERMANENT ONLY IF IT IS ABOUT THE ASSET. The renderer says no for two kinds of

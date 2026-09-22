@@ -7,6 +7,8 @@
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Skybox/SkyboxAsset.hpp>
+#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
@@ -150,5 +152,45 @@ namespace Desert::Editor::ThumbnailSubject
         out.CookedPath = cooked;
         out.Material   = MeshMaterial::ResolveSidecar( manager, sourcePath );
         return Common::MakeSuccess( out );
+    }
+
+    Common::ResultStr<Common::AssetHandle> ResolveSkybox( Assets::AssetManager& manager,
+                                                          const std::string&    assetPath )
+    {
+        auto asset = manager.FindByPath<Assets::SkyboxAsset>( assetPath );
+        if ( !asset )
+            asset = manager.CreateAsset<Assets::SkyboxAsset>( Assets::AssetPriority::High, assetPath );
+        if ( !asset )
+        {
+            return Common::MakeFormattedError<Common::AssetHandle>(
+                 "'{}' is not a skybox the asset manager will accept", assetPath );
+        }
+
+        auto* service = Runtime::ResourceRegistry::GetSkyboxService();
+        if ( service == nullptr )
+        {
+            return Common::MakeFormattedError<Common::AssetHandle>(
+                 "there is no skybox service, so '{}' has no cubemap to photograph", assetPath );
+        }
+
+        const Common::AssetHandle handle = asset->GetMetadata().Handle;
+        if ( !service->Get( handle ) )
+        {
+            // THE SAME WAIT THE DETAILS PICKER TAKES, for the same reason: Register runs the bake, and
+            // the bake allocates and writes images while frames recorded against the previous set may
+            // still be executing.
+            Graphic::Renderer::GetInstance().WaitDeviceIdle();
+            service->Register( asset );
+        }
+
+        if ( !service->Get( handle ) )
+        {
+            return Common::MakeFormattedError<Common::AssetHandle>(
+                 "the skybox service holds no cubemap for '{}', so a capture would photograph an empty "
+                 "backdrop and file it as the picture of the sky",
+                 assetPath );
+        }
+
+        return Common::MakeSuccess( handle );
     }
 } // namespace Desert::Editor::ThumbnailSubject
