@@ -75,8 +75,8 @@ namespace
 TEST( CameraGizmoShape, ApexIsTheCameraItself )
 {
     const glm::vec3 position( 120.0f, -30.0f, 4000.0f );
-    const auto      g = BuildCameraFrustumGizmo( CameraAt( position ), kAspect, TanHalf( 45.0f ), kNearPlane, kFarPlane,
-                                                 glm::vec3( 120.0f, -30.0f, 4600.0f ) );
+    const auto g = BuildCameraFrustumGizmo( CameraAt( position ), kAspect, TanHalf( 45.0f ), kNearPlane, kFarPlane,
+                                            glm::vec3( 120.0f, -30.0f, 4600.0f ) );
 
     EXPECT_NEAR( g.Apex.x, position.x, 1.0e-3f );
     EXPECT_NEAR( g.Apex.y, position.y, 1.0e-3f );
@@ -117,11 +117,11 @@ TEST( CameraGizmoShape, ApparentSizeIsConstantInDistance )
 // depth instead — the obvious alternative — makes a wide camera's gizmo swallow the viewport.
 TEST( CameraGizmoShape, ApparentSizeIsConstantAcrossFieldOfView )
 {
-    const glm::mat4 world    = CameraAt( glm::vec3( 0.0f ) );
+    const glm::mat4 world = CameraAt( glm::vec3( 0.0f ) );
     const glm::vec3 viewer( 0.0f, 0.0f, 900.0f );
 
     const auto narrow = BuildCameraFrustumGizmo( world, kAspect, TanHalf( 20.0f ), kNearPlane, kFarPlane, viewer );
-    const auto wide   = BuildCameraFrustumGizmo( world, kAspect, TanHalf( 110.0f ), kNearPlane, kFarPlane, viewer );
+    const auto wide = BuildCameraFrustumGizmo( world, kAspect, TanHalf( 110.0f ), kNearPlane, kFarPlane, viewer );
 
     EXPECT_NEAR( FarHalfHeight( narrow ), FarHalfHeight( wide ), 1.0e-2f );
     // The field of view has to show up SOMEWHERE, and this is where: the narrow lens reaches further.
@@ -162,10 +162,10 @@ TEST( CameraGizmoShape, DepthNeverExceedsTheCamerasFarPlane )
 {
     constexpr float kShortFar = 30.0f;
 
-    const auto near_ = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 0.0f ) ), kAspect, TanHalf( 45.0f ), kNearPlane,
-                                                kShortFar, glm::vec3( 0.0f, 0.0f, 400.0f ) );
-    const auto far_  = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 0.0f ) ), kAspect, TanHalf( 45.0f ), kNearPlane,
-                                                kShortFar, glm::vec3( 0.0f, 0.0f, 40000.0f ) );
+    const auto near_ = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 0.0f ) ), kAspect, TanHalf( 45.0f ),
+                                                kNearPlane, kShortFar, glm::vec3( 0.0f, 0.0f, 400.0f ) );
+    const auto far_  = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 0.0f ) ), kAspect, TanHalf( 45.0f ),
+                                                kNearPlane, kShortFar, glm::vec3( 0.0f, 0.0f, 40000.0f ) );
 
     EXPECT_LE( near_.Depth, kShortFar );
     EXPECT_LE( far_.Depth, kShortFar );
@@ -179,8 +179,8 @@ TEST( CameraGizmoShape, DepthHasAFloorAtZeroDistance )
 {
     EXPECT_FLOAT_EQ( GizmoFrustumDepth( 0.0f, kNearPlane, kFarPlane, TanHalf( 45.0f ) ), kNearPlane );
 
-    const auto g = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 7.0f, 7.0f, 7.0f ) ), kAspect,
-                                            TanHalf( 45.0f ), kNearPlane, kFarPlane, glm::vec3( 7.0f, 7.0f, 7.0f ) );
+    const auto g = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 7.0f, 7.0f, 7.0f ) ), kAspect, TanHalf( 45.0f ),
+                                            kNearPlane, kFarPlane, glm::vec3( 7.0f, 7.0f, 7.0f ) );
     EXPECT_GT( FarHalfHeight( g ), 0.0f );
 }
 
@@ -215,10 +215,10 @@ TEST( CameraGizmoShape, UpMarkerFollowsRoll )
 TEST( CameraGizmoShape, EntityScaleDoesNotChangeTheShape )
 {
     const glm::vec3 viewer( 0.0f, 0.0f, 900.0f );
-    const auto      plain  = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 0.0f ), 1.0f ), kAspect,
-                                                      TanHalf( 45.0f ), kNearPlane, kFarPlane, viewer );
-    const auto      scaled = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 0.0f ), 100.0f ), kAspect,
-                                                      TanHalf( 45.0f ), kNearPlane, kFarPlane, viewer );
+    const auto plain  = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 0.0f ), 1.0f ), kAspect, TanHalf( 45.0f ),
+                                                 kNearPlane, kFarPlane, viewer );
+    const auto scaled = BuildCameraFrustumGizmo( CameraAt( glm::vec3( 0.0f ), 100.0f ), kAspect, TanHalf( 45.0f ),
+                                                 kNearPlane, kFarPlane, viewer );
 
     EXPECT_NEAR( plain.Depth, scaled.Depth, 1.0e-3f );
     for ( int i = 0; i < 4; ++i )

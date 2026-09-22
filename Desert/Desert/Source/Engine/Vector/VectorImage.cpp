@@ -643,9 +643,38 @@ namespace Desert::Vector
                 continue; // text, defs, clipPath, ... — ignored on purpose
             }
 
-            const uint32_t fill = Find( tag, "fill" ) ? ParseFill( *Find( tag, "fill" ) ) : 0xFFFFFFFFu;
-            if ( fill == 0u || f.Contours.empty() )
-                continue; // fill="none" (a stroke-only path) contributes nothing to a filled SDF
+            uint32_t fill = Find( tag, "fill" ) ? ParseFill( *Find( tag, "fill" ) ) : 0xFFFFFFFFu;
+
+            // OPACITY IS FOLDED INTO THE FILL'S ALPHA, and without this a two-tone icon collapses.
+            //
+            // `IconBake` starts a new SDF layer at every change of `FillRGBA`, which is what lets one
+            // .svg carry several colours. Phosphor's duotone set — the one this editor's gizmos use —
+            // distinguishes its two tones NOT by colour but by `opacity="0.2"` on the background path,
+            // both paths being `currentColor`. Read without opacity, the two runs compare EQUAL, bake
+            // into ONE layer, and the faint backing shape is drawn at full strength: a blob instead of
+            // an icon. The attribute was simply never parsed (`opacity` appeared nowhere in this file).
+            //
+            // `opacity` and `fill-opacity` multiply, which is what SVG says and what lets an authored
+            // group opacity stack with a per-path one.
+            {
+                const auto scale = []( const std::string* value, float acc )
+                {
+                    if ( value == nullptr )
+                        return acc;
+                    char*       end = nullptr;
+                    const float v   = std::strtof( value->c_str(), &end );
+                    if ( end == value->c_str() )
+                        return acc; // not a number — leave the alpha alone rather than guess
+                    return acc * std::clamp( v, 0.0f, 1.0f );
+                };
+
+                float alpha = scale( Find( tag, "fill-opacity" ), scale( Find( tag, "opacity" ), 1.0f ) );
+                alpha *= static_cast<float>( fill & 0xFFu ) / 255.0f;
+                fill = ( fill & 0xFFFFFF00u ) | static_cast<uint32_t>( std::lround( alpha * 255.0f ) );
+            }
+
+            if ( ( fill & 0xFFu ) == 0u || f.Contours.empty() )
+                continue; // fill="none", or opacity="0" — either way it contributes nothing
 
             Shape shape;
             shape.FillRGBA = fill;

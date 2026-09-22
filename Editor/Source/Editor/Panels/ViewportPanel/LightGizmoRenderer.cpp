@@ -88,23 +88,23 @@ namespace Desert::Editor
         //
         // Returns whether the pointer is over the glyph this frame — the caller decides what a click
         // means, because only it knows which entity this is.
-        bool DrawBillboardIcon( ImDrawList* drawList, const ImVec2& centre, const char* icon,
-                                const ImVec4& tint, bool selected )
+        bool DrawBillboardIcon( ImDrawList* drawList, const ImVec2& centre, const char* icon, const ImVec4& tint,
+                                bool selected )
         {
             ImFont*      iconFont = EditorResources::GetBigIconFont();
             const ImVec2 size     = iconFont->CalcTextSizeA( kIconSize, FLT_MAX, 0.0f, icon );
             const ImVec2 topLeft( centre.x - size.x * 0.5f, centre.y - size.y * 0.5f );
 
-            const ImVec2 mouse = ImGui::GetMousePos();
-            const bool   hovered = mouse.x >= topLeft.x && mouse.x <= topLeft.x + size.x &&
-                                 mouse.y >= topLeft.y && mouse.y <= topLeft.y + size.y;
+            const ImVec2 mouse   = ImGui::GetMousePos();
+            const bool   hovered = mouse.x >= topLeft.x && mouse.x <= topLeft.x + size.x && mouse.y >= topLeft.y &&
+                                 mouse.y <= topLeft.y + size.y;
 
             const float radius = std::max( size.x, size.y ) * 0.62f;
             if ( selected )
             {
                 const glm::vec3& outline = EditorPreferences::Get().OutlineColor;
-                drawList->AddCircle( centre, radius, ImColor( ImVec4( outline.r, outline.g, outline.b, 1.0f ) ),
-                                     0, 2.5f );
+                drawList->AddCircle( centre, radius, ImColor( ImVec4( outline.r, outline.g, outline.b, 1.0f ) ), 0,
+                                     2.5f );
             }
             else if ( hovered )
             {
@@ -113,11 +113,11 @@ namespace Desert::Editor
 
             // The halo. Eight taps rather than four: a diagonal edge of a glyph is left uncovered by the
             // axis-aligned four, which is exactly where a thin icon stroke disappears into a light sky.
-            constexpr float kHalo             = 1.0f;
-            const ImVec2    haloOffsets[8]    = { { -kHalo, 0.0f },   { kHalo, 0.0f },   { 0.0f, -kHalo },
-                                                  { 0.0f, kHalo },    { -kHalo, -kHalo }, { kHalo, -kHalo },
-                                                  { -kHalo, kHalo },  { kHalo, kHalo } };
-            const ImU32     haloColor         = IM_COL32( 0, 0, 0, 190 );
+            constexpr float kHalo          = 1.0f;
+            const ImVec2    haloOffsets[8] = { { -kHalo, 0.0f },  { kHalo, 0.0f },    { 0.0f, -kHalo },
+                                               { 0.0f, kHalo },   { -kHalo, -kHalo }, { kHalo, -kHalo },
+                                               { -kHalo, kHalo }, { kHalo, kHalo } };
+            const ImU32     haloColor      = IM_COL32( 0, 0, 0, 190 );
             for ( const ImVec2& offset : haloOffsets )
             {
                 drawList->AddText( iconFont, kIconSize, ImVec2( topLeft.x + offset.x, topLeft.y + offset.y ),
@@ -543,11 +543,11 @@ namespace Desert::Editor
             // Readable billboard: the big icon font at a fixed pixel size (the default-font glyph
             // was a barely-clickable speck). Tinted with the light's colour so lights are
             // distinguishable at a glance.
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImDrawList*  drawList = ImGui::GetWindowDrawList();
             const ImVec4 lightColor( light.Color.r, light.Color.g, light.Color.b, 1.0f );
 
-            const bool hovered = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ),
-                                                    ICON_MDI_LIGHTBULB, lightColor, IsSelected( entity ) );
+            const bool hovered = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ), ICON_MDI_LIGHTBULB,
+                                                    lightColor, IsSelected( entity ) );
 
             if ( light.ShowRadius )
             {
@@ -640,8 +640,7 @@ namespace Desert::Editor
             const ImU32  sunCol = ImColor( sunTint );
 
             const bool hovered = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ),
-                                                    ICON_MDI_WHITE_BALANCE_SUNNY, sunTint,
-                                                    IsSelected( entity ) );
+                                                    ICON_MDI_WHITE_BALANCE_SUNNY, sunTint, IsSelected( entity ) );
 
             // Direction arrow: from the sun into the scene (the direction the LIGHT travels).
             {
@@ -709,9 +708,8 @@ namespace Desert::Editor
             const float absoluteY = windowPos.y + screenPos.y;
 
             ImDrawList* drawList = ImGui::GetWindowDrawList();
-            const bool  hovered  = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ),
-                                                      ICON_MDI_SPOTLIGHT, ImVec4( 1.0f, 0.9f, 0.5f, 1.0f ),
-                                                      IsSelected( entity ) );
+            const bool  hovered  = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ), ICON_MDI_SPOTLIGHT,
+                                                      ImVec4( 1.0f, 0.9f, 0.5f, 1.0f ), IsSelected( entity ) );
 
             // Forward = entity's -Z in world space (matches the SpotLightECSSystem direction).
             const glm::vec3 forward = glm::normalize( -glm::vec3( worldXf[2] ) );
@@ -815,7 +813,7 @@ namespace Desert::Editor
             // Built by Tools/CameraGizmoMath.hpp, which is where the whole account of what was wrong
             // with the old shape lives. Drawn BEFORE the icon so the icon sits on top of the apex
             // rather than under four converging lines.
-            const float aspect = height > 0.0f ? width / height : 1.7778f;
+            const float                     aspect = height > 0.0f ? width / height : 1.7778f;
             const Tools::CameraFrustumGizmo frustum =
                  Tools::BuildCameraFrustumGizmo( worldXf, aspect, std::tan( glm::radians( cam.FOV ) * 0.5f ),
                                                  cam.Near, cam.Far, camera->GetPosition() );
@@ -828,8 +826,8 @@ namespace Desert::Editor
             if ( selected )
             {
                 const glm::vec3& outline = EditorPreferences::Get().OutlineColor;
-                col       = ImColor( ImVec4( outline.r, outline.g, outline.b, 1.0f ) );
-                thickness = 2.5f;
+                col                      = ImColor( ImVec4( outline.r, outline.g, outline.b, 1.0f ) );
+                thickness                = 2.5f;
             }
 
             const auto line = [&]( const glm::vec3& a, const glm::vec3& b )
@@ -837,7 +835,7 @@ namespace Desert::Editor
 
             for ( int i = 0; i < 4; ++i )
             {
-                line( frustum.Apex, frustum.FarCorners[i] );        // the edges, FROM the camera itself
+                line( frustum.Apex, frustum.FarCorners[i] ); // the edges, FROM the camera itself
                 line( frustum.FarCorners[i], frustum.FarCorners[( i + 1 ) % 4] ); // the rectangle
             }
             for ( int i = 0; i < 3; ++i )
@@ -852,8 +850,8 @@ namespace Desert::Editor
                 // DEFAULT font at its own 16 px while every other billboard used the big icon font at 30 —
                 // the "one size so the markers read as a consistent set" comment at the top of this file
                 // was true of five callers out of six.
-                if ( DrawBillboardIcon( drawList, centre, ICON_MDI_VIDEO,
-                                        ImVec4( 0.6f, 0.85f, 1.0f, 1.0f ), selected ) )
+                if ( DrawBillboardIcon( drawList, centre, ICON_MDI_VIDEO, ImVec4( 0.6f, 0.85f, 1.0f, 1.0f ),
+                                        selected ) )
                 {
                     // Shares the icon-hover gate so the scene ray-pick does not fire under the glyph, and
                     // selects on click: a camera entity has no geometry, so before this the only way to
@@ -1255,7 +1253,6 @@ namespace Desert::Editor
         const auto   mvp       = camera->GetProjectionMatrix() * camera->GetViewMatrix();
         ImDrawList*  drawList  = ImGui::GetWindowDrawList();
 
-
         for ( auto entity : entities )
         {
             if ( !entity.HasComponent<ECS::TextComponent>() )
@@ -1273,8 +1270,7 @@ namespace Desert::Editor
             const auto&  tc = entity.GetComponent<ECS::TextComponent>();
             const ImVec4 col( tc.Color.r, tc.Color.g, tc.Color.b, 1.0f );
 
-            if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), ICON_MDI_FORMAT_TEXT, col,
-                                    IsSelected( entity ) ) )
+            if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), ICON_MDI_FORMAT_TEXT, col, IsSelected( entity ) ) )
             {
                 m_LightIconHovered = true; // shares the icon-hover gate so scene ray-pick doesn't fire under it
                 if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )

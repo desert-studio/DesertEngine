@@ -4195,20 +4195,19 @@ namespace Desert::Editor
         for ( const auto& doc : m_ExtraScenes )
         {
             const uint64_t id = doc->Id;
-            commands.push_back(
-                 { "Scene", "Close Scene View " + doc->Name,
-                   [this, id]() -> Common::BoolResultStr
-                   {
-                       const auto index = IndexOfSceneView(
-                            m_ExtraScenes, []( const std::unique_ptr<SceneDocument>& d ) { return d->Id; }, id );
-                       if ( !index || !m_ExtraScenes[*index]->Viewport )
-                       {
-                           return Common::MakeFormattedError<bool>(
-                                "scene view #{} is already closed; nothing to close.", id );
-                       }
-                       m_ExtraScenes[*index]->Viewport->GetVisibility() = false;
-                       return PaletteCommandDone();
-                   } } );
+            commands.push_back( { "Scene", "Close Scene View " + doc->Name, [this, id]() -> Common::BoolResultStr
+                                  {
+                                      const auto index = IndexOfSceneView(
+                                           m_ExtraScenes,
+                                           []( const std::unique_ptr<SceneDocument>& d ) { return d->Id; }, id );
+                                      if ( !index || !m_ExtraScenes[*index]->Viewport )
+                                      {
+                                          return Common::MakeFormattedError<bool>(
+                                               "scene view #{} is already closed; nothing to close.", id );
+                                      }
+                                      m_ExtraScenes[*index]->Viewport->GetVisibility() = false;
+                                      return PaletteCommandDone();
+                                  } } );
         }
 
         // NAMED VIEWPOINTS for the focused document's preview — the replacement for `--preview-orbit

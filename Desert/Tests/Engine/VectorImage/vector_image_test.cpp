@@ -139,6 +139,51 @@ TEST( VectorImageRaster, EmptyImageRasterisesToNothing )
     EXPECT_TRUE( RasterizeSdf( empty, 32, 4 ).empty() );
 }
 
+// ── OPACITY IS PART OF THE FILL, AND THAT IS WHAT MAKES A TWO-TONE ICON POSSIBLE ──────────────────
+//
+// `IconBake` starts a new SDF layer at every change of `FillRGBA`, which is how one .svg carries more
+// than one colour. Phosphor's duotone set — the editor's gizmo icons — separates its two tones NOT by
+// colour but by `opacity="0.2"`, both paths being `currentColor`. Parsed without opacity the two runs
+// compare EQUAL, collapse into one layer, and the faint backing shape is drawn at full strength: a
+// blob where an icon should be.
+//
+// The attribute was never read at all (`opacity` appeared nowhere in VectorImage.cpp), so this test
+// pins the behaviour rather than a regression.
+TEST( VectorImageParse, OpacitySeparatesTheTwoRunsOfADuotoneIcon )
+{
+    const std::string svg = R"(<svg viewBox="0 0 16 16" fill="currentColor">)"
+                            R"(<path d="M0 0 H16 V16 H0 Z" opacity="0.2"/>)"
+                            R"(<path d="M4 4 H12 V12 H4 Z"/>)"
+                            R"(</svg>)";
+
+    const Desert::Vector::VectorImage image = Desert::Vector::ParseSvg( svg.c_str(), svg.size() );
+    ASSERT_TRUE( image.Valid() );
+    ASSERT_EQ( image.Shapes.size(), 2u );
+
+    // THE RELATION, not the exact byte: what IconBake keys on is that the two differ.
+    EXPECT_NE( image.Shapes[0].FillRGBA, image.Shapes[1].FillRGBA )
+         << "the two runs compare equal, so a duotone icon bakes as ONE layer and loses its backing tone";
+
+    // And the direction: the 0.2 path is the FAINT one. Reversed, the icon reads inside-out.
+    EXPECT_LT( image.Shapes[0].FillRGBA & 0xFFu, image.Shapes[1].FillRGBA & 0xFFu );
+    EXPECT_EQ( image.Shapes[1].FillRGBA & 0xFFu, 0xFFu ) << "a path with no opacity must stay opaque";
+
+    // Colour is untouched: only the alpha carries the tone difference.
+    EXPECT_EQ( image.Shapes[0].FillRGBA & 0xFFFFFF00u, image.Shapes[1].FillRGBA & 0xFFFFFF00u );
+}
+
+// The negative control for the test above: without an opacity attribute nothing moves, which is what
+// keeps the thirteen icons that predate this change baking exactly as they did.
+TEST( VectorImageParse, APathWithoutOpacityIsUnchanged )
+{
+    const std::string svg = R"(<svg viewBox="0 0 16 16"><path d="M0 0 H16 V16 H0 Z" fill="#336699"/></svg>)";
+
+    const Desert::Vector::VectorImage image = Desert::Vector::ParseSvg( svg.c_str(), svg.size() );
+    ASSERT_TRUE( image.Valid() );
+    ASSERT_EQ( image.Shapes.size(), 1u );
+    EXPECT_EQ( image.Shapes[0].FillRGBA, 0x336699FFu );
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
