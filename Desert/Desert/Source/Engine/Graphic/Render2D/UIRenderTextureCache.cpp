@@ -260,25 +260,21 @@ namespace Desert::Graphic::Render2D
             }
 
             // Recorded into the HOST's current frame command buffer and submitted when that frame ends,
-            // which is why this function may only be called before any pass is open.
-            const auto begun = capture->Scene->BeginScene();
-            if ( !begun )
+            // which is why this function may only be called before any pass is open. The scene opens and
+            // closes its own renderer inside this call, so a refusal cannot leave that buffer holding
+            // half a pass.
+            //
+            // Latched by MESSAGE, not by a flag, for the reason the refusal log above it is: an element
+            // whose frame fails every frame must say so once, and must say so again when the reason
+            // changes.
+            if ( const auto frame = capture->Scene->OnUpdate( ts ); !frame )
             {
-                // RETURN FROM THIS CAPTURE, do not record. OnUpdate and EndScene both assume the scene
-                // opened; running them against one that refused leaves the host's command buffer holding
-                // half a pass, and the driver reports that rather than us.
-                if ( ShouldSay( m_Refused, element, "begin:" + begun.GetError() ) )
+                if ( ShouldSay( m_Refused, element, "frame:" + frame.GetError() ) )
                 {
                     LOG_ERROR( "[UI] render-texture element {} skipped a frame: {}",
-                               static_cast<uint32_t>( element ), begun.GetError() );
+                               static_cast<uint32_t>( element ), frame.GetError() );
                 }
                 continue;
-            }
-            capture->Scene->OnUpdate( ts );
-            if ( const auto ended = capture->Scene->EndScene(); !ended )
-            {
-                LOG_ERROR( "[UI] render-texture element {} failed to end its frame: {}",
-                           static_cast<uint32_t>( element ), ended.GetError() );
             }
         }
 

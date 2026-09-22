@@ -144,7 +144,10 @@ namespace Desert::Graphic
         // scenes have genuinely different skies, and it fires because the sky fingerprint says so.
         void Init();
 
-        [[nodiscard]] Common::BoolResultStr BeginScene( const Desert::Core::Scene& scene );
+        // @p camera is the VIEW's camera — the scene holds a list of views and hands in the one this
+        // renderer is recording (Engine/Core/SceneViewList.hpp). Null is legal and renders a scene with
+        // no view matrix, which is what a world whose camera has not been made yet looks like.
+        [[nodiscard]] Common::BoolResultStr BeginScene( const Desert::Core::Scene& scene, Core::Camera* camera );
 
         void OnUpdate( const UpdateInfo& sceneRenderInfo );
 
@@ -364,14 +367,17 @@ namespace Desert::Graphic
 
         void RebuildRenderGraph();
 
-        void AddPointLight( ShaderProtocols::PointLightPayload&& pointLight );
+        // BY CONST REFERENCE, because the caller is a RECORDED COMMAND that is replayed once per view
+        // of the scene (Scene::OnUpdate). An rvalue parameter invited the recorder to hand its only copy
+        // away on the first view, and the second view then got a moved-from light.
+        void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight );
 
         const auto& GetPointLights() const
         {
             return m_PointLight;
         }
 
-        void AddSpotLight( ShaderProtocols::SpotLightPayload&& spotLight );
+        void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight );
 
         const auto& GetSpotLights() const
         {
@@ -471,6 +477,11 @@ namespace Desert::Graphic
         void ExecuteUI();
 
     private:
+        // Tells the engine context that THIS renderer is the one recording. Called at the top of every
+        // phase a frame has (BeginScene/OnUpdate/EndScene) rather than once, because several views of one
+        // scene are driven phase by phase and each phase therefore starts on whatever view ran last.
+        void BindRecordingSlot() const;
+
         struct
         {
             Core::Camera* ActiveCamera;

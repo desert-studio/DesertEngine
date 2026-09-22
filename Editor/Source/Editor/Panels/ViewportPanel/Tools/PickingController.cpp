@@ -32,13 +32,15 @@ namespace Desert::Editor::Tools
         return "unnamed outcome"; // unreachable: the switch above is exhaustive
     }
 
-    PickOutcome PickingController::Pick( ::Desert::Core::Scene& scene, const glm::vec2& mouseViewport,
-                                         const glm::vec2& viewportSize, bool gizmoHovered, bool additive )
+    PickOutcome PickingController::Pick( ::Desert::Core::Scene&                             scene,
+                                         const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                         const glm::vec2& mouseViewport, const glm::vec2& viewportSize,
+                                         bool gizmoHovered, bool additive )
     {
         if ( gizmoHovered )
             return PickOutcome::RefusedGizmoHovered;
 
-        const auto& mainCamera = scene.GetMainCamera().lock();
+        const auto& mainCamera = camera;
         if ( !mainCamera )
             return PickOutcome::NoCamera;
 

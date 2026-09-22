@@ -59,7 +59,10 @@ namespace Desert::Editor::Render
 
             // Glass panels sample the blurred scene snapshot built just before this phase. It is only
             // built when the canvas asked for it LAST frame, so hand the flag back after flushing.
-            if ( auto* renderer = scene->GetSceneRenderer() )
+            // The VIEW's blur snapshot, not the document's: the backdrop image is per-renderer per-frame
+            // state, so a second viewport reading the first one's would sample another size and another
+            // camera's picture through its glass panels.
+            if ( auto* renderer = ctx.Renderer )
                 m_Render2D.SetBackdrop( renderer->GetBackdropBlurImage().get(),
                                         renderer->GetBackdropBlurMaxLod() );
 
@@ -160,7 +163,7 @@ namespace Desert::Editor::Render
                            UI::Rect{ 0.0f, 0.0f, w, h } );
             m_Render2D.Flush();
 
-            if ( auto* renderer = scene->GetSceneRenderer() )
+            if ( auto* renderer = ctx.Renderer )
                 renderer->SetBackdropBlurNeeded( m_Render2D.UsedBackdrop() );
 
             // A button fired in preview: report it, but DON'T execute scene-load / quit / open-URL here —

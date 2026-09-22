@@ -260,19 +260,10 @@ namespace Desert::Editor
         // Records the scene render into the CURRENT editor frame's command buffer. It is NOT submitted yet
         // (that happens when the editor's frame ends), so the readback must wait until a later frame -
         // see Collect().
-        const auto begun = m_Scene->BeginScene();
-        if ( !begun.IsSuccess() )
-        {
-            // RETURN, do not record. OnUpdate and EndScene below both assume the scene opened; running
-            // them against a scene that refused leaves the editor's frame command buffer holding half a
-            // pass, and the driver reports that, not us.
-            LOG_ERROR( "[AssetThumbnailRenderer] BeginScene failed, preview frame skipped: {}", begun.GetError() );
-            return;
-        }
-        m_Scene->OnUpdate( Common::Timestep( 0.016f ) );
-        const auto ended = m_Scene->EndScene();
-        if ( !ended.IsSuccess() )
-            LOG_ERROR( "[AssetThumbnailRenderer] EndScene failed: {}", ended.GetError() );
+        // The scene opens and closes its own renderer, so a refusal can no longer leave the editor's
+        // frame command buffer holding half a pass — the frame is simply skipped and named.
+        if ( const auto frame = m_Scene->OnUpdate( Common::Timestep( 0.016f ) ); !frame.IsSuccess() )
+            LOG_ERROR( "[AssetThumbnailRenderer] preview frame skipped: {}", frame.GetError() );
     }
 
     Common::BoolResultStr AssetThumbnailRenderer::RequestMaterial( const Assets::AssetHandle& materialHandle,

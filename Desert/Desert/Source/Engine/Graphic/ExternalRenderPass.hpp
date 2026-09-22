@@ -16,16 +16,24 @@ namespace Desert::Graphic
 {
     class Framebuffer;
     class Image2D;
+    class SceneRenderer;
 
     // Per-frame data handed to an external (editor-registered) pass when the render graph executes it.
     // The pass draws into Target — the HDR scene framebuffer with the geometry depth attached — so its
     // output is depth-occluded by the scene and feeds the normal post-process chain.
     struct ExternalPassContext
     {
-        const Core::Camera* Camera       = nullptr; // active scene camera (editor or gameplay)
+        const Core::Camera* Camera       = nullptr; // THIS VIEW's camera (editor or gameplay)
         Framebuffer*        Target       = nullptr; // HDR scene target the pass is drawing into
         Image2D*            Depth        = nullptr; // scene depth attachment (bound for depth test)
         bool                ScenePlaying = false;   // true in Play mode — authoring aids usually hide
+        // THE VIEW THIS PASS IS DRAWING INTO. A scene has a LIST of views now (Engine/Core/SceneViewList.hpp)
+        // and a pass runs once per view, so "what is this view showing" — the debug/show flags, the
+        // render path — is a per-renderer question. Every editor pass used to ask it of
+        // `scene->GetSceneRenderer()`, which answers for the FIRST view only; its own comment already
+        // claimed it was "asked of the RENDERER this pass is drawing into", and this is the field that
+        // makes that true.
+        SceneRenderer* Renderer = nullptr;
     };
 
     // A render pass injected from outside the engine (the editor's debug-draw tools). Phase +

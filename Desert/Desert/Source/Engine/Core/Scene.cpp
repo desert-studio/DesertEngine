@@ -201,12 +201,19 @@ namespace Desert::Core
     }
 
     Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
-         // Declaration order: m_SceneRenderer is declared before m_SceneName, and members are constructed
-         // in declaration order no matter what this list says.
-         : m_SceneRenderer( sceneRenderer ), m_SceneName( std::move( sceneName ) )
+         : m_SceneName( std::move( sceneName ) )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
+
+        // View 0, the one every existing caller means by "the scene's renderer". The camera it will be
+        // aimed with is made by Init() — a Scene is constructed before the device work Init() does, and
+        // a camera handed out before then would be a second one to keep in step.
+        //
+        // The refusal is LOGGED rather than dropped: a null renderer here used to be stored as-is into a
+        // raw pointer that nothing ever checked, and the first frame dereferenced it.
+        if ( sceneRenderer != nullptr && !m_Views.Add( sceneRenderer, nullptr ) )
+            LOG_ERROR( "[Scene] '{}' refused its own renderer as view 0.", m_SceneName );
     }
 
     Scene::~Scene()
@@ -218,14 +225,10 @@ namespace Desert::Core
         scenes.erase( std::remove( scenes.begin(), scenes.end(), this ), scenes.end() );
     }
 
-    NO_DISCARD Common::BoolResultStr Scene::BeginScene()
-    {
-        return m_SceneRenderer->BeginScene( *this );
-    }
-
     NO_DISCARD Common::BoolResultStr Scene::Init()
     {
-        m_SceneRenderer->Init();
+        for ( auto& view : m_Views.All() )
+            view.Renderer->Init();
 
         // Every scene gets a persistent EditorCamera as its Edit-mode view, so the viewport works
         // immediately (no "add a camera" requirement) and the editor view is independent of any scene
@@ -234,6 +237,15 @@ namespace Desert::Core
             m_EditorCamera = std::make_shared<EditorCamera>();
         if ( m_State != SceneState::Play && !m_CameraPinned )
             SetActiveCamera( m_EditorCamera );
+
+        // Views opened BEFORE the first Init (there is always at least view 0) get a camera here; a view
+        // opened after it is given one by AddView. Only view 0 takes the scene's shared EditorCamera —
+        // see SetActiveCamera for why the others must not.
+        for ( size_t i = 1; i < m_Views.Count(); ++i )
+        {
+            if ( auto* view = m_Views.At( i ); view && !view->Camera )
+                view->Camera = std::make_shared<EditorCamera>();
+        }
 
         m_Initialized = true;
 
@@ -312,21 +324,21 @@ namespace Desert::Core
                 static_cast<GameplayCamera*>( m_GameplayCamera.get() )
                      ->SetFromTransform( worldPos, worldEuler, mainCam->Data.FOV, mainCam->Data.Near,
                                          mainCam->Data.Far, m_ViewportWidth, m_ViewportHeight );
-                if ( m_ActiveCamera != m_GameplayCamera )
+                if ( GetActiveCamera() != m_GameplayCamera )
                     SetActiveCamera( m_GameplayCamera );
             }
-            else if ( m_ActiveCamera != m_EditorCamera )
+            else if ( GetActiveCamera() != m_EditorCamera )
             {
                 SetActiveCamera( m_EditorCamera ); // no game camera -> keep the editor view
             }
         }
-        else if ( m_EditorCamera && m_ActiveCamera != m_EditorCamera )
+        else if ( m_EditorCamera && GetActiveCamera() != m_EditorCamera )
         {
             SetActiveCamera( m_EditorCamera );
         }
     }
 
-    void Scene::OnUpdate( const Common::Timestep& ts )
+    NO_DISCARD Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )
     {
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
@@ -334,6 +346,10 @@ namespace Desert::Core
         // one frame after being told not to.
         if ( !m_CameraPinned )
             UpdateActiveCameraSource();
+
+        // The first view that refused, reported after every other view has had its frame: one broken
+        // viewport must not silently cost the others theirs.
+        std::string firstError;
 
         Graphic::SceneRenderer::UpdateInfo sceneRendererInfo;
         sceneRendererInfo.Timestep = ts;
@@ -347,10 +363,16 @@ namespace Desert::Core
         // Push the active-camera snapshot to systems that lay out camera-relative geometry (billboarded
         // text). Done on the main thread before ExecuteSystems so the parallel system group reads it
         // race-free (SetCameraSnapshot is a no-op for every other system).
-        if ( m_ActiveCamera )
+        //
+        // VIEW 0's CAMERA, FOR EVERY VIEW, AND THAT IS A NAMED COST OF TRAVERSING THE ECS ONCE. The only
+        // consumer is camera-relative LAYOUT (billboarded text turns to face the viewer), and that
+        // layout is produced by the single ECS pass below — so with two views open, text in the second
+        // one faces the first one's camera. Making it per-view means running the collectors per view,
+        // which is the whole cost this change exists to remove. Named here rather than discovered later.
+        if ( const auto primary = GetActiveCamera() )
         {
-            const glm::mat4 camView = m_ActiveCamera->GetViewMatrix();
-            const glm::vec3 camPos  = m_ActiveCamera->GetPosition();
+            const glm::mat4 camView = primary->GetViewMatrix();
+            const glm::vec3 camPos  = primary->GetPosition();
             for ( auto& system : m_Systems )
                 system->SetCameraSnapshot( camView, camPos );
         }
@@ -429,27 +451,72 @@ namespace Desert::Core
             }
         }
 
-        // TODO: system
-        const auto& mainCamera = m_MainCamera.lock();
-
-        if ( mainCamera )
+        // Every view's camera is ticked, not just view 0's: an EditorCamera integrates its own input and
+        // a view whose camera never updated would be frozen in place while its window says otherwise.
+        for ( auto& view : m_Views.All() )
         {
-            mainCamera->OnUpdate( ts );
+            if ( view.Camera )
+                view.Camera->OnUpdate( ts );
         }
 
+        // ── THE LINE BETWEEN "ONCE" AND "PER VIEW" ───────────────────────────────────────────────────
+        //
+        // Everything above this point read the world: ExecuteSystems walked the ECS and recorded draw
+        // commands into m_SystemCommandBuffers, and the directional-light group was collected. It runs
+        // ONCE no matter how many views are open, which is the point of the view list — a second angle
+        // on one world must cost a second set of GPU passes, not a second walk of every component pool.
+        //
+        // Everything below is per view. RenderCommandBuffer::ExecuteAll does not consume the buffer (the
+        // arena is rewound by Clear, which happens after the last view), so replaying the SAME recording
+        // into a second renderer is exactly what it already supports — the draws are identical because
+        // the world is identical; only the camera each renderer was opened with differs.
         {
-            DESERT_PROFILE_SCOPE( "Scene: CmdBuffer ExecuteAll" );
-            // Registration order — NOT completion order — so the frame's submission order is identical
-            // to the old single-buffer sequential path.
-            for ( const auto& buffer : m_SystemCommandBuffers )
-                buffer->ExecuteAll( *m_SceneRenderer );
+            DESERT_PROFILE_SCOPE( "Scene: Views" );
+            for ( auto& view : m_Views.All() )
+            {
+                // ONE VIEW, ONE COMPLETE SEQUENCE — open, record, render, close — AND THE SEQUENCES MUST
+                // NOT INTERLEAVE. The scene used to expose three separate frame phases, each of which
+                // looped over the views, so two views gave open(A) open(B) … render(A) render(B) …
+                // close(A) close(B). MEASURED: the second view's HDR target came out BLACK — not dark,
+                // not mis-lit, empty — while its inputs were provably identical (same atmosphere sun
+                // (0.351, 0.902, 0.251), same directional light, its own 960x584 framebuffer, its own
+                // G-buffer, a camera at the same position as the view that worked). Driving each view as
+                // one contiguous sequence, changing nothing else, made it render.
+                //
+                // A renderer's per-frame state is BRACKETED by its open/close pair, and two brackets
+                // must never be open at once. The offscreen renderers that have always worked
+                // (PreviewViewport, AssetThumbnailRenderer) work because they were already shaped this
+                // way, which is why one renderer per scene never exposed it — and it is why the three
+                // phases were collapsed into this one function rather than left as an ordering rule for
+                // the next caller to get right.
+                if ( auto begun = view.Renderer->BeginScene( *this, view.Camera.get() ); !begun )
+                {
+                    firstError = begun.GetError();
+                    continue; // do NOT record into a renderer that refused to open
+                }
+
+                // Registration order — NOT completion order — so the frame's submission order is
+                // identical to the old single-buffer sequential path.
+                for ( const auto& buffer : m_SystemCommandBuffers )
+                    buffer->ExecuteAll( *view.Renderer );
+
+                view.Renderer->OnUpdate( sceneRendererInfo );
+
+                if ( auto ended = view.Renderer->EndScene(); !ended && firstError.empty() )
+                    firstError = ended.GetError();
+            }
         }
         {
             DESERT_PROFILE_SCOPE( "Scene: CmdBuffer Clear" );
             for ( const auto& buffer : m_SystemCommandBuffers )
                 buffer->Clear();
         }
-        m_SceneRenderer->OnUpdate( std::move( sceneRendererInfo ) );
+
+        // The buffers are cleared FIRST and the failure reported after: a frame that refused still has to
+        // leave the arena rewound, or the next frame records on top of this one's commands.
+        if ( !firstError.empty() )
+            return Common::MakeError( firstError );
+        return BOOLSUCCESS;
     }
 
     void Scene::PrepareComponentPools()
@@ -581,14 +648,10 @@ namespace Desert::Core
         }
     }
 
-    NO_DISCARD Common::BoolResultStr Scene::EndScene()
-    {
-        return m_SceneRenderer->EndScene();
-    }
-
     std::optional<Graphic::Environment> Scene::GetEnvironment() const
     {
-        return m_SceneRenderer->GetEnvironment();
+        auto* renderer = GetSceneRenderer();
+        return renderer ? renderer->GetEnvironment() : std::nullopt;
     }
 
     Desert::ECS::Entity& Scene::CreateNewEntity( std::string&& entityName )
@@ -625,19 +688,38 @@ namespace Desert::Core
 
     const std::shared_ptr<Desert::Graphic::Image2D> Scene::GetFinalImage() const
     {
-        return m_SceneRenderer->GetFinalImage();
+        return GetFinalImage( 0 );
+    }
+
+    std::shared_ptr<Desert::Graphic::Image2D> Scene::GetFinalImage( size_t viewIndex ) const
+    {
+        const auto* view = m_Views.At( viewIndex );
+        return view ? view->Renderer->GetFinalImage() : nullptr;
     }
 
     void Scene::Resize( const uint32_t width, const uint32_t height ) const
     {
-        m_SceneRenderer->Resize( width, height );
-        m_ViewportWidth  = width;
-        m_ViewportHeight = height;
+        ResizeView( 0, width, height );
+    }
 
-        const auto& mainCamera = m_MainCamera.lock();
-        if ( mainCamera )
+    void Scene::ResizeView( size_t viewIndex, const uint32_t width, const uint32_t height ) const
+    {
+        const auto* view = m_Views.At( viewIndex );
+        if ( !view )
+            return;
+
+        view->Renderer->Resize( width, height );
+        if ( view->Camera )
+            view->Camera->UpdateProjectionMatrix( width, height );
+
+        // The scene's own idea of "the viewport size" is VIEW 0's, and only view 0 writes it. It feeds
+        // screen-space work that has one answer per document (picking rays built outside a panel); a
+        // second viewport of a different size must not overwrite it, which is the middle-link defect
+        // this split exists to avoid.
+        if ( viewIndex == 0 )
         {
-            mainCamera->UpdateProjectionMatrix( width, height ); // TODO: Move to scene
+            m_ViewportWidth  = width;
+            m_ViewportHeight = height;
         }
     }
 
@@ -663,60 +745,109 @@ namespace Desert::Core
 
     void Scene::RegisterExternalPass( Graphic::ExternalPassSpecification&& spec )
     {
-        m_SceneRenderer->RegisterExternalPass( std::move( spec ) );
+        // Replace, don't append, on a repeated name: SceneRenderer keys its render systems by name and a
+        // second registration evicts the first there, so an order form that kept both would hand a view
+        // opened later a pass the live renderers no longer run.
+        const std::string name = spec.Name;
+        UnregisterExternalPass( name );
+
+        m_ExternalPasses.push_back( std::move( spec ) );
+        for ( auto& view : m_Views.All() )
+            view.Renderer->RegisterExternalPass( Graphic::ExternalPassSpecification( m_ExternalPasses.back() ) );
     }
 
     void Scene::UnregisterExternalPass( const std::string& name )
     {
-        m_SceneRenderer->UnregisterExternalPass( name );
+        m_ExternalPasses.erase( std::remove_if( m_ExternalPasses.begin(), m_ExternalPasses.end(),
+                                                [&name]( const Graphic::ExternalPassSpecification& spec )
+                                                { return spec.Name == name; } ),
+                                m_ExternalPasses.end() );
+
+        for ( auto& view : m_Views.All() )
+            view.Renderer->UnregisterExternalPass( name );
+    }
+
+    std::optional<size_t> Scene::AddView( Graphic::SceneRenderer* renderer )
+    {
+        auto camera = std::static_pointer_cast<Core::Camera>( std::make_shared<EditorCamera>() );
+
+        const auto index = m_Views.Add( renderer, camera );
+        if ( !index )
+        {
+            LOG_ERROR( "[Scene] '{}' refused a view: the renderer is null or already a view of this scene.",
+                       m_SceneName );
+            return std::nullopt;
+        }
+
+        // A view opened after Init() has to be caught up by hand — its renderer has no render systems
+        // yet, and it carries none of the editor passes the document installed before it existed.
+        if ( m_Initialized )
+        {
+            renderer->Init();
+            renderer->Resize( m_ViewportWidth, m_ViewportHeight );
+            camera->UpdateProjectionMatrix( m_ViewportWidth, m_ViewportHeight );
+            for ( const auto& spec : m_ExternalPasses )
+                renderer->RegisterExternalPass( Graphic::ExternalPassSpecification( spec ) );
+        }
+
+        LOG_INFO( "[Scene] '{}' opened view #{} ({} view(s) on this world).", m_SceneName, *index,
+                  m_Views.Count() );
+        return index;
+    }
+
+    bool Scene::RemoveView( const Graphic::SceneRenderer* renderer )
+    {
+        if ( !m_Views.Remove( renderer ) )
+            return false;
+
+        LOG_INFO( "[Scene] '{}' closed a view ({} view(s) left on this world).", m_SceneName,
+                  m_Views.Count() );
+        return true;
+    }
+
+    std::shared_ptr<Core::Camera> Scene::GetViewCamera( size_t viewIndex ) const
+    {
+        const auto* view = m_Views.At( viewIndex );
+        return view ? view->Camera : nullptr;
+    }
+
+    void Scene::SetViewCamera( size_t viewIndex, const std::shared_ptr<Core::Camera>& camera )
+    {
+        if ( auto* view = m_Views.At( viewIndex ) )
+            view->Camera = camera;
+    }
+
+    Graphic::SceneRenderer* Scene::GetViewRenderer( size_t viewIndex ) const
+    {
+        const auto* view = m_Views.At( viewIndex );
+        return view ? view->Renderer : nullptr;
+    }
+
+    void Scene::SetActiveCamera( const std::shared_ptr<Core::Camera>& camera )
+    {
+        if ( auto* view = m_Views.At( 0 ) )
+            view->Camera = camera;
+    }
+
+    std::shared_ptr<Core::Camera> Scene::GetActiveCamera() const
+    {
+        const auto* view = m_Views.At( 0 );
+        return view ? view->Camera : nullptr;
     }
 
     void Scene::OnEntityCreated_Camera()
     {
         // Intentionally a no-op now: a scene CameraComponent is a GAME camera, NOT the editor view. The
         // editor renders through its own EditorCamera (set via SetActiveCamera); Play mode switches to the
-        // main CameraComponent via a GameplayCamera. (FindMainCamera kept for the Play-mode lookup.)
-    }
-
-    void Scene::FindMainCamera()
-    {
-        m_MainCamera.reset();
-
-        auto cameraView = m_Registry.view<ECS::CameraComponent>();
-
-        for ( auto entity : cameraView )
-        {
-            auto& cameraComponent = cameraView.get<ECS::CameraComponent>( entity );
-
-            if ( cameraComponent.Data.IsMainCamera )
-            {
-                // TODO: Get from scene config
-                // Through the engine's projection factory so this camera shares the reversed-Z convention
-                // with every other one (Core/Projection.hpp). Near/far are the Camera defaults in world
-                // units — the literal 0.1/1000 that stood here were metres-era leftovers, i.e. a 1 mm near
-                // plane and a 10 m far plane once a unit became a centimetre.
-                const glm::mat4 projection = MakePerspective( glm::radians( 45.0f ), 1280.0f / 720.0f,
-                                                              kDefaultNearPlane, kDefaultFarPlane );
-                cameraComponent.Camera = std::make_shared<EditorCamera>( projection );
-                m_MainCamera           = cameraComponent.Camera;
-
-                break;
-            }
-        }
-
-        if ( !cameraView.empty() )
-        {
-            auto  entity          = *cameraView.begin();
-            auto& cameraComponent = cameraView.get<ECS::CameraComponent>( entity );
-            m_MainCamera          = cameraComponent.Camera;
-
-            cameraComponent.Data.IsMainCamera = true;
-        }
+        // main CameraComponent via a GameplayCamera. The Play-mode lookup is UpdateActiveCameraSource's
+        // own; FindMainCamera, which claimed to be that lookup, had no caller anywhere in the repository
+        // and wrote the one scene-wide camera handle the view list replaced.
     }
 
     const std::shared_ptr<Desert::Graphic::Framebuffer> Scene::GetTargetFramebuffer() const
     {
-        return m_SceneRenderer->GetTargetFramebuffer();
+        auto* renderer = GetSceneRenderer();
+        return renderer ? renderer->GetTargetFramebuffer() : nullptr;
     }
 
     void Scene::Clear()

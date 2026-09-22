@@ -18,7 +18,12 @@ namespace Desert::Graphic::Render
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.AddSpotLight( std::move( Light ) );
+        // COPIED, NOT MOVED, and that is a correctness fix rather than a style choice. A scene with
+        // several views replays the SAME recorded command into each view's renderer (Scene::OnUpdate),
+        // so a command that hands its payload away serves the first view and gives the second one a
+        // moved-from value. For a light that is a light which exists in one viewport and not in the
+        // other, with nothing in the log.
+            renderer.AddSpotLight( Light );
         }
     };
 } // namespace Desert::Graphic::Render

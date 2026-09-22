@@ -933,20 +933,10 @@ namespace Desert::Editor
         ApplyCamera( width, height );
 
         // Recorded into the editor's current frame command buffer, submitted when the frame ends. This is
-        // why Update() must run from OnPreUpdate() and never from OnUIRender().
-        const auto begun = m_Scene->BeginScene();
-        if ( !begun.IsSuccess() )
-        {
-            // RETURN, do not record. OnUpdate and EndScene below both assume the scene opened; running
-            // them against a scene that refused leaves the editor's frame command buffer holding half a
-            // pass, and the driver reports that, not us.
-            LOG_ERROR( "[PreviewViewport] BeginScene failed, preview frame skipped: {}", begun.GetError() );
-            return;
-        }
-        m_Scene->OnUpdate( Common::Timestep( 0.016f ) );
-        const auto ended = m_Scene->EndScene();
-        if ( !ended.IsSuccess() )
-            LOG_ERROR( "[PreviewViewport] EndScene failed: {}", ended.GetError() );
+        // why Update() must run from OnPreUpdate() and never from OnUIRender(). The scene opens and closes
+        // its own renderer inside this call, so a refusal cannot leave that buffer holding half a pass.
+        if ( const auto frame = m_Scene->OnUpdate( Common::Timestep( 0.016f ) ); !frame.IsSuccess() )
+            LOG_ERROR( "[PreviewViewport] preview frame skipped: {}", frame.GetError() );
     }
 
     bool PreviewViewport::IsSkyRebuilding() const

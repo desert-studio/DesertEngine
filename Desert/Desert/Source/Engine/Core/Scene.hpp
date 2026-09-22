@@ -8,6 +8,7 @@
 #include <Engine/Core/Camera.hpp>
 
 #include "SceneSettings.hpp"
+#include "SceneViewList.hpp"
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Timestep.hpp>
@@ -56,6 +57,9 @@ namespace Desert::Core
     class Scene final
     {
     public:
+        using ViewList = SceneViewList<Graphic::SceneRenderer, Core::Camera>;
+        using View     = ViewList::View;
+
         Scene();
         Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer );
         ~Scene();
@@ -90,9 +94,14 @@ namespace Desert::Core
 
         void Clear();
 
-        [[nodiscard]] Common::BoolResultStr BeginScene();
-        void                                OnUpdate( const Common::Timestep& ts );
-        [[nodiscard]] Common::BoolResultStr EndScene();
+        // THE SCENE'S WHOLE FRAME, IN ONE CALL. It was three calls — open, update, close — and every
+        // host made them back to back anyway. They are one now because with a LIST of views the
+        // three-phase shape had a failure mode nothing could see: each phase looped the views, so the
+        // brackets of two renderers overlapped and the second one's target came out empty. The note at
+        // the view loop in the definition carries the measurement.
+        //
+        // Walks the ECS ONCE and then records one set of GPU passes per view.
+        [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts );
 
         [[nodiscard]] Common::BoolResultStr Init();
 
@@ -109,8 +118,13 @@ namespace Desert::Core
             return m_Initialized;
         }
 
+        // View 0's picture and view 0's target. Kept unqualified because every caller but a viewport
+        // panel is a one-view scene (a preview, a thumbnail, a render-texture capture).
         const std::shared_ptr<Graphic::Image2D>     GetFinalImage() const;
         const std::shared_ptr<Graphic::Framebuffer> GetTargetFramebuffer() const;
+
+        // The picture view @p viewIndex drew, or null for an index nobody opened.
+        [[nodiscard]] std::shared_ptr<Graphic::Image2D> GetFinalImage( size_t viewIndex ) const;
 
         ECS::Entity& CreateNewEntity( std::string&& entityName );
         ECS::Entity& CreateEntityWithUUID( const Common::UUID& uuid, const std::string& name );
@@ -120,16 +134,63 @@ namespace Desert::Core
             return m_Entitys;
         }
 
+        // Resizes view 0 — the size a one-view scene has. Two viewports of one world are two DIFFERENT
+        // sizes, so a panel that owns a view resizes THAT view.
         void Resize( const uint32_t width, const uint32_t height ) const;
+        void ResizeView( size_t viewIndex, const uint32_t width, const uint32_t height ) const;
 
         // By value — see SceneRenderer::GetEnvironment(). The renderer composes this answer rather than
         // storing it, so a reference here would outlive the object it names.
         [[nodiscard]] std::optional<Graphic::Environment> GetEnvironment() const;
 
+        // THE FIRST VIEW'S RENDERER, and null for a world nobody is looking at. It is NOT "the scene's
+        // renderer" any more and the nine call sites left on it are the ones that ask a question the
+        // first view answers for the whole document: the Details panel's cascade count, .demat hot
+        // reload, the scene-settings readout. A pass that draws INTO a view asks the view instead —
+        // ExternalPassContext::Renderer — because the answer differs per view and asking the scene gave
+        // every viewport the first one's debug flags.
         [[nodiscard]] Graphic::SceneRenderer* GetSceneRenderer() const
         {
-            return m_SceneRenderer;
+            const auto* view = m_Views.At( 0 );
+            return view ? view->Renderer : nullptr;
         }
+
+        // ── VIEWS ────────────────────────────────────────────────────────────────────────────────────
+        //
+        // Opens another angle on this world: @p renderer records it, and the view is given its own
+        // EditorCamera so it can be aimed independently. Returns the new view's index, or nothing when
+        // the renderer is null or already a view here (SceneViewList::Add says why).
+        //
+        // The renderer is INITIALISED and given this scene's external passes on the way in, because a
+        // view added after Scene::Init() would otherwise have no render systems and no editor aids, and
+        // would draw a black rectangle with nothing in the log.
+        [[nodiscard]] std::optional<size_t> AddView( Graphic::SceneRenderer* renderer );
+
+        // Closes the angle @p renderer was recording. False for a renderer this scene never had.
+        // Does NOT destroy the renderer — the caller owns it, and destroying it is what hands the
+        // renderer slot back (Engine/Core/RendererSlotPool.hpp).
+        bool RemoveView( const Graphic::SceneRenderer* renderer );
+
+        [[nodiscard]] size_t GetViewCount() const
+        {
+            return m_Views.Count();
+        }
+
+        [[nodiscard]] std::optional<size_t> IndexOfView( const Graphic::SceneRenderer* renderer ) const
+        {
+            return m_Views.IndexOf( renderer );
+        }
+
+        // This view's camera, or an empty handle for an index nobody opened. The caller is usually a
+        // viewport panel whose view may have been closed under it.
+        [[nodiscard]] std::shared_ptr<Core::Camera> GetViewCamera( size_t viewIndex ) const;
+
+        // Points view @p viewIndex at @p camera. Used by the editor for a second angle that is driven
+        // from outside (a locked "camera preview" view); view 0's camera is chosen by play state
+        // instead, through SetActiveCamera.
+        void SetViewCamera( size_t viewIndex, const std::shared_ptr<Core::Camera>& camera );
+
+        [[nodiscard]] Graphic::SceneRenderer* GetViewRenderer( size_t viewIndex ) const;
 
         [[nodiscard]] auto& GetRegistry()
         {
@@ -222,21 +283,25 @@ namespace Desert::Core
         void RegisterExternalPass( Graphic::ExternalPassSpecification&& spec );
         void UnregisterExternalPass( const std::string& name );
 
-        const std::weak_ptr<Core::Camera>& GetMainCamera() const
+        // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
+        // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
+        // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
+        [[nodiscard]] std::weak_ptr<Core::Camera> GetMainCamera() const
         {
-            return m_MainCamera;
+            const auto* view = m_Views.At( 0 );
+            return view ? std::weak_ptr<Core::Camera>( view->Camera ) : std::weak_ptr<Core::Camera>();
         }
 
         // The scene renders through whatever camera is set active here. The editor sets its EditorCamera in
         // Edit mode and a GameplayCamera (from the main CameraComponent) in Play mode. The scene owns the
         // active camera so the view never depends on a scene CameraComponent existing (Init() defaults to an
         // EditorCamera, so a brand-new scene still has a working viewport).
-        void SetActiveCamera( const std::shared_ptr<Core::Camera>& camera )
-        {
-            m_ActiveCamera = camera;
-            m_MainCamera   = m_ActiveCamera;
-        }
-        [[nodiscard]] const std::shared_ptr<Core::Camera>& GetActiveCamera() const { return m_ActiveCamera; }
+        //
+        // IT SETS VIEW 0's CAMERA, AND ONLY VIEW 0's. A second viewport is a second ANGLE and keeps the
+        // EditorCamera it was opened with: pointing every view at the play camera would give N copies of
+        // one picture, which is the opposite of what a second view is for.
+        void                                        SetActiveCamera( const std::shared_ptr<Core::Camera>& camera );
+        [[nodiscard]] std::shared_ptr<Core::Camera> GetActiveCamera() const;
 
         // Render through THIS camera and stop choosing one per play state. For a scene whose view is driven
         // from outside — the Details preview orbits its own GameplayCamera — a plain SetActiveCamera lasts
@@ -267,7 +332,6 @@ namespace Desert::Core
         void SetVisibleRecursive( ECS::Entity entity, bool visible );
 
     private:
-        void FindMainCamera();
         void OnEntityCreated_Camera();
 
         // Picks the active camera from the play state (Edit -> EditorCamera, Play -> the main
@@ -303,9 +367,19 @@ namespace Desert::Core
         // Set by Init(), never cleared — see IsInitialized().
         bool m_Initialized = false;
 
-        Graphic::SceneRenderer*     m_SceneRenderer;
-        std::weak_ptr<Core::Camera>   m_MainCamera;   // non-owning view (renderer reads this)
-        std::shared_ptr<Core::Camera> m_ActiveCamera; // owns the current camera (editor or gameplay)
+        // EVERY ANGLE THIS WORLD IS BEING LOOKED AT FROM. Was one `SceneRenderer*` and one
+        // `weak_ptr<Camera>`; see SceneViewList.hpp for why a pair of scalars could not express the
+        // question the editor was asking.
+        ViewList m_Views;
+
+        // The external passes the editor injected, KEPT so that a view opened later gets them too. Not a
+        // second source of truth for what is installed: a SceneRenderer stores each pass as a render
+        // system under its own key and that is still the only place a pass is looked up or executed —
+        // this is the ORDER FORM, replayed once onto each new renderer, and Unregister erases from here
+        // for exactly the same reason. Without it a second viewport of the same world has no grid, no
+        // collider wireframes and no 2D UI overlay, and nothing says why.
+        std::vector<Graphic::ExternalPassSpecification> m_ExternalPasses;
+
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
         std::shared_ptr<Core::Camera> m_GameplayCamera; // persistent game view (Play mode), driven by the

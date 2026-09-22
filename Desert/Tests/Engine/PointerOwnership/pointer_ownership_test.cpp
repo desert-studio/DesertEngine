@@ -411,22 +411,37 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   m_ControlDragOwner and read neither, under a comment saying an entry was pushed from them. The
     //   UUID goes with this change too, and it moves NO number here -- a Common::UUID is not a pointer
     //   and was never in this census, which is exactly why nothing went red while it sat there unread.
-    //   and +2 Raw, +1 Shared, +1 Unique with Г28 (378 -> 380, 863 -> 867): `MeshRenderer` stopped
-    //   accumulating every instanced batch into one triple of scratch vectors and now keeps one
-    //   `InstancedBatchSet` per RECORDING material, because a batch has to be drawn with its own
-    //   `.demat`'s (Instanced x pass) material or it loses every texture that material names. The two Raw
-    //   are that set's `Mat` and `Inst`; the Shared is `m_InstancedVariantInstances`, one
-    //   MaterialInstance per variant, dropped whole when MaterialService's invalidation stamp moves; the
-    //   Unique is `m_ScratchInstSets`, and it is a `vector<unique_ptr<...>>` RATHER THAN a `vector<T>`
-    //   for a reason this register cares about: the accumulation hands out a pointer to one set and goes
-    //   on to create others, so a growing vector of values would move the pointee under a live pointer.
-    //   That is the `OwnedByThisObject` guard's own small print -- "the row must also say why the address
-    //   is stable" -- satisfied by the layout instead of by a promise.
-    EXPECT_EQ( CountOf( Form::Raw ), 380 );
+    //   and +2 Raw, +1 Shared, +1 Unique with Г28: `MeshRenderer` stopped accumulating every instanced
+    //   batch into one triple of scratch vectors and now keeps one `InstancedBatchSet` per RECORDING
+    //   material, because a batch has to be drawn with its own `.demat`'s (Instanced x pass) material or
+    //   it loses every texture that material names. The two Raw are that set's `Mat` and `Inst`; the
+    //   Shared is `m_InstancedVariantInstances`; the Unique is `m_ScratchInstSets`, and it is a
+    //   `vector<unique_ptr<...>>` RATHER THAN a `vector<T>` for a reason this register cares about: the
+    //   accumulation hands out a pointer to one set and goes on to create others, so a growing vector of
+    //   values would move the pointee under a live pointer.
+    //
+    //   and +3 Raw / +2 Unique with U9, where a Scene stopped holding ONE renderer and one camera and
+    //   started holding a LIST of views. Every line of it is a member, not a number:
+    //     gone   Scene::m_SceneRenderer (Raw), Scene::m_MainCamera (Weak), Scene::m_ActiveCamera (Shared);
+    //     new    SceneViewList::View::Renderer (Raw) and ::Camera (Shared) -- the same two values, now
+    //            one pair PER VIEW instead of one pair per scene;
+    //     new    ExternalPassContext::Renderer (Raw) -- a pass runs once per view and has to know which
+    //            one it is drawing into;
+    //     new    ViewportPanel::m_ViewRenderer (Raw), EditorLayer::SceneViewport::Viewport (Raw),
+    //            SceneViewport::Renderer (Unique), the m_ExtraViewports element (Unique), and
+    //            SceneViewport::Scene (Weak).
+    //   Shared and Weak do not move for U9: each gained exactly what it lost.
+    //
+    //   THE TWO ARRIVED ON DIFFERENT BRANCHES AND BOTH EDITED THESE NUMBERS. Each was green against its
+    //   own base and the sum is neither; the totals below are DERIVED from the rows above (Raw
+    //   378+2+3, Shared 330+1+0, Unique 117+1+2, Weak unmoved) and then CONFIRMED by running, never
+    //   pasted from one side. Same shape as the merge two days ago, and the reason the register pins
+    //   rows rather than a count: a number can be fixed by editing the number.
+    EXPECT_EQ( CountOf( Form::Raw ), 383 );
     EXPECT_EQ( CountOf( Form::Shared ), 331 );
-    EXPECT_EQ( CountOf( Form::Unique ), 118 );
+    EXPECT_EQ( CountOf( Form::Unique ), 120 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 867 )
+    EXPECT_EQ( (int)Members().size(), 872 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

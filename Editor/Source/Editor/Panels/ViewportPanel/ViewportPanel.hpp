@@ -55,9 +55,21 @@ namespace Desert::Editor
         // (Editor/Core/Selection/AuthoringContext.hpp): several viewports exist, they must be told apart
         // when one of them writes the context, and an index would name the wrong one the moment a view is
         // closed — the whole argument SceneViewIdentity.hpp makes.
+        //
+        // @p viewRenderer is WHICH ANGLE of @p scene this panel shows, identified by the renderer that
+        // records it rather than by an index into Scene's view list — an index names a different view the
+        // moment an earlier one is closed, which is the same argument SceneViewIdentity.hpp makes about
+        // documents. Null means view 0, the angle every single-viewport scene has.
         ViewportPanel( const std::shared_ptr<Desert::Core::Scene>& scene,
                        const Assets::AssetManager* assetManager = nullptr, std::string title = "Scene###scene",
-                       uint64_t sceneViewId = kPrimarySceneViewId );
+                       uint64_t sceneViewId = kPrimarySceneViewId, Graphic::SceneRenderer* viewRenderer = nullptr );
+
+        // WHICH VIEW OF THE SCENE THIS PANEL DRAWS. Scene::GetViewCount() when this panel's view has been
+        // closed under it, which every accessor below reads as "no such view" and nothing reads as 0.
+        [[nodiscard]] size_t ViewIndex() const;
+        // This view's camera. Empty when the view is gone — the panel then says "Camera was not found"
+        // instead of quietly showing another angle's picture.
+        [[nodiscard]] std::shared_ptr<::Desert::Core::Camera> ViewCamera() const;
         ~ViewportPanel() override; // defined in the .cpp (unique_ptr<AsyncMeshLoader> needs the complete type)
 
         // A SELF-REGISTERING TYPE MUST NOT BE COPYABLE OR MOVABLE. The constructor pushes `this` into
@@ -70,6 +82,17 @@ namespace Desert::Editor
         ViewportPanel( ViewportPanel&& )                 = delete;
         ViewportPanel& operator=( ViewportPanel&& )      = delete;
         void OnUIRender() override;
+
+        // A SECOND VIEWPORT MUST OPEN BIG ENOUGH TO BE A VIEWPORT. Without this the base class's (0,0)
+        // lets ImGui size the window to its content, and a viewport's content is an image sized from the
+        // space the window gives it — so the first frame has nothing to measure and the window opens as a
+        // ~330x50 stub showing its toolbar and no picture. Measured: the first "New Viewport (same scene)"
+        // came up exactly that size. The primary viewport is unaffected because it is docked from
+        // imgui.ini and FirstUseEver never fights a saved layout.
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
+        {
+            return { 960.0f, 640.0f };
+        }
 
         // The scene image must reach the window edges — any padding would frame it with dead pixels.
         [[nodiscard]] glm::vec2 GetWindowPadding() const override
@@ -221,6 +244,9 @@ namespace Desert::Editor
         // editor, so a second viewport and a second Sequencer shared one selected bone and one pose-mode
         // bit and overwrote each other every frame.
         uint64_t               m_SceneViewId = kPrimarySceneViewId;
+        // Non-owning: EditorLayer owns the renderer and destroys it after this panel. Null for the
+        // primary viewport, which is always view 0.
+        Graphic::SceneRenderer* m_ViewRenderer = nullptr;
         Core::AuthoringContext m_Authoring;
 
         // Publish this view's context. Points it at whatever is selected HERE first — the context is keyed

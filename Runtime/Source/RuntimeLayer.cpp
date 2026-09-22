@@ -615,18 +615,14 @@ namespace Desert::Player
             m_UIRenderTextures->Tick( *m_AssetManager, ts );
         }
 
-        if ( const auto begin = m_Scene->BeginScene(); !begin )
-            return Common::MakeError( begin.GetError() );
-
         // ZERO WHILE THE LOADING SCREEN IS UP, and the render still runs. The render is what ASKS -- a
         // frame that is not drawn requests nothing, so a host that skipped it would wait for content
         // nobody had ordered and the gate would never open. What must not run is TIME: without this the
         // player's first visible frame is already several frames into the game, with the physics stepped
         // and every script's OnUpdate called against a world they could not be seen reacting to.
-        m_Scene->OnUpdate( m_Content.Loading() ? Common::Timestep( 0.0f ) : ts );
-
-        if ( const auto end = m_Scene->EndScene(); !end )
-            return Common::MakeError( end.GetError() );
+        if ( const auto frame = m_Scene->OnUpdate( m_Content.Loading() ? Common::Timestep( 0.0f ) : ts );
+             !frame )
+            return Common::MakeError( frame.GetError() );
 
         return BOOLSUCCESS;
     }

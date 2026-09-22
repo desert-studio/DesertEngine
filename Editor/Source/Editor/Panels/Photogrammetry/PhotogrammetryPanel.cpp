@@ -757,16 +757,10 @@ namespace Desert::Editor
         m_Spin += 0.01f;
         m_PreviewTarget.GetComponent<ECS::TransformComponent>().Rotation = glm::vec3( 0.0f, m_Spin, 0.0f );
 
-        // Return rather than record: OnUpdate and EndScene both assume the scene opened, and running them
-        // against one that refused leaves the editor's frame command buffer holding half a pass.
-        if ( const auto begun = m_PreviewScene->BeginScene(); !begun.IsSuccess() )
-        {
-            LOG_ERROR( "[Photogrammetry] BeginScene failed, preview frame skipped: {}", begun.GetError() );
-            return;
-        }
-        m_PreviewScene->OnUpdate( Common::Timestep( 0.016f ) );
-        if ( const auto ended = m_PreviewScene->EndScene(); !ended.IsSuccess() )
-            LOG_ERROR( "[Photogrammetry] EndScene failed: {}", ended.GetError() );
+        // The scene brackets its own renderer now, so a frame that refuses cannot leave the editor's
+        // command buffer holding half a pass — it is reported here and the preview skips a frame.
+        if ( const auto frame = m_PreviewScene->OnUpdate( Common::Timestep( 0.016f ) ); !frame.IsSuccess() )
+            LOG_ERROR( "[Photogrammetry] preview frame skipped: {}", frame.GetError() );
     }
 
     // ---------------------------------------------------------------------------------------------------

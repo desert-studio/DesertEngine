@@ -139,10 +139,10 @@ namespace Desert::Editor
     {
     }
 
-    void LightGizmoRenderer::Render( float width, float height, float xpos, float ypos,
-                                     const Core::AuthoringOwner& owner, Core::AuthoringContext& mine )
+    void LightGizmoRenderer::Render( const std::shared_ptr<::Desert::Core::Camera>& camera, float width,
+                                     float height, float xpos, float ypos, const Core::AuthoringOwner& owner,
+                                     Core::AuthoringContext& mine )
     {
-        const auto camera = m_Scene->GetMainCamera().lock();
         if ( !camera )
             return;
 
