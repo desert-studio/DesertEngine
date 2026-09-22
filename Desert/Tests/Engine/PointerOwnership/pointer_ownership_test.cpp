@@ -390,15 +390,21 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   at its own declaration when it refuses to store one. The command reports `IsVolatile()`, so
     //   `DropVolatile` drops it on every structural change and every selection change.
     //
+    //   and +2 Raw with A32 (373 -> 375, 858 -> 860): `SequencerPanel::SectionTarget`, which is what a
+    //   section edit acts on -- the animator and the clip, resolved together from one entity. CallScoped
+    //   and not the transaction's volatile guard, and the difference is the point: this struct is built
+    //   BY VALUE per call and never stored, so the frame's own structure closes Q2. The two pointers that
+    //   DO outlive the frame are the four A29 rows above, and they pay for it with `IsVolatile()`.
+    //
     //   THESE TWO ROWS ARRIVED ON DIFFERENT BRANCHES AND BOTH EDITED THIS NUMBER. Each was green
     //   against its own base (365 -> 367 and 365 -> 366) and the sum is neither; a merge that took
     //   either side whole would have been a number that compiles, passes review, and is wrong. The
     //   count is derived from the rows, so the rows are what to read when it moves.
-    EXPECT_EQ( CountOf( Form::Raw ), 373 );
+    EXPECT_EQ( CountOf( Form::Raw ), 375 );
     EXPECT_EQ( CountOf( Form::Shared ), 330 );
     EXPECT_EQ( CountOf( Form::Unique ), 117 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 858 )
+    EXPECT_EQ( (int)Members().size(), 860 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
