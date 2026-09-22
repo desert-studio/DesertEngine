@@ -351,8 +351,7 @@ namespace Desert::Graphic
 
         [[nodiscard]] uint32_t KnownFor( const ResourceOwner owner, const ResourceKind kind ) const
         {
-            return BytesKnownPerOwnerKind[static_cast<std::size_t>( owner )]
-                                         [static_cast<std::size_t>( kind )];
+            return BytesKnownPerOwnerKind[static_cast<std::size_t>( owner )][static_cast<std::size_t>( kind )];
         }
     };
 
@@ -632,8 +631,8 @@ namespace Desert::Graphic
             // count alone said "AssetService holds one Image2D", which is the same sentence whether that
             // image is a 64x64 icon or a 2048x2048 albedo with its chain — a factor of a thousand the
             // reader could not see.
-            text += " bytes=" + std::to_string( census.BytesForOwner( asOwner ) ) + " known=" +
-                    std::to_string( census.BytesKnownForOwner( asOwner ) ) + ":";
+            text += " bytes=" + std::to_string( census.BytesForOwner( asOwner ) ) +
+                    " known=" + std::to_string( census.BytesKnownForOwner( asOwner ) ) + ":";
 
             for ( std::size_t kind = 0; kind < static_cast<std::size_t>( ResourceKind::Count ); ++kind )
             {

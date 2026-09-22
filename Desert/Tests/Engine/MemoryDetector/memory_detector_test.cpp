@@ -379,7 +379,6 @@ TEST( MemoryDetectorCensus, ThePerFrameSampleDoesNotWalkTheResourceLedger )
     EXPECT_LT( source.find( "ResourceLedger::Take" ), frameSample );
 }
 
-
 // ── 6. WHOSE BYTES — THE CENSUS ATTRIBUTES DEVICE MEMORY, NOT ONLY OBJECT COUNTS ────────────────────
 //
 // WHAT WAS MISSING, AND WHICH DECISION IT BLOCKED. `Docs/World/PROGRAMME.md` §7 (streaming mip levels)
@@ -432,10 +431,8 @@ TEST( ResourceCensusBytes, BytesLandInTheCellOfTheOwnerAndKindThatHoldsThem )
     const ResourceCensus after = ResourceLedger::Take();
 
     EXPECT_EQ( BytesDelta( before, after, ResourceOwner::AssetService, ResourceKind::Image2D ), 5'592'405u );
-    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::SceneRenderer, ResourceKind::Image2D ),
-               335'544'320u );
-    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::AssetService, ResourceKind::VertexBuffer ),
-               7'338'168u );
+    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::SceneRenderer, ResourceKind::Image2D ), 335'544'320u );
+    EXPECT_EQ( BytesDelta( before, after, ResourceOwner::AssetService, ResourceKind::VertexBuffer ), 7'338'168u );
 
     // AND THE CELL THAT MUST NOT HAVE MOVED. Without this half the assertions above pass for an
     // implementation that adds every row's bytes to every cell.
@@ -450,8 +447,7 @@ TEST( ResourceCensusBytes, ClosingTheRowTakesItsBytesWithIt )
         auto texture = ResourceOwnership::Take( ResourceKind::Image2D, 21'845'000 );
         texture.Claim( ResourceOwner::AssetService );
         const ResourceCensus during = ResourceLedger::Take();
-        ASSERT_EQ( BytesDelta( before, during, ResourceOwner::AssetService, ResourceKind::Image2D ),
-                   21'845'000u );
+        ASSERT_EQ( BytesDelta( before, during, ResourceOwner::AssetService, ResourceKind::Image2D ), 21'845'000u );
     }
     // A ledger that reports memory for objects that are gone drifts upward for ever and nothing can tell
     // that it has — the defect `ResourceLedger.hpp` refuses to allow, now asserted for the byte half too.
@@ -547,7 +543,6 @@ TEST( ResourceCensusBytes, NoPerOwnerOrPerKindByteTotalIsStoredBesideTheTable )
          << "a per-kind byte total is stored beside the table it can be summed from";
 }
 
-
 // ── 7. THE LEDGER'S BYTE TOTAL IS ONLY WORTH SOMETHING IF THE BIG OBJECTS ARE IN IT ─────────────────
 //
 // MEASURED ON THE WORLD SCENE, BEFORE THIS: `bytes=425081812 (known for 36 of 602)`. The 566 rows with
@@ -575,7 +570,7 @@ TEST( ResourceCensusBytes, EveryImageAllocationRecordsWhatItCost )
     {
         std::size_t n = 0;
         for ( std::size_t at = haystack.find( needle ); at != std::string::npos;
-              at            = haystack.find( needle, at + needle.size() ) )
+              at             = haystack.find( needle, at + needle.size() ) )
             ++n;
         return n;
     };
@@ -589,7 +584,8 @@ TEST( ResourceCensusBytes, EveryImageAllocationRecordsWhatItCost )
                                     "wrong file";
     EXPECT_EQ( recordings, allocations )
          << "an image class allocates device memory and does not report what it cost: " << allocations
-         << " allocation(s), " << recordings << " recording(s). The ledger's byte total silently becomes "
+         << " allocation(s), " << recordings
+         << " recording(s). The ledger's byte total silently becomes "
             "a floor, and the rows it loses are the largest objects the engine owns.";
 
     // AND THE RETIRED PATH IS GONE, not left beside the new one. Two writers for one row means the
