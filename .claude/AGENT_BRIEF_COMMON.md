@@ -407,3 +407,13 @@ git'а на грязном дереве — это предохранитель,
 
 Файл, который ты туда положил, может исчезнуть посреди работы: у тимлида так пропал скрипт свода.
 Свой подкаталог, и не доверяй тому, что писал шагом раньше.
+
+## Where written-down things live (read DOCUMENTATION.md)
+
+`Docs/` is **gitignored** — `git ls-files Docs` returns 0, so your worktree has **zero** files
+under it unless the lead copied them in for you. If a brief cites a `Docs/` path and the file is
+not there, say so; it is the lead's error, not yours, and it has already happened once.
+
+Task tracking is moving to Notion, which you cannot reach at all. Anything you want a human or a
+later agent to know must go into a **commit message** or a tracked file. A note written into a
+copied `Docs/` file reaches nobody.
