@@ -1140,6 +1140,20 @@ namespace Desert::Tests::PointerCensus
           "SequencerPanel", "kUIComponentTypeName", Guard::StaticStorage,
           "a string literal, held by a constexpr/static table entry" },
         { "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.hpp",
+          "SectionTarget", "Animator", Guard::CallScoped,
+          "ResolveSectionTarget builds this struct BY VALUE and hands it back to one call; every user is a "
+          "local that lives for the length of one section edit inside one OnUIRender, and nothing is stored. "
+          "Both pointers are resolved from the same entity in the same expression -- the animator out of the "
+          "AnimationComponent's unique_ptr, the clip out of that animator -- so the two cannot come from "
+          "different frames. WHAT WOULD BREAK IT: a caller keeping the struct as a MEMBER, which is exactly "
+          "what PoseEditTransaction is for and why this one is not" },
+        { "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.hpp",
+          "SectionTarget", "Clip", Guard::CallScoped,
+          "the same span and the same resolution as Animator above. The clip is Animator::GetCurrentClip's, "
+          "const-cast for editing (the cast the dope sheet documents at length): an eviction can unload the "
+          "AnimationAsset behind it, so it is honest only while nothing yields -- which is what CallScoped "
+          "means here, and why the undo entry that must outlive the frame is VOLATILE instead" },
+        { "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.hpp",
           "SequencerPanel", "m_Library", Guard::HostOutlivesUs,
           "EditorLayer owns it and declares it BEFORE m_OpenDocuments -- this is a DOCUMENT, so m_Panels is the wrong container to cite (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts both orders rather than trusting either" },
         { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp",

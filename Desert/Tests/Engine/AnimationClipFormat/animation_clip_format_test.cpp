@@ -11,6 +11,7 @@
 
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/AnimationClipMigrate.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
@@ -407,6 +408,84 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClip )
     ASSERT_EQ( back.Notifies.size(), clip.Notifies.size() );
     EXPECT_EQ( back.Notifies[0].Name, clip.Notifies[0].Name );
     EXPECT_EQ( back.Notifies[0].Tick.Value, clip.Notifies[0].Tick.Value );
+}
+
+TEST( AnimationClipFormat, ASectionAUTHOREDTheWayTheSequencerAuthorsOneSurvivesTheRoundTripFieldByField )
+{
+    // THE CLAIM THE SECTION LANE MAKES, END TO END (A32). The editor's buttons call the functions in
+    // Engine/Animation/ClipSection.hpp; this test calls the same ones, writes the clip with the same
+    // writer the Save button uses, reads it back with the same reader the loader uses, and compares BY
+    // VALUE. A hand-filled `ClipSection` would have proved the writer and the reader agree with each
+    // other and nothing about what the editor produces.
+    namespace Anim = Desert::Animation;
+
+    auto clip = SampleClip();
+    clip.Sections.clear();
+    ASSERT_TRUE( Anim::AddSection( clip.Sections, "Whole clip", Anim::FrameNumber{ 0 }, clip.DurationTicks,
+                                   Anim::SectionBlendType::Absolute, clip.DurationTicks )
+                      .IsSuccess() );
+    ASSERT_TRUE( Anim::AddSection( clip.Sections, "Lean", Anim::FrameNumber{ 800 },
+                                   Anim::FrameNumber{ 2400 }, Anim::SectionBlendType::Additive,
+                                   clip.DurationTicks )
+                      .IsSuccess() );
+
+    // Narrow the second one to a strict subset, which is the case that has a list on disk at all -- and
+    // the case whose two spellings ClipSection.hpp collapses to one.
+    std::vector<std::string> allTracks;
+    for ( const auto& track : clip.Tracks )
+    {
+        allTracks.push_back( track.BoneName );
+    }
+    ASSERT_GE( allTracks.size(), 1U );
+    clip.Sections[1].Tracks = { allTracks.front() };
+
+    ASSERT_TRUE(
+         Anim::SetSectionWeightKey( clip.Sections[1], Anim::FrameNumber{ 800 }, 0.0f ).IsSuccess() );
+    ASSERT_TRUE(
+         Anim::SetSectionWeightKey( clip.Sections[1], Anim::FrameNumber{ 2400 }, 0.75f ).IsSuccess() );
+
+    const auto path  = ClipScratch() / "_Sectioned.anim";
+    const auto saved = Desert::Assets::Serialization::SaveClipToFile( path, clip );
+    ASSERT_TRUE( saved ) << saved.GetError();
+
+    std::ifstream     in( path, std::ios::binary );
+    std::stringstream text;
+    text << in.rdbuf();
+    const auto parsed = rfl::json::read<Ser::AnimationAssetData>( text.str() );
+    ASSERT_TRUE( parsed.has_value() );
+    EXPECT_EQ( parsed.value().Version, Ser::kAnimationVersion )
+         << "the authoring surface must not need a new generation; sections have been in 3 since A28";
+
+    const auto rebuilt = Desert::Assets::Serialization::BuildClipFromAssetData( parsed.value() );
+    ASSERT_TRUE( rebuilt ) << rebuilt.GetError();
+    const auto& back = rebuilt.GetValue();
+
+    ASSERT_EQ( back.Sections.size(), clip.Sections.size() );
+    for ( size_t i = 0; i < clip.Sections.size(); ++i )
+    {
+        const Anim::ClipSection& want = clip.Sections[i];
+        const Anim::ClipSection& got  = back.Sections[i];
+        EXPECT_EQ( got.Name, want.Name ) << "section " << i;
+        EXPECT_EQ( got.Start.Value, want.Start.Value ) << "section " << i;
+        EXPECT_EQ( got.End.Value, want.End.Value ) << "section " << i;
+        EXPECT_EQ( got.Blend, want.Blend ) << "section " << i;
+        EXPECT_EQ( got.Tracks, want.Tracks ) << "section " << i;
+        ASSERT_EQ( got.Weight.size(), want.Weight.size() ) << "section " << i;
+        for ( size_t k = 0; k < want.Weight.size(); ++k )
+        {
+            // EQUALITY, not a tolerance -- the same argument the key round trip above makes.
+            EXPECT_EQ( got.Weight[k].Tick.Value, want.Weight[k].Tick.Value );
+            EXPECT_EQ( got.Weight[k].Value, want.Weight[k].Value );
+            EXPECT_EQ( got.Weight[k].Interp, want.Weight[k].Interp );
+            EXPECT_EQ( got.Weight[k].Mode, want.Weight[k].Mode );
+        }
+    }
+    // The ORDER is the overlap rule, so it is asserted as a rule and not as an incidental consequence of
+    // the loop above: the second section is still the one that wins its range.
+    const Anim::ClipSection* winner = back.SectionFor( allTracks.front(), Anim::FrameNumber{ 1200 } );
+    ASSERT_NE( winner, nullptr );
+    EXPECT_EQ( winner->Name, "Lean" );
+    EXPECT_EQ( winner->Blend, Anim::SectionBlendType::Additive );
 }
 
 // THE MUTATION SITE FOR Д31-D'S WORST ROW. Delete the `if ( !written )` in SaveClipToFile and this test
