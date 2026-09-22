@@ -30,12 +30,13 @@ namespace Desert::Editor
 
     namespace
     {
-        // Light billboards draw with the big icon font at this pixel size — the default-font glyph
-        // was a barely-visible, barely-clickable speck.
-        constexpr float kLightIconSize = 30.0f;
-        // Every viewport billboard (lights, camera, sun, spawn icons, text) uses this one size so the
-        // markers read as a consistent set.
-        constexpr float kIconSize = kLightIconSize;
+        // Every viewport billboard — lights, camera, sun, spawn icons, text — draws with the big icon
+        // font at this pixel size, so the markers read as a consistent set and none of them is a
+        // barely-clickable speck. The sentence above this line used to be true of five of the six, and
+        // there were TWO names for the one number (`kLightIconSize` and `kIconSize`, the second defined
+        // as the first) which is what let the camera drift to the default font at 16 px without anyone
+        // noticing. One name now, and DrawBillboardIcon is the only reader.
+        constexpr float kIconSize = 30.0f;
 
         // Projects a world point to viewport-local screen coords, returning false when the point is
         // behind the camera (clip w <= 0). WorldToScreenSpace divides by w unconditionally, so behind
