@@ -49,10 +49,9 @@ namespace Desert::Editor::Render
             // two views could legitimately have the grid in one of them, and a preview renderer that
             // nobody pushes to gets the all-off default without having to opt out.
             const auto scene = m_Scene.lock();
-            if ( !scene || ctx.ScenePlaying || !ctx.Camera )
+            if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
                 return;
-            const auto* renderer = scene->GetSceneRenderer();
-            if ( !renderer || !renderer->GetDebugView().ShowGrid )
+            if ( !ctx.Renderer->GetDebugView().ShowGrid )
                 return;
 
             m_Material->Update( ctx.Camera );

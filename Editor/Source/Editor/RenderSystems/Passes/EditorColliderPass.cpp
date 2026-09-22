@@ -97,10 +97,9 @@ namespace Desert::Editor::Render
             // it defaulted to `true` in SceneSettings and 55 of 80 committed scenes carried it on, so the
             // green wireframes travelled through git into everybody's viewport.
             const auto scene = m_Scene.lock();
-            if ( !scene || ctx.ScenePlaying || !ctx.Camera )
+            if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
                 return;
-            const auto* renderer = scene->GetSceneRenderer();
-            if ( !renderer || !renderer->GetDebugView().ShowColliders )
+            if ( !ctx.Renderer->GetDebugView().ShowColliders )
                 return;
 
             std::vector<LineVertex> lines;

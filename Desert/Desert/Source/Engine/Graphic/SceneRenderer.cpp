@@ -457,14 +457,23 @@ namespace Desert::Graphic
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer" )
 
-    NO_DISCARD Common::BoolResultStr SceneRenderer::BeginScene( const Desert::Core::Scene& scene )
+    void SceneRenderer::BindRecordingSlot() const
+    {
+        EngineContext::GetInstance().SetActiveRendererSlot( m_SlotLease.RecordingSlot() );
+    }
+
+    NO_DISCARD Common::BoolResultStr SceneRenderer::BeginScene( const Desert::Core::Scene& scene,
+                                                                Core::Camera*              camera )
     {
         // Which renderer is recording, alongside which frame is in flight — see
         // EngineContext::GetActiveRendererSlot. Set FIRST, before anything writes a per-frame resource.
-        EngineContext::GetInstance().SetActiveRendererSlot( m_SlotLease.RecordingSlot() );
+        BindRecordingSlot();
 
-        const auto& mainCamera   = scene.GetMainCamera().lock();
-        m_SceneInfo.ActiveCamera = mainCamera.get();
+        // HANDED IN, NOT READ OFF THE SCENE. This used to be `scene.GetMainCamera()`, which is the same
+        // answer for every renderer of that scene — so a second view of one world rendered from the
+        // first view's camera, and "several viewports" could only ever mean "several worlds". The scene
+        // holds a LIST of views now and each one carries its own camera; the view says which.
+        m_SceneInfo.ActiveCamera = camera;
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
 
@@ -613,6 +622,13 @@ namespace Desert::Graphic
     void SceneRenderer::OnUpdate( const UpdateInfo& sceneRenderInfo )
     {
         DESERT_PROFILE_SCOPE( "SceneRenderer::OnUpdate" );
+
+        // RE-BOUND HERE, and it is not belt-and-braces. Scene drives the views PHASE BY PHASE — every
+        // view's BeginScene, then every view's OnUpdate — so by the time this runs the slot BeginScene
+        // set belongs to whichever view opened last. Without this line a second view writes its
+        // per-frame GPU state into the first view's slot, which is the exact failure the slot exists to
+        // prevent and produces a torn picture with nothing in the log (Docs/RENDERER_FRAME_STATE.md).
+        BindRecordingSlot();
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
@@ -1063,6 +1079,8 @@ namespace Desert::Graphic
 
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
     {
+        BindRecordingSlot(); // same reason as OnUpdate: the phases interleave across views
+
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->ClearQueue();
 
@@ -1483,6 +1501,7 @@ namespace Desert::Graphic
                                                  ? target->GetDepthAttachmentImage().get()
                                                  : nullptr;
                          ctx.ScenePlaying = m_Renderer->IsScenePlaying();
+                         ctx.Renderer     = m_Renderer;
                          m_Spec.Execute( ctx );
                      },
                      m_Spec.PipelineSpecification, target, m_Spec.Dependencies );

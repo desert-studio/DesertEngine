@@ -144,7 +144,10 @@ namespace Desert::Graphic
         // scenes have genuinely different skies, and it fires because the sky fingerprint says so.
         void Init();
 
-        [[nodiscard]] Common::BoolResultStr BeginScene( const Desert::Core::Scene& scene );
+        // @p camera is the VIEW's camera — the scene holds a list of views and hands in the one this
+        // renderer is recording (Engine/Core/SceneViewList.hpp). Null is legal and renders a scene with
+        // no view matrix, which is what a world whose camera has not been made yet looks like.
+        [[nodiscard]] Common::BoolResultStr BeginScene( const Desert::Core::Scene& scene, Core::Camera* camera );
 
         void OnUpdate( const UpdateInfo& sceneRenderInfo );
 
@@ -471,6 +474,11 @@ namespace Desert::Graphic
         void ExecuteUI();
 
     private:
+        // Tells the engine context that THIS renderer is the one recording. Called at the top of every
+        // phase a frame has (BeginScene/OnUpdate/EndScene) rather than once, because several views of one
+        // scene are driven phase by phase and each phase therefore starts on whatever view ran last.
+        void BindRecordingSlot() const;
+
         struct
         {
             Core::Camera* ActiveCamera;
