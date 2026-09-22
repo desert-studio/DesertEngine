@@ -15,14 +15,14 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanImGui final : public Desert::ImGui::ImGuiLayer
     {
     public:
-        virtual Common::BoolResultStr OnAttach() override;
-        virtual Common::BoolResultStr OnDetach() override;
-        virtual Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
-        virtual void                  OnEvent( Common::Event& event ) override;
-        virtual void                  Begin() override;
-        virtual void                  End() override;
+        Common::BoolResultStr OnAttach() override;
+        Common::BoolResultStr OnDetach() override;
+        Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
+        void                  OnEvent( Common::Event& event ) override;
+        void                  Begin() override;
+        void                  End() override;
 
-        virtual Common::BoolResultStr OnUIRender() override
+        Common::BoolResultStr OnUIRender() override
         {
             return BOOLSUCCESS;
         }

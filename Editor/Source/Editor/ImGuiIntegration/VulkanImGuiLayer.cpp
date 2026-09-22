@@ -67,7 +67,7 @@ namespace Desert::Graphic::API::Vulkan
         pool_info.sType                         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         pool_info.flags                         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
         pool_info.maxSets                       = 1000 * IM_ARRAYSIZE( pool_sizes );
-        pool_info.poolSizeCount                 = (uint32_t)IM_ARRAYSIZE( pool_sizes );
+        pool_info.poolSizeCount                 = static_cast<uint32_t>( IM_ARRAYSIZE( pool_sizes ) );
         pool_info.pPoolSizes                    = pool_sizes;
         VK_CHECK_RESULT( vkCreateDescriptorPool( device, &pool_info, nullptr, &m_ImguiPool ) );
 
@@ -129,7 +129,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanImGui::OnDetach()
     {
-        auto device =
+        auto* device =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
 
         // Nothing is outstanding on a lost device, so the wait can only answer VK_ERROR_DEVICE_LOST; the
@@ -182,11 +182,17 @@ namespace Desert::Graphic::API::Vulkan
 
         ImGuiIO& io     = ::ImGui::GetIO();
         auto     window = EngineContext::GetInstance().GetWindow();
-        io.DisplaySize  = ImVec2( (float)window->GetWidth(), (float)window->GetHeight() );
+        io.DisplaySize =
+             ImVec2( static_cast<float>( window->GetWidth() ), static_cast<float>( window->GetHeight() ) );
 
         ::ImGui::Render();
 
         auto  swapChain = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) — the check's remedy is a
+        // `dynamic_cast`, which needs RTTI and a run-time branch on a per-frame path, to answer a
+        // question the program has already answered: this file only exists in a build whose renderer IS
+        // the Vulkan one (`VulkanImGui` is constructed by the Vulkan backend and by nothing else). A
+        // `dynamic_cast` here would make the cost real and the failure unreachable.
         auto& renderer =
              static_cast<VulkanRendererAPI&>( *::Desert::Graphic::Renderer::GetInstance().GetRendererAPI() );
 

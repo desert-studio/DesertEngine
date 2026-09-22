@@ -103,10 +103,8 @@ namespace
         static const std::vector<std::string> kPrefixes = { "ImGui",     "ImVec",   "ImDraw", "ImFont",
                                                             "ImTexture", "ImColor", "ImRect", "ImU",
                                                             "ImWchar",   "IMGUI_",  "IM_" };
-        for ( const std::string& prefix : kPrefixes )
-            if ( id.compare( 0, prefix.size(), prefix ) == 0 )
-                return true;
-        return false;
+        return std::ranges::any_of( kPrefixes, [&id]( const std::string& prefix )
+                                    { return id.compare( 0, prefix.size(), prefix ) == 0; } );
     }
 
     // Every identifier in @p code that IsToolkitIdentifier accepts, with the line it sits on.

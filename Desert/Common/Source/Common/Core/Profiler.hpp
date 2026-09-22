@@ -254,15 +254,15 @@ namespace Common::Profiling
 #define DESERT_PROF_CONCAT( a, b ) DESERT_PROF_CONCAT_( a, b )
 
 // Time a scope: feeds BOTH Optick (external GUI) and the in-engine aggregator (editor panel + logs).
-#define DESERT_PROFILE_SCOPE( NAME )                                                                        \
-    OPTICK_EVENT( NAME );                                                                                   \
-    ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProf_, __LINE__ )( NAME )
+#define DESERT_PROFILE_SCOPE( NAME )                                                                              \
+    OPTICK_EVENT( NAME );                                                                                         \
+    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProf_, __LINE__ )( NAME )
 
 // Like DESERT_PROFILE_SCOPE but for a runtime name (e.g. a render-pass name). The const char* must stay
 // valid for the duration of the scope.
-#define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )                                                                \
-    OPTICK_EVENT_DYNAMIC( CSTR );                                                                           \
-    ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfDyn_, __LINE__ )( CSTR )
+#define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )                                                                      \
+    OPTICK_EVENT_DYNAMIC( CSTR );                                                                                 \
+    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfDyn_, __LINE__ )( CSTR )
 
 // Times the enclosing function, named automatically from the function name — drop one line at the top of
 // any method you want to track (don't blanket EVERY tiny getter: the clock read + map insert per call adds

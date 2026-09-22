@@ -40,11 +40,11 @@ namespace Desert::Editor
         explicit EditorLayer( const Engine::Application* window, const std::string& layerName );
         ~EditorLayer();
 
-        [[nodiscard]] virtual Common::BoolResultStr OnAttach() override;
-        [[nodiscard]] virtual Common::BoolResultStr OnDetach() override;
-        [[nodiscard]] virtual Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
-        [[nodiscard]] virtual Common::BoolResultStr OnUIRender() override;
-        virtual void                                OnEvent( Common::Event& event ) override;
+        [[nodiscard]] Common::BoolResultStr OnAttach() override;
+        [[nodiscard]] Common::BoolResultStr OnDetach() override;
+        [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
+        [[nodiscard]] Common::BoolResultStr OnUIRender() override;
+        void                                OnEvent( Common::Event& event ) override;
 
         // The frame is out. This is where the control channel keeps its promise: a reply leaves only
         // after a frame that already reflects the command it answers, and a `shot.window` reads that very

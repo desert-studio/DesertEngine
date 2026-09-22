@@ -33,7 +33,7 @@ namespace Desert::Graphic::API::Vulkan
     // OTHER failure still aborts exactly as it always did, because those really are invariant violations.
 #define VK_CHECK_RESULT( f )                                                                                      \
     {                                                                                                             \
-        VkResult res = ( f );                                                                                     \
+        const VkResult res = ( f );                                                                               \
         if ( res != VK_SUCCESS && !NoteIfDeviceLost( res, #f, __FILE__, __LINE__ ) )                              \
         {                                                                                                         \
             LOG_ERROR( "VkResult is '{}' in {}:{}", VkResultToString( res ), __FILE__, __LINE__ );                \
@@ -46,7 +46,7 @@ namespace Desert::Graphic::API::Vulkan
     // the cause. The result of NoteIfDeviceLost is discarded on purpose: these macros return either way.
 #define VK_CHECK_RESULT_BOOL( f )                                                                                 \
     {                                                                                                             \
-        VkResult res = ( f );                                                                                     \
+        const VkResult res = ( f );                                                                               \
         if ( res != VK_SUCCESS )                                                                                  \
         {                                                                                                         \
             (void)NoteIfDeviceLost( res, #f, __FILE__, __LINE__ );                                                \
@@ -58,7 +58,7 @@ namespace Desert::Graphic::API::Vulkan
 
 #define VK_RETURN_RESULT_IF_FALSE( f )                                                                            \
     {                                                                                                             \
-        VkResult res = ( f );                                                                                     \
+        const VkResult res = ( f );                                                                               \
         if ( res != VK_SUCCESS )                                                                                  \
         {                                                                                                         \
             (void)NoteIfDeviceLost( res, #f, __FILE__, __LINE__ );                                                \
@@ -69,7 +69,7 @@ namespace Desert::Graphic::API::Vulkan
 
 #define VK_RETURN_RESULT_IF_FALSE_TYPE( type, f )                                                                 \
     {                                                                                                             \
-        VkResult res = ( f );                                                                                     \
+        const VkResult res = ( f );                                                                               \
         if ( res != VK_SUCCESS )                                                                                  \
         {                                                                                                         \
             (void)NoteIfDeviceLost( res, #f, __FILE__, __LINE__ );                                                \
@@ -80,7 +80,7 @@ namespace Desert::Graphic::API::Vulkan
 
 #define VK_RETURN_RESULT( f )                                                                                     \
     {                                                                                                             \
-        VkResult res = ( f );                                                                                     \
+        const VkResult res = ( f );                                                                               \
         if ( res != VK_SUCCESS )                                                                                  \
         {                                                                                                         \
             (void)NoteIfDeviceLost( res, #f, __FILE__, __LINE__ );                                                \
