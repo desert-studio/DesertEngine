@@ -1,20 +1,18 @@
--- "The rail of the Clouds window names the six stages in build order, and each of them resolves to the
--- subject the editor for that kind of thing is registered under."
+-- "The panel interface does not speak the toolkit's vocabulary, and this suite is the proof that it
+--  can be compiled without it."
 --
--- The unit under test is Editor/Panels/Clouds/CloudStages.hpp, which is header-only and deliberately free
--- of the engine: it carries the stage list, the order, and the mapping stage -> SubjectId, so that the
--- mapping can be asserted without a scene, an asset manager or a Vulkan device. CloudsPanel.cpp draws it
--- and is compiled by no suite (scripts/CI/UnreachedSources.sh), which is exactly why the rule was lifted
--- out of it.
+-- THE ABSENCE BELOW IS THE POINT OF THIS SCRIPT. There is no ThirdParty ROOT on the include path here,
+-- and there is no loop over deps.DesertSpecific.IncludeDir (whose `base` entry is that root). That
+-- directory is the only place <ImGui/imgui.h> resolves from, so this project compiles
+-- Editor/Source/Editor/Panels/IPanel.hpp with Dear ImGui nowhere in sight: putting the include back
+-- into the header does not merely redden a row in the suite, it stops the suite building. The rows in
+-- panel_interface_boundary_test.cpp are what catches the other repair -- somebody adding the path back
+-- here to make that failure go away.
 --
--- ONE EDITOR .cpp IS COMPILED IN: SubjectEditorRegistry.cpp. The census this suite runs asks the real
--- registry whether a stage's subject type has an editor -- "a rail row is not a dead end" is a relation
--- between two things and asserting it against a stub registry would assert nothing. It pulls in Common's
--- logger and nothing else.
---
--- Nothing to link from the engine or the editor; the ImGui and glm include paths are here because
--- IPanel.hpp (reached through EditorSubject.hpp's consumers) declares ImVec2 members, not because any
--- ImGui function is called.
+-- Nothing from the engine or the editor is compiled or linked: IPanel.hpp and the three Editor/Core
+-- headers it opens are header-only, and `Common` comes in for the logger and the event base class.
+-- glm IS on the path (deps.Common.IncludeDir), because glm::vec2 is what the two virtuals return now --
+-- the project's own pair of floats rather than a UI toolkit's.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)
@@ -27,13 +25,14 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    files { test_files, "%{wks.location}/Editor/Source/Editor/Core/SubjectEditorRegistry.cpp" }
+    files { test_files }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
         "%{wks.location}/Editor/Source",
     }
+
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
