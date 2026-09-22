@@ -125,8 +125,8 @@ TEST( StartupLayout, ADropIsNotAnEngineRootAndSaysSoWithoutNamingAScriptItDoesNo
     // followed reads as a broken build.
     EXPECT_EQ( lookup.Explanation.find( "RunEditor" ), std::string::npos )
          << "the message tells the reader to run a script the drop does not carry: " << lookup.Explanation;
-    EXPECT_NE( lookup.Explanation.find( "Templates" ), std::string::npos )
-         << "the message does not say what was looked for: " << lookup.Explanation;
+    EXPECT_NE( lookup.Explanation.find( "build/Bin" ), std::string::npos )
+         << "the message does not say what shape was expected: " << lookup.Explanation;
     EXPECT_NE( lookup.Explanation.find( "engines.json" ), std::string::npos )
          << "the message does not say what the consequence is: " << lookup.Explanation;
 }
@@ -150,19 +150,54 @@ TEST( StartupLayout, HalfAnEngineRootIsNotAnEngineRoot )
          << "a directory with scripts/ and no Templates/ was accepted as an engine root";
 }
 
-TEST( StartupLayout, TheWalkUpwardsIsBoundedSoAStrayAncestorCannotBecomeTheEngine )
+TEST( StartupLayout, ADropUNZIPPEDINSIDEACheckoutStillDoesNotRegisterThatCheckout )
 {
-    // A walk to `/` makes the answer depend on directories that have nothing to do with this
-    // program. Deep enough to be past the bound, and the marker is real — so a failure here means
-    // the bound is gone, not that the markers stopped being recognised.
-    const fs::path root = MakeCheckout( "deep" );
-    fs::path       deep = root;
-    for ( int level = 0; level < 10; ++level )
-        deep /= "d";
-    Touch( deep / "Editor" );
+    // MEASURED, NOT IMAGINED, and it is why this function checks a shape instead of walking up.
+    // The first end-to-end run put the drop at `<worktree>/dist/DesertEngine-Release` — three
+    // directories under a real checkout — and the ancestor walk found the checkout and filed it in
+    // engines.json. The launcher would then have offered to start `<worktree>/build/Bin/...`,
+    // which is a DIFFERENT editor from the one the person had just double-clicked.
+    const fs::path root = MakeCheckout( "drop_inside_checkout" );
+    const fs::path drop = root / "dist" / "DesertEngine-Release";
+    Touch( drop / "Editor" );
+    Touch( drop / "Desert.deproj" );
 
-    EXPECT_TRUE( DeriveEngineRoot( deep / "Editor" ).Root.empty() )
-         << "the walk reached a root ten directories above the executable";
+    const auto lookup = DeriveEngineRoot( drop / "Editor" );
+    EXPECT_TRUE( lookup.Root.empty() )
+         << "a drop sitting inside a checkout registered that checkout as the engine to start: "
+         << lookup.Root;
+    EXPECT_FALSE( lookup.Explanation.empty() );
+}
+
+TEST( StartupLayout, ABinaryThreeDirectoriesUnderACheckoutIsNotAutomaticallyThatCheckoutsEditor )
+{
+    // THE SCENARIO IS BUILT SO THAT ONLY THE SHAPE CAN ANSWER IT. Dropping the `build/Bin` test and
+    // keeping "three directories up holds Templates/ and scripts/" was measured to leave the two
+    // tests above green — in both of them nothing three levels up is a checkout at all, so they
+    // never reach the question. Here it IS one, and the only thing separating this binary from the
+    // one the launcher starts is the two directory names on the way down.
+    //
+    // `<checkout>/dist/DesertEngine-Release/bin/Editor` is a drop unzipped one folder deeper than
+    // the one measured in the wild, which is not a stretch: a browser unpacking into a subfolder
+    // produces exactly this.
+    const fs::path root = MakeCheckout( "three_deep_not_build_bin" );
+    const fs::path exe  = root / "dist" / "DesertEngine-Release" / "bin" / "Editor";
+    Touch( exe );
+
+    const auto lookup = DeriveEngineRoot( exe );
+    EXPECT_TRUE( lookup.Root.empty() )
+         << "a binary that merely sits three directories under a checkout was filed as that "
+            "checkout's editor: "
+         << lookup.Root;
+    EXPECT_FALSE( lookup.Explanation.empty() );
+
+    // ...AND BOTH NAMES ON THE WAY DOWN, not just the last one. Dropping the `build` half was
+    // measured to leave the case above green, because its `Bin` half already answered — so the
+    // second half needs a scenario of its own: a `Bin/<config>/` under some OTHER directory.
+    const fs::path notUnderBuild = root / "dist" / "Bin" / "Release" / "Editor";
+    Touch( notUnderBuild );
+    EXPECT_TRUE( DeriveEngineRoot( notUnderBuild ).Root.empty() )
+         << "a Bin/<config>/ directory outside build/ was taken for the checkout's own build output";
 }
 
 TEST( StartupLayout, AnExecutableThatCouldNotBeLocatedSaysThatRatherThanBlamingTheDirectories )

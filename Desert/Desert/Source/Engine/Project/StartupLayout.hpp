@@ -28,10 +28,11 @@ namespace Desert::Project
     // drop, on both platforms.
     //
     // WHAT IS DELIBERATELY NOT HERE: any notion of "am I a drop or a dev tree?". There is no such
-    // flag and no such branch. The two layouts differ in what is beside the executable and in what
-    // is above it, and each question below is answered by LOOKING — a dev tree answers "no project
-    // beside me" because `build/Bin/<Config>/` holds no `.deproj`, and a drop answers "no engine
-    // tree above me" because it carries no repository. One rule covers both, so neither can drift.
+    // flag and no such branch. The two layouts put the executable in different places, and each
+    // question below is answered by LOOKING at where this one is — a development build answers "no
+    // project beside me" because `build/Bin/<Config>/` holds no `.deproj`, and a drop answers "not a
+    // binary the launcher starts" because it is not at `<root>/build/Bin/<config>/`. One rule covers
+    // both, so neither can drift, and neither can be fooled by a drop unzipped inside a checkout.
 
     // ── 1. WHERE THIS ENGINE IS ──────────────────────────────────────────────────────────────────
 
@@ -46,28 +47,36 @@ namespace Desert::Project
         std::string Explanation;
     };
 
-    // Derives the engine root from the executable's own position by walking UP from it.
+    // Derives the engine root from the executable's own position.
     //
-    // WHAT COUNTS AS A ROOT, AND WHY IT IS THESE TWO NAMES. `engines.json` is written for exactly
-    // one reader, the launcher, and the launcher does exactly two things with the root it reads:
+    // WHAT COUNTS AS A ROOT. `engines.json` is written for exactly one reader, the launcher, and the
+    // launcher does exactly two things with the root it reads:
     //
     //   * `<root>/Templates/<Id>/template.json` — the starter templates it creates projects from.
     //     The shared format states this as the definition of the field: "absolute path to the
     //     engine root (the folder holding Templates/)" (DesertShared/EngineRegistry.hpp).
-    //   * `<root>/scripts/MacOS/RunEditor.sh`, or `<root>/build/Bin/<config>/Editor.exe` with the
-    //     working directory `<root>/Editor` — how it STARTS that engine (desert-launcher
-    //     Source/Launch.cpp BuildEditorLaunch).
+    //   * it STARTS `<root>/build/Bin/<config>/Editor[.exe]` — directly on Windows, and on macOS
+    //     through `<root>/scripts/MacOS/RunEditor.sh`, which runs that same file (desert-launcher
+    //     Source/Launch.cpp, BuildEditorLaunch).
     //
-    // So a root is a REPOSITORY CHECKOUT, and both markers are checked rather than one: a directory
-    // that happens to hold a `Templates` folder is not an engine, and registering one would put an
-    // entry in the launcher's sidebar that it cannot start.
+    // So the derivation asks the launcher's own question: IS THIS EXECUTABLE THE ONE THAT ROOT WOULD
+    // START? It is the exact relation `<root>/build/Bin/<config>/<this binary>` with `Templates/`
+    // and `scripts/` beside `build/` — not a search upwards for an engine.
+    //
+    // THAT DISTINCTION WAS MEASURED, NOT ANTICIPATED. The first version walked ancestors for the two
+    // markers, and the first end-to-end run of a real drop registered the wrong thing: the drop was
+    // unzipped at `<worktree>/dist/DesertEngine-Release`, three directories under a checkout, so the
+    // walk found the checkout and filed it. Every marker test passed and the answer was still wrong,
+    // because "there is an engine above me" is not "this is an engine the launcher can start".
     //
     // WHICH IS ALSO WHY A DROP MUST NOT REGISTER ITSELF, and this function's "no root" answer is a
-    // RESULT rather than a shortfall. The drop has no `Templates/` and no `scripts/`; the launcher
-    // prefers the newest entry in `engines.json`, so a drop that registered itself would DISPLACE
-    // the developer's real checkout and then fail to start, which is a worse outcome than the
-    // message the owner complained about. The message is what changes; the refusal to register is
+    // RESULT rather than a shortfall. The launcher PREFERS THE NEWEST ENTRY in `engines.json`, so a
+    // drop that registered would displace the developer's real checkout and then fail to start —
+    // worse than the message the owner complained about. The message is what changes; the refusal is
     // correct and stays.
+    //
+    // A checkout built somewhere other than `build/Bin` gets the same refusal, and that is what
+    // DESERT_ROOT is still for.
     [[nodiscard]] EngineRootLookup DeriveEngineRoot( const std::filesystem::path& executable );
 
     // ── 2. WHICH PROJECT TO OPEN WHEN NOBODY SAID ────────────────────────────────────────────────

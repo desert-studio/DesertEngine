@@ -11,15 +11,6 @@ namespace Desert::Project
     {
         namespace fs = std::filesystem;
 
-        // HOW FAR UP TO WALK, and why there is a limit at all. A development executable sits three
-        // directories under the root (`<root>/build/Bin/<Config>/Editor`), so three would do for the
-        // layout this repository builds. The limit is larger than that because a checkout can be
-        // built somewhere else, and it is FINITE because the alternative — walking to `/` — makes the
-        // answer depend on directories that have nothing to do with this program: one stray
-        // `Templates/` plus `scripts/` anywhere above `$HOME` would register somebody's home
-        // directory as an engine.
-        constexpr int kMaxAncestorsSearched = 8;
-
         // THE TWO NAMES THAT MAKE A DIRECTORY AN ENGINE ROOT — see the header for who reads each and
         // what they do with it. Both, not either: a folder with one of them is not a root.
         bool IsEngineRoot( const fs::path& directory )
@@ -47,41 +38,50 @@ namespace Desert::Project
         }
 
         std::error_code ec;
-        // weakly_canonical rather than absolute: the executable may be reached through a symlink
-        // (a `build/Bin/Release/Editor` handed a shortcut), and walking up from the LINK lands in
-        // the directory holding the link rather than in the tree the binary belongs to.
-        fs::path directory = fs::weakly_canonical( executable, ec ).parent_path();
-        if ( ec || directory.empty() )
-            directory = executable.parent_path();
+        // weakly_canonical rather than absolute: the executable may be reached through a symlink,
+        // and the shape below is a statement about the REAL directories the binary sits in.
+        fs::path resolved = fs::weakly_canonical( executable, ec );
+        if ( ec || resolved.empty() )
+            resolved = executable;
 
-        const fs::path started = directory;
-        for ( int step = 0; step < kMaxAncestorsSearched; ++step )
+        // THE EXACT SHAPE, AND NOT A WALK UPWARDS. This used to climb ancestors looking for the two
+        // markers, and the first end-to-end run measured what is wrong with that: a drop unzipped
+        // INSIDE a checkout (dist/DesertEngine-Release, three directories under the worktree) found
+        // the worktree and registered it. Every ancestor test passed and the answer was still wrong,
+        // because the question is not "is there an engine above me" — it is "is there a root the
+        // launcher can start THIS binary from", and the launcher starts exactly one path:
+        // `<root>/build/Bin/<config>/Editor[.exe]`, directly on Windows and through
+        // `<root>/scripts/MacOS/RunEditor.sh` (which runs the same file) on macOS.
+        //
+        // So the relation is checked rather than searched for. A binary that is not at that path is
+        // not one the launcher can start, however much of an engine sits above it — and it does not
+        // register, which is the whole of what the drop needed.
+        const fs::path configDirectory = resolved.parent_path(); // <config>
+        const fs::path binDirectory    = configDirectory.parent_path();
+        const fs::path buildDirectory  = binDirectory.parent_path();
+        const fs::path root            = buildDirectory.parent_path();
+
+        if ( binDirectory.filename() == "Bin" && buildDirectory.filename() == "build" &&
+             IsEngineRoot( root ) )
         {
-            if ( IsEngineRoot( directory ) )
-            {
-                lookup.Root = directory.string();
-                return lookup;
-            }
-            const fs::path parent = directory.parent_path();
-            if ( parent.empty() || parent == directory )
-                break;
-            directory = parent;
+            lookup.Root = root.string();
+            return lookup;
         }
 
         // NOT AN ERROR, AND THE WORDING HAS TO SAY SO. This is the ordinary state of every
         // downloaded drop, and the message it replaced told the reader to run
         // `scripts/Windows/RunEditor.bat` — a file that is not in a drop, so the instruction could
         // not be followed and read as a broken build. What this says instead is the true
-        // consequence (the launcher will not list this copy), the reason (it is not a checkout), and
-        // the one way to override it.
+        // consequence (the launcher will not list this copy), the reason, and the one way to
+        // override it — which is the environment variable's remaining legitimate job.
         lookup.Explanation =
-             fmt::format( "this copy is not part of an engine checkout - no directory holding both "
-                          "Templates/ and scripts/ was found above '{}' - so it did not record itself in "
+             fmt::format( "this build is not one the launcher can start: it would run "
+                          "<root>/build/Bin/<config>/Editor out of a checkout holding Templates/ and "
+                          "scripts/, and this executable is '{}'. So it did not record itself in "
                           "engines.json and the launcher will not list it. That is expected for a "
-                          "downloaded build: the launcher starts an engine from a checkout, and this "
-                          "editor runs perfectly well on its own. Set DESERT_ROOT to a checkout to "
-                          "override.",
-                          started.string() );
+                          "downloaded build, which runs perfectly well on its own. Set DESERT_ROOT to a "
+                          "checkout to override.",
+                          resolved.string() );
         return lookup;
     }
 
