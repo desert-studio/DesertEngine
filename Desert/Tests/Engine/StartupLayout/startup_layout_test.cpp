@@ -371,6 +371,15 @@ namespace
         EXPECT_EQ( text.find( "Templates" ), std::string::npos )
              << what << " now ships Templates/, which would make a drop look like a checkout to the "
                         "launcher while still carrying no way for it to start this editor";
+
+        // THE DROP'S OWN ASSET REGISTRY. Since T2.4 neither host walks the content roots at boot,
+        // so a packaged editor with no registry preloads zero shaders and dies at the first
+        // material ("Could not find the shader: StaticMeshPBR"), measured on a real drop. A cook,
+        // not a copy: the drop carries one scene's closure and the dev tree's registry describes
+        // the whole repository.
+        EXPECT_NE( text.find( "AssetRegistryTool" ), std::string::npos )
+             << what << " no longer cooks the drop's asset registry, so the packaged editor would "
+                        "start with zero shaders and abort before its first frame";
     }
 } // namespace
 
