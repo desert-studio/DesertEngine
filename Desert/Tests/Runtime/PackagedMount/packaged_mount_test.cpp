@@ -15,6 +15,7 @@
 
 #include "PackagedContent.hpp"
 
+#include <Common/Content/ContentChunks.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/VFS.hpp>
@@ -357,6 +358,86 @@ TEST( PackagedMount, AnUndamagedArchiveStillReadsBackEveryByte )
     EXPECT_EQ( reader.Read( "Assets/empty.bin" ).value_or( "unset" ), empty );
     EXPECT_EQ( reader.Read( "Assets/one.bin" ).value_or( "unset" ), one );
     EXPECT_EQ( reader.Read( "Assets/big.bin" ).value_or( "unset" ), big );
+}
+
+// ---------------------------------------------------------------- the division into chunks
+//
+// A DIVIDED GAME IS STILL ONE CONTENT SET, and the failure direction that matters is the quiet one:
+// a chunk that does not arrive must stop startup, because every symptom of a missing region turns up
+// somewhere else entirely — a black texture, a scene that will not open, a model that is not there.
+
+TEST( PackagedMount, TheBaseNamesItsChunksAndTheGameGetsTheirContent )
+{
+    MountGuard     guard;
+    const fs::path dir = MakeTempDir( "chunks" );
+
+    WritePak( dir / "Content.dpak", { { "Assets/menu.desce", "in the base" },
+                                      { std::string( Common::Content::CHUNK_MANIFEST_KEY ), "North\n" } } );
+    WritePak( dir / "Chunk_North.dpak", { { "Assets/north.desce", "in the region" } } );
+
+    const auto result = Desert::Player::MountPackagedContent( dir, "MyGame" );
+
+    ASSERT_EQ( result.ExitCode, Desert::Player::kContentOk ) << result.Message;
+    ASSERT_EQ( result.Chunks.size(), 1u );
+    EXPECT_EQ( result.Chunks[0], dir / "Chunk_North.dpak" );
+
+    DESERT_EXPECT_RESULT_EQ( Common::Utils::FileSystem::ReadFileContent( dir / "Assets/menu.desce" ),
+                             "in the base" );
+    DESERT_EXPECT_RESULT_EQ( Common::Utils::FileSystem::ReadFileContent( dir / "Assets/north.desce" ),
+                             "in the region" );
+    // WHICH ARCHIVE the bytes came from, asked rather than inferred — the division is invisible to a
+    // comparison of the content, and that is exactly why it has to be observable.
+    EXPECT_EQ( Common::Utils::VFS::SourcePak( dir / "Assets/north.desce" ),
+               std::optional<fs::path>( dir / "Chunk_North.dpak" ) );
+    EXPECT_EQ( Common::Utils::VFS::SourcePak( dir / "Assets/menu.desce" ),
+               std::optional<fs::path>( dir / "Content.dpak" ) );
+}
+
+TEST( PackagedMount, AChunkIsNotAGameAndOneThatDidNotArriveStopsStartup )
+{
+    {
+        // A folder holding only chunk archives is not a folder holding several games: FindBasePak
+        // must not offer one as the thing to start, or a partial download would come up as a game
+        // made of one region.
+        MountGuard     guard;
+        const fs::path dir = MakeTempDir( "chunk_is_not_a_game" );
+        WritePak( dir / "Chunk_North.dpak", { { "Assets/north.desce", "region" } } );
+        WritePak( dir / "Chunk_South.dpak", { { "Assets/south.desce", "region" } } );
+
+        std::vector<fs::path> ambiguous;
+        EXPECT_TRUE( Desert::Player::FindBasePak( dir, "MyGame", &ambiguous ).empty() );
+        EXPECT_TRUE( ambiguous.empty() ) << "chunk archives were offered as candidate games";
+    }
+    {
+        MountGuard     guard;
+        const fs::path dir = MakeTempDir( "chunk_missing" );
+        WritePak( dir / "Content.dpak",
+                  { { "Assets/menu.desce", "in the base" },
+                    { std::string( Common::Content::CHUNK_MANIFEST_KEY ), "North\nSouth\n" } } );
+        WritePak( dir / "Chunk_North.dpak", { { "Assets/north.desce", "in the region" } } );
+        // Chunk_South.dpak was never delivered.
+
+        const auto result = Desert::Player::MountPackagedContent( dir, "MyGame" );
+        EXPECT_EQ( result.ExitCode, Desert::Player::kContentChunkArchiveFailed );
+        EXPECT_NE( result.Message.find( "South" ), std::string::npos ) << result.Message;
+        // NOTHING LEFT MOUNTED. Half a content set is the state this whole file exists to prevent.
+        EXPECT_FALSE( Common::Utils::VFS::IsMounted() );
+        EXPECT_TRUE( result.BasePak.empty() );
+        EXPECT_TRUE( result.Chunks.empty() );
+    }
+}
+
+TEST( PackagedMount, AnArchiveThatNamesNoChunksIsAGameThatWasNeverDivided )
+{
+    MountGuard     guard;
+    const fs::path dir = MakeTempDir( "undivided" );
+    WritePak( dir / "Content.dpak", { { "Assets/menu.desce", "the whole game" } } );
+
+    const auto result = Desert::Player::MountPackagedContent( dir, "MyGame" );
+    ASSERT_EQ( result.ExitCode, Desert::Player::kContentOk ) << result.Message;
+    EXPECT_TRUE( result.Chunks.empty() );
+    DESERT_EXPECT_RESULT_EQ( Common::Utils::FileSystem::ReadFileContent( dir / "Assets/menu.desce" ),
+                             "the whole game" );
 }
 
 int main( int argc, char** argv )
