@@ -97,6 +97,20 @@ namespace Desert::Animation
         return boneIndex < m_AuthoringPose.Size() ? m_AuthoringPose[boneIndex].ToMatrix() : glm::mat4( 1.0F );
     }
 
+    Common::BoolResultStr Animator::SetAuthoringPose( const LocalPose& pose )
+    {
+        const size_t bones = m_Skeleton.GetBones().size();
+        if ( pose.Size() != bones )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "refusing to install a pose of {} bone(s) on a rig of {}: a LocalPose is index-for-index "
+                 "with the skeleton, so a buffer of another length belongs to another rig",
+                 pose.Size(), bones );
+        }
+        m_AuthoringPose = pose;
+        return Common::MakeSuccess( true );
+    }
+
     void Animator::SampleClipIntoLocalPose( const AnimationClip& clip, FrameTime time )
     {
         const size_t n = m_Skeleton.GetBones().size();

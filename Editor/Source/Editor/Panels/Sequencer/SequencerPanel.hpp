@@ -3,6 +3,7 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
+#include <Editor/Core/Commands/PoseEditTransaction.hpp>
 
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
 
@@ -259,6 +260,12 @@ namespace Desert::Editor
         // ONE KEYER PER WINDOW, not one per editor: an interaction is about the character this document is
         // over, and two Sequencers authoring two characters must not share a pending list.
         Animation::ControlKeyer m_Keyer;
+        // THE OTHER HALF OF REPORT 05 §971, and it is driven by the SAME edge as the keyer above so that
+        // the two cannot disagree about what one interaction is. Before it, this file did not mention
+        // `CommandHistory` once: posing a bone and keying it were the only edits in the editor that could
+        // not be taken back. ONE PER WINDOW, for the keyer's reason — an interaction is about the
+        // character this document is over.
+        PoseEditTransaction m_ClipEdit;
         // The last-seen posed transform of the selected bone, which is how this window decides a gizmo drag
         // moved something. It stays here because it is about THIS document's bone selection.
         int       m_RecordBone = -1;

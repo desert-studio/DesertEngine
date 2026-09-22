@@ -165,6 +165,21 @@ namespace Desert::Animation
         {
             return m_AuthoringPose;
         }
+        /**
+         * @brief Replace the WHOLE authoring buffer by value. THE PUT-BACK SIDE OF THE NOTE ABOVE.
+         *
+         * Undo needs it for the same reason keying needed `GetAuthoringPose`: restoring a pose one bone
+         * at a time would go through `SetBoneLocalPose`, whose argument is a MATRIX, and the
+         * TRS -> matrix -> TRS round trip is not the identity. An undo built on it would put back a pose
+         * slightly different from the one the animator started the drag with -- every drag, and
+         * compounding across a stack of them -- which is a round trip that LOOKS like the original
+         * rather than being it.
+         *
+         * Refuses a pose of the wrong length, naming both counts, rather than resizing to fit: index-for-
+         * index with `Skeleton::GetBones()` is the one thing `LocalPose` promises (Pose.hpp), so a buffer
+         * of another length is another rig's pose and silently truncating it would scramble this one.
+         */
+        [[nodiscard]] Common::BoolResultStr SetAuthoringPose( const LocalPose& pose );
         // Loads `clip`'s sampled LOCAL transforms at `time` into the authoring pose (bind for untracked
         // bones), so the user can edit an existing keyed pose and re-key from it.
         void SampleClipIntoLocalPose( const AnimationClip& clip, FrameTime time );
