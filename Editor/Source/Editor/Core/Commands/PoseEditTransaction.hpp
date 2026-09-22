@@ -47,6 +47,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/Pose.hpp>
 
 #include <cstdint>
@@ -82,6 +83,12 @@ namespace Desert::Editor
                                         const Animation::RotationKeyFrame& b );
     [[nodiscard]] bool SameStoredValue( const Animation::ScaleKeyFrame& a, const Animation::ScaleKeyFrame& b );
     [[nodiscard]] bool SameStoredValue( const Animation::BoneTrack& a, const Animation::BoneTrack& b );
+    [[nodiscard]] bool SameStoredValue( const Animation::ScalarKey& a, const Animation::ScalarKey& b );
+    /// A SECTION IS PART OF THE CLIP, so an interaction that edits one is an interaction on the clip and
+    /// belongs in the same entry as the keys it was authored beside. The alternative — a second command
+    /// class with a second transaction driving it — would give one Ctrl+Z two meanings depending on which
+    /// widget the animator last touched, which is the state this file was written to end.
+    [[nodiscard]] bool SameStoredValue( const Animation::ClipSection& a, const Animation::ClipSection& b );
     /// `LocalPose` is a class with a private vector, so it has no structured binding; it is compared
     /// through the two things it does promise — its length and its index-for-index bones (Pose.hpp).
     [[nodiscard]] bool SameStoredValue( const Animation::LocalPose& a, const Animation::LocalPose& b );
@@ -117,9 +124,34 @@ namespace Desert::Editor
             Animation::BoneTrack After;
         };
 
+        /**
+         * @brief The clip's SECTION LIST, whole, before and after — and why it is not a per-section diff.
+         *
+         * The tracks above are diffed because a cooked clip is a hundred of them holding hundreds of keys
+         * each. A section list is a handful of names, four numbers and a short weight channel, so the two
+         * copies cost less than the bookkeeping a diff would need — and the operations are not per-element
+         * anyway: `ReorderSection` swaps two, `RemoveSection` shifts every index after it, and a diff
+         * keyed on index would have to describe both as "everything from here changed".
+         *
+         * `Changed` false is an interaction that did not touch a section; `Apply` then leaves the list
+         * alone, which is what lets one entry carry a pose, a key and a section without the two halves
+         * overwriting each other.
+         */
+        struct SectionEdit
+        {
+            bool                                 Changed = false;
+            std::vector<Animation::ClipSection>  Before;
+            std::vector<Animation::ClipSection>  After;
+        };
+
         ClipPoseCommand( Animation::Animator* animator, Animation::AnimationClip* clip,
                          std::vector<BoneDelta> bones, std::vector<TrackDelta> tracks, size_t poseSizeBefore,
-                         size_t poseSizeAfter, size_t trackCountBefore, size_t trackCountAfter );
+                         size_t poseSizeAfter, size_t trackCountBefore, size_t trackCountAfter,
+                         // NO DEFAULT ARGUMENT, and not for style: a defaulted `{}` here needs
+                         // `SectionEdit`'s own member initialiser inside the enclosing class, which the
+                         // language refuses. Passing it is also the honest shape — every caller knows
+                         // whether the interaction touched a section, and a default would let one forget.
+                         SectionEdit sections );
 
         bool Undo() override;
         bool Redo() override;
@@ -141,6 +173,13 @@ namespace Desert::Editor
         {
             return m_Tracks.size();
         }
+        /// Whether this entry is carrying the section list at all — the same question as `ChangedTracks`
+        /// above and for the same reason: an entry that pushed with `Changed` false would satisfy every
+        /// count-based assertion about undo steps while restoring no section.
+        [[nodiscard]] bool CarriesSections() const
+        {
+            return m_Sections.Changed;
+        }
 
     private:
         [[nodiscard]] bool Apply( bool undo );
@@ -153,6 +192,7 @@ namespace Desert::Editor
         size_t                    m_PoseSizeAfter    = 0;
         size_t                    m_TrackCountBefore = 0;
         size_t                    m_TrackCountAfter  = 0;
+        SectionEdit               m_Sections;
     };
 
     /**
@@ -234,8 +274,9 @@ namespace Desert::Editor
         bool                              m_Open     = false;
         Driver                            m_Driver   = Driver::Edge;
         bool                              m_Held     = false; ///< last frame's bit, for the edges
-        Animation::LocalPose              m_PoseBefore;
-        std::vector<Animation::BoneTrack> m_TracksBefore;
+        Animation::LocalPose                m_PoseBefore;
+        std::vector<Animation::BoneTrack>   m_TracksBefore;
+        std::vector<Animation::ClipSection> m_SectionsBefore;
         /// Last frame's authoring pose while nothing is open. See the baseline note above.
         Animation::LocalPose m_Baseline;
         bool                 m_BaselineValid = false;

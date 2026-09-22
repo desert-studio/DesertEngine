@@ -635,7 +635,8 @@ TEST_F( ClipEditUndo, AnEntryRecordedAgainstAnotherRigIsDiscardedRatherThanAppli
     // An entry that believes the rig had three bones. `CommandHistory::Undo` discards a command that
     // reports failure and keeps walking down, which is how a stale entry is supposed to die.
     ClipPoseCommand stale( &rig.m_Animator, &rig.m_Clip, { ClipPoseCommand::BoneDelta{ 0, {}, {} } }, {}, 3, 3,
-                           rig.m_Clip.Tracks.size(), rig.m_Clip.Tracks.size() );
+                           rig.m_Clip.Tracks.size(), rig.m_Clip.Tracks.size(),
+                           ClipPoseCommand::SectionEdit{} );
     EXPECT_FALSE( stale.Undo() );
     EXPECT_FALSE( stale.Redo() );
 }

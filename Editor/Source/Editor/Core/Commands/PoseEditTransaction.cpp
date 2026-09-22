@@ -67,6 +67,26 @@ namespace Desert::Editor
                SameChannel( aScale, bScale );
     }
 
+    bool SameStoredValue( const Animation::ScalarKey& a, const Animation::ScalarKey& b )
+    {
+        const auto& [aTick, aValue, aArrive, aLeave, aArriveW, aLeaveW, aInterp, aMode] = a;
+        const auto& [bTick, bValue, bArrive, bLeave, bArriveW, bLeaveW, bInterp, bMode] = b;
+        return aTick == bTick && aValue == bValue && aArrive == bArrive && aLeave == bLeave &&
+               aArriveW == bArriveW && aLeaveW == bLeaveW && aInterp == bInterp && aMode == bMode;
+    }
+
+    bool SameStoredValue( const Animation::ClipSection& a, const Animation::ClipSection& b )
+    {
+        const auto& [aName, aStart, aEnd, aBlend, aTracks, aWeight] = a;
+        const auto& [bName, bStart, bEnd, bBlend, bTracks, bWeight] = b;
+        // `Tracks` is compared as the LIST IT IS and not as a set: the empty spelling and the
+        // every-name spelling mean the same thing to a sampler (ClipSection.hpp), and an undo that
+        // "restored" one as the other would silently rewrite what the file says. Collapsing the two is
+        // `SetSectionSpeaksFor`'s job, at the moment of the edit, where the animator can see it.
+        return aName == bName && aStart == bStart && aEnd == bEnd && aBlend == bBlend && aTracks == bTracks &&
+               SameChannel( aWeight, bWeight );
+    }
+
     bool SameStoredValue( const Animation::LocalPose& a, const Animation::LocalPose& b )
     {
         if ( a.Size() != b.Size() )
@@ -88,10 +108,11 @@ namespace Desert::Editor
     ClipPoseCommand::ClipPoseCommand( Animation::Animator* animator, Animation::AnimationClip* clip,
                                       std::vector<BoneDelta> bones, std::vector<TrackDelta> tracks,
                                       size_t poseSizeBefore, size_t poseSizeAfter, size_t trackCountBefore,
-                                      size_t trackCountAfter )
+                                      size_t trackCountAfter, SectionEdit sections )
          : m_Animator( animator ), m_Clip( clip ), m_Bones( std::move( bones ) ), m_Tracks( std::move( tracks ) ),
            m_PoseSizeBefore( poseSizeBefore ), m_PoseSizeAfter( poseSizeAfter ),
-           m_TrackCountBefore( trackCountBefore ), m_TrackCountAfter( trackCountAfter )
+           m_TrackCountBefore( trackCountBefore ), m_TrackCountAfter( trackCountAfter ),
+           m_Sections( std::move( sections ) )
     {
     }
 
@@ -110,6 +131,13 @@ namespace Desert::Editor
         // Two labels because the History panel is read to find WHERE to stop, and "Pose" and "Pose + key"
         // are the two things the animator did. It is not a third bit: both are derived from what the
         // entry is carrying, so a label cannot disagree with the entry.
+        if ( m_Bones.empty() && m_Tracks.empty() && m_Sections.Changed )
+        {
+            // A SECTION EDIT ON ITS OWN, which is most of them: pressing "Additive" moves no bone and
+            // writes no key. Naming it "Pose bone" would send somebody reading the History panel for a
+            // place to stop past the very edit they were looking for.
+            return "Edit section";
+        }
         return m_Tracks.empty() ? "Pose bone" : "Pose + key";
     }
 
@@ -118,6 +146,16 @@ namespace Desert::Editor
         if ( m_Animator == nullptr || m_Clip == nullptr )
         {
             return false;
+        }
+
+        // THE SECTIONS GO BACK WHOLE, and before the tracks: `ClipSection::Tracks` names tracks, so a
+        // section list restored against the WRONG track list would be readable for one instant -- and the
+        // order matters only because the next lines resize `m_Clip->Tracks`, which a section list holding
+        // a name is not indexed by. Written first so the clip is never observed half-restored by a
+        // sampler on another thread reading through `SectionFor`.
+        if ( m_Sections.Changed )
+        {
+            m_Clip->Sections = undo ? m_Sections.Before : m_Sections.After;
         }
 
         // THE TRACK LIST IS RESIZED FIRST AND THE DELTAS WRITTEN SECOND, so a track the interaction
@@ -197,8 +235,9 @@ namespace Desert::Editor
         m_Driver   = Driver::Explicit;
         // An explicit transaction is opened BEFORE the edit it brackets, so the live buffer is the true
         // before. The edge-driven one cannot say that, which is what the baseline is for.
-        m_PoseBefore   = animator->GetAuthoringPose();
-        m_TracksBefore = clip->Tracks;
+        m_PoseBefore     = animator->GetAuthoringPose();
+        m_TracksBefore   = clip->Tracks;
+        m_SectionsBefore = clip->Sections;
         return Common::MakeSuccess( true );
     }
 
@@ -208,6 +247,7 @@ namespace Desert::Editor
         m_Animator = nullptr;
         m_Clip     = nullptr;
         m_TracksBefore.clear();
+        m_SectionsBefore.clear();
         m_PoseBefore = Animation::LocalPose{};
     }
 
@@ -265,6 +305,29 @@ namespace Desert::Editor
             tracks.push_back( std::move( delta ) );
         }
 
+        ClipPoseCommand::SectionEdit sections;
+        const std::vector<Animation::ClipSection>& sectionsAfter = m_Clip->Sections;
+        if ( sectionsAfter.size() != m_SectionsBefore.size() )
+        {
+            sections.Changed = true;
+        }
+        else
+        {
+            for ( size_t i = 0; i < sectionsAfter.size(); ++i )
+            {
+                if ( !SameStoredValue( m_SectionsBefore[i], sectionsAfter[i] ) )
+                {
+                    sections.Changed = true;
+                    break;
+                }
+            }
+        }
+        if ( sections.Changed )
+        {
+            sections.Before = m_SectionsBefore;
+            sections.After  = sectionsAfter;
+        }
+
         const size_t poseSizeBefore   = m_PoseBefore.Size();
         const size_t poseSizeAfter    = poseAfter.Size();
         const size_t trackCountBefore = m_TracksBefore.size();
@@ -274,7 +337,7 @@ namespace Desert::Editor
         Animation::AnimationClip* clip     = m_Clip;
         Cancel();
 
-        if ( bones.empty() && tracks.empty() && poseSizeBefore == poseSizeAfter &&
+        if ( bones.empty() && tracks.empty() && !sections.Changed && poseSizeBefore == poseSizeAfter &&
              trackCountBefore == trackCountAfter )
         {
             // AN INTERACTION THAT CHANGED NOTHING IS NOT AN UNDO STEP. Pushing one anyway would make
@@ -285,7 +348,7 @@ namespace Desert::Editor
 
         CommandHistory::Get().PushCommand( std::make_unique<ClipPoseCommand>(
              animator, clip, std::move( bones ), std::move( tracks ), poseSizeBefore, poseSizeAfter,
-             trackCountBefore, trackCountAfter ) );
+             trackCountBefore, trackCountAfter, std::move( sections ) ) );
         return Common::MakeSuccess( 1U );
     }
 
