@@ -1455,14 +1455,14 @@ namespace Desert::Graphic
              ->GetColorAttachmentImage();
     }
 
-    void SceneRenderer::AddPointLight( ShaderProtocols::PointLightPayload&& pointLight )
+    void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight )
     {
-        m_PointLight.PointLights.push_back( std::move( pointLight ) );
+        m_PointLight.PointLights.push_back( pointLight );
     }
 
-    void SceneRenderer::AddSpotLight( ShaderProtocols::SpotLightPayload&& spotLight )
+    void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight )
     {
-        m_SpotLight.SpotLights.push_back( std::move( spotLight ) );
+        m_SpotLight.SpotLights.push_back( spotLight );
     }
 
     namespace

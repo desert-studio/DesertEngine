@@ -225,18 +225,6 @@ namespace Desert::Core
         scenes.erase( std::remove( scenes.begin(), scenes.end(), this ), scenes.end() );
     }
 
-    NO_DISCARD Common::BoolResultStr Scene::BeginScene()
-    {
-        // EVERY view opens, and the FIRST failure is the answer. Carrying on after one renderer refused
-        // would leave that renderer half-open while OnUpdate below records into it.
-        for ( auto& view : m_Views.All() )
-        {
-            if ( auto begun = view.Renderer->BeginScene( *this, view.Camera.get() ); !begun )
-                return Common::MakeError( begun.GetError() );
-        }
-        return BOOLSUCCESS;
-    }
-
     NO_DISCARD Common::BoolResultStr Scene::Init()
     {
         for ( auto& view : m_Views.All() )
@@ -350,7 +338,7 @@ namespace Desert::Core
         }
     }
 
-    void Scene::OnUpdate( const Common::Timestep& ts )
+    NO_DISCARD Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )
     {
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
@@ -358,6 +346,10 @@ namespace Desert::Core
         // one frame after being told not to.
         if ( !m_CameraPinned )
             UpdateActiveCameraSource();
+
+        // The first view that refused, reported after every other view has had its frame: one broken
+        // viewport must not silently cost the others theirs.
+        std::string firstError;
 
         Graphic::SceneRenderer::UpdateInfo sceneRendererInfo;
         sceneRendererInfo.Timestep = ts;
@@ -482,12 +474,36 @@ namespace Desert::Core
             DESERT_PROFILE_SCOPE( "Scene: Views" );
             for ( auto& view : m_Views.All() )
             {
+                // ONE VIEW, ONE COMPLETE SEQUENCE — open, record, render, close — AND THE SEQUENCES MUST
+                // NOT INTERLEAVE. The scene used to expose three separate frame phases, each of which
+                // looped over the views, so two views gave open(A) open(B) … render(A) render(B) …
+                // close(A) close(B). MEASURED: the second view's HDR target came out BLACK — not dark,
+                // not mis-lit, empty — while its inputs were provably identical (same atmosphere sun
+                // (0.351, 0.902, 0.251), same directional light, its own 960x584 framebuffer, its own
+                // G-buffer, a camera at the same position as the view that worked). Driving each view as
+                // one contiguous sequence, changing nothing else, made it render.
+                //
+                // A renderer's per-frame state is BRACKETED by its open/close pair, and two brackets
+                // must never be open at once. The offscreen renderers that have always worked
+                // (PreviewViewport, AssetThumbnailRenderer) work because they were already shaped this
+                // way, which is why one renderer per scene never exposed it — and it is why the three
+                // phases were collapsed into this one function rather than left as an ordering rule for
+                // the next caller to get right.
+                if ( auto begun = view.Renderer->BeginScene( *this, view.Camera.get() ); !begun )
+                {
+                    firstError = begun.GetError();
+                    continue; // do NOT record into a renderer that refused to open
+                }
+
                 // Registration order — NOT completion order — so the frame's submission order is
                 // identical to the old single-buffer sequential path.
                 for ( const auto& buffer : m_SystemCommandBuffers )
                     buffer->ExecuteAll( *view.Renderer );
 
                 view.Renderer->OnUpdate( sceneRendererInfo );
+
+                if ( auto ended = view.Renderer->EndScene(); !ended && firstError.empty() )
+                    firstError = ended.GetError();
             }
         }
         {
@@ -495,6 +511,12 @@ namespace Desert::Core
             for ( const auto& buffer : m_SystemCommandBuffers )
                 buffer->Clear();
         }
+
+        // The buffers are cleared FIRST and the failure reported after: a frame that refused still has to
+        // leave the arena rewound, or the next frame records on top of this one's commands.
+        if ( !firstError.empty() )
+            return Common::MakeError( firstError );
+        return BOOLSUCCESS;
     }
 
     void Scene::PrepareComponentPools()
@@ -624,16 +646,6 @@ namespace Desert::Core
                                                       [&]( size_t local ) { runOne( i + local ); } );
             i = groupEnd;
         }
-    }
-
-    NO_DISCARD Common::BoolResultStr Scene::EndScene()
-    {
-        for ( auto& view : m_Views.All() )
-        {
-            if ( auto ended = view.Renderer->EndScene(); !ended )
-                return Common::MakeError( ended.GetError() );
-        }
-        return BOOLSUCCESS;
     }
 
     std::optional<Graphic::Environment> Scene::GetEnvironment() const

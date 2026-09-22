@@ -94,9 +94,14 @@ namespace Desert::Core
 
         void Clear();
 
-        [[nodiscard]] Common::BoolResultStr BeginScene();
-        void                                OnUpdate( const Common::Timestep& ts );
-        [[nodiscard]] Common::BoolResultStr EndScene();
+        // THE SCENE'S WHOLE FRAME, IN ONE CALL. It was three calls — open, update, close — and every
+        // host made them back to back anyway. They are one now because with a LIST of views the
+        // three-phase shape had a failure mode nothing could see: each phase looped the views, so the
+        // brackets of two renderers overlapped and the second one's target came out empty. The note at
+        // the view loop in the definition carries the measurement.
+        //
+        // Walks the ECS ONCE and then records one set of GPU passes per view.
+        [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts );
 
         [[nodiscard]] Common::BoolResultStr Init();
 

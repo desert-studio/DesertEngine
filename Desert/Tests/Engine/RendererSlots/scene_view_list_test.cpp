@@ -21,6 +21,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -220,7 +221,7 @@ TEST( SceneViewCost, TheEcsIsWalkedOnceAndOnlyTheGpuPassesAreMultiplied )
 {
     const std::string body =
          FunctionBody( ReadFile( "Desert/Desert/Source/Engine/Core/Scene.cpp" ),
-                       "void Scene::OnUpdate( const Common::Timestep& ts )" );
+                       "Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )" );
     ASSERT_FALSE( body.empty() );
 
     // Comments are stripped before the shape is read: a census that fires on prose describing what it
@@ -256,6 +257,56 @@ TEST( SceneViewCost, TheEcsIsWalkedOnceAndOnlyTheGpuPassesAreMultiplied )
     EXPECT_EQ( CountOf( code, "buffer->ExecuteAll(" ), 1u );
     EXPECT_LT( viewLoop, code.find( "buffer->ExecuteAll(" ) )
          << "the draw replay must be inside the per-view loop, or only one view gets the frame's draws.";
+
+    // ONE VIEW'S FRAME IS ONE CONTIGUOUS SEQUENCE, and this is the assertion that costs the most to
+    // restore if it is lost. The scene used to expose the open and the close as separate frame phases,
+    // each looping the views; with two views open that overlapped the two renderers' brackets and the
+    // SECOND view's HDR target came out empty while every input to it was provably identical. So: the
+    // open, the replay, the render and the close all sit inside this one loop, in this order.
+    const auto open   = code.find( "Renderer->BeginScene(" );
+    const auto replay = code.find( "buffer->ExecuteAll(" );
+    const auto render = code.find( "Renderer->OnUpdate(" );
+    const auto close  = code.find( "Renderer->EndScene(" );
+    ASSERT_NE( open, std::string::npos );
+    ASSERT_NE( render, std::string::npos );
+    ASSERT_NE( close, std::string::npos );
+    EXPECT_LT( viewLoop, open ) << "a view must be OPENED inside the per-view loop, not in a phase of its own.";
+    EXPECT_LT( open, replay );
+    EXPECT_LT( replay, render );
+    EXPECT_LT( render, close ) << "a view must be CLOSED before the next one opens.";
+    EXPECT_EQ( CountOf( code, "Renderer->BeginScene(" ), 1u );
+    EXPECT_EQ( CountOf( code, "Renderer->EndScene(" ), 1u );
+}
+
+TEST( SceneViewCost, TheSceneHasNoSeparateFramePhasesLeftForACallerToInterleave )
+{
+    const std::string header = ReadFile( "Desert/Desert/Source/Engine/Core/Scene.hpp" );
+    ASSERT_FALSE( header.empty() );
+
+    std::string code;
+    {
+        std::istringstream lines( header );
+        std::string        line;
+        while ( std::getline( lines, line ) )
+        {
+            const auto comment = line.find( "//" );
+            code += ( comment == std::string::npos ? line : line.substr( 0, comment ) );
+            code += '\n';
+        }
+    }
+
+    // THE ORDERING RULE IS ENFORCED BY THERE BEING NOTHING TO ORDER. Scene::OnUpdate brackets each
+    // view's renderer itself; if a scene-level BeginScene/EndScene pair comes back, a host can once
+    // again put work between one renderer's open and its close — which is the shape that rendered the
+    // second view black, and which no test of the running editor caught because one renderer per scene
+    // never exposes it.
+    EXPECT_EQ( CountOf( code, "BeginScene" ), 0u )
+         << "Scene must not expose a frame-open phase separate from OnUpdate.";
+    EXPECT_EQ( CountOf( code, "EndScene" ), 0u )
+         << "Scene must not expose a frame-close phase separate from OnUpdate.";
+    EXPECT_NE( code.find( "Common::BoolResultStr OnUpdate( const Common::Timestep& ts );" ),
+               std::string::npos )
+         << "Scene::OnUpdate must be the one call that renders a frame, and it must be able to refuse.";
 }
 
 TEST( SceneViewCost, TheRendererIsHandedItsViewsCameraAndDoesNotAskTheScene )
@@ -283,4 +334,58 @@ TEST( SceneViewCost, TheRendererIsHandedItsViewsCameraAndDoesNotAskTheScene )
     EXPECT_EQ( CountOf( code, "GetMainCamera" ), 0u )
          << "SceneRenderer::BeginScene must take its camera from the view, not from the scene.";
     EXPECT_NE( code.find( "m_SceneInfo.ActiveCamera = camera;" ), std::string::npos );
+}
+
+// ── A RECORDED COMMAND IS REPLAYED, SO IT MAY NOT GIVE ITS PAYLOAD AWAY ──────────────────────────────
+
+TEST( SceneViewCost, NoRenderCommandHandsItsPayloadAwayWhenItExecutes )
+{
+    // THE DEFECT, AND IT WAS LIVE. PointLightCommand::Execute and SpotLightCommand::Execute both did
+    // `renderer.Add*Light( std::move( Light ) )`. One renderer per scene never noticed: the command was
+    // executed once and then destroyed. A scene with TWO views replays the same recording into each
+    // view's renderer, so the first view got the light and the second got a moved-from value — a light
+    // that exists in one viewport and not in the other, with nothing in the log.
+    //
+    // EVERY COMMAND IS NAMED, and the list is derived from the directory rather than counted: a new
+    // command file that is never added here would be a row this census silently does not guard, and a
+    // count pinned instead of the rows can be satisfied by editing the count.
+    const std::string dir = "Desert/Desert/Source/Engine/Graphic/Render/Commands/";
+    const std::vector<std::string> commands = {
+        "DrawGenericMeshCommand.hpp", "DrawMeshCommand.hpp",      "DrawSkinnedMeshCommand.hpp",
+        "DrawSlotMaterialMeshCommand.hpp", "DrawTerrainCommand.hpp", "HeightFogCommand.hpp",
+        "PointLightCommand.hpp",     "ProceduralSkyCommand.hpp", "SkyboxCommand.hpp",
+        "SpotLightCommand.hpp",      "VolumetricCloudCommand.hpp",
+    };
+
+    for ( const auto& file : commands )
+    {
+        const std::string source = ReadFile( dir + file );
+        ASSERT_FALSE( source.empty() ) << file;
+
+        // Only the body of Execute is examined: a CONSTRUCTOR may (and should) move its arguments into
+        // the command — that happens once, while recording, and is what keeps recording allocation-free.
+        const auto at = source.find( "void Execute( SceneRenderer& renderer ) override" );
+        ASSERT_NE( at, std::string::npos ) << file << " has no Execute to check; the census cannot see it.";
+
+        std::string body = source.substr( at );
+        std::string code;
+        {
+            std::istringstream lines( body );
+            std::string        line;
+            while ( std::getline( lines, line ) )
+            {
+                if ( !code.empty() && line == "        }" )
+                {
+                    code += line;
+                    break;
+                }
+                const auto comment = line.find( "//" );
+                code += ( comment == std::string::npos ? line : line.substr( 0, comment ) );
+                code += '\n';
+            }
+        }
+
+        EXPECT_EQ( CountOf( code, "std::move(" ), 0u )
+             << file << ": Execute must not hand its payload away — it is replayed once per view.";
+    }
 }

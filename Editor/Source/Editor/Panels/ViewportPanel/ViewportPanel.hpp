@@ -83,6 +83,17 @@ namespace Desert::Editor
         ViewportPanel& operator=( ViewportPanel&& )      = delete;
         void OnUIRender() override;
 
+        // A SECOND VIEWPORT MUST OPEN BIG ENOUGH TO BE A VIEWPORT. Without this the base class's (0,0)
+        // lets ImGui size the window to its content, and a viewport's content is an image sized from the
+        // space the window gives it — so the first frame has nothing to measure and the window opens as a
+        // ~330x50 stub showing its toolbar and no picture. Measured: the first "New Viewport (same scene)"
+        // came up exactly that size. The primary viewport is unaffected because it is docked from
+        // imgui.ini and FirstUseEver never fights a saved layout.
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
+        {
+            return { 960.0f, 640.0f };
+        }
+
         // The scene image must reach the window edges — any padding would frame it with dead pixels.
         [[nodiscard]] glm::vec2 GetWindowPadding() const override
         {

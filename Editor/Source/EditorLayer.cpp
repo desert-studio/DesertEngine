@@ -2512,24 +2512,17 @@ namespace Desert::Editor
             sr->SetQuality( Common::Settings::MachineSettings::Get() );
         }
 
-        {
-            DESERT_PROFILE_SCOPE( "Scene::BeginScene" );
-            if ( auto begin = scene.BeginScene(); !begin )
-                return Common::MakeError( begin.GetError() );
-        }
-
+        // BEFORE the scene's frame, not between its phases: the scene opens and closes each view's
+        // renderer itself now (Scene::OnUpdate), and nothing may sit between a renderer's open and its
+        // close. Today this records nothing into the graph anyway — the editor's injected passes execute
+        // inside the renderer's own update — so moving it costs the frame nothing.
         if ( registry )
             registry->Render();
 
         {
             DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
-            scene.OnUpdate( ts );
-        }
-
-        {
-            DESERT_PROFILE_SCOPE( "Scene::EndScene" );
-            if ( auto end = scene.EndScene(); !end )
-                return Common::MakeError( end.GetError() );
+            if ( auto frame = scene.OnUpdate( ts ); !frame )
+                return Common::MakeError( frame.GetError() );
         }
 
         return BOOLSUCCESS;
