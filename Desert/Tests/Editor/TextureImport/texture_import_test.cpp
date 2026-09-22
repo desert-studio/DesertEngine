@@ -34,6 +34,8 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 
+#include <cstring>
+
 #include <gtest/gtest.h>
 
 #include <spdlog/sinks/ostream_sink.h>
@@ -465,13 +467,29 @@ TEST_F( TextureImport, ATexCookedInOneCheckoutLoadsItsPixelsInAnother )
     const fs::path resolved = fs::path( asset.GetSourcePath() ).lexically_normal();
     EXPECT_EQ( resolved, ( other / "Content" / "Textures" / "T_Test.bmp" ).lexically_normal() );
 
-    // And pixels actually come out of it, through the same decoder the engine uses.
+    // AND THE PIXELS COME OUT OF THE `.tex` ITSELF. This assertion used to decode the SOURCE image with
+    // stb_image, which since B17 proves the opposite of what the test is named after: the container was
+    // built precisely so that nothing on this path opens the source. The pixels checked here are the
+    // ones the GPU upload reads, and they travelled in the committed bytes.
+    const auto carried = Desert::Assets::Serialization::DecodeTextureBinary( texBytes, "carried" );
+    ASSERT_TRUE( carried.IsSuccess() ) << carried.GetError();
+    EXPECT_EQ( carried.GetValue().Width, 4u );
+    EXPECT_EQ( carried.GetValue().Height, 3u );
+    EXPECT_EQ( carried.GetValue().Levels.size(), 3u ); // 4x3 -> 2x1 -> 1x1
+
+    // Against what the decoder makes of the source on THIS machine, level for level, so a container
+    // that carried the right count of the wrong bytes is not mistaken for a working one.
     int      w = 0, h = 0, ch = 0;
     stbi_uc* pixels = stbi_load( asset.GetSourcePath().c_str(), &w, &h, &ch, 4 );
     ASSERT_NE( pixels, nullptr ) << "the source path the .tex resolved to does not decode: "
                                  << asset.GetSourcePath();
-    EXPECT_EQ( w, 4 );
-    EXPECT_EQ( h, 3 );
+    ASSERT_EQ( w, 4 );
+    ASSERT_EQ( h, 3 );
+    const auto& base0 = carried.GetValue().Levels[0];
+    EXPECT_EQ( std::memcmp( carried.GetValue().Pixels.data() + base0.ByteOffset, pixels,
+                            static_cast<size_t>( w ) * h * 4 ),
+               0 )
+         << "the committed container's base level is not the source image's pixels";
     stbi_image_free( pixels );
 
     // One identity across the trip: the handle the loader reads out of the file is the handle the cook

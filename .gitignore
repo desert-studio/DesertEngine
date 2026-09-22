@@ -73,6 +73,11 @@ Cooked/
 # fresh clone without this one file the checkerboard floor draws untextured and no cook ever repairs it.
 # So it is committed because it is UNREPRODUCIBLE HERE, not because it is source.
 #
+# IT IS 5.3 MB SINCE B17, AND THAT IS NOT 5.3 MB OF REPOSITORY. A `.tex` carries its pixels and its
+# whole mip chain now, so this file went from 133 bytes to 5 592 752. What git stores is the deflated
+# blob, and a checkerboard deflates to 14 163 bytes — the pack grows by fourteen kilobytes against the
+# 8 783-byte PNG it is cooked from. Measured, because the objection is obvious and the answer is not.
+#
 # THE REASON THIS PARAGRAPH USED TO GIVE — "the drag-drop importer mints that handle from the texture's
 # ABSOLUTE path", so a shipped .tex would need a frozen handle — HAS NOT BEEN TRUE SINCE FromCookedPath
 # became project-relative. The handle is AssetHandle::FromCookedPath of the SOURCE image's place inside
