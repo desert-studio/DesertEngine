@@ -46,8 +46,22 @@ namespace Desert::Graphic
             return m_Handle;
         }
 
+        /// Builds a texture from a SOURCE IMAGE FILE (PNG/HDR/...), decoding it here and generating the
+        /// mip chain on the GPU. One caller is left: the sky panorama, whose `.hdr` is named directly by
+        /// a SkyboxAsset and has never been cooked. Cooked textures do NOT come through here any more —
+        /// see CreateFromCooked below, and `Docs/Textures/T2_CONTAINER_DECISION.md` for why a source
+        /// format is an import path and not a storage format.
         static Common::ResultStr<std::shared_ptr<Texture2D>> Create( const TextureSpecification&  specification,
                                                                      const std::filesystem::path& path );
+
+        /// Builds a texture from a cooked `.tex` container: its pixels and its whole mip chain are read
+        /// out of the file and uploaded as they are. No image decoder runs, and no blit chain is built.
+        ///
+        /// The refusal names the file and the reason — a stale JSON manifest, a truncated container, a
+        /// level table that does not describe the file — because "the texture is missing" with no
+        /// sentence attached is the most expensive kind of missing.
+        static Common::ResultStr<std::shared_ptr<Texture2D>>
+        CreateFromCooked( const std::filesystem::path& cookedPath );
 
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
         // BRDF LUT. `data` layout must match `format` (RGBA32F -> vector<float>, RGBA8F -> vector<uchar>).

@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 
+#include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/IO/ImageReader.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -92,6 +93,56 @@ namespace Desert::Graphic
         {
             return Common::MakeError<std::shared_ptr<Texture2D>>( invResult.GetError() );
         }
+        return Common::MakeSuccess( texture );
+    }
+
+    Common::ResultStr<std::shared_ptr<Texture2D>>
+    Texture2D::CreateFromCooked( const std::filesystem::path& cookedPath )
+    {
+        const auto raw = Common::Utils::FileSystem::ReadFileContent( cookedPath );
+        if ( !raw.IsSuccess() )
+            return Common::MakeError<std::shared_ptr<Texture2D>>( raw.GetError() );
+
+        auto decoded =
+             Assets::Serialization::DecodeTextureBinary( raw.GetValue(), cookedPath.string() );
+        if ( !decoded.IsSuccess() )
+            return Common::MakeError<std::shared_ptr<Texture2D>>( decoded.GetError() );
+
+        // MOVED OUT, NOT COPIED. The payload is 21.3 MB for a 2048x2048 texture, and every copy of it
+        // between the file and the staging buffer is that many bytes of pure memcpy on the frame that
+        // first touches the texture. `ImagePixelData` carries exactly this vector type, so the move
+        // below is the whole handover.
+        auto data = decoded.ExtractValue();
+
+        std::vector<Core::Formats::MipLevelSpan> spans;
+        spans.reserve( data.Levels.size() );
+        for ( const Assets::Serialization::TextureLevel& level : data.Levels )
+            spans.push_back( Core::Formats::MipLevelSpan{ level.ByteOffset, level.ByteSize } );
+
+        auto texture      = std::make_shared<Texture2D>( TextureSpecification{ false }, cookedPath );
+        texture->m_Width  = data.Width;
+        texture->m_Height = data.Height;
+
+        const Core::Formats::Image2DSpecification imageSpec = {
+            .Tag        = Common::Utils::FileSystem::GetFileName( cookedPath ),
+            .Width      = data.Width,
+            .Height     = data.Height,
+            .Format     = data.Format,
+            .Data       = std::move( data.Pixels ),
+            .Usage      = Core::Formats::Image2DUsage::Image2D,
+            .Properties = Core::Formats::Sample,
+            .MipLevels  = std::move( spans ) };
+
+        auto image = Image2D::Create( imageSpec, nullptr );
+        if ( !image )
+        {
+            return Common::MakeFormattedError<std::shared_ptr<Texture2D>>(
+                 "the GPU image for cooked texture '{}' ({}x{}, {} levels) was not created.",
+                 cookedPath.string(), data.Width, data.Height, data.Levels.size() );
+        }
+
+        texture->m_Handle = Runtime::ResourceRegistry::GetImageService()->Register(
+             std::move( image ), Runtime::ImageHandle::Type::Image2D );
         return Common::MakeSuccess( texture );
     }
 

@@ -207,6 +207,24 @@ namespace Desert::Core::Formats
         return std::nullopt;
     }
 
+    /// How many bytes the variant is holding, or 0 when it holds nothing or a bare pointer (whose
+    /// length it does not carry — that is the whole difference between the two).
+    ///
+    /// ADDED WITH THE MIP TABLE, AND FOR A DEFECT IT PREVENTS. The staging buffer for a supplied chain
+    /// was first sized as `MipLevels.back().ByteOffset + .ByteSize`, which silently encoded "the last
+    /// level is the last bytes". The cooked container stores its levels SMALLEST FIRST, so `back()` is
+    /// the 1x1 level at offset 0 and the buffer came out four bytes long: every copy region then lay
+    /// outside it (VUID-vkCmdCopyBufferToImage-pRegions-00171, eleven of them on one frame) and the
+    /// whole scene lost its textures. The blob's own length cannot encode an assumption about order.
+    inline std::size_t GetPixelDataSize( const ImagePixelData& data )
+    {
+        if ( const auto* u8 = std::get_if<std::vector<unsigned char>>( &data ) )
+            return u8->size();
+        if ( const auto* f32 = std::get_if<std::vector<float>>( &data ) )
+            return f32->size() * sizeof( float );
+        return 0;
+    }
+
     inline const std::byte* GetRawData( const ImagePixelData& data )
     {
         if ( const auto* ptr = std::get_if<std::byte*>( &data ) )
@@ -215,6 +233,15 @@ namespace Desert::Core::Formats
         }
         return nullptr;
     }
+
+    // One level of a mip chain that is ALREADY BUILT and sitting in `Image2DSpecification::Data`.
+    // Offsets are measured from the start of that blob, so the whole chain is one allocation and one
+    // upload rather than one per level.
+    struct MipLevelSpan
+    {
+        uint64_t ByteOffset = 0;
+        uint64_t ByteSize   = 0;
+    };
 
     struct Image2DSpecification
     {
@@ -229,10 +256,24 @@ namespace Desert::Core::Formats
         ImagePixelData        Data;
         const Image2DUsage    Usage;
         const ImageProperties Properties;
-        // When true, the backend allocates a FULL mip chain (floor(log2(max(w,h)))+1) and generates the
-        // lower mips from mip 0 via linear blits. Use for sampled textures that minify (e.g. foliage) so
-        // they filter at distance instead of aliasing. Ignored if no pixel Data is supplied.
-        bool                  GenerateMips = false;
+
+        // THE CHAIN THE CALLER ALREADY HAS, level 0 first. When this is non-empty it IS the chain: the
+        // backend takes its level count from here, uploads exactly these spans out of `Data`, and
+        // generates nothing. When it is empty the image has `Mips` levels and whatever is in `Data`
+        // goes to level 0, which is what every render target and every procedural texture wants.
+        //
+        // ONE AUTHORITY, NOT TWO FIELDS THAT MUST AGREE. `Mips` is not consulted while this is
+        // non-empty, and the backend REFUSES a specification that sets both rather than silently
+        // preferring one — a count and a table that disagree is the "middle link drops a property"
+        // shape, and the only safe answer to it is to make the ambiguous call impossible to ship.
+        //
+        // IT REPLACED A `bool GenerateMips` THAT WAS NEVER TRUE. That flag asked the backend to blit
+        // mip 0 down the chain, and every one of its five call sites set it to false — the mips that
+        // reached the screen came from `MipMap2DGenerator`, a second mechanism passed to
+        // `Image2D::Create`. A setting whose only branch is never taken is the dead knob §3 forbids,
+        // and it would have become a lie the day a block-compressed format arrived: `blitDst=0` for
+        // BC1/BC4/BC5/BC7 on this device, so there is no blit chain to ask for.
+        std::vector<MipLevelSpan> MipLevels;
     };
 
     // Length of the full mip chain for a texture whose largest dimension is @p dim

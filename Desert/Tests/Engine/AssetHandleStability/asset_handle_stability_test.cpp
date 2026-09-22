@@ -50,6 +50,7 @@
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/Serialization/TextureBinary.hpp>
 
 #include <cstdio>
 #include <cstring>
@@ -886,10 +887,25 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
     const auto         scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_rooted.tex";
     constexpr uint64_t kIdInTheFile = 16135626166276358966ull; // the value T_Checker.tex actually carries
     {
-        std::ofstream out( scratch );
+        // THROUGH THE ENGINE'S OWN ENCODER (B17). A `.tex` is a binary container now, and a fixture
+        // hand-spelled here would be a second writer of the format — the drift this suite is about.
+        namespace Ser = Desert::Assets::Serialization;
+
+        Ser::TextureAssetData data;
+        data.Handle = Common::UUID( kIdInTheFile );
+        data.Width  = 1;
+        data.Height = 1;
+        data.Format = Desert::Core::Formats::ImageFormat::RGBA8F;
+
+        const std::vector<unsigned char> base( 4, 0x7F );
+        auto chain = Ser::BuildMipChain( 1, 1, data.Format, base, data.Pixels );
+        ASSERT_TRUE( chain.IsSuccess() ) << chain.GetError();
+        data.Levels = chain.ExtractValue();
+
+        const std::string bytes = Ser::EncodeTextureBinary( data );
+        std::ofstream     out( scratch, std::ios::binary );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out << R"({"Handle":16135626166276358966,"SourcePath":"","CookedPath":"","Width":4,"Height":4,)"
-            << R"("Channels":4,"Format":"RGBA8F"})";
+        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
     }
 
     ProjectRootGuard guard;

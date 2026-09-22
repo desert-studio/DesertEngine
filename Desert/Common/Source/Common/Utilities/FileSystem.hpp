@@ -69,6 +69,26 @@ namespace Common::Utils
         [[nodiscard]] static Common::ResultStr<std::string>
         ReadFileContent( const std::filesystem::path& filepath );
 
+        // THE FIRST @p maxBytes BYTES, and never more. Added when `.tex` grew a pixel payload (B17):
+        // `TextureAsset::LoadFromFile` needs a texture's header and mip table — 64 bytes plus a small
+        // row per level — and `TextureService` promises in its own comment that that load is "cheap:
+        // reads the metadata, not pixels". Whole-file reads made that comment false the day a `.tex`
+        // went from 133 bytes to megabytes, and a comment that promises a guarantee the tree does not
+        // honour is the defect shape this codebase has now closed a dozen instances of.
+        //
+        // A SHORT ANSWER IS A SUCCESS, NOT A FAILURE: a file smaller than @p maxBytes yields all of
+        // it. The caller is asking for AT MOST that many bytes, so "how many did I get" is its own
+        // question and the string's size answers it. A missing file is still an error, exactly as
+        // above.
+        //
+        // AN ARCHIVED FILE IS READ WHOLE AND THEN TRIMMED, deliberately and visibly: a `.dpak` entry
+        // is a compressed run with no random access inside it, so there is nothing to seek to. The
+        // saving here is the DISK path, which is the one every editor session and every cook takes.
+        // Ranged reads inside an archive are a property the archive would have to grow, and that
+        // belongs with mip streaming (`Docs/World/PROGRAMME.md` §5, the resident-tail step), not here.
+        [[nodiscard]] static Common::ResultStr<std::string>
+        ReadFileContentPrefix( const std::filesystem::path& filepath, std::size_t maxBytes );
+
         // THE WRITE PRIMITIVE. There is exactly one body, and this is it; the `Content` spelling below
         // is the same call with the bytes taken from a string, and exists only so ~30 text call sites
         // do not each have to spell `std::as_bytes`.
