@@ -7,6 +7,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Runtime/AssetHotReload.hpp>
 #include <ImGui/imgui.h>
+#include "Editor/ImGuiIntegration/ImGuiLayer.hpp"
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 #include "Editor/Panels/IPanel.hpp"
 #include "Editor/Core/CommandPalette.hpp"
@@ -42,7 +43,7 @@ namespace Desert::Editor
         [[nodiscard]] virtual Common::BoolResultStr OnAttach() override;
         [[nodiscard]] virtual Common::BoolResultStr OnDetach() override;
         [[nodiscard]] virtual Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
-        [[nodiscard]] virtual Common::BoolResultStr OnImGuiRender() override;
+        [[nodiscard]] virtual Common::BoolResultStr OnUIRender() override;
         virtual void                                OnEvent( Common::Event& event ) override;
 
         // The frame is out. This is where the control channel keeps its promise: a reply leaves only
@@ -173,7 +174,7 @@ namespace Desert::Editor
         // CAPTURING THE COMPOSITED FRAME, in two halves, because a swapchain image may only be touched
         // between its acquire and its present.
         //
-        // Recorded at the end of OnImGuiRender, while the frame is still being built and the image is
+        // Recorded at the end of OnUIRender, while the frame is still being built and the image is
         // legitimately ours; collected in OnFramePresented, once the present that carried the copy has
         // gone out. Doing it all after the present produced a correct picture and a Vulkan spec violation
         // that only the validation layer mentioned — see RecordWindowCaptureIfDue.
@@ -538,7 +539,6 @@ namespace Desert::Editor
         std::optional<OpenRefusal> m_OpenRefusal;
         bool                       m_OpenRefusalPending = false; // raise the modal on the next ImGui frame
 
-#ifdef EBABLE_IMGUI
         std::shared_ptr<ImGui::ImGuiLayer> m_ImGuiLayer;
         // THE TOOLS. A container that cannot hold a document — see Editor/Core/PanelRegistry.hpp. That is
         // what makes "the View menu lists exactly the tools" true by construction rather than by a predicate
@@ -584,7 +584,6 @@ namespace Desert::Editor
         float   m_BottomHeight    = 0.0f;
         void    DrawBottomDrawerToggle();
         char m_LayoutNameBuf[64]   = {};
-#endif
         std::unique_ptr<Graphic::SceneRenderer> m_SceneRenderer;
         bool                                    m_OpenScenePopup        = false;
         bool                                    m_SaveSceneRequested    = false;
@@ -596,7 +595,7 @@ namespace Desert::Editor
         bool                                    m_AddSceneViewRequested = false; // Scenes -> New Scene View
 
         // Staged startup loading (UI loader): the heavy boot work (mesh cooking, asset preload) runs one
-        // stage per frame from OnUpdate while OnImGuiRender shows a fullscreen progress overlay — instead
+        // stage per frame from OnUpdate while OnUIRender shows a fullscreen progress overlay — instead
         // of silently freezing the window for seconds before the first frame.
         struct StartupStage
         {

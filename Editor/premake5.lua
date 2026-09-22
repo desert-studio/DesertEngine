@@ -83,6 +83,13 @@ project "Editor"
         "GLFW",
         "Optick",
         "MeshOptimizer",
+        -- THE TOOLKIT ITSELF, NAMED HERE RATHER THAN INHERITED. It used to arrive through Desert.vcxproj,
+        -- because the engine listed it and MSVC links project references transitively; the engine does not
+        -- list it any more (see Desert/Desert/premake5.lua), so the Editor is now the only project that
+        -- names it. It sits in THIS block and not in the macOS arm below, because it is a direct
+        -- dependency of the Editor's own sources (Editor/ImGuiIntegration/) on every platform — the arm
+        -- below exists only for libraries the ENGINE needs and gmake will not pull through.
+        "ImGui",
         "ImGuiNodeEditor",
         -- The PROJECT, not a file: BuildScripts/ThirdParty/Assimp.lua compiles the pinned submodule.
         -- The name it replaced carried the MSVC toolset in it (`assimp-vc142-mtd`).
@@ -136,7 +143,6 @@ project "Editor"
         -- libraries use, plus the Apple frameworks GLFW/MoltenVK rely on.
         links {
             "Common",
-            "ImGui",
             "Jolt",
             "Lua",
             "ReflectCpp",

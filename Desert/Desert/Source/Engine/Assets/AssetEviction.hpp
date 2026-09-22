@@ -103,8 +103,9 @@ namespace Desert::Assets
      *     evict and images are not.
      *
      * NOT EVICTED, each for a stated reason rather than an omission:
-     *   * `Graphic::Image` OF ANY KIND, including asset textures. `Desert::ImGui::UICacheTextureImGui`
-     *     holds a process-wide `unordered_map<VkImageView, ImTextureID>` that is never cleared and is
+     *   * `Graphic::Image` OF ANY KIND, including asset textures. The editor's
+     *     `Desert::Editor::UI::UICacheTextureImGui` (Editor/Widgets/UIHelper/) holds a process-wide
+     *     `unordered_map<VkImageView, ImTextureID>` that is never cleared and is
      *     keyed on a handle Vulkan is free to recycle. Releasing an image the editor has ever displayed
      *     would leave that map handing a live-looking `ImTextureID` to ImGui. Fixing it needs a deferred
      *     release queue for descriptor sets, which this engine does not have. The cost of the exclusion

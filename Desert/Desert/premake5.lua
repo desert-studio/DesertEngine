@@ -50,9 +50,12 @@ project "Desert"
         externalincludedirs { path }
     end
 
+    -- NO "ImGui" HERE, AND THAT IS THE POINT OF Desert/Tests/Engine/ImGuiBoundary. Dear ImGui is the
+    -- EDITOR's interface toolkit: the integration layer lives in Editor/Source/Editor/ImGuiIntegration/
+    -- and the Editor links the library itself. While this line said "ImGui", every binary that linked the
+    -- engine — the packaged Runtime included — carried a toolkit it never draws a pixel with.
     links {
         "Common",
-        "ImGui",
         "Jolt",
         "Lua",
         "Optick",

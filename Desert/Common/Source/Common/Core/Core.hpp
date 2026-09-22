@@ -39,8 +39,6 @@ decltype( auto ) initializeDefaultValue()
 #define NO_DISCARD [[nodiscard]]
 #define BOOLSUCCESS Common::MakeSuccess( true );
 
-#define EBABLE_IMGUI 1
-
 // THE LAST BRANCH USED TO BE `__debugbreak()`, WHICH IS AN MSVC INTRINSIC. Every project file in the
 // tree carries its own `filter "system:*" defines { DESERT_PLATFORM_* }` block, and any target that
 // forgets one — every test suite does, and test suites compile engine sources — fell into that branch

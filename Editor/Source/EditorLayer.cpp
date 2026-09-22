@@ -335,7 +335,7 @@ namespace Desert::Editor
         // Cooked/Meshes/Collections/... where the preloader discovers them (see CookPaths::CookedMesh).
         //
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
-        // The stages now execute one-per-frame from OnUpdate while OnImGuiRender shows a loading overlay.
+        // The stages now execute one-per-frame from OnUpdate while OnUIRender shows a loading overlay.
         // NOTE: shaders are NOT staged — they load synchronously in OnAttach, because the render systems
         // (MeshECSSystem's default PBR materials) resolve their shaders in their constructors.
         m_StartupStages.push_back(
@@ -587,12 +587,10 @@ namespace Desert::Editor
         // 2. Initialize Editor Resources (Adds fonts to the atlas)
         Editor::EditorResources::Initialize( "Resources/Fonts/materialdesignicons-webfont.ttf" );
 
-#ifdef EBABLE_IMGUI
         // 3. Initialize Engine ImGui Layer (Initializes backend and uploads fonts)
         m_ImGuiLayer = ImGui::ImGuiLayer::Create();
         if ( const auto attached = m_ImGuiLayer->OnAttach(); !attached.IsSuccess() )
             return Common::MakeFormattedError( "ImGui layer failed to attach: {}", attached.GetError() );
-#endif // EBABLE_IMGUI
 
         ImGuiIO& io = ::ImGui::GetIO();
         (void)io;
@@ -672,7 +670,6 @@ namespace Desert::Editor
                 return Common::MakeFormattedError( "main scene failed to initialise: {}", inited.GetError() );
         }
 
-#ifdef EBABLE_IMGUI
         // EVERY TOOL ENTERS THROUGH PanelRegistry::Add / Adopt, and that is the whole of the guarantee that
         // the View menu lists tools only: the registry REFUSES an ISubjectDocument at compile time, so a
         // document cannot be here to be listed. See Editor/Core/PanelRegistry.hpp.
@@ -995,7 +992,6 @@ namespace Desert::Editor
         // The control channel replaces the whole family. "Panel" / "Open Details" is a command palette
         // entry, so it is reachable by a person with Ctrl+P and by a client at any moment in the session,
         // as many times as it likes. See BuildPaletteCommands and Editor/Core/Control.
-#endif // EBABLE_IMGUI
 
         // Only when the scene above really was initialised. Every editor pass builds its pipeline
         // against `scene->GetTargetFramebuffer()`, which does not exist until SceneRenderer::Init has
@@ -1693,7 +1689,7 @@ namespace Desert::Editor
     //   OnUpdate      ServiceControlChannel()   read a request, run it, arm the gate
     //   OnUpdate      ...deferred queues drain, the scene renders...
     //   OnUpdate      SampleFrameQuiescence()   what was still outstanding while this frame was made
-    //   OnImGuiRender ...the interface is recorded into the swapchain...
+    //   OnUIRender ...the interface is recorded into the swapchain...
     //   present
     //   OnFramePresented                        judge the frame; take the shot; release the reply
     // =============================================================================================
@@ -2268,7 +2264,6 @@ namespace Desert::Editor
             snapshot.RecentlyClosed.push_back( std::move( entry ) );
         }
 
-#ifdef EBABLE_IMGUI
         // TOOLS ONLY, and by construction: m_Panels is a PanelRegistry, which cannot hold a document.
         // A client reading this list is reading exactly what the View menu lists.
         for ( const auto& panel : m_Panels )
@@ -2283,7 +2278,6 @@ namespace Desert::Editor
             entry.Relevant   = panel->IsRelevant();
             snapshot.Panels.push_back( std::move( entry ) );
         }
-#endif
 
         snapshot.RendererSlotsLive    = Graphic::SceneRenderer::GetLiveRendererCount();
         snapshot.RendererSlotsPending = PendingRendererSlotDemand( m_OpenDocuments.Documents() );
@@ -2970,7 +2964,7 @@ namespace Desert::Editor
 
         // Focus WITHOUT touching the ring. Committing the new order on every press would make the second
         // Ctrl+Tab return to where the first started, so the order is committed when Ctrl is released —
-        // see m_CyclingDocuments in OnImGuiRender.
+        // see m_CyclingDocuments in OnUIRender.
         m_FocusedDocument  = *next;
         m_FocusPanel       = document->GetName();
         m_CyclingDocuments = true;
@@ -3015,11 +3009,9 @@ namespace Desert::Editor
         LOG_INFO( "[Editor] Active scene -> '{}' (view #{})", m_MainScene->GetSceneName(), id );
     }
 
-    Common::BoolResultStr EditorLayer::OnImGuiRender()
+    Common::BoolResultStr EditorLayer::OnUIRender()
     {
-#ifdef EBABLE_IMGUI
         m_ImGuiLayer->Begin();
-#endif
 
         // ImGuizmo is a single global per-frame state — begin it ONCE here, before any panel issues a
         // Manipulate(). The viewport's object gizmo relies on this.
@@ -3071,9 +3063,7 @@ namespace Desert::Editor
 
             // Loading frames are ImGui-only: no dockspace, no panels (the viewport panel would touch the
             // not-yet-rendered scene image).
-#ifdef EBABLE_IMGUI
             m_ImGuiLayer->End();
-#endif
             return BOOLSUCCESS;
         }
 
@@ -3417,9 +3407,7 @@ namespace Desert::Editor
         if ( m_WindowChrome )
             m_WindowChrome->DrawResizeBorders();
 
-#ifdef EBABLE_IMGUI
         m_ImGuiLayer->End();
-#endif
 
         // AFTER the interface has been recorded into the swapchain pass and BEFORE the frame is submitted:
         // the only window in which the presented image is legally ours to copy out of. A no-op unless a
@@ -3591,7 +3579,7 @@ namespace Desert::Editor
                                   } } );
         }
 
-        // Ctrl+Tab, as a command. The key is bound in OnImGuiRender and a key is not available to a
+        // Ctrl+Tab, as a command. The key is bound in OnUIRender and a key is not available to a
         // client either; this is the same CycleDocuments the keystroke calls, so the ring the two walk
         // cannot differ.
         if ( m_OpenDocuments.Count() > 1 )
@@ -4586,7 +4574,7 @@ namespace Desert::Editor
             // this distinction one of the two rules would be wrong: either a mouse click would leave
             // Ctrl+Tab walking an order the user has since abandoned, or the second Ctrl+Tab would return to
             // where the first one started. The cycling flag is cleared when Ctrl comes up, and the ring is
-            // committed there — see the shortcut block in OnImGuiRender.
+            // committed there — see the shortcut block in OnUIRender.
             if ( focused != m_FocusedDocument && !m_CyclingDocuments )
                 m_DocumentWell.Touch( focused );
 
@@ -7288,7 +7276,6 @@ namespace Desert::Editor
 
     void EditorLayer::OnEvent( Common::Event& event )
     {
-#ifdef EBABLE_IMGUI
         for ( auto& panel : m_Panels )
         {
             if ( event.m_Handled )
@@ -7301,7 +7288,6 @@ namespace Desert::Editor
                 break;
             document->OnEvent( event );
         }
-#endif
     }
 
     Common::BoolResultStr EditorLayer::OnDetach()
@@ -7429,7 +7415,6 @@ namespace Desert::Editor
         // here for the same reason and at the same moment. See ThumbnailCache::ReleaseAll().
         ThumbnailCache::ReleaseAll();
 
-#ifdef EBABLE_IMGUI
         // Documents BEFORE tools, and both before the ImGui layer: a document owns a PreviewViewport whose
         // UIHelper holds descriptor sets, and the device has already been idled above. Explicit rather than
         // left to ~EditorLayer, which runs after the layer stack has moved on.
@@ -7447,7 +7432,6 @@ namespace Desert::Editor
         if ( const auto detached = m_ImGuiLayer->OnDetach(); !detached.IsSuccess() )
             LOG_ERROR( "[EditorLayer] ImGui layer failed to detach: {}", detached.GetError() );
         m_ImGuiLayer.reset();
-#endif
 
         // Extra documents in the same order CloseSceneView uses (their panels went with m_Panels above):
         // registry, then scene, then renderer. Explicit rather than left to ~EditorLayer, which runs after

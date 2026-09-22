@@ -1,7 +1,9 @@
-#include <Engine/imgui/ImGuiLayer.hpp>
+#include <Editor/ImGuiIntegration/ImGuiLayer.hpp>
 
+#include <Editor/ImGuiIntegration/VulkanImGuiLayer.hpp>
+
+#include <Common/Core/Core.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
-#include <Engine/Graphic/API/Vulkan/imgui/VulkanImGuiLayer.hpp>
 
 namespace Desert::ImGui
 {

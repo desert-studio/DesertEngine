@@ -8,7 +8,7 @@ namespace Desert::Editor::UI
 
     void UIHelper::Init()
     {
-        m_CacherTexture = Graphic::UICacheTexture::Create();
+        m_CacherTexture = std::make_unique<UICacheTextureImGui>();
     }
 
     const void* UIHelper::GetTextureID( const std::shared_ptr<Graphic::Image2D>& image )

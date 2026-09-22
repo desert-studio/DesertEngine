@@ -1,4 +1,4 @@
-#include <Engine/imgui/UICacheTextureImGui.hpp>
+#include <Editor/Widgets/UIHelper/UICacheTextureImGui.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
@@ -8,7 +8,9 @@
 
 #include <ImGui/backends/imgui_impl_vulkan.h>
 
-namespace Desert::ImGui
+#include <unordered_map>
+
+namespace Desert::Editor::UI
 {
     const void* UICacheTextureImGui::AddTextureCache( const std::shared_ptr<Graphic::Image2D>& image )
     {
@@ -19,9 +21,9 @@ namespace Desert::ImGui
         {
             static std::unordered_map<VkImageView, ImTextureID> g_TextureCache;
 
-            auto vulkanImage = sp_cast<Graphic::API::Vulkan::VulkanImage2D>( image );
-            const auto& res = vulkanImage->GetResource();
-            
+            auto        vulkanImage = sp_cast<Graphic::API::Vulkan::VulkanImage2D>( image );
+            const auto& res         = vulkanImage->GetResource();
+
             if ( res.ImageView == VK_NULL_HANDLE )
                 return nullptr;
 
@@ -40,4 +42,4 @@ namespace Desert::ImGui
         return nullptr;
     }
 
-} // namespace Desert::ImGui
+} // namespace Desert::Editor::UI

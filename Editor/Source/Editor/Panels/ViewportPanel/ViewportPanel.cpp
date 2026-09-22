@@ -1163,7 +1163,7 @@ namespace Desert::Editor
         if ( oldSize != m_ViewportData.Size )
         {
             // Store the new size and apply it in OnPreUpdate() next frame, before any recording
-            // starts. Calling Scene::Resize() here (inside OnImGuiRender) destroys descriptor set
+            // starts. Calling Scene::Resize() here (inside OnUIRender) destroys descriptor set
             // pools while their DS are still bound to the recording command buffer.
             m_PendingViewportSize = m_ViewportData.Size;
             mainCamera->UpdateProjectionMatrix( m_ViewportData.Size.x,

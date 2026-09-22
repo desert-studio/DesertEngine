@@ -28,8 +28,9 @@ namespace Desert::Graphic::Render2D
 namespace Desert::Player
 {
     // The PLAYER layer: loads the opened project's scene, flips it straight into Play (scripts, physics,
-    // gameplay camera all live) and presents the rendered frame fullscreen through a chrome-less ImGui
-    // window. No panels, no gizmos, no editing — the game, exactly as Play-in-editor runs it.
+    // gameplay camera all live) and blits the rendered frame fullscreen into the swapchain pass, drawing
+    // the game's UI over it with the engine's own Render2D batcher. No panels, no gizmos, no editing —
+    // the game, exactly as Play-in-editor runs it.
     // (namespace Player: Desert::Runtime already belongs to the engine's runtime services.)
     class RuntimeLayer : public Common::Layer
     {
@@ -44,7 +45,7 @@ namespace Desert::Player
         [[nodiscard]] Common::BoolResultStr OnAttach() override;
         [[nodiscard]] Common::BoolResultStr OnDetach() override;
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
-        [[nodiscard]] Common::BoolResultStr OnImGuiRender() override;
+        [[nodiscard]] Common::BoolResultStr OnUIRender() override;
         void                                OnEvent( Common::Event& event ) override;
         /// The frame is out. It counts presented frames in every build; in a development build it is also
         /// the half of the unattended capture that COLLECTS — see RuntimeShot.hpp.
@@ -72,9 +73,10 @@ namespace Desert::Player
         std::unique_ptr<Graphic::SceneRenderer>      m_SceneRenderer;
         std::shared_ptr<Core::Scene>                 m_Scene;
 
-        // No-ImGui present: the runtime opens the swapchain pass itself, blits the scene's final image with a
-        // fullscreen quad, then draws the UI + splash with the engine's own Render2D batcher. Lazily created on
-        // the first present (the swapchain framebuffer only exists after the first BeginSwapChainRenderPass).
+        // The present path: the runtime opens the swapchain pass itself, blits the scene's final image with
+        // a fullscreen quad, then draws the UI + splash with the engine's own Render2D batcher. Lazily
+        // created on the first present (the swapchain framebuffer only exists after the first
+        // BeginSwapChainRenderPass).
         std::unique_ptr<Graphic::Render2D::Render2D> m_Render2D;
 
         // The offscreen worlds behind this game's render-texture UI elements (Ю16). HERE and not only in
@@ -146,7 +148,7 @@ namespace Desert::Player
         uint32_t m_PresentedFrames = 0;
 
         // ===== Unattended capture of the PRESENTED frame (--shot / --shot-frames) =====
-        // The copy is recorded into this frame's command buffer at the tail of OnImGuiRender and
+        // The copy is recorded into this frame's command buffer at the tail of OnUIRender and
         // collected in OnFramePresented. Absent from a Shipping build — see RuntimeShot.hpp.
 #if DESERT_DEV_INSTRUMENTS
         bool m_ShotRecorded = false;

@@ -1,6 +1,11 @@
 #pragma once
 
-#include <Engine/imgui/ImGuiLayer.hpp>
+#include <Editor/ImGuiIntegration/ImGuiLayer.hpp>
+
+// BOOLSUCCESS lives here. It used to arrive by accident: this header was compiled only as part of the
+// engine, whose premake force-includes pch.hpp, and pch.hpp opens with Common/Core/Core.hpp. The Editor
+// has no forced prefix header, so the macro has to be asked for by name.
+#include <Common/Core/Core.hpp>
 #include <Common/Core/Timestep.hpp>
 
 #include <vulkan/vulkan.h>
@@ -17,7 +22,7 @@ namespace Desert::Graphic::API::Vulkan
         virtual void               Begin() override;
         virtual void               End() override;
 
-        virtual Common::BoolResultStr OnImGuiRender() override
+        virtual Common::BoolResultStr OnUIRender() override
         {
             return BOOLSUCCESS;
         }
