@@ -32,7 +32,7 @@ namespace Desert::Editor::Render
         }
 
     private:
-        std::weak_ptr<::Desert::Core::Scene>  m_Scene;
+        std::weak_ptr<::Desert::Core::Scene> m_Scene;
         Graphic::Render2D::Render2D m_Render2D;
 
         // The UI runtime state of THIS viewport — one cell per (canvas x this view). One EditorUIPass

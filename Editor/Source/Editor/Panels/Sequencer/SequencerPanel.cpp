@@ -1905,8 +1905,8 @@ namespace Desert::Editor
                                                const auto clip = ResolveUIClip();
                                                if ( clip == nullptr || clip->Tracks.empty() )
                                                {
-                                                   ToastManager::Push( "this clip has no lane",
-                                                                       ToastLevel::Error, 6.0f );
+                                                   ToastManager::Push( "this clip has no lane", ToastLevel::Error,
+                                                                       6.0f );
                                                    return;
                                                }
                                                const int count = static_cast<int>( clip->Tracks.size() );

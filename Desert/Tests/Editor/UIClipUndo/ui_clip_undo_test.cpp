@@ -72,8 +72,8 @@ namespace
     void AddKeyAtPlayhead( UIAnimData& clip, size_t lane )
     {
         UIAnimTrack& track = clip.Tracks[lane];
-        track.Keys.push_back( { clip.Time, track.Keys.empty() ? glm::vec4( 0.0F ) : track.Keys.back().Value,
-                                UIEasing::CubicOut } );
+        track.Keys.push_back(
+             { clip.Time, track.Keys.empty() ? glm::vec4( 0.0F ) : track.Keys.back().Value, UIEasing::CubicOut } );
         std::sort( track.Keys.begin(), track.Keys.end(),
                    []( const UIAnimKey& a, const UIAnimKey& b ) { return a.Time < b.Time; } );
     }
@@ -84,8 +84,8 @@ namespace
     {
         UIAnimTrack& track   = clip.Tracks[lane];
         track.Keys[key].Time = time;
-        clip.Playing         = false;    // the panel stops playback while a key is dragged
-        clip.Time            = time;     // ...and the pose follows the key being moved
+        clip.Playing         = false; // the panel stops playback while a key is dragged
+        clip.Time            = time;  // ...and the pose follows the key being moved
         std::sort( track.Keys.begin(), track.Keys.end(),
                    []( const UIAnimKey& a, const UIAnimKey& b ) { return a.Time < b.Time; } );
     }
@@ -210,7 +210,7 @@ TEST_F( UIClipUndoTest, ALaneCreatedByTheInteractionIsTakenAwayAgain )
     const UIClipContent before = CaptureUIClip( clip );
 
     {
-        UIClipEditTransaction transaction;
+        UIClipEditTransaction  transaction;
         const ScopedUIClipEdit step( transaction, &clip );
         AddLane( clip, UITweenProperty::Color );
     }
@@ -311,8 +311,8 @@ TEST_F( UIClipUndoTest, AnInteractionThatChangedNothingPushesNoEntry )
 
     UIClipEditTransaction transaction;
     ASSERT_TRUE( transaction.Begin( &clip ).IsSuccess() );
-    clip.Time    = 1.9F; // scrubbing...
-    clip.Playing = false;
+    clip.Time        = 1.9F; // scrubbing...
+    clip.Playing     = false;
     const auto ended = transaction.End();
     ASSERT_TRUE( ended.IsSuccess() );
     EXPECT_EQ( ended.GetValue(), 0U );
@@ -371,12 +371,12 @@ TEST_F( UIClipUndoTest, TheComparisonSeesEveryFieldItIsAskedAbout )
     // THE ROUND-TRIP TESTS ARE ONLY AS STRONG AS THIS. `SameStoredValue` is what every one of them
     // asserts through, so a field quietly dropped out of it would make all of them pass while the undo
     // stopped putting that field back. Each block below differs in EXACTLY ONE field.
-    UIAnimData clip = MakeClip();
+    UIAnimData          clip = MakeClip();
     const UIClipContent base = CaptureUIClip( clip );
 
     {
-        UIClipContent other            = base;
-        other.Tracks[0].Keys[0].Time   = 0.5F;
+        UIClipContent other          = base;
+        other.Tracks[0].Keys[0].Time = 0.5F;
         EXPECT_FALSE( SameStoredValue( base, other ) ) << "a key's Time";
     }
     {
@@ -385,13 +385,13 @@ TEST_F( UIClipUndoTest, TheComparisonSeesEveryFieldItIsAskedAbout )
         EXPECT_FALSE( SameStoredValue( base, other ) ) << "a key's Value";
     }
     {
-        UIClipContent other              = base;
-        other.Tracks[0].Keys[0].Easing   = UIEasing::BounceOut;
+        UIClipContent other            = base;
+        other.Tracks[0].Keys[0].Easing = UIEasing::BounceOut;
         EXPECT_FALSE( SameStoredValue( base, other ) ) << "a key's Easing";
     }
     {
-        UIClipContent other        = base;
-        other.Tracks[1].Property   = UITweenProperty::Color;
+        UIClipContent other      = base;
+        other.Tracks[1].Property = UITweenProperty::Color;
         EXPECT_FALSE( SameStoredValue( base, other ) ) << "a lane's Property";
     }
     {

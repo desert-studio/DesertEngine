@@ -255,7 +255,7 @@ namespace Desert::Editor
      * Takes the "after" from the hierarchy itself rather than from the caller: the drag's last `Update`
      * is what wrote it, and a caller passing its own copy is a second opinion about what the drag did.
      */
-    [[nodiscard]] Common::ResultStr<uint32_t> RecordControlDrag( Animation::ControlHierarchy* hierarchy,
+    [[nodiscard]] Common::ResultStr<uint32_t> RecordControlDrag( Animation::ControlHierarchy*    hierarchy,
                                                                  uint32_t                        control,
                                                                  const Animation::BoneTransform& before );
 

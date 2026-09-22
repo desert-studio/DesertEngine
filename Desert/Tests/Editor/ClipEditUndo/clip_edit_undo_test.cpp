@@ -854,8 +854,8 @@ namespace
         Desert::Animation::ControlElement   hand;
         hand.Name      = "hand_ctrl";
         hand.ShapeName = "CircleXY";
-        hand.Parents.push_back( Desert::Animation::ControlSpace{
-             Desert::Animation::ControlSpaceKind::Component, 0, 1.0F } );
+        hand.Parents.push_back(
+             Desert::Animation::ControlSpace{ Desert::Animation::ControlSpaceKind::Component, 0, 1.0F } );
         const auto added = rig.Add( hand );
         control          = added.IsSuccess() ? added.GetValue() : Desert::Animation::ControlHierarchy::INVALID;
         return rig;
@@ -878,8 +878,8 @@ TEST( ControlDragUndo, TheSameDragIsZeroEntriesUnrecordedAndOneRecorded )
     // WITHOUT. This is what LightGizmoRenderer did before A33: it captured the pose at the grab into a
     // member, released the drag, and pushed nothing.
     {
-        uint32_t  control = 0;
-        auto      rig     = MakeRig( control );
+        uint32_t control = 0;
+        auto     rig     = MakeRig( control );
         ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
         const BoneTransform before = rig.Get( control ).Pose;
 
@@ -895,8 +895,8 @@ TEST( ControlDragUndo, TheSameDragIsZeroEntriesUnrecordedAndOneRecorded )
 
     // WITH.
     {
-        uint32_t  control = 0;
-        auto      rig     = MakeRig( control );
+        uint32_t control = 0;
+        auto     rig     = MakeRig( control );
         ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
         const BoneTransform before = rig.Get( control ).Pose;
 

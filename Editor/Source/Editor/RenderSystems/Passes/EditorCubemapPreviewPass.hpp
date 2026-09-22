@@ -46,7 +46,7 @@ namespace Desert::Editor::Render
         }
 
     private:
-        std::weak_ptr<::Desert::Core::Scene>                      m_Scene;
+        std::weak_ptr<::Desert::Core::Scene>            m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline>      m_Pipeline;
         std::unique_ptr<Graphic::MaterialCubemapSphere> m_Material;
         std::function<const Graphic::ImageCube*()>      m_ResolveCube;

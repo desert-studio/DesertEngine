@@ -20,7 +20,7 @@ namespace Desert::Editor::Render
         Common::BoolResultStr Install( const std::shared_ptr<::Desert::Core::Scene>& scene );
 
     private:
-        std::weak_ptr<::Desert::Core::Scene>                 m_Scene;
+        std::weak_ptr<::Desert::Core::Scene>       m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline> m_Pipeline;
         std::unique_ptr<Graphic::MaterialGrid>     m_Material;
     };

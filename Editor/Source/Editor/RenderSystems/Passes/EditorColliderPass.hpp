@@ -23,7 +23,7 @@ namespace Desert::Editor::Render
     private:
         void BuildLines( std::vector<Graphic::MaterialDebugLine::LineVertex>& outLines ) const;
 
-        std::weak_ptr<::Desert::Core::Scene>                  m_Scene;
+        std::weak_ptr<::Desert::Core::Scene>        m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline>  m_Pipeline;
         std::unique_ptr<Graphic::MaterialDebugLine> m_Material;
     };

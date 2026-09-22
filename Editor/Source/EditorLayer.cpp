@@ -3779,18 +3779,17 @@ namespace Desert::Editor
             if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
             {
                 const Common::UUID subject = *primary;
-                commands.push_back(
-                     { "Control Rig", "Author the control rig on the selection", [this, subject]
-                       {
-                           auto& host           = Core::ActiveAuthoringContext();
-                           m_PaletteAuthoring.Entity = subject;
-                           // Focus FIRST and set the mode after: Focus adopts the published context when
-                           // the entity matches, so a mode written into `mine` beforehand is overwritten
-                           // by whatever the previous holder was in.
-                           (void)host.Focus( m_PaletteAuthoringOwner, m_PaletteAuthoring );
-                           return host.SetMode( m_PaletteAuthoringOwner, m_PaletteAuthoring,
-                                                Core::AuthoringMode::Control );
-                       } } );
+                commands.push_back( { "Control Rig", "Author the control rig on the selection", [this, subject]
+                                      {
+                                          auto& host                = Core::ActiveAuthoringContext();
+                                          m_PaletteAuthoring.Entity = subject;
+                                          // Focus FIRST and set the mode after: Focus adopts the published context
+                                          // when the entity matches, so a mode written into `mine` beforehand is
+                                          // overwritten by whatever the previous holder was in.
+                                          (void)host.Focus( m_PaletteAuthoringOwner, m_PaletteAuthoring );
+                                          return host.SetMode( m_PaletteAuthoringOwner, m_PaletteAuthoring,
+                                                               Core::AuthoringMode::Control );
+                                      } } );
 
                 // ONE ENTRY PER CONTROL, built from the rig the selection actually carries -- the same
                 // shape the per-entity and per-document entries above use. A single "select control by
@@ -3806,17 +3805,17 @@ namespace Desert::Editor
                         {
                             const Animation::ControlHierarchy& hierarchy =
                                  animation.Animator->GetRig()->GetHierarchy();
-                            for ( uint32_t control = 0;
-                                  control < static_cast<uint32_t>( hierarchy.Size() ); ++control )
+                            for ( uint32_t control = 0; control < static_cast<uint32_t>( hierarchy.Size() );
+                                  ++control )
                             {
                                 const std::string name = hierarchy.Get( control ).Name;
-                                commands.push_back(
-                                     { "Control Rig", "Select control " + name, [this, control]
-                                       {
-                                           auto& host = Core::ActiveAuthoringContext();
-                                           return host.SetSelectedControl( m_PaletteAuthoringOwner,
-                                                                           m_PaletteAuthoring, control );
-                                       } } );
+                                commands.push_back( { "Control Rig", "Select control " + name, [this, control]
+                                                      {
+                                                          auto& host = Core::ActiveAuthoringContext();
+                                                          return host.SetSelectedControl( m_PaletteAuthoringOwner,
+                                                                                          m_PaletteAuthoring,
+                                                                                          control );
+                                                      } } );
                             }
                         }
                     }

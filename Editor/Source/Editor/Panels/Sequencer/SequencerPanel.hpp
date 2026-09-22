@@ -267,7 +267,7 @@ namespace Desert::Editor
 
         // The UI timeline's own palette actions, and the clip they act on. Split out of Actions() the
         // way DrawUITracks is split out of OnUIRender: two timelines with nothing in common but a window.
-        std::vector<DocumentAction> UIActions();
+        std::vector<DocumentAction>    UIActions();
         [[nodiscard]] ECS::UIAnimData* ResolveUIClip();
         // "Key this lane at the playhead", shared by the lane's + button and by the palette action.
         void AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane );

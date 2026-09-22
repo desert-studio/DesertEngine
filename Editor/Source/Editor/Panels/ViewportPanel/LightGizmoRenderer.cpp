@@ -305,8 +305,7 @@ namespace Desert::Editor
                 if ( const auto recorded = RecordControlDrag( &hierarchy, dragged, m_ControlPoseAtGrab );
                      !recorded.IsSuccess() )
                 {
-                    LOG_WARN( "[Animation] the control drag was not recorded for undo: {}",
-                              recorded.GetError() );
+                    LOG_WARN( "[Animation] the control drag was not recorded for undo: {}", recorded.GetError() );
                 }
             }
             // A drag in progress must not let the scene pick fire underneath it.
@@ -411,10 +410,10 @@ namespace Desert::Editor
             return;
         }
 
-        const glm::vec2 from   = grabbed->Origin.Pixel;
-        const float     radius = grabbed->ScreenRadius > 0.0f ? grabbed->ScreenRadius : 1.0f;
-        const Animation::ManipulatorMode mode =
-             authoring.ControlRotate() ? Animation::ManipulatorMode::Rotate : Animation::ManipulatorMode::Translate;
+        const glm::vec2                  from   = grabbed->Origin.Pixel;
+        const float                      radius = grabbed->ScreenRadius > 0.0f ? grabbed->ScreenRadius : 1.0f;
+        const Animation::ManipulatorMode mode   = authoring.ControlRotate() ? Animation::ManipulatorMode::Rotate
+                                                                            : Animation::ManipulatorMode::Translate;
 
         // THE SAME THREE CALLS THE MOUSE MAKES, on the same object, in the same order. That is the whole
         // point of naming the gesture rather than faking the pointer: what the screenshot shows is the
