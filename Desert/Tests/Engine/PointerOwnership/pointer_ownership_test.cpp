@@ -411,11 +411,24 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   m_ControlDragOwner and read neither, under a comment saying an entry was pushed from them. The
     //   UUID goes with this change too, and it moves NO number here -- a Common::UUID is not a pointer
     //   and was never in this census, which is exactly why nothing went red while it sat there unread.
-    EXPECT_EQ( CountOf( Form::Raw ), 378 );
+    //   and +3 Raw / +2 Unique with U9 (378 -> 381, 863 -> 868), where a Scene stopped holding ONE
+    //   renderer and one camera and started holding a LIST of views. The accounting is the whole answer
+    //   and every line of it is a member, not a number:
+    //     gone   Scene::m_SceneRenderer (Raw), Scene::m_MainCamera (Weak), Scene::m_ActiveCamera (Shared);
+    //     new    SceneViewList::View::Renderer (Raw) and ::Camera (Shared) -- the same two values, now
+    //            one pair PER VIEW instead of one pair per scene;
+    //     new    ExternalPassContext::Renderer (Raw) -- a pass is run once per view and has to know
+    //            which one it is drawing into;
+    //     new    ViewportPanel::m_ViewRenderer (Raw) and EditorLayer::SceneViewport::Viewport (Raw),
+    //            SceneViewport::Renderer (Unique) and the m_ExtraViewports element (Unique), and
+    //            SceneViewport::Scene (Weak) -- a second angle's window, its renderer and the document
+    //            it looks at.
+    //   Shared and Weak therefore do not move: each gained exactly what it lost.
+    EXPECT_EQ( CountOf( Form::Raw ), 381 );
     EXPECT_EQ( CountOf( Form::Shared ), 330 );
-    EXPECT_EQ( CountOf( Form::Unique ), 117 );
+    EXPECT_EQ( CountOf( Form::Unique ), 119 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 863 )
+    EXPECT_EQ( (int)Members().size(), 868 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
