@@ -707,6 +707,12 @@ TEST( PakChunks, ADeclaredChunkThatReceivesNoFileIsARefusalAndNotAnEmptyArchive 
                                            { { "Assets/unrelated.txt", source } } );
     EXPECT_FALSE( written.IsSuccess() );
     EXPECT_NE( written.GetError().find( "Region" ), std::string::npos ) << written.GetError();
+    // AND IT SAYS WHY, which is the whole reason this refusal exists separately. `Finalize()` already
+    // returns 0 for an archive with no entries, so a writer WITHOUT this check still fails here — with
+    // "failed to finalize Chunk_Region.dpak", which reads as a disk problem and sends the reader to
+    // the wrong place. Asserting only the chunk's name passed against both, i.e. proved nothing:
+    // deleting the check left this test green (mutation, 2026-09-22).
+    EXPECT_NE( written.GetError().find( "received no files" ), std::string::npos ) << written.GetError();
 }
 
 int main( int argc, char** argv )
