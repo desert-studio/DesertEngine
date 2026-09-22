@@ -164,7 +164,13 @@ TEST( EngineRegistration, WithNoEngineRootThereIsNothingToRegisterAndItSaysWhy )
     const std::filesystem::path config     = TempConfigDirectory( "noroot" );
     const auto                  registered = Desert::Project::RegisterThisEngine( config.string(), "" );
     ASSERT_FALSE( registered.IsSuccess() );
-    EXPECT_NE( registered.GetError().find( "DESERT_ROOT" ), std::string::npos ) << registered.GetError();
+    // NOT "DESERT_ROOT". The variable stopped being the only way an engine can be located — the
+    // Editor derives the tree from its own executable when nothing is set — so a refusal naming the
+    // variable would send a reader of a DOWNLOADED build after something that is neither the cause
+    // nor the cure. What has to be in it is the consequence: the launcher will not list this copy.
+    EXPECT_NE( registered.GetError().find( "engines.json" ), std::string::npos ) << registered.GetError();
+    EXPECT_EQ( registered.GetError().find( "RunEditor" ), std::string::npos )
+         << "the refusal names a run script a packaged build does not carry: " << registered.GetError();
     EXPECT_FALSE( std::filesystem::exists( config / "engines.json" ) )
          << "an empty registry was written for an engine that was never located";
 

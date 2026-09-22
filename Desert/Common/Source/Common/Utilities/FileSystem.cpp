@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <unordered_set>
+#include <vector>
 
 #ifdef _MSC_VER
 #pragma warning( error : 4834 )
@@ -120,9 +121,26 @@ namespace Common::Utils
     std::filesystem::path FileSystem::ExecutablePath()
     {
 #if defined( DESERT_PLATFORM_WINDOWS )
-        wchar_t     buf[MAX_PATH];
-        const DWORD n = ::GetModuleFileNameW( nullptr, buf, MAX_PATH );
-        return fs::path( std::wstring( buf, n ) );
+        // GROWS THE BUFFER, BECAUSE THE TRUNCATED ANSWER IS INDISTINGUISHABLE FROM THE RIGHT ONE.
+        // `GetModuleFileNameW` with a MAX_PATH buffer does not fail on a longer path: it fills the
+        // buffer, returns the buffer size, and sets ERROR_INSUFFICIENT_BUFFER — so the old form
+        // returned a path that was a valid-looking prefix of the truth. Everything derived from it
+        // (the folder the project is discovered in, the folder the engine root is walked up from)
+        // would then point at a directory that exists and is the wrong one, silently. A downloaded
+        // build unzipped into a deep folder is exactly where that happens.
+        std::vector<wchar_t> buf( MAX_PATH );
+        for ( ;; )
+        {
+            ::SetLastError( ERROR_SUCCESS );
+            const DWORD n = ::GetModuleFileNameW( nullptr, buf.data(), static_cast<DWORD>( buf.size() ) );
+            if ( n == 0 )
+                return {}; // the call itself failed; an empty path is the caller's "I do not know"
+            if ( ::GetLastError() != ERROR_INSUFFICIENT_BUFFER && n < buf.size() )
+                return fs::path( std::wstring( buf.data(), n ) );
+            if ( buf.size() >= 32768 ) // the NT path limit: beyond this there is nothing left to try
+                return {};
+            buf.resize( buf.size() * 2 );
+        }
 #elif defined( DESERT_PLATFORM_MACOS )
         uint32_t size = 0;
         _NSGetExecutablePath( nullptr, &size ); // first call: query required buffer size

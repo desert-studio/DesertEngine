@@ -52,6 +52,13 @@ if [ ! -x "$BIN/AssetClosure" ]; then
     echo "  Build it: scripts/MacOS/BuildMacOS.sh $CONFIG" >&2
     exit 1
 fi
+if [ ! -x "$BIN/AssetRegistryTool" ]; then
+    echo "Package.sh: $BIN/AssetRegistryTool is missing." >&2
+    echo "  The drop needs its OWN asset registry (see the cook at the end of this script); without" >&2
+    echo "  one the packaged editor starts, finds zero shaders and dies before its first frame." >&2
+    echo "  Build it: scripts/MacOS/BuildMacOS.sh $CONFIG" >&2
+    exit 1
+fi
 if [ ! -f "$PROJECT" ]; then
     echo "Package.sh: $PROJECT is missing — the drop has no project to open" >&2
     exit 1
@@ -121,6 +128,30 @@ JUNK="$(find "$OUT" \( -name '.DS_Store' -o -name 'Thumbs.db' -o -name '__MACOSX
 if [ -n "$JUNK" ]; then
     echo "Package.sh: platform junk reached the package:" >&2
     echo "$JUNK" >&2
+    exit 1
+fi
+
+# ── THE DROP'S OWN ASSET REGISTRY, AND WITHOUT IT THE DROP DOES NOT START ────────────────────────
+#
+# MEASURED 2026-09-22 on this script's own output, after the editor stopped demanding --project and
+# could get far enough to fail for this instead: the packaged editor opened its project, reported
+# "[ContentRegistry] 0 row(s)", then "[AssetPreloader] 0 shader program(s) ready", then "Could not
+# find the shader: StaticMeshPBR", and aborted before its first frame.
+#
+# WHY IT IS A COOK HERE AND NOT A COPY OF Editor/Cooked/AssetRegistry.dreg. Since GAP_ANALYSIS T2.4
+# neither host walks the content roots at boot — both READ the registry — so a project with no
+# registry has no content at all. The dev tree's registry is not the drop's: this package carries the
+# CLOSURE of one scene (18 files above, not the ~1500 the repository tracks), so a copied registry
+# would name content the drop does not have. The registry has to describe THIS directory, which is
+# what `--disk` asks (the tool's own header explains the two sources).
+#
+# Run from $OUT because engine resource roots resolve against the WORKING DIRECTORY and are never
+# remapped by a project — the tool refuses rather than cooking a registry with no shaders in it, and
+# that refusal is this step's check.
+( cd "$OUT" && "$BIN/AssetRegistryTool" cook "$(basename "$PROJECT")" --disk )
+if [ ! -f "$OUT/Cooked/AssetRegistry.dreg" ]; then
+    echo "Package.sh: the drop has no Cooked/AssetRegistry.dreg — its editor would start with zero" >&2
+    echo "  shaders and abort before the first frame" >&2
     exit 1
 fi
 

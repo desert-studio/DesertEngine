@@ -55,6 +55,13 @@ if not exist "%BIN%\AssetClosure.exe" (
     echo   Build it: scripts\Windows\BuildWindows.bat %CONFIG% 1>&2
     exit /b 1
 )
+if not exist "%BIN%\AssetRegistryTool.exe" (
+    echo Package.bat: %BIN%\AssetRegistryTool.exe is missing. 1>&2
+    echo   The drop needs its OWN asset registry ^(see the cook at the end of this script^); without 1>&2
+    echo   one the packaged editor starts, finds zero shaders and dies before its first frame. 1>&2
+    echo   Build it: scripts\Windows\BuildWindows.bat %CONFIG% 1>&2
+    exit /b 1
+)
 if not exist "%PROJECT%" (
     echo Package.bat: %PROJECT% is missing — the drop has no project to open 1>&2
     exit /b 1
@@ -201,6 +208,34 @@ for /f "delims=" %%J in ('dir /s /b "%OUT%\.DS_Store" "%OUT%\Thumbs.db" 2^>NUL')
     set "JUNK=1"
 )
 if "!JUNK!"=="1" exit /b 1
+
+REM ---------------------------------------------------------------------------
+REM THE DROP'S OWN ASSET REGISTRY, AND WITHOUT IT THE DROP DOES NOT START.
+REM
+REM MEASURED 2026-09-22 on the macOS twin's output, once the editor stopped demanding --project and
+REM could get far enough to fail for this instead: the packaged editor opened its project, reported
+REM "[ContentRegistry] 0 row(s)", then "[AssetPreloader] 0 shader program(s) ready", then "Could not
+REM find the shader: StaticMeshPBR", and aborted before its first frame. The reasoning is about the
+REM boot order rather than about the shell, so it holds here identically.
+REM
+REM WHY A COOK AND NOT A COPY OF Editor\Cooked\AssetRegistry.dreg. Since GAP_ANALYSIS T2.4 neither
+REM host walks the content roots at boot — both READ the registry — so a project with no registry
+REM has no content. The dev tree's registry is not the drop's: this package carries the CLOSURE of
+REM one scene, not the ~1500 files the repository tracks, so a copied registry would name content
+REM the drop does not have. The registry has to describe THIS directory, which is what --disk asks.
+REM
+REM Run from %OUT% because engine resource roots resolve against the WORKING DIRECTORY and are never
+REM remapped by a project — the tool refuses rather than cooking a registry with no shaders in it,
+REM and that refusal is this step's check.
+REM ---------------------------------------------------------------------------
+pushd "%OUT%"
+"%BIN%\AssetRegistryTool.exe" cook "Desert.deproj" --disk
+popd
+if not exist "%OUT%\Cooked\AssetRegistry.dreg" (
+    echo Package.bat: the drop has no Cooked\AssetRegistry.dreg — its editor would start with zero 1>&2
+    echo   shaders and abort before the first frame 1>&2
+    exit /b 1
+)
 
 echo Package.bat: packaged -^> %OUT%
 echo   engine resources: Shaders + Fonts + Icons

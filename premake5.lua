@@ -46,6 +46,11 @@ include "Tools/LatticePeak/"
 include "Tools/AssetClosure/"
 -- AssetRegistryTool writes the file both hosts now boot from, and checks it in CI (T2.4/T2.7).
 include "Tools/AssetRegistryTool/"
+-- GamePackager is the PLAYER's artifact with no editor in the loop. Here for the same reason
+-- AssetClosure is here and not under Editor/: it compiles two Editor translation units into itself
+-- rather than linking the Editor project, which is what keeps it buildable on a machine that has no
+-- display and no Vulkan driver (see Tools/GamePackager/premake5.lua).
+include "Tools/GamePackager/"
 group ""
 
 include "Editor/"

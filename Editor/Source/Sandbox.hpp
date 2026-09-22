@@ -9,11 +9,14 @@
 #include <Engine/Project/EngineRegistration.hpp>
 #include <Editor/Core/ShotOptions.hpp>
 #include <Editor/Core/Control/ControlChannelOptions.hpp>
+#include <Engine/Project/StartupLayout.hpp>
 
 #include <Common/Core/Profiler.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -61,7 +64,10 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         std::exit( 2 );
     }
 
-    const Desert::Editor::CommandLineOptions options = parsed.ExtractValue();
+    // NOT const: the project is RESOLVED below -- made absolute before the working directory can
+    // move, and filled in from the descriptor beside the executable when the caller named none.
+    // The parse itself stays pure; this is the one place its result is completed from the disk.
+    Desert::Editor::CommandLineOptions options = parsed.ExtractValue();
 
     // IS ANYBODY SITTING AT THIS EDITOR? Asked ONCE, and every consequence below reads this rather than
     // guessing from a flag. It used to be spelled `options.Shot.Active()` in three places whose own
@@ -70,16 +76,87 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // throwaway worktree in the developer's registries. See CommandLine.hpp::IsUnattendedSession.
     const bool unattended = Desert::Editor::IsUnattendedSession( options.Shot, !options.ControlSocket.empty() );
 
-    // The editor is PROJECT-DRIVEN: `--project <path/to/.deproj>` is REQUIRED. Picking/creating projects
-    // is the launcher's job (the desert-launcher repository) — the editor itself
-    // never shows a chooser. Opening the project also remaps every engine content path into the project
-    // folder, so it must happen BEFORE anything engine-side spins up.
-    if ( !options.Project.empty() )
+    // ── WHERE THIS PROCESS IS, AND WHAT THAT ANSWERS ────────────────────────────────────────────────
+    //
+    // A DOWNLOADED BUILD MUST START BY BEING DOUBLE-CLICKED. It did not: the CI artifact is COMPLETE
+    // — binaries, `Resources/{Shaders,Fonts,Icons}` and `Desert.deproj` in one directory — and the
+    // editor still demanded `DESERT_ROOT` (naming a run script that is not in the drop) and
+    // `--project` (for a descriptor lying beside the executable). Both demands were for facts
+    // derivable from the one thing every process has for free: its own image path.
+    //
+    // The three derivations are pure functions in Engine/Project/StartupLayout.hpp so that the
+    // decisions can be asserted by Desert/Tests/Engine/StartupLayout instead of discovered by
+    // unzipping an artifact. What is left here is only the policy: what to do with each answer.
+    const std::filesystem::path executable   = Common::Utils::FileSystem::ExecutablePath();
+    const std::filesystem::path executableIn = executable.parent_path();
+
+    // 1. THE ENGINE RESOURCES, BEFORE ANYTHING READS ONE. Every engine resource is a path relative
+    //    to the WORKING DIRECTORY (Common::Constants::Path), so this either leaves the working
+    //    directory alone — which is what every `scripts/*/RunEditor.*` launch gets, because it has
+    //    already changed into `Editor/` — or moves to the executable's own folder, which is the drop.
     {
-        // An UNATTENDED run stays OUT of the recent-projects registry. Those runs happen in agent
-        // worktrees that are reclaimed within the hour, and each one used to file itself at the top
-        // of the developer's list — which is why the live registry on this machine is mostly dead
-        // paths, and why the launcher needs an "unopenable entry" state at all.
+        std::error_code                          cwdError;
+        const std::filesystem::path              here = std::filesystem::current_path( cwdError );
+        const Desert::Project::ResourceRootLookup resources =
+             Desert::Project::ResolveResourceRoot( cwdError ? std::filesystem::path{} : here, executableIn );
+        if ( !resources.Explanation.empty() )
+        {
+            // A REFUSAL, not a half-start. An editor that opens a window it cannot draw into costs
+            // whoever downloaded it an afternoon of looking at the wrong thing.
+            std::fprintf( stderr, "[Engine] %s\n", resources.Explanation.c_str() );
+            std::exit( 1 );
+        }
+        if ( !resources.WorkingDirectory.empty() )
+        {
+            // Absolute FIRST. The caller's `--project` (and anything else spelled relatively) was
+            // written against the directory this process started in, and moving out from under it
+            // would silently reinterpret those paths against a different folder.
+            if ( !options.Project.empty() )
+            {
+                std::error_code absError;
+                const std::filesystem::path resolved =
+                     std::filesystem::absolute( options.Project, absError );
+                if ( !absError )
+                    options.Project = resolved.string();
+            }
+            std::error_code moveError;
+            std::filesystem::current_path( resources.WorkingDirectory, moveError );
+            if ( moveError )
+            {
+                std::fprintf( stderr, "[Engine] the engine resources are in '%s' but this process could "
+                                      "not work from there: %s\n",
+                              resources.WorkingDirectory.c_str(), moveError.message().c_str() );
+                std::exit( 1 );
+            }
+        }
+    }
+
+    // 2. THE PROJECT. The editor is PROJECT-DRIVEN and never shows a chooser — picking and creating
+    //    projects is the launcher's job (the desert-launcher repository). What it no longer does is
+    //    DEMAND the flag for a descriptor it is standing next to: with no `--project`, the single
+    //    `.deproj` beside the executable is opened, and none-or-several is a refusal that names what
+    //    it found. A development build lands in the "none" branch by construction —
+    //    `build/Bin/<Config>/` holds no descriptor — and its run scripts pass the flag as they always
+    //    did.
+    if ( options.Project.empty() )
+    {
+        auto beside = Desert::Project::ProjectBesideExecutable( executableIn );
+        if ( !beside.IsSuccess() )
+        {
+            std::fprintf( stderr, "%s\n", beside.GetError().c_str() );
+            std::exit( 1 );
+        }
+        options.Project = beside.ExtractValue();
+    }
+
+    // Opening the project remaps every engine content path into the project folder, so it must
+    // happen BEFORE anything engine-side spins up.
+    //
+    // An UNATTENDED run stays OUT of the recent-projects registry. Those runs happen in agent
+    // worktrees that are reclaimed within the hour, and each one used to file itself at the top
+    // of the developer's list — which is why the live registry on this machine is mostly dead
+    // paths, and why the launcher needs an "unopenable entry" state at all.
+    {
         const auto record = unattended ? Desert::Editor::ProjectContext::RecordInRecent::No
                                        : Desert::Editor::ProjectContext::RecordInRecent::Yes;
         if ( !Desert::Editor::ProjectContext::Open( options.Project, record ) )
@@ -97,13 +174,32 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // that is gone.
     if ( !unattended )
     {
-        const char* engineRoot = std::getenv( "DESERT_ROOT" );
-        if ( const auto registered = Desert::Project::RegisterThisEngine(
-                  Desert::Editor::ProjectContext::ConfigDirectory(), engineRoot ? engineRoot : "" );
-             !registered.IsSuccess() )
+        // THE ENVIRONMENT VARIABLE IS SENIOR, AND IT STAYS SENIOR. It is not a workaround being
+        // retired — it is the one way to say "register THAT checkout, not the one I happen to have
+        // launched", and an explicit statement by the operator must beat an inference. What it
+        // stops being is REQUIRED: with nothing set, the tree is derived from where this executable
+        // is, which is how `build/Bin/<Config>/Editor` started directly now registers correctly too.
+        const char*                          fromEnvironment = std::getenv( "DESERT_ROOT" );
+        const Desert::Project::EngineRootLookup derived = Desert::Project::DeriveEngineRoot( executable );
+        const std::string                    engineRoot =
+             fromEnvironment && fromEnvironment[0] ? std::string( fromEnvironment ) : derived.Root;
+
+        if ( engineRoot.empty() )
+        {
+            // NOT A FAILURE, AND THE WORDING NOW SAYS SO. This is the ordinary state of a
+            // downloaded build, and the message it replaced told the reader to start the editor
+            // through a run script the drop does not contain — an instruction that cannot be
+            // followed, printed by a program that had just started perfectly well.
+            std::fprintf( stderr, "[Engine] %s\n", derived.Explanation.c_str() );
+        }
+        else if ( const auto registered = Desert::Project::RegisterThisEngine(
+                       Desert::Editor::ProjectContext::ConfigDirectory(), engineRoot );
+                  !registered.IsSuccess() )
+        {
             // stderr, not a log line: the consequence is that the LAUNCHER will not list this
             // engine, and the person who needs to know that is the one reading this terminal.
             std::fprintf( stderr, "[Engine] %s\n", registered.GetError().c_str() );
+        }
     }
 
     // Published before the renderer exists: the flags have to be in force for the very first frame, or a
@@ -131,13 +227,6 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     Common::Profiling::Profiler::Get().GpuEnabled()    = options.Shot.GpuProfile && options.Shot.GpuTiming;
     Common::Profiling::Profiler::Get().GpuPassScopes() = !options.Shot.GpuFrameOnly;
 
-    if ( !Desert::Editor::ProjectContext::HasProject() )
-    {
-        std::fprintf( stderr, "No project given. Pass: --project <path/to/.deproj>\n"
-                              "(the launcher lives in the desert-launcher repository and starts the editor\n"
-                              " with exactly that flag — it is not part of this build.)\n" );
-        std::exit( 1 );
-    }
 
     ApplicationInfo appInfo;
     appInfo.Title = "Desert Engine — " + Desert::Editor::ProjectContext::Current().Name;
