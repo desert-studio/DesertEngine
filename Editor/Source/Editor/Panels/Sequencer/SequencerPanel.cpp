@@ -1886,8 +1886,66 @@ namespace Desert::Editor
         SelectSection( m_SelSection + delta );
     }
 
+    // ── THE UI TIMELINE'S EDITS, REACHABLE WITHOUT A MOUSE ───────────────────────────────────────────
+    //
+    // The same argument the section actions below carry, applied to the other timeline: every edit in
+    // DrawUITracks is a widget, synthetic input is closed on this machine at both doors, and an edit that
+    // only a hand can make is an edit no screenshot can show and no unattended run can undo. These call
+    // the SAME bodies the widgets call, so a command and a button cannot come to mean different things.
+    //
+    // WHY NOT EVERY EDIT. A value drag and a retime take a NUMBER, and PaletteCommand::Run takes no
+    // arguments -- a tableful of "set the key to 0.1, 0.2, 0.3" entries would be a dictionary nobody
+    // could read. What is offered is the two gestures that need no argument: pick a lane, and key it at
+    // the playhead. Between them they reach the transaction, which is what had to become observable.
+    std::vector<SequencerPanel::DocumentAction> SequencerPanel::UIActions()
+    {
+        std::vector<DocumentAction> actions;
+        actions.push_back( DocumentAction{ "Select the next lane", [this]
+                                           {
+                                               const auto clip = ResolveUIClip();
+                                               if ( clip == nullptr || clip->Tracks.empty() )
+                                               {
+                                                   ToastManager::Push( "this clip has no lane",
+                                                                       ToastLevel::Error, 6.0f );
+                                                   return;
+                                               }
+                                               const int count = static_cast<int>( clip->Tracks.size() );
+                                               m_UITrack       = ( m_UITrack + 1 ) % count;
+                                               m_UIKey         = -1;
+                                           } } );
+        actions.push_back( DocumentAction{ "Add a key at the playhead on the selected lane", [this]
+                                           {
+                                               if ( ECS::UIAnimData* clip = ResolveUIClip() )
+                                               {
+                                                   AddUIKeyAtPlayhead( *clip, m_UITrack );
+                                               }
+                                           } } );
+        return actions;
+    }
+
+    ECS::UIAnimData* SequencerPanel::ResolveUIClip()
+    {
+        // RESOLVED PER CALL AND NEVER STORED. The component lives in an entt pool that relocates when it
+        // grows, so an address kept between frames is the hazard UIClipEdit.hpp's register row is about.
+        const auto entOpt = ResolveEntity();
+        if ( !entOpt )
+        {
+            return nullptr;
+        }
+        ECS::Entity entity = entOpt->get();
+        if ( !entity.HasComponent<ECS::UIAnimComponent>() )
+        {
+            return nullptr;
+        }
+        return &entity.GetComponent<ECS::UIAnimComponent>().Data;
+    }
+
     std::vector<SequencerPanel::DocumentAction> SequencerPanel::Actions()
     {
+        if ( m_Timeline == Timeline::UI )
+        {
+            return UIActions();
+        }
         if ( m_Timeline != Timeline::Skeletal )
         {
             return {};
@@ -2574,11 +2632,7 @@ namespace Desert::Editor
             ImGui::PushID( ti * 8192 + 7 );
             if ( ImGui::SmallButton( "+" ) )
             {
-                const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-                tr.Keys.push_back( { clip.Time, tr.Keys.empty() ? glm::vec4( 0.0f ) : tr.Keys.back().Value,
-                                     ECS::UIEasing::CubicOut } );
-                std::sort( tr.Keys.begin(), tr.Keys.end(),
-                           []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b ) { return a.Time < b.Time; } );
+                AddUIKeyAtPlayhead( clip, ti );
             }
             ImGui::SameLine();
             if ( ImGui::SmallButton( "x" ) )
@@ -2711,6 +2765,24 @@ namespace Desert::Editor
         {
             EndUIClipEdit();
         }
+    }
+
+    void SequencerPanel::AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane )
+    {
+        // ONE BODY FOR THE BUTTON AND THE COMMAND, for the reason RunSectionEdit above exists: two copies
+        // of "add a key" are two answers that drift, and the command is the ONLY one of the two that an
+        // unattended run can reach -- so a drift would be invisible in exactly the run that checks it.
+        if ( lane < 0 || lane >= static_cast<int>( clip.Tracks.size() ) )
+        {
+            ToastManager::Push( "add UI key: no lane is selected", ToastLevel::Error, 6.0f );
+            return;
+        }
+        const ScopedUIClipEdit step( m_UIClipEdit, &clip );
+        ECS::UIAnimTrack&      track = clip.Tracks[lane];
+        track.Keys.push_back( { clip.Time, track.Keys.empty() ? glm::vec4( 0.0f ) : track.Keys.back().Value,
+                                ECS::UIEasing::CubicOut } );
+        std::sort( track.Keys.begin(), track.Keys.end(),
+                   []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b ) { return a.Time < b.Time; } );
     }
 
     void SequencerPanel::BracketUIClipEditFromItem( ECS::UIAnimData& clip )

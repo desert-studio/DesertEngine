@@ -25,6 +25,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 using Desert::ECS::UIAnimData;
@@ -361,4 +362,59 @@ TEST_F( UIClipUndoTest, TheEntryIsVolatileAndDropVolatileTakesIt )
 
     CommandHistory::Get().DropVolatile();
     EXPECT_EQ( UndoDepth(), 0U );
+}
+
+// ── THE COMPARISON ITSELF ────────────────────────────────────────────────────────────────────────────
+
+TEST_F( UIClipUndoTest, TheComparisonSeesEveryFieldItIsAskedAbout )
+{
+    // THE ROUND-TRIP TESTS ARE ONLY AS STRONG AS THIS. `SameStoredValue` is what every one of them
+    // asserts through, so a field quietly dropped out of it would make all of them pass while the undo
+    // stopped putting that field back. Each block below differs in EXACTLY ONE field.
+    UIAnimData clip = MakeClip();
+    const UIClipContent base = CaptureUIClip( clip );
+
+    {
+        UIClipContent other            = base;
+        other.Tracks[0].Keys[0].Time   = 0.5F;
+        EXPECT_FALSE( SameStoredValue( base, other ) ) << "a key's Time";
+    }
+    {
+        UIClipContent other             = base;
+        other.Tracks[0].Keys[0].Value.y = 3.0F;
+        EXPECT_FALSE( SameStoredValue( base, other ) ) << "a key's Value";
+    }
+    {
+        UIClipContent other              = base;
+        other.Tracks[0].Keys[0].Easing   = UIEasing::BounceOut;
+        EXPECT_FALSE( SameStoredValue( base, other ) ) << "a key's Easing";
+    }
+    {
+        UIClipContent other        = base;
+        other.Tracks[1].Property   = UITweenProperty::Color;
+        EXPECT_FALSE( SameStoredValue( base, other ) ) << "a lane's Property";
+    }
+    {
+        UIClipContent other = base;
+        std::swap( other.Tracks[0].Keys[0], other.Tracks[0].Keys[1] );
+        EXPECT_FALSE( SameStoredValue( base, other ) ) << "the ORDER of a lane's keys";
+    }
+    {
+        UIClipContent other = base;
+        other.Duration      = 3.0F;
+        EXPECT_FALSE( SameStoredValue( base, other ) ) << "the clip's Duration";
+    }
+    {
+        UIClipContent other = base;
+        other.Loop          = true;
+        EXPECT_FALSE( SameStoredValue( base, other ) ) << "the clip's Loop";
+    }
+    {
+        UIClipContent other = base;
+        other.Tracks.pop_back();
+        EXPECT_FALSE( SameStoredValue( base, other ) ) << "a whole lane";
+    }
+    // ...and the same value compares equal, so the eight above are not the answer of a function that
+    // always says "different".
+    EXPECT_TRUE( SameStoredValue( base, CaptureUIClip( clip ) ) );
 }

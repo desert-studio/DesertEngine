@@ -265,6 +265,13 @@ namespace Desert::Editor
         // (Offset / Size / Opacity / Color) with draggable keys and a scrubbable playhead.
         void DrawUITracks( ECS::Entity& entity );
 
+        // The UI timeline's own palette actions, and the clip they act on. Split out of Actions() the
+        // way DrawUITracks is split out of OnUIRender: two timelines with nothing in common but a window.
+        std::vector<DocumentAction> UIActions();
+        [[nodiscard]] ECS::UIAnimData* ResolveUIClip();
+        // "Key this lane at the playhead", shared by the lane's + button and by the palette action.
+        void AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane );
+
         // The two edges of a HELD widget in the UI timeline (a Duration drag, a key's value field), in one
         // place. See the definition for why it closes on IsItemDeactivated and not on the AfterEdit form.
         void BracketUIClipEditFromItem( ECS::UIAnimData& clip );
