@@ -49,6 +49,7 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/Rig/ControlHierarchy.hpp>
 
 #include <cstdint>
 #include <string>
@@ -194,6 +195,69 @@ namespace Desert::Editor
         size_t                    m_TrackCountAfter  = 0;
         SectionEdit               m_Sections;
     };
+
+    /**
+     * @brief ONE CONTROL-RIG DRAG, AS ONE UNDO ENTRY — the third thing in this editor that authors a pose.
+     *
+     * IT IS A SECOND COMMAND AND NOT A SECOND USE OF `ClipPoseCommand`, because the subject is neither
+     * of that one's two halves: a control's authored `Pose` lives in a `ControlHierarchy`, not in the
+     * Animator's authoring buffer and not in a `BoneTrack`. A drag writes it and nothing else.
+     *
+     * ── WHY IT IS NOT `CommandHistory::Push` ─────────────────────────────────────────────────────────
+     *
+     * `BoneTransform` is three trivially copyable members, so the byte command WOULD take it — and would
+     * be wrong. `ControlHierarchy::SetPose` DIRTIES the control and everything downstream of it (T5.1's
+     * laziness is the whole design), and a memcpy into the member restores the value while leaving every
+     * dependent global cached at the dragged position. The control would snap back and the skeleton would
+     * not follow, which reads as a rig defect rather than an undo one. This command goes through
+     * `SetPose` and reports its refusal.
+     *
+     * ── WHAT IT REPLACES ─────────────────────────────────────────────────────────────────────────────
+     *
+     * `LightGizmoRenderer::m_ControlPoseAtGrab` and `m_ControlDragOwner` were WRITTEN AND NEVER READ, and
+     * the comment above them said "kept beside the drag so one undo entry per completed drag is pushed".
+     * No entry was ever pushed: control drags were outside the undo stack exactly as the whole pose
+     * branch was before A29. A comment is not the code; this is the line that does the thing.
+     */
+    class ControlPoseCommand final : public ICommand
+    {
+    public:
+        ControlPoseCommand( Animation::ControlHierarchy* hierarchy, uint32_t control,
+                            Animation::BoneTransform before, Animation::BoneTransform after );
+
+        bool Undo() override;
+        bool Redo() override;
+
+        /// A raw pointer into a rig that an asset eviction or a re-attach can replace under it, so the
+        /// same guard `ClipPoseCommand` takes and for the same reason. See the `PointerOwnership` row.
+        bool IsVolatile() const override
+        {
+            return true;
+        }
+
+        std::string GetLabel() const override;
+
+    private:
+        bool Apply( const Animation::BoneTransform& pose );
+
+        Animation::ControlHierarchy* m_Hierarchy = nullptr;
+        uint32_t                     m_Control   = 0;
+        Animation::BoneTransform     m_Before;
+        Animation::BoneTransform     m_After;
+    };
+
+    /**
+     * @brief Push one entry for a FINISHED control drag, from the pose the grab captured.
+     *
+     * @return entries pushed: 0 when the drag moved nothing — a click that grabbed and released is not
+     *         an undo step, and this editor already pays for histories full of empty entries.
+     *
+     * Takes the "after" from the hierarchy itself rather than from the caller: the drag's last `Update`
+     * is what wrote it, and a caller passing its own copy is a second opinion about what the drag did.
+     */
+    [[nodiscard]] Common::ResultStr<uint32_t> RecordControlDrag( Animation::ControlHierarchy* hierarchy,
+                                                                 uint32_t                        control,
+                                                                 const Animation::BoneTransform& before );
 
     /**
      * @brief The interaction boundary, and the only thing that decides what "one undo step" means.

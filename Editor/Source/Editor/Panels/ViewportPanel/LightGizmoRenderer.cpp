@@ -13,6 +13,7 @@
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
 
 #include <Editor/Core/ControlNudgeRequest.hpp>
+#include <Editor/Core/Commands/PoseEditTransaction.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>
@@ -234,7 +235,7 @@ namespace Desert::Editor
         // THE DRAG WITHOUT A MOUSE, and it is placed HERE — after the frame is built and before the
         // pointer is read — because those are the two things it needs and the only point in the frame at
         // which both are true. Editor/Core/ControlNudgeRequest.hpp has the whole argument.
-        PerformQueuedControlNudge( hierarchy, view, *selected );
+        PerformQueuedControlNudge( hierarchy, view );
 
         const ImVec2      pointer  = ImGui::GetMousePos();
         const glm::vec2   pointerV = glm::vec2( pointer.x, pointer.y );
@@ -294,7 +295,19 @@ namespace Desert::Editor
             }
             else
             {
+                const uint32_t dragged = m_ControlDrag.Control();
                 m_ControlDrag.End();
+                // ONE ENTRY PER COMPLETED DRAG, and this is the line the two fields below were written
+                // for since T5.2 without anything ever reading them. Only the COMPLETION records: the
+                // other four End() calls in this file abandon a drag because the mode, the selection or
+                // the rig changed underneath it, and an entry addressed into a rig that is being rebuilt
+                // is worth less than no entry at all.
+                if ( const auto recorded = RecordControlDrag( &hierarchy, dragged, m_ControlPoseAtGrab );
+                     !recorded.IsSuccess() )
+                {
+                    LOG_WARN( "[Animation] the control drag was not recorded for undo: {}",
+                              recorded.GetError() );
+                }
             }
             // A drag in progress must not let the scene pick fire underneath it.
             m_LightIconHovered = true;
@@ -341,7 +354,6 @@ namespace Desert::Editor
                      begun )
                 {
                     m_ControlPoseAtGrab = m_ControlDrag.PoseAtGrab();
-                    m_ControlDragOwner  = *selected;
                 }
                 else
                 {
@@ -353,8 +365,7 @@ namespace Desert::Editor
     }
 
     void LightGizmoRenderer::PerformQueuedControlNudge( Animation::ControlHierarchy&      hierarchy,
-                                                        const Animation::ManipulatorView& view,
-                                                        const Common::UUID&               owner )
+                                                        const Animation::ManipulatorView& view )
     {
         if ( !Core::ControlNudgeRequests::HasPending() )
         {
@@ -415,13 +426,20 @@ namespace Desert::Editor
             return;
         }
         m_ControlPoseAtGrab = m_ControlDrag.PoseAtGrab();
-        m_ControlDragOwner  = owner;
 
         if ( const auto moved = m_ControlDrag.Update( hierarchy, view, from + *delta ); !moved )
         {
             LOG_WARN( "[Animation] Control nudge refused: {}", moved.GetError() );
         }
         m_ControlDrag.End();
+        // THE SAME RECORDING THE MOUSE'S RELEASE MAKES. It is what lets this gesture be checked by a
+        // ROUND TRIP rather than by one picture: nudge, photograph, undo, photograph, and the two
+        // photographs of the un-nudged state have to be the same pixels.
+        if ( const auto recorded = RecordControlDrag( &hierarchy, *selected, m_ControlPoseAtGrab );
+             !recorded.IsSuccess() )
+        {
+            LOG_WARN( "[Animation] the control nudge was not recorded for undo: {}", recorded.GetError() );
+        }
 
         LOG_INFO( "[Animation] Control '{}' nudged by ({:.0f}, {:.0f}) px from ({:.0f}, {:.0f}).",
                   hierarchy.Get( *selected ).Name, delta->x, delta->y, from.x, from.y );

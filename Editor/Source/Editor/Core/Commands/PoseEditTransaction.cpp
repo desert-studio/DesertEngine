@@ -209,6 +209,68 @@ namespace Desert::Editor
         return true;
     }
 
+    // ── ControlPoseCommand ───────────────────────────────────────────────────────────────────────────
+
+    ControlPoseCommand::ControlPoseCommand( Animation::ControlHierarchy* hierarchy, uint32_t control,
+                                            Animation::BoneTransform before, Animation::BoneTransform after )
+         : m_Hierarchy( hierarchy ), m_Control( control ), m_Before( std::move( before ) ),
+           m_After( std::move( after ) )
+    {
+    }
+
+    bool ControlPoseCommand::Undo()
+    {
+        return Apply( m_Before );
+    }
+
+    bool ControlPoseCommand::Redo()
+    {
+        return Apply( m_After );
+    }
+
+    bool ControlPoseCommand::Apply( const Animation::BoneTransform& pose )
+    {
+        if ( m_Hierarchy == nullptr || m_Control >= m_Hierarchy->Size() )
+        {
+            // Reported rather than asserted: CommandHistory::Undo discards an entry that answers false
+            // and keeps walking down, which is the right answer for an entry whose rig was replaced.
+            LOG_ERROR( "[PoseUndo] the control rig this entry was recorded against is gone; dropped" );
+            return false;
+        }
+        if ( const auto written = m_Hierarchy->SetPose( m_Control, pose ); !written.IsSuccess() )
+        {
+            LOG_ERROR( "[PoseUndo] {}", written.GetError() );
+            return false;
+        }
+        return true;
+    }
+
+    std::string ControlPoseCommand::GetLabel() const
+    {
+        return "Control drag";
+    }
+
+    Common::ResultStr<uint32_t> RecordControlDrag( Animation::ControlHierarchy* hierarchy, uint32_t control,
+                                                   const Animation::BoneTransform& before )
+    {
+        if ( hierarchy == nullptr || control >= hierarchy->Size() )
+        {
+            return Common::MakeFormattedError<uint32_t>(
+                 "a control drag cannot be recorded against control {} of a rig with {} of them", control,
+                 hierarchy != nullptr ? hierarchy->Size() : 0U );
+        }
+
+        const Animation::BoneTransform& after = hierarchy->Get( control ).Pose;
+        if ( SameStoredValue( before, after ) )
+        {
+            return Common::MakeSuccess( 0U );
+        }
+
+        CommandHistory::Get().PushCommand(
+             std::make_unique<ControlPoseCommand>( hierarchy, control, before, after ) );
+        return Common::MakeSuccess( 1U );
+    }
+
     // ── PoseEditTransaction ──────────────────────────────────────────────────────────────────────────
 
     Common::BoolResultStr PoseEditTransaction::Begin( Animation::Animator*      animator,

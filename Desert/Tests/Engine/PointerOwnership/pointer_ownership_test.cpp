@@ -406,11 +406,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   pointer is INTO an entt pool, so the address can die while the entity lives. The transaction adds
     //   one guarantee the pose one does not -- the panel compares Subject() with the component it
     //   resolved this frame and abandons the entry when they differ.
-    EXPECT_EQ( CountOf( Form::Raw ), 377 );
+    //   and +1 Raw with A33's second half (377 -> 378, 862 -> 863): `ControlPoseCommand::m_Hierarchy`.
+    //   The control drag had NO undo entry at all -- LightGizmoRenderer wrote m_ControlPoseAtGrab and
+    //   m_ControlDragOwner and read neither, under a comment saying an entry was pushed from them. The
+    //   UUID goes with this change too, and it moves NO number here -- a Common::UUID is not a pointer
+    //   and was never in this census, which is exactly why nothing went red while it sat there unread.
+    EXPECT_EQ( CountOf( Form::Raw ), 378 );
     EXPECT_EQ( CountOf( Form::Shared ), 330 );
     EXPECT_EQ( CountOf( Form::Unique ), 117 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 862 )
+    EXPECT_EQ( (int)Members().size(), 863 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
