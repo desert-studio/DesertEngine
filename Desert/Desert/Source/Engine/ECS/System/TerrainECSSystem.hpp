@@ -3,6 +3,7 @@
 #include "System.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Render/Commands/DrawTerrainCommand.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -32,8 +33,7 @@ namespace Desert::ECS
             auto view = registry.view<TerrainComponent, TransformComponent>();
             for ( const auto entity : view )
             {
-                if ( registry.has<VisibilityComponent>( entity ) &&
-                     !registry.get<VisibilityComponent>( entity ).Visible )
+                if ( ECS::IsHidden( registry, entity ) )
                     continue;
 
                 auto&       terrainComp = view.get<TerrainComponent>( entity );

@@ -3,6 +3,7 @@
 #include "System.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 
 #include <Engine/Graphic/Render/Commands/PointLightCommand.hpp>
 
@@ -28,6 +29,13 @@ namespace Desert::ECS
             pointLightView.each(
                  [&]( auto entity, const auto& pointlight, const auto& transform )
                  {
+                     // A hidden light emits NOTHING. It is a light, not a mesh, so nothing about it is
+                     // "drawn" — but the outliner's eye is the only switch an artist has for killing one
+                     // contribution while keeping the authored radius/colour, and a light that keeps lighting
+                     // the room after its entity was hidden is the exact complaint that opened this task.
+                     if ( ECS::IsHidden( registry, entity ) )
+                         return;
+
                      glm::mat4 worldTransform = transform.GetTransform();
 
                      entt::entity current = entity;
