@@ -30,10 +30,17 @@ namespace Desert::Editor::Tools
     //
     // WHAT WE TOOK FROM UE AND WHAT WE DID NOT. Taken: the apex is the camera, the shape says which way
     // it looks and how wide, and an up marker says which way is up so roll is visible. Not taken: UE's
-    // world-sized frustum drawn to a fixed distance (it is the thing that stops being legible when you
-    // move), and its near rectangle. The near plane defaults to 10 cm; at any distance where this gizmo
-    // is legible the near rectangle is smaller than the icon glyph drawn on top of it, so it is a line
-    // that can never be seen. It is not drawn, and this paragraph is why rather than an omission.
+    // world-sized frustum drawn to a fixed distance — it is precisely the thing that stops being
+    // legible when you move — and its separate near rectangle.
+    //
+    // THE NEAR RECTANGLE IS NOT A SECOND RECTANGLE HERE, AND THE FIRST VERSION OF THIS PARAGRAPH WAS
+    // WRONG. It claimed the near plane is always too small to see, and the suite's ladder says
+    // otherwise: at a viewer distance of 100 cm the drawn depth is 12 cm against a 10 cm near plane,
+    // which is 83 % of the way out and would be perfectly visible. So the near plane is the LOWER
+    // CLAMP on the depth instead. The consequence is exactly the behaviour a second rectangle would
+    // have bought: fly close enough for the two to separate and the base is already pinned at the near
+    // plane, so the pyramid's base IS the near rectangle. One rectangle, no case where the drawn shape
+    // claims the camera sees something it clips away.
 
     struct CameraFrustumGizmo
     {
@@ -58,9 +65,9 @@ namespace Desert::Editor::Tools
     // FOV, which is large enough to read a direction from and small enough not to cover the subject.
     inline constexpr float kGizmoHalfExtentPerDistance = 0.05f;
 
-    // The floor on Depth, in world units (= 1 cm). It exists for the degenerate case only: a viewer
-    // standing ON the camera would otherwise get a zero-size shape whose edges are one point, and a
-    // wireframe that vanishes when you fly into it reads as a bug rather than as a viewpoint.
+    // The absolute floor on Depth, in world units (= 1 cm). It is below every near plane the editor can
+    // author (the Near slider stops at 1) and exists only so a hand-written file with Near = 0 cannot
+    // collapse the whole wireframe into a single point.
     inline constexpr float kGizmoMinDepth = 1.0f;
 
     /**
@@ -72,20 +79,27 @@ namespace Desert::Editor::Tools
      * pyramid's SHARPNESS (a wide camera gets a short flaring one, a long lens a deep narrow one)
      * rather than as its size, which is the more informative of the two mappings and the bounded one.
      *
+     * BOTH CLAMPS ARE THE PLACES THAT PROPERTY IS GIVEN UP, AND BOTH ARE DELIBERATE. The gizmo may
+     * neither claim the camera sees past its own Far, nor draw a base inside its own near plane —
+     * so the drawn depth is the camera's own [Near, Far] whenever the wanted size falls outside it,
+     * and the suite asserts that rather than leaving it to be discovered.
+     *
      * @param viewerDistance distance from the EDITOR camera to the camera entity, world units.
-     * @param farPlane       the camera's own Far. The gizmo may not claim to see past it, so this is
-     *                       the upper clamp — a camera with a 30 cm Far draws a 30 cm pyramid and the
-     *                       constant-apparent-size property is deliberately given up there.
+     * @param nearPlane      the camera's own Near — the lower clamp.
+     * @param farPlane       the camera's own Far — the upper clamp.
      * @param tanHalfFovY    tan of half the camera's vertical field of view.
      */
-    [[nodiscard]] inline float GizmoFrustumDepth( float viewerDistance, float farPlane, float tanHalfFovY )
+    [[nodiscard]] inline float GizmoFrustumDepth( float viewerDistance, float nearPlane, float farPlane,
+                                                  float tanHalfFovY )
     {
         // A camera authored with a degenerate FOV would divide by zero here and put the rectangle at
-        // infinity; the floor is the smallest tangent the FOV slider can reach (10 deg) divided by a
-        // safety decade, so it never binds on an authored value and always binds on a broken one.
+        // infinity; the floor is well under the smallest tangent the FOV slider can reach (10 deg), so
+        // it never binds on an authored value and always binds on a broken one.
         const float tanHalf = std::max( tanHalfFovY, 1.0e-3f );
         const float wanted  = kGizmoHalfExtentPerDistance * std::max( viewerDistance, 0.0f ) / tanHalf;
-        return std::clamp( wanted, kGizmoMinDepth, std::max( farPlane, kGizmoMinDepth ) );
+
+        const float lower = std::max( nearPlane, kGizmoMinDepth );
+        return std::clamp( wanted, lower, std::max( farPlane, lower ) );
     }
 
     /**
@@ -99,12 +113,13 @@ namespace Desert::Editor::Tools
      *                    own, so the caller passes the viewport's; the gizmo then shows the frame the
      *                    editor would actually render through this camera.
      * @param tanHalfFovY tan of half the camera's vertical field of view.
+     * @param nearPlane   the camera's own Near, world units.
      * @param farPlane    the camera's own Far, world units.
      * @param viewerPos   the EDITOR camera's world position.
      */
     [[nodiscard]] inline CameraFrustumGizmo BuildCameraFrustumGizmo( const glm::mat4& world, float aspect,
-                                                                     float tanHalfFovY, float farPlane,
-                                                                     const glm::vec3& viewerPos )
+                                                                     float tanHalfFovY, float nearPlane,
+                                                                     float farPlane, const glm::vec3& viewerPos )
     {
         CameraFrustumGizmo out;
         out.Apex = glm::vec3( world[3] );
@@ -115,7 +130,7 @@ namespace Desert::Editor::Tools
         const glm::vec3 up      = glm::normalize( glm::vec3( world[1] ) );
         const glm::vec3 forward = -glm::normalize( glm::vec3( world[2] ) );
 
-        out.Depth = GizmoFrustumDepth( glm::length( viewerPos - out.Apex ), farPlane, tanHalfFovY );
+        out.Depth = GizmoFrustumDepth( glm::length( viewerPos - out.Apex ), nearPlane, farPlane, tanHalfFovY );
 
         const float     halfHeight = out.Depth * std::max( tanHalfFovY, 1.0e-3f );
         const float     halfWidth  = halfHeight * aspect;

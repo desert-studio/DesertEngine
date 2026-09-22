@@ -424,7 +424,14 @@ namespace Desert::Editor
             Play,
         };
 
-        EditorState m_EditorState;
+        // INITIALISED, and it was not. The constructor's init list never named it and the declaration
+        // carried no initialiser, so a freshly booted editor read whichever byte its allocation landed
+        // on. Measured 2026-09-22 from the control channel: two launches of the SAME binary minutes
+        // apart reported `"playing": false` and `"playing": true`, with the scene sitting in Edit both
+        // times — `OnScenePlay` guards on the SCENE's state, so the two can disagree and only this one
+        // was garbage. It is read by the state snapshot the control channel publishes and by
+        // CloseSceneView, which discards a play snapshot on the strength of it.
+        EditorState m_EditorState = EditorState::Paused;
         std::string m_PlaySnapshot;        // serialized scene captured on Play, restored on Stop
         bool        m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
 

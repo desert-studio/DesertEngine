@@ -815,8 +815,9 @@ namespace Desert::Editor
             // with the old shape lives. Drawn BEFORE the icon so the icon sits on top of the apex
             // rather than under four converging lines.
             const float aspect = height > 0.0f ? width / height : 1.7778f;
-            const Tools::CameraFrustumGizmo frustum = Tools::BuildCameraFrustumGizmo(
-                 worldXf, aspect, std::tan( glm::radians( cam.FOV ) * 0.5f ), cam.Far, camera->GetPosition() );
+            const Tools::CameraFrustumGizmo frustum =
+                 Tools::BuildCameraFrustumGizmo( worldXf, aspect, std::tan( glm::radians( cam.FOV ) * 0.5f ),
+                                                 cam.Near, cam.Far, camera->GetPosition() );
 
             // The selected camera is drawn in the editor's OWN selection colour — the same
             // EditorPreferences::OutlineColor the mesh outline uses, so a selected camera and a selected
