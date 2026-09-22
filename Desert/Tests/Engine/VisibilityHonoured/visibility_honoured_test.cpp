@@ -47,7 +47,6 @@
 #include <vector>
 
 using Desert::ECS::IsHidden;
-using Desert::ECS::IsVisible;
 using Desert::ECS::VisibilityComponent;
 
 // ---------------------------------------------------------------------------------------------------
@@ -62,7 +61,6 @@ TEST( EntityVisibility, AbsentComponentMeansVisible )
     EXPECT_FALSE( IsHidden( registry, entity ) )
          << "most entities never carry the component; treating absence as hidden blacks out every "
             "scene ever authored";
-    EXPECT_TRUE( IsVisible( registry, entity ) );
 }
 
 TEST( EntityVisibility, TheBoolIsTheAnswer )
@@ -91,20 +89,6 @@ TEST( EntityVisibility, NullAndDestroyedEntitiesAreNotHidden )
     registry.emplace<VisibilityComponent>( entity ).Visible = false;
     registry.destroy( entity );
     EXPECT_FALSE( IsHidden( registry, entity ) ) << "a destroyed entity is nothing, not a hidden thing";
-}
-
-// IsVisible is the same rule read the other way, not a second rule. Two spellings that can disagree is
-// how a flag ends up honoured by two of the three things it claims to control.
-TEST( EntityVisibility, IsVisibleIsExactlyTheNegation )
-{
-    entt::registry registry;
-    for ( int i = 0; i < 3; ++i )
-    {
-        const auto entity = registry.create();
-        if ( i > 0 )
-            registry.emplace<VisibilityComponent>( entity ).Visible = ( i == 1 );
-        EXPECT_EQ( IsVisible( registry, entity ), !IsHidden( registry, entity ) ) << i;
-    }
 }
 
 // ---------------------------------------------------------------------------------------------------

@@ -33,10 +33,4 @@ namespace Desert::ECS
 
         return registry.has<VisibilityComponent>( entity ) && !registry.get<VisibilityComponent>( entity ).Visible;
     }
-
-    // The positive spelling, for call sites that read better that way. One definition, not two rules.
-    inline bool IsVisible( const entt::registry& registry, entt::entity entity )
-    {
-        return !IsHidden( registry, entity );
-    }
 } // namespace Desert::ECS
