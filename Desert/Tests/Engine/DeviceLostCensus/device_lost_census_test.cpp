@@ -233,6 +233,8 @@ namespace
          // call would report anyway, and there is nothing an exiting process would do differently.
          { "VulkanDevice.cpp", "vkDeviceWaitIdle", 1, "dropped: teardown wait, already gated" },
          { "VulkanSwapChain.cpp", "vkDeviceWaitIdle", 1, "dropped: teardown wait, already gated" },
+         // In Editor/Source/Editor/ImGuiIntegration/ since the toolkit left the engine; the scan reaches
+         // that tree for exactly this reason (see ScanStatementPositionCalls).
          { "VulkanImGuiLayer.cpp", "vkDeviceWaitIdle", 1, "dropped: teardown wait, already gated" },
     };
 
@@ -251,18 +253,34 @@ namespace
         return false;
     }
 
-    // Every `vk*`/`vma*` call in statement position under Engine/Graphic, minus the excluded prefixes.
+    // Every `vk*`/`vma*` call in statement position under the trees below, minus the excluded prefixes.
+    //
+    // TWO TREES, AND THE SECOND ONE IS THIS SUITE'S OWN WARNING TAKEN SERIOUSLY. The scan used to be
+    // Engine/Graphic alone. When the ImGui integration moved out of the engine into
+    // Editor/Source/Editor/ImGuiIntegration/, VulkanImGuiLayer.cpp's `vkDeviceWaitIdle` left the scan with
+    // it -- and the census below says, in as many words, that a row matching nothing "passes while meaning
+    // nothing". Dropping the row would have been exactly that: the call is still there, still dropping a
+    // VkResult, just in a directory this scan had stopped looking at. The subject of this census is the
+    // code that issues Vulkan work, not the folder it happens to live in.
     std::vector<Found> ScanStatementPositionCalls( const std::string& root )
     {
         std::vector<Found> found;
-        const fs::path     base = fs::path( root ) / "Desert/Desert/Source/Engine/Graphic";
         std::error_code    ec;
-        for ( auto it = fs::recursive_directory_iterator( base, ec ); it != fs::recursive_directory_iterator();
-              ++it )
+        std::vector<fs::path> files;
+        for ( const char* subtree : { "Desert/Desert/Source/Engine/Graphic",
+                                      "Editor/Source/Editor/ImGuiIntegration" } )
         {
-            if ( ec )
-                break;
-            const fs::path& p = it->path();
+            const fs::path base = fs::path( root ) / subtree;
+            for ( auto it = fs::recursive_directory_iterator( base, ec );
+                  it != fs::recursive_directory_iterator(); ++it )
+            {
+                if ( ec )
+                    break;
+                files.push_back( it->path() );
+            }
+        }
+        for ( const fs::path& p : files )
+        {
             // lightweightvk is a vendored third-party tree that happens to live under our Vulkan folder.
             if ( p.string().find( "lightweightvk" ) != std::string::npos )
                 continue;
