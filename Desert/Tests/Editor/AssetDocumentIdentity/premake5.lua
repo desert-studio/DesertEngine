@@ -4,8 +4,10 @@
 -- document's naming rule and Editor/Core/OpenDocuments.hpp the open-or-focus lookup. They sit in
 -- headers for the same reason Editor/Core/SceneViewIdentity.hpp does -- EditorLayer.cpp is compiled by no
 -- suite, so anything assertable has to be lifted out of it. Nothing to link from the engine or the editor;
--- the ImGui and glm include paths are here because IPanel.hpp declares ImVec2 members, not because any
--- ImGui function is called.
+-- glm is on the path because IPanel.hpp's GetWindowPadding/GetDefaultSize return glm::vec2. The TOOLKIT is
+-- NOT: those two used to return ImVec2, which obliged this suite to carry the ThirdParty root so that
+-- <ImGui/imgui.h> would resolve for a test that calls nothing and draws nothing. See
+-- Desert/Tests/Editor/PanelInterfaceBoundary, which pins that absence.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)

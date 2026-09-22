@@ -12,9 +12,10 @@
 -- between two things and asserting it against a stub registry would assert nothing. It pulls in Common's
 -- logger and nothing else.
 --
--- Nothing to link from the engine or the editor; the ImGui and glm include paths are here because
--- IPanel.hpp (reached through EditorSubject.hpp's consumers) declares ImVec2 members, not because any
--- ImGui function is called.
+-- Nothing to link from the engine or the editor. glm is on the path because IPanel.hpp -- reached here
+-- through SubjectEditorRegistry.hpp -- returns glm::vec2 from GetWindowPadding/GetDefaultSize. The TOOLKIT
+-- is not: those two used to return ImVec2, which made this suite carry the ThirdParty root for a test that
+-- calls no ImGui function. See Desert/Tests/Editor/PanelInterfaceBoundary.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)
