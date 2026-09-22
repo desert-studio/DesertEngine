@@ -60,6 +60,15 @@ namespace Desert::Graphic::API::Vulkan
                                                          const VkBufferCreateInfo& bufferCreateInfo,
                                                          VmaMemoryUsage usage, VkBuffer& outBuffer );
 
+        /// WHAT THE ALLOCATOR ACTUALLY RESERVED, which is not what the caller asked for: VMA rounds a
+        /// request up to the memory type's alignment and to its own block granularity, and a driver may
+        /// pad an optimally-tiled image by a good deal more. The ledger wants the number that is charged
+        /// against `VK_EXT_memory_budget`, not the one a width, a height and a bytes-per-pixel multiply
+        /// out to several files away from the allocation — the same reason `MapAllocation` takes its size
+        /// from here rather than from its caller. 0 for a null allocation or before the allocator exists,
+        /// which the ledger already reads as "this row reported no size".
+        [[nodiscard]] static std::size_t AllocationSize( VmaAllocation allocation );
+
         void RT_DestroyBuffer( VkBuffer buffer, VmaAllocation allocation );
         void RT_DestroyImage( VkImage image, VmaAllocation allocation, VkImageView imageView = VK_NULL_HANDLE,
                               VkSampler sampler = VK_NULL_HANDLE,

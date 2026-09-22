@@ -109,6 +109,15 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( allocation );
     }
 
+    std::size_t VulkanAllocator::AllocationSize( VmaAllocation allocation )
+    {
+        if ( s_VmaAllocator == VK_NULL_HANDLE || allocation == VK_NULL_HANDLE )
+            return 0;
+        VmaAllocationInfo info{};
+        vmaGetAllocationInfo( s_VmaAllocator, allocation, &info );
+        return static_cast<std::size_t>( info.size );
+    }
+
     void VulkanAllocator::RT_DestroyBuffer( VkBuffer buffer, VmaAllocation allocation )
     {
         if ( !buffer || !allocation ) return;

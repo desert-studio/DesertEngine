@@ -24,8 +24,15 @@ namespace Desert::Graphic
         //
         // EVERY IMAGE IS IN THE LEDGER FROM HERE, whatever backend made it and whoever ends up holding it.
         // This constructor is the only place the engine sees all of them: `ImageService` looked like that
-        // place and is not — its Register() is reached from eight call sites while every renderer LUT,
-        // framebuffer attachment, font atlas and panel slice goes straight through `Image2D::Create`. The
+        // place and is not — its Register() is reached from eight call sites, while a renderer LUT, a
+        // framebuffer attachment, a font atlas and a panel slice are built by four different files.
+        //
+        // AND `Image2D::Create` IS NOT THAT PLACE EITHER, which is what this paragraph used to say. Seven
+        // sites — two in VulkanFramebuffer.cpp, five in VulkanFallbackTextures.cpp — construct the backend
+        // image directly, so they reach THIS constructor and never reach that factory. The
+        // difference was invisible while the row was only a count and cost 320 MiB of shadow cascades out
+        // of the ledger's byte total the day it started carrying one; the size is therefore recorded
+        // beside the allocation now. The
         // KIND comes from the subclass because a base cannot know it; the OWNER does not, because a
         // constructor cannot know who is about to hold the pointer — see ResourceLedger.hpp on why
         // "Unclaimed" is a reportable answer rather than a default bucket.

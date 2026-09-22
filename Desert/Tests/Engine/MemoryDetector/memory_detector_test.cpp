@@ -546,6 +546,62 @@ TEST( ResourceCensusBytes, NoPerOwnerOrPerKindByteTotalIsStoredBesideTheTable )
          << "a per-kind byte total is stored beside the table it can be summed from";
 }
 
+
+// ── 7. THE LEDGER'S BYTE TOTAL IS ONLY WORTH SOMETHING IF THE BIG OBJECTS ARE IN IT ─────────────────
+//
+// MEASURED ON THE WORLD SCENE, BEFORE THIS: `bytes=425081812 (known for 36 of 602)`. The 566 rows with
+// no size were not small: the engine's own log says "4 cascade(s) at 2048x2048 over 150 m = 320.0 MiB
+// of attachments", and not one of those bytes was in the total. The cause was a factory that did not
+// see every image — `Image2D::Create` recorded the size, and seven sites (two in VulkanFramebuffer.cpp,
+// five in VulkanFallbackTextures.cpp) construct the backend image directly and never reach it. The
+// `Image` base constructor DOES see them, which is why they had a row at all; so the row existed, the
+// size did not, and the difference was invisible for as long as a row carried only a count.
+//
+// The recording moved to the allocation, where an image that skipped it did not allocate. These two
+// assertions are what stops it drifting back: a count DERIVED from the allocations rather than a number
+// somebody typed, and the absence of the retired path.
+
+TEST( ResourceCensusBytes, EveryImageAllocationRecordsWhatItCost )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string image = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanImage.cpp" ) );
+    ASSERT_FALSE( image.empty() );
+
+    const auto countOf = []( const std::string& haystack, const std::string& needle )
+    {
+        std::size_t n = 0;
+        for ( std::size_t at = haystack.find( needle ); at != std::string::npos;
+              at            = haystack.find( needle, at + needle.size() ) )
+            ++n;
+        return n;
+    };
+
+    // DERIVED, NOT PINNED. A rule that pins "there are three recordings" is satisfied by editing the
+    // three; a rule that pins "one per allocation" is satisfied only by writing the fourth when a fourth
+    // image class appears. See the project's note on pinning a register rather than a count.
+    const std::size_t allocations = countOf( image, "RT_AllocateImage(" );
+    const std::size_t recordings  = countOf( image, "RecordDeviceBytes(" );
+    EXPECT_GT( allocations, 0u ) << "no image allocates here any more; this census is looking at the "
+                                    "wrong file";
+    EXPECT_EQ( recordings, allocations )
+         << "an image class allocates device memory and does not report what it cost: " << allocations
+         << " allocation(s), " << recordings << " recording(s). The ledger's byte total silently becomes "
+            "a floor, and the rows it loses are the largest objects the engine owns.";
+
+    // AND THE RETIRED PATH IS GONE, not left beside the new one. Two writers for one row means the
+    // answer depends on which ran last, and the spec-derived one is additionally wrong by construction
+    // for any block-compressed format, where bytes-per-pixel does not exist.
+    const std::string factory = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/Image.cpp" ) );
+    ASSERT_FALSE( factory.empty() );
+    EXPECT_EQ( factory.find( "RecordDeviceBytes" ), std::string::npos )
+         << "the factory records a size derived from the specification as well as the backend recording "
+            "the allocator's; the two disagree and nothing says which won";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
