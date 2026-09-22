@@ -371,25 +371,35 @@ TEST( MeshBinaryFormat, ARecordPointingOutsideItsSectionIsRefusedRatherThanFollo
     }
 }
 
-TEST( MeshBinaryFormat, TheRetiredJsonFormStillOpensAndAgreesWithTheContainer )
+TEST( MeshBinaryFormat, TheRetiredJsonFormIsRefusedByNameAndTheMessageNamesTheRemedy )
 {
-    // MIGRATION, AND IT IS THE WHOLE REASON THE JSON READER IS STILL HERE. The fixture is DERIVED from
-    // the same source mesh as the binary one — no file on disk, so no ignore rule can swallow it and
-    // no clone can be green only because the bytes happen to be there.
-    const Ser::MeshAssetData source   = FullyPopulated();
-    const std::string        asJson   = rfl::json::write( source );
-    const std::string        asBinary = Ser::EncodeMeshBinary( source );
+    // THIS TEST USED TO ASSERT THE OPPOSITE, and the change of direction is the point rather than an
+    // edit. The JSON arm was removed by owner decision — cooked content is DERIVED, so a stale cook is
+    // deleted and cooked again rather than migrated — and a test asserting a retired guarantee is a
+    // test that fails for being right about yesterday.
+    //
+    // WHAT REPLACES IT IS NOT "it fails". A stale cook is not a corrupt file and must not read like
+    // one: the reader has to say WHICH file, WHY, and WHAT TO RUN. That is the difference between a
+    // user re-cooking in ten seconds and a user filing a corruption report.
+    const Ser::MeshAssetData source = FullyPopulated();
+    const std::string        asJson = rfl::json::write( source );
 
     ASSERT_FALSE( Ser::LooksLikeMeshBinary( asJson ) );
 
-    const auto fromJson = Ser::ReadMeshAssetData( asJson, "legacy.stmesh" );
-    ASSERT_TRUE( fromJson.IsSuccess() ) << fromJson.GetError();
-    const auto fromBinary = Ser::ReadMeshAssetData( asBinary, "current.stmesh" );
-    ASSERT_TRUE( fromBinary.IsSuccess() ) << fromBinary.GetError();
+    const auto refused = Ser::ReadMeshAssetData( asJson, "legacy.stmesh" );
+    ASSERT_FALSE( refused.IsSuccess() ) << "the JSON form is readable again — if that is deliberate, "
+                                           "this test is what has to change with it";
 
-    // The relation, not each half: the two forms of one mesh must arrive as the same mesh.
-    ExpectSameMesh( fromJson.GetValue(), fromBinary.GetValue() );
-    ExpectSameMesh( source, fromJson.GetValue() );
+    const std::string& why = refused.GetError();
+    EXPECT_NE( why.find( "legacy.stmesh" ), std::string::npos ) << why; // which file
+    EXPECT_NE( why.find( "magic" ), std::string::npos ) << why;         // why
+    EXPECT_NE( why.find( "cook" ), std::string::npos ) << why;          // what to run
+
+    // AND THE CONTAINER IS STILL READ, because "everything is refused" would satisfy every assertion
+    // above and be a dead reader. The negative control belongs in the same test as the positive one.
+    const auto accepted = Ser::ReadMeshAssetData( Ser::EncodeMeshBinary( source ), "current.stmesh" );
+    ASSERT_TRUE( accepted.IsSuccess() ) << accepted.GetError();
+    ExpectSameMesh( source, accepted.GetValue() );
 }
 
 TEST( MeshBinaryFormat, BytesThatAreNeitherFormAreRefusedRatherThanReadAsEmpty )

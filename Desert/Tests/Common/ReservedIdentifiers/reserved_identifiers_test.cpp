@@ -77,6 +77,33 @@ namespace
     // followed by the reserved name and then by something a declaration ends with. The first token is
     // deliberately loose — `x = near;` is caught too, and a false positive here costs one rename while a
     // miss costs a Windows CI job.
+    // A STRING LITERAL IS PROSE, on exactly the terms a trailing comment is, and leaving it in cost a
+    // red sweep: `<< "the pose came back near, not equal"` matched as a declaration, because `back`
+    // then a space then `near` then a comma is indistinguishable from `float* near,` to a regex that
+    // cannot see quotes. The rule this file already states about comments — a guard that reports prose
+    // teaches people to ignore it — does not stop at `//`.
+    //
+    // Naive on purpose: it does not model escapes or raw strings, because the question is only "is this
+    // text the compiler will read as code". A literal containing `\"` collapses one quote early, which
+    // can only ever REMOVE text from the scan; a census that misses one line is recoverable, a census
+    // people switch off is not.
+    std::string WithoutStringLiterals( const std::string& line )
+    {
+        std::string out;
+        bool        inString = false;
+        for ( std::size_t i = 0; i < line.size(); ++i )
+        {
+            if ( line[i] == '"' && ( i == 0 || line[i - 1] != '\\' ) )
+            {
+                inString = !inString;
+                continue;
+            }
+            if ( !inString )
+                out += line[i];
+        }
+        return out;
+    }
+
     const std::regex& DeclarationOfReservedName()
     {
         static const std::regex re(
@@ -118,7 +145,7 @@ TEST( ReservedIdentifiers, NoSourceDeclaresAVariableWindowsWillEat )
             // near, w = size far` is a lens-flare comment, and the loosened pattern above matched it — a
             // guard that reports prose teaches people to ignore it, and "rewriting words inside comments"
             // is already a filed defect here. Cut at `//` and match only what the compiler will see.
-            const std::string code = line.substr( 0, line.find( "//" ) );
+            const std::string code = WithoutStringLiterals( line.substr( 0, line.find( "//" ) ) );
             if ( std::regex_search( code, DeclarationOfReservedName() ) )
                 offenders.push_back( fs::relative( file, root ).generic_string() + ":" + std::to_string( number ) +
                                      "  " + trimmed );

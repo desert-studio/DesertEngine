@@ -19,6 +19,7 @@
 // the real `AssetEviction::Run` against a recording double and asserts the exact set of handles it
 // touched. See Engine/Assets/AssetEviction.hpp.
 
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <gtest/gtest.h>
 
 #include "../SettingConsumers/setting_consumers_reader.hpp"
@@ -217,8 +218,12 @@ namespace
         submesh.BoundingBox.Max = glm::vec3( 2.0f, 0.0f, 0.0f );
         data.Submeshes.push_back( submesh );
 
+        // THE CONTAINER, NOT JSON. The JSON arm of the mesh reader was removed — cooked content is
+        // derived, so a stale cook is deleted and cooked again rather than migrated. A fixture written
+        // in a form nothing reads any more loads as NOTHING, and a mesh with no submeshes names no
+        // material, so the edge under test simply was not there. That is what reddened this suite.
         std::ofstream out( path, std::ios::binary | std::ios::trunc );
-        out << rfl::json::write( data );
+        out << Desert::Assets::Serialization::EncodeMeshBinary( data );
         return path.generic_string();
     }
 
@@ -253,8 +258,9 @@ namespace
         submesh.MaterialHandle  = material;
         data.Submeshes.push_back( submesh );
 
+        // Same reason as the skinned fixture above.
         std::ofstream out( path, std::ios::binary | std::ios::trunc );
-        out << rfl::json::write( data );
+        out << Desert::Assets::Serialization::EncodeMeshBinary( data );
         return path.generic_string();
     }
 } // namespace
