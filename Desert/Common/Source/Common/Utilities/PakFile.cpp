@@ -117,10 +117,33 @@ namespace Common::Utils
                 return;
             }
 
+            // EVERY COLUMN IS CHECKED, THOUGH THE KEY CAME FROM THIS SAME READER. It reads like a
+            // formality and it is not: these six values are copied straight into the index this mode is
+            // about to WRITE, so a column that came back empty would be stored as a zero and the new
+            // index would describe the old entry incorrectly — an archive that opens, mounts, and hands
+            // back the wrong bytes. There is no later point that could notice.
+            //
+            // So a gap abandons the append instead of completing it. The file is still untouched here:
+            // `m_Out` is opened below, and the rule this mode exists for is that the old index is never
+            // overwritten. Refusing now costs a repack; continuing costs a silently wrong archive.
             for ( const auto& key : existing.KeysWithPrefix( "" ) )
-                m_Entries.push_back( { key, *existing.EntryOffset( key ), *existing.EntryStoredSize( key ),
-                                       *existing.EntrySize( key ), *existing.EntryHash( key ),
-                                       *existing.EntryCrc( key ), *existing.EntryCodec( key ) } );
+            {
+                const auto offset     = existing.EntryOffset( key );
+                const auto storedSize = existing.EntryStoredSize( key );
+                const auto size       = existing.EntrySize( key );
+                const auto hash       = existing.EntryHash( key );
+                const auto crc        = existing.EntryCrc( key );
+                const auto codec      = existing.EntryCodec( key );
+                if ( !offset || !storedSize || !size || !hash || !crc || !codec )
+                {
+                    LOG_ERROR( "[Pak] cannot append to {}: its index lists '{}' but cannot describe it "
+                               "fully, so the entry cannot be carried into the new index; repack instead",
+                               pakPath.string(), key );
+                    m_Entries.clear();
+                    return;
+                }
+                m_Entries.push_back( { key, *offset, *storedSize, *size, *hash, *crc, *codec } );
+            }
 
             m_Out.open( m_Path, std::ios::binary | std::ios::in | std::ios::out );
             if ( !m_Out )
