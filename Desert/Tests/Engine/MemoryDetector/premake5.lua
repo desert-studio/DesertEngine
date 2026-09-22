@@ -1,6 +1,6 @@
 -- "The memory number has to speak about growth, and an unknown must not look like a zero."
 --
--- WHY THIS LINKS TWO .cpp FILES AND NOT libDesert. `MemoryReadout::Take()` is the only impure part of
+-- WHY THIS LINKS THREE .cpp FILES AND NOT libDesert. `MemoryReadout::Take()` is the only impure part of
 -- the readout — it reaches EngineContext, i.e. Application + Window + RendererContext — and it lives in
 -- its own translation unit (MemoryReadoutSource.cpp) for exactly this reason. Everything this suite
 -- asserts is a DECISION: which of three numbers is printed, whether a zero means "empty" or "nobody
@@ -22,6 +22,12 @@ project(test_name)
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Graphic/MemoryReadout.cpp",
         "%{wks.location}/Desert/Common/Source/Common/Utilities/ProcessMemory.cpp",
+        -- THE THIRD FILE, AND WHY IT IS A FILE RATHER THAN libCommon. The ledger's rows carry a
+        -- `Common::AssetHandle`, whose default constructor is `UUID(uint64_t)` — out of line, and the
+        -- only symbol this suite needs from Common now that it opens ledger rows of its own. Linking the
+        -- whole library to resolve one constructor would put Application, Window and the filesystem layer
+        -- behind a suite whose entire value is that it asserts DECISIONS without opening a window.
+        "%{wks.location}/Desert/Common/Source/Common/Core/UUID.cpp",
     }
 
     includedirs {

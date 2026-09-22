@@ -518,13 +518,14 @@ TEST( ResourceCensusBytes, TheReportPrintsTheBytesAndTheirCoverageNextToEveryCou
 
     const std::string text = ResourceLedger::Report();
 
-    // The line a person greps for when asking "how much of this scene is texture".
-    EXPECT_NE( text.find( "AssetService" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( "Image2D=" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( "bytes=5592405" ), std::string::npos ) << text;
-    // Coverage travels with the figure, for the same reason the grand total carries its own: a cell that
-    // sums to zero because nobody measured it must not read like a cell that is empty.
-    EXPECT_NE( text.find( " known=" ), std::string::npos ) << text;
+    // The line a person greps for when asking "how much of this scene is texture", pinned as the WHOLE
+    // cell rather than as three substrings that could each come from somewhere else in the report: the
+    // owner line carries a byte figure too, so `find("bytes=5592405")` alone stays true for a report
+    // that stopped printing the per-kind breakdown entirely. Coverage travels with the figure, for the
+    // same reason the grand total carries its own — a cell that sums to zero because nobody measured it
+    // must not read like a cell that is empty.
+    EXPECT_NE( text.find( "Image2D=1 bytes=5592405 known=1" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( "AssetService = " ), std::string::npos ) << text;
 }
 
 TEST( ResourceCensusBytes, NoPerOwnerOrPerKindByteTotalIsStoredBesideTheTable )
