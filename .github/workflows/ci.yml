@@ -86,6 +86,14 @@ jobs:
       - name: Check formatting of changed lines
         run: ./scripts/CI/CheckFormat.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
+      # Every third-party header must live in THIS repository. TextureBinary.cpp once included
+      # <fmt/format.h>, which no checkout contains -- it resolved only from the author's Homebrew
+      # prefix, compiled in every local sweep, and broke AssetEviction and AssetMissingFile the first
+      # time a machine without it tried. This runs on ubuntu with no Homebrew, which is the point:
+      # the gate must not be able to satisfy itself from the runner's own disk.
+      - name: Repo-only includes
+        run: ./scripts/CI/RepoOnlyIncludes.sh
+
   # Static analysis gate: the LINES CHANGED by this push/PR must be clean under clang-tidy.
   #
   # WHY CHANGED LINES AND NOT THE TREE, with the number behind it: measured on this commit, the check

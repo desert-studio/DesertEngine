@@ -3,7 +3,11 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 
-#include <fmt/format.h>
+// spdlog's BUNDLED fmt, which is what every other translation unit in the engine uses.
+// `<fmt/format.h>` names a standalone fmt that exists in NO checkout of this repository: it
+// compiled here only because Homebrew happened to have one at /opt/homebrew/include, and it
+// broke two test suites on CI the first time a machine without it tried.
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <bit>
