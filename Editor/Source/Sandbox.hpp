@@ -179,10 +179,10 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         // launched", and an explicit statement by the operator must beat an inference. What it
         // stops being is REQUIRED: with nothing set, the tree is derived from where this executable
         // is, which is how `build/Bin/<Config>/Editor` started directly now registers correctly too.
-        const char*       fromEnvironment = std::getenv( "DESERT_ROOT" );
-        const std::string engineRoot      = fromEnvironment && fromEnvironment[0]
-                                                 ? std::string( fromEnvironment )
-                                                 : Desert::Project::DeriveEngineRoot( executable ).Root;
+        const char*                          fromEnvironment = std::getenv( "DESERT_ROOT" );
+        const Desert::Project::EngineRootLookup derived = Desert::Project::DeriveEngineRoot( executable );
+        const std::string                    engineRoot =
+             fromEnvironment && fromEnvironment[0] ? std::string( fromEnvironment ) : derived.Root;
 
         if ( engineRoot.empty() )
         {
@@ -190,8 +190,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             // downloaded build, and the message it replaced told the reader to start the editor
             // through a run script the drop does not contain — an instruction that cannot be
             // followed, printed by a program that had just started perfectly well.
-            std::fprintf( stderr, "[Engine] %s\n",
-                          Desert::Project::DeriveEngineRoot( executable ).Explanation.c_str() );
+            std::fprintf( stderr, "[Engine] %s\n", derived.Explanation.c_str() );
         }
         else if ( const auto registered = Desert::Project::RegisterThisEngine(
                        Desert::Editor::ProjectContext::ConfigDirectory(), engineRoot );
