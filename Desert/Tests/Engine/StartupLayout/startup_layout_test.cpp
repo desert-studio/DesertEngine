@@ -213,6 +213,22 @@ TEST( StartupLayout, TwoDescriptorsAreARefusalThatNamesBothRatherThanAChoiceTake
     EXPECT_NE( found.GetError().find( "--project" ), std::string::npos ) << found.GetError();
 }
 
+TEST( StartupLayout, ADescriptorSpelledInAnotherCaseIsStillADescriptor )
+{
+    // `path::extension() != ".deproj"` is a case-SENSITIVE compare on every platform, including the
+    // one whose filesystem is not: a descriptor saved as `.DEPROJ` on Windows opens fine by name and
+    // would have been invisible to the search — "no project beside this executable" for a project
+    // sitting right there. Asserted on both platforms because the RULE is the same on both; only the
+    // chance of meeting it differs.
+    const fs::path drop = FreshDirectory( "upper_case_deproj" );
+    Touch( drop / "Editor" );
+    Touch( drop / "Shouty.DEPROJ" );
+
+    const auto found = ProjectBesideExecutable( drop );
+    ASSERT_TRUE( found.IsSuccess() ) << found.GetError();
+    EXPECT_EQ( fs::path( found.GetValue() ).stem().string(), "Shouty" );
+}
+
 TEST( StartupLayout, ADirectoryNamedLikeADescriptorIsNotADescriptor )
 {
     // A negative control for the extension test: `Cooked.deproj/` as a FOLDER would satisfy a

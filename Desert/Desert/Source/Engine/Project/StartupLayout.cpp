@@ -1,6 +1,8 @@
 #include "StartupLayout.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <string>
 #include <vector>
 
 namespace Desert::Project
@@ -98,10 +100,18 @@ namespace Desert::Project
         {
             if ( it->is_directory( ec ) )
                 continue;
-            // `.deproj` compared through path::extension() rather than by string suffix: on Windows
-            // the entry's own spelling may differ in case, and a suffix compare would also accept a
-            // file literally named ".deproj" with no stem.
-            if ( it->path().extension() != ".deproj" || it->path().stem().empty() )
+            // LOWER-CASED BEFORE COMPARING, because `path::extension() != ".deproj"` is a
+            // case-SENSITIVE string compare on every platform — including the one whose filesystem
+            // is not. A descriptor saved as `.DEPROJ` on Windows opens fine by name and would have
+            // been invisible here, which is the "no project beside this executable" message for a
+            // project that is sitting right there.
+            //
+            // `stem().empty()` on purpose too: a file literally named `.deproj` has that extension
+            // and no name, and it is not a project.
+            std::string extension = it->path().extension().string();
+            std::transform( extension.begin(), extension.end(), extension.begin(),
+                            []( unsigned char ch ) { return static_cast<char>( ::tolower( ch ) ); } );
+            if ( extension != ".deproj" || it->path().stem().empty() )
                 continue;
             descriptors.push_back( it->path().string() );
         }
