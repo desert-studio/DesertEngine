@@ -55,6 +55,8 @@
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -167,4 +169,104 @@ namespace Desert::Animation
      */
     [[nodiscard]] BoneTransform ApplySection( const ClipSection& section, const BoneTransform& authored,
                                               const BoneTransform& reference, float weight );
+
+    /**
+     * ── AUTHORING A SECTION, AS OPPOSED TO SAMPLING ONE ──────────────────────────────────────────────
+     *
+     * These live beside the data and not in `SequencerPanel.cpp` for the reason
+     * `scripts/CI/UnreachedSources.sh` keeps naming: that file is compiled by no suite, so a rule stated
+     * inside it cannot be checked. `TrackEditing.hpp` is the same decision about a track, and this is the
+     * same decision about a section; the panel is left holding only the two facts it alone knows — which
+     * clip and which section the animator is pointing at.
+     *
+     * THEY TAKE THE LIST AND THE DURATION, NOT THE CLIP. `AnimationClip.hpp` includes this header, so a
+     * signature naming the clip would be a cycle; and the list plus the length is genuinely everything a
+     * range rule needs, which is why the cycle is worth avoiding rather than breaking.
+     *
+     * EVERY ONE OF THEM REFUSES IN WORDS. A section edit that silently did nothing — an out-of-range
+     * index, a start past its end, a rename of a section a second window just deleted — is the empty
+     * successful answer this tree has paid for repeatedly; the panel puts the sentence in front of
+     * whoever pressed the button.
+     */
+
+    /// Where a new section goes and what it says. `duration` is the clip's length in ticks; the range is
+    /// checked against it rather than clamped to it, because a button that quietly authored a DIFFERENT
+    /// range from the one it was asked for is how a section comes to disagree with the ruler above it.
+    [[nodiscard]] Common::BoolResultStr AddSection( std::vector<ClipSection>& sections, std::string name,
+                                                    FrameNumber start, FrameNumber end,
+                                                    SectionBlendType blend, FrameNumber duration );
+
+    /**
+     * @brief Move both ends of a section at once, KEEPING ITS LENGTH, or refuse.
+     *
+     * Separate from `SetSectionRange` because a drag of the body and a drag of an edge are two different
+     * authoring gestures and only one of them is allowed to change the length. Refusing at the clip's
+     * ends (rather than clamping and shortening) is what makes a section survive being pushed against
+     * tick 0 — clamping only the start is how a dragged section silently loses frames.
+     */
+    [[nodiscard]] Common::BoolResultStr MoveSection( std::vector<ClipSection>& sections, size_t index,
+                                                     int32_t deltaTicks, FrameNumber duration );
+
+    /// Both ends, checked: `0 <= start <= end <= duration`. The inclusive end is the format's (see the
+    /// field note), so `end == duration` is legal and `end == start` is a one-tick section, not an empty one.
+    [[nodiscard]] Common::BoolResultStr SetSectionRange( std::vector<ClipSection>& sections, size_t index,
+                                                         FrameNumber start, FrameNumber end,
+                                                         FrameNumber duration );
+
+    [[nodiscard]] Common::BoolResultStr RemoveSection( std::vector<ClipSection>& sections, size_t index );
+
+    /**
+     * @brief Move a section one place along the list. THE LIST ORDER IS THE PRIORITY ORDER.
+     *
+     * `AnimationClip::SectionFor` takes the LAST section that covers a tick and speaks for the track, so
+     * position in this vector is the only thing that decides an overlap. Without a way to change it the
+     * animator's only remedy for "the wrong one wins" is to delete and re-add, which loses the weight
+     * curve they authored — so this is not a convenience, it is the handle on the one rule the list has.
+     *
+     * @param delta -1 raises (earlier in the list, LOWER priority), +1 lowers. Anything else is refused:
+     *              a multi-step move is a drag, and a drag is a sequence of these.
+     */
+    [[nodiscard]] Common::BoolResultStr ReorderSection( std::vector<ClipSection>& sections, size_t index,
+                                                        int delta );
+
+    /**
+     * @brief Add or remove one track name from what a section speaks for.
+     *
+     * THE TWO SPELLINGS OF "EVERY TRACK" ARE COLLAPSED TO ONE, HERE. An empty `Tracks` means every track
+     * (see the field note), and a list naming every track of the clip means the same thing today and a
+     * STALE thing tomorrow — the first track the keyer adds is outside it. Rather than let a file carry
+     * both spellings, checking the last unchecked box clears the list. The alternative is a section that
+     * looks clip-wide in the inspector and stops being clip-wide the moment a bone is keyed.
+     *
+     * @param allTracks every track name the clip currently has — the set "all of them" is measured
+     *                  against. An `on` for a name not in it is refused: a section speaking for a track
+     *                  the clip does not have is a typo that only shows up as silence.
+     */
+    [[nodiscard]] Common::BoolResultStr SetSectionSpeaksFor( ClipSection& section, const std::string& track,
+                                                             bool on,
+                                                             const std::vector<std::string>& allTracks );
+
+    /// Back to the clip-wide spelling: `Tracks` EMPTY. Not "tick every box", which is the stale copy above.
+    void SetSectionSpeaksForEveryTrack( ClipSection& section );
+
+    /**
+     * @brief Upsert one key of the weight channel. An existing key on `tick` keeps its shape.
+     *
+     * CLAMPED TO [0, 1], and that is a decision rather than defensive arithmetic. `ApplySection` will
+     * happily scale an additive offset by 1.5, but "how much of this section reaches the pose" is a
+     * proportion — over-driving a layer is a gain on the layer, a different control with a different
+     * name, and putting it on this channel would mean the same slider reads as a proportion in one place
+     * and a multiplier in another. A non-finite value is refused rather than clamped: it is not a number
+     * that was too big, it is a number that is not one.
+     *
+     * NEW KEYS ARE LINEAR. A weight fade is a ramp; a cubic weight overshoots past 1 and past 0 between
+     * its keys, which on an Absolute section reads as the pose flying past the authored one.
+     */
+    [[nodiscard]] Common::BoolResultStr SetSectionWeightKey( ClipSection& section, FrameNumber tick,
+                                                             float value );
+
+    [[nodiscard]] Common::BoolResultStr RemoveSectionWeightKey( ClipSection& section, size_t keyIndex );
+
+    /// Drop the fade entirely: an EMPTY channel, which is full weight and not silence (see the field note).
+    void ClearSectionWeight( ClipSection& section );
 } // namespace Desert::Animation
