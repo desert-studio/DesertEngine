@@ -10,7 +10,7 @@
 namespace Desert::Editor
 {
     // THE census of what a packaged game is made of. Both packaging entry points (PackageGame and
-    // BuildContentPak) iterate THIS list — never a hand-typed sequence of AddTreeToPak calls —
+    // BuildContentPak) iterate THIS list — never a hand-typed sequence of per-tree calls —
     // because the hand-typed sequence is exactly how fonts and icons were left out: Constants.hpp
     // declared FONTS_PATH and ICONS_PATH, the runtime services scanned them, and the packager packed
     // three other trees. A packaged game then had no .ttf at all and the first frame with text died

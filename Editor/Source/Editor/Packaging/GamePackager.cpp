@@ -11,6 +11,7 @@
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Content/ContentChunks.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -45,12 +46,17 @@ namespace Desert::Editor
             uintmax_t Bytes = 0;
         };
 
-        // Streams every file under `from` into the pak as "<keyPrefix>/<relative>", skipping raw mesh
-        // sources when asked. It replaced a loose-file `CopyTree` with the same filter semantics, and
-        // that function then sat here uncalled until `-Wunused-function` was allowed to say so.
-        bool AddTreeToPak( Common::Utils::PakWriter& pak, const fs::path& from,
-                           const std::string& keyPrefix, bool skipRawMeshSources, CopyStats& stats,
-                           std::string& error )
+        // Lists every file under `from` as ("<keyPrefix>/<relative>", source), skipping raw mesh
+        // sources when asked.
+        //
+        // IT COLLECTS INSTEAD OF WRITING, and that is the whole seam the chunked layout needed. It
+        // used to stream straight into one `PakWriter`, which fixed the number of archives at one in
+        // the only function that knows what the files are; now the list is built first and
+        // `WriteChunkedPaks` decides which archive each entry belongs to. Nothing else about the
+        // traversal changed.
+        bool CollectTree( const fs::path& from, const std::string& keyPrefix, bool skipRawMeshSources,
+                          std::vector<std::pair<std::string, fs::path>>& files, CopyStats& stats,
+                          std::string& error )
         {
             std::error_code ec;
             if ( !fs::exists( from, ec ) )
@@ -71,12 +77,12 @@ namespace Desert::Editor
                     continue;
 
                 const fs::path rel = fs::relative( src, from, ec );
-                const std::string key = keyPrefix + "/" + rel.generic_string();
-                if ( !pak.AddFile( key, src ) )
+                if ( ec )
                 {
-                    error = "pak write failed for " + src.string();
+                    error = "cannot relativize " + src.string() + ": " + ec.message();
                     return false;
                 }
+                files.emplace_back( keyPrefix + "/" + rel.generic_string(), src );
                 ++stats.Files;
                 // The error_code overload returns uintmax_t(-1) on failure, so an unchecked add here
                 // does not report a slightly wrong size — it reports 16 exabytes, and the package's own
@@ -112,8 +118,8 @@ namespace Desert::Editor
         // string, so a failure there is an EMPTY SUCCESS, and an empty descriptor packed under the
         // right key produces a game that reaches "could not be read" on the player's machine instead
         // of failing here where somebody can act on it (DC §1.4).
-        bool AddDescriptorToPak( Common::Utils::PakWriter& pak, const Common::Project::ProjectFile& project,
-                                 std::string& error )
+        bool CollectDescriptor( const Common::Project::ProjectFile&               project,
+                                std::vector<std::pair<std::string, std::string>>& blobs, std::string& error )
         {
             const std::string json = Common::Project::WriteProjectFile( PackagedDescriptor( project ) );
             if ( json.empty() )
@@ -121,12 +127,51 @@ namespace Desert::Editor
                 error = "the project descriptor for '" + project.Name + "' serialized to nothing";
                 return false;
             }
-            if ( !pak.AddData( Project::kPackagedDescriptorName, json.data(), json.size() ) )
-            {
-                error = std::string( "pak write failed for " ) + Project::kPackagedDescriptorName;
-                return false;
-            }
+            blobs.emplace_back( Project::kPackagedDescriptorName, json );
             return true;
+        }
+
+        // THE DIVISION, DERIVED FROM THIS PROJECT'S OWN DATA. The registry stack carries the edges,
+        // and the scheme file carries only what cannot be derived from them (chunk roots, and the
+        // keys pinned to the base). An ABSENT scheme is not an error and not a default set of
+        // chunks: it is a project that has not been divided, and it must package to exactly the one
+        // archive every project produced before chunks existed.
+        Common::ResultStr<Common::Content::ChunkPlan> PlanTheDivision()
+        {
+            Common::Content::ChunkScheme scheme;
+            const fs::path               schemePath = Common::Content::ChunkSchemePath();
+            if ( Common::Utils::FileSystem::Exists( schemePath ) )
+            {
+                const auto text = Common::Utils::FileSystem::ReadFileContent( schemePath.string() );
+                if ( !text )
+                    return Common::MakeFormattedError<Common::Content::ChunkPlan>(
+                         "{} exists but could not be read: {}", schemePath.string(), text.GetError() );
+                auto parsed = Common::Content::ParseChunkScheme( text.GetValue() );
+                if ( !parsed )
+                    return Common::MakeFormattedError<Common::Content::ChunkPlan>(
+                         "{}: {}", schemePath.string(), parsed.GetError() );
+                scheme = parsed.GetValue();
+            }
+            return Common::Content::BuildChunkPlan( Assets::ContentRegistry::Get(), scheme );
+        }
+
+        // What the packager says about the division, so a one-archive project and a divided one are
+        // distinguishable in the log rather than by counting files in a folder afterwards.
+        std::string DivisionSummary( const Common::Content::ChunkPlan&        plan,
+                                     const Common::Content::ChunkedWriteStats& written )
+        {
+            if ( plan.Count() == 1 )
+                return {};
+            std::ostringstream text;
+            text << "  divided into " << plan.Count() << " archive(s):";
+            for ( std::size_t i = 0; i < plan.Count(); ++i )
+                text << "  " << plan.Names()[i] << "=" << written.Entries[i] << " file(s)/"
+                     << ( written.Bytes[i] / ( std::size_t{ 1024 } * 1024 ) ) << " MB";
+            if ( !plan.UnresolvedEdges().empty() )
+                text << "  WARNING: " << plan.UnresolvedEdges().size()
+                     << " dependency edge(s) named no registry row, so a chunk may be missing what they "
+                        "pointed at";
+            return text.str();
         }
     } // namespace
 
@@ -280,29 +325,43 @@ namespace Desert::Editor
         // Release game must produce Release cache keys or the shipped cache never hits.
         const CookStats cook = CookContentCaches( Core::SpirvDebugInfoForConfigName( options.Config ) );
 
-        // 4) ALL content AND the descriptor go into ONE Content.dpak (UE .pak model), tree by tree out
-        // of the shared census (PackagedContentTrees.hpp) — assets, cooked cache, shaders, fonts,
-        // icons — with the regenerated .deproj at the archive ROOT under the one name the player looks
-        // for. The Runtime mounts the archive beside its own binary, opens that descriptor out of the
-        // VFS, and every content read resolves through the same mount. Nothing loose, no flag.
+        // 4) ALL content AND the descriptor go into the archive SET — a base plus one archive per
+        // chunk (UE .pak model), tree by tree out of the shared census (PackagedContentTrees.hpp) —
+        // assets, cooked cache, shaders, fonts, icons — with the regenerated .deproj at the base
+        // archive's ROOT under the one name the player looks for. The Runtime mounts the base beside
+        // its own binary, reads the chunk list out of it, mounts those, and every content read
+        // resolves through the same stack. Nothing loose, no flag.
+        //
+        // AN UNDIVIDED PROJECT STILL PRODUCES EXACTLY ONE Content.dpak. The plan's base chunk is the
+        // total default, so a project with no scheme file packages byte-for-byte the way it did
+        // before chunks existed.
+        std::vector<std::pair<std::string, fs::path>>   contentFiles;
+        std::vector<std::pair<std::string, std::string>> baseBlobs;
+        Common::Content::ChunkedWriteStats               writtenArchives;
+        std::string                                      divisionSummary;
         {
-            Common::Utils::PakWriter pak( gameDir / "Content.dpak" );
-            if ( !pak.IsOpen() )
-                return { false, "Cannot create Content.dpak in " + gameDir.string(), "" };
-
             for ( const PackagedTree& tree : PackagedContentTrees() )
-                if ( !AddTreeToPak( pak, *tree.Tree, tree.PakKey, tree.StripRawMeshSources, stats, error ) )
+                if ( !CollectTree( *tree.Tree, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats,
+                                   error ) )
                     return { false, error, "" };
 
             // FAILS THE PACKAGE, like every other step in this function: an archive without the
             // descriptor is a folder of content the player cannot identify as a game, and the
             // failure would land on somebody who has no sources.
-            if ( !AddDescriptorToPak( pak, ProjectContext::Current(), error ) )
+            if ( !CollectDescriptor( ProjectContext::Current(), baseBlobs, error ) )
                 return { false, error, "" };
             ++stats.Files;
 
-            if ( pak.Finalize() == 0 )
-                return { false, "Failed to finalize Content.dpak (no entries?)", "" };
+            const auto plan = PlanTheDivision();
+            if ( !plan )
+                return { false, plan.GetError(), "" };
+
+            auto written = Common::Content::WriteChunkedPaks( gameDir / "Content.dpak", plan.GetValue(),
+                                                              contentFiles, baseBlobs );
+            if ( !written )
+                return { false, written.GetError(), "" };
+            writtenArchives = written.GetValue();
+            divisionSummary = DivisionSummary( plan.GetValue(), writtenArchives );
         }
 
         // 5) THE RECORD OF WHAT THIS RELEASE HANDS OUT (П7) — taken HERE because here is the only place
@@ -323,16 +382,33 @@ namespace Desert::Editor
         //
         // A FAILURE HERE FAILS THE PACKAGE, like every other step. The alternative is a package that
         // exists and can never be updated, discovered on the day somebody needs to ship a fix.
+        //
+        // EVERY ARCHIVE OF THE SET, not just the base. A manifest that described only the base would
+        // report every chunked file as REMOVED the next time a patch was generated, and the patch
+        // would re-ship the whole division to "restore" content that never left.
         const fs::path manifestPath = fs::path( options.OutputDir ) / ( safeName + kContentManifestExtension );
         {
-            const Common::Utils::PakReader packed( gameDir / "Content.dpak" );
-            if ( !packed.IsOpen() )
-                return { false,
-                         "Content.dpak could not be reopened to record the release manifest: " +
-                              packed.OpenError(),
-                         "" };
+            Common::Utils::ContentManifest release;
+            for ( const fs::path& archive : writtenArchives.Archives )
+            {
+                const Common::Utils::PakReader packed( archive );
+                if ( !packed.IsOpen() )
+                    return { false,
+                             archive.string() + " could not be reopened to record the release manifest: " +
+                                  packed.OpenError(),
+                             "" };
+                // NAMED, NOT A TEMPORARY IN THE RANGE EXPRESSION. `for ( x : FromPak(p).Entries() )`
+                // compiles and is undefined before C++23: the ContentManifest dies at the end of the
+                // expression that initializes the range, and the loop then walks a freed vector. It
+                // did exactly that here — the recorded manifest came out with ZERO entries against a
+                // four-entry archive, and PackagedContent said so.
+                const Common::Utils::ContentManifest ofArchive =
+                     Common::Utils::ContentManifest::FromPak( packed );
+                for ( const Common::Utils::ContentManifestEntry& entry : ofArchive.Entries() )
+                    release.Insert( entry );
+            }
 
-            const std::string manifest = Common::Utils::ContentManifest::FromPak( packed ).Serialize();
+            const std::string manifest = release.Serialize();
             if ( const auto written =
                       Common::Utils::FileSystem::WriteContentToFileAtomic( manifestPath, manifest );
                  !written )
@@ -501,6 +577,7 @@ namespace Desert::Editor
             << " files, " << ( stats.Bytes / ( std::size_t{ 1024 } * 1024 ) ) << " MB, " << options.Config
             << " runtime" << ( bundle ? ( bundledVulkan ? ", Vulkan bundled" : ", Vulkan NOT bundled" ) : "" )
             << ")";
+        msg << divisionSummary;
         // WHAT THE COOK COULD NOT PUT IN, said in the result rather than left to a log line nobody
         // reads — and carried as NUMBERS on PackageResult as well as prose, because a caller has to be
         // able to BRANCH on it (see PackageResult's own note). Both kinds are named because they are
@@ -534,9 +611,6 @@ namespace Desert::Editor
         CopyStats   stats;
         std::string error;
 
-        Common::Utils::PakWriter pak( pakPath );
-        if ( !pak.IsOpen() )
-            return { false, "Cannot create " + pakPath.string(), "" };
 
         // Same cook as PackageGame, for THIS build's profile: the dev pak serves the runtime the
         // developer launches next to this editor, which is built in the same configuration. (A
@@ -545,25 +619,37 @@ namespace Desert::Editor
         const CookStats cook = CookContentCaches( Core::SpirvDebugInfoThisBuild() );
 
         // The same census PackageGame packs — one list, two entry points (see PackagedContentTrees.hpp).
+        std::vector<std::pair<std::string, fs::path>>    contentFiles;
+        std::vector<std::pair<std::string, std::string>> baseBlobs;
         for ( const PackagedTree& tree : PackagedContentTrees() )
-            if ( !AddTreeToPak( pak, *tree.Tree, tree.PakKey, tree.StripRawMeshSources, stats, error ) )
+            if ( !CollectTree( *tree.Tree, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats, error ) )
                 return { false, error, "" };
 
         // ...and the same descriptor, so "a .dpak this tree produced" means ONE thing rather than two.
         // A dev pak that carried content but no identity was an archive only the other entry point's
         // output could be started from, and the difference between the two would be discovered by
         // whoever dropped a Runtime beside this one and got "No game to run".
-        if ( !AddDescriptorToPak( pak, ProjectContext::Current(), error ) )
+        if ( !CollectDescriptor( ProjectContext::Current(), baseBlobs, error ) )
             return { false, error, "" };
         ++stats.Files;
 
-        if ( pak.Finalize() == 0 )
-            return { false, "Failed to finalize " + pakPath.string() + " (no entries?)", "" };
+        // AND THE SAME DIVISION. A dev archive set that was not divided the way the shipped one is
+        // would make the developer's runtime read a layout no player ever gets, which is the one
+        // property this entry point exists to avoid.
+        const auto plan = PlanTheDivision();
+        if ( !plan )
+            return { false, plan.GetError(), "" };
+
+        const auto written =
+             Common::Content::WriteChunkedPaks( pakPath, plan.GetValue(), contentFiles, baseBlobs );
+        if ( !written )
+            return { false, written.GetError(), "" };
 
         std::ostringstream msg;
         msg << "Content.dpak rebuilt: " << stats.Files << " file(s), "
             << ( stats.Bytes / ( std::size_t{ 1024 } * 1024 ) ) << " MB -> "
             << fs::absolute( pakPath, ec ).string();
+        msg << DivisionSummary( plan.GetValue(), written.GetValue() );
         // Both counts, for the reason PackageGame's twin above states at length.
         if ( cook.Failures > 0 )
             msg << "  WARNING: " << cook.Failures
