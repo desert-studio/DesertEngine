@@ -1312,7 +1312,11 @@ TEST( VolumetricCloudReflection, DistancesAreLengthsExceptTheTwoThatCarryTheirOw
 TEST( SkyboxReflection, KeepsOnlyTheHdrCubemapPath )
 {
     const TypeInfo& skybox = Type( "SkyboxComponent" );
-    EXPECT_EQ( FieldNames( skybox ), ( std::vector<std::string>{ "SkyboxHandle", "Intensity" } ) );
+    // Rotation and Tint joined Intensity, and all three are BAKED into the environment cubes rather
+    // than applied per frame (Engine/Graphic/Environment/SkyLook.hpp) — which is what makes them reach
+    // the ambient and the reflections and not only the backdrop.
+    EXPECT_EQ( FieldNames( skybox ),
+               ( std::vector<std::string>{ "SkyboxHandle", "Intensity", "Rotation", "Tint" } ) );
 
     // The old path is deleted, not deprecated: a field left behind here is a second place a value can
     // live, and one of the two would never be tested again.

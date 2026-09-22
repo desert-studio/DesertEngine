@@ -32,6 +32,10 @@ namespace Desert::Editor
         // order and the same reason as ~PreviewViewport: this is destroyed when the thumbnail queue has been
         // idle for a while (so the renderer slot goes back), which can happen while the last frame this
         // recorded into is still executing against its pipelines and descriptor pools.
+        // BOTH OUT OF LINE, and the constructor is not decoration: m_CubemapPass is a unique_ptr to a
+        // forward-declared pass, so an implicit constructor would instantiate its deleter at every
+        // `make_unique<AssetThumbnailRenderer>()` call site — where the type is incomplete.
+        AssetThumbnailRenderer();
         ~AssetThumbnailRenderer();
 
         /**

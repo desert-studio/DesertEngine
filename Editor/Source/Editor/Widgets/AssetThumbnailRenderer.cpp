@@ -58,6 +58,8 @@ namespace Desert::Editor
         constexpr int32_t kDomeVolumeResolution = 128;
     } // namespace
 
+    AssetThumbnailRenderer::AssetThumbnailRenderer() = default;
+
     AssetThumbnailRenderer::~AssetThumbnailRenderer()
     {
         if ( !m_Inited )

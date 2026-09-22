@@ -36,15 +36,17 @@ vec2 PanoramaSampleUV(vec3 direction, vec2 yawCosSin)
 
     // Rotation about +Y (up) by -yaw. Written out rather than built as a mat3 because this text also
     // compiles as C++, where a mat3 literal's column/row order is one more thing to get wrong.
-    vec3 d = vec3( yawCosSin.x * direction.x + yawCosSin.y * direction.z,
+    vec3 d = vec3( yawCosSin.x * direction.x - yawCosSin.y * direction.z,
                    direction.y,
-                   yawCosSin.x * direction.z - yawCosSin.y * direction.x );
+                   yawCosSin.x * direction.z + yawCosSin.y * direction.x );
 
     float phi   = atan( d.z, d.x );
     // CLAMPED: a direction that arrives a bit longer than unit (the cube-face vectors are normalized,
     // but a caller's need not be) makes acos return NaN, and one NaN texel poisons every mip the
     // prefilter builds from it.
-    float theta = acos( clamp( d.y, -1.0, 1.0 ) );
+    // `float(...)` around the bounds, not bare literals: this text also compiles as C++, where -1.0 is
+    // a DOUBLE and no glm::clamp overload takes (float, double, double).
+    float theta = acos( clamp( d.y, float( -1.0 ), float( 1.0 ) ) );
 
     return vec2( phi / ( 2.0 * kPi ) + 0.5, theta / kPi );
 }

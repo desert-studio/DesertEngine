@@ -128,12 +128,15 @@ namespace Desert::Graphic
              imageService->Register( std::move( panorama ), Runtime::ImageHandle::Type::Image2D );
 
         // 1) Radiance cube (sharp environment) — also the source the prefilter convolves.
-        auto       radianceCube   = ConvertPanoramaToRadianceCube( panoramaHandle );
+        // THE IDENTITY LOOK, EXPLICITLY. A procedural sky is generated from its own authored parameters;
+        // there is no file to rotate or grade, so the panorama it bakes is already the sky as asked for.
+        // Named rather than defaulted so the asymmetry with the .hdr path above is visible here.
+        auto       radianceCube   = ConvertPanoramaToRadianceCube( panoramaHandle, SkyLook{} );
         const auto radianceHandle = imageService->Register( std::move( radianceCube ),
                                                             Runtime::ImageHandle::Type::ImageCube );
 
         // 2) Diffuse irradiance (from the panorama directly).
-        auto       diffuseIrradiance       = CreateDiffuseIrradiance( panoramaHandle );
+        auto       diffuseIrradiance       = CreateDiffuseIrradiance( panoramaHandle, SkyLook{} );
         const auto diffuseIrradianceHandle = imageService->Register(
              std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
 
