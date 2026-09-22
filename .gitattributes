@@ -1,0 +1,45 @@
+# CONTENT IS BYTE-IDENTICAL ON EVERY PLATFORM, OR EVERY NUMBER TAKEN FROM IT LIES.
+#
+# Found on Windows CI 2026-09-22: `CookedRegistryGate` reported that four shaders were "recorded at
+# 2262 bytes and is 2327 tracked by this repository". Nothing had edited them. Git was checking them
+# out with CRLF, so each file was larger on disk by exactly its line count — and the committed
+# registry, which records a SIZE per entry, can never agree with both platforms at once.
+#
+# The registry is only where it surfaced. The same translation moves every content hash, every pak
+# CRC and every `.dpak` a Windows machine packs, so an archive built there would not match one built
+# here from the same commit. Marking content `-text` tells git to store and check it out verbatim:
+# these files are DATA that happens to be readable, not source anybody diffs line by line.
+#
+# Deliberately NOT `* text=auto eol=lf`: that would rewrite line endings across the whole tree
+# including C++ sources, which is a much larger change than the defect requires and would touch the
+# working copy of everyone who has one.
+
+# Shaders — hashed by the shader cache and recorded in the cooked registry.
+*.shader   -text
+*.glsl     -text
+*.glslh    -text
+*.vert     -text
+*.frag     -text
+*.comp     -text
+
+# Authored content the registry sizes and the packager hashes.
+*.desce        -text
+*.demat        -text
+*.deprefab     -text
+*.anim         -text
+*.skeleton     -text
+*.stmesh       -text
+*.skmesh       -text
+*.derig        -text
+*.danimgraph   -text
+*.retarget     -text
+*.decloudtype  -text
+*.dclayout     -text
+*.dcnv         -text
+*.dcmv         -text
+*.detheme      -text
+*.destrings    -text
+*.deproj       -text
+
+# The cooked registry itself: its own sizes are compared against the files above.
+*.dreg     -text

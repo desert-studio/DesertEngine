@@ -719,7 +719,12 @@ TEST( Pak, EveryKindOfContentInTheTreeSurvivesPackAndReadByteForByte )
         {
             for ( const auto& file : files )
             {
-                const std::string key = file.filename().string() + ext;
+                // KEYED ON THE PATH, NOT THE FILENAME. Two files in different directories share a
+                // name — `model.demat` appears under three mesh folders — so a filename key collided,
+                // the `expected` map silently merged the pair, and the writer (which used to allow a
+                // duplicate) wrote one more entry than the map held. The count mismatch was the only
+                // symptom and it surfaced on Windows, where the walk happened to reach both.
+                const std::string key = std::filesystem::relative( file, root ).generic_string() + ext;
                 expected[key]         = Slurp( file );
                 ASSERT_TRUE( writer.AddFile( key, file ) ) << file.string();
             }

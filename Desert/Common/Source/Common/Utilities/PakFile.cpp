@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "PakFile.hpp"
 
 #include "Crc32c.hpp"
@@ -238,6 +239,25 @@ namespace Common::Utils
     {
         if ( key == kDeletedEntriesKey )
             return false; // reserved: SetDeletedKeys owns it
+
+        // A KEY IS WRITTEN ONCE. Nothing checked this before, and the writer would happily store two
+        // blobs under one name: the index then carries both, a lookup returns whichever the search
+        // reaches first, and WHICH ONE that is depends on insertion order — so the same inputs can
+        // produce an archive that serves different bytes than the last pack did, with nothing anywhere
+        // saying so. Refusing by name is the only point at which both entries are still visible.
+        //
+        // Found on Windows CI: a corpus round-trip packed 43 entries for 42 distinct keys, because two
+        // files in different directories share a filename and the caller keyed on the filename alone.
+        // The count mismatch was the only symptom, and it was three layers away from the cause.
+        if ( std::find_if( m_Entries.begin(), m_Entries.end(),
+                           [&key]( const Entry& e ) { return e.Key == key; } ) != m_Entries.end() )
+        {
+            LOG_ERROR( "[Pak] {}: '{}' is already in this archive. A key names one blob; packing a "
+                       "second under the same name would make which bytes a reader gets depend on "
+                       "search order.",
+                       m_Path.string(), key );
+            return false;
+        }
         return WriteBlob( key, data, size );
     }
 

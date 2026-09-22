@@ -169,12 +169,16 @@ TEST( StoredAssetForm, TheMachinePathFormIsTheONEThatStillCarriesTheCheckoutDire
     // that will have to be edited by whoever fixes it.
     const OpenProject open( kProject );
 
-    // `string()` AND NOT `generic_string()`, and the difference is the whole subject of this test.
-    // MachinePath is the file "as this machine spells it" — backslashed on Windows — so searching it
-    // for the forward-slashed spelling found nothing there and the assertion failed on Windows Debug
-    // while passing on macOS, where the two spellings are one string.
-    const std::string mesh = RenderStoredForm( StoredAssetForm::MachinePath, "cooked:Meshes/Probe.stmesh" );
-    EXPECT_NE( mesh.find( kProject.string() ), std::string::npos )
+    // BOTH SIDES NORMALISED, because the rendered path is MIXED on Windows and neither pure spelling
+    // occurs in it. `path( "/tmp/x" ).string()` keeps the forward slashes it was given, while the `/`
+    // operator that appends the relative part inserts the PREFERRED separator — so the result reads
+    // `/tmp/desert-stored-form/checkout\Content\...`. Searching it for the all-forward spelling fails,
+    // and so does searching for the all-backward one; the first fix here swapped one for the other and
+    // was still wrong. What the test actually means is "this string contains the checkout directory",
+    // and that question only has an answer once both sides are spelled the same way.
+    const std::string machine = RenderStoredForm( StoredAssetForm::MachinePath, "cooked:Meshes/Probe.stmesh" );
+    const std::string mesh    = std::filesystem::path( machine ).generic_string();
+    EXPECT_NE( mesh.find( kProject.generic_string() ), std::string::npos )
          << "the mesh form no longer carries the checkout directory. That is an IMPROVEMENT and a "
             "format change: every `.desce` holding a mesh or skybox reference has to be migrated in the "
             "same commit, and this test updated to assert the new form.";
