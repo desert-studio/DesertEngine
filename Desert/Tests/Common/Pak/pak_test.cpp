@@ -639,6 +639,31 @@ TEST( Pak, TheV3RecordLayoutIsPinnedByteForByte )
     // equal to itself and this is the one assertion that would not.
     EXPECT_EQ( static_cast<unsigned char>( bytes[4] ), 1u );
     EXPECT_EQ( static_cast<unsigned char>( bytes[7] ), 0u );
+
+    // AND AGAIN WITH AN ENTRY WHOSE TWO SIZES DIFFER, because the check above cannot see the ORDER of
+    // the size columns: a stored entry has one value in both, so swapping them in the writer leaves
+    // every assertion so far passing. Measured — that exact mutation was green here and only turned
+    // the round-trip tests red, which is a defect found three tests away from the file layout it is
+    // about.
+    const fs::path      packed = fs::path( pak ).parent_path() / "layout_lz4.dpak";
+    const std::string   runs( 40000, 'C' );
+    {
+        Common::Utils::PakWriter writer( packed );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "c", runs.data(), runs.size() ) );
+        ASSERT_EQ( writer.Finalize(), 1u );
+    }
+    const std::string packedBytes = Slurp( packed );
+    const auto        pu64At      = [&]( size_t at )
+    { uint64_t v = 0; std::memcpy( &v, packedBytes.data() + at, 8 ); return v; };
+    uint64_t packedIndex = 0;
+    std::memcpy( &packedIndex, packedBytes.data() + 8, 8 );
+    const size_t record = static_cast<size_t>( packedIndex ) + 4 + 1; // u32 pathLen + "c"
+    const uint64_t storedSize = pu64At( record + 8 );
+    const uint64_t contentSize = pu64At( record + 16 );
+    EXPECT_EQ( contentSize, runs.size() );
+    EXPECT_LT( storedSize, contentSize ) << "the stored size column is not where the format says";
+    EXPECT_EQ( storedSize, packedIndex - 16u ); // the one blob fills the whole content region
 }
 
 // EVERY KIND OF CONTENT, not one convenient file. A codec that mangles one class of bytes is the
@@ -893,35 +918,62 @@ TEST( Pak, AppendAddsWithoutMovingOrRewritingWhatWasAlreadyThere )
     EXPECT_GT( after.EntryOffset( "three.bin" ).value_or( 0 ), offsetBefore );
 }
 
-// AN INTERRUPTED APPEND COSTS NOTHING, and this is the state a crash leaves behind: blobs (and
-// possibly an index) written past the end, and a header that has not been updated to name them.
+// AN INTERRUPTED APPEND COSTS NOTHING, and this is the state a crash actually leaves behind: every
+// byte a real append wrote, and a header that was never updated to name them. Reconstructed from the
+// two versions of the file rather than simulated with rubbish, because the thing under test is WHERE
+// the append put its bytes.
+//
+// AN EARLIER VERSION OF THIS TEST APPENDED GARBAGE BY HAND AND WAS GREEN AGAINST THE NAIVE
+// IMPLEMENTATION. Writing new blobs OVER the old index — which sits exactly where the blobs end —
+// still produces a perfectly valid archive when the append finishes, so nothing that only looks at
+// the finished file can tell the two apart. The difference is only visible in what the file looks
+// like BEFORE the last sixteen bytes land, and that is what these two assertions are.
 TEST( Pak, AnAppendInterruptedBeforeItsHeaderLeavesTheArchiveExactlyAsItWas )
 {
-    const fs::path dir = MakeTempDir();
-    const fs::path pak = dir / "torn.dpak";
-    const std::string payload( 5000, 'P' );
+    const fs::path    dir  = MakeTempDir();
+    const fs::path    pak  = dir / "torn.dpak";
+    const std::string first( 5000, 'P' );
+    const std::string second = "the second entry, which sits right before the index";
     {
         Common::Utils::PakWriter writer( pak );
         ASSERT_TRUE( writer.IsOpen() );
-        ASSERT_TRUE( writer.AddData( "kept.bin", payload.data(), payload.size() ) );
-        ASSERT_EQ( writer.Finalize(), 1u );
+        ASSERT_TRUE( writer.AddData( "kept.bin", first.data(), first.size() ) );
+        ASSERT_TRUE( writer.AddData( "kept.txt", second.data(), second.size() ) );
+        ASSERT_EQ( writer.Finalize(), 2u );
     }
     const std::string before = Slurp( pak );
 
-    // Everything an append writes before its last act, and nothing of the last act itself.
+    const std::string added( 9000, 'N' );
     {
-        std::ofstream out( pak, std::ios::binary | std::ios::app );
-        const std::string garbage( 20000, '\xAB' );
-        out.write( garbage.data(), static_cast<std::streamsize>( garbage.size() ) );
+        Common::Utils::PakWriter appender( pak, Common::Utils::PakWriter::Mode::Append );
+        ASSERT_TRUE( appender.IsOpen() );
+        ASSERT_TRUE( appender.AddData( "added.bin", added.data(), added.size() ) );
+        ASSERT_EQ( appender.Finalize(), 3u );
     }
+    const std::string after = Slurp( pak );
 
-    Common::Utils::PakReader reader( pak );
+    // THE RULE ITSELF: past the header, not one byte of the archive that was already there moved.
+    // The old index is inside this range, and an append that wrote its blobs over it — the naive
+    // implementation, and the one the format invites — fails here and nowhere else.
+    //
+    // The sixteen header bytes are excluded because the header is the ONE thing an append is supposed
+    // to change, and it is changed last and alone; that is the whole design. (This assertion was
+    // written without the exclusion first and went red on the correct code, which is the clearest
+    // possible statement of what the rule does and does not cover.)
+    ASSERT_GT( after.size(), before.size() );
+    EXPECT_EQ( after.compare( 16, before.size() - 16, before, 16, before.size() - 16 ), 0 )
+         << "the append rewrote bytes that were already in the archive";
+
+    // The crash state: everything the append wrote, with the OLD header still in front of it.
+    const fs::path crashed = dir / "crashed.dpak";
+    Spit( crashed, before.substr( 0, 16 ) + after.substr( 16 ) );
+
+    Common::Utils::PakReader reader( crashed );
     ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
-    EXPECT_EQ( reader.EntryCount(), 1u );
-    EXPECT_EQ( reader.Read( "kept.bin" ), payload );
-    // The original bytes are still there, untouched, which is what makes the rollback free: the file
-    // is a prefix of itself plus rubbish nothing points at.
-    EXPECT_EQ( Slurp( pak ).compare( 0, before.size(), before ), 0 );
+    EXPECT_EQ( reader.EntryCount(), 2u );
+    EXPECT_EQ( reader.Read( "kept.bin" ), first );
+    EXPECT_EQ( reader.Read( "kept.txt" ), second );
+    EXPECT_FALSE( reader.Contains( "added.bin" ) ); // nothing points at it, so nothing sees it
 }
 
 TEST( Pak, AppendRefusesTheArchivesItWouldHaveToRewrite )

@@ -158,9 +158,17 @@ TEST( Lz4Block, MalformedBlocksAreRefusedRatherThanPartiallyDecoded )
     std::string         four( 4, '\0' );
     EXPECT_FALSE( Lz4BlockDecompress( backwards, sizeof( backwards ), four.data(), four.size() ) );
 
-    // Offset zero is not a legal offset and must not be read as "copy from myself".
+    // Offset zero is not a legal offset and must not be read as "copy from myself" — which would
+    // hand the caller four bytes of whatever the buffer happened to hold.
+    //
+    // THE OUTPUT SIZE HERE IS LOAD-BEARING AND WAS WRONG ONCE. With a 4-byte output the sequence is
+    // refused because the 4-byte match does not FIT after one literal, so removing the offset check
+    // altogether left this assertion green — the test was pinning the length check and calling it the
+    // offset check. Five bytes is exactly one literal plus the minimum match, so the only thing left
+    // to refuse it is the offset being zero.
     const unsigned char zeroOffset[] = { 0x10, 'x', 0x00, 0x00 };
-    EXPECT_FALSE( Lz4BlockDecompress( zeroOffset, sizeof( zeroOffset ), four.data(), four.size() ) );
+    std::string         five( 5, '\0' );
+    EXPECT_FALSE( Lz4BlockDecompress( zeroOffset, sizeof( zeroOffset ), five.data(), five.size() ) );
 }
 
 TEST( Lz4Block, EmptyInputIsNotAnEntryThisCodecWillInvent )
