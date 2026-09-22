@@ -4178,6 +4178,39 @@ namespace Desert::Editor
                                   return PaletteCommandDone();
                               } } );
 
+        // AND THE WAY BACK, which did not exist. Opening a scene view was in the palette; closing one was
+        // reachable only through the window's X — and the X needs a mouse, which this machine cannot
+        // synthesise. So the half of the renderer-slot budget that MATTERS was unverifiable: a slot is
+        // returned by the view being DESTROYED (see CloseSceneView's ordering note), and nothing
+        // unattended could destroy one. A check that can open six views and never close one measures the
+        // leak it is supposed to catch as the normal state.
+        //
+        // Hides the panel rather than calling CloseSceneView directly: that is the SAME route the X takes
+        // — CloseDismissedSceneViews collects invisible views at the top of the next OnUpdate — and the
+        // teardown waits on the device, which must not happen inside the ImGui pass.
+        // The ID is captured, never the panel pointer or the index — the same rule
+        // Editor/Core/SceneViewIdentity.hpp states and the Preview entries below follow: a view can be
+        // closed between this list being built and an entry being run, and a captured pointer would then
+        // be dangling while a captured index would address somebody else's view.
+        for ( const auto& doc : m_ExtraScenes )
+        {
+            const uint64_t id = doc->Id;
+            commands.push_back(
+                 { "Scene", "Close Scene View " + doc->Name,
+                   [this, id]() -> Common::BoolResultStr
+                   {
+                       const auto index = IndexOfSceneView(
+                            m_ExtraScenes, []( const std::unique_ptr<SceneDocument>& d ) { return d->Id; }, id );
+                       if ( !index || !m_ExtraScenes[*index]->Viewport )
+                       {
+                           return Common::MakeFormattedError<bool>(
+                                "scene view #{} is already closed; nothing to close.", id );
+                       }
+                       m_ExtraScenes[*index]->Viewport->GetVisibility() = false;
+                       return PaletteCommandDone();
+                   } } );
+        }
+
         // NAMED VIEWPOINTS for the focused document's preview — the replacement for `--preview-orbit
         // yaw,pitch`, whose continuous angle pair a palette entry has nowhere to carry. See
         // Editor/Core/PreviewViewpoints.hpp for why names are MORE reproducible than numbers, not less.
