@@ -112,13 +112,20 @@ namespace Desert::Editor
                                     const glm::vec3& axis1, const glm::vec3& axis2, const glm::mat4& mvp,
                                     float width, float height, float xpos, float ypos, ImU32 color );
 
+        // The attenuation shell, in the LIGHT'S OWN COLOUR. The two parameters that used to end this
+        // signature -- the icon's screen centre -- are gone rather than ignored: both were already
+        // `/*unused*/` in the definition, so every call site was computing and passing two numbers that
+        // reached nothing.
         void DrawLightRadiusSphere( const std::shared_ptr<Desert::Core::Camera>& camera, const glm::vec3& worldPos,
-                                    float radius, float width, float height, float windowX, float windowY,
-                                    float iconCenterX, float iconCenterY );
+                                    float radius, const glm::vec3& lightColour, float width, float height,
+                                    float windowX, float windowY );
 
+        // BOTH cone angles. The inner one is the half-angle of full intensity and had no picture at all,
+        // so a hard-edged stage light and a soft wash were the same gizmo.
         void DrawSpotCone( const std::shared_ptr<Desert::Core::Camera>& camera, const glm::vec3& apex,
-                           const glm::vec3& dir, float outerAngleDeg, float range, float width, float height,
-                           float windowX, float windowY );
+                           const glm::vec3& dir, float innerAngleDeg, float outerAngleDeg, float range,
+                           const glm::vec3& lightColour, float width, float height, float windowX,
+                           float windowY );
 
         // --- draggable value handles (selected light only) ------------------------------------------
         // What a grab is currently editing. One at a time: a drag owns the mouse until it is released.

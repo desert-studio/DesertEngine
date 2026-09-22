@@ -600,10 +600,15 @@ namespace Desert::Editor
                                                     GizmoIcon::LightPoint, lightColor, IsSelected( entity ),
                                                     m_UIHelper );
 
-            if ( light.ShowRadius )
+            // AUTHORED ALWAYS-ON **OR** SELECTED. ShowRadius is a per-light setting for the case where
+            // the shell must stay visible while working on something else; selection is transient and
+            // means "I am editing THIS light", and UE draws the selected light's attenuation
+            // unconditionally for that reason. Without the second half the radius handle below sat on an
+            // invisible sphere, which is editing blind.
+            if ( light.ShowRadius || IsSelected( entity ) )
             {
-                DrawLightRadiusSphere( camera, worldPos, light.Radius, width, height, windowPos.x,
-                                       windowPos.y, absoluteX, absoluteY );
+                DrawLightRadiusSphere( camera, worldPos, light.Radius, light.Color, width, height,
+                                       windowPos.x, windowPos.y );
             }
 
             // Radius handle on the SELECTED light: a dot on the sphere, placed along the camera's right
@@ -618,15 +623,13 @@ namespace Desert::Editor
                 {
                     const ImVec2 center( absoluteX, absoluteY );
                     const ImVec2 handle( windowPos.x + handleScreen.x, windowPos.y + handleScreen.y );
-                    if ( DragValueHandle( HandleKind::PointRadius, entity.GetComponent<ECS::UUIDComponent>().UUID,
-                                          center, handle, light.Radius, 1.0f, 100000.0f, "Radius",
-                                          &light.Radius ) &&
-                         !light.ShowRadius )
-                    {
-                        // Dragging the radius while the sphere is hidden is editing blind — show it.
-                        DrawLightRadiusSphere( camera, worldPos, light.Radius, width, height, windowPos.x,
-                                               windowPos.y, absoluteX, absoluteY );
-                    }
+                    // THE MID-DRAG REDRAW THAT STOOD HERE IS GONE, not commented out: it existed only
+                    // because a hidden shell could be dragged, and a selected light's shell is never
+                    // hidden now. Two answers to "is the sphere visible" was the defect waiting to
+                    // happen; the guard above is the only one.
+                    (void)DragValueHandle( HandleKind::PointRadius,
+                                           entity.GetComponent<ECS::UUIDComponent>().UUID, center, handle,
+                                           light.Radius, 1.0f, 100000.0f, "Radius", &light.Radius );
                 }
             }
             if ( hovered )
@@ -722,7 +725,6 @@ namespace Desert::Editor
                 }
             }
 
-            const auto& light = entity.GetComponent<ECS::DirectionLightComponent>().Data;
             if ( hovered )
             {
                 m_LightIconHovered = true;
@@ -732,7 +734,7 @@ namespace Desert::Editor
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
                 Utils::ImGuiUtilities::Tooltip(
                      std::format( "Directional Light (sun)\nIntensity: {}\nDirection: ({:.2f}, {:.2f}, {:.2f})",
-                                  light.Intensity, lightDir.x, lightDir.y, lightDir.z )
+                                  sun.Intensity, lightDir.x, lightDir.y, lightDir.z )
                           .c_str() );
                 ImGui::PopStyleColor( 2 );
             }
@@ -775,9 +777,11 @@ namespace Desert::Editor
             // Forward = entity's -Z in world space (matches the SpotLightECSSystem direction).
             const glm::vec3 forward = glm::normalize( -glm::vec3( worldXf[2] ) );
 
-            if ( light.ShowCone )
-                DrawSpotCone( camera, worldPos, forward, light.OuterConeAngle, light.Range, width,
-                              height, windowPos.x, windowPos.y );
+            // Authored always-on OR selected — the same rule as the point light's shell above, and for
+            // the same reason: the range and cone handles below are grabbed ON this drawing.
+            if ( light.ShowCone || IsSelected( entity ) )
+                DrawSpotCone( camera, worldPos, forward, light.InnerConeAngle, light.OuterConeAngle,
+                              light.Range, light.Color, width, height, windowPos.x, windowPos.y );
 
             // Range + cone handles on the SELECTED spot light.
             if ( IsSelected( entity ) )
@@ -1353,45 +1357,67 @@ namespace Desert::Editor
     }
 
     void LightGizmoRenderer::DrawSpotCone( const std::shared_ptr<Desert::Core::Camera>& camera,
-                                           const glm::vec3& apex, const glm::vec3& dir, float outerAngleDeg,
-                                           float range, float width, float height, float windowX, float windowY )
+                                           const glm::vec3& apex, const glm::vec3& dir, float innerAngleDeg,
+                                           float outerAngleDeg, float range, const glm::vec3& lightColour,
+                                           float width, float height, float windowX, float windowY )
     {
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         const auto  mvp      = camera->GetProjectionMatrix() * camera->GetViewMatrix();
-        const ImU32 color    = ImColor( 1.0f, 0.9f, 0.5f, 0.85f );
+
+        // THE LIGHT'S OWN COLOUR again, and for the same reason as the point light's shell. The fixed
+        // warm yellow that stood here made every spot in a scene the same object.
+        const glm::vec3 lifted( std::max( lightColour.r, 0.25f ), std::max( lightColour.g, 0.25f ),
+                                std::max( lightColour.b, 0.25f ) );
+        const ImU32 outerCol = ImColor( ImVec4( lifted.r, lifted.g, lifted.b, 0.85f ) );
+        const ImU32 innerCol = ImColor( ImVec4( lifted.r, lifted.g, lifted.b, 0.40f ) );
 
         // Build an orthonormal basis around the cone axis.
         glm::vec3 up = ( glm::abs( dir.y ) > 0.99f ) ? glm::vec3( 1.0f, 0.0f, 0.0f ) : glm::vec3( 0.0f, 1.0f, 0.0f );
         glm::vec3 right = glm::normalize( glm::cross( dir, up ) );
         up             = glm::normalize( glm::cross( right, dir ) );
 
-        const float  outer       = glm::radians( outerAngleDeg );
-        const float  capRadius   = range * glm::tan( outer );
         const glm::vec3 capCenter = apex + dir * range;
 
-        const int    segments = 48;
-        glm::vec2    prev;
-        bool         prevValid = false;
-        glm::vec2    apexS;
-        const bool   apexValid = ProjectToScreen( apex, mvp, width, height, apexS );
+        glm::vec2  apexS;
+        const bool apexValid = ProjectToScreen( apex, mvp, width, height, apexS );
 
-        for ( int i = 0; i <= segments; ++i )
+        // ── TWO CONES, BECAUSE THE LIGHT HAS TWO ANGLES ──────────────────────────────────────────
+        //
+        // Only the OUTER one was drawn, and InnerConeAngle — the half-angle inside which the spot is at
+        // full intensity — had no picture anywhere in the editor. Two spots with the same outer angle
+        // and inner angles of 5 and 29 degrees are a hard-edged stage light and a soft wash, and they
+        // were the same gizmo. The inner rim is drawn faint and RIBLESS: it is a reading of the
+        // falloff, not a second cone to grab, and ribs on both would read as a lattice.
+        const auto ring = [&]( float angleDeg, ImU32 colour, bool ribs )
         {
-            const float a   = 2.0f * glm::pi<float>() * i / segments;
-            glm::vec3   p   = capCenter + capRadius * ( glm::cos( a ) * right + glm::sin( a ) * up );
-            glm::vec2   s;
-            const bool  ok  = ProjectToScreen( p, mvp, width, height, s );
-            const ImVec2 sp = ImVec2( windowX + s.x, windowY + s.y );
+            const float capRadius = range * glm::tan( glm::radians( glm::clamp( angleDeg, 0.5f, 89.0f ) ) );
+            const int   segments  = 48;
+            glm::vec2   prev;
+            bool        prevValid = false;
+            for ( int i = 0; i <= segments; ++i )
+            {
+                const float  a  = 2.0f * glm::pi<float>() * i / segments;
+                glm::vec3    p  = capCenter + capRadius * ( glm::cos( a ) * right + glm::sin( a ) * up );
+                glm::vec2    s;
+                const bool   ok = ProjectToScreen( p, mvp, width, height, s );
+                const ImVec2 sp = ImVec2( windowX + s.x, windowY + s.y );
 
-            if ( ok && prevValid )
-                drawList->AddLine( ImVec2( windowX + prev.x, windowY + prev.y ), sp, color, 1.5f );
-            // A few rib lines from the apex to the cap edge.
-            if ( ok && apexValid && ( i % 12 == 0 ) )
-                drawList->AddLine( ImVec2( windowX + apexS.x, windowY + apexS.y ), sp, color, 1.5f );
+                if ( ok && prevValid )
+                    drawList->AddLine( ImVec2( windowX + prev.x, windowY + prev.y ), sp, colour, 1.5f );
+                // A few rib lines from the apex to the cap edge.
+                if ( ribs && ok && apexValid && ( i % 12 == 0 ) )
+                    drawList->AddLine( ImVec2( windowX + apexS.x, windowY + apexS.y ), sp, colour, 1.5f );
 
-            prev      = s;
-            prevValid = ok;
-        }
+                prev      = s;
+                prevValid = ok;
+            }
+        };
+
+        ring( outerAngleDeg, outerCol, true );
+        // A zero-width hotspot has no ring to draw; clamping it to 0.5 degrees instead would put a dot
+        // on the axis that reads as an inner cone the light does not have.
+        if ( innerAngleDeg >= 1.0f && innerAngleDeg < outerAngleDeg )
+            ring( innerAngleDeg, innerCol, false );
     }
 
     bool LightGizmoRenderer::IsSelected( const ECS::Entity& entity ) const
@@ -1468,9 +1494,9 @@ namespace Desert::Editor
     }
 
     void LightGizmoRenderer::DrawLightRadiusSphere( const std::shared_ptr<Desert::Core::Camera>& camera,
-                                                    const glm::vec3& worldPos, float radius, float width,
-                                                    float height, float windowX, float windowY,
-                                                    float /*iconCenterX*/, float /*iconCenterY*/ )
+                                                    const glm::vec3& worldPos, float radius,
+                                                    const glm::vec3& lightColour, float width, float height,
+                                                    float windowX, float windowY )
     {
         ImDrawList* drawList         = ImGui::GetWindowDrawList();
         const auto  viewMatrix       = camera->GetViewMatrix();
@@ -1479,16 +1505,22 @@ namespace Desert::Editor
 
         const int segments = 64;
 
-        ImU32 colorWhite = ImColor( 1.0f, 1.0f, 1.0f, 1.0f );
+        // THE LIGHT'S OWN COLOUR, not white. Three white rings say "something has a radius here"; the
+        // same rings in the light's colour say WHICH light, which is the whole question a scene with
+        // four overlapping lights asks. Slightly transparent so two overlapping shells still read as
+        // two, and lifted off black so a nearly-unlit light is still a visible ring.
+        const glm::vec3 lifted( std::max( lightColour.r, 0.25f ), std::max( lightColour.g, 0.25f ),
+                                std::max( lightColour.b, 0.25f ) );
+        const ImU32     colour = ImColor( ImVec4( lifted.r, lifted.g, lifted.b, 0.8f ) );
 
         DrawAxisAlignedCircle( drawList, worldPos, radius, segments, glm::vec3( 1.0f, 0.0f, 0.0f ),
-                               glm::vec3( 0.0f, 0.0f, 1.0f ), mvp, width, height, windowX, windowY, colorWhite );
+                               glm::vec3( 0.0f, 0.0f, 1.0f ), mvp, width, height, windowX, windowY, colour );
 
         DrawAxisAlignedCircle( drawList, worldPos, radius, segments, glm::vec3( 1.0f, 0.0f, 0.0f ),
-                               glm::vec3( 0.0f, 1.0f, 0.0f ), mvp, width, height, windowX, windowY, colorWhite );
+                               glm::vec3( 0.0f, 1.0f, 0.0f ), mvp, width, height, windowX, windowY, colour );
 
         DrawAxisAlignedCircle( drawList, worldPos, radius, segments, glm::vec3( 0.0f, 1.0f, 0.0f ),
-                               glm::vec3( 0.0f, 0.0f, 1.0f ), mvp, width, height, windowX, windowY, colorWhite );
+                               glm::vec3( 0.0f, 0.0f, 1.0f ), mvp, width, height, windowX, windowY, colour );
     }
 
     void LightGizmoRenderer::DrawAxisAlignedCircle( ImDrawList* drawList, const glm::vec3& center, float radius,
