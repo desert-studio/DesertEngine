@@ -6,10 +6,6 @@
 namespace Desert::ECS
 {
 
-    Entity::Entity( entt::entity handle, entt::registry& registry ) : m_Handle( handle ), m_Registry( &registry )
-    {
-    }
-
     glm::mat4 Entity::GetWorldTransform() const
     {
         std::vector<entt::entity> chain;

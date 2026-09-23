@@ -32,9 +32,20 @@ namespace Desert::ECS
         {
         }
 
+        ~AttachmentSystem() override
+        {
+            if ( m_HookedRegistry )
+                m_HookedRegistry->on_destroy<SocketAttachmentComponent>().disconnect( this );
+        }
+
+        AttachmentSystem( const AttachmentSystem& )            = delete;
+        AttachmentSystem& operator=( const AttachmentSystem& ) = delete;
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ) override
         {
+            EnsureDestroyHook( registry );
+
             auto view = registry.view<SocketAttachmentComponent, TransformComponent>();
             for ( auto entity : view )
             {
@@ -103,7 +114,27 @@ namespace Desert::ECS
         }
 
     private:
-        Core::Scene* m_Scene = nullptr;
+        // The two caches below are keyed by the socket entity and used to be erased by nothing: every socket
+        // ever destroyed stayed in them for the life of the scene, which streaming turns from a few stale
+        // rows into one per unloaded weapon. Same listener shape as ScriptSystem::EnsureDestroyHook.
+        void EnsureDestroyHook( entt::registry& registry )
+        {
+            if ( m_HookedRegistry == &registry )
+                return;
+            if ( m_HookedRegistry )
+                m_HookedRegistry->on_destroy<SocketAttachmentComponent>().disconnect( this );
+            registry.on_destroy<SocketAttachmentComponent>().connect<&AttachmentSystem::OnSocketDestroyed>( this );
+            m_HookedRegistry = &registry;
+        }
+
+        void OnSocketDestroyed( entt::registry&, entt::entity entity )
+        {
+            m_BoneRefs.erase( entity );
+            m_RefRig.erase( entity );
+        }
+
+        Core::Scene*    m_Scene          = nullptr;
+        entt::registry* m_HookedRegistry = nullptr;
 
         // The cached bone index per socket entity, plus the rig signature it was resolved against. The
         // signature is the invalidation key: re-resolving on every frame would defeat the cache, and never

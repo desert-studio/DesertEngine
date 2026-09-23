@@ -442,11 +442,14 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //     this comment already described one merge earlier, which is the point: the register survives it
     //     because a row cannot be satisfied by editing a number. The four are the two literal columns of
     //     GizmoIconRow, ViewportCameraPresetRow::Name, and LightGizmoRenderer::m_UIHelper. Raw 383+4.
-    EXPECT_EQ( CountOf( Form::Raw ), 387 );
+    //     WP6 (2026-09-23) added three raw members -- PhysicsBodyLifetime::m_World and ::m_Registry, and
+    //     AttachmentSystem::m_HookedRegistry, each with a row -- and one unique_ptr,
+    //     PhysicsECSSystem::m_Lifetime. Raw 387+3, Unique 120+1.
+    EXPECT_EQ( CountOf( Form::Raw ), 390 );
     EXPECT_EQ( CountOf( Form::Shared ), 331 );
-    EXPECT_EQ( CountOf( Form::Unique ), 120 );
+    EXPECT_EQ( CountOf( Form::Unique ), 121 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 876 )
+    EXPECT_EQ( (int)Members().size(), 880 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

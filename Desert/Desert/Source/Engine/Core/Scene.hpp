@@ -8,6 +8,7 @@
 #include <Engine/Core/Camera.hpp>
 
 #include "SceneSettings.hpp"
+#include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 
 #include <Common/Core/ResultStr.hpp>
@@ -131,7 +132,7 @@ namespace Desert::Core
 
         [[nodiscard]] const auto& GetAllEntities() const
         {
-            return m_Entitys;
+            return m_Entities.All();
         }
 
         // Resizes view 0 — the size a one-view scene has. Two viewports of one world are two DIFFERENT
@@ -361,8 +362,7 @@ namespace Desert::Core
         // means "nothing to complain about", which is also the state whose arrival is worth a line.
         std::string m_DegenerateDirLightsReported;
 
-        std::vector<ECS::Entity>                 m_Entitys;
-        std::unordered_map<Common::UUID, size_t> m_EntitysMap;
+        SceneEntityIndex m_Entities;
 
         // Set by Init(), never cleared — see IsInitialized().
         bool m_Initialized = false;

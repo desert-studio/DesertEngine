@@ -279,6 +279,19 @@ namespace Desert::Physics
         m_Impl->Bodies->SetLinearVelocity( JPH::BodyID( handle ), ToJolt( velocity ) );
     }
 
+    uint32_t PhysicsWorld::GetBodyCount() const
+    {
+        return m_Impl ? m_Impl->System.GetNumBodies() : 0u;
+    }
+
+    uint32_t PhysicsWorld::GetCharacterCount() const
+    {
+        if ( !m_Impl )
+            return 0u;
+        return static_cast<uint32_t>( std::count_if( m_Impl->Characters.begin(), m_Impl->Characters.end(),
+                                                     []( const auto& c ) { return c != nullptr; } ) );
+    }
+
     // ---- Character controller ----
 
     CharacterHandle PhysicsWorld::CreateCharacter( const CharacterDesc& desc )
@@ -297,8 +310,19 @@ namespace Desert::Physics
              new JPH::CharacterVirtual( &settings, ToJolt( desc.Position ), JPH::Quat::sIdentity(),
                                         &m_Impl->System );
 
-        m_Impl->Characters.push_back( character );
-        return static_cast<CharacterHandle>( m_Impl->Characters.size() - 1 );
+        // Reuse a released slot before growing. Slots used to be append-only, which was harmless while
+        // characters lived as long as a Play session, and is a vector that only grows once streaming creates
+        // and destroys them with every cell. Reuse is safe because a slot is released only through
+        // PhysicsBodyLifetime, which resets the component's handle in the same call — nothing is left
+        // holding the old number.
+        auto& slots = m_Impl->Characters;
+        if ( const auto freeSlot = std::find( slots.begin(), slots.end(), nullptr ); freeSlot != slots.end() )
+        {
+            *freeSlot = character;
+            return static_cast<CharacterHandle>( freeSlot - slots.begin() );
+        }
+        slots.push_back( character );
+        return static_cast<CharacterHandle>( slots.size() - 1 );
     }
 
     void PhysicsWorld::RemoveCharacter( CharacterHandle handle )

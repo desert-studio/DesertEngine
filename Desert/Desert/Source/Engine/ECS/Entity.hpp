@@ -9,7 +9,7 @@ namespace Desert::ECS
     {
     public:
         Entity() : m_Handle( entt::null ), m_Registry( nullptr ) {}
-        explicit Entity( entt::entity handle, entt::registry& registry );
+        explicit Entity( entt::entity handle, entt::registry& registry ) : m_Handle( handle ), m_Registry( &registry ) {}
         ~Entity() = default;
 
         operator bool() const { return m_Handle != entt::null && m_Registry != nullptr; }

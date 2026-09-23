@@ -142,6 +142,10 @@ namespace
          Row{ "MeshECSSystem.hpp", Verdict::Honours,
               "the original three sites (static, instanced, skinned) and the whole reason the flag "
               "appeared to work at all." },
+         Row{ "PhysicsBodyLifetime.hpp", Verdict::MustNot,
+              "it gives a Jolt body back when its entity or collider is destroyed (WP6); a body "
+              "hidden in the outliner is still simulated (see PhysicsECSSystem below), so hiding "
+              "must neither release it nor keep a destroyed one alive." },
          Row{ "PhysicsECSSystem.hpp", Verdict::MustNot,
               "an invisible wall you still collide with is a DIFFERENT FEATURE from an invisible "
               "wall; skipping a hidden body would make one outliner tick silently change the "

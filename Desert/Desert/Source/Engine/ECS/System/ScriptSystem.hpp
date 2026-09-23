@@ -127,11 +127,22 @@ namespace Desert::ECS
                         }
                         m_Engine.ApplyProperties( id, slot, script.Properties ); // editor overrides -> env
                         m_Engine.CallStart( id, slot );
+                        if ( !registry.valid( entity ) )
+                            break; // OnStart destroyed its own entity; see the check after CallUpdate
                     }
                     // Re-apply every frame so editing a property in Details updates the running script LIVE.
                     m_Engine.ApplyProperties( id, slot, script.Properties );
                     m_Engine.CallUpdate( id, slot, ts.GetSeconds() );
+
+                    // A script may destroy its OWN entity (`self:destroy()`), and then `sc` refers to storage
+                    // EnTT has already given back. This loop used to carry on regardless: it read the next
+                    // slot through the dead reference and asked `has<AnimationComponent>` of an invalid
+                    // entity, which asserts in Debug — the first run of PHYS_DestroyWitness (WP6) died here.
+                    if ( !registry.valid( entity ) )
+                        break;
                 }
+                if ( !registry.valid( entity ) )
+                    continue;
 
                 // Dispatch animation notifies (footstep, hit-frame, ...) queued this frame by the Animator to
                 // EVERY started slot as OnAnimationNotify(name), then clear so each fires exactly once.

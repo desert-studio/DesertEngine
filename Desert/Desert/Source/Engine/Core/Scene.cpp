@@ -667,32 +667,28 @@ namespace Desert::Core
     {
         const auto enttID = m_Registry.create();
 
-        auto& entity = m_Entitys.emplace_back( enttID, m_Registry );
+        ECS::Entity entity( enttID, m_Registry );
 
         entity.AddComponent<ECS::TagComponent>( std::move( entityName ) );
         entity.AddComponent<ECS::UUIDComponent>();
         entity.AddComponent<ECS::TransformComponent>();
         entity.AddComponent<ECS::RelationshipComponent>();
 
-        m_EntitysMap[entity.GetComponent<ECS::UUIDComponent>().UUID] = (uint32_t)m_Entitys.size() - 1;
-
-        return m_Entitys.back();
+        return m_Entities.Add( entity.GetComponent<ECS::UUIDComponent>().UUID, enttID, m_Registry );
     }
 
     Desert::ECS::Entity& Scene::CreateEntityWithUUID( const Common::UUID& uuid, const std::string& name )
     {
         const auto enttID = m_Registry.create();
 
-        auto& entity = m_Entitys.emplace_back( enttID, m_Registry );
+        ECS::Entity entity( enttID, m_Registry );
 
         entity.AddComponent<ECS::TagComponent>( name );
         entity.AddComponent<ECS::UUIDComponent>( uuid );
         entity.AddComponent<ECS::TransformComponent>();
         entity.AddComponent<ECS::RelationshipComponent>();
 
-        m_EntitysMap[uuid] = (uint32_t)m_Entitys.size() - 1;
-
-        return m_Entitys.back();
+        return m_Entities.Add( uuid, enttID, m_Registry );
     }
 
     const std::shared_ptr<Desert::Graphic::Image2D> Scene::GetFinalImage() const
@@ -735,9 +731,9 @@ namespace Desert::Core
     std::optional<std::reference_wrapper<const Desert::ECS::Entity>>
     Scene::FindEntityByID( const Common::UUID& uuid ) const
     {
-        if ( auto it = m_EntitysMap.find( uuid ); it != m_EntitysMap.end() ) [[likely]]
+        if ( const ECS::Entity* entity = m_Entities.Find( uuid ) ) [[likely]]
         {
-            return std::ref( m_Entitys.at( it->second ) );
+            return std::cref( *entity );
         }
         else [[unlikely]]
         {
@@ -862,8 +858,7 @@ namespace Desert::Core
     {
         m_Registry.clear();
 
-        m_Entitys.clear();
-        m_EntitysMap.clear();
+        m_Entities.Clear();
 
         SetupRegistryCallbacks();
     }
@@ -941,54 +936,11 @@ namespace Desert::Core
 
     void Scene::DestroyEntity( ECS::Entity entity )
     {
-        if ( !entity ) return;
-        
-        auto uuid = entity.GetComponent<ECS::UUIDComponent>().UUID;
-        
-        // Destroy children
-        if ( entity.HasComponent<ECS::RelationshipComponent>() )
-        {
-            auto& rel = entity.GetComponent<ECS::RelationshipComponent>();
-            auto childrenCopy = rel.Children; // copy to avoid issues during iteration
-            for ( auto childHandle : childrenCopy )
-            {
-                DestroyEntity( ECS::Entity( childHandle, m_Registry ) );
-            }
-        }
-
-        // Remove from parent
-        if ( entity.HasComponent<ECS::RelationshipComponent>() )
-        {
-            auto& rel = entity.GetComponent<ECS::RelationshipComponent>();
-            if ( rel.Parent != entt::null )
-            {
-                ECS::Entity parent = ECS::Entity( rel.Parent, m_Registry );
-                if ( parent )
-                {
-                    auto& parentRel = parent.GetComponent<ECS::RelationshipComponent>();
-                    auto it = std::find( parentRel.Children.begin(), parentRel.Children.end(), entity.GetHandle() );
-                    if ( it != parentRel.Children.end() )
-                        parentRel.Children.erase( it );
-                }
-            }
-        }
-
-        m_Registry.destroy( entity.GetHandle() );
-
-        auto it = std::find_if( m_Entitys.begin(), m_Entitys.end(), [&]( const ECS::Entity& e ) { return e.GetHandle() == entity.GetHandle(); } );
-        if ( it != m_Entitys.end() )
-        {
-            // m_EntitysMap stores INDICES into m_Entitys — erasing from the middle shifts every entity
-            // after the erased one, so those stored indices must shift too (otherwise FindEntityByID
-            // silently returns the WRONG entity for every UUID registered after the deleted one).
-            const size_t removedIndex = static_cast<size_t>( it - m_Entitys.begin() );
-            m_Entitys.erase( it );
-            for ( auto& [id, index] : m_EntitysMap )
-                if ( index > removedIndex )
-                    --index;
-        }
-
-        m_EntitysMap.erase( uuid );
+        if ( !entity )
+            return;
+        // The algorithm lives beside the index it maintains — see SceneEntityIndex.hpp for why it is O(1)
+        // per entity and what that did to the order of GetAllEntities().
+        DestroyEntityTree( m_Registry, m_Entities, entity.GetHandle() );
     }
 
 } // namespace Desert::Core

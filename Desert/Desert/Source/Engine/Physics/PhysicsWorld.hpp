@@ -91,6 +91,11 @@ namespace Desert::Physics
         void SetTransform( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation );
         void SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity );
 
+        // How many bodies / characters the world holds right now. The measure of "destroying an entity gave
+        // its body back" — without it, a leak is only visible as a collision with something that is not there.
+        [[nodiscard]] uint32_t GetBodyCount() const;
+        [[nodiscard]] uint32_t GetCharacterCount() const;
+
         // ---- Character controller ----
         CharacterHandle CreateCharacter( const CharacterDesc& desc );
         void            RemoveCharacter( CharacterHandle handle );
