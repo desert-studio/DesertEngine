@@ -108,6 +108,26 @@ namespace Desert::Editor
         // the preview renders the live material instance and updates on its own.
         uint64_t PreviewKeyOf( const ECS::Entity& entity, uint64_t entityId )
         {
+            // THE HDR SKY IS PREVIEWABLE TOO, and it is not a mesh. A SkyboxComponent carries an asset
+            // whose radiance cube the cubemap pass can wrap on a ball — the same picture the Material
+            // Editor shows for a Skybox-domain material. It is asked FIRST because a sky entity has no
+            // StaticMeshComponent at all and would otherwise return 0 here, which is the state that holds
+            // no renderer and draws no pane.
+            // ELSE, not an early return out of the function: what follows this block is the frame's
+            // Update(), and returning here would cost the pane its render on the very frame it was
+            // pointed — the one frame a person is watching for it to appear.
+            if ( entity.HasComponent<ECS::SkyboxComponent>() )
+            {
+                const auto& sky = entity.GetComponent<ECS::SkyboxComponent>();
+                if ( static_cast<uint64_t>( sky.SkyboxHandle ) == 0 )
+                    return 0;
+                // The HANDLE only. The rotation, tint and intensity deliberately do NOT enter the key:
+                // they change the cubes in place (MaterialSkybox::EnsureBaked) and the pane re-resolves
+                // the cube every frame, so re-pointing and re-framing the preview on every slider tick
+                // would throw the orbit the person had set away for no picture change at all.
+                return ( entityId | 1ull ) * 1099511628211ull ^ static_cast<uint64_t>( sky.SkyboxHandle );
+            }
+
             if ( !entity.HasComponent<ECS::StaticMeshComponent>() )
                 return 0;
 
@@ -242,26 +262,50 @@ namespace Desert::Editor
 
         if ( key != m_PreviewKey )
         {
-            m_PreviewKey    = key;
-            const auto& smc = entity.GetComponent<ECS::StaticMeshComponent>();
-            if ( static_cast<uint64_t>( smc.MeshHandle ) != 0 )
+            m_PreviewKey = key;
+
+            if ( entity.HasComponent<ECS::SkyboxComponent>() )
             {
-                m_Preview->SetMesh( smc.MeshHandle, smc.MaterialSlots );
+                // RESOLVED THROUGH THE HANDLE EVERY FRAME, never held as a pointer: a rebake replaces all
+                // three cubes and unregisters the old ones, so a captured pointer would name a freed image
+                // from the first rotation edit onward.
+                const Assets::AssetHandle handle = entity.GetComponent<ECS::SkyboxComponent>().SkyboxHandle;
+                m_Preview->SetCubemapMaterial(
+                     [handle]() -> const Graphic::ImageCube*
+                     {
+                         const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( handle );
+                         if ( !material )
+                             return nullptr;
+                         const auto& environment = material->GetEnvironment();
+                         if ( !environment.RadianceMap.IsValid() )
+                             return nullptr;
+                         return static_cast<Graphic::ImageCube*>(
+                              Runtime::ResourceRegistry::GetImageService()->Resolve( environment.RadianceMap ) );
+                     } );
             }
-            else if ( smc.Primitive.has_value() )
+            else
             {
-                // A primitive: preview the shape itself with its own material, not a stand-in sphere.
-                //
-                // ASKED HERE and not inferred from `key`. It is true that PreviewKeyOf() returns 0 when a
-                // component has neither a mesh nor a primitive, so reaching this branch with an absent
-                // Primitive is unreachable TODAY — through a relation held in another function, with
-                // nothing at either end stating it. That is the middle-link shape: both ends read
-                // correctly and the property lives in neither.
-                const PreviewViewport::Shape shape = PreviewShapeFor( *smc.Primitive );
-                m_Preview->SetMaterial( smc.MaterialSlots.empty()
-                                             ? Assets::AssetHandle( static_cast<uint64_t>( 0 ) )
-                                             : smc.MaterialSlots.front(),
-                                        shape );
+                const auto& smc = entity.GetComponent<ECS::StaticMeshComponent>();
+                if ( static_cast<uint64_t>( smc.MeshHandle ) != 0 )
+                {
+                    m_Preview->SetMesh( smc.MeshHandle, smc.MaterialSlots );
+                }
+                else if ( smc.Primitive.has_value() )
+                {
+                    // A primitive: preview the shape itself with its own material, not a stand-in
+                    // sphere.
+                    //
+                    // ASKED HERE and not inferred from `key`. It is true that PreviewKeyOf() returns 0
+                    // when a component has neither a mesh nor a primitive, so reaching this branch with
+                    // an absent Primitive is unreachable TODAY — through a relation held in another
+                    // function, with nothing at either end stating it. That is the middle-link shape:
+                    // both ends read correctly and the property lives in neither.
+                    const PreviewViewport::Shape shape = PreviewShapeFor( *smc.Primitive );
+                    m_Preview->SetMaterial( smc.MaterialSlots.empty()
+                                                 ? Assets::AssetHandle( static_cast<uint64_t>( 0 ) )
+                                                 : smc.MaterialSlots.front(),
+                                            shape );
+                }
             }
         }
 

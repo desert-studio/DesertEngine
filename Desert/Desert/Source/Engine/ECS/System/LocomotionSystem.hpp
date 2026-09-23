@@ -13,6 +13,9 @@ namespace Desert::ECS
     // LocomotionComponent (data), and the clip itself is resolved by name in AnimationECSSystem from the
     // AnimationLibrary. So neither a clip instance nor a clip name is hard-coded here. Play-only; runs AFTER
     // PhysicsECSSystem.
+    // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: it picks a clip NAME from a character's speed, and
+    // hiding a character must not change which animation it is playing when it is shown again.
+    // Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
     class LocomotionSystem final : public System
     {
     public:

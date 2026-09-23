@@ -99,9 +99,9 @@ namespace
 
 TEST( SceneViewList, AViewIsAddedAtTheBackAndKeepsItsOwnCamera )
 {
-    List          list;
-    FakeRenderer  a{ 1 };
-    FakeRenderer  b{ 2 };
+    List         list;
+    FakeRenderer a{ 1 };
+    FakeRenderer b{ 2 };
 
     const auto first  = list.Add( &a, Cam( 10 ) );
     const auto second = list.Add( &b, Cam( 20 ) );
@@ -177,8 +177,8 @@ TEST( SceneViewList, ClosingAViewTwiceSaysSoInsteadOfPretendingItWorked )
     (void)list.Add( &a, Cam( 10 ) );
 
     EXPECT_TRUE( list.Remove( &a ) );
-    EXPECT_FALSE( list.Remove( &a ) );         // already gone
-    EXPECT_FALSE( list.Remove( &stranger ) );  // never here
+    EXPECT_FALSE( list.Remove( &a ) );        // already gone
+    EXPECT_FALSE( list.Remove( &stranger ) ); // never here
 }
 
 TEST( SceneViewList, AWorldWithNoViewIsAStateAndNotAFailure )
@@ -219,9 +219,8 @@ TEST( SceneViewList, AReopenedViewGoesToTheBackAndNotIntoTheHoleItLeft )
 
 TEST( SceneViewCost, TheEcsIsWalkedOnceAndOnlyTheGpuPassesAreMultiplied )
 {
-    const std::string body =
-         FunctionBody( ReadFile( "Desert/Desert/Source/Engine/Core/Scene.cpp" ),
-                       "Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )" );
+    const std::string body = FunctionBody( ReadFile( "Desert/Desert/Source/Engine/Core/Scene.cpp" ),
+                                           "Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )" );
     ASSERT_FALSE( body.empty() );
 
     // Comments are stripped before the shape is read: a census that fires on prose describing what it
@@ -304,8 +303,7 @@ TEST( SceneViewCost, TheSceneHasNoSeparateFramePhasesLeftForACallerToInterleave 
          << "Scene must not expose a frame-open phase separate from OnUpdate.";
     EXPECT_EQ( CountOf( code, "EndScene" ), 0u )
          << "Scene must not expose a frame-close phase separate from OnUpdate.";
-    EXPECT_NE( code.find( "Common::BoolResultStr OnUpdate( const Common::Timestep& ts );" ),
-               std::string::npos )
+    EXPECT_NE( code.find( "Common::BoolResultStr OnUpdate( const Common::Timestep& ts );" ), std::string::npos )
          << "Scene::OnUpdate must be the one call that renders a frame, and it must be able to refuse.";
 }
 
@@ -349,12 +347,14 @@ TEST( SceneViewCost, NoRenderCommandHandsItsPayloadAwayWhenItExecutes )
     // EVERY COMMAND IS NAMED, and the list is derived from the directory rather than counted: a new
     // command file that is never added here would be a row this census silently does not guard, and a
     // count pinned instead of the rows can be satisfied by editing the count.
-    const std::string dir = "Desert/Desert/Source/Engine/Graphic/Render/Commands/";
+    const std::string              dir      = "Desert/Desert/Source/Engine/Graphic/Render/Commands/";
     const std::vector<std::string> commands = {
-        "DrawGenericMeshCommand.hpp", "DrawMeshCommand.hpp",      "DrawSkinnedMeshCommand.hpp",
-        "DrawSlotMaterialMeshCommand.hpp", "DrawTerrainCommand.hpp", "HeightFogCommand.hpp",
-        "PointLightCommand.hpp",     "ProceduralSkyCommand.hpp", "SkyboxCommand.hpp",
-        "SpotLightCommand.hpp",      "VolumetricCloudCommand.hpp",
+         "DrawGenericMeshCommand.hpp", "DrawMeshCommand.hpp",
+         "DrawSkinnedMeshCommand.hpp", "DrawSlotMaterialMeshCommand.hpp",
+         "DrawTerrainCommand.hpp",     "HeightFogCommand.hpp",
+         "PointLightCommand.hpp",      "ProceduralSkyCommand.hpp",
+         "SkyboxCommand.hpp",          "SpotLightCommand.hpp",
+         "VolumetricCloudCommand.hpp",
     };
 
     for ( const auto& file : commands )

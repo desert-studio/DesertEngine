@@ -362,10 +362,10 @@ namespace Desert::Graphic::API::Vulkan
             // THE WHOLE CHAIN IS ONE STAGING BUFFER AND ONE `memcpy`, then one copy region per level.
             // The alternative — a buffer per level — is what makes a ten-level 2048x2048 texture ten
             // allocations and ten map/unmap pairs on the frame that first touches it.
-            uint64_t size = suppliedChain ? Core::Formats::GetPixelDataSize( m_Specification.Data )
-                                          : Core::Formats::CalculateImageSize( m_Specification.Width,
-                                                                               m_Specification.Height,
-                                                                               m_Specification.Format );
+            uint64_t size =
+                 suppliedChain ? Core::Formats::GetPixelDataSize( m_Specification.Data )
+                               : Core::Formats::CalculateImageSize( m_Specification.Width, m_Specification.Height,
+                                                                    m_Specification.Format );
             VkBuffer staging; VmaAllocation stagingAlloc;
             VkBufferCreateInfo bInfo = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = size, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
             const auto stagingResult =
@@ -405,12 +405,12 @@ namespace Desert::Graphic::API::Vulkan
                 uint32_t levelW = m_Specification.Width, levelH = m_Specification.Height;
                 for ( uint32_t level = 0; level < m_Resource.MipLevels; ++level )
                 {
-                    regions.push_back( VkBufferImageCopy{
-                         .bufferOffset      = m_Specification.MipLevels[level].ByteOffset,
-                         .imageSubresource  = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                                .mipLevel   = level,
-                                                .layerCount = 1 },
-                         .imageExtent       = { levelW, levelH, 1 } } );
+                    regions.push_back(
+                         VkBufferImageCopy{ .bufferOffset     = m_Specification.MipLevels[level].ByteOffset,
+                                            .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                  .mipLevel   = level,
+                                                                  .layerCount = 1 },
+                                            .imageExtent      = { levelW, levelH, 1 } } );
                     levelW = levelW > 1 ? levelW / 2 : 1;
                     levelH = levelH > 1 ? levelH / 2 : 1;
                 }
@@ -419,9 +419,11 @@ namespace Desert::Graphic::API::Vulkan
             }
             else
             {
-                VkBufferImageCopy copy = { .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
-                                           .imageExtent = { m_Specification.Width, m_Specification.Height, 1 } };
-                vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
+                VkBufferImageCopy copy = {
+                     .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
+                     .imageExtent      = { m_Specification.Width, m_Specification.Height, 1 } };
+                vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                                        &copy );
             }
 
             TransitionLayout( cmd, finalDefaultLayout );

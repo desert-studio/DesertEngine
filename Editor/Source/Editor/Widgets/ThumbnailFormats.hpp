@@ -104,7 +104,11 @@ namespace Desert::Editor::ThumbnailFormats
          { "hdr", Producer::Decoded,
            "the equirectangular environment map itself. Not a render of the sky it makes: that would need "
            "the IBL bake and a slot, and the latitude-longitude strip is what an artist recognises a "
-           "captured environment by" },
+           "captured environment by. RE-EXAMINED 2026-09-23 against the owner's request for a sphere "
+           "preview and UPHELD: the bake was measured at 252-386 ms with the device idle, and paying it "
+           "per tile on a scroll is the wrong place for it. The sphere the owner asked for is the LIVE, "
+           "orbitable ball in the Details Skybox section, which costs no extra renderer slot because that "
+           "panel already owns a preview viewport" },
 
          // ── An offscreen render, and therefore a renderer slot ─────────────────────────────────────
          { "demat", Producer::RenderedMaterial,

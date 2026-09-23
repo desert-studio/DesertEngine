@@ -3,7 +3,11 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 
-#include <fmt/format.h>
+// spdlog's BUNDLED fmt, which is what every other translation unit in the engine uses.
+// `<fmt/format.h>` names a standalone fmt that exists in NO checkout of this repository: it
+// compiled here only because Homebrew happened to have one at /opt/homebrew/include, and it
+// broke two test suites on CI the first time a machine without it tried.
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <bit>
@@ -30,9 +34,9 @@ namespace Desert::Assets::Serialization
             uint32_t HeaderSize; // so a reader can step over a header a later version grew
             uint32_t Width;
             uint32_t Height;
-            uint32_t Format;     // an ImageFormat enumerator, travelling at a width the file fixes
+            uint32_t Format; // an ImageFormat enumerator, travelling at a width the file fixes
             uint32_t LevelCount;
-            uint32_t Flags;           // v1 defines none; a non-zero value is REFUSED, see below
+            uint32_t Flags; // v1 defines none; a non-zero value is REFUSED, see below
             uint32_t SourceKeyLength;
             uint32_t SourceKeyOffset; // from file start
             uint64_t SourceContentHash;
@@ -113,10 +117,14 @@ namespace Desert::Assets::Serialization
                     for ( uint32_t c = 0; c < components; ++c )
                     {
                         const Accumulator sum =
-                             static_cast<Accumulator>( src[( static_cast<size_t>( y0 ) * srcW + x0 ) * components + c] ) +
-                             static_cast<Accumulator>( src[( static_cast<size_t>( y0 ) * srcW + x1 ) * components + c] ) +
-                             static_cast<Accumulator>( src[( static_cast<size_t>( y1 ) * srcW + x0 ) * components + c] ) +
-                             static_cast<Accumulator>( src[( static_cast<size_t>( y1 ) * srcW + x1 ) * components + c] );
+                             static_cast<Accumulator>(
+                                  src[( static_cast<size_t>( y0 ) * srcW + x0 ) * components + c] ) +
+                             static_cast<Accumulator>(
+                                  src[( static_cast<size_t>( y0 ) * srcW + x1 ) * components + c] ) +
+                             static_cast<Accumulator>(
+                                  src[( static_cast<size_t>( y1 ) * srcW + x0 ) * components + c] ) +
+                             static_cast<Accumulator>(
+                                  src[( static_cast<size_t>( y1 ) * srcW + x1 ) * components + c] );
                         if constexpr ( std::is_integral_v<Component> )
                         {
                             // ROUND, DO NOT TRUNCATE. `sum / 4` alone biases every level darker by up
@@ -170,17 +178,17 @@ namespace Desert::Assets::Serialization
     }
 
     Common::ResultStr<std::vector<TextureLevel>> BuildMipChain( const uint32_t width, const uint32_t height,
-                                                                const Core::Formats::ImageFormat format,
+                                                                const Core::Formats::ImageFormat  format,
                                                                 const std::vector<unsigned char>& base,
-                                                                std::vector<unsigned char>&      chainOut )
+                                                                std::vector<unsigned char>&       chainOut )
     {
         using Fmt = Core::Formats::ImageFormat;
 
         if ( width == 0 || height == 0 )
         {
             return Common::MakeFormattedError<std::vector<TextureLevel>>(
-                 "a mip chain was asked for a {}x{} image; a texture with a zero extent has no levels.",
-                 width, height );
+                 "a mip chain was asked for a {}x{} image; a texture with a zero extent has no levels.", width,
+                 height );
         }
         if ( format != Fmt::RGBA8F && format != Fmt::RGBA32F )
         {
@@ -197,8 +205,8 @@ namespace Desert::Assets::Serialization
         if ( base.size() != baseSize )
         {
             return Common::MakeFormattedError<std::vector<TextureLevel>>(
-                 "the base level of a {}x{} image at {} bytes per pixel is {} bytes and {} were handed in.",
-                 width, height, bpp, baseSize, base.size() );
+                 "the base level of a {}x{} image at {} bytes per pixel is {} bytes and {} were handed in.", width,
+                 height, bpp, baseSize, base.size() );
         }
 
         const uint32_t levelCount = Core::Formats::MipChainLength( std::max( width, height ) );
@@ -221,13 +229,13 @@ namespace Desert::Assets::Serialization
             std::vector<unsigned char> next( static_cast<size_t>( dstW ) * dstH * bpp );
             if ( format == Fmt::RGBA8F )
             {
-                BoxDownsample<unsigned char, uint32_t>( scratch.back().data(), srcW, srcH, next.data(),
-                                                        dstW, dstH, 4u );
+                BoxDownsample<unsigned char, uint32_t>( scratch.back().data(), srcW, srcH, next.data(), dstW, dstH,
+                                                        4u );
             }
             else
             {
-                BoxDownsample<float, float>( reinterpret_cast<const float*>( scratch.back().data() ), srcW,
-                                             srcH, reinterpret_cast<float*>( next.data() ), dstW, dstH, 4u );
+                BoxDownsample<float, float>( reinterpret_cast<const float*>( scratch.back().data() ), srcW, srcH,
+                                             reinterpret_cast<float*>( next.data() ), dstW, dstH, 4u );
             }
             scratch.push_back( std::move( next ) );
             srcW = dstW;
@@ -237,7 +245,7 @@ namespace Desert::Assets::Serialization
         std::vector<TextureLevel> levels( levelCount );
         chainOut.clear();
 
-        uint32_t levelW = width, levelH = height;
+        uint32_t                                   levelW = width, levelH = height;
         std::vector<std::pair<uint32_t, uint32_t>> extents( levelCount );
         for ( uint32_t level = 0; level < levelCount; ++level )
         {
@@ -268,8 +276,7 @@ namespace Desert::Assets::Serialization
     {
         const uint32_t levelCount = static_cast<uint32_t>( data.Levels.size() );
 
-        const uint64_t keyOffset =
-             sizeof( FileHeader ) + static_cast<uint64_t>( levelCount ) * sizeof( LevelRow );
+        const uint64_t keyOffset = sizeof( FileHeader ) + static_cast<uint64_t>( levelCount ) * sizeof( LevelRow );
         const uint64_t payloadOffset = AlignUp( keyOffset + data.SourcePath.size() );
 
         uint64_t payloadBytes = 0;
@@ -281,8 +288,8 @@ namespace Desert::Assets::Serialization
         std::vector<LevelRow> table;
         table.reserve( levelCount );
         for ( const TextureLevel& level : data.Levels )
-            table.push_back( LevelRow{ payloadOffset + level.ByteOffset,
-                                       static_cast<uint32_t>( level.ByteSize ), level.RowPitch } );
+            table.push_back( LevelRow{ payloadOffset + level.ByteOffset, static_cast<uint32_t>( level.ByteSize ),
+                                       level.RowPitch } );
 
         FileHeader header{};
         std::memcpy( header.Magic, kTextureBinaryMagic, sizeof( header.Magic ) );
@@ -319,9 +326,9 @@ namespace Desert::Assets::Serialization
         /// whole file for one decoder and a prefix for the other — so the truncation check lives with
         /// the caller that can make it, not here.
         Common::ResultStr<TextureBinaryHeaderInfo> ReadHeaderAndTable( const std::string_view bytes,
-                                                                        const std::string_view whatFor,
-                                                                        std::vector<LevelRow>& tableOut,
-                                                                        uint64_t&              payloadOffsetOut )
+                                                                       const std::string_view whatFor,
+                                                                       std::vector<LevelRow>& tableOut,
+                                                                       uint64_t&              payloadOffsetOut )
         {
             const std::string who( whatFor );
 
@@ -401,14 +408,13 @@ namespace Desert::Assets::Serialization
                      "'{}' declares zero mip levels: the cook wrote a container with no image in it.", who );
             }
 
-            const uint64_t tableEnd =
-                 static_cast<uint64_t>( header.HeaderSize ) +
-                 static_cast<uint64_t>( header.LevelCount ) * sizeof( LevelRow );
+            const uint64_t tableEnd = static_cast<uint64_t>( header.HeaderSize ) +
+                                      static_cast<uint64_t>( header.LevelCount ) * sizeof( LevelRow );
             if ( tableEnd > bytes.size() )
             {
                 return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                     "'{}' declares {} mip levels, whose table needs {} bytes, and only {} are present.",
-                     who, header.LevelCount, tableEnd, bytes.size() );
+                     "'{}' declares {} mip levels, whose table needs {} bytes, and only {} are present.", who,
+                     header.LevelCount, tableEnd, bytes.size() );
             }
 
             if ( header.SourceKeyOffset != tableEnd ||
@@ -425,8 +431,7 @@ namespace Desert::Assets::Serialization
                  AlignUp( static_cast<uint64_t>( header.SourceKeyOffset ) + header.SourceKeyLength );
 
             tableOut.resize( header.LevelCount );
-            std::memcpy( tableOut.data(), bytes.data() + header.HeaderSize,
-                         tableOut.size() * sizeof( LevelRow ) );
+            std::memcpy( tableOut.data(), bytes.data() + header.HeaderSize, tableOut.size() * sizeof( LevelRow ) );
 
             // THE LAYOUT IS DERIVED, NOT TRUSTED — the lesson `MeshBinary.cpp` paid for. Checking only
             // that a level lies inside the file is not enough: a corrupted offset that still fits reads
@@ -437,13 +442,12 @@ namespace Desert::Assets::Serialization
             const Core::Formats::ImageFormat format = static_cast<Core::Formats::ImageFormat>( header.Format );
             const uint32_t                   bpp    = Core::Formats::GetBytesPerPixel( format );
 
-            const uint32_t expectLevels =
-                 Core::Formats::MipChainLength( std::max( header.Width, header.Height ) );
+            const uint32_t expectLevels = Core::Formats::MipChainLength( std::max( header.Width, header.Height ) );
             if ( header.LevelCount != expectLevels )
             {
                 return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                     "'{}' carries {} mip levels and a {}x{} image has a chain of {}. The cook is partial.",
-                     who, header.LevelCount, header.Width, header.Height, expectLevels );
+                     "'{}' carries {} mip levels and a {}x{} image has a chain of {}. The cook is partial.", who,
+                     header.LevelCount, header.Width, header.Height, expectLevels );
             }
 
             std::vector<std::pair<uint32_t, uint32_t>> extents( header.LevelCount );
@@ -501,7 +505,7 @@ namespace Desert::Assets::Serialization
             }
 
             TextureBinaryHeaderInfo info;
-            info.Handle            = Common::UUID( header.Handle );
+            info.Handle = Common::UUID( header.Handle );
             info.SourcePath.assign( bytes.data() + header.SourceKeyOffset, header.SourceKeyLength );
             info.SourceContentHash = header.SourceContentHash;
             info.Width             = header.Width;
@@ -517,7 +521,7 @@ namespace Desert::Assets::Serialization
     } // namespace
 
     Common::ResultStr<TextureBinaryHeaderInfo> DecodeTextureHeader( const std::string_view bytes,
-                                                                     const std::string_view whatFor )
+                                                                    const std::string_view whatFor )
     {
         std::vector<LevelRow> table;
         uint64_t              payloadOffset = 0;
@@ -525,7 +529,7 @@ namespace Desert::Assets::Serialization
     }
 
     Common::ResultStr<TextureAssetData> DecodeTextureBinary( const std::string_view bytes,
-                                                              const std::string_view whatFor )
+                                                             const std::string_view whatFor )
     {
         const std::string     who( whatFor );
         std::vector<LevelRow> table;

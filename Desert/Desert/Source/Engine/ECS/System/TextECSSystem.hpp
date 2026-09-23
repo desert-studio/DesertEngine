@@ -4,6 +4,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
@@ -64,8 +65,7 @@ namespace Desert::ECS
             view.each(
                  [&]( entt::entity entity, TextComponent& text, const TransformComponent& transform )
                  {
-                     if ( registry.has<VisibilityComponent>( entity ) &&
-                          !registry.get<VisibilityComponent>( entity ).Visible )
+                     if ( ECS::IsHidden( registry, entity ) )
                          return;
                      if ( text.Text.empty() )
                          return;

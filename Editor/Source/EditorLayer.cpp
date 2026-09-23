@@ -2668,8 +2668,8 @@ namespace Desert::Editor
             return;
         }
 
-        auto           renderer = std::make_unique<Graphic::SceneRenderer>();
-        const auto     viewIndex = scene->AddView( renderer.get() );
+        auto       renderer  = std::make_unique<Graphic::SceneRenderer>();
+        const auto viewIndex = scene->AddView( renderer.get() );
         if ( !viewIndex )
         {
             // Scene::AddView has already said why. The renderer is destroyed on the way out of this
@@ -2678,16 +2678,16 @@ namespace Desert::Editor
             return;
         }
 
-        auto view    = std::make_unique<SceneViewport>();
-        view->Id     = m_SceneViewIds.Next();
-        view->Name   = scene->GetSceneName() + " (view " + std::to_string( *viewIndex + 1 ) + ")";
-        view->Scene  = scene;
+        auto view   = std::make_unique<SceneViewport>();
+        view->Id    = m_SceneViewIds.Next();
+        view->Name  = scene->GetSceneName() + " (view " + std::to_string( *viewIndex + 1 ) + ")";
+        view->Scene = scene;
 
         // Unique ImGui id per window, keyed on the id and not the index — a closed window's saved
         // imgui.ini entry must never be inherited by an unrelated later one.
         const std::string title = view->Name + "###sceneviewport" + std::to_string( view->Id );
-        auto              vp =
-             std::make_unique<Editor::ViewportPanel>( scene, m_AssetManager.get(), title, view->Id, renderer.get() );
+        auto vp = std::make_unique<Editor::ViewportPanel>( scene, m_AssetManager.get(), title, view->Id,
+                                                           renderer.get() );
         vp->GetVisibility() = true;
         view->Viewport      = vp.get();
         m_Panels.Adopt( std::move( vp ) );
@@ -4449,23 +4449,22 @@ namespace Desert::Editor
         for ( const auto& view : m_ExtraViewports )
         {
             const uint64_t id = view->Id;
-            commands.push_back(
-                 { "Scene", "Close Viewport " + view->Name,
-                   [this, id]() -> Common::BoolResultStr
-                   {
-                       const auto index = IndexOfSceneView(
-                            m_ExtraViewports, []( const std::unique_ptr<SceneViewport>& v ) { return v->Id; },
-                            id );
-                       if ( !index || !m_ExtraViewports[*index]->Viewport )
-                       {
-                           return Common::MakeFormattedError<bool>(
-                                "viewport #{} is already closed; nothing to close.", id );
-                       }
-                       // Hidden rather than destroyed here, exactly as the scene-view entry above does:
-                       // the teardown waits on the device and must not run inside the ImGui pass.
-                       m_ExtraViewports[*index]->Viewport->GetVisibility() = false;
-                       return PaletteCommandDone();
-                   } } );
+            commands.push_back( { "Scene", "Close Viewport " + view->Name, [this, id]() -> Common::BoolResultStr
+                                  {
+                                      const auto index = IndexOfSceneView(
+                                           m_ExtraViewports,
+                                           []( const std::unique_ptr<SceneViewport>& v ) { return v->Id; }, id );
+                                      if ( !index || !m_ExtraViewports[*index]->Viewport )
+                                      {
+                                          return Common::MakeFormattedError<bool>(
+                                               "viewport #{} is already closed; nothing to close.", id );
+                                      }
+                                      // Hidden rather than destroyed here, exactly as the scene-view entry above
+                                      // does: the teardown waits on the device and must not run inside the ImGui
+                                      // pass.
+                                      m_ExtraViewports[*index]->Viewport->GetVisibility() = false;
+                                      return PaletteCommandDone();
+                                  } } );
         }
 
         // AND THE WAY BACK, which did not exist. Opening a scene view was in the palette; closing one was

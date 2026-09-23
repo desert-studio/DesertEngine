@@ -25,7 +25,7 @@ namespace Desert::Graphic::System
         virtual Common::BoolResultStr Initialize() override;
 
         void PrepareCamera( Core::Camera* camera );
-        void PrepareMaterial( const std::shared_ptr<MaterialSkybox>& material, float intensity = 1.0f );
+        void PrepareMaterial( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 
         // When enabled, the Sky pass renders the engine-generated atmosphere instead of the HDR cubemap.
         // @p sunDir is the direction TOWARD the sun, normalized. @p bakeNow is the editor's one-shot
@@ -64,6 +64,18 @@ namespace Desert::Graphic::System
         // pixel reads were marched for the camera that pixel was drawn with. The DISTANT SKY LIGHT is
         // refilled here for the third time on the same grounds — same frame, same consumer, no latency.
         void ExecuteAtmosphereLuts();
+
+        // Make this scene's HDR cubemap describe the look its SkyboxComponent asks for, rebaking it if
+        // it does not. Called from the same pre-graph slot as EnsureProceduralEnvironment and for the
+        // same reason: the bake idles the device, which is safe only outside the recorded graph.
+        //
+        // SETTLE-GATED by the SAME rule the sun uses (SkyRules::SkyEnvironmentRebakeMayRun), so dragging
+        // the rotation slider collapses into one bake when the drag ends rather than one per frame.
+        //
+        // THE MATERIAL IS SHARED BETWEEN VIEWS and the look is per scene, so two scenes pointing at one
+        // `.hdr` with different rotations will rebake alternately. That is visible rather than silent:
+        // every bake prints its cost with the look it baked for, so a thrash reads as a thrash in the log.
+        void EnsureHdrEnvironment( float deltaSeconds );
 
         const std::optional<Environment> GetEnvironment() const
         {
@@ -149,7 +161,16 @@ namespace Desert::Graphic::System
         std::weak_ptr<MaterialSkybox> m_MaterialSkybox;
 
         Core::Camera*                     m_ActiveCamera    = nullptr;
-        float                             m_SkyboxIntensity = 1.0f; // HDR-cubemap brightness
+        // The look this scene asks its HDR sky for. Held rather than applied on the spot: PrepareMaterial
+        // can run before the camera exists, and the rebake it may imply idles the device, so the work
+        // belongs in the pre-graph slot (EnsureHdrEnvironment) and not in a command's Execute.
+        SkyLook m_SkyboxLook{};
+        // The look seen LAST FRAME, and how long it has held still — the settle half of the rebake gate.
+        SkyLook m_LastSeenLook{};
+        float   m_SecondsSinceLookChanged = 0.0f;
+        // How long the cubes have been known stale. The deferral half: a look that never stops changing
+        // must still refresh, or an animated tint would freeze the sky at the value it opened on.
+        float                             m_SecondsSinceHdrStale = 0.0f;
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<Shader>           m_Shader;
 

@@ -27,8 +27,8 @@ namespace Desert::Assets
             const uint64_t needed = Serialization::TextureBinaryMetadataBytes( prefix.GetValue() );
             if ( needed > prefix.GetValue().size() )
             {
-                auto wider = Common::Utils::FileSystem::ReadFileContentPrefix( filepath,
-                                                                               static_cast<std::size_t>( needed ) );
+                auto wider = Common::Utils::FileSystem::ReadFileContentPrefix(
+                     filepath, static_cast<std::size_t>( needed ) );
                 if ( !wider.IsSuccess() )
                     return Common::MakeError<Serialization::TextureBinaryHeaderInfo>( wider.GetError() );
                 return Serialization::DecodeTextureHeader( wider.GetValue(), filepath.string() );
@@ -96,9 +96,8 @@ namespace Desert::Assets
                            "next cook of this texture will mint {3} and every `.demat` naming {1} will then "
                            "resolve to nothing, with no filename anywhere in the log. Re-cook it (Assets > "
                            "Rebuild Cooked Assets) and re-point the materials that name {1} at {3}.",
-                           m_Metadata.Filepath.string(),
-                           static_cast<uint64_t>( header.GetValue().Handle ), sourceKey,
-                           static_cast<uint64_t>( derived ) );
+                           m_Metadata.Filepath.string(), static_cast<uint64_t>( header.GetValue().Handle ),
+                           sourceKey, static_cast<uint64_t>( derived ) );
             }
         }
 

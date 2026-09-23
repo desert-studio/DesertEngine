@@ -13,7 +13,7 @@ namespace Desert::ShaderResources
     //   Whole  -- one memcpy of a C++ struct over the entire block
     //             (UniformBufferProperty::SetRawData). The engine protocol blocks take this route:
     //             CameraUB, TimeUB, DirectionLightsUB, LightsMetadata, ShadowUB, CloudShadowUB,
-    //             SkyboxParamsUB, GridUB, SSAOUB, SSRUB, SSRResolveUB, SSRCompositeUB, GIResolveUB,
+    //             GridUB, SSAOUB, SSRUB, SSRResolveUB, SSRCompositeUB, GIResolveUB,
     //             TerrainUB. Their per-field shadow copies (FieldProperty::m_LocalData) are
     //             ALLOCATED AND NEVER WRITTEN -- Common::Memory::Buffer::Allocate is a bare
     //             `new std::byte[]` -- so those bytes are whatever the heap last held.

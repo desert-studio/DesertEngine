@@ -620,9 +620,14 @@ namespace
          { "Blend", kParticles },
     };
 
+    // All three reach the frame the same way: SkyboxECSSystem packs them into a Graphic::SkyLook on the
+    // SkyboxCommand, and the bake applies them where the panorama becomes a cube. Naming the COLLECTOR
+    // is right for all three — it is the file that would have to change for a knob to stop being read.
     constexpr Row kSkyboxRows[] = {
          { "SkyboxHandle", kCollector },
          { "Intensity", kCollector },
+         { "Rotation", kCollector },
+         { "Tint", kCollector },
     };
 
     constexpr Row kColliderRows[] = {

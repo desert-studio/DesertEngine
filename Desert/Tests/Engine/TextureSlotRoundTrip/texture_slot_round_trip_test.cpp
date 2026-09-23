@@ -117,7 +117,7 @@ namespace
         data.Format = Desert::Core::Formats::ImageFormat::RGBA8F;
 
         const std::vector<unsigned char> base( 4, 0x7F );
-        auto chain = Ser::BuildMipChain( 1, 1, data.Format, base, data.Pixels );
+        auto                             chain = Ser::BuildMipChain( 1, 1, data.Format, base, data.Pixels );
         ASSERT_TRUE( chain.IsSuccess() ) << chain.GetError();
         data.Levels = chain.ExtractValue();
 

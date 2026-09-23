@@ -37,12 +37,10 @@ namespace Desert::Editor::Tools
         // list of views now and `Scene::GetMainCamera()` answers for view 0, so a second viewport would
         // have placed its gizmo through another one's projection and dragged the wrong direction.
         void RenderObject( ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Core::Camera>& camera,
-                           const glm::vec2& viewportPos,
-                           const glm::vec2& viewportSize );
+                           const glm::vec2& viewportPos, const glm::vec2& viewportSize );
         // Bone gizmo (Skeleton Edit mode) — edits the selected bone's LocalBindTransform.
         void RenderBone( ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Core::Camera>& camera,
-                         const glm::vec2& viewportPos,
-                         const glm::vec2& viewportSize );
+                         const glm::vec2& viewportPos, const glm::vec2& viewportSize );
 
     private:
         bool m_Hovered = false;

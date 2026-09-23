@@ -140,7 +140,7 @@ namespace Desert::Assets::Serialization
         /// Bytes from the start of one row of this level to the next. For an uncompressed format it is
         /// `Width * bytes-per-pixel`; it is in the file because for a BLOCK format a row's stride is not
         /// a function of the width alone, and the day that arrives the reader must not have to guess.
-        uint32_t RowPitch   = 0;
+        uint32_t RowPitch = 0;
     };
 
     /// Everything a cooked texture is. `Pixels` holds every level of the chain back to back; `Levels`

@@ -407,3 +407,29 @@ git'а на грязном дереве — это предохранитель,
 
 Файл, который ты туда положил, может исчезнуть посреди работы: у тимлида так пропал скрипт свода.
 Свой подкаталог, и не доверяй тому, что писал шагом раньше.
+
+## Where written-down things live (read DOCUMENTATION.md)
+
+`Docs/` is **gitignored** — `git ls-files Docs` returns 0, so your worktree has **zero** files
+under it unless the lead copied them in for you. If a brief cites a `Docs/` path and the file is
+not there, say so; it is the lead's error, not yours, and it has already happened once.
+
+Task tracking is moving to Notion, which you cannot reach at all. Anything you want a human or a
+later agent to know must go into a **commit message** or a tracked file. A note written into a
+copied `Docs/` file reaches nobody.
+
+## Цитаты в брифе проверяются, и отсутствие — докладывается
+
+Если бриф говорит «X был отказан с причинами» или ссылается на файл, **найди эти причины прежде чем
+им подчиняться**. Ищи в `Docs/`, в дереве и в сообщениях коммитов (`git log --all --format=%B`).
+
+**Если причин нет — так и скажи.** Это случилось 2026-09-23: бриф утверждал, что пять параметров
+неба отказаны с причинами, а единственным упоминанием во всём репозитории оказалась строка,
+которую тимлид написал сам тем же утром. Агент обыскал всё, доложил, и работа пошла дальше по
+факту, а не по фантому.
+
+Так же и с состоянием дерева: если бриф говорит «этого ещё нет» или «не делай, это отдельный
+вопрос» — **проверь, что оно действительно так**. В том же брифе был запрет делать разделение,
+которое уже существовало.
+
+Отсутствие причины — это результат, а не тупик. Докладывай его так же, как замер.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Clouds/CloudEnvironmentBake.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Runtime/ImageHandle.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
@@ -30,7 +31,13 @@ namespace Desert::Graphic
     class EnvironmentManager
     {
     public:
-        static Environment Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset );
+        // Builds the three IBL cubes of an HDR skybox asset, WITH the sky's authored look already in
+        // them (@p look — rotation, tint, intensity). The look enters at the panorama->cube step and
+        // nowhere else: the background samples the radiance cube this returns, and the irradiance and
+        // prefiltered cubes descend from the same panorama, so no consumer can be shown a sky the others
+        // do not agree with. See Engine/Graphic/Environment/SkyLook.hpp for why it is not applied at the
+        // sample sites instead.
+        static Environment Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset, const SkyLook& look );
 
         // Builds an IBL environment from the engine-generated procedural atmosphere (no HDR asset): the sky
         // is baked into an equirect panorama of @p panoramaWidth x @p panoramaHeight, then run through the
@@ -58,10 +65,11 @@ namespace Desert::Graphic
         // the prefilter convolves). Named for the RESULT: the 4x3 "cross" this used to be named after was
         // an internal unwrap of the source pixels, and carrying it in the name is how call sites came to
         // reason in cross widths instead of faces.
-        static std::shared_ptr<ImageCube> ConvertPanoramaToRadianceCube( const Runtime::ImageHandle& panorama );
+        static std::shared_ptr<ImageCube> ConvertPanoramaToRadianceCube( const Runtime::ImageHandle& panorama,
+                                                                         const SkyLook&              look );
 
-        static std::shared_ptr<ImageCube>
-        CreateDiffuseIrradiance( const Runtime::ImageHandle& panorama );
+        static std::shared_ptr<ImageCube> CreateDiffuseIrradiance( const Runtime::ImageHandle& panorama,
+                                                                   const SkyLook&              look );
 
         // GGX-prefilters an already-built radiance cubemap (per-mip roughness).
         static std::shared_ptr<ImageCube>

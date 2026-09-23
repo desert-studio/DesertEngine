@@ -2,7 +2,8 @@
 //
 // Two consumers, one program:
 //   - the engine's skybox pass (MaterialSkybox binds `samplerCubeMap` from a SkyboxComponent's
-//     baked environment and fills SkyboxParamsUB from the component's Intensity);
+//     baked environment — the cube ALREADY carries the component's rotation, tint and intensity, so
+//     this program has no brightness knob of its own; see Engine/Graphic/Environment/SkyLook.hpp);
 //   - a `.demat` naming this shader — a CUBEMAP MATERIAL. The Properties block below is that
 //     material's schema: one cube slot the Material Editor lets an HDR skybox asset be dropped on.
 //
@@ -29,12 +30,6 @@ Shader "Skybox"
 
         Uniform(1) samplerCube samplerCubeMap;
 
-        // HDR skybox brightness — driven by SkyboxComponent::Intensity (x holds the multiplier).
-        Uniform(2) SkyboxParamsUB
-        {
-            vec4 u_SkyboxParams;
-        };
-
         // The WORLD-SPACE VIEW RAY, not a position: a cubemap is sampled by direction, and the name
         // `v_Position` is part of why this program spent its whole life reading the camera's own
         // position as if it were one. Common/ViewRay.glslh carries the account.
@@ -42,7 +37,9 @@ Shader "Skybox"
 
         void main()
         {
-        	oColor = texture(samplerCubeMap, v_ViewRay) * u_SkyboxParams.x;
+        	// NO MULTIPLIER. The cube is the sky as authored: SkyboxComponent's intensity, tint and
+        	// rotation were baked into it, which is what makes the backdrop and the IBL the same sky.
+        	oColor = texture(samplerCubeMap, v_ViewRay);
         }
     }
 

@@ -63,7 +63,8 @@ namespace Desert::Editor
         // documents. Null means view 0, the angle every single-viewport scene has.
         ViewportPanel( const std::shared_ptr<Desert::Core::Scene>& scene,
                        const Assets::AssetManager* assetManager = nullptr, std::string title = "Scene###scene",
-                       uint64_t sceneViewId = kPrimarySceneViewId, Graphic::SceneRenderer* viewRenderer = nullptr );
+                       uint64_t                sceneViewId  = kPrimarySceneViewId,
+                       Graphic::SceneRenderer* viewRenderer = nullptr );
 
         // WHICH VIEW OF THE SCENE THIS PANEL DRAWS. Scene::GetViewCount() when this panel's view has been
         // closed under it, which every accessor below reads as "no such view" and nothing reads as 0.

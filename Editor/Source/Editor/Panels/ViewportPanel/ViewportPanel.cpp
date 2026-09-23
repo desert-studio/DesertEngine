@@ -191,8 +191,8 @@ namespace Desert::Editor
                                   const Assets::AssetManager* assetManager, std::string title,
                                   uint64_t sceneViewId, Graphic::SceneRenderer* viewRenderer )
          : IPanel( std::move( title ) ), m_Scene( scene ), m_SceneViewId( sceneViewId ),
-           m_ViewRenderer( viewRenderer ),
-           m_AuthoringOwner( Core::AuthoringOwner::ForSceneView( sceneViewId ) ), m_AssetManager( assetManager )
+           m_ViewRenderer( viewRenderer ), m_AuthoringOwner( Core::AuthoringOwner::ForSceneView( sceneViewId ) ),
+           m_AssetManager( assetManager )
     {
         m_UIHelper = std::make_unique<Editor::UI::UIHelper>();
         m_UIHelper->Init();

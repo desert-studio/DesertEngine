@@ -375,11 +375,8 @@ namespace
     // The five points a sky is judged at: centre and the four corners of the screen.
     const std::vector<glm::vec2>& ScreenCorners()
     {
-        static const std::vector<glm::vec2> pts = { { 0.0f, 0.0f },
-                                                    { -1.0f, -1.0f },
-                                                    { 1.0f, -1.0f },
-                                                    { -1.0f, 1.0f },
-                                                    { 1.0f, 1.0f } };
+        static const std::vector<glm::vec2> pts = {
+             { 0.0f, 0.0f }, { -1.0f, -1.0f }, { 1.0f, -1.0f }, { -1.0f, 1.0f }, { 1.0f, 1.0f } };
         return pts;
     }
 } // namespace
@@ -393,7 +390,7 @@ TEST( DepthConvention, TheSkyRayIgnoresWhereTheCameraStands )
     const glm::vec3 forward( 0.0f, 0.0f, -1.0f );
 
     const std::vector<glm::vec3> eyes = { { 0.0f, 0.0f, 0.0f },
-                                          { 0.0f, 200.0f, 0.0f },     // the probe scene's camera
+                                          { 0.0f, 200.0f, 0.0f }, // the probe scene's camera
                                           { -3000.0f, 1500.0f, 4200.0f },
                                           { 0.0f, 500000.0f, 0.0f } }; // 5 km up, still the same sky
 
@@ -404,8 +401,8 @@ TEST( DepthConvention, TheSkyRayIgnoresWhereTheCameraStands )
 
         for ( const glm::vec3& eye : eyes )
         {
-            const glm::vec3 ray = Desert::Tests::ViewRayRef::WorldViewRay(
-                 projection, ViewAt( eye, forward ), SkyQuadClip( ndc.x, ndc.y ) );
+            const glm::vec3 ray = Desert::Tests::ViewRayRef::WorldViewRay( projection, ViewAt( eye, forward ),
+                                                                           SkyQuadClip( ndc.x, ndc.y ) );
 
             // Absolute, not relative: the ray's own length is about the near plane's, so a tolerance
             // proportional to the eye's distance would grow to admit exactly the defect being excluded.
@@ -424,15 +421,15 @@ TEST( DepthConvention, TheSkyRayFollowsWhereTheCameraLooks )
          MakePerspective( glm::radians( 45.0f ), 16.0f / 9.0f, kDefaultNearPlane, kDefaultFarPlane );
     const glm::vec3 eye( 0.0f, 200.0f, 0.0f );
 
-    const std::vector<glm::vec3> forwards = { { 0.0f, 0.0f, -1.0f },  // -Z
-                                              { 1.0f, 0.0f, 0.0f },   // +X
-                                              { 0.0f, 0.0f, 1.0f },   // +Z
-                                              { -1.0f, 0.0f, 0.0f },  // -X
+    const std::vector<glm::vec3> forwards = { { 0.0f, 0.0f, -1.0f },     // -Z
+                                              { 1.0f, 0.0f, 0.0f },      // +X
+                                              { 0.0f, 0.0f, 1.0f },      // +Z
+                                              { -1.0f, 0.0f, 0.0f },     // -X
                                               { 0.0f, 0.99f, -0.14f } }; // near the zenith
 
     for ( const glm::vec3& forward : forwards )
     {
-        const glm::vec3 ray = glm::normalize( Desert::Tests::ViewRayRef::WorldViewRay(
+        const glm::vec3 ray  = glm::normalize( Desert::Tests::ViewRayRef::WorldViewRay(
              projection, ViewAt( eye, forward ), SkyQuadClip( 0.0f, 0.0f ) ) );
         const glm::vec3 want = glm::normalize( forward );
 

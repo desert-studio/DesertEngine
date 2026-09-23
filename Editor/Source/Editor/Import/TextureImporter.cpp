@@ -92,7 +92,7 @@ namespace Desert::Editor
             return Common::AssetHandle::Null();
         }
         const uint64_t sourceHash = Assets::Serialization::SourceSignature( sourceBytes.GetValue().data(),
-                                                                             sourceBytes.GetValue().size() );
+                                                                            sourceBytes.GetValue().size() );
 
         // FRESHNESS IS A FACT ABOUT BYTES NOW, NOT ABOUT TIMESTAMPS. The `.tex` records the CRC-32C of
         // the source it was cooked from; the cook is up to date exactly when that number still matches,
@@ -108,8 +108,7 @@ namespace Desert::Editor
                   meta, Assets::Serialization::kTextureBinaryPrefixBytes );
              existing.IsSuccess() )
         {
-            const auto stored =
-                 Assets::Serialization::DecodeTextureHeader( existing.GetValue(), meta.string() );
+            const auto stored = Assets::Serialization::DecodeTextureHeader( existing.GetValue(), meta.string() );
             if ( stored.IsSuccess() && stored.GetValue().SourceContentHash == sourceHash &&
                  static_cast<uint64_t>( stored.GetValue().Handle ) == static_cast<uint64_t>( handle ) &&
                  stored.GetValue().SourcePath == sourceKey )
@@ -124,12 +123,13 @@ namespace Desert::Editor
             }
             else
             {
-                LOG_INFO( "[TextureImporter] Re-cooking '{0}': it stores Handle={1} SourcePath='{2}' "
-                          "source signature {3:#018x}; the source now derives Handle={4} SourcePath='{5}' signature "
-                          "{6:#018x}.",
-                          meta.string(), static_cast<uint64_t>( stored.GetValue().Handle ),
-                          stored.GetValue().SourcePath, stored.GetValue().SourceContentHash,
-                          static_cast<uint64_t>( handle ), sourceKey, sourceHash );
+                LOG_INFO(
+                     "[TextureImporter] Re-cooking '{0}': it stores Handle={1} SourcePath='{2}' "
+                     "source signature {3:#018x}; the source now derives Handle={4} SourcePath='{5}' signature "
+                     "{6:#018x}.",
+                     meta.string(), static_cast<uint64_t>( stored.GetValue().Handle ),
+                     stored.GetValue().SourcePath, stored.GetValue().SourceContentHash,
+                     static_cast<uint64_t>( handle ), sourceKey, sourceHash );
             }
         }
 
@@ -141,19 +141,19 @@ namespace Desert::Editor
         // source including `.hdr` — a field that was simultaneously wrong and unread, because the
         // loader sniffed the source file itself and decided again. The container's format field is the
         // answer now, so it has to be the true one.
-        const bool isHDR = stbi_is_hdr_from_memory(
-             reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
-             static_cast<int>( sourceBytes.GetValue().size() ) ) != 0;
+        const bool isHDR =
+             stbi_is_hdr_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
+                                      static_cast<int>( sourceBytes.GetValue().size() ) ) != 0;
 
-        int                          w = 0, h = 0, ch = 0;
-        std::vector<unsigned char>   base;
+        int                                w = 0, h = 0, ch = 0;
+        std::vector<unsigned char>         base;
         Desert::Core::Formats::ImageFormat format = Desert::Core::Formats::ImageFormat::RGBA8F;
 
         if ( isHDR )
         {
-            float* pixels = stbi_loadf_from_memory(
-                 reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
-                 static_cast<int>( sourceBytes.GetValue().size() ), &w, &h, &ch, 4 );
+            float* pixels =
+                 stbi_loadf_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
+                                         static_cast<int>( sourceBytes.GetValue().size() ), &w, &h, &ch, 4 );
             if ( !pixels )
             {
                 const char* reason = stbi_failure_reason();
@@ -169,9 +169,9 @@ namespace Desert::Editor
         }
         else
         {
-            stbi_uc* pixels = stbi_load_from_memory(
-                 reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
-                 static_cast<int>( sourceBytes.GetValue().size() ), &w, &h, &ch, 4 );
+            stbi_uc* pixels =
+                 stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
+                                        static_cast<int>( sourceBytes.GetValue().size() ), &w, &h, &ch, 4 );
             if ( !pixels )
             {
                 // No `.tex` is written and the null handle is returned: a failed decode used to fall
@@ -212,8 +212,8 @@ namespace Desert::Editor
         // every load with `vkCmdBlitImage`, which is impossible for the block-compressed formats this
         // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
         // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
-        auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base,
-                                                           data.Pixels );
+        auto chain =
+             Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels );
         if ( !chain.IsSuccess() )
         {
             LOG_ERROR( "[TextureImporter] '{0}' was decoded but its mip chain could not be built: {1}. "
@@ -226,8 +226,7 @@ namespace Desert::Editor
         // A HANDLE IS ONLY RETURNED FOR A CONTAINER THAT IS ON THE DISK. The write used to be unchecked
         // (Д31-D), and the handle plus the cache entry went back regardless — so the very next lookup
         // was served out of memory and the missing `.tex` was not noticed until the next session.
-        if ( const auto written =
-                  WriteCookedBytes( Assets::Serialization::EncodeTextureBinary( data ), meta );
+        if ( const auto written = WriteCookedBytes( Assets::Serialization::EncodeTextureBinary( data ), meta );
              !written )
         {
             LOG_ERROR( "[TextureImporter] '{0}' was decoded but its cooked container was not written: {1}. "

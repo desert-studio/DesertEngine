@@ -270,6 +270,103 @@ TEST( ThumbnailFormats, EveryExtensionTheBrowserShowsHasARowAndEveryRowIsShown )
 }
 
 // ---------------------------------------------------------------------------------------------------
+// 2b. THE ROW NAMES A PRODUCER; THE PANEL MUST ACTUALLY ROUTE THE FILE TO IT.
+//
+// THIS IS THE HALF THAT WAS MISSING, AND IT WAS MISSING WHILE THE HEADER SAID "THE ROW IS A CLAIM AND
+// THE CLAIM IS CHECKED". What was checked was the extension SET; what the row mostly says — who makes
+// the picture — was checked by nobody. Measured on 2026-09-23: `.hdr` had carried
+// `Producer::Decoded` since the census was written, and the browser routed only `FileType::Texture` to
+// `DrawTextureThumbnail`. An `.hdr` is `FileType::Cubemap`, so it reached no draw function at all and
+// showed its type icon — a row asserting a producer the tree did not honour, which is the shape this
+// project has now closed a dozen instances of.
+//
+// The mapping is derived, never typed: extension -> FileType out of the browser's own `s_FileTypes`,
+// FileType -> draw function out of the browser's own routing lines. Both come from one file, so a
+// renamed function or a re-routed type moves the test with the code instead of leaving it behind.
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailFormats, EveryRowsProducerIsTheDrawFunctionTheBrowserActuallyCalls )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string panel = ReadFile( root + kBrowserTable );
+    ASSERT_FALSE( panel.empty() ) << kBrowserTable << " could not be read";
+
+    // Which draw function each producer is: the one line of this test that is a decision rather than a
+    // derivation. `Authored` and `None` route to nothing on purpose — a level's picture is captured by a
+    // person and a `.lua` has none — so they are not checked for a call.
+    struct Route
+    {
+        TF::Producer By;
+        const char*  Function;
+    };
+    const Route routes[] = {
+         { TF::Producer::Decoded, "DrawTextureThumbnail" },
+         { TF::Producer::RenderedMaterial, "DrawRenderedMaterialThumbnail" },
+         { TF::Producer::RenderedMesh, "DrawRenderedMeshThumbnail" },
+         { TF::Producer::Painted, "DrawPaintedThumbnail" },
+    };
+
+    // extension -> FileType, from the browser's own table.
+    std::map<std::string, std::string> typeOf;
+    {
+        const std::size_t begin = panel.find( "s_FileTypes = {" );
+        ASSERT_NE( begin, std::string::npos );
+        const std::size_t end = panel.find( "};", begin );
+        ASSERT_NE( end, std::string::npos );
+        const std::string table = panel.substr( begin, end - begin );
+
+        const std::regex pattern( R"re(\{\s*"([A-Za-z0-9_]+)"\s*,\s*FileType::([A-Za-z0-9_]+))re" );
+        for ( auto it = std::sregex_iterator( table.begin(), table.end(), pattern ); it != std::sregex_iterator();
+              ++it )
+            typeOf[( *it )[1].str()] = ( *it )[2].str();
+    }
+    ASSERT_GE( typeOf.size(), 30u );
+
+    // FileType -> the draw functions the panel guards on it. Read out of the routing lines rather than
+    // listed here, so the two grid layouts (tile and detail row) are both covered by construction.
+    std::map<std::string, std::set<std::string>> drawnBy;
+    {
+        // A LOOKAHEAD, not a consuming match, and the difference is a defect this test found in itself:
+        // `( A || B ) && DrawX(` is one routing line naming TWO types, and a consuming pattern swallows
+        // the second type on its way to the function name — so B silently reads as "routed nowhere".
+        // Zero-width means the iterator resumes just after each type name and sees every one of them.
+        const std::regex pattern(
+             R"re(entry->Type == FileType::([A-Za-z0-9_]+)(?=[^;]{0,200}?(Draw[A-Za-z]*Thumbnail)\())re" );
+        for ( auto it = std::sregex_iterator( panel.begin(), panel.end(), pattern ); it != std::sregex_iterator();
+              ++it )
+            drawnBy[( *it )[1].str()].insert( ( *it )[2].str() );
+    }
+    ASSERT_FALSE( drawnBy.empty() ) << "no `entry->Type == FileType::X ... DrawYThumbnail(` routing was "
+                                       "parsed; the panel's shape changed under this regex";
+
+    for ( const TF::Format& format : TF::kFormats )
+    {
+        const char* wanted = nullptr;
+        for ( const Route& route : routes )
+        {
+            if ( route.By == format.By )
+                wanted = route.Function;
+        }
+        if ( wanted == nullptr )
+            continue; // Authored and None have no automatic draw, by decision
+
+        const auto type = typeOf.find( std::string( format.Extension ) );
+        ASSERT_NE( type, typeOf.end() ) << '.' << format.Extension << " has no FileType in the browser";
+
+        const auto drawn = drawnBy.find( type->second );
+        ASSERT_NE( drawn, drawnBy.end() )
+             << '.' << format.Extension << " is FileType::" << type->second
+             << ", which the Content Browser routes to NO draw function — so the row's promise of \""
+             << format.What << "\" reaches no pixel and the file shows its type icon.";
+
+        EXPECT_TRUE( drawn->second.count( wanted ) != 0 )
+             << '.' << format.Extension << " is FileType::" << type->second << ", whose row promises " << wanted
+             << ", but the browser routes that type to " << *drawn->second.begin() << " instead.";
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------
 // 3. THE FOUR CLOUD FORMATS, BY NAME.
 //
 // Pinned separately from the derived check above because they are the owner's requirement rather than a

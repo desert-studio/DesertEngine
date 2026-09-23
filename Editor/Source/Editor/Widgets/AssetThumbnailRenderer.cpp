@@ -298,7 +298,7 @@ namespace Desert::Editor
         // check that compiles.
         m_PendingHandle  = materialHandle;
         m_PendingPng     = outPng;
-        m_PendingIsMesh  = false;
+        m_PendingSubject = Subject::Material;
         m_PendingPreview = how;
         // Render for several frames before reading back: the first renders after init aren't "warm" yet
         // (GPU mesh buffers + per-frame uniform-buffer ring slots need a few frames to fully populate), so an
@@ -342,7 +342,7 @@ namespace Desert::Editor
         m_PendingHandle   = meshHandle;
         m_PendingMaterial = material;
         m_PendingPng      = outPng;
-        m_PendingIsMesh   = true;
+        m_PendingSubject  = Subject::Mesh;
         m_Phase           = kRenderFrames;
         m_DomeSettle      = 0;
         m_DomeFrames      = 0;
@@ -358,7 +358,7 @@ namespace Desert::Editor
         // Nothing rides the mesh path here — a cloud material has no surface to put on a ball, and the
         // mesh path would refuse it by name anyway (MeshRenderer::DrawGenericMeshes). What is photographed
         // is the SKY it authors, from a camera standing on a rise and looking up.
-        if ( !m_PendingIsMesh && m_PendingPreview == ThumbnailSubject::Preview::SkyDome )
+        if ( m_PendingSubject == Subject::Material && m_PendingPreview == ThumbnailSubject::Preview::SkyDome )
         {
             smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
             smc.Primitive.reset();
@@ -419,7 +419,7 @@ namespace Desert::Editor
             m_Scene->SetActiveCamera( m_ObjectCamera );
         }
 
-        if ( m_PendingIsMesh )
+        if ( m_PendingSubject == Subject::Mesh )
         {
             // Asset mesh, auto-framed by its bounds. Apply the mesh's linked (sidecar) material to every slot
             // if one was provided, so the preview shows the real look instead of a flat default gray.
@@ -501,7 +501,7 @@ namespace Desert::Editor
 
     bool AssetThumbnailRenderer::DomeIsStillSettling()
     {
-        if ( m_PendingIsMesh || m_PendingPreview != ThumbnailSubject::Preview::SkyDome )
+        if ( m_PendingSubject != Subject::Material || m_PendingPreview != ThumbnailSubject::Preview::SkyDome )
             return false;
 
         if ( m_DomeFrames >= kDomeMaxSettleFrames )

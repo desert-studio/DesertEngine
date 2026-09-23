@@ -4,6 +4,7 @@
 #include "SystemRules.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Animation/Animator.hpp>
 
@@ -61,8 +62,7 @@ namespace Desert::ECS
                           const TransformComponent& transform )
                      {
                          // Hidden entities (Visible toggle) are skipped.
-                         if ( registry.has<VisibilityComponent>( entity ) &&
-                              !registry.get<VisibilityComponent>( entity ).Visible )
+                         if ( ECS::IsHidden( registry, entity ) )
                              return;
 
                          if ( !mesh.RuntimeMesh && !mesh.Primitive.has_value() && !mesh.MeshHandle )
@@ -366,8 +366,7 @@ namespace Desert::ECS
                 view.each(
                      [&]( entt::entity entity, InstancedStaticMeshComponent& ism )
                      {
-                         if ( registry.has<VisibilityComponent>( entity ) &&
-                              !registry.get<VisibilityComponent>( entity ).Visible )
+                         if ( ECS::IsHidden( registry, entity ) )
                              return;
                          if ( ism.InstanceTransforms.empty() )
                              return;
@@ -463,8 +462,7 @@ namespace Desert::ECS
                 view.each(
                      [&]( entt::entity entity, SkinnedMeshComponent& mesh, const TransformComponent& transform )
                      {
-                         if ( registry.has<VisibilityComponent>( entity ) &&
-                              !registry.get<VisibilityComponent>( entity ).Visible )
+                         if ( ECS::IsHidden( registry, entity ) )
                              return;
 
                          // Editor-built runtime rig (Convert to Skinned) takes priority over the cooked asset.

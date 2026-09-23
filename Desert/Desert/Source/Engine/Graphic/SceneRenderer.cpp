@@ -661,6 +661,10 @@ namespace Desert::Graphic
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.Timestep.GetSeconds() );
+            // The HDR cubemap's own rebake, at the same boundary and under the same settle rule. Both
+            // are called unconditionally: each asks whether it is the sky driving this frame, and a
+            // caller that decided for them would be a second copy of ResolveSkyMode.
+            skyboxSystem->EnsureHdrEnvironment( sceneRenderInfo.Timestep.GetSeconds() );
         }
 
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (intra-phase pass
@@ -1380,10 +1384,10 @@ namespace Desert::Graphic
         jumpFloodSystem->SetOutlineSmoothness( smoothness );
     }
 
-    void SceneRenderer::SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, float intensity )
+    void SceneRenderer::SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look )
     {
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->PrepareMaterial( material, intensity );
+             ->PrepareMaterial( material, look );
     }
 
     void SceneRenderer::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,

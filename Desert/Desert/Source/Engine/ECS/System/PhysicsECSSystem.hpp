@@ -29,6 +29,10 @@ namespace Desert::ECS
     //
     // The editor snapshots the scene on Play and restores it on Stop, so the world is rebuilt fresh
     // each Play (RuntimeBody handles come back as kInvalidBody after the snapshot is reloaded).
+    // DOES NOT HONOUR VisibilityComponent, AND MUST NOT. An invisible wall you still collide with is a
+    // DIFFERENT FEATURE from an invisible wall: skipping hidden bodies would let one tick in the outliner
+    // silently change the simulation, and bodies are built from authored transforms the moment Play starts.
+    // Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
     class PhysicsECSSystem final : public System
     {
     public:

@@ -1,31 +1,50 @@
 #include "SkyboxComponent.hpp"
 #include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
 #include <ImGui/imgui.h>
 
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
+#include <Editor/Widgets/PreviewViewport.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
+#include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <glm/gtc/type_ptr.hpp>
+
 namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
 
-    // The Skybox component is now the HDR-cubemap background and nothing else — the procedural atmosphere
-    // (palette, sun, stars, the IBL bake) lives on SkyAtmosphereComponent and is drawn by its own widget.
-    // So the source-mode radio pair is gone: which sky is drawn is decided by whether the scene has an
-    // enabled Sky Atmosphere, not by a bool on this component.
+    // The Skybox component is the HDR-cubemap background and the environment that lights the scene from
+    // it — the procedural atmosphere (palette, sun, stars, the IBL bake) lives on SkyAtmosphereComponent
+    // and is drawn by its own widget.
     //
-    // The ONE hand-drawn part is the HDR SkyboxAsset picker (a dropdown of loaded skyboxes + drag-drop),
-    // because the generic reflected asset slot is texture-oriented and doesn't resolve SkyboxAssets — so
-    // SkyboxHandle is marked Hidden and drawn here.
+    // WHAT THE OWNER ASKED FOR AND WHY IT IS SHAPED LIKE A MESH'S MATERIAL SECTION. The report was that
+    // "an HDR skybox has no material with parameters and no preview on a sphere, unlike a mesh". The
+    // second half is literal and is answered literally: the Details preview viewport — the same one the
+    // Static Mesh row borrows — now accepts a CUBEMAP, drawn as an orbitable ball by the very pass the
+    // Material Editor's cubemap pane uses. The first half is answered by giving the sky the three knobs
+    // it was missing, laid out as the property rows a material's are.
+    //
+    // WHAT IT IS NOT: a `.demat`. An `.hdr` has no shader, no domain and no parameter schema, so wrapping
+    // it in a material asset would be inventing a second identity for a file that already has one — and
+    // the one thing a material would have bought (a place to keep values) is exactly what the three
+    // PROPERTY fields on the component are. UE reaches the same picture from the other side, with a
+    // TextureCube asset and a SkyLight component; our SkyboxAsset already IS "a file that yields
+    // radiance, irradiance and prefiltered cubes", so the asset half of that is work we would be doing
+    // twice.
+    //
+    // The ONE hand-drawn control is the HDR SkyboxAsset picker (a dropdown of loaded skyboxes +
+    // drag-drop), because the generic reflected asset slot is texture-oriented and doesn't resolve
+    // SkyboxAssets — so SkyboxHandle is marked Hidden and drawn here.
     DESERT_REGISTER_CUSTOM_COMPONENT(
          ECS::SkyboxComponent, "Skybox", false,
          (
@@ -52,11 +71,47 @@ namespace Desert::Editor
                       skybox.SkyboxHandle = handle;
                   };
 
-                  // --- HDR skybox picker (dropdown of loaded SkyboxAssets) ---
                   const auto  current = assetManager->FindByHandle<Assets::SkyboxAsset>( skybox.SkyboxHandle );
                   std::string currentName =
                        current ? Common::Utils::FileSystem::GetFileName( current->GetMetadata().Filepath )
                                : "None";
+
+                  // ── THE PREVIEW ON A BALL, beside the picker ───────────────────────────────────────
+                  //
+                  // 96 px rather than the material slot's 64: a cubemap is READ for where things are in
+                  // it (is the sun behind me now?), and that is the question the rotation slider below
+                  // exists to answer, so the picture has to be big enough to answer it.
+                  constexpr float kPreview = 96.0f;
+                  const bool      drewLive = ctx.Preview && ctx.Preview->HasContent() &&
+                                        ctx.Preview->GetFill() == PreviewViewport::Fill::Cubemap &&
+                                        ctx.DrawPreview( ImVec2( kPreview, kPreview ) );
+                  if ( drewLive )
+                  {
+                      Utils::ImGuiUtilities::Tooltip( "Live preview — drag to orbit, wheel to zoom" );
+                  }
+                  else
+                  {
+                      // THREE STATES, NOT TWO. "no asset", "the panel was lent no renderer" and "the
+                      // cubes are not baked yet" are different facts, and a single grey box for all
+                      // three is how a person concludes the feature is broken when it is merely busy.
+                      const ImVec2 at = ImGui::GetCursorScreenPos();
+                      ImGui::Dummy( ImVec2( kPreview, kPreview ) );
+                      const ImVec2 br( at.x + kPreview, at.y + kPreview );
+                      ImDrawList*  dl = ImGui::GetWindowDrawList();
+                      dl->AddRectFilled( at, br, IM_COL32( 15, 15, 15, 255 ), 2.0f );
+                      const char*  icon = ICON_MDI_IMAGE_FILTER_HDR;
+                      const ImVec2 ts   = ImGui::CalcTextSize( icon );
+                      dl->AddText( ImVec2( at.x + ( kPreview - ts.x ) * 0.5f, at.y + ( kPreview - ts.y ) * 0.5f ),
+                                   ImGui::GetColorU32( ImGuiCol_TextDisabled ), icon );
+                      dl->AddRect( at, br, ImGui::GetColorU32( ImGuiCol_Border ), 2.0f );
+                      Utils::ImGuiUtilities::Tooltip( !current ? "No HDR skybox assigned"
+                                                               : "Preview starting — the cubemap is baking" );
+                  }
+
+                  ImGui::SameLine();
+                  ImGui::BeginGroup();
+
+                  // --- HDR skybox picker (dropdown of loaded SkyboxAssets) ---
                   ImGui::TextUnformatted( "Skybox (HDR)" );
                   if ( ImGui::Button( currentName.c_str(), ImVec2( ImGui::GetContentRegionAvail().x, 0 ) ) )
                       ImGui::OpenPopup( "skybox_selector" );
@@ -98,10 +153,47 @@ namespace Desert::Editor
                       ImGui::EndPopup();
                   }
 
-                  ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x );
+                  // IS THE SKY ON SCREEN THE SKY THESE SLIDERS DESCRIBE? The cubes are rebuilt when the
+                  // authored value settles (SkyboxRenderer::EnsureHdrEnvironment), so for a moment after
+                  // a drag they do not agree — and a control whose effect is late with nothing saying so
+                  // is indistinguishable from one that does not work. Asked of the MATERIAL, which is
+                  // the thing that knows, rather than of a flag this panel would have to keep in step.
+                  const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( skybox.SkyboxHandle );
+                  if ( material )
+                  {
+                      Graphic::SkyLook authored;
+                      authored.Intensity       = skybox.Intensity;
+                      authored.RotationDegrees = skybox.Rotation;
+                      authored.Tint            = skybox.Tint;
+                      if ( !( material->BakedLook() == authored ) )
+                          ImGui::TextDisabled( ICON_MDI_TIMER_SAND " Rebaking the environment..." );
+                      else
+                          ImGui::TextDisabled( "Lights the scene through its baked IBL" );
+                  }
+
+                  ImGui::EndGroup();
+
+                  // ── THE PARAMETERS ────────────────────────────────────────────────────────────────
+                  //
+                  // All three are baked into the cubes rather than applied per frame, which is why they
+                  // reach the ambient and the reflections and not only the backdrop. See
+                  // Engine/Graphic/Environment/SkyLook.hpp for the trade that decides it.
                   Utils::ImGuiUtilities::ResetPropertyRows();
+
                   Utils::ImGuiUtilities::BeginPropertyRow( "Intensity" );
+                  ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x );
                   ImGui::SliderFloat( "##skyintensity", &skybox.Intensity, 0.0f, 10.0f );
+                  Utils::ImGuiUtilities::EndPropertyRow();
+
+                  Utils::ImGuiUtilities::BeginPropertyRow( "Rotation" );
+                  ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x );
+                  ImGui::SliderFloat( "##skyrotation", &skybox.Rotation, 0.0f, 360.0f, "%.1f deg" );
+                  Utils::ImGuiUtilities::EndPropertyRow();
+
+                  Utils::ImGuiUtilities::BeginPropertyRow( "Tint" );
+                  ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x );
+                  ImGui::ColorEdit3( "##skytint", glm::value_ptr( skybox.Tint ),
+                                     ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_Float );
                   Utils::ImGuiUtilities::EndPropertyRow();
               } ) )
 

@@ -455,15 +455,27 @@ TEST( SceneSkyMigration, RoundTripThroughTheReflectedSerializers )
     EXPECT_FLOAT_EQ( reloaded.SunAngularDiameter, skyComponent.Data.SunAngularDiameter );
     EXPECT_EQ( reloaded.Enabled, skyComponent.Data.Enabled );
 
-    // What a save writes for the Skybox component now: two fields, and none of the sky ones. The stale
-    // keys still sitting in the file are read by nobody and disappear on the next save — which is the
-    // whole disposal route for a removed field, and why no migration is owed for one.
-    EXPECT_EQ( savedSkybox.size(), 2u );
+    // What a save writes for the Skybox component now: the cubemap and its authored look, and none of
+    // the sky ones. The stale keys still sitting in the file are read by nobody and disappear on the
+    // next save — which is the whole disposal route for a removed field, and why no migration is owed
+    // for one.
+    //
+    // THE ROWS ARE PINNED AND THE COUNT IS DERIVED, which is the opposite of what stood here. A literal
+    // `2u` is a gate that a new field turns red and that the next person satisfies by typing `4u` — the
+    // number is not the property, the SET is. Adding Rotation and Tint (2026-09-23) turned it red for
+    // exactly that reason and nothing else. Derived from the reflected type, the assertion still says
+    // "a save writes these and nothing more", and it says it without a number anyone can edit.
     EXPECT_TRUE( savedSkybox.get( "SkyboxHandle" ).has_value() );
     EXPECT_TRUE( savedSkybox.get( "Intensity" ).has_value() );
+    EXPECT_TRUE( savedSkybox.get( "Rotation" ).has_value() );
+    EXPECT_TRUE( savedSkybox.get( "Tint" ).has_value() );
     EXPECT_FALSE( savedSkybox.get( "Procedural" ).has_value() );
     EXPECT_FALSE( savedSkybox.get( "ZenithColor" ).has_value() );
     EXPECT_FALSE( savedSkybox.get( "CloudCoverage" ).has_value() );
+    EXPECT_EQ( savedSkybox.size(), skyboxType->Fields.size() )
+         << "a save wrote a different number of keys than SkyboxComponent reflects — the serializer and "
+            "the component disagree about what the component IS, which is a defect in one of them and "
+            "not a number to adjust here";
 }
 
 // ---------------------------------------------------------------------------------------------------

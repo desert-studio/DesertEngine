@@ -22,6 +22,9 @@ namespace Desert::ECS
     // to world space with the target's world matrix, apply the local offset, and write the result into this
     // entity's TransformComponent. Runs AFTER AnimationECSSystem (the pose must be current this frame) and
     // before rendering, so the weapon-in-hand never lags a frame.
+    // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: it writes a TransformComponent, so a hidden weapon
+    // that stopped following its bone would snap to a stale pose the moment it is shown again.
+    // Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
     class AttachmentSystem final : public System
     {
     public:

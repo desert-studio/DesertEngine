@@ -33,6 +33,11 @@
 
 namespace Desert::ECS
 {
+    // VISIBILITY IS AN OPEN QUESTION HERE, NOT A SETTLED ONE. Skipping the pose of a hidden skeleton is a
+    // performance change wearing a visibility costume: it also changes what montages, notifies and socket
+    // attachments see, which is why UE spends a PER-COMPONENT enum on it (VisibilityBasedAnimTickOption)
+    // rather than a global rule. Needs an owner decision and a knob, not a silent skip.
+    // Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
     class AnimationECSSystem : public System
     {
     public:
