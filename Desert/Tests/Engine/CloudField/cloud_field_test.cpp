@@ -2472,5 +2472,20 @@ TEST( CloudField, TheShippedErosionAndAGraphReadTheVolumeAtTheSameCOORDINATE )
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
+
+    const int status = RUN_ALL_TESTS();
+
+    // WHAT THIS SUITE'S TIME WENT ON, as two integers rather than as a claim. Baking the modelling
+    // volume is the single largest thing this suite does, and until the cache in CloudFieldReference.hpp
+    // it was done once per CloudBindSpecies rather than once per distinct sky — the two coverage sweeps
+    // walked the SAME eleven Coverage settings one after the other and re-baked all eleven. `Run` is what
+    // it costs now and `Run + Served` is what it cost before, on any machine, which is the part a wall
+    // clock on this suite cannot be trusted to say.
+    std::printf( "[CloudField] modelling volume bakes: %d run, %d served from cache (%d requested)\n",
+                 Desert::Tests::CloudFieldRef::BakeCounts().Run,
+                 Desert::Tests::CloudFieldRef::BakeCounts().Served,
+                 Desert::Tests::CloudFieldRef::BakeCounts().Run +
+                      Desert::Tests::CloudFieldRef::BakeCounts().Served );
+
+    return status;
 }
