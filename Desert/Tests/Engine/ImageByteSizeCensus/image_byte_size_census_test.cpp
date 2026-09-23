@@ -215,11 +215,18 @@ namespace
                 const std::string ext = entry.path().extension().string();
                 if ( ext != ".cpp" && ext != ".hpp" && ext != ".h" )
                     continue;
-                if ( entry.path().string().find( "ThirdParty" ) != std::string::npos )
+                if ( entry.path().generic_string().find( "ThirdParty" ) != std::string::npos )
                     continue;
 
+                // ReadAll takes the NATIVE spelling because it opens the file; the census key must be the
+                // GENERIC one because the register below is written with '/' and is read by people.
+                // path::string() on Windows returns the separator the iterator appended -- a backslash --
+                // while the base came from a '/' literal, so the key arrived as
+                // "Desert/Desert/Source\\Engine\\Assets\\..." and matched no row. Windows Release named it
+                // the first time it was allowed to run. Lengths are identical either way, so the substr
+                // offset is unaffected.
                 const std::string text     = StripCommentsAndStrings( ReadAll( entry.path().string() ) );
-                std::string       relative = entry.path().string().substr( root.size() );
+                std::string       relative = entry.path().generic_string().substr( root.size() );
 
                 for ( const char* name : kEntryPoints )
                 {
