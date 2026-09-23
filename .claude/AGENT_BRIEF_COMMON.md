@@ -74,6 +74,24 @@ find ThirdParty Editor/ThirdParty -maxdepth 2 -name .git -type f -exec mv {} {}.
 
 ---
 
+## 1a. СБОРКА — ЧЕРЕЗ CCACHE, ОБЩИЙ ДЛЯ ВСЕХ ДЕРЕВЬЕВ (тимлид, 2026-09-23)
+
+Голый `make` идёт МИМО ccache, и каждое новое дерево компилирует движок с нуля (15–20 минут почти в каждой
+задаче 2026-09-23). ccache установлен (`/opt/homebrew/bin/ccache`, 48 % попаданий у `BuildMacOS.sh`). Собирай так:
+
+```bash
+export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime" CCACHE_COMPRESS=1
+export CCACHE_BASEDIR=/Users/daniilsavcenko/Desktop/Programming/C++   # пути относительно — деревья делят кэш
+make <Проект> config=debug -j3 CC="ccache clang" CXX="ccache clang++"
+```
+
+Если в логе сборки «has been modified since the precompiled header was built» или PCH указывает в ЧУЖОЕ дерево —
+удали `build/Intermediates/**/pch.hpp.gch` своего дерева и собери заново; это не дефект кода.
+
+**Перед пушем — формат, тем же 18, что гейт CI:**
+`PATH="/opt/homebrew/opt/llvm@18/bin:$PATH" bash scripts/CI/CheckFormat.sh <база-твоей-ветки>` → должно быть
+«changed lines are clean». Красный формат в CI пропускает Windows и macOS целиком.
+
 ## 2. ЧТО НЕЛЬЗЯ
 
 - **`~/.desertengine/editor.json` — живые настройки владельца.**
