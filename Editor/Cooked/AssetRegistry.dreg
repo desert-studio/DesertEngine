@@ -230,7 +230,7 @@ DesertAssetRegistry 1
 9711 Shader - - engine:Shaders/Programs/Sky/SkyMultiScatterLut.shader
 4237 Shader - - engine:Shaders/Programs/Sky/SkyTransmittanceLut.shader
 7904 Shader - - engine:Shaders/Programs/Sky/SkyViewLut.shader
-2262 Shader - - engine:Shaders/Programs/Skybox/Skybox.shader
+3257 Shader - - engine:Shaders/Programs/Skybox/Skybox.shader
 24408 Shader - - engine:Shaders/Programs/Terrain/Terrain.shader
 2514 Shader - - engine:Shaders/Programs/Text/TextSDF.shader
 1209 Shader - - engine:Shaders/Programs/UI/UI2D.shader
