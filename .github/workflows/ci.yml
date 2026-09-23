@@ -200,14 +200,37 @@ jobs:
     # 3x because the heavy suites are compute-bound and contend (per-suite durations inflate 2.25x under
     # three-way concurrency); there is no idle left on this runner to sell.
     #
-    # AND IT IS NOT ENOUGH, which the job says itself: the budget step below warned at 86 %. The two
-    # remaining levers are both named by measurement rather than guessed at. The build is now the larger
-    # half and ~70 % of it is spent reaching `Linking Desert`, one 1.3 GB static archive that 283 test
-    # binaries then each link — ccache, or splitting build-once from test-many across jobs, is the next
-    # task. On the test side the binding constraint is a single suite: CloudField, 1182 s under
-    # concurrency, 65 % of the whole makespan. Sharding this job into a matrix was considered and NOT
-    # taken yet, on the numbers above: every shard pays the same ~45-minute library build, so the
-    # makespan floor is set by the build and not by how the suites are divided.
+    # AND IT IS NOT ENOUGH, which the job says itself: the budget step below warned at 86 %. On the test
+    # side the binding constraint is a single suite: CloudField, 1182 s under concurrency, 65 % of the
+    # whole makespan. Sharding this job into a matrix was considered and NOT taken yet: every shard pays
+    # the same ~45-minute build, so the makespan floor is set by the build and not by how the suites are
+    # divided.
+    #
+    # ── WHAT THE BUILD HALF ACTUALLY IS, MEASURED, BECAUSE THE FIRST READING OF IT WAS WRONG ─────────
+    #
+    # This comment used to say that ~70 % of the build is "spent reaching `Linking Desert`, one 1.3 GB
+    # static archive that 283 test binaries then each link". The 70 % is a true statement about the
+    # clock and a false one about the cause, and the second half is not true at all.
+    #
+    #   * NO TEST BINARY LINKS libDesert. Three makefiles in the whole workspace name it — Desert,
+    #     Editor, Runtime. Every suite LISTS the engine translation units it needs and compiles them
+    #     into itself, deliberately (see Desert/Tests/Engine/AssetHandleStability/premake5.lua, which
+    #     writes down why). 275 of the 314 projects in that run had already linked BEFORE `Linking
+    #     Desert` appeared; they could not have been waiting on it.
+    #   * THE Desert PROJECT IS 8.7 OF THE 45.6 MINUTES, from `==== Building Desert ====` to `Linking
+    #     Desert` in the same log. The 31 minutes before it are the third-party libraries, Common, the
+    #     tools and most of the 283 test suites, scheduled alongside each other.
+    #   * THE ARCHIVE IS NOT A COST. `ar` over libDesert.a's 270 objects is 17-20 s, measured twice on a
+    #     developer machine. Linking is 1.8 minutes of CPU across all 306 links in the build.
+    #   * THE TEST SUITES ARE THE BUILD. The control is in this same workflow: `macOS Shipping` builds
+    #     the identical engine, editor, runtime and tools with the test projects REMOVED from the
+    #     configuration, and its build step is 13-21 minutes against `macOS Release`'s 35-44. Windows
+    #     says the same — Shipping 46-48 min, Release 113-115.
+    #
+    # So the build is ~100 % compiling, and a third of that compiling is the same file again: 505 of
+    # the 1940 compiles in a Debug build repeat a (source, flags) pair already compiled in the SAME
+    # build — Reflection.gen.cpp 39 times, ReflectionSerializer.cpp 35 — 68.7 of 223 minutes of
+    # attributable compile CPU. That is what the ccache steps below are for.
     #
     # SO THE CEILING STAYS. Raising it would have bought a month and taught the job to grow unwatched;
     # lowering it now, against one measurement, would trade a real failure mode for a fake one. What is
@@ -259,11 +282,76 @@ jobs:
       - name: Repo-only includes (replacements asserted)
         run: ./scripts/CI/RepoOnlyIncludes.sh --require-replacements
 
+      # ── THE COMPILER CACHE, AND WHY ONLY THIS JOB PERSISTS ONE ───────────────────────────────────
+      #
+      # scripts/MacOS/BuildMacOS.sh uses ccache whenever it is installed, so every macOS job here gets
+      # the WITHIN-A-BUILD half of the win for free and with no state at all: 505 of the 1940 compiles
+      # in a Debug build are a repeat of a (source, flags) pair already compiled in the same build,
+      # 30.8 % of the attributable compile CPU. That half needs nothing restored and nothing saved.
+      #
+      # This step buys the other half — the compiles a PREVIOUS run already did — and it is on this job
+      # alone because the storage is a shared, capped resource and this is the job that has been
+      # crossing its ceiling. GitHub keeps at most 10 GB of Actions cache per repository and evicts the
+      # least recently used entry to make room; every job that saves an entry takes a share of that and
+      # shortens how far back every other job's entry survives. `macOS Release` (35-44 min) and `macOS
+      # Shipping` (14-21 min) are not the jobs at risk, so they spend none of it.
+      #
+      # THE KEY IS THE COMMIT AND THE FALLBACK IS THE PREFIX, which is the standard shape and worth
+      # stating because the alternative is tempting and wrong: a fixed key would be written once and
+      # then never again (actions/cache refuses to overwrite an existing key), so the cache would
+      # freeze at the state of whichever run created it and decay from there.
+      #
+      # RESTORING A STALE OR EVEN A FOREIGN CACHE CANNOT PRODUCE A WRONG OBJECT. The key only chooses
+      # which blob is unpacked; what a hit means is decided inside ccache, by a hash of the compiler,
+      # the full command line, the source and the contents of every header it includes. A blob from an
+      # older commit therefore answers with objects for the translation units that did not change and
+      # misses for the ones that did. See the block in scripts/MacOS/BuildMacOS.sh for the one place
+      # this is NOT purely content-addressed — the `sloppiness` list — and the census behind each entry.
+      #
+      # SAVE ON `push` ONLY. A pull_request run cannot write a cache its own base branch will read
+      # (GitHub scopes cache writes to the branch that made them), so saving there spends the
+      # repository's 10 GB on a blob that is visible to one PR and evicted before it helps twice.
+      #
+      # THE CACHE DIRECTORY IS NAMED HERE RATHER THAN INHERITED. ccache's default location depends on
+      # the machine (XDG_CACHE_HOME, then ~/Library/Caches/ccache on macOS), and a `path:` that has to
+      # agree with a default computed somewhere else is a gate that silently caches nothing the day
+      # they diverge. `runner.temp` is job-scoped and empty at the start of the job, so nothing but
+      # this restore can put anything in it.
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-sanitizers-macos14-${{ github.sha }}
+          restore-keys: |
+            ccache-sanitizers-macos14-
+
       - name: Build Debug with sanitizers
         env:
           CXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer"
           LDFLAGS: "-fsanitize=address,undefined"
+          # THE DEFAULT IS 5 GiB AND IT IS NOT ENOUGH, which is the failure mode that looks exactly
+          # like the cache working: ccache evicts least-recently-used entries as it fills, so a
+          # too-small cache quietly turns the end of every build into misses. This Debug tree carries
+          # ~6 GB of ASan objects uncompressed; ccache stores them zstd-compressed.
+          CCACHE_MAXSIZE: "3G"
+          CCACHE_DIR: ${{ runner.temp }}/ccache
         run: ./scripts/MacOS/BuildMacOS.sh Debug
+
+      # AFTER the build and BEFORE the tests: the tests are the half of this job most likely to fail,
+      # and a build's worth of cache is worth keeping even when a suite goes red. `always()` for the
+      # same reason — the cache is evidence-free, so there is no run whose cache is worth discarding.
+      #
+      # `continue-on-error`, and it is not a shrug: re-running this job on the same commit re-reserves
+      # a key that already exists, and the cache is an OPTIMISATION — there is no state of the cache
+      # service that should be able to turn a green build red. A failure to save costs the next run its
+      # hits, which the statistics BuildMacOS.sh prints will show.
+      - name: Save ccache
+        if: always() && github.event_name == 'push'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-sanitizers-macos14-${{ github.sha }}
 
       - name: Run tests under sanitizers
         env:
