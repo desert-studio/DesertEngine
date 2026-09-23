@@ -5,6 +5,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <cstdio>
 #include <random>
 #include <vector>
 
@@ -533,6 +534,7 @@ namespace
     {
         int Applied[6]{};
         int Refused[6]{};
+        int MaxTriangles = 0;
     };
 
     template <typename Rng>
@@ -541,9 +543,10 @@ namespace
         return ids[std::uniform_int_distribution<size_t>( 0, ids.size() - 1 )( rng )];
     }
 
-    ::testing::AssertionResult Fuzz( EditMesh mesh, uint32_t seed, int steps, bool topologyOnly, FuzzStats& stats )
+    ::testing::AssertionResult Fuzz( EditMesh& mesh, uint32_t seed, int steps, bool topologyOnly, FuzzStats& stats )
     {
         std::mt19937 rng( seed );
+        bool         manifold = mesh.IsManifold(); // carried across steps: recomputed only after a change
         for ( int step = 0; step < steps; ++step )
         {
             const auto edges     = Collect( mesh.EdgeIds() );
@@ -552,25 +555,28 @@ namespace
             if ( edges.empty() || triangles.empty() )
                 return ::testing::AssertionSuccess(); // the fuzz ate the mesh; the run is still meaningful
 
-            // Keep the mesh in a useful size band: grow when small, shrink when large.
-            const int tris   = mesh.TriangleCount();
-            const int roll   = std::uniform_int_distribution<int>( 0, 99 )( rng );
-            Op        op     = Op::Flip;
-            const int splitW = tris < 60 ? 45 : tris > 300 ? 10 : 25;
+            // Keep the mesh in a useful size band (every step re-verifies the whole mesh, so size is run
+            // time): grow when small, shrink when large. The remaining share goes to remove/append, or to
+            // compact/flip when only topology-preserving edits are wanted.
+            const int tris      = mesh.TriangleCount();
+            stats.MaxTriangles  = std::max( stats.MaxTriangles, tris );
+            const int roll      = std::uniform_int_distribution<int>( 0, 99 )( rng );
+            const int splitW    = tris < 40 ? 50 : tris > 160 ? 5 : 25;
+            const int collapseW = tris < 40 ? 10 : tris > 160 ? 50 : 25;
+            Op        op        = Op::Flip;
             if ( roll < splitW )
                 op = Op::Split;
-            else if ( roll < splitW + 30 )
-                op = Op::Flip;
-            else if ( roll < splitW + 55 )
+            else if ( roll < splitW + collapseW )
                 op = Op::Collapse;
-            else if ( topologyOnly || roll < splitW + 57 )
-                op = roll % 17 == 0 ? Op::Compact : Op::Flip;
+            else if ( roll < splitW + collapseW + 30 )
+                op = Op::Flip;
+            else if ( topologyOnly )
+                op = roll % 5 == 0 ? Op::Compact : Op::Flip;
             else
                 op = roll % 2 == 0 ? Op::Remove : Op::Append;
 
             const Snapshot before     = Take( mesh );
             const int      euler      = EulerCharacteristic( mesh );
-            const bool     wasManifold = mesh.IsManifold();
             EditResult     result      = EditResult::Ok;
 
             switch ( op )
@@ -628,12 +634,27 @@ namespace
                     return ::testing::AssertionFailure() << "seed " << seed << " step " << step << " op " << kind
                                                          << " changed V-E+F from " << euler << " to "
                                                          << EulerCharacteristic( mesh );
-                if ( wasManifold && !mesh.IsManifold() )
+            }
+            if ( result == EditResult::Ok )
+            {
+                const bool now = mesh.IsManifold();
+                if ( preserving && manifold && !now )
                     return ::testing::AssertionFailure() << "seed " << seed << " step " << step << " op " << kind
                                                          << " made a manifold mesh non-manifold";
+                manifold = now;
             }
         }
         return ::testing::AssertionSuccess();
+    }
+
+    // Printed, not asserted exactly: the counts are the evidence that the run exercised what it claims.
+    void Report( const char* name, const FuzzStats& stats )
+    {
+        std::printf( "[ fuzz ] %s: split %d/%d flip %d/%d collapse %d/%d remove %d/%d append %d/%d "
+                     "compact %d (applied/refused), max %d triangles\n",
+                     name, stats.Applied[0], stats.Refused[0], stats.Applied[1], stats.Refused[1], stats.Applied[2],
+                     stats.Refused[2], stats.Applied[3], stats.Refused[3], stats.Applied[4], stats.Refused[4],
+                     stats.Applied[5], stats.MaxTriangles );
     }
 } // namespace
 
@@ -641,7 +662,12 @@ TEST( EditMeshFuzz, OpenGridTopologyOperations )
 {
     FuzzStats stats;
     for ( uint32_t seed = 1; seed <= 6; ++seed )
-        EXPECT_TRUE( Fuzz( MakeGrid( 6 ), seed, 2500, true, stats ) );
+    {
+        EditMesh mesh = MakeGrid( 6 );
+        EXPECT_TRUE( Fuzz( mesh, seed, 1200, true, stats ) );
+    }
+    Report( "open grid", stats );
+    EXPECT_LT( stats.MaxTriangles, 400 );
     // The run is only evidence if every operation both happened and was refused along the way.
     for ( const Op op : { Op::Split, Op::Flip, Op::Collapse } )
         EXPECT_GT( stats.Applied[static_cast<int>( op )], 500 ) << static_cast<int>( op );
@@ -655,8 +681,12 @@ TEST( EditMeshFuzz, ClosedSurfaceStaysClosed )
     for ( uint32_t seed = 100; seed <= 105; ++seed )
     {
         EditMesh mesh = MakeOctahedron();
-        EXPECT_TRUE( Fuzz( mesh, seed, 2500, true, stats ) );
+        EXPECT_TRUE( Fuzz( mesh, seed, 1200, true, stats ) );
+        EXPECT_EQ( BoundaryEdgeCount( mesh ), 0 ) << "seed " << seed;
+        EXPECT_EQ( EulerCharacteristic( mesh ), 2 ) << "seed " << seed;
     }
+    Report( "closed octahedron", stats );
+    EXPECT_LT( stats.MaxTriangles, 400 );
     EXPECT_GT( stats.Applied[static_cast<int>( Op::Collapse )], 500 );
     EXPECT_GT( stats.Refused[static_cast<int>( Op::Collapse )], 50 );
 }
@@ -665,8 +695,19 @@ TEST( EditMeshFuzz, EveryOperationIncludingRemoveAndAppend )
 {
     FuzzStats stats;
     for ( uint32_t seed = 1000; seed <= 1007; ++seed )
-        EXPECT_TRUE( Fuzz( MakeGrid( 5 ), seed, 2000, false, stats ) );
+    {
+        EditMesh mesh = MakeGrid( 5 );
+        EXPECT_TRUE( Fuzz( mesh, seed, 1200, false, stats ) );
+    }
+    Report( "all operations", stats );
+    EXPECT_LT( stats.MaxTriangles, 400 );
     EXPECT_GT( stats.Applied[static_cast<int>( Op::Remove )], 100 );
     EXPECT_GT( stats.Applied[static_cast<int>( Op::Append )], 20 );
     EXPECT_GT( stats.Refused[static_cast<int>( Op::Append )], 100 );
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

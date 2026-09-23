@@ -417,10 +417,12 @@ namespace Desert::Geometry
                 return EditResult::CollapseBreaksTopology; // an ear: its two edges would merge into a wire
         }
 
-        for ( const int bt : GetVertexTriangles( b ) )
+        // Collected NOW: a triangle whose only two edges at b are the ones merged away below (b of valence
+        // three) is no longer reachable from b's edge list once they are gone, and would keep naming b.
+        std::vector<int> movedTriangles = GetVertexTriangles( b );
+        std::erase_if( movedTriangles, [&]( int bt ) { return bt == tris[0] || bt == tris[1]; } );
+        for ( const int bt : movedTriangles )
         {
-            if ( bt == tris[0] || bt == tris[1] )
-                continue;
             std::array<int, 3> renamed = m_TriangleVertices[bt];
             for ( int& v : renamed )
                 if ( v == b )
@@ -459,7 +461,6 @@ namespace Desert::Geometry
         }
         RemoveEdge( edge );
 
-        const std::vector<int> movedTriangles = GetVertexTriangles( b );
         for ( const int bt : movedTriangles )
             for ( int& v : m_TriangleVertices[bt] )
                 if ( v == b )
