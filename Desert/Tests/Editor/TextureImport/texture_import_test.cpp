@@ -171,6 +171,28 @@ namespace
         out.write( (const char*)file.data(), (std::streamsize)file.size() );
     }
 
+    // A FLAT (UN-RLE'd) RADIANCE .hdr. Every pixel is four bytes of RGBE with a large exponent, so the
+    // file decodes to values far outside [0,1] -- which is the whole point: it is a source the cook must
+    // keep at RGBA32F and must NOT offer a block format to.
+    void WriteHdr( const fs::path& path, int width, int height )
+    {
+        std::string header = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y " + std::to_string( height ) + " +X " +
+                             std::to_string( width ) + "\n";
+
+        std::vector<unsigned char> file( header.begin(), header.end() );
+        for ( int i = 0; i < width * height; ++i )
+        {
+            file.push_back( 200 ); // R mantissa
+            file.push_back( 150 ); // G
+            file.push_back( 100 ); // B
+            file.push_back( 135 ); // shared exponent: 2^(135-128) = 128, so R is about 100.0
+        }
+
+        fs::create_directories( path.parent_path() );
+        std::ofstream out( path, std::ios::binary );
+        out.write( (const char*)file.data(), (std::streamsize)file.size() );
+    }
+
     /// Author an intent beside a source, the way a person would. Written through the same path formula
     /// the cook reads it back with, so a test cannot pass by agreeing with itself about where the file
     /// goes.
@@ -866,6 +888,60 @@ TEST_F( TextureImport, AnUnauthoredSourceIsStillNotRecookedWhenNothingChanged )
     TextureImporter second;
     ASSERT_NE( (uint64_t)second.Import( source ), 0ull );
     EXPECT_EQ( ReadAll( meta ), first ) << "an unmarked texture re-cooked for no reason";
+}
+
+TEST_F( TextureImport, AnExtendedRangeSourceIsOfferedNoBlockFormatWhateverTheIntentSays )
+{
+    // THE DEFECT THIS TEST EXISTS FOR WAS WRITTEN AND CAUGHT BEFORE IT SHIPPED, and it is worth naming
+    // because it is the shape of mistake the authored field invites. The cook's old guard read
+    // `blockFormat == BC7_UNORM`, which meant "LDR" for as long as BC7 was the only thing an LDR source
+    // could become. Rewriting the branch around the policy turned that into "whatever block format the
+    // cook found", and an `.hdr` source found BC6H -- a second BC6H call site with no rendered frame to
+    // weigh it against, graded by a function that walks float buffers as bytes.
+    //
+    // The guard is on the SOURCE FORMAT now, and this pins it from the outside: whatever an author
+    // writes in the `.detex`, an extended-range source comes out of the cook at its own range.
+    // UNAUTHORED FIRST, AND THAT IS THE ONE THAT MATTERS. `BlockPolicyForIntent` refuses an
+    // extended-range source by name, so an AUTHORED one was never in danger; the hole was the branch
+    // that runs when nobody said anything, where the measurement decides alone and would have been
+    // grading BC6H blocks against a float chain read as bytes.
+    const fs::path unmarked = TexturesDir() / "T_Range.hdr";
+    WriteHdr( unmarked, 8, 8 );
+
+    TextureImporter importer;
+    std::string     unmarkedLog;
+    {
+        LogCapture log;
+        ASSERT_NE( (uint64_t)importer.Import( unmarked ), 0ull );
+        unmarkedLog = log.Text();
+    }
+
+    // NO BLOCK FORMAT IS EVEN ATTEMPTED, which is the observable half and the one that separates the
+    // guard from luck. Without it the cook encodes the whole chain as BC6H and grades it by walking two
+    // FLOAT buffers as bytes -- and the number that comes out happens to fail the gates on this image,
+    // so the cooked file is right for a reason nobody chose. The wasted encode and the meaningless
+    // decibels in the log are what the guard actually removes, so they are what this asserts.
+    EXPECT_EQ( unmarkedLog.find( "dB" ), std::string::npos )
+         << "an extended-range source was graded against a block format\n"
+         << unmarkedLog;
+
+    const auto header = CookedHeader( TextureImporter::CookedMetaPath( unmarked ) );
+    EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA32F )
+         << "an extended-range source must keep its range; a cook that stored it as a block format "
+            "clamped or re-encoded the one property the file exists for";
+    EXPECT_FALSE( Fmt::IsBlockCompressed( header.Format ) );
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Unspecified );
+
+    // And with an intent authored, where the policy's own refusal is the thing being checked. The
+    // intent is still RECORDED -- it is the block format that is refused, not the field.
+    const fs::path marked = TexturesDir() / "T_RangeMarked.hdr";
+    WriteHdr( marked, 8, 8 );
+    WriteIntent( marked, "Colour" );
+    ASSERT_NE( (uint64_t)importer.Import( marked ), 0ull );
+
+    const auto markedHeader = CookedHeader( TextureImporter::CookedMetaPath( marked ) );
+    EXPECT_EQ( markedHeader.Format, Fmt::ImageFormat::RGBA32F );
+    EXPECT_EQ( markedHeader.Intent, Fmt::TextureIntent::Colour );
 }
 
 int main( int argc, char** argv )

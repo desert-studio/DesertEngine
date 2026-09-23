@@ -130,6 +130,17 @@ namespace Desert::Editor
             double   squaredError = 0.0;
             uint64_t samples      = 0;
 
+            // IT GRADES AN 8-BIT SOURCE AND NOTHING ELSE, and it says so rather than assuming it. Every
+            // byte below is compared as an unsigned char and the PSNR is scaled by 255 squared, so
+            // handing it a float chain would produce a number that looks like decibels and measures
+            // nothing. The worst possible answer is returned, which is the one that cannot be mistaken
+            // for a passing grade.
+            if ( source.Format != Fmt::ImageFormat::RGBA8F )
+            {
+                fidelity.MaxAbsoluteDelta = 255;
+                return fidelity;
+            }
+
             // The source of an LDR cook is RGBA8; the decode comes back in the same format, so both
             // buffers are four bytes a texel and only the number of channels COMPARED differs.
             //
@@ -487,10 +498,17 @@ namespace Desert::Editor
         // chooses the format, the MEASUREMENT decides whether that choice survives, and every
         // disagreement between them is a sentence in the log rather than a quiet resolution.
         //
-        // Only the LDR path is offered blocks: HDR 2D sources are rare here (the one in the tree is a
-        // skybox, which does not come through this importer), and BC6H's measured win is the baked
-        // environment cube, where it is applied — `EnvironmentBake.cpp`. `BlockPolicyForIntent` refuses
-        // an extended-range source by name for the same reason.
+        // ONLY AN 8-BIT COLOUR SOURCE IS OFFERED A BLOCK FORMAT AT ALL, and the guard is written against
+        // the SOURCE FORMAT rather than against "the cook found some block format for it". HDR 2D
+        // sources are rare here (the one in the tree is a skybox, which does not come through this
+        // importer), and BC6H's measured win is the baked environment cube, where it is applied —
+        // `EnvironmentBake.cpp`. A second BC6H call site here would be an encode with no rendered frame
+        // to weigh it against, and `MeasureLdrChain` would grade it by walking two float buffers as
+        // bytes, which is not a measurement of anything. `BlockPolicyForIntent` refuses an
+        // extended-range source by name as well; that is the braces to this belt, and both are here
+        // because the authored field made the old spelling of this guard (`blockFormat == BC7_UNORM`)
+        // stop meaning what it said — three block formats are reachable from RGBA8 now.
+        if ( data.Format == Fmt::ImageFormat::RGBA8F )
         {
             const Fmt::BlockPolicy policy = Fmt::BlockPolicyForIntent( authored.Intent, data.Format );
 
