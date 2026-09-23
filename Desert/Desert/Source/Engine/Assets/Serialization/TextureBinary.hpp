@@ -12,7 +12,7 @@
 //
 // ── THE FORMAT ───────────────────────────────────────────────────────────────────────────────────
 //
-//   [Header, 128 B][LevelRow, LevelCount * 16 B][source key bytes][pad][levels, SMALLEST FIRST]
+//   [Header, 128 B][LevelRow, LevelCount * 24 B][source key bytes][pad][levels, SMALLEST FIRST]
 //
 // The layout is `Docs/Textures/T3_FORMAT_PLAN.md` §5c, which is binding, and two of its decisions are
 // not cosmetic:
@@ -23,6 +23,13 @@
 //    and the table. One read of a few hundred bytes gets all of it. Stored in image order the tail
 //    would sit at the END of every file and cost a seek per texture, for ever. Mip 0 loses nothing:
 //    it is read by offset, not sequentially.
+//  * EVERY LEVEL CARRIES ITS OWN CODEC (v2). A level is compressed on its own or not at all, so the
+//    property the first bullet buys survives compression: the resident tail is still a short read of
+//    a contiguous prefix, and mip 4 is still one seek and one decode of mip 4's bytes. Compressing
+//    the FILE — which is what an archive does to an entry it likes the look of — gives the same
+//    number of bytes on the wire and takes that away, because there is then no such thing as a level
+//    to read. This is the shape KTX2 calls supercompression and the shape UE's Oodle chunks have;
+//    the argument for it here is measured rather than borrowed, and it is in `EncodeTextureBinary`.
 //  * EVERY LEVEL STARTS 16-BYTE ALIGNED. That is what lets a level be `memcpy`ed into mapped memory
 //    without an unaligned access, and it keeps every level's `VkBufferImageCopy::bufferOffset` a legal
 //    multiple of the texel block size for both an RGBA8 and an RGBA32F payload. The price is under
@@ -93,7 +100,23 @@ namespace Desert::Assets::Serialization
     /// the magic and is REFUSED, not migrated — cooked content is derived data, and the remedy for a
     /// stale cook is to cook again. That is the same call `MeshBinary` made by owner decision
     /// 2026-09-22 ("if the cook is deprecated the user just deletes it").
-    inline constexpr uint32_t kTextureBinaryVersion = 1;
+    ///
+    ///   v1  uncompressed levels; a 16-byte level row of offset/size/pitch.
+    ///   v2  + per-level `StoredSize` and `Codec` (a 24-byte row), and a header column for the stored
+    ///       payload total. A v1 file is REFUSED BY VERSION, with the remedy, exactly as the paragraph
+    ///       above says: there is no migration path and there must not be one.
+    ///
+    /// WHY THE BUMP COULD NOT BE AVOIDED, since a version that can be dodged should be. The level row
+    /// is a fixed-width record read by `memcpy` at a computed stride, so a v1 file read with a v2 row
+    /// does not fail — it reads every level after the first from the wrong place, which is the failure
+    /// mode this whole container was written to make impossible. A `Flags` bit would only move the
+    /// question, because the row's SIZE is what changes.
+    ///
+    /// AND IT IS THE ONLY BUMP THIS PROGRAMME NEEDS. The block-compressed formats that come next
+    /// (`Docs/World/PROGRAMME.md` §5) add `ImageFormat` enumerators and change how a level's size and
+    /// row pitch are DERIVED from its extent — the decoder's arithmetic, not the file's shape. They
+    /// ride on v2; nothing about a BCn level needs a column this row does not already have.
+    inline constexpr uint32_t kTextureBinaryVersion = 2;
 
     /// "DESTTEXT". Eight ASCII bytes, so the sequence on disk is the same whatever the host's word
     /// order — a magic written as an integer would itself need a byte-order rule in order to be read.
@@ -122,6 +145,31 @@ namespace Desert::Assets::Serialization
     /// carry the magic — in both cases the caller has nothing to size a second read with and should let
     /// the decoder produce the refusal.
     [[nodiscard]] uint64_t TextureBinaryMetadataBytes( std::string_view headerBytes );
+
+    /// How one level's bytes lie in the file. The column exists so that the LEVEL decides, for the same
+    /// reason the archive's codec column is per entry and not per archive: a mip chain's smallest levels
+    /// are a few bytes each and never compress, and a decision taken for the file as a whole would have
+    /// to be wrong for one end of it.
+    enum class TextureLevelCodec : uint32_t
+    {
+        Store = 0, /// the level's bytes are its pixels, byte for byte
+        LZ4   = 1, /// `Common/Utilities/Lz4Block.hpp`, one block, no frame — the archive's own codec
+    };
+
+    /// WHERE ONE LEVEL LIES IN THE FILE, which is the entire input a streaming read needs: seek here,
+    /// read this many bytes, decode them this way, and you hold that level and nothing else.
+    ///
+    /// ITS `FileOffset` IS FILE-RELATIVE AND IT IS A DIFFERENT NUMBER FROM `TextureLevel::ByteOffset`,
+    /// which is an offset into the DECODED payload. They are separate types precisely so the two cannot
+    /// be handed to each other: with compression the pair stopped being a constant apart, and a single
+    /// struct meaning both things is how a middle link drops a property.
+    struct TextureLevelLocation
+    {
+        uint64_t          FileOffset = 0; /// from the start of the FILE
+        uint32_t          StoredSize = 0; /// bytes to read
+        uint32_t          ByteSize   = 0; /// bytes after decoding
+        TextureLevelCodec Codec      = TextureLevelCodec::Store;
+    };
 
     /// One level of the chain, INDEXED BY MIP LEVEL — `Levels[0]` is always the full-size image, whatever
     /// order the bytes sit in on disk. Only the physical order is reversed; the table is not.
@@ -191,8 +239,18 @@ namespace Desert::Assets::Serialization
         uint32_t                   Height            = 0;
         Core::Formats::ImageFormat Format            = Core::Formats::ImageFormat::RGBA8F;
         uint32_t                   LevelCount        = 0;
-        uint64_t                   PayloadBytes      = 0;
-        uint64_t                   FileSize          = 0;
+        /// Sum of the DECODED level sizes — how big the staging buffer has to be. Padding excluded.
+        uint64_t PayloadBytes = 0;
+        /// Sum of the STORED level sizes — how many bytes of this file are pixels. Equal to
+        /// `PayloadBytes` when nothing was compressed, and never larger.
+        uint64_t StoredPayloadBytes = 0;
+        uint64_t FileSize           = 0;
+
+        /// Where every level lies, indexed by mip level, read out of the table the header decode already
+        /// had to parse and validate. This is what makes "read only mip 4" a thing a caller can DO
+        /// rather than a property the format merely claims: one `kTextureBinaryPrefixBytes` read gets
+        /// the header and this table, and each row then names a seek, a length and a codec.
+        std::vector<TextureLevelLocation> Levels;
     };
 
     /// The source signature the cook records and the freshness check compares: CRC-32C of @p bytes in
@@ -227,9 +285,34 @@ namespace Desert::Assets::Serialization
     BuildMipChain( uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
                    const std::vector<unsigned char>& base, std::vector<unsigned char>& chainOut );
 
+    /// What the cook may do to the levels on the way out. The default is what the cooker uses.
+    struct TextureEncodeOptions
+    {
+        /// Try the codec on each level and keep the result only where it clears the archive's own
+        /// threshold (`Common/Utilities/PakFile.hpp`, kCompressionNumerator/kCompressionDenominator).
+        /// Off produces a byte-for-byte v2 file with every level `Store`d, which is what the suite
+        /// uses to prove the two paths decode to the same texture.
+        bool CompressLevels = true;
+    };
+
     /// `TextureAssetData` -> container bytes. Total: every field of the struct is written, so a round
-    /// trip is an identity and the suite asserts it as one.
-    [[nodiscard]] std::string EncodeTextureBinary( const TextureAssetData& data );
+    /// trip is an identity and the suite asserts it as one — WITH OR WITHOUT COMPRESSION, which is the
+    /// relation that says the codec is transparent rather than merely present.
+    ///
+    /// WHY COMPRESSION IS ON BY DEFAULT, measured over every texture this repository can cook
+    /// (2026-09-23, this tree, the archive's Lz4Block at its own threshold). The fourteen sources make
+    /// 152 415 040 bytes of mip chain. Compressed as WHOLE FILES — which is what an archive would do to
+    /// them — they are 57 894 177 bytes, 2.63x. Compressed LEVEL BY LEVEL they are 58 562 013, 2.60x.
+    /// The per-level form therefore costs 1.15 % more bytes and keeps the property the container exists
+    /// for; the whole-file form saves that 1.15 % and makes reading one mip mean decoding all of them.
+    /// That is the trade, and it is not close.
+    ///
+    /// It is also not always a cost: on `O4_MaskAddRemove.png` the whole payload compresses 1.56x and
+    /// does not clear the threshold at all, so the archive would store 1 398 112 bytes, while the same
+    /// pixels level by level come to 11 833 — 118x. One long stream can hide matches that each level
+    /// finds on its own.
+    [[nodiscard]] std::string EncodeTextureBinary( const TextureAssetData&     data,
+                                                   const TextureEncodeOptions& options = {} );
 
     /// The header and the level table only — no pixel bytes are copied, and @p bytes may be just the
     /// prefix of the file (anything from `kTextureBinaryHeaderSize` upwards). The truncation check is

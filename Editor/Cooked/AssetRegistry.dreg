@@ -162,7 +162,7 @@ DesertAssetRegistry 1
 4936 SkinnedMesh - - cooked:Meshes/TwoBoneProbe.skmesh
 11950 Animation - - cooked:Meshes/TwoBoneProbe_Twist.anim
 11205 Animation - - cooked:Meshes/TwoBoneProbe_Wave.anim
-5592752 Texture 3facba2f99300a42 - cooked:Textures/T_Checker.tex
+66249 Texture 3facba2f99300a42 - cooked:Textures/T_Checker.tex
 2898 Shader - - engine:Shaders/Programs/AutoExposure/AEAverage.shader
 2379 Shader - - engine:Shaders/Programs/AutoExposure/AEHistogram.shader
 470 Shader - - engine:Shaders/Programs/AutoExposure/AEHistogramClear.shader

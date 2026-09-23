@@ -6,12 +6,15 @@
 
 #include <Common/Utilities/Crc32c.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <random>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #ifndef _WIN32
@@ -678,6 +681,128 @@ TEST( Pak, TheV3RecordLayoutIsPinnedByteForByte )
     EXPECT_EQ( contentSize, runs.size() );
     EXPECT_LT( storedSize, contentSize ) << "the stored size column is not where the format says";
     EXPECT_EQ( storedSize, packedIndex - 16u ); // the one blob fills the whole content region
+}
+
+// ── THE EXCEPTION REGISTER, AND THE PROPERTY IT PROTECTS ─────────────────────────────────────────
+//
+// "The data decides" is the packer's policy and it is right for content whose only question is how
+// many bytes it costs to ship. `kStoredVerbatimRules` is the list of kinds for which it is WRONG,
+// because compressing the whole entry destroys a property the file format exists to provide — and it
+// destroys it silently: the archive round-trips, every other test stays green, and the only thing
+// that changed is that reading a part of the file now costs decoding all of it.
+//
+// TWO TESTS, BECAUSE THE REGISTER AND THE BEHAVIOUR CAN DRIFT APART. The first pins the rows; the
+// second proves the packer obeys them, and carries its own negative control.
+TEST( Pak, EveryStoredVerbatimExceptionIsNamedHereAndTheCountIsDerivedFromTheNames )
+{
+    // THE REGISTER. One row per exception, named, and the count comes from this list rather than being
+    // written down beside it: a gate that pinned a NUMBER could be satisfied by editing the number,
+    // which is how an exception nobody argued for gets in. Adding a rule without naming it here fails,
+    // and so does removing one that is named.
+    constexpr std::string_view kNamed[] = {
+         ".tex", // the cooked texture container — one mip must be readable without the file
+    };
+
+    EXPECT_EQ( Common::Utils::kStoredVerbatimRules.size(), std::size( kNamed ) )
+         << "the packer's exception register changed and this census did not. Name the row and say why, "
+            "or delete it — the count is derived from the names on purpose.";
+
+    // Both directions, because one alone is half a census: a named row that is gone would otherwise
+    // pass, and a row nobody named would pass the moment the sizes happened to match.
+    for ( const std::string_view named : kNamed )
+    {
+        const auto found = std::find_if(
+             Common::Utils::kStoredVerbatimRules.begin(), Common::Utils::kStoredVerbatimRules.end(),
+             [named]( const Common::Utils::StoredVerbatimRule& rule ) { return rule.Extension == named; } );
+        EXPECT_TRUE( found != Common::Utils::kStoredVerbatimRules.end() )
+             << named << " is named here and is not in the register";
+    }
+    for ( const Common::Utils::StoredVerbatimRule& rule : Common::Utils::kStoredVerbatimRules )
+    {
+        EXPECT_TRUE( std::find( std::begin( kNamed ), std::end( kNamed ), rule.Extension ) != std::end( kNamed ) )
+             << rule.Extension << " is exempted from compression and nothing here says why";
+        // A ROW WITHOUT A REASON IS A ROW THAT CANNOT BE REVIEWED. The register's second column is the
+        // whole difference between an argued exception and a hard-coded extension list.
+        EXPECT_FALSE( rule.Why.empty() ) << rule.Extension << " has no reason recorded";
+        EXPECT_EQ( rule.Extension.front(), '.' ) << rule.Extension << " must be spelled with its dot";
+    }
+}
+
+// THE BEHAVIOUR, WITH ITS OWN NEGATIVE CONTROL IN THE SAME ARCHIVE. The same bytes are added twice
+// under two keys that differ only in their extension: the `.tex` must be stored verbatim and the other
+// must be compressed. So the test cannot pass by accident in either direction — if someone deletes the
+// exception the first half goes red, and if the payload ever stopped clearing the packer's threshold
+// the second half goes red instead of quietly proving nothing.
+TEST( Pak, CookedTexturesAreStoredWholeSoOneLevelStaysReadableOnItsOwn )
+{
+    const fs::path dir = MakeTempDir();
+    const fs::path pak = dir / "textures.dpak";
+
+    // THE REAL FILE WHEN IT IS THERE, and it is: `Editor/Cooked/Textures/T_Checker.tex` is the one
+    // cooked texture this repository tracks. A synthetic payload would be testing a decision about
+    // shipped content against bytes nothing ships.
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
+    const fs::path source = root / "Editor/Cooked/Textures/T_Checker.tex";
+    ASSERT_TRUE( fs::exists( source ) ) << source.string() << " is tracked by this repository and is missing";
+    const std::string payload = Slurp( source );
+    ASSERT_GT( payload.size(), 1024u );
+
+    {
+        Common::Utils::PakWriter writer( pak );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "Cooked/Textures/T_Checker.tex", payload.data(), payload.size() ) );
+        // The negative control: the same bytes, a name the register says nothing about.
+        ASSERT_TRUE( writer.AddData( "Cooked/Textures/T_Checker.bin", payload.data(), payload.size() ) );
+        // And the case spelling, which a case-preserving filesystem can hand the packer.
+        ASSERT_TRUE( writer.AddData( "Cooked/Textures/T_Checker.TEX", payload.data(), payload.size() ) );
+        ASSERT_EQ( writer.Finalize(), 3u );
+    }
+
+    Common::Utils::PakReader reader( pak );
+    ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
+
+    EXPECT_EQ( reader.EntryCodec( "Cooked/Textures/T_Checker.tex" ), Common::Utils::PakCodec::Store )
+         << "a .tex was compressed as one entry: reading one mip level now means decoding the whole "
+            "texture, which is the disease the container was written to cure";
+    EXPECT_EQ( reader.EntryStoredSize( "Cooked/Textures/T_Checker.tex" ).value_or( 0 ), payload.size() );
+    EXPECT_EQ( reader.EntryCodec( "Cooked/Textures/T_Checker.TEX" ), Common::Utils::PakCodec::Store )
+         << "the verdict depended on the case the filesystem handed back";
+
+    // THE CONTROL. These exact bytes DO clear the threshold, so the first half above is a decision the
+    // packer took and not a measurement it never had to make.
+    EXPECT_EQ( reader.EntryCodec( "Cooked/Textures/T_Checker.bin" ), Common::Utils::PakCodec::LZ4 )
+         << "the payload no longer compresses, so this test can no longer tell an exception from a "
+            "non-event — find a payload that does, do not delete the check";
+    EXPECT_LE( reader.EntryStoredSize( "Cooked/Textures/T_Checker.bin" ).value_or( 0 ) *
+                    Common::Utils::kCompressionDenominator,
+               payload.size() * Common::Utils::kCompressionNumerator );
+
+    // Whatever the codec column says, the bytes must come back.
+    EXPECT_EQ( reader.Read( "Cooked/Textures/T_Checker.tex" ), payload );
+    EXPECT_EQ( reader.Read( "Cooked/Textures/T_Checker.bin" ), payload );
+}
+
+// A DIRECTORY IS NOT A FILE, and the extension is taken from the last component for that reason. The
+// key below ends in ".desce" and merely LIVES under a directory called "Cooked.tex".
+TEST( Pak, TheExceptionIsReadOffTheFileNameAndNotOffTheDirectory )
+{
+    const fs::path    pak = MakeTempDir() / "dirs.dpak";
+    const std::string repetitive( 200000, 'Z' );
+    {
+        Common::Utils::PakWriter writer( pak );
+        ASSERT_TRUE( writer.IsOpen() );
+        ASSERT_TRUE( writer.AddData( "Cooked.tex/Scenes/Main.desce", repetitive.data(), repetitive.size() ) );
+        ASSERT_TRUE( writer.AddData( "Cooked/Scenes/NoExtension", repetitive.data(), repetitive.size() ) );
+        ASSERT_EQ( writer.Finalize(), 2u );
+    }
+
+    Common::Utils::PakReader reader( pak );
+    ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
+    EXPECT_EQ( reader.EntryCodec( "Cooked.tex/Scenes/Main.desce" ), Common::Utils::PakCodec::LZ4 )
+         << "a directory named Cooked.tex answered for a file inside it";
+    EXPECT_EQ( reader.EntryCodec( "Cooked/Scenes/NoExtension" ), Common::Utils::PakCodec::LZ4 )
+         << "a key with no extension took an exception that names one";
 }
 
 // EVERY KIND OF CONTENT, not one convenient file. A codec that mangles one class of bytes is the
