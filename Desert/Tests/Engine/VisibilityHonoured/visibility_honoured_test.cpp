@@ -116,11 +116,17 @@ namespace
 
     // ONE ROW PER SYSTEM. The directory is walked below and every file in it must appear here.
     constexpr std::array kSystems = {
-         Row{ "AnimationECSSystem.hpp", Verdict::OwnerDecision,
-              "an invisible skeleton still costs a full pose evaluation; UE answers this with a "
-              "PER-COMPONENT enum (VisibilityBasedAnimTickOption), not a global rule, because "
-              "skipping the pose changes what montages, notifies and attached sockets see. It is a "
-              "performance question wearing a visibility costume and it needs a knob, not a verdict." },
+         Row{ "AnimationECSSystem.hpp", Verdict::MustNot,
+              "DECIDED 2026-09-23, and not on cost. Visible is ONE BIT and must mean one thing; letting "
+              "it gate the pose hides a SECOND AXIS inside it, which is the same shape we refused to "
+              "copy from ESlateVisibility in the UI. The consequence is not cosmetic: notifies fire only "
+              "on forward playback with deltaTime > 0 (Animator.cpp:441), so a global skip would make "
+              "GAMEPLAY A FUNCTION OF WHERE THE CAMERA POINTS. UE's per-component enum is the LETTER; "
+              "its pattern -- tick policy is its own property, not a consequence of visibility -- is "
+              "taken, but the knob itself is dead today with 31 skinned entities over 138 scenes and "
+              "nothing able to measure it. Return condition: a crowd off-screen, and the answer THEN is "
+              "a tick-policy property, never a visibility read. (The previous reason here cited "
+              "montages, which this engine does not have -- the word appears only in comments.)" },
          Row{ "AttachmentSystem.hpp", Verdict::MustNot,
               "writes a TransformComponent (a weapon following a bone); a hidden weapon that stops "
               "tracking snaps to the wrong place the moment it is shown again." },

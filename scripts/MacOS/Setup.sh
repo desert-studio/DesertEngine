@@ -43,6 +43,12 @@ BREW_PACKAGES=(
     spirv-cross             # SPIR-V reflection/translation
     assimp                  # model importing (Editor, FbxMeshSplitter)
     googletest              # unit tests (optional, --with-tests builds)
+    # A BUILD DEPENDENCY, NOT A CONVENIENCE. The test suites compile engine translation units into
+    # themselves rather than linking libDesert, so 505 of the 1940 compiles in a Debug build are a
+    # repeat of a (source, flags) pair already compiled in the SAME build — 30.8 % of the compile CPU,
+    # measured. scripts/MacOS/BuildMacOS.sh turns those into cache hits when this is present and says
+    # so loudly when it is not; see the block there for what makes a wrong hit impossible.
+    ccache                  # compiler cache — see scripts/MacOS/BuildMacOS.sh
 )
 
 # WHY llvm@18 IS A DEVELOPER DEPENDENCY AND NOT A BUILD ONE, and why it is nevertheless installed
