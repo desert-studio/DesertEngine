@@ -8,6 +8,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
+#include <Engine/Core/Formats/BlockCompression.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
@@ -17,8 +18,110 @@
 
 #include <stb_image/stb_image.h>
 
+#include <cmath>
+
 namespace Desert::Editor
 {
+    namespace
+    {
+        namespace Fmt = Desert::Core::Formats;
+
+        /// THE COOK'S BLOCK-ENCODING POLICY, VERSIONED. It goes into the container's `EncoderHash` and
+        /// into the freshness comparison, so changing a threshold below RE-COOKS every texture instead
+        /// of leaving the old ones encoded by the old rule with nothing to say so. Before this the
+        /// freshness check compared the source hash and the two identity fields only, which was right
+        /// while the cook had no settings of its own; it has some now.
+        inline constexpr uint32_t kBlockEncoderVersion = 1;
+
+        // ── WHY THE COOK MEASURES INSTEAD OF BEING TOLD ──────────────────────────────────────────
+        //
+        // `Docs/Textures/T1_BCN_MEASUREMENT.md` is binding and says three things about what may be
+        // block-compressed: BC5 for normals and NEVER BC7; BC4 for single-channel masks; nothing block
+        // at all for noise. All three need to know WHAT A TEXTURE IS FOR, and this tree has no field
+        // that says so — `TextureAsset::Type` was deleted *because nobody assigned it*, and the only
+        // surviving signal is the material slot name, which lives in the material and can differ
+        // between two materials sharing one texture. That authored field is step 3 of
+        // `T3_FORMAT_PLAN.md` §6 and it is still open; this is step 4.
+        //
+        // So the cook establishes the fact rather than being told it. It encodes, DECODES ITS OWN
+        // OUTPUT and compares, and keeps the blocks only when both gates pass. Measured in this tree
+        // (2026-09-23, the encoder in `Core/Formats/BlockCompression.cpp`, RGB+A over the base level):
+        //
+        //   texture_metallic 2048      57.78 dB   max|d|   3   kept
+        //   texture_roughness 2048     54.72 dB   max|d|  11   kept
+        //   T_Checker 1024             54.15 dB   max|d|   1   kept
+        //   shaded 2048                53.39 dB   max|d|  10   kept
+        //   texture_diffuse 2048       52.46 dB   max|d|  11   kept
+        //   texture_pbr 2048           47.97 dB   max|d|  84   REFUSED by the delta gate
+        //   texture_normal 2048        46.46 dB   max|d| 131   REFUSED by the delta gate
+        //   1k_Dissolve_Noise 1024     37.83 dB   max|d|  10   REFUSED by the PSNR gate
+        //
+        // TWO GATES BECAUSE ONE WOULD MISS ONE OF THEM, and the table above is the argument: the noise
+        // texture is the only one with a bad AVERAGE and it has a perfectly ordinary worst texel, while
+        // the normal map has a respectable average and a worst texel half the range wide. A mean-only
+        // gate ships the normal map; a worst-only gate ships the noise. T1 reached the same two
+        // conclusions from a reference encoder (46.48 dB on the same normal map, 29.29 dB on noise),
+        // which is what makes these thresholds a reproduction of its rule rather than a new opinion.
+        //
+        // The thresholds sit in the gaps, not at the measurements: 45 dB lies between noise (37.8) and
+        // the lowest keeper (52.5 — and below the two the other gate rejects anyway), and 32 lies
+        // between the worst keeper (11) and the packed-PBR map (84).
+        inline constexpr double   kBlockPsnrFloorDb     = 45.0;
+        inline constexpr uint32_t kBlockMaxDeltaCeiling = 32;
+
+        struct Fidelity
+        {
+            double   Psnr             = 0.0;
+            uint32_t MaxAbsoluteDelta = 0;
+        };
+
+        /// Decode @p blocks back and compare with the chain they were made from, OVER EVERY LEVEL. The
+        /// whole chain and not just the base, because the chain is what ships and because the smallest
+        /// levels are where a block format's arithmetic differs at all — a 2x2 level is one block, and
+        /// sixteen bytes describing four texels is the easy end, so measuring only level 0 would be
+        /// measuring only the hard end and calling it the average.
+        Fidelity MeasureLdrChain( const Assets::Serialization::TextureAssetData&          source,
+                                  const std::vector<Assets::Serialization::TextureLevel>& blockLevels,
+                                  const std::vector<unsigned char>&                       blockPixels,
+                                  const Fmt::ImageFormat                                  blockFormat )
+        {
+            Fidelity fidelity;
+            double   squaredError = 0.0;
+            uint64_t samples      = 0;
+
+            for ( std::size_t row = 0; row < blockLevels.size(); ++row )
+            {
+                const auto& level = blockLevels[row];
+                auto decoded = Fmt::BlockDecompressImage( level.Width, level.Height, blockFormat, source.Format,
+                                                          blockPixels.data() + level.ByteOffset,
+                                                          static_cast<std::size_t>( level.ByteSize ) );
+                if ( !decoded.IsSuccess() )
+                {
+                    fidelity.MaxAbsoluteDelta = 255; // unreadable output is the worst possible answer
+                    return fidelity;
+                }
+
+                const auto&       original = source.Levels[row];
+                const std::size_t count    = std::min<std::size_t>( decoded.GetValue().size(), original.ByteSize );
+                for ( std::size_t i = 0; i < count; ++i )
+                {
+                    const int delta = static_cast<int>( source.Pixels[original.ByteOffset + i] ) -
+                                      static_cast<int>( decoded.GetValue()[i] );
+                    squaredError += static_cast<double>( delta ) * delta;
+                    fidelity.MaxAbsoluteDelta =
+                         std::max( fidelity.MaxAbsoluteDelta, static_cast<uint32_t>( std::abs( delta ) ) );
+                    ++samples;
+                }
+            }
+
+            if ( samples == 0 )
+                return fidelity;
+            const double meanSquaredError = squaredError / static_cast<double>( samples );
+            fidelity.Psnr = meanSquaredError <= 0.0 ? 1000.0 : 10.0 * std::log10( 65025.0 / meanSquaredError );
+            return fidelity;
+        }
+    } // namespace
+
     static std::filesystem::path BuildCookedPath( const std::filesystem::path& sourcePath,
                                                   const std::string&           extension )
     {
@@ -109,7 +212,13 @@ namespace Desert::Editor
              existing.IsSuccess() )
         {
             const auto stored = Assets::Serialization::DecodeTextureHeader( existing.GetValue(), meta.string() );
+            // THE COOK'S OWN SETTINGS ARE PART OF FRESHNESS NOW. `EncoderHash` is "was this made the
+            // way I am asking for it now" (TextureBinary.hpp), and until the encoder existed the cook
+            // had no settings, so comparing it would have been comparing zero with zero. It has some:
+            // a threshold changed in `kBlockPsnrFloorDb` must re-cook every texture, not leave the old
+            // ones encoded by the old rule with nothing in the file able to say which rule that was.
             if ( stored.IsSuccess() && stored.GetValue().SourceContentHash == sourceHash &&
+                 stored.GetValue().EncoderHash == kBlockEncoderVersion &&
                  static_cast<uint64_t>( stored.GetValue().Handle ) == static_cast<uint64_t>( handle ) &&
                  stored.GetValue().SourcePath == sourceKey )
             {
@@ -123,13 +232,13 @@ namespace Desert::Editor
             }
             else
             {
-                LOG_INFO(
-                     "[TextureImporter] Re-cooking '{0}': it stores Handle={1} SourcePath='{2}' "
-                     "source signature {3:#018x}; the source now derives Handle={4} SourcePath='{5}' signature "
-                     "{6:#018x}.",
-                     meta.string(), static_cast<uint64_t>( stored.GetValue().Handle ),
-                     stored.GetValue().SourcePath, stored.GetValue().SourceContentHash,
-                     static_cast<uint64_t>( handle ), sourceKey, sourceHash );
+                LOG_INFO( "[TextureImporter] Re-cooking '{0}': it stores Handle={1} SourcePath='{2}' "
+                          "source signature {3:#018x} encoder {4}; the source now derives Handle={5} "
+                          "SourcePath='{6}' signature {7:#018x} encoder {8}.",
+                          meta.string(), static_cast<uint64_t>( stored.GetValue().Handle ),
+                          stored.GetValue().SourcePath, stored.GetValue().SourceContentHash,
+                          stored.GetValue().EncoderHash, static_cast<uint64_t>( handle ), sourceKey, sourceHash,
+                          kBlockEncoderVersion );
             }
         }
 
@@ -221,7 +330,68 @@ namespace Desert::Editor
                        abs, chain.GetError() );
             return Common::AssetHandle::Null();
         }
-        data.Levels = chain.ExtractValue();
+        data.Levels      = chain.ExtractValue();
+        data.EncoderHash = kBlockEncoderVersion;
+
+        // ── BLOCK COMPRESSION, KEPT ONLY WHERE THE COOK CAN SHOW IT HOLDS UP ─────────────────────
+        //
+        // See the note on `kBlockPsnrFloorDb` for why this is measured rather than authored. Only the
+        // LDR path is offered blocks: HDR 2D sources are rare here (the one in the tree is a skybox,
+        // which does not come through this importer), and BC6H's measured win is the baked environment
+        // cube, where it is applied — `EnvironmentBake.cpp`. Encoding an HDR 2D texture here would be a
+        // second BC6H call site with nothing to weigh it against.
+        if ( const Fmt::ImageFormat blockFormat = Fmt::BlockFormatFor( data.Format );
+             blockFormat == Fmt::ImageFormat::BC7_UNORM )
+        {
+            const uint32_t levelCount = data.LevelCount();
+            auto           blocks =
+                 Assets::Serialization::BlockCompressChain( data.Width, data.Height, levelCount, data.LayerCount,
+                                                            data.Format, blockFormat, data.Levels, data.Pixels );
+            if ( !blocks.IsSuccess() )
+            {
+                // NOT FATAL, AND SAID OUT LOUD. An uncompressed cook is a correct cook; a cook that
+                // failed silently and produced a smaller file would not be.
+                LOG_WARN( "[TextureImporter] '{0}' was not block-compressed: {1}", abs, blocks.GetError() );
+            }
+            else
+            {
+                std::vector<unsigned char> blockPixels;
+                auto                       blockTable =
+                     Assets::Serialization::BuildLevelTable( data.Width, data.Height, levelCount, data.LayerCount,
+                                                             blockFormat, blocks.GetValue(), blockPixels );
+                if ( !blockTable.IsSuccess() )
+                {
+                    LOG_WARN( "[TextureImporter] '{0}' was not block-compressed: {1}", abs,
+                              blockTable.GetError() );
+                }
+                else
+                {
+                    const std::vector<Assets::Serialization::TextureLevel> blockLevels = blockTable.GetValue();
+                    const Fidelity fidelity = MeasureLdrChain( data, blockLevels, blockPixels, blockFormat );
+
+                    if ( fidelity.Psnr < kBlockPsnrFloorDb || fidelity.MaxAbsoluteDelta > kBlockMaxDeltaCeiling )
+                    {
+                        // THE REFUSAL NAMES THE TEXTURE AND BOTH NUMBERS. A texture that quietly did not
+                        // get compressed is indistinguishable from one the cook forgot about, and the
+                        // whole point of measuring is that somebody can read what was measured.
+                        LOG_INFO( "[TextureImporter] '{0}' is kept uncompressed: BC7 gives {1:.2f} dB (floor "
+                                  "{2:.2f}) with a worst texel off by {3} (ceiling {4}).",
+                                  abs, fidelity.Psnr, kBlockPsnrFloorDb, fidelity.MaxAbsoluteDelta,
+                                  kBlockMaxDeltaCeiling );
+                    }
+                    else
+                    {
+                        LOG_INFO( "[TextureImporter] '{0}' is stored as BC7: {1:.2f} dB, worst texel off by "
+                                  "{2}, {3} bytes instead of {4}.",
+                                  abs, fidelity.Psnr, fidelity.MaxAbsoluteDelta, blockPixels.size(),
+                                  data.Pixels.size() );
+                        data.Format = blockFormat;
+                        data.Levels = blockLevels;
+                        data.Pixels = std::move( blockPixels );
+                    }
+                }
+            }
+        }
 
         // A HANDLE IS ONLY RETURNED FOR A CONTAINER THAT IS ON THE DISK. The write used to be unchecked
         // (Д31-D), and the handle plus the cache entry went back regardless — so the very next lookup

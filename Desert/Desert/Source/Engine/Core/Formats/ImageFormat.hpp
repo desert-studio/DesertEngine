@@ -31,6 +31,35 @@ namespace Desert::Core::Formats
 
         DEPTH32F,
 
+        // ── BLOCK-COMPRESSED FORMATS ───────────────────────────────────────────────────────────
+        //
+        // A block format has NO BYTES PER PIXEL. It has 4x4 texels in sixteen bytes, and a level one
+        // texel wide still occupies a whole block. Everything below this line is therefore written in
+        // terms of `GetTexelBlock`, and `GetBytesPerPixel` REFUSES these two rather than answering
+        // four or some other number that would multiply plausibly and be wrong.
+        //
+        // WHY EXACTLY TWO, when `Docs/Textures/T1_BCN_MEASUREMENT.md` names four. An enumerator with no
+        // producer is a dead knob: BC5 and BC4 are the right answers for normals and single-channel
+        // masks, and the thing that is missing for both is not an encoder, it is the AUTHORED FIELD
+        // that says which slot a texture is for (`Docs/Textures/T3_FORMAT_PLAN.md` step 3, which is
+        // still open). Adding their enumerators today would add two formats nothing can ever select.
+        // The two below are the two that CAN be selected from what the cook already knows: the source
+        // is HDR or it is not.
+
+        /// `VK_FORMAT_BC7_UNORM_BLOCK`. LDR colour, 4x4 texels in 16 bytes — a quarter of RGBA8.
+        /// NEVER FOR NORMAL MAPS: measured on this project's own normal map, BC7 gives 46.48 dB against
+        /// BC5's 52.51 and costs 106x the encode time (T1). That is a rule about what may be encoded
+        /// into it, not about the format, and it is enforced where the choice is made.
+        BC7_UNORM,
+
+        /// `VK_FORMAT_BC6H_UFLOAT_BLOCK`. HDR colour, 4x4 texels in 16 bytes — a SIXTEENTH of RGBA32F
+        /// (sixteen bytes a texel becomes one), which is what the baked environment cubes are stored
+        /// and resident as. The fourth channel does not survive — BC6H has no alpha, and a radiance
+        /// cube's alpha was 1 everywhere. Unsigned on purpose:
+        /// radiance is non-negative, and the signed variant is a different VkFormat with a different
+        /// endpoint transform, so the choice is in the enumerator's name rather than in a flag.
+        BC6H_UFLOAT,
+
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
         // A hand-maintained constant was tried first, pinned to the last enumerator with
@@ -90,32 +119,111 @@ namespace Desert::Core::Formats
     // Falling off the end of a constexpr function during constant evaluation is ill-formed, so a missing
     // case is a compile error in any configuration and under any warning settings.
 
-    constexpr uint32_t GetBytesPerPixel( ImageFormat format )
+    /// THE ONE TABLE EVERY BYTE COUNT IN THIS ENGINE IS DERIVED FROM, and the only one that is total
+    /// over the enum. A format's storage is a BLOCK of @ref Width x @ref Height texels occupying
+    /// @ref Bytes bytes; an uncompressed format is the degenerate case of a 1x1 block, which is what
+    /// makes the same arithmetic serve both and what stops there being two arithmetics to keep in step.
+    struct TexelBlock
+    {
+        uint32_t Width;  /// texels across one block
+        uint32_t Height; /// texels down one block
+        uint32_t Bytes;  /// bytes one whole block occupies
+    };
+
+    /// Total over ImageFormat, for the same reason and by the same mechanism as the lookups below: no
+    /// `default:` label, nothing returned after the switch, and `LookupsAreTotal` constant-evaluates it
+    /// for every enumerator, so a format added without a block breaks the BUILD.
+    constexpr TexelBlock GetTexelBlock( ImageFormat format )
     {
         switch ( format )
         {
             case ImageFormat::RGBA8F:
-                return 4; // 4 channels, 8 bits each
+                return { 1, 1, 4 }; // 4 channels, 8 bits each
             case ImageFormat::RGBA16F:
-                return 8; // 4 channels, 16 bits each
+                return { 1, 1, 8 }; // 4 channels, 16 bits each
             case ImageFormat::RGBA32F:
-                return 16; // 4 channels, 32 bits each
+                return { 1, 1, 16 }; // 4 channels, 32 bits each
             case ImageFormat::BGRA8F:
-                return 4;
+                return { 1, 1, 4 };
             case ImageFormat::DEPTH24STENCIL8:
-                return 4; // 24-bit depth + 8-bit stencil, packed into one 32-bit texel
+                return { 1, 1, 4 }; // 24-bit depth + 8-bit stencil, packed into one 32-bit texel
             case ImageFormat::DEPTH32F:
-                return 4;
+                return { 1, 1, 4 };
+            // Both BC formats in this engine are the same shape: sixteen texels in sixteen bytes, one
+            // bit per texel per channel-ish. The number is written here and NOWHERE ELSE — a second
+            // copy of it is the `kSkyEnvBytesPerPixel = 16` defect wearing a block's clothes, and the
+            // census has a gate for exactly that shape.
+            case ImageFormat::BC7_UNORM:
+                return { 4, 4, 16 };
+            case ImageFormat::BC6H_UFLOAT:
+                return { 4, 4, 16 };
             case ImageFormat::Count:
                 break; // the sentinel is not a format — fall through to the error path below
         }
 
-        // Reached only by the sentinel or by a corrupted / cast-in integer, so this is a programmer
-        // error, not a data error. Name the value and stop; never hand back a size that a caller will
-        // turn into an allocation.
-        LOG_ERROR( "GetBytesPerPixel: ImageFormat value {} is outside the enumeration",
+        LOG_ERROR( "GetTexelBlock: ImageFormat value {} is outside the enumeration",
                    static_cast<uint32_t>( format ) );
         DESERT_VERIFY( false, "ImageFormat outside the enumeration" );
+    }
+
+    /// Does one texel of this format have a size of its own? False exactly for the block formats, and
+    /// DERIVED from the block table rather than listed again, so a format cannot be block-compressed in
+    /// one answer and not in the other.
+    constexpr bool IsBlockCompressed( ImageFormat format )
+    {
+        const TexelBlock block = GetTexelBlock( format );
+        return block.Width > 1 || block.Height > 1;
+    }
+
+    /// How many whole blocks a row of @p width texels occupies. ROUNDED UP: a level three texels wide
+    /// is one block wide, not three quarters of one, and this is where a block format's arithmetic
+    /// differs from an uncompressed one's at all. The smallest mips are where it matters — a 1x1 level
+    /// of BC7 is 16 bytes, the same as a 4x4 one.
+    constexpr uint32_t BlocksAcross( uint32_t width, ImageFormat format )
+    {
+        const uint32_t blockWidth = GetTexelBlock( format ).Width;
+        return ( width + blockWidth - 1 ) / blockWidth;
+    }
+
+    /// How many whole blocks a column of @p height texels occupies. Rounded up, see `BlocksAcross`.
+    constexpr uint32_t BlocksDown( uint32_t height, ImageFormat format )
+    {
+        const uint32_t blockHeight = GetTexelBlock( format ).Height;
+        return ( height + blockHeight - 1 ) / blockHeight;
+    }
+
+    /// Bytes from the start of one ROW OF BLOCKS to the next — `VkBufferImageCopy`'s `bufferRowLength`
+    /// question, and the `RowPitch` column the cooked container has carried since v1 for this exact day.
+    /// For an uncompressed format it is `width * bytes-per-pixel`; for a block format it is neither a
+    /// function of the width alone nor of the bytes-per-pixel, because there is no bytes-per-pixel.
+    constexpr uint32_t CalculateRowPitch( uint32_t width, ImageFormat format )
+    {
+        return BlocksAcross( width, format ) * GetTexelBlock( format ).Bytes;
+    }
+
+    /// Bytes per PIXEL — and it is an error to ask it about a block format, rather than a number.
+    ///
+    /// WHY IT REFUSES INSTEAD OF ANSWERING. Sixteen bytes per 4x4 block is one byte per texel, and
+    /// returning `1` here would make every `width * height * bpp` in the tree produce a number that is
+    /// right for a 2048-wide level and WRONG for every level under four texels — which is the resident
+    /// tail of every texture, i.e. the part that is always loaded. A quiet factor-of-sixteen error in
+    /// the four smallest levels is the "middle link drops a property" shape, and the only defence that
+    /// does not rely on everyone remembering is for the question to be unanswerable.
+    ///
+    /// The refusal is a COMPILE error wherever it is reached in a constant expression (falling off the
+    /// end of a constexpr function is ill-formed) and a `DESERT_VERIFY` at run time. It is still here,
+    /// rather than deleted, because two things legitimately want it: the box filter, which works in
+    /// whole texels and refuses block formats by name, and the refusal messages that quote it.
+    constexpr uint32_t GetBytesPerPixel( ImageFormat format )
+    {
+        const TexelBlock block = GetTexelBlock( format );
+        if ( block.Width == 1 && block.Height == 1 )
+            return block.Bytes;
+
+        LOG_ERROR( "GetBytesPerPixel: ImageFormat value {} is block-compressed and has no bytes per pixel; "
+                   "ask GetTexelBlock, CalculateRowPitch or CalculateImageSize instead",
+                   static_cast<uint32_t>( format ) );
+        DESERT_VERIFY( false, "a block-compressed format has no bytes per pixel" );
     }
 
     // Which planes a barrier or an image view must name for this format.
@@ -127,6 +235,8 @@ namespace Desert::Core::Formats
             case ImageFormat::RGBA16F:
             case ImageFormat::RGBA32F:
             case ImageFormat::BGRA8F:
+            case ImageFormat::BC7_UNORM:
+            case ImageFormat::BC6H_UFLOAT:
                 return ImageAspect_Colour;
             // A packed depth+stencil image has BOTH planes, and a barrier that names only DEPTH is a
             // VUID-VkImageMemoryBarrier-image-03319 violation. This is exactly what stopped the scene
@@ -155,9 +265,22 @@ namespace Desert::Core::Formats
             for ( uint32_t i = 0; i < kImageFormatCount; ++i )
             {
                 const ImageFormat format = static_cast<ImageFormat>( i );
-                if ( GetBytesPerPixel( format ) == 0 )
+
+                // The block table is the one asked for EVERY format, because it is the one every byte
+                // count is derived from. A format without a case here falls off the end of a constexpr
+                // function during this evaluation, which is ill-formed — a compile error, in any
+                // configuration and under any warning settings.
+                const TexelBlock block = GetTexelBlock( format );
+                if ( block.Width == 0 || block.Height == 0 || block.Bytes == 0 )
                     return false;
                 if ( GetImageAspect( format ) == 0 )
+                    return false;
+
+                // GetBytesPerPixel IS ASKED ONLY WHERE A PIXEL HAS A SIZE, and where it does, the two
+                // tables are made to AGREE here rather than merely both existing. A block format is
+                // deliberately not asked: asking would be the ill-formed reach described on that
+                // function, which would turn its refusal into a build failure for the whole engine.
+                if ( !IsBlockCompressed( format ) && GetBytesPerPixel( format ) != block.Bytes )
                     return false;
             }
             return true;
@@ -165,19 +288,29 @@ namespace Desert::Core::Formats
     } // namespace Detail
 
     static_assert( Detail::LookupsAreTotal(),
-                   "Every ImageFormat enumerator needs a case in GetBytesPerPixel and GetImageAspect, and "
+                   "Every ImageFormat enumerator needs a case in GetTexelBlock and GetImageAspect, an "
+                   "uncompressed one needs a GetBytesPerPixel that AGREES with its block, and "
                    "kImageFormatCount must count them all." );
 
     // Byte size of a tightly-packed image. 64-bit because a volume is easy to size past 4 GiB, and a
     // silently truncated allocation size belongs to the same family of bugs as a zero bytes-per-pixel.
+    ///
+    /// IT IS WRITTEN IN BLOCKS, AND THAT IS WHAT MAKES ALL 28 CENSUSED CALL SITES BLOCK-CORRECT AT ONCE.
+    /// For an uncompressed format `BlocksAcross(w) * blockBytes` IS `w * bytes-per-pixel` and
+    /// `BlocksDown(h)` IS `h`, so not one existing number moves; for a block format the rounding up to
+    /// whole blocks happens here, once, instead of at every site that would have had to remember it.
     constexpr uint64_t CalculateImageSize( uint32_t width, uint32_t height, ImageFormat format )
     {
-        return static_cast<uint64_t>( width ) * height * GetBytesPerPixel( format );
+        return static_cast<uint64_t>( CalculateRowPitch( width, format ) ) * BlocksDown( height, format );
     }
 
+    /// A VOLUME. Block compression is 2D — a BC block spans one slice — so the depth multiplies whole
+    /// slices and is not rounded. No block format is legal on a 3D image in this engine anyway (there
+    /// is no BC volume in the tree and `Image3DSpecification` carries no mips either), but the
+    /// arithmetic says which of the three extents a block covers rather than leaving it to be inferred.
     constexpr uint64_t CalculateImageSize( uint32_t width, uint32_t height, uint32_t depth, ImageFormat format )
     {
-        return static_cast<uint64_t>( width ) * height * depth * GetBytesPerPixel( format );
+        return CalculateImageSize( width, height, format ) * depth;
     }
 
     // ── THE SECOND MULTIPLIER, AND WHY IT IS A SEPARATE NAME ───────────────────────────────────────
@@ -197,7 +330,7 @@ namespace Desert::Core::Formats
     constexpr uint64_t CalculateLayeredImageSize( uint32_t width, uint32_t height, uint32_t layers,
                                                   ImageFormat format )
     {
-        return static_cast<uint64_t>( width ) * height * layers * GetBytesPerPixel( format );
+        return CalculateImageSize( width, height, format ) * layers;
     }
 
     // Bytes of a whole cube: six square faces, @p mips levels, each level half the last (min 1).

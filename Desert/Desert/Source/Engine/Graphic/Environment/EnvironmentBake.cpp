@@ -19,10 +19,22 @@ namespace Desert::Graphic
 
     namespace
     {
-        /// The format every one of the three cubes is created at (`ComputeImages::ProccessForImageCube`).
+        /// The format every one of the three cubes is COMPUTED at (`ComputeImages::ProccessForImageCube`).
         /// Written down HERE as well as there because the container records it and the load has to refuse
         /// a file whose pixels are a different size from the image it is about to fill.
         constexpr Core::Formats::ImageFormat kCubeFormat = Core::Formats::ImageFormat::RGBA32F;
+
+        /// AND THE FORMAT IT IS STORED AND RESIDENT AT, which is no longer the same thing.
+        ///
+        /// A compute pass writes RGBA32F because a storage image must have a format a shader can write,
+        /// and no BC format can be one. Nothing writes the cube after the bake, so what is CACHED and
+        /// what is resident afterwards need not be that format — and at sixteen bytes a texel it is by
+        /// far the most expensive thing this engine keeps per environment. BC6H is one byte a texel.
+        ///
+        /// WHY BC6H AND NOT BC7 HERE. Radiance is not in [0,1]: the measured peak of this project's own
+        /// panorama is above 1 and a real sky's sun is orders of magnitude above it. BC7 would clamp
+        /// every value over 1 to white, which is not a quality loss, it is a different image.
+        constexpr Core::Formats::ImageFormat kStoredCubeFormat = Core::Formats::ImageFormat::BC6H_UFLOAT;
 
         /// The bake's own signature is a hash over a byte image of everything it depends on. FNV-1a, the
         /// same primitive `IconBake` keys with — this is an identity, not an integrity check, and the
@@ -130,13 +142,14 @@ namespace Desert::Graphic
                  "'{}' is kind {}, and an environment cube is a cube.", path.string(),
                  static_cast<uint32_t>( data.Kind ) );
         }
-        if ( data.Width != faceSize || data.LevelCount() != mips || data.Format != kCubeFormat )
+        if ( data.Width != faceSize || data.LevelCount() != mips ||
+             ( data.Format != kStoredCubeFormat && data.Format != kCubeFormat ) )
         {
             return Common::MakeFormattedError<std::shared_ptr<ImageCube>>(
                  "'{}' holds a {}-texel face with {} levels in format {}, and this environment wants {} / {} "
                  "/ {}.",
                  path.string(), data.Width, data.LevelCount(), static_cast<uint32_t>( data.Format ), faceSize,
-                 mips, static_cast<uint32_t>( kCubeFormat ) );
+                 mips, static_cast<uint32_t>( kStoredCubeFormat ) );
         }
 
         // THE TABLE TRAVELS WITH THE PIXELS. `ImageCubeSpecification::Levels` is indexed exactly as the
@@ -147,14 +160,30 @@ namespace Desert::Graphic
         for ( const Ser::TextureLevel& level : data.Levels )
             spans.push_back( Core::Formats::MipLevelSpan{ level.ByteOffset, level.ByteSize } );
 
-        const Core::Formats::ImageCubeSpecification spec = { .Tag      = std::string( tag ),
-                                                             .FaceSize = faceSize,
-                                                             .Format   = kCubeFormat,
-                                                             .Mips     = mips,
-                                                             .Data     = std::move( data.Pixels ),
-                                                             .Properties =
-                                                                  Core::Formats::Storage | Core::Formats::Sample,
-                                                             .Levels = std::move( spans ) };
+        // SAMPLE ONLY WHEN THE PIXELS ARE BLOCKS, AND STORAGE OTHERWISE — not a tidy-up, a hardware
+        // rule. `VK_IMAGE_USAGE_STORAGE_BIT` requires a format a shader can write, and no BC format is
+        // one (`storageImage` is absent from every BC entry of `vkGetPhysicalDeviceFormatProperties`).
+        // A cube read off the cache is never written again — the three compute passes did not run, which
+        // is the whole point of the cache — so the bit it would be refused for is also the bit it has no
+        // use for. The uncompressed branch keeps its old properties exactly, so a file cooked before
+        // this change loads exactly as it did.
+        const Core::Formats::ImageProperties properties =
+             Core::Formats::IsBlockCompressed( data.Format )
+                  ? Core::Formats::Sample
+                  : static_cast<Core::Formats::ImageProperties>( Core::Formats::Storage | Core::Formats::Sample );
+
+        LOG_INFO( "[EnvironmentBake] '{}' loaded: {}-texel face, {} level(s), format {}, {:.2f} MiB resident.",
+                  path.string(), faceSize, mips, static_cast<uint32_t>( data.Format ),
+                  static_cast<double>( Core::Formats::CalculateCubeImageSize( faceSize, mips, data.Format ) ) /
+                       ( 1024.0 * 1024.0 ) );
+
+        const Core::Formats::ImageCubeSpecification spec = { .Tag        = std::string( tag ),
+                                                             .FaceSize   = faceSize,
+                                                             .Format     = data.Format,
+                                                             .Mips       = mips,
+                                                             .Data       = std::move( data.Pixels ),
+                                                             .Properties = properties,
+                                                             .Levels     = std::move( spans ) };
 
         auto cube = SP_CAST( ImageCube, ImageCube::Create( spec, nullptr ) );
         if ( !cube )
@@ -208,6 +237,44 @@ namespace Desert::Graphic
         if ( !table.IsSuccess() )
             return Common::MakeError<bool>( table.GetError() );
         data.Levels = table.ExtractValue();
+
+        // ── AND THEN THE SIXTEEN BYTES A TEXEL BECOME ONE ────────────────────────────────────────
+        //
+        // This is the step the whole T3 chain was ordered around: the chain is in the file (so there is
+        // no `vkCmdBlitImage` to be refused by `blitDst = 0`), the container can express a layered
+        // image, and the format table can express a block. A radiance cube at 1024 with its mips is
+        // 128 MiB of RGBA32F and 8 MiB of BC6H.
+        //
+        // A FAILURE HERE IS NOT FATAL AND IS NOT SILENT. The uncompressed chain in hand is a correct
+        // cache entry and the load accepts either format, so the fall-through writes a bigger file
+        // rather than no file — but it says so, because "the cube is somehow 128 MiB again" is exactly
+        // the kind of thing that is discovered six weeks later.
+        auto blocks = Ser::BlockCompressChain( faceSize, faceSize, mips, Ser::kTextureCubeLayerCount, kCubeFormat,
+                                               kStoredCubeFormat, data.Levels, data.Pixels );
+        if ( !blocks.IsSuccess() )
+        {
+            LOG_WARN( "[EnvironmentBake] '{}' is cached uncompressed: {}", path.string(), blocks.GetError() );
+        }
+        else
+        {
+            std::vector<unsigned char> blockPixels;
+            auto blockTable = Ser::BuildLevelTable( faceSize, faceSize, mips, Ser::kTextureCubeLayerCount,
+                                                    kStoredCubeFormat, blocks.GetValue(), blockPixels );
+            if ( !blockTable.IsSuccess() )
+            {
+                LOG_WARN( "[EnvironmentBake] '{}' is cached uncompressed: {}", path.string(),
+                          blockTable.GetError() );
+            }
+            else
+            {
+                LOG_INFO( "[EnvironmentBake] '{}' encoded to BC6H: {:.2f} MiB instead of {:.2f} MiB.",
+                          path.string(), static_cast<double>( blockPixels.size() ) / ( 1024.0 * 1024.0 ),
+                          static_cast<double>( data.Pixels.size() ) / ( 1024.0 * 1024.0 ) );
+                data.Format = kStoredCubeFormat;
+                data.Levels = blockTable.ExtractValue();
+                data.Pixels = std::move( blockPixels );
+            }
+        }
 
         std::error_code ec;
         std::filesystem::create_directories( path.parent_path(), ec );

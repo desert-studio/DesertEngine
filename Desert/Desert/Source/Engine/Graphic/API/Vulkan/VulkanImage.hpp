@@ -56,6 +56,15 @@ namespace Desert::Graphic::API::Vulkan
                     return VK_FORMAT_D32_SFLOAT;
                 case Core::Formats::ImageFormat::DEPTH24STENCIL8:
                     return deviceDepthFormat;
+                // The two block formats. `textureCompressionBC` is read off the physical device and
+                // requested by `VulkanLogicalDevice::CreateDevice` (pinned by the TextureCompressionBC
+                // suite); without it these two VkFormats are not usable, and on THIS machine that is
+                // undetectable at run time — measured, four mode-6 blocks came back bit-exact with the
+                // feature off and no validation message. The census is the gate, not the device.
+                case Core::Formats::ImageFormat::BC7_UNORM:
+                    return VK_FORMAT_BC7_UNORM_BLOCK;
+                case Core::Formats::ImageFormat::BC6H_UFLOAT:
+                    return VK_FORMAT_BC6H_UFLOAT_BLOCK;
                 case Core::Formats::ImageFormat::Count:
                     break; // the sentinel is not a format — fall through to the error path below
             }

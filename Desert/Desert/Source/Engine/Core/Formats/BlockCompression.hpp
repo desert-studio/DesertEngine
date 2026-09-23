@@ -1,0 +1,81 @@
+#pragma once
+
+// THE BLOCK ENCODER — what it encodes, what it deliberately refuses, and how it is measured.
+//
+// `Docs/Textures/T3_FORMAT_PLAN.md` §6 puts this last of four steps, and the reason is hardware rather
+// than taste: `blitDst = 0` for every BC format on this device, so the GPU cannot build a block-format
+// mip chain and the chain had to be in the file before a block format could exist at all. It is, since
+// v1 of the container. This file is the step that finally puts blocks in it.
+//
+// ── TWO FORMATS, AND WHY NOT FOUR ────────────────────────────────────────────────────────────────
+//
+// `Docs/Textures/T1_BCN_MEASUREMENT.md` names four and its rules are binding: BC5 for normals and
+// NEVER BC7 on them (52.51 dB against 46.48, and BC5 encodes 106x faster on the same image); BC4 for
+// single-channel masks; nothing block-compressed for noise (29.29 dB, the one substitution that was
+// visible in a frame). Every one of those three rules needs to know WHAT A TEXTURE IS FOR, and the
+// tree has no field that says so — `TextureAsset::Type` was deleted precisely because nobody assigned
+// it, and the only surviving signal is the material slot name, which lives in the material and can
+// differ between two materials using one texture. That field is step 3 of the plan and it is OPEN.
+//
+// So this file encodes the two formats whose choice follows from something the cook already knows —
+// whether the source decodes as HDR — and the policy that selects them lives at the call sites, where
+// the answer is known, rather than here.
+//
+// ── QUALITY IS MEASURED IN THIS REPOSITORY, NOT QUOTED FROM A REFERENCE ENCODER ──────────────────
+//
+// These are OUR encoders and they are simpler than the reference ones. BC7 here writes MODE 6 only
+// (one subset, RGBA endpoints, 4-bit indices) out of the eight modes the format has, and BC6H writes
+// MODE 11 only (one subset, 10-bit absolute endpoints) out of fourteen. A partitioned mode helps a
+// block that straddles an edge between two materially different colours, and neither of these will
+// find that. What they DO is chosen for what this project stores: smooth colour and smooth radiance.
+//
+// The numbers are in `Desert/Tests/Engine/BlockCompression`, measured over this tree's own images,
+// and the suite FAILS if they regress. Claims about "BC7 quality" taken from a table elsewhere describe
+// a different encoder.
+//
+// ── THE DECODERS ARE PART OF THE DELIVERABLE, NOT A TEST HELPER ──────────────────────────────────
+//
+// An encoder verified only by "the device drew something" is verified by nothing: this machine returns
+// BC7 texels bit-exact WITH THE FEATURE DISABLED (measured, MoltenVK 1.1.357, four mode-6 blocks, no
+// validation message either way), so the device is not a witness here. The decoders below implement the
+// same arithmetic the specification requires of a GPU, and every encode in the suite is measured by
+// decoding it back — which is the only check that can fail on this hardware.
+
+#include <Common/Core/ResultStr.hpp>
+#include <Engine/Core/Formats/ImageFormat.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+namespace Desert::Core::Formats
+{
+    /// THE BLOCK FORMAT A SOURCE FORMAT ENCODES INTO, or `ImageFormat::Count` for "this one does not".
+    ///
+    /// It is a function of the SOURCE's numeric range and nothing else — RGBA8 is LDR colour and becomes
+    /// BC7, RGBA32F is radiance and becomes BC6H — and that is the whole of what the cook can currently
+    /// derive. It is deliberately NOT a policy: whether a given texture SHOULD be compressed at all is a
+    /// different question with a different (and missing) owner, and it is asked at the call site.
+    [[nodiscard]] ImageFormat BlockFormatFor( ImageFormat sourceFormat );
+
+    /// Encode one tightly-packed image. @p source holds exactly
+    /// `CalculateImageSize(width, height, sourceFormat)` bytes; what comes back holds exactly
+    /// `CalculateImageSize(width, height, blockFormat)` — i.e. the level rounded up to whole 4x4 blocks,
+    /// which for a level under four texels is a WHOLE BLOCK and not a fraction of one.
+    ///
+    /// A level whose extent is not a multiple of four is legal and is what the small end of every mip
+    /// chain looks like. The texels that fall outside the image are filled by CLAMPING to the edge
+    /// rather than left as zero: a black quarter-block at the edge of a 6x6 level would be encoded as
+    /// part of the same endpoint fit and would drag the real texels' colours with it.
+    [[nodiscard]] Common::ResultStr<std::vector<unsigned char>>
+    BlockCompressImage( uint32_t width, uint32_t height, ImageFormat sourceFormat, ImageFormat blockFormat,
+                        const unsigned char* source, std::size_t sourceBytes );
+
+    /// Decode blocks back to @p destFormat — the inverse of the above, and the thing that MEASURES it.
+    /// Implements the specification's own reconstruction (the integer interpolation, the unquantize and
+    /// the BC6H finish-unquantize), so a disagreement between this and a GPU is a defect in one of them
+    /// rather than a difference of opinion.
+    [[nodiscard]] Common::ResultStr<std::vector<unsigned char>>
+    BlockDecompressImage( uint32_t width, uint32_t height, ImageFormat blockFormat, ImageFormat destFormat,
+                          const unsigned char* source, std::size_t sourceBytes );
+} // namespace Desert::Core::Formats

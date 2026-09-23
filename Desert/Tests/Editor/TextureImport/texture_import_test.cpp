@@ -30,6 +30,7 @@
 
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
+#include <Engine/Core/Formats/BlockCompression.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
@@ -485,11 +486,34 @@ TEST_F( TextureImport, ATexCookedInOneCheckoutLoadsItsPixelsInAnother )
                                  << asset.GetSourcePath();
     ASSERT_EQ( w, 4 );
     ASSERT_EQ( h, 3 );
-    const auto& base0 = carried.GetValue().Levels[0];
-    EXPECT_EQ( std::memcmp( carried.GetValue().Pixels.data() + base0.ByteOffset, pixels,
-                            static_cast<size_t>( w ) * h * 4 ),
-               0 )
-         << "the committed container's base level is not the source image's pixels";
+    //
+    // THROUGH THE FORMAT THE CONTAINER DECLARES, which is no longer always RGBA8: the cook encodes an
+    // LDR texture to BC7 when it can show the result holds up. So the equality asserted is not "these
+    // bytes are the source's pixels" but "these bytes are what THIS CHECKOUT'S copy of the source
+    // encodes to" — which is the claim the test is named after, is still an exact comparison, and is
+    // STRONGER than a decode-and-compare would be: it would catch an encoder that reconstructed the
+    // right pixels out of different blocks, i.e. a container carrying somebody else's cook.
+    //
+    // (It has to be exact rather than approximate for a second reason: BC7's mode 6 spends ONE p-bit on
+    // all four channels of an endpoint, so an opaque block of an even colour is off by one LSB in
+    // colour by construction. `BlockCompression`'s suite pins that trade; a tolerance here would only
+    // be hiding it.)
+    const auto&                base0 = carried.GetValue().Levels[0];
+    std::vector<unsigned char> carriedLevel0(
+         carried.GetValue().Pixels.begin() + static_cast<std::ptrdiff_t>( base0.ByteOffset ),
+         carried.GetValue().Pixels.begin() + static_cast<std::ptrdiff_t>( base0.ByteOffset + base0.ByteSize ) );
+
+    std::vector<unsigned char> expectedLevel0( pixels, pixels + static_cast<size_t>( w ) * h * 4 );
+    if ( Desert::Core::Formats::IsBlockCompressed( carried.GetValue().Format ) )
+    {
+        auto encoded = Desert::Core::Formats::BlockCompressImage(
+             static_cast<uint32_t>( w ), static_cast<uint32_t>( h ), Desert::Core::Formats::ImageFormat::RGBA8F,
+             carried.GetValue().Format, expectedLevel0.data(), expectedLevel0.size() );
+        ASSERT_TRUE( encoded.IsSuccess() ) << encoded.GetError();
+        expectedLevel0 = encoded.ExtractValue();
+    }
+    EXPECT_EQ( carriedLevel0, expectedLevel0 )
+         << "the committed container's base level is not this checkout's source image, encoded";
     stbi_image_free( pixels );
 
     // One identity across the trip: the handle the loader reads out of the file is the handle the cook

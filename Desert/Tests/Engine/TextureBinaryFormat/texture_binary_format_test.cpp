@@ -591,7 +591,13 @@ TEST( TextureBinaryFormat, TheTrackedCheckerTextureIsAContainer )
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
     EXPECT_EQ( read.GetValue().Width, 1024u );
     EXPECT_EQ( read.GetValue().Height, 1024u );
-    EXPECT_EQ( read.GetValue().Format, ImageFormat::RGBA8F );
+    // BC7 SINCE T3.4, AND THE FILE IS WHERE THAT IS TRUE OR NOT. The cook encodes an LDR texture to
+    // BC7 when it can show the result holds up, and this texture clears both of its gates -- measured
+    // over the whole chain at cook time, 54.02 dB with a worst texel off by 4. A format assertion here
+    // is what stops "the encoder exists" from being mistaken for "the shipped content uses it": the
+    // one cooked texture this repository tracks is the whole shipped corpus.
+    EXPECT_EQ( read.GetValue().Format, ImageFormat::BC7_UNORM );
+    EXPECT_TRUE( Desert::Core::Formats::IsBlockCompressed( read.GetValue().Format ) );
     EXPECT_EQ( read.GetValue().Levels.size(), 11u ); // floor(log2(1024)) + 1
     EXPECT_EQ( read.GetValue().SourcePath, "assets:Textures/T_Checker.png" );
 
@@ -878,11 +884,17 @@ TEST( TextureBinaryFormat, TheTrackedCheckerTextureCarriesItsLevelsCompressed )
     EXPECT_EQ( header.GetValue().FileSize, bytes.size() );
 
     // The declared decoded total, derived here rather than remembered: eleven levels of a 1024x1024
-    // RGBA8 chain, PADDING EXCLUDED — which is why it is not the size of the pixel buffer.
-    uint64_t chain = 0;
+    // chain, PADDING EXCLUDED — which is why it is not the size of the pixel buffer.
+    //
+    // IN BLOCKS, AND THE SUM IS NOT A QUARTER OF THE OLD ONE. A 1x1 BC7 level is a WHOLE 16-byte block
+    // and so are 2x2 and 4x4, so the smallest five levels of this chain occupy the same bytes as one
+    // 4x4 level each. Writing `w * h * 4 / 4` here would be short by 60 bytes and would still look
+    // right; the derivation has to be the format table's, which is what `CalculateImageSize` is.
+    const ImageFormat format = header.GetValue().Format;
+    uint64_t          chain  = 0;
     for ( uint32_t w = 1024, h = 1024;; w = w > 1 ? w / 2 : 1, h = h > 1 ? h / 2 : 1 )
     {
-        chain += static_cast<uint64_t>( w ) * h * 4;
+        chain += Desert::Core::Formats::CalculateImageSize( w, h, format );
         if ( w == 1 && h == 1 )
             break;
     }

@@ -361,6 +361,27 @@ namespace Desert::Assets::Serialization
                      Core::Formats::ImageFormat format, const std::vector<unsigned char>& images,
                      std::vector<unsigned char>& chainOut );
 
+    /// RE-ENCODE A CHAIN THAT IS ALREADY LAID OUT INTO A BLOCK FORMAT, level by level and layer by
+    /// layer, and hand back the result TIGHTLY PACKED IN TABLE ORDER — which is exactly what
+    /// `BuildLevelTable` takes, so the two compose and there is no third spelling of the layout.
+    ///
+    /// WHY IT TAKES A LAID-OUT CHAIN AND NOT A RAW IMAGE. Both producers of a chain in this engine —
+    /// `BuildMipChain` for a 2D cook and `BuildLevelTable` for a baked cube — already hand back this
+    /// pair, and compression is a step BETWEEN building a chain and writing it. A function that took
+    /// raw pixels would have to re-derive the level extents, which is the arithmetic that has to agree
+    /// with the file and therefore must not be written twice.
+    ///
+    /// WHY IT IS NOT A FLAG ON `EncodeTextureBinary`. That function's `CompressLevels` is LZ4 over the
+    /// stored bytes and is TRANSPARENT: the file decodes to the identical texture either way. This is
+    /// not — it changes the format, the sizes and the pixels, and the container records a different
+    /// `Format` afterwards. Putting the two behind one option would make "compressed" mean two things,
+    /// one of them lossy.
+    [[nodiscard]] Common::ResultStr<std::vector<unsigned char>>
+    BlockCompressChain( uint32_t width, uint32_t height, uint32_t levelCount, uint32_t layerCount,
+                        Core::Formats::ImageFormat sourceFormat, Core::Formats::ImageFormat blockFormat,
+                        const std::vector<TextureLevel>&  sourceLevels,
+                        const std::vector<unsigned char>& sourcePixels );
+
     /// How many bytes `BuildLevelTable` demands in @p images for this shape: every level of every layer,
     /// tightly packed. Exposed because a caller that reads a GPU image back has to SIZE the readback
     /// before it has anything to hand in, and a second spelling of this sum is how the two would drift.

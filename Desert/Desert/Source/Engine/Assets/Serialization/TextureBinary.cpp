@@ -1,5 +1,7 @@
 #include "TextureBinary.hpp"
 
+#include <Engine/Core/Formats/BlockCompression.hpp>
+
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/Lz4Block.hpp>
@@ -337,7 +339,7 @@ namespace Desert::Assets::Serialization
             levels[level].Height     = extents[level].second;
             levels[level].ByteOffset = chainOut.size();
             levels[level].ByteSize   = scratch[level].size();
-            levels[level].RowPitch   = extents[level].first * bpp;
+            levels[level].RowPitch   = Core::Formats::CalculateRowPitch( extents[level].first, format );
 
             chainOut.insert( chainOut.end(), scratch[level].begin(), scratch[level].end() );
         }
@@ -345,13 +347,94 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( std::move( levels ) );
     }
 
+    Common::ResultStr<std::vector<unsigned char>> BlockCompressChain(
+         const uint32_t width, const uint32_t height, const uint32_t levelCount, const uint32_t layerCount,
+         const Core::Formats::ImageFormat sourceFormat, const Core::Formats::ImageFormat blockFormat,
+         const std::vector<TextureLevel>& sourceLevels, const std::vector<unsigned char>& sourcePixels )
+    {
+        if ( !Core::Formats::IsBlockCompressed( blockFormat ) )
+        {
+            return Common::MakeFormattedError<std::vector<unsigned char>>(
+                 "format {} is not block-compressed; there is nothing for BlockCompressChain to do and a "
+                 "caller that asked for it meant something else.",
+                 static_cast<uint32_t>( blockFormat ) );
+        }
+        if ( sourceLevels.size() != static_cast<std::size_t>( levelCount ) * layerCount )
+        {
+            return Common::MakeFormattedError<std::vector<unsigned char>>(
+                 "a table of {} rows was handed in for {} levels x {} layers, which is {} rows.",
+                 sourceLevels.size(), levelCount, layerCount,
+                 static_cast<std::size_t>( levelCount ) * layerCount );
+        }
+
+        const auto extents = LevelExtents( width, height, levelCount );
+
+        std::vector<unsigned char> out;
+        out.reserve( static_cast<std::size_t>(
+             TightlyPackedChainBytes( width, height, levelCount, layerCount, blockFormat ) ) );
+
+        // TABLE ORDER: level 0 first, layers together inside a level. That is the order
+        // `BuildLevelTable` reads its input in, and the order it reverses on the way to the file. This
+        // loop must NOT reverse anything — the one place the physical order is decided is there.
+        for ( uint32_t level = 0; level < levelCount; ++level )
+        {
+            for ( uint32_t layer = 0; layer < layerCount; ++layer )
+            {
+                const TextureLevel& source = sourceLevels[TextureLevelIndex( level, layer, layerCount )];
+                const uint64_t      expect = Core::Formats::CalculateImageSize( extents[level].first,
+                                                                                extents[level].second, sourceFormat );
+                if ( source.Width != extents[level].first || source.Height != extents[level].second ||
+                     source.ByteSize != expect )
+                {
+                    return Common::MakeFormattedError<std::vector<unsigned char>>(
+                         "level {} layer {} says it is {}x{} of {} bytes and the chain of a {}x{} image makes "
+                         "it {}x{} of {}.",
+                         level, layer, source.Width, source.Height, source.ByteSize, width, height,
+                         extents[level].first, extents[level].second, expect );
+                }
+                if ( source.ByteOffset + source.ByteSize > sourcePixels.size() )
+                {
+                    return Common::MakeFormattedError<std::vector<unsigned char>>(
+                         "level {} layer {} runs to byte {} of a {}-byte chain.", level, layer,
+                         source.ByteOffset + source.ByteSize, sourcePixels.size() );
+                }
+
+                auto encoded = Core::Formats::BlockCompressImage(
+                     source.Width, source.Height, sourceFormat, blockFormat,
+                     sourcePixels.data() + source.ByteOffset, static_cast<std::size_t>( source.ByteSize ) );
+                if ( !encoded.IsSuccess() )
+                    return Common::MakeError<std::vector<unsigned char>>( encoded.GetError() );
+
+                out.insert( out.end(), encoded.GetValue().begin(), encoded.GetValue().end() );
+            }
+        }
+
+        // The sum is checked against the SAME function `BuildLevelTable` will check it against, here,
+        // where both numbers are still in hand. A block chain that came out a different length is the
+        // one mistake this whole step can make quietly.
+        const uint64_t expected = TightlyPackedChainBytes( width, height, levelCount, layerCount, blockFormat );
+        if ( out.size() != expected )
+        {
+            return Common::MakeFormattedError<std::vector<unsigned char>>(
+                 "encoding {} levels x {} layers of a {}x{} image produced {} bytes and the block chain for "
+                 "that shape is {}.",
+                 levelCount, layerCount, width, height, out.size(), expected );
+        }
+
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
     uint64_t TightlyPackedChainBytes( const uint32_t width, const uint32_t height, const uint32_t levelCount,
                                       const uint32_t layerCount, const Core::Formats::ImageFormat format )
     {
-        const uint64_t bpp   = Core::Formats::GetBytesPerPixel( format );
-        uint64_t       bytes = 0;
+        // BLOCKS, NOT PIXELS. `CalculateImageSize` rounds a level up to whole 4x4 blocks for a BC
+        // format and is `w * h * bytes-per-pixel` for every other, so this sum is the same number it
+        // has always been for an uncompressed chain and the RIGHT number for a compressed one. The
+        // levels under four texels are where the two differ — and those are every texture's resident
+        // tail, so getting them wrong would be wrong in the part that is always loaded.
+        uint64_t bytes = 0;
         for ( const auto& [w, h] : LevelExtents( width, height, levelCount ) )
-            bytes += static_cast<uint64_t>( w ) * h * bpp * layerCount;
+            bytes += Core::Formats::CalculateLayeredImageSize( w, h, layerCount, format );
         return bytes;
     }
 
@@ -379,15 +462,19 @@ namespace Desert::Assets::Serialization
         const uint64_t expected = TightlyPackedChainBytes( width, height, levelCount, layerCount, format );
         if ( images.size() != expected )
         {
+            // THE REFUSAL QUOTES THE BLOCK, NOT A BYTES-PER-PIXEL. Asking `GetBytesPerPixel` here
+            // would abort on a BC format — it refuses by design — so the message that explains a size
+            // disagreement must not be the thing that crashes on the formats the disagreement is
+            // likeliest for.
+            const Core::Formats::TexelBlock block = Core::Formats::GetTexelBlock( format );
             return Common::MakeFormattedError<std::vector<TextureLevel>>(
-                 "{} levels x {} layers of a {}x{} image at {} bytes per pixel is {} bytes tightly packed "
-                 "and {} were handed in.",
-                 levelCount, layerCount, width, height, Core::Formats::GetBytesPerPixel( format ), expected,
+                 "{} levels x {} layers of a {}x{} image at {} bytes per {}x{} block is {} bytes tightly "
+                 "packed and {} were handed in.",
+                 levelCount, layerCount, width, height, block.Bytes, block.Width, block.Height, expected,
                  images.size() );
         }
 
-        const uint32_t bpp     = Core::Formats::GetBytesPerPixel( format );
-        const auto     extents = LevelExtents( width, height, levelCount );
+        const auto extents = LevelExtents( width, height, levelCount );
 
         // Where each (level, layer) starts in the TIGHTLY PACKED input, which is table order.
         std::vector<uint64_t> sourceOffset( static_cast<size_t>( levelCount ) * layerCount );
@@ -395,7 +482,8 @@ namespace Desert::Assets::Serialization
             uint64_t at = 0;
             for ( uint32_t level = 0; level < levelCount; ++level )
             {
-                const uint64_t one = static_cast<uint64_t>( extents[level].first ) * extents[level].second * bpp;
+                const uint64_t one =
+                     Core::Formats::CalculateImageSize( extents[level].first, extents[level].second, format );
                 for ( uint32_t layer = 0; layer < layerCount; ++layer )
                 {
                     sourceOffset[TextureLevelIndex( level, layer, layerCount )] = at;
@@ -419,13 +507,14 @@ namespace Desert::Assets::Serialization
                     chainOut.push_back( 0 );
 
                 const size_t   row = TextureLevelIndex( level, layer, layerCount );
-                const uint64_t one = static_cast<uint64_t>( extents[level].first ) * extents[level].second * bpp;
+                const uint64_t one =
+                     Core::Formats::CalculateImageSize( extents[level].first, extents[level].second, format );
 
                 levels[row].Width      = extents[level].first;
                 levels[row].Height     = extents[level].second;
                 levels[row].ByteOffset = chainOut.size();
                 levels[row].ByteSize   = one;
-                levels[row].RowPitch   = extents[level].first * bpp;
+                levels[row].RowPitch   = Core::Formats::CalculateRowPitch( extents[level].first, format );
 
                 const unsigned char* src = images.data() + sourceOffset[row];
                 chainOut.insert( chainOut.end(), src, src + one );
@@ -713,7 +802,10 @@ namespace Desert::Assets::Serialization
             // before it — which, since the levels are stored smallest first, is the level one NUMBER
             // higher. A row that disagrees is refused rather than followed.
             const Core::Formats::ImageFormat format = static_cast<Core::Formats::ImageFormat>( header.Format );
-            const uint32_t                   bpp    = Core::Formats::GetBytesPerPixel( format );
+            // THE BLOCK, NOT A BYTES-PER-PIXEL. `GetBytesPerPixel` refuses a BC format by design, so a
+            // reader that asked it here would ABORT on every block-compressed file instead of decoding
+            // it — and this line is reached before anything about the file has been believed.
+            const Core::Formats::TexelBlock block = Core::Formats::GetTexelBlock( format );
 
             // ── HOW MANY LEVELS A FILE OWES, AND WHY THE ANSWER DEPENDS ON THE KIND ──────────────
             //
@@ -793,22 +885,29 @@ namespace Desert::Assets::Serialization
                              who, level, layer, row.StoredSize, row.ByteSize );
                     }
 
+                    // DERIVED IN BLOCKS. For an uncompressed format these two are `w * h * bpp` and
+                    // `w * bpp` exactly as they were; for a BC format they round the level up to whole
+                    // 4x4 blocks, which is the ONLY place in this decoder where the two differ and the
+                    // place a file written by a block-unaware cook stops verifying.
                     const uint64_t expectSize =
-                         static_cast<uint64_t>( extents[level].first ) * extents[level].second * bpp;
+                         Core::Formats::CalculateImageSize( extents[level].first, extents[level].second, format );
                     if ( row.ByteSize != expectSize )
                     {
                         return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                             "'{}' level {} layer {} ({}x{}) claims {} bytes; {} bytes per pixel makes it {}.",
-                             who, level, layer, extents[level].first, extents[level].second, row.ByteSize, bpp,
-                             expectSize );
+                             "'{}' level {} layer {} ({}x{}) claims {} bytes; {} bytes per {}x{} block makes "
+                             "it {}.",
+                             who, level, layer, extents[level].first, extents[level].second, row.ByteSize,
+                             block.Bytes, block.Width, block.Height, expectSize );
                     }
-                    if ( row.RowPitch != extents[level].first * bpp )
+                    const uint32_t expectPitch = Core::Formats::CalculateRowPitch( extents[level].first, format );
+                    if ( row.RowPitch != expectPitch )
                     {
                         return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                             "'{}' level {} layer {} declares a row pitch of {}; a {}-texel row at {} bytes "
-                             "per pixel is {}.",
-                             who, level, layer, row.RowPitch, extents[level].first, bpp,
-                             extents[level].first * bpp );
+                             "'{}' level {} layer {} declares a row pitch of {}; a {}-texel row is {} block(s) "
+                             "of {} bytes, so {}.",
+                             who, level, layer, row.RowPitch, extents[level].first,
+                             Core::Formats::BlocksAcross( extents[level].first, format ), block.Bytes,
+                             expectPitch );
                     }
                     if ( row.ByteOffset != expectedOffset )
                     {
