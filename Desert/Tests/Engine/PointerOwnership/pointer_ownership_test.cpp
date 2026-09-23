@@ -447,11 +447,17 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //     PhysicsECSSystem::m_Lifetime. Raw 387+3, Unique 120+1.
     //     M1 (2026-09-23) removed two: ModelingPanel's ToolBtn table (Icon, Name) went with the five
     //     placeholder Create buttons it described. Raw 390-2.
+    //     M4 (2026-09-23) added three shared_ptr<const Geometry::EditMesh> members, and each is shared ON
+    //     PURPOSE: the mesh is IMMUTABLE once on a component, so the undo record holding the old one by
+    //     reference IS the snapshot, with no copy. StaticMeshComponent::EditableMesh (the entity's source of
+    //     truth), PolyEditTool::m_DragBefore (the mesh a drag started from) and the EditMeshCommand's
+    //     m_Before/m_After declaration. Shared 331+3. PolyEdit's picking target holds the ENTITY, not a
+    //     StaticMeshComponent*, so Raw does not move: that pointer would have been into an entt pool.
     EXPECT_EQ( CountOf( Form::Raw ), 388 );
-    EXPECT_EQ( CountOf( Form::Shared ), 331 );
+    EXPECT_EQ( CountOf( Form::Shared ), 334 );
     EXPECT_EQ( CountOf( Form::Unique ), 121 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 878 )
+    EXPECT_EQ( (int)Members().size(), 881 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -690,7 +696,11 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // material variant. Shared because MaterialInstancePtr is the engine's one spelling of an instance
     // handle and every other holder of one is a shared_ptr too; what makes it safe is not the count but
     // the stamp check that empties the map when MaterialService retires the materials they point at.
-    EXPECT_EQ( CountOf( Form::Shared ), 331 );
+    // 331 -> 334 with M4: StaticMeshComponent::EditableMesh, PolyEditTool::m_DragBefore and the
+    // EditMeshCommand's m_Before/m_After. Shared BY DESIGN: the EditMesh is immutable once set on a
+    // component, so the undo record keeping the old one by reference is the snapshot, with no copy and
+    // nothing able to change it under the history. See TheScanFindsTheCensusedPopulation.
+    EXPECT_EQ( CountOf( Form::Shared ), 334 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

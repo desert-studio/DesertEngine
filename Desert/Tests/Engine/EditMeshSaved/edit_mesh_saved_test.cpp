@@ -57,28 +57,32 @@ namespace
         attr.EnableColors();
         EXPECT_TRUE( attr.SetUVLayerCount( 2 ) );
 
-        std::vector<int> tangentOf( mesh.MaxVertexId() ), colorOf( mesh.MaxVertexId() ), uv1Of( mesh.MaxVertexId() );
+        std::vector<int> tangentOf( mesh.MaxVertexId() ), colorOf( mesh.MaxVertexId() ),
+             uv1Of( mesh.MaxVertexId() );
         for ( const int v : mesh.VertexIds() )
         {
             const glm::vec3 p = mesh.GetPosition( v );
-            tangentOf[v] = attr.Tangents()->AppendElement( { 0.6f, 0.8f, 0.0f, v % 2 == 0 ? 1.0f : -1.0f } );
-            colorOf[v]   = attr.Colors()->AppendElement( { p.x / 100.0f, p.y / 100.0f, p.z / 100.0f, 0.5f } );
-            uv1Of[v]     = attr.UV( 1 )->AppendElement( { p.x * 0.013f, p.z * 0.017f } );
+            tangentOf[v]      = attr.Tangents()->AppendElement( { 0.6f, 0.8f, 0.0f, v % 2 == 0 ? 1.0f : -1.0f } );
+            colorOf[v]        = attr.Colors()->AppendElement( { p.x / 100.0f, p.y / 100.0f, p.z / 100.0f, 0.5f } );
+            uv1Of[v]          = attr.UV( 1 )->AppendElement( { p.x * 0.013f, p.z * 0.017f } );
         }
 
         for ( const int t : mesh.TriangleIds() )
         {
             const auto&     tri = mesh.GetTriangle( t );
-            const glm::vec3 n   = glm::normalize( glm::cross( mesh.GetPosition( tri[1] ) - mesh.GetPosition( tri[0] ),
-                                                              mesh.GetPosition( tri[2] ) - mesh.GetPosition( tri[0] ) ) );
+            const glm::vec3 n =
+                 glm::normalize( glm::cross( mesh.GetPosition( tri[1] ) - mesh.GetPosition( tri[0] ),
+                                             mesh.GetPosition( tri[2] ) - mesh.GetPosition( tri[0] ) ) );
             // An element belongs to ONE vertex, so a hard face normal is three elements of one value.
             const std::array<int, 3> en{ attr.Normals()->AppendElement( n ), attr.Normals()->AppendElement( n ),
                                          attr.Normals()->AppendElement( n ) };
             EXPECT_EQ( attr.Normals()->SetTriangle( mesh, t, en ), EditResult::Ok );
-            EXPECT_EQ( attr.Tangents()->SetTriangle( mesh, t, { tangentOf[tri[0]], tangentOf[tri[1]], tangentOf[tri[2]] } ),
+            EXPECT_EQ( attr.Tangents()->SetTriangle( mesh, t,
+                                                     { tangentOf[tri[0]], tangentOf[tri[1]], tangentOf[tri[2]] } ),
                        EditResult::Ok );
-            EXPECT_EQ( attr.Colors()->SetTriangle( mesh, t, { colorOf[tri[0]], colorOf[tri[1]], colorOf[tri[2]] } ),
-                       EditResult::Ok );
+            EXPECT_EQ(
+                 attr.Colors()->SetTriangle( mesh, t, { colorOf[tri[0]], colorOf[tri[1]], colorOf[tri[2]] } ),
+                 EditResult::Ok );
             // UV 0: its own three elements per triangle (a seam on every edge, like a per-face projection).
             std::array<int, 3> uv0{};
             for ( int j = 0; j < 3; ++j )
@@ -122,7 +126,8 @@ namespace
     ::testing::AssertionResult SameRenderMesh( const RenderMeshData& a, const RenderMeshData& b )
     {
         if ( a.Vertices.size() != b.Vertices.size() )
-            return ::testing::AssertionFailure() << a.Vertices.size() << " vs " << b.Vertices.size() << " vertices";
+            return ::testing::AssertionFailure()
+                   << a.Vertices.size() << " vs " << b.Vertices.size() << " vertices";
         for ( size_t i = 0; i < a.Vertices.size(); ++i )
             if ( std::memcmp( &a.Vertices[i], &b.Vertices[i], sizeof( Desert::Vertex ) ) != 0 )
                 return ::testing::AssertionFailure() << "render vertex " << i << " differs";
@@ -133,7 +138,8 @@ namespace
                  a.Indices[i].V3 != b.Indices[i].V3 )
                 return ::testing::AssertionFailure() << "render triangle " << i << " differs";
         if ( a.Submeshes.size() != b.Submeshes.size() )
-            return ::testing::AssertionFailure() << a.Submeshes.size() << " vs " << b.Submeshes.size() << " submeshes";
+            return ::testing::AssertionFailure()
+                   << a.Submeshes.size() << " vs " << b.Submeshes.size() << " submeshes";
         for ( size_t i = 0; i < a.Submeshes.size(); ++i )
         {
             const auto &sa = a.Submeshes[i], &sb = b.Submeshes[i];
@@ -211,7 +217,7 @@ TEST( EditMeshSaved, ADisabledLayerStaysDisabledAndAnEmptyOneStaysEmpty )
 
 TEST( EditMeshSaved, ASavedFormNoWriterProducesIsRefusedByName )
 {
-    const EditMeshSer good = ToSerialized( MakeRichMesh() );
+    const EditMeshSer good    = ToSerialized( MakeRichMesh() );
     const auto        refusal = []( const EditMeshSer& saved )
     {
         const auto result = FromSerialized( saved );
@@ -222,11 +228,11 @@ TEST( EditMeshSaved, ASavedFormNoWriterProducesIsRefusedByName )
     truncated.Positions.pop_back();
     EXPECT_NE( refusal( truncated ).find( "position floats" ), std::string::npos ) << refusal( truncated );
 
-    EditMeshSer outOfRange = good;
+    EditMeshSer outOfRange  = good;
     outOfRange.Triangles[4] = 99;
     EXPECT_NE( refusal( outOfRange ).find( "names vertex 99" ), std::string::npos ) << refusal( outOfRange );
 
-    EditMeshSer partlySet = good;
+    EditMeshSer partlySet           = good;
     partlySet.Normals->Triangles[1] = -1;
     EXPECT_NE( refusal( partlySet ).find( "only partly set" ), std::string::npos ) << refusal( partlySet );
 
@@ -235,7 +241,8 @@ TEST( EditMeshSaved, ASavedFormNoWriterProducesIsRefusedByName )
     EXPECT_NE( refusal( unusedElement ).find( "not valid" ), std::string::npos ) << refusal( unusedElement );
 
     EditMeshSer duplicate = good;
-    duplicate.Triangles.insert( duplicate.Triangles.end(), { good.Triangles[0], good.Triangles[1], good.Triangles[2] } );
+    duplicate.Triangles.insert( duplicate.Triangles.end(),
+                                { good.Triangles[0], good.Triangles[1], good.Triangles[2] } );
     duplicate.PolyGroups.push_back( 0 );
     duplicate.MaterialIds.push_back( 0 );
     EXPECT_NE( refusal( duplicate ).find( "refused" ), std::string::npos ) << refusal( duplicate );

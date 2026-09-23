@@ -304,11 +304,11 @@ TEST( SceneAnimGraphMigration, TheStepRunsThroughTheGateExactlyOnceAndOnlyBelowI
     EXPECT_TRUE( again.AnimGraph.Graphs.empty() );
 }
 
-TEST( SceneAnimGraphMigration, TheStepIsTheHeadAndTheHeadIsWhatTheEngineRequires )
+TEST( SceneAnimGraphMigration, TheStepSitsBelowTheHeadInItsOwnPlace )
 {
-    // The same relation SceneMigration.hpp asserts at compile time, restated at run time so a reader of
-    // this suite can see which number the step is without opening the header.
-    EXPECT_EQ( Desert::Migration::kSceneVersionAnimGraphAsset, Desert::Core::kSceneVersion );
+    // It WAS the head until M4 put the EditMesh step on top (22); the head relation lives in that step's
+    // suite now (SceneEditMeshMigration). What stays true of this one is its place in the sequence.
+    EXPECT_LT( Desert::Migration::kSceneVersionAnimGraphAsset, Desert::Core::kSceneVersion );
     EXPECT_EQ( Desert::Migration::kSceneVersionAnimGraphAsset, Desert::Migration::kSceneVersionTextKeySigil + 1 )
          << "step 21 is no longer the one after 20 — two steps share a number, which is the collision "
             "that cost this project a merge (see kSceneVersionTextKeySigil's own note)";

@@ -345,8 +345,8 @@ namespace
         EXPECT_EQ( lastCount, 0u ) << "only a mesh with no polygroups has a v1 spelling";
 
         std::string v1 = v2.substr( 0, kHeader + ( kRowsV2 - 1 ) * kRow ) + v2.substr( kHeader + kRowsV2 * kRow );
-        version  = 1;
-        sections = kRowsV2 - 1;
+        version        = 1;
+        sections       = kRowsV2 - 1;
         fileSize -= kRow;
         std::memcpy( v1.data() + 12, &version, 4 );
         std::memcpy( v1.data() + 16, &fileSize, 8 );

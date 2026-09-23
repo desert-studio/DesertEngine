@@ -134,7 +134,7 @@ namespace Desert::ECS
         std::shared_ptr<const Geometry::EditMesh> EditableMesh;
         // DERIVED from EditableMesh by ECS::SetEditableMesh (Geometry::ToRenderMesh), and only by it: null
         // exactly when EditableMesh is. What the render path, picking and the Details panel read.
-        std::shared_ptr<DynamicMesh> RuntimeMesh;
+        std::shared_ptr<DynamicMesh>           RuntimeMesh;
         bool                                   OutlineDraw = false;
         int                                    ForcedLOD   = -1; // -1 = auto (by distance); 0..N pins a LOD
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0

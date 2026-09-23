@@ -6,7 +6,8 @@
 
 namespace Desert::ECS
 {
-    Common::BoolResultStr SetEditableMesh( StaticMeshComponent& component, std::shared_ptr<const Geometry::EditMesh> mesh )
+    Common::BoolResultStr SetEditableMesh( StaticMeshComponent&                      component,
+                                           std::shared_ptr<const Geometry::EditMesh> mesh )
     {
         if ( !mesh )
             return Common::MakeError<bool>( "SetEditableMesh: no mesh - use ClearEditableMesh to drop one" );
@@ -22,8 +23,9 @@ namespace Desert::ECS
 
         auto runtime = std::make_shared<DynamicMesh>( data.Vertices, data.Indices, data.Submeshes );
         if ( auto uploaded = runtime->Invalidate(); !uploaded.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "SetEditableMesh: {} render vertices could not be uploaded: {}",
-                                                     data.Vertices.size(), uploaded.GetError() );
+            return Common::MakeFormattedError<bool>(
+                 "SetEditableMesh: {} render vertices could not be uploaded: {}", data.Vertices.size(),
+                 uploaded.GetError() );
 
         component.EditableMesh = std::move( mesh );
         component.RuntimeMesh  = std::move( runtime );

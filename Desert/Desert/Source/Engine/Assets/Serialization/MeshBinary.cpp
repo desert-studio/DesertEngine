@@ -423,8 +423,8 @@ namespace Desert::Assets::Serialization
         if ( header.SectionCount != sectionCount )
         {
             return Common::MakeFormattedError<MeshAssetData>(
-                 "'{}' declares {} sections, version {} has exactly {}.", who, header.SectionCount,
-                 header.Version, sectionCount );
+                 "'{}' declares {} sections, version {} has exactly {}.", who, header.SectionCount, header.Version,
+                 sectionCount );
         }
         if ( bytes.size() < sizeof( FileHeader ) + sizeof( SectionRow ) * sectionCount )
         {

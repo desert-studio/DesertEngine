@@ -965,21 +965,22 @@ namespace Desert::Core::Serialize
                     // A refusal DROPS the geometry, and says so with the entity's name: the component still
                     // loads (asset handle, materials, flags), so the entity falls back to what it names
                     // besides the edited mesh rather than the whole scene failing to open.
-                    const std::string tag = entity.HasComponent<ECS::TagComponent>()
-                                                 ? entity.GetComponent<ECS::TagComponent>().Tag
-                                                 : std::string( "Entity" );
+                    const std::string tag    = entity.HasComponent<ECS::TagComponent>()
+                                                    ? entity.GetComponent<ECS::TagComponent>().Tag
+                                                    : std::string( "Entity" );
                     auto              loaded = Geometry::FromSerialized( *meshData.EditMesh );
                     if ( !loaded.IsSuccess() )
                     {
-                        LOG_ERROR( "[Scene] entity '{0}': its edited mesh could not be read and was DROPPED: {1}", tag,
-                                   loaded.GetError() );
+                        LOG_ERROR( "[Scene] entity '{0}': its edited mesh could not be read and was DROPPED: {1}",
+                                   tag, loaded.GetError() );
                     }
                     else if ( auto set = ECS::SetEditableMesh(
                                    smc, std::make_shared<const Geometry::EditMesh>( loaded.ExtractValue() ) );
                               !set.IsSuccess() )
                     {
-                        LOG_ERROR( "[Scene] entity '{0}': its edited mesh was read but not built, and was DROPPED: {1}",
-                                   tag, set.GetError() );
+                        LOG_ERROR(
+                             "[Scene] entity '{0}': its edited mesh was read but not built, and was DROPPED: {1}",
+                             tag, set.GetError() );
                     }
                 }
             };

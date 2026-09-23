@@ -48,10 +48,18 @@ namespace Desert::Editor::Tools
             return t > 1e-4f;
         }
 
+        // The ENTITY, not the component's address: entt moves components when a pool grows, so a pointer
+        // into one is only as good as the next structural change (A8-3). The component is looked up where
+        // it is used.
         struct EditTarget
         {
-            ECS::StaticMeshComponent* Component = nullptr;
-            glm::mat4                 World{ 1.0f };
+            ECS::Entity Entity;
+            glm::mat4   World{ 1.0f };
+
+            [[nodiscard]] ECS::StaticMeshComponent& Mesh() const
+            {
+                return Entity.GetComponent<ECS::StaticMeshComponent>();
+            }
         };
 
         // The selected entity's EDITABLE mesh (StaticMeshComponent::EditableMesh) + its world transform; an
@@ -69,11 +77,9 @@ namespace Desert::Editor::Tools
             auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
             if ( !smc.EditableMesh )
                 return std::nullopt;
-            EditTarget target;
-            target.Component = &smc;
-            target.World     = e.HasComponent<ECS::TransformComponent>()
-                                    ? e.GetComponent<ECS::TransformComponent>().GetTransform()
-                                    : glm::mat4( 1.0f );
+            EditTarget target{ e, e.HasComponent<ECS::TransformComponent>()
+                                       ? e.GetComponent<ECS::TransformComponent>().GetTransform()
+                                       : glm::mat4( 1.0f ) };
             return target;
         }
     } // namespace
@@ -113,7 +119,7 @@ namespace Desert::Editor::Tools
         const auto target = GetTarget( scene, m_Entity );
         if ( !target )
             return false;
-        const Geometry::EditMesh& mesh  = *target->Component->EditableMesh;
+        const Geometry::EditMesh& mesh  = *target->Mesh().EditableMesh;
         const glm::mat4&          world = target->World;
 
         // Nearest triangle under the ray (world space).
@@ -226,7 +232,7 @@ namespace Desert::Editor::Tools
                 m_Dragging   = true;
                 m_DragS      = s;
                 m_DragEntity = m_Entity;
-                m_DragBefore = target->Component->EditableMesh;
+                m_DragBefore = target->Mesh().EditableMesh;
             }
             if ( m_Dragging && ::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
             {
@@ -235,7 +241,7 @@ namespace Desert::Editor::Tools
                 {
                     // The component's mesh is immutable (EditableMesh.hpp): each step of the drag is a new
                     // mesh, so the one the drag started from stays intact for the undo record.
-                    auto            next       = std::make_shared<Geometry::EditMesh>( *target->Component->EditableMesh );
+                    auto            next = std::make_shared<Geometry::EditMesh>( *target->Mesh().EditableMesh );
                     const glm::vec3 deltaLocal = glm::vec3( glm::inverse( glm::mat3( world ) ) * ( ds * wN ) );
                     for ( const int vtx : m_SelVerts )
                         next->SetPosition( vtx, next->GetPosition( vtx ) + deltaLocal );
@@ -257,7 +263,7 @@ namespace Desert::Editor::Tools
                                     normals->SetElement( el, n );
                             }
                     }
-                    if ( auto set = ECS::SetEditableMesh( *target->Component, std::move( next ) ); set.IsSuccess() )
+                    if ( auto set = ECS::SetEditableMesh( target->Mesh(), std::move( next ) ); set.IsSuccess() )
                     {
                         m_CentroidWorld += ds * wN;
                         m_DragS = s;
@@ -272,7 +278,7 @@ namespace Desert::Editor::Tools
                 FinishDrag();
 
             // Highlight the selected face (translucent green + outline).
-            const Geometry::EditMesh& mesh = *target->Component->EditableMesh;
+            const Geometry::EditMesh& mesh = *target->Mesh().EditableMesh;
             for ( const int ti : m_SelTris )
             {
                 if ( !mesh.IsTriangle( ti ) )

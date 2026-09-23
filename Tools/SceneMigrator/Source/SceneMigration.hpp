@@ -1363,8 +1363,8 @@ namespace Desert::Migration
         bool                     AnimGraphRaised = false;
         AnimGraphMigrationReport AnimGraph;
         // the schema was below kSceneVersionRetiredKeys
-        bool                    EditMeshRaised = false; // the schema was below kSceneVersionEditMesh
-        EditMeshMigrationReport EditMesh;
+        bool                       EditMeshRaised = false; // the schema was below kSceneVersionEditMesh
+        EditMeshMigrationReport    EditMesh;
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
 

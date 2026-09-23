@@ -41,14 +41,15 @@ namespace
     // has to carry the rest of the block across.
     std::string V21Payload( const std::vector<V>& vertices, const std::vector<unsigned>& indices )
     {
-        std::string json = R"({"MaterialPaths":["Materials/Starter_Prop.demat"],"CastShadows":false,"CustomVertices":[)";
+        std::string json =
+             R"({"MaterialPaths":["Materials/Starter_Prop.demat"],"CastShadows":false,"CustomVertices":[)";
         for ( size_t i = 0; i < vertices.size(); ++i )
         {
             const V& v = vertices[i];
             json += ( i ? "," : "" ) + std::string( "{\"Position\":[" ) + std::to_string( v.px ) + "," +
-                    std::to_string( v.py ) + "," + std::to_string( v.pz ) + "],\"Normal\":[" + std::to_string( v.nx ) +
-                    "," + std::to_string( v.ny ) + "," + std::to_string( v.nz ) + "],\"TexCoord\":[" +
-                    std::to_string( v.u ) + "," + std::to_string( v.v ) + "]}";
+                    std::to_string( v.py ) + "," + std::to_string( v.pz ) + "],\"Normal\":[" +
+                    std::to_string( v.nx ) + "," + std::to_string( v.ny ) + "," + std::to_string( v.nz ) +
+                    "],\"TexCoord\":[" + std::to_string( v.u ) + "," + std::to_string( v.v ) + "]}";
         }
         json += "],\"CustomIndices\":[";
         for ( size_t i = 0; i < indices.size(); ++i )
@@ -59,7 +60,7 @@ namespace
     Desert::Assets::EntityData EntityWith( const std::string& tag, const std::string& payloadJson )
     {
         Desert::Assets::EntityData entity;
-        entity.Tag = tag;
+        entity.Tag  = tag;
         auto parsed = rfl::json::read<rfl::Generic>( payloadJson );
         EXPECT_TRUE( parsed.has_value() ) << payloadJson;
         if ( parsed.has_value() )
@@ -76,12 +77,13 @@ namespace
         {
             float n[3], u[3], v[3];
         };
-        const Face faces[6] = { { { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 } },  { { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 } },
-                                { { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 } },  { { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 } },
-                                { { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 } },   { { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 } } };
+        const Face faces[6] = {
+             { { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 } }, { { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 } },
+             { { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 } }, { { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 } },
+             { { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 } },  { { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 } } };
         for ( const Face& f : faces )
         {
-            const unsigned base = static_cast<unsigned>( vertices.size() );
+            const unsigned base  = static_cast<unsigned>( vertices.size() );
             const float    cu[4] = { -1, 1, 1, -1 }, cv[4] = { -1, -1, 1, 1 };
             for ( int k = 0; k < 4; ++k )
             {
@@ -103,8 +105,8 @@ namespace
         const auto payload = entity.Components.get( "StaticMesh" );
         if ( !payload.has_value() )
             return std::nullopt;
-        const auto block =
-             Desert::Core::Serialize::ReadBlock<Desert::Assets::StaticMeshComponentSer>( payload.value(), "StaticMesh" );
+        const auto block = Desert::Core::Serialize::ReadBlock<Desert::Assets::StaticMeshComponentSer>(
+             payload.value(), "StaticMesh" );
         if ( !block || !block->EditMesh )
             return std::nullopt;
         auto mesh = Desert::Geometry::FromSerialized( *block->EditMesh );
@@ -135,7 +137,8 @@ TEST( SceneEditMeshMigration, ACubesRenderArraysBecomeEightCornersAndDrawTheSame
     EXPECT_EQ( report.Entities, 1 );
     EXPECT_EQ( report.Rejected, 0 );
     ASSERT_EQ( report.ConvertedNames.size(), 1u );
-    EXPECT_NE( report.ConvertedNames[0].find( "24 render vertices -> 8 vertices / 12 triangles" ), std::string::npos )
+    EXPECT_NE( report.ConvertedNames[0].find( "24 render vertices -> 8 vertices / 12 triangles" ),
+               std::string::npos )
          << report.ConvertedNames[0];
 
     EXPECT_FALSE( Has( entities[0], "CustomVertices" ) );
@@ -193,7 +196,8 @@ TEST( SceneEditMeshMigration, ACubesRenderArraysBecomeEightCornersAndDrawTheSame
 TEST( SceneEditMeshMigration, ABlockWithoutRenderArraysIsLeftByteIdentical )
 {
     std::vector<Desert::Assets::EntityData> entities;
-    entities.push_back( EntityWith( "Prop", R"({"MaterialPaths":["Materials/Starter_Prop.demat"],"Primitive":"Cube"})" ) );
+    entities.push_back(
+         EntityWith( "Prop", R"({"MaterialPaths":["Materials/Starter_Prop.demat"],"Primitive":"Cube"})" ) );
     const std::string before = rfl::json::write( entities[0].Components );
 
     const EditMeshMigrationReport report = MigrateEditMeshV21ToV22( entities );
@@ -211,7 +215,7 @@ TEST( SceneEditMeshMigration, RunningTheStepTwiceChangesNothingTheSecondTime )
     entities.push_back( EntityWith( "Blockout", V21Payload( vertices, indices ) ) );
 
     (void)MigrateEditMeshV21ToV22( entities );
-    const std::string once = rfl::json::write( entities[0].Components );
+    const std::string once  = rfl::json::write( entities[0].Components );
     const auto        again = MigrateEditMeshV21ToV22( entities );
     EXPECT_EQ( again.Entities, 0 );
     EXPECT_EQ( rfl::json::write( entities[0].Components ), once );
@@ -221,9 +225,10 @@ TEST( SceneEditMeshMigration, ABlockItCannotReadIsNamedAndLeftInPlace )
 {
     std::vector<Desert::Assets::EntityData> entities;
     entities.push_back( EntityWith( "HalfOnly", R"({"CustomVertices":[]})" ) );
-    entities.push_back( EntityWith( "BadIndex", V21Payload( { { 0, 0, 0, 0, 1, 0, 0, 0 }, { 1, 0, 0, 0, 1, 0, 1, 0 },
-                                                              { 0, 0, 1, 0, 1, 0, 0, 1 } },
-                                                            { 0, 1, 7 } ) ) );
+    entities.push_back( EntityWith(
+         "BadIndex",
+         V21Payload( { { 0, 0, 0, 0, 1, 0, 0, 0 }, { 1, 0, 0, 0, 1, 0, 1, 0 }, { 0, 0, 1, 0, 1, 0, 0, 1 } },
+                     { 0, 1, 7 } ) ) );
     entities.push_back( EntityWith( "Ragged", V21Payload( {}, { 0, 1 } ) ) );
     const std::string before = rfl::json::write( entities );
 
@@ -259,6 +264,14 @@ TEST( SceneEditMeshMigration, AV21SceneIsRaisedToV22ThroughTheWholeChain )
     EXPECT_EQ( scene.SceneVersion.value_or( 0 ), 22 );
     EXPECT_EQ( Desert::Core::kSceneVersion, 22 );
     EXPECT_TRUE( LoadedEditMesh( scene.Entities[0] ).has_value() );
+}
+
+TEST( SceneEditMeshMigration, TheStepIsTheHeadAndTheHeadIsWhatTheEngineRequires )
+{
+    // The relation SceneMigration.hpp asserts at compile time, restated where a reader of this suite sees it.
+    EXPECT_EQ( Desert::Migration::kSceneVersionEditMesh, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Migration::kSceneVersionEditMesh, Desert::Migration::kSceneVersionAnimGraphAsset + 1 )
+         << "two steps share a number, or one was skipped - see kSceneVersionTextKeySigil's note";
 }
 
 int main( int argc, char** argv )

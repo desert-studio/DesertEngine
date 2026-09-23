@@ -19,10 +19,9 @@ namespace Desert::Assets
 {
     // Mesh component serialization mirrors. Meshes keep a custom (non-reflected) serializer because they
     // carry data reflection can't express: a mesh built in the editor (the component's EditMesh, stored as
-    // its own saved form - Engine/Geometry/EditMeshSerialization.hpp) and a std::optional primitive type. Asset references
-    // (MeshPath / MaterialPaths) round-trip as paths through the shared AssetResolver — same code path the
-    // reflected components use.
-    // Asset references persist BOTH ways (asset-database):
+    // its own saved form - Engine/Geometry/EditMeshSerialization.hpp) and a std::optional primitive type. Asset
+    // references (MeshPath / MaterialPaths) round-trip as paths through the shared AssetResolver — same code path
+    // the reflected components use. Asset references persist BOTH ways (asset-database):
     //   *Guid  — the stable asset handle (survives file renames/moves; preferred on load)
     //   *Path  — human-readable fallback + back-compat with pre-GUID scenes
     struct StaticMeshComponentSer
@@ -34,7 +33,7 @@ namespace Desert::Assets
         std::optional<Geometry::PrimitiveType>      Primitive;
         // The editor-built mesh, the SOURCE the render mesh is derived from. Schema v22 replaced the v21
         // CustomVertices/CustomIndices render arrays with it (Tools/SceneMigrator, MigrateEditMeshV21ToV22).
-        std::optional<Geometry::EditMeshSer>        EditMesh;
+        std::optional<Geometry::EditMeshSer> EditMesh;
         // Rendering controls (absent = component default, so pre-existing scenes stay loadable).
         std::optional<bool>                         OutlineDraw;
         std::optional<int>                          ForcedLOD;

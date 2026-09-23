@@ -51,12 +51,14 @@ namespace Desert::Geometry
         }
 
         template <typename T>
-        Common::BoolResultStr ReadOverlay( EditMesh& mesh, EditMeshOverlay<T>& overlay, const EditMeshOverlaySer& in,
-                                           const std::string& name, const std::vector<int>& triangleIds )
+        Common::BoolResultStr ReadOverlay( EditMesh& mesh, EditMeshOverlay<T>& overlay,
+                                           const EditMeshOverlaySer& in, const std::string& name,
+                                           const std::vector<int>& triangleIds )
         {
             if ( in.Values.size() % Components<T>() != 0 )
-                return MakeFormattedError<bool>( "EditMesh {}: {} values is not a whole number of {}-float elements",
-                                                 name, in.Values.size(), Components<T>() );
+                return MakeFormattedError<bool>(
+                     "EditMesh {}: {} values is not a whole number of {}-float elements", name, in.Values.size(),
+                     Components<T>() );
             if ( in.Triangles.size() != triangleIds.size() * 3 )
                 return MakeFormattedError<bool>( "EditMesh {}: {} element indices for {} triangles (3 each)", name,
                                                  in.Triangles.size(), triangleIds.size() );
@@ -69,22 +71,22 @@ namespace Desert::Geometry
             {
                 const std::array<int, 3> corners{ in.Triangles[row * 3], in.Triangles[row * 3 + 1],
                                                   in.Triangles[row * 3 + 2] };
-                const int unset = static_cast<int>( corners[0] == InvalidId ) +
+                const int                unset = static_cast<int>( corners[0] == InvalidId ) +
                                   static_cast<int>( corners[1] == InvalidId ) +
                                   static_cast<int>( corners[2] == InvalidId );
                 if ( unset == 3 )
                     continue;
                 if ( unset != 0 )
-                    return MakeFormattedError<bool>( "EditMesh {}: triangle {} is only partly set ({}, {}, {})", name,
-                                                     row, corners[0], corners[1], corners[2] );
+                    return MakeFormattedError<bool>( "EditMesh {}: triangle {} is only partly set ({}, {}, {})",
+                                                     name, row, corners[0], corners[1], corners[2] );
                 for ( const int e : corners )
                     if ( e < 0 || static_cast<size_t>( e ) >= elements )
-                        return MakeFormattedError<bool>( "EditMesh {}: triangle {} names element {} of {}", name, row,
-                                                         e, elements );
+                        return MakeFormattedError<bool>( "EditMesh {}: triangle {} names element {} of {}", name,
+                                                         row, e, elements );
                 const EditResult result = overlay.SetTriangle( mesh, triangleIds[row], corners );
                 if ( result != EditResult::Ok )
-                    return MakeFormattedError<bool>( "EditMesh {}: triangle {} refused ({}, {}, {}): {}", name, row,
-                                                     corners[0], corners[1], corners[2], ToString( result ) );
+                    return MakeFormattedError<bool>( "EditMesh {}: triangle {} refused ({}, {}, {}): {}", name,
+                                                     row, corners[0], corners[1], corners[2], ToString( result ) );
             }
             return Common::MakeSuccess( true );
         }
@@ -127,13 +129,14 @@ namespace Desert::Geometry
             return MakeFormattedError<EditMesh>( "EditMesh: {} position floats is not a whole number of vertices",
                                                  saved.Positions.size() );
         if ( saved.Triangles.size() % 3 != 0 )
-            return MakeFormattedError<EditMesh>( "EditMesh: {} triangle indices is not a whole number of triangles",
-                                                 saved.Triangles.size() );
+            return MakeFormattedError<EditMesh>(
+                 "EditMesh: {} triangle indices is not a whole number of triangles", saved.Triangles.size() );
         const size_t vertexCount   = saved.Positions.size() / 3;
         const size_t triangleCount = saved.Triangles.size() / 3;
         if ( saved.PolyGroups.size() != triangleCount || saved.MaterialIds.size() != triangleCount )
             return MakeFormattedError<EditMesh>( "EditMesh: {} triangles but {} polygroups and {} material IDs",
-                                                 triangleCount, saved.PolyGroups.size(), saved.MaterialIds.size() );
+                                                 triangleCount, saved.PolyGroups.size(),
+                                                 saved.MaterialIds.size() );
         if ( saved.UVs.size() > static_cast<size_t>( EditMeshAttributes::MaxUVLayers ) )
             return MakeFormattedError<EditMesh>( "EditMesh: {} UV layers, at most {}", saved.UVs.size(),
                                                  EditMeshAttributes::MaxUVLayers );
@@ -146,7 +149,8 @@ namespace Desert::Geometry
         triangleIds.reserve( triangleCount );
         for ( size_t row = 0; row < triangleCount; ++row )
         {
-            const int a = saved.Triangles[row * 3], b = saved.Triangles[row * 3 + 1], c = saved.Triangles[row * 3 + 2];
+            const int a = saved.Triangles[row * 3], b = saved.Triangles[row * 3 + 1],
+                      c = saved.Triangles[row * 3 + 2];
             for ( const int v : { a, b, c } )
                 if ( v < 0 || static_cast<size_t>( v ) >= vertexCount )
                     return MakeFormattedError<EditMesh>( "EditMesh: triangle {} names vertex {} of {}", row, v,
@@ -154,8 +158,8 @@ namespace Desert::Geometry
             int              t      = InvalidId;
             const EditResult result = mesh.AppendTriangle( a, b, c, t );
             if ( result != EditResult::Ok )
-                return MakeFormattedError<EditMesh>( "EditMesh: triangle {} ({}, {}, {}) refused: {}", row, a, b, c,
-                                                     ToString( result ) );
+                return MakeFormattedError<EditMesh>( "EditMesh: triangle {} ({}, {}, {}) refused: {}", row, a, b,
+                                                     c, ToString( result ) );
             triangleIds.push_back( t );
             mesh.Attributes().SetPolyGroup( t, saved.PolyGroups[row] );
             mesh.Attributes().SetMaterialId( t, saved.MaterialIds[row] );
