@@ -67,6 +67,27 @@ namespace Common::Utils
         return Exists( fs::path( filepath ) );
     }
 
+    Common::ResultStr<std::optional<std::string>> FileSystem::ReadFileContentIfExists( const fs::path& filepath )
+    {
+        if ( !Exists( filepath ) )
+            return Common::MakeSuccess( std::optional<std::string>{} );
+        auto read = ReadFileContent( filepath );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<std::optional<std::string>>( read.GetError() );
+        return Common::MakeSuccess( std::optional<std::string>( read.ExtractValue() ) );
+    }
+
+    Common::ResultStr<std::optional<std::string>>
+    FileSystem::ReadFileContentPrefixIfExists( const fs::path& filepath, std::size_t maxBytes )
+    {
+        if ( !Exists( filepath ) )
+            return Common::MakeSuccess( std::optional<std::string>{} );
+        auto read = ReadFileContentPrefix( filepath, maxBytes );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<std::optional<std::string>>( read.GetError() );
+        return Common::MakeSuccess( std::optional<std::string>( read.ExtractValue() ) );
+    }
+
     const std::string FileSystem::GetFileName( const std::filesystem::path& filepath )
     {
         return filepath.filename().string();

@@ -370,13 +370,6 @@ namespace Desert::Editor
         // fresh.)
         m_StartupStages.push_back(
              { "Cooking textures...", [this] { (void)m_ImportManager->CookLooseTextures(); } } );
-        // THE SPLASH'S OWN PICTURE, for the NEXT start. This start's splash has already read it — or has
-        // said in the log that it is not there yet and drawn on its plain background, which is what the
-        // first start on a fresh clone looks like. Not one of `LooseTextureRoots()`, because it is the
-        // editor's branding and not project content: a game package must never carry it. Freshness is
-        // the importer's own (one CRC-32C over the JPEG), so every start after the first cooks nothing.
-        m_StartupStages.push_back( { "Cooking the splash picture...",
-                                     [this] { (void)m_ImportManager->ImportTexture( Splash::kSplashSource ); } } );
         m_StartupStages.push_back( { "Preloading meshes, textures and materials...",
                                      [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } } );
         m_StartupStages.push_back(

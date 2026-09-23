@@ -202,17 +202,19 @@ namespace
     // `Register(` calls, so a third spelling nobody taught this reader shows up as a mismatch.
     std::set<std::string> RegisteredComponentKeys( std::size_t& registrations, std::size_t& keysRead )
     {
-        std::string source = ReadAll( RepoRoot() + "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp" );
-        source             = std::regex_replace( source, std::regex( "//[^\n]*" ), "" );
+        std::string source =
+             ReadAll( RepoRoot() + "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp" );
+        source = std::regex_replace( source, std::regex( "//[^\n]*" ), "" );
 
         std::set<std::string> keys;
         keysRead = 0;
-        const std::regex maker( "\\bMake(?:Reflected|ReflectedSelf|Marker|Flag|Authored)\\s*<[^>]*>\\s*\\(\\s*\"(\\w+)\"" );
+        const std::regex maker(
+             "\\bMake(?:Reflected|ReflectedSelf|Marker|Flag|Authored)\\s*<[^>]*>\\s*\\(\\s*\"(\\w+)\"" );
         const std::regex manual( "\\bs\\.Key\\s*=\\s*\"(\\w+)\"" );
         for ( const std::regex& pattern : { maker, manual } )
         {
-            for ( auto it = std::sregex_iterator( source.begin(), source.end(), pattern ); it != std::sregex_iterator();
-                  ++it )
+            for ( auto it = std::sregex_iterator( source.begin(), source.end(), pattern );
+                  it != std::sregex_iterator(); ++it )
             {
                 keys.insert( ( *it )[1].str() );
                 ++keysRead;
@@ -423,7 +425,7 @@ TEST( WorldPartitionCells, RotationOfAParentMovesWhereItsChildLands )
     EXPECT_EQ( held.Cell, ( CellCoord{ 0, 0 } ) );
 
     // Unrotated, the arm is at X 20000: X 5000..20000 and Z 25000 fit one level-1 cell, (0, 1).
-    records[0].Rotation = glm::vec3( 0.0f );
+    records[0].Rotation               = glm::vec3( 0.0f );
     const WorldPartitionPlan straight = PlanWorldPartition( records, Cells( 10000.0f ) );
     EXPECT_EQ( straight.Composites[0].Level, 1 );
     EXPECT_EQ( straight.Composites[0].Cell, ( CellCoord{ 0, 1 } ) );
@@ -736,8 +738,8 @@ TEST( WorldPartitionLevels, ACompositeAcrossTheOriginFitsNoLevelAndIsAlwaysLoade
     Under( records[1], 1 );
     records.push_back( Record( 3, "Rock", { 500.0f, 0.0f, 500.0f } ) );
 
-    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 12800.0f ) );
-    const PlannedComposite& signpost = HeldBy( plan, 0 );
+    const WorldPartitionPlan plan     = PlanWorldPartition( records, Cells( 12800.0f ) );
+    const PlannedComposite&  signpost = HeldBy( plan, 0 );
     EXPECT_EQ( signpost.Reason, AlwaysLoadedReason::NoFit );
     EXPECT_EQ( signpost.Because, kNoRecord ) << "no member caused it; the footprint did";
     ASSERT_EQ( plan.AlwaysLoaded.size(), 1u );
@@ -1117,7 +1119,8 @@ TEST( WorldPartitionCensus, EveryComponentTheRegistrySerialisesHasExactlyOneLoad
     std::size_t                 registrations = 0;
     std::size_t                 keysRead      = 0;
     const std::set<std::string> registered    = RegisteredComponentKeys( registrations, keysRead );
-    ASSERT_GE( registered.size(), 50u ) << "the registry reader found almost nothing - it is reading the wrong file";
+    ASSERT_GE( registered.size(), 50u )
+         << "the registry reader found almost nothing - it is reading the wrong file";
     EXPECT_EQ( keysRead, registrations )
          << "ComponentRegistry.cpp has " << registrations << " Register( calls but " << keysRead
          << " keys were read: a registration is spelled in a way RegisteredComponentKeys does not know";
@@ -1125,16 +1128,17 @@ TEST( WorldPartitionCensus, EveryComponentTheRegistrySerialisesHasExactlyOneLoad
 
     std::set<std::string> rows;
     for ( const auto& row : kComponentLoading )
-        EXPECT_TRUE( rows.insert( std::string( row.ComponentKey ) ).second ) << "two rows for " << row.ComponentKey;
+        EXPECT_TRUE( rows.insert( std::string( row.ComponentKey ) ).second )
+             << "two rows for " << row.ComponentKey;
 
     for ( const auto& key : registered )
         EXPECT_TRUE( rows.count( key ) ) << "'" << key
-                                          << "' is serialised by ComponentRegistry.cpp and has no row in "
-                                             "kComponentLoading (WorldPartitionRules.hpp). Decide whether it "
-                                             "keeps its entity loaded everywhere: Spatial, Global or ByField.";
+                                         << "' is serialised by ComponentRegistry.cpp and has no row in "
+                                            "kComponentLoading (WorldPartitionRules.hpp). Decide whether it "
+                                            "keeps its entity loaded everywhere: Spatial, Global or ByField.";
     for ( const auto& row : rows )
-        EXPECT_TRUE( registered.count( row ) ) << "kComponentLoading classifies '" << row
-                                               << "', which ComponentRegistry.cpp does not serialise";
+        EXPECT_TRUE( registered.count( row ) )
+             << "kComponentLoading classifies '" << row << "', which ComponentRegistry.cpp does not serialise";
 }
 
 // The rows that decide what a world keeps loaded, pinned by name: the brief's sun, sky and camera, and
@@ -1346,7 +1350,8 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
                          << path.string() << ": composite " << held << " overhangs its level-" << cell.Level
                          << " cell";
                     if ( cell.Level > 0 )
-                        EXPECT_FALSE( SingleCellHolding( box, LevelCellSize( cellSize, cell.Level - 1 ) ).has_value() )
+                        EXPECT_FALSE(
+                             SingleCellHolding( box, LevelCellSize( cellSize, cell.Level - 1 ) ).has_value() )
                              << path.string() << ": composite " << held << " fits level " << cell.Level - 1
                              << " but was put on level " << cell.Level;
                 }

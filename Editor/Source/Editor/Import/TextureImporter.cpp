@@ -368,11 +368,13 @@ namespace Desert::Editor
         // with the same content, or edited and then restored — and it re-cooked on every clone. Reading
         // and hashing the source costs one pass at 8.17 GB/s (Common/Utilities/Crc32c.hpp), against a
         // decode plus a full mip chain for the answer "nothing changed".
-        if ( const auto existing = Common::Utils::FileSystem::ReadFileContentPrefix(
+        // Not cooked yet is the normal first-run answer, not an ERROR line (FileSystem.hpp, IfExists).
+        if ( const auto existing = Common::Utils::FileSystem::ReadFileContentPrefixIfExists(
                   meta, Assets::Serialization::kTextureBinaryPrefixBytes );
-             existing.IsSuccess() )
+             existing.IsSuccess() && existing.GetValue().has_value() )
         {
-            const auto stored = Assets::Serialization::DecodeTextureHeader( existing.GetValue(), meta.string() );
+            const auto stored =
+                 Assets::Serialization::DecodeTextureHeader( existing.GetValue().value(), meta.string() );
             // THE COOK'S OWN SETTINGS ARE PART OF FRESHNESS NOW. `EncoderHash` is "was this made the
             // way I am asking for it now" (TextureBinary.hpp), and until the encoder existed the cook
             // had no settings, so comparing it would have been comparing zero with zero. It has some:

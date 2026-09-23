@@ -246,15 +246,29 @@ TEST( SplashLayout, AnUncompressedCookIsTakenAsItIs )
     EXPECT_EQ( loaded.GetValue().Rgba, source );
 }
 
-TEST( SplashLayout, AMissingCookIsARefusalThatNamesTheFileAndWhoWritesIt )
+TEST( SplashLayout, AMissingPictureIsARefusalThatNamesTheFileAndWhatMakesIt )
 {
-    // The first start on a fresh clone has no `.tex` yet. The splash draws on its plain background and
-    // logs THIS sentence, so it has to say which file and how it comes to exist.
+    // The picture is a COMMITTED engine resource now (owner, 2026-09-23), so a missing one is a broken
+    // install, not a first start: the sentence names the file and the tool that regenerates it.
     const auto missing = stdfs::temp_directory_path() / "SplashLayoutSuite" / "no-such-splash.tex";
     const auto loaded  = Splash::LoadSplashPixels( missing );
     ASSERT_FALSE( loaded.IsSuccess() );
     EXPECT_NE( loaded.GetError().find( "no-such-splash.tex" ), std::string::npos ) << loaded.GetError();
-    EXPECT_NE( loaded.GetError().find( "Package.sh" ), std::string::npos ) << loaded.GetError();
+    EXPECT_NE( loaded.GetError().find( "TextureCook" ), std::string::npos ) << loaded.GetError();
+}
+
+TEST( SplashLayout, TheRepositoryCarriesAPictureTheSplashCanDraw )
+{
+    // THE RELATION, NOT THE FILE: the committed .tex must decode to the size of the source it was made
+    // from. A regenerated Splash.jpg without a regenerated Splash.tex (or the reverse) fails here, and
+    // the first start of every fresh clone would otherwise show a stale or missing picture.
+    const stdfs::path repo =
+         stdfs::path( __FILE__ ).parent_path().parent_path().parent_path().parent_path().parent_path();
+    const stdfs::path picture = repo / "Editor" / Splash::kSplashTexture;
+    const auto        loaded  = Splash::LoadSplashPixels( picture );
+    ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    EXPECT_EQ( loaded.GetValue().Width, 2400u );
+    EXPECT_EQ( loaded.GetValue().Height, 1350u );
 }
 
 TEST( SplashLayout, AFileThatIsNotACookedTextureIsRefusedNotDrawn )
