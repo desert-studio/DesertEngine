@@ -199,6 +199,17 @@ jobs:
       - name: Setup dependencies
         run: ./scripts/MacOS/Setup.sh
 
+      # THE HALF OF THE REPO-ONLY GATE THAT THE FORMAT JOB CANNOT ANSWER. The replacement header for
+      # <fmt/...> lives inside the ThirdParty/spdlog SUBMODULE, and the format job checks out without
+      # submodules on purpose (a full checkout once ate its whole ten-minute budget). So the assertion
+      # "the header we tell people to use instead actually exists" is made HERE, where submodules are
+      # checked out, and --require-replacements turns a missing one into a failure rather than a note.
+      #
+      # It is cheap and it runs BEFORE the long build deliberately: a broken gate should be reported in
+      # seconds, not after ninety minutes of sanitizer build.
+      - name: Repo-only includes (replacements asserted)
+        run: ./scripts/CI/RepoOnlyIncludes.sh --require-replacements
+
       - name: Build Debug with sanitizers
         env:
           CXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer"
