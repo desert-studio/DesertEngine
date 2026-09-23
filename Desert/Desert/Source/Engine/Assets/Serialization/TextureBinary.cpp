@@ -56,7 +56,8 @@ namespace Desert::Assets::Serialization
             uint64_t StoredPayloadBytes; // v2: declared sum of the STORED level sizes, padding excluded
             uint32_t LayerCount;         // v3: images per level -- 1, or 6 for a cube
             uint32_t Kind;               // v3: a TextureKind, travelling at a width the file fixes
-            uint32_t Reserved[6];
+            uint32_t Intent;             // the authored TextureIntent this was cooked FOR; 0 = nobody said
+            uint32_t Reserved[5];
         };
         static_assert( sizeof( FileHeader ) == kTextureBinaryHeaderSize );
         static_assert( alignof( FileHeader ) == 8 );
@@ -72,6 +73,22 @@ namespace Desert::Assets::Serialization
         static_assert( offsetof( FileHeader, LayerCount ) == 96 );
         static_assert( offsetof( FileHeader, Kind ) == 100 );
         static_assert( sizeof( TextureKind ) == 4, "the texture kind is a u32 in the file" );
+        // THE AUTHORED INTENT SPENT A RESERVED SLOT AND DID NOT MOVE THE VERSION, and that is a
+        // decision with an argument rather than a saving. The version gate exists because a reader
+        // that MISREADS a file is worse than one that refuses it, and the two earlier bumps were
+        // forced by exactly that: v2 changed the level row's SIZE, so a v1 file read with a v2 stride
+        // decodes every level after the first from the wrong place, and v3 changed the number of ROWS,
+        // where a v3 reader handed a v2 file would take `LayerCount` out of a reserved zero and build
+        // a texture with NO layers -- a plausible-looking wrong answer.
+        //
+        // This word cannot do either. Zero is the value every `.tex` ever written already carries
+        // there, it is a DEFINED enumerator (`Unspecified`), and it is the same value this cook writes
+        // for a texture nobody authored an intent for. So an old file and a new unauthored one are
+        // byte-for-byte identical and decode identically -- which is not a migration that was skipped,
+        // it is a migration with nothing in it. An UNKNOWN value is still refused by name below, which
+        // is the case a future enumerator would produce and the one a reader genuinely cannot honour.
+        static_assert( offsetof( FileHeader, Intent ) == 104 );
+        static_assert( sizeof( Core::Formats::TextureIntent ) == 4, "the authored intent is a u32 in the file" );
 
         struct LevelRow
         {
@@ -625,6 +642,7 @@ namespace Desert::Assets::Serialization
         header.LevelCount        = levelCount;
         header.LayerCount         = layerCount;
         header.Kind               = static_cast<uint32_t>( data.Kind );
+        header.Intent             = static_cast<uint32_t>( data.Intent );
         header.Flags             = 0;
         header.SourceKeyLength   = static_cast<uint32_t>( data.SourcePath.size() );
         header.SourceKeyOffset   = static_cast<uint32_t>( keyOffset );
@@ -760,6 +778,20 @@ namespace Desert::Assets::Serialization
             // THE SHAPE BEFORE THE SIZES. `LayerCount` multiplies the table's length and every byte
             // total below it, so a nonsense pair has to be named here rather than surviving into an
             // arithmetic that would merely produce a wrong — and plausible — number of rows.
+            // AN INTENT THIS BUILD DOES NOT KNOW IS REFUSED BY NAME, for the reason `Format` is: the
+            // word is a small integer, so a file written by a later cook carries a value that reads
+            // back as a perfectly good enumerator of the wrong meaning. Zero is `Unspecified` and is
+            // what every file written before this field existed already holds, so nothing old is
+            // caught here -- only something NEWER than this build, which is precisely what a reader
+            // cannot honour.
+            if ( !Core::Formats::IsKnownTextureIntent( header.Intent ) )
+            {
+                return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                     "'{}' was cooked for texture intent {}, and this build knows {}. The file was "
+                     "written by a newer cook; re-cook it.",
+                     who, header.Intent, Core::Formats::kTextureIntentCount );
+            }
+
             const TextureKind kind = static_cast<TextureKind>( header.Kind );
             if ( const std::string bad = LayoutRefusal( header.Width, header.Height, header.LayerCount, kind );
                  !bad.empty() )
@@ -956,6 +988,7 @@ namespace Desert::Assets::Serialization
             info.LevelCount         = header.LevelCount;
             info.LayerCount         = header.LayerCount;
             info.Kind               = kind;
+            info.Intent             = static_cast<Core::Formats::TextureIntent>( header.Intent );
             info.PayloadBytes       = header.PayloadBytes;
             info.StoredPayloadBytes = header.StoredPayloadBytes;
             info.FileSize           = header.FileSize;
@@ -1053,6 +1086,7 @@ namespace Desert::Assets::Serialization
         const uint32_t layerCount = info.GetValue().LayerCount;
         data.LayerCount           = layerCount;
         data.Kind                 = info.GetValue().Kind;
+        data.Intent               = info.GetValue().Intent;
 
         const auto extents = LevelExtents( info.GetValue().Width, info.GetValue().Height, levelCount );
         data.Levels.resize( table.size() );

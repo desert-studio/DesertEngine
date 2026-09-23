@@ -88,6 +88,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Core/Formats/TextureIntent.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -271,6 +272,20 @@ namespace Desert::Assets::Serialization
         uint32_t    LayerCount = 1;
         TextureKind Kind       = TextureKind::Texture2D;
 
+        /// WHAT THE AUTHOR SAID THIS TEXTURE IS FOR, as the cook read it at cook time. See
+        /// `Core/Formats/TextureIntent.hpp`; `Unspecified` means nobody said and is what every cooked
+        /// texture in this repository carried before the field existed.
+        ///
+        /// IT IS A RECORD, NOT THE AUTHORITY, and the distinction is the whole reason it is safe to
+        /// have here. The authority is a `.detex` beside the SOURCE, because `Cooked/` is derived data
+        /// whose documented remedy is deletion. This copy exists so that a refusal is reproducible
+        /// from the file alone -- "this was cooked as a normal map and stored uncompressed" is a
+        /// sentence the container can support and a sentence the log alone cannot, once the log has
+        /// scrolled. The cook re-reads the authored file every time and the two cannot drift, because
+        /// a disagreement between them IS the staleness check: `EncoderHash` folds the intent in, so a
+        /// changed `.detex` re-cooks.
+        Core::Formats::TextureIntent Intent = Core::Formats::TextureIntent::Unspecified;
+
         /// THE SETTINGS THAT PRODUCED THESE PIXELS, or 0 for "none were recorded". It is not how the
         /// bytes are packed — that is the per-level `Codec` — and it is not which file they came from
         /// — that is `SourceContentHash`. It answers the third question a derived asset has: WAS THIS
@@ -315,6 +330,8 @@ namespace Desert::Assets::Serialization
         uint32_t                   LevelCount        = 0;
         uint32_t                   LayerCount        = 1;
         TextureKind                Kind              = TextureKind::Texture2D;
+        /// The authored intent this file was cooked for. See `TextureAssetData::Intent`.
+        Core::Formats::TextureIntent Intent = Core::Formats::TextureIntent::Unspecified;
         /// Sum of the DECODED level sizes — how big the staging buffer has to be. Padding excluded.
         uint64_t PayloadBytes = 0;
         /// Sum of the STORED level sizes — how many bytes of this file are pixels. Equal to
@@ -395,8 +412,14 @@ namespace Desert::Assets::Serialization
     /// IT FILTERS IN THE STORED VALUES, NOT IN LINEAR LIGHT, and that is a decision rather than an
     /// oversight: the blit chain filtered in the image's own UNORM values too, and a gamma-correct
     /// downsample would change every minified texel in every frame on the day mips moved into the file.
-    /// Correct mip generation for sRGB content belongs with the authored-format field (`PROGRAMME.md`
-    /// §5, step 4), where the file can finally say whether its contents are sRGB at all.
+    /// Correct mip generation for sRGB content belongs with an authored colour-space marking, and the
+    /// citation here used to be wrong twice over: it named `PROGRAMME.md` §5 STEP 4, which is the
+    /// ENCODER (§5's order is mips-in-file, block model, authored field, encoder — the field is step
+    /// 3), and step 3 has since landed as `Core/Formats/TextureIntent.hpp` WITHOUT an sRGB bit. That
+    /// was deliberate: colour space has its own consumer (the sampler's view format) and its own
+    /// migration, and folding it into an intent would make one field answer two questions. So this
+    /// filter still works in stored values, and what it waits for is a marking that does not exist
+    /// yet rather than a step that has already happened.
     ///
     /// An odd extent halves DOWN (`max(1, n/2)`, the Vulkan chain rule) and the filter averages the
     /// 2x2 block clamped to the source, so the last row or column of an odd level is not dropped.

@@ -186,6 +186,71 @@ TEST( ImageFormatAspect, EveryEnumeratorNamesExactlyOneFamily )
     }
 }
 
+// ── How many channels a format promises to keep ──────────────────────────────────────────────────
+//
+// The number the cook's fidelity measurement is sized by. It is worth its own tests because the whole
+// authored-intent step turns on it: BC4 keeps ONE channel, so a comparison over four grades a perfect
+// encode at nothing, and the gate would then refuse every narrow format on every image while looking
+// exactly like a working policy.
+
+TEST( ImageFormatChannels, EveryEnumeratorKeepsAtLeastOneChannel )
+{
+    for ( const ImageFormat format : AllFormats() )
+    {
+        EXPECT_GT( Formats::PreservedChannelCount( format ), 0u )
+             << "format index " << static_cast<uint32_t>( format )
+             << " keeps no channel, so a comparison over it would have nothing to compare and would "
+                "grade every encode as perfect";
+        EXPECT_LE( Formats::PreservedChannelCount( format ), 4u )
+             << "format index " << static_cast<uint32_t>( format );
+    }
+}
+
+TEST( ImageFormatChannels, TheNarrowBlockFormatsKeepExactlyWhatTheirNamesSay )
+{
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::BC7_UNORM ), 4u );
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::BC6H_UFLOAT ), 3u ); // no alpha at all
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::BC5_UNORM ), 2u );   // X and Y of a normal
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::BC4_UNORM ), 1u );
+}
+
+// THE RELATION, NOT THE FOUR NUMBERS. A block format that kept as many channels as the uncompressed
+// format it is encoded from would be a format that costs nothing to use, which is not a thing; every
+// one of them drops something or spends fewer bits per channel. Written as an inequality against
+// RGBA8's four so that a fifth block format cannot be added with a channel count nobody looked at.
+TEST( ImageFormatChannels, NoBlockFormatKeepsMoreThanAnUncompressedTexel )
+{
+    for ( const ImageFormat format : AllFormats() )
+    {
+        if ( !Formats::IsBlockCompressed( format ) )
+            continue;
+        EXPECT_LE( Formats::PreservedChannelCount( format ),
+                   Formats::PreservedChannelCount( ImageFormat::RGBA8F ) )
+             << "format index " << static_cast<uint32_t>( format );
+    }
+}
+
+// ── A block's byte count is per format, and one of them differs ──────────────────────────────────
+//
+// Three of the four block formats spend sixteen bytes on a 4x4 block and BC4 spends eight. That is the
+// entire reason `TexelBlock` carries a byte count instead of the table carrying one constant, and it is
+// pinned here because a `kBytesPerBlock = 16` written anywhere would go on looking right.
+TEST( ImageFormatBlocks, BC4SpendsHalfOfWhatEveryOtherBlockFormatSpends )
+{
+    EXPECT_EQ( Formats::GetTexelBlock( ImageFormat::BC4_UNORM ).Bytes,
+               Formats::GetTexelBlock( ImageFormat::BC7_UNORM ).Bytes / 2u );
+    EXPECT_EQ( Formats::GetTexelBlock( ImageFormat::BC5_UNORM ).Bytes,
+               2u * Formats::GetTexelBlock( ImageFormat::BC4_UNORM ).Bytes )
+         << "BC5 is two BC4 blocks; if this stops being true the encoder's plane stride is wrong";
+
+    // And the arithmetic follows it rather than a literal: a 4x4 BC4 level is eight bytes and a 1x1 one
+    // is still eight, because a level narrower than a block is a whole block.
+    EXPECT_EQ( CalculateImageSize( 4, 4, ImageFormat::BC4_UNORM ), 8u );
+    EXPECT_EQ( CalculateImageSize( 1, 1, ImageFormat::BC4_UNORM ), 8u );
+    EXPECT_EQ( CalculateImageSize( 2048, 2048, ImageFormat::BC4_UNORM ),
+               CalculateImageSize( 2048, 2048, ImageFormat::BC7_UNORM ) / 2u );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

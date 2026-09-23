@@ -105,6 +105,7 @@ Shader "StaticMeshGlass"
         // The specular cube is the ONE environment binding glass reads: it is a mirror term at grazing
         // angles, not an ambient (Desert/Tests/Engine/AmbientIBL says the same thing from the other side).
         // Slots keep the numbers the rest of the mesh family uses; the gaps are what this pass does not need.
+        #include <Common/TangentNormal.glslh>
         Uniform(8) samplerCube u_EnvSpecularTex;
         Uniform(12) sampler2D  u_NormalTexture;
         Uniform(19) sampler2D  u_SceneColor; // copy of the composited opaque scene (for refraction)
@@ -132,7 +133,7 @@ Shader "StaticMeshGlass"
         	vec3 N = normalize(inVertex.Normal);
         	const ivec2 nrmSize = textureSize(u_NormalTexture, 0);
         	if (nrmSize.x > 1 && nrmSize.y > 1)
-        		N = normalize(inVertex.TBN * normalize(2.0 * texture(u_NormalTexture, inVertex.Texcoord).rgb - 1.0));
+        		N = normalize(inVertex.TBN * SampleTangentNormal(u_NormalTexture, inVertex.Texcoord));
 
         	vec3 V = normalize(inVertex.CameraPosition - inVertex.WorldPosition);
 

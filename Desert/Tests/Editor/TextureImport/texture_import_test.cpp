@@ -28,9 +28,12 @@
 #include <Editor/Import/TextureImporter.hpp>
 #include <Editor/Import/CookPaths.hpp>
 
+#include <Editor/Import/TextureIntentFile.hpp>
+
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
+#include <Engine/Core/Formats/TextureIntent.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
@@ -113,6 +116,69 @@ namespace
         fs::create_directories( path.parent_path() );
         std::ofstream out( path, std::ios::binary );
         out.write( (const char*)file.data(), (std::streamsize)file.size() );
+    }
+
+    // A BMP OF STRUCTURED NOISE. The flat one above is what BC7 reproduces best; this is what it
+    // reproduces worst, and the cross-check needs both — one image where the measurement says yes and
+    // one where it says no, so that "the author asked and the measurement refused" is reachable.
+    //
+    // The pattern is a hash rather than rand(): the test has to reach the SAME verdict on every machine
+    // and in every run, and a seeded generator whose implementation differs between libraries would not.
+    void WriteNoiseBmp( const fs::path& path, int width, int height )
+    {
+        const int rowBytes = width * 3;
+        const int padding  = ( 4 - ( rowBytes % 4 ) ) % 4;
+        const int pixels   = ( rowBytes + padding ) * height;
+
+        std::vector<unsigned char> file;
+        file.push_back( 'B' );
+        file.push_back( 'M' );
+        Put32( file, (uint32_t)( 14 + 40 + pixels ) );
+        Put16( file, 0 );
+        Put16( file, 0 );
+        Put32( file, 14 + 40 );
+
+        Put32( file, 40 );
+        Put32( file, (uint32_t)width );
+        Put32( file, (uint32_t)height );
+        Put16( file, 1 );
+        Put16( file, 24 );
+        Put32( file, 0 );
+        Put32( file, (uint32_t)pixels );
+        Put32( file, 2835 );
+        Put32( file, 2835 );
+        Put32( file, 0 );
+        Put32( file, 0 );
+
+        for ( int y = 0; y < height; ++y )
+        {
+            for ( int x = 0; x < width; ++x )
+            {
+                uint32_t h = (uint32_t)( x * 374761393u + y * 668265263u );
+                h ^= h >> 13;
+                h *= 1274126177u;
+                h ^= h >> 16;
+                file.push_back( (unsigned char)( h & 0xFFu ) );
+                file.push_back( (unsigned char)( ( h >> 8 ) & 0xFFu ) );
+                file.push_back( (unsigned char)( ( h >> 16 ) & 0xFFu ) );
+            }
+            for ( int p = 0; p < padding; ++p )
+                file.push_back( 0 );
+        }
+
+        fs::create_directories( path.parent_path() );
+        std::ofstream out( path, std::ios::binary );
+        out.write( (const char*)file.data(), (std::streamsize)file.size() );
+    }
+
+    /// Author an intent beside a source, the way a person would. Written through the same path formula
+    /// the cook reads it back with, so a test cannot pass by agreeing with itself about where the file
+    /// goes.
+    void WriteIntent( const fs::path& source, const std::string& intent )
+    {
+        const fs::path path = Desert::Editor::TextureIntentPath( source );
+        std::ofstream  out( path, std::ios::binary );
+        out << "{\"Intent\": \"" << intent << "\"}";
     }
 
     std::string ReadAll( const fs::path& path )
@@ -590,6 +656,216 @@ TEST_F( TextureImport, AStaleCookedFileNewerThanItsSourceIsRestampedToAgreeWithT
 
     // The machine-bound SourcePath went with it: one re-cook replaces a pre-portability `.tex` in place.
     EXPECT_EQ( stored.SourcePath, "assets:Textures/T_Test.bmp" );
+}
+
+// ── THE AUTHORED INTENT, AND THE FOUR THINGS THAT CAN HAPPEN WHEN IT MEETS THE MEASUREMENT ───────
+//
+// Every one of these is a behaviour of the COOK and not of a helper, so they run the real
+// `TextureImporter::Import` over a real source and read the real cooked container back.
+
+namespace
+{
+    namespace Fmt = Desert::Core::Formats;
+
+    Fmt::ImageFormat CookedFormat( const fs::path& meta )
+    {
+        return CookedHeader( meta ).Format;
+    }
+} // namespace
+
+TEST_F( TextureImport, AnUnmarkedTextureBehavesExactlyAsItDidBeforeTheFieldExisted )
+{
+    // THE MIGRATION, STATED AS A BEHAVIOUR. No `.detex` means no authored intent, which means the
+    // measurement decides alone — the cook this repository has been running — and the container records
+    // `Unspecified`. If this ever changes, every texture in every project silently re-cooks.
+    const fs::path source = TexturesDir() / "T_Plain.bmp";
+    WriteBmp( source, 8, 8, 0x80 );
+
+    TextureImporter importer;
+    LogCapture      log;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Unspecified );
+    EXPECT_EQ( header.Format, Fmt::ImageFormat::BC7_UNORM ) << "a flat image clears both gates";
+    EXPECT_NE( log.Text().find( "on a measurement alone" ), std::string::npos )
+         << "the cook has to say that nothing cross-checked this choice\n"
+         << log.Text();
+}
+
+TEST_F( TextureImport, AnAuthoredColourTextureIsStoredAsBC7AndTheContainerRecordsWhy )
+{
+    const fs::path source = TexturesDir() / "T_Colour.bmp";
+    WriteBmp( source, 8, 8, 0x80 );
+    WriteIntent( source, "Colour" );
+
+    TextureImporter importer;
+    LogCapture      log;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Colour );
+    EXPECT_EQ( header.Format, Fmt::ImageFormat::BC7_UNORM );
+    EXPECT_NE( log.Text().find( "authored as Colour" ), std::string::npos ) << log.Text();
+    EXPECT_EQ( log.Text().find( "DISAGREE" ), std::string::npos )
+         << "the two sources agree about this image and nothing should say otherwise\n"
+         << log.Text();
+}
+
+TEST_F( TextureImport, AnAuthoredRefusalStandsOverAPassingMeasurementAndTheDisagreementIsNamed )
+{
+    // DIRECTION ONE OF THE DISAGREEMENT, and the one a cook with only a measurement can never report:
+    // the image compresses beautifully and the author has said it must not be compressed. The author
+    // wins — a packed or non-visual map that measures well is exactly the case T1's noise rule is about
+    // — and the cook says both halves out loud so an authoring mistake is findable.
+    const fs::path source = TexturesDir() / "T_Packed.bmp";
+    WriteBmp( source, 8, 8, 0x80 );
+    WriteIntent( source, "Data" );
+
+    TextureImporter importer;
+    LogCapture      log;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Data );
+    EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA8F ) << "the authored refusal stands";
+    EXPECT_NE( log.Text().find( "DISAGREE" ), std::string::npos ) << log.Text();
+    EXPECT_NE( log.Text().find( "would have given" ), std::string::npos )
+         << "the refusal has to quote what the measurement said, or it is not a cross-check\n"
+         << log.Text();
+}
+
+TEST_F( TextureImport, AFailingMeasurementStandsOverAnAuthoredRequestAndTheDisagreementIsNamed )
+{
+    // DIRECTION TWO. The author says this is colour; the encode does not reproduce it. Compressing
+    // anyway is the silent ruin, refusing quietly hides the authoring mistake, so the cook does neither.
+    const fs::path source = TexturesDir() / "T_Noise.bmp";
+    WriteNoiseBmp( source, 64, 64 );
+    WriteIntent( source, "Colour" );
+
+    TextureImporter importer;
+    LogCapture      log;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Colour );
+    EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA8F ) << "the measurement stands";
+    EXPECT_NE( log.Text().find( "DISAGREE" ), std::string::npos ) << log.Text();
+    EXPECT_NE( log.Text().find( "stored uncompressed" ), std::string::npos ) << log.Text();
+}
+
+TEST_F( TextureImport, ANormalMapIsStoredAsBC5AndNeverAsBC7 )
+{
+    // T1'S MOST LOAD-BEARING RULE, asserted where it takes effect. The same image with no `.detex` is
+    // stored as BC7 (the test above), so this is the authored field CHANGING THE OUTPUT and not merely
+    // being recorded.
+    const fs::path source = TexturesDir() / "T_Normal.bmp";
+    WriteBmp( source, 8, 8, 0x80 );
+    WriteIntent( source, "NormalMap" );
+
+    TextureImporter importer;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::NormalMap );
+    EXPECT_EQ( header.Format, Fmt::ImageFormat::BC5_UNORM );
+    EXPECT_NE( header.Format, Fmt::ImageFormat::BC7_UNORM ) << "BC7 on a normal map is forbidden by T1";
+}
+
+TEST_F( TextureImport, AMaskIsStoredAsBC4AndCostsHalfOfWhatBC7Would )
+{
+    const fs::path source = TexturesDir() / "T_Mask.bmp";
+    WriteBmp( source, 8, 8, 0x80 );
+    WriteIntent( source, "Mask" );
+
+    TextureImporter importer;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Mask );
+    EXPECT_EQ( header.Format, Fmt::ImageFormat::BC4_UNORM );
+
+    // THE SAVING IS THE POINT OF THE INTENT, so it is asserted rather than described: the same chain in
+    // BC7 is twice these bytes. `PayloadBytes` is the decoded total, which is what the GPU holds.
+    const fs::path colourSource = TexturesDir() / "T_MaskAsColour.bmp";
+    WriteBmp( colourSource, 8, 8, 0x80 );
+    WriteIntent( colourSource, "Colour" );
+    ASSERT_NE( (uint64_t)importer.Import( colourSource ), 0ull );
+    const auto colour = CookedHeader( TextureImporter::CookedMetaPath( colourSource ) );
+    ASSERT_EQ( colour.Format, Fmt::ImageFormat::BC7_UNORM );
+    EXPECT_EQ( header.PayloadBytes * 2u, colour.PayloadBytes );
+}
+
+TEST_F( TextureImport, AnIntentFileThatCannotBeUnderstoodStopsTheCookGuessingPastIt )
+{
+    // A `.detex` WITH A TYPO IS NOT AN ABSENT ONE. Somebody wrote it, so the cook must not fall back to
+    // the measurement and compress what may be a normal map; it stores the pixels, names the file and
+    // lists the vocabulary.
+    const fs::path source = TexturesDir() / "T_Typo.bmp";
+    WriteBmp( source, 8, 8, 0x80 );
+    WriteIntent( source, "normalmap" ); // the right word, the wrong case
+
+    TextureImporter importer;
+    LogCapture      log;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Unspecified );
+    EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA8F )
+         << "an instruction the cook could not read is not permission to compress";
+    EXPECT_NE( log.Text().find( "not one of" ), std::string::npos )
+         << "the refusal has to list what the words are\n"
+         << log.Text();
+    EXPECT_NE( log.Text().find( "NormalMap" ), std::string::npos ) << log.Text();
+}
+
+TEST_F( TextureImport, EditingTheIntentRecooksASourceWhoseOwnBytesDidNotMove )
+{
+    // THE HALF THAT MAKES THE AUTHORED FILE TAKE EFFECT AT ALL. Freshness is decided from the SOURCE
+    // IMAGE's bytes, and a `.detex` is not one of them — so without the intent inside the cook
+    // signature an artist could mark a texture and the cook would answer "up to date" for ever, which
+    // is the same invisible staleness the mtime comparison was removed for.
+    const fs::path source = TexturesDir() / "T_Switch.bmp";
+    WriteBmp( source, 8, 8, 0x80 );
+
+    TextureImporter importer;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+    const fs::path meta = TextureImporter::CookedMetaPath( source );
+    ASSERT_EQ( CookedFormat( meta ), Fmt::ImageFormat::BC7_UNORM );
+
+    // A SECOND IMPORTER, because the first one caches by path in memory and this test is about what is
+    // on the disk — which is what the next session sees.
+    WriteIntent( source, "Data" );
+    TextureImporter second;
+    ASSERT_NE( (uint64_t)second.Import( source ), 0ull );
+
+    const auto header = CookedHeader( meta );
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Data );
+    EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA8F ) << "the edited intent did not reach the cook";
+
+    // And back again, which is the direction that would still pass if the signature only ever grew.
+    WriteIntent( source, "Colour" );
+    TextureImporter third;
+    ASSERT_NE( (uint64_t)third.Import( source ), 0ull );
+    EXPECT_EQ( CookedFormat( meta ), Fmt::ImageFormat::BC7_UNORM );
+}
+
+TEST_F( TextureImport, AnUnauthoredSourceIsStillNotRecookedWhenNothingChanged )
+{
+    // The other side of the test above: folding the intent into the signature must not make every
+    // unmarked texture re-cook on every scan. `Unspecified` is zero in the high half, so the signature
+    // of an unmarked texture is the number this field already held.
+    const fs::path source = TexturesDir() / "T_Stable.bmp";
+    WriteBmp( source, 8, 8, 0x80 );
+
+    TextureImporter importer;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+    const fs::path    meta  = TextureImporter::CookedMetaPath( source );
+    const std::string first = ReadAll( meta );
+
+    TextureImporter second;
+    ASSERT_NE( (uint64_t)second.Import( source ), 0ull );
+    EXPECT_EQ( ReadAll( meta ), first ) << "an unmarked texture re-cooked for no reason";
 }
 
 int main( int argc, char** argv )

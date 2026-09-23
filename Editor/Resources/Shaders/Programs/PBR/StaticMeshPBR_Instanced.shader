@@ -151,6 +151,7 @@ Shader "StaticMeshPBR_Instanced"
         // BRDF LUT
         Uniform(10) sampler2D u_BRDFLUTTexture;
 
+        #include <Common/TangentNormal.glslh>
         Uniform(11) sampler2D u_AlbedoTexture;
         Uniform(12) sampler2D u_NormalTexture;
         Uniform(18) sampler2D u_OpacityTexture; // alpha-cutout mask (foliage); unused when cutoff == 0 (16/17 = light SSBOs)
@@ -238,7 +239,7 @@ Shader "StaticMeshPBR_Instanced"
         	if(textureSize.x > 1 && textureSize.y > 1) // real normal map — not the 1x1 fallback
         	{
         		// Transform tangent-space normal to world space via TBN.
-        		vec3 tangentNormal = normalize(2.0 * texture(u_NormalTexture, uv).rgb - 1.0);
+        		vec3 tangentNormal = SampleTangentNormal(u_NormalTexture, uv);
         		m_Params.Normal = normalize(inVertex.TBN * tangentNormal);
         	}
         	// Without a normal map the TBN transform is intentionally skipped:
