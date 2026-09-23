@@ -59,6 +59,13 @@ if [ ! -x "$BIN/AssetRegistryTool" ]; then
     echo "  Build it: scripts/MacOS/BuildMacOS.sh $CONFIG" >&2
     exit 1
 fi
+if [ ! -x "$BIN/TextureCook" ]; then
+    echo "Package.sh: $BIN/TextureCook is missing." >&2
+    echo "  It cooks the editor's splash picture into the drop (see the cook at the end of this script);" >&2
+    echo "  without it the drop's first start shows its splash on a plain background." >&2
+    echo "  Build it: scripts/MacOS/BuildMacOS.sh $CONFIG" >&2
+    exit 1
+fi
 if [ ! -f "$PROJECT" ]; then
     echo "Package.sh: $PROJECT is missing — the drop has no project to open" >&2
     exit 1
@@ -81,7 +88,7 @@ done
 # out fresh too, which is why no CI artifact ever carried one and why this could stay invisible: it
 # only ever affected a drop packaged on a developer's own machine, which is the one a developer
 # hands to somebody.
-for tree in Shaders Fonts Icons; do
+for tree in Shaders Fonts Icons Splash; do
     if [ ! -d "$ROOT/Editor/Resources/$tree" ]; then
         echo "Package.sh: engine resource tree Editor/Resources/$tree is missing" >&2
         exit 1
@@ -148,6 +155,17 @@ fi
 # Run from $OUT because engine resource roots resolve against the WORKING DIRECTORY and are never
 # remapped by a project — the tool refuses rather than cooking a registry with no shaders in it, and
 # that refusal is this step's check.
+#
+# THE SPLASH PICTURE FIRST, so the registry cooked from the disk below describes it too. The editor
+# reads it at its very first moment (Editor/Splash/SplashImage.hpp) — before it can cook anything — so a
+# drop that left the cook to the editor would open its first start on a plain background. Same
+# importer, same `.tex` the editor itself would write (Tools/TextureCook).
+( cd "$OUT" && "$BIN/TextureCook" "$(basename "$PROJECT")" Resources/Splash/Splash.jpg )
+if [ ! -f "$OUT/Cooked/Textures/Splash/Splash.tex" ]; then
+    echo "Package.sh: the drop has no Cooked/Textures/Splash/Splash.tex — its first start would show" >&2
+    echo "  the splash without its picture" >&2
+    exit 1
+fi
 ( cd "$OUT" && "$BIN/AssetRegistryTool" cook "$(basename "$PROJECT")" --disk )
 if [ ! -f "$OUT/Cooked/AssetRegistry.dreg" ]; then
     echo "Package.sh: the drop has no Cooked/AssetRegistry.dreg — its editor would start with zero" >&2
@@ -156,6 +174,6 @@ if [ ! -f "$OUT/Cooked/AssetRegistry.dreg" ]; then
 fi
 
 echo "Package.sh: packaged -> $OUT"
-echo "  engine resources: Shaders + Fonts + Icons"
+echo "  engine resources: Shaders + Fonts + Icons + Splash (and its cooked picture)"
 echo "  project assets:   $COPIED files, the closure of $(basename "$PROJECT")'s DefaultScene"
 du -sh "$OUT"

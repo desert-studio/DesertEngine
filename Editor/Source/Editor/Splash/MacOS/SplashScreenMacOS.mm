@@ -20,6 +20,10 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <sys/sysctl.h>
+#include <sys/time.h>
+#include <unistd.h>
+
 #include <condition_variable>
 #include <mutex>
 #include <optional>
@@ -160,6 +164,20 @@ namespace Desert::Editor::Splash
 
             [m_Window orderFrontRegardless];
             [CATransaction flush];
+
+            // HOW EARLY, measured from the kernel's own record of when this process began — the one clock
+            // that includes the loader and the static initialisers, which no timer started in main() sees.
+            kinfo_proc     info {};
+            size_t         size  = sizeof( info );
+            int            mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
+            struct timeval now {};
+            gettimeofday( &now, nullptr );
+            if ( sysctl( mib, 4, &info, &size, nullptr, 0 ) == 0 )
+            {
+                const struct timeval start = info.kp_proc.p_starttime;
+                const double         ms    = ( now.tv_sec - start.tv_sec ) * 1000.0 + ( now.tv_usec - start.tv_usec ) / 1000.0;
+                LOG_INFO( "[Splash] on screen {:.0f} ms after the process started", ms );
+            }
 
             m_Thread = std::thread( [this] { Run(); } );
         }

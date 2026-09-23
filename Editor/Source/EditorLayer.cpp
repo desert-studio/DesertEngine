@@ -3294,7 +3294,12 @@ namespace Desert::Editor
             m_ImGuiLayer->End();
             return BOOLSUCCESS;
         }
-        m_RealFrameDrawn = true;
+        // NOT YET REAL WHILE A SCENE LOAD IS STILL QUEUED. The frame right after the last stage draws the
+        // editor over an empty scene — the queued load runs in the NEXT OnUpdate and only then starts the
+        // settle wait — and revealing on it showed the window 3 s before the content had settled
+        // (measured on the first run of this change: "on screen" logged before "[Content] settled").
+        if ( !m_SceneLoadRequested )
+            m_RealFrameDrawn = true;
 
         // ---- Global editing shortcuts ----
         // Edit mode only (Play discards its changes on Stop anyway) and never while a text field owns the

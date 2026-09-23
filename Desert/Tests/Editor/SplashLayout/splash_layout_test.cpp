@@ -145,45 +145,64 @@ namespace
         return file;
     }
 
-    Ser::TextureAssetData OneLevel( const Fmt::ImageFormat format, std::vector<unsigned char> pixels,
-                                    const uint32_t rowPitch )
+    // A whole mip chain, as the cook writes one: the container refuses a partial chain, and a test that
+    // wrote one level would be testing a file the cook never produces.
+    Ser::TextureAssetData Cooked( const Fmt::ImageFormat format )
     {
         Ser::TextureAssetData data;
         data.Width  = kSide;
         data.Height = kSide;
+        data.Format = Fmt::ImageFormat::RGBA8F;
+
+        std::vector<unsigned char> rgbaChain;
+        auto levels = Ser::BuildMipChain( kSide, kSide, Fmt::ImageFormat::RGBA8F, Gradient(), rgbaChain );
+        EXPECT_TRUE( levels.IsSuccess() );
+        data.Levels = levels.GetValue();
+        data.Pixels = rgbaChain;
+        if ( format == Fmt::ImageFormat::RGBA8F )
+            return data;
+
+        const auto count  = static_cast<uint32_t>( data.Levels.size() );
+        auto       blocks = Ser::BlockCompressChain( kSide, kSide, count, 1, Fmt::ImageFormat::RGBA8F, format,
+                                                     data.Levels, data.Pixels );
+        EXPECT_TRUE( blocks.IsSuccess() );
+        std::vector<unsigned char> blockChain;
+        auto table = Ser::BuildLevelTable( kSide, kSide, count, 1, format, blocks.GetValue(), blockChain );
+        EXPECT_TRUE( table.IsSuccess() );
         data.Format = format;
-        data.Levels = { Ser::TextureLevel{ kSide, kSide, 0, pixels.size(), rowPitch } };
-        data.Pixels = std::move( pixels );
+        data.Levels = table.GetValue();
+        data.Pixels = blockChain;
         return data;
     }
 } // namespace
 
 TEST( SplashLayout, TheLoaderDecodesTheCooksBC7ToTheSameTexelsTheReferenceDecoderGives )
 {
-    const auto source = Gradient();
-    auto blocks = Fmt::BlockCompressImage( kSide, kSide, Fmt::ImageFormat::RGBA8F, Fmt::ImageFormat::BC7_UNORM,
-                                           source.data(), source.size() );
-    ASSERT_TRUE( blocks.IsSuccess() ) << blocks.GetError();
+    const Ser::TextureAssetData cooked = Cooked( Fmt::ImageFormat::BC7_UNORM );
+    ASSERT_FALSE( cooked.Levels.empty() );
     const auto expected = Fmt::BlockDecompressImage( kSide, kSide, Fmt::ImageFormat::BC7_UNORM, Fmt::ImageFormat::RGBA8F,
-                                                     blocks.GetValue().data(), blocks.GetValue().size() );
+                                                     cooked.Pixels.data() + cooked.Levels[0].ByteOffset,
+                                                     static_cast<std::size_t>( cooked.Levels[0].ByteSize ) );
     ASSERT_TRUE( expected.IsSuccess() );
 
-    const auto file =
-         WriteTex( "bc7.tex", OneLevel( Fmt::ImageFormat::BC7_UNORM, blocks.ExtractValue(), ( kSide / 4 ) * 16 ) );
+    const auto file   = WriteTex( "bc7.tex", cooked );
     const auto loaded = Splash::LoadSplashPixels( file );
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
     EXPECT_EQ( loaded.GetValue().Width, kSide );
     EXPECT_EQ( loaded.GetValue().Height, kSide );
     EXPECT_EQ( loaded.GetValue().Rgba, expected.GetValue() );
-    // And it is the picture, not a flat block: the gradient survives the round trip within BC7's error.
-    EXPECT_NEAR( loaded.GetValue().Rgba[( 0 * kSide + 15 ) * 4], 240, 8 );
-    EXPECT_NEAR( loaded.GetValue().Rgba[( 15 * kSide + 0 ) * 4 + 1], 240, 8 );
+    // And it is the picture, not a flat block: both ramps survive, left-to-right in red and
+    // top-to-bottom in green (a 2-D ramp is not on one line in colour space, so BC7 mode 6 bends it by
+    // a couple of dozen levels at a block's corners; the direction is what is asserted, not the level).
+    const auto& rgba = loaded.GetValue().Rgba;
+    EXPECT_GT( rgba[( 0 * kSide + 15 ) * 4], rgba[( 0 * kSide + 0 ) * 4] + 150 );
+    EXPECT_GT( rgba[( 15 * kSide + 0 ) * 4 + 1], rgba[( 0 * kSide + 0 ) * 4 + 1] + 150 );
 }
 
 TEST( SplashLayout, AnUncompressedCookIsTakenAsItIs )
 {
     const auto source = Gradient();
-    const auto file   = WriteTex( "rgba8.tex", OneLevel( Fmt::ImageFormat::RGBA8F, source, kSide * 4 ) );
+    const auto file   = WriteTex( "rgba8.tex", Cooked( Fmt::ImageFormat::RGBA8F ) );
     const auto loaded = Splash::LoadSplashPixels( file );
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
     EXPECT_EQ( loaded.GetValue().Rgba, source );
@@ -205,4 +224,10 @@ TEST( SplashLayout, AFileThatIsNotACookedTextureIsRefusedNotDrawn )
     const auto file = stdfs::temp_directory_path() / "SplashLayoutSuite" / "garbage.tex";
     std::ofstream( file, std::ios::binary ) << "this is a jpeg, honestly";
     EXPECT_FALSE( Splash::LoadSplashPixels( file ).IsSuccess() );
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

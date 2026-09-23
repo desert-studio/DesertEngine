@@ -166,6 +166,17 @@ namespace Desert::Editor::Splash
                 SetWindowLongPtrW( window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>( this ) );
                 ShowWindow( window, SW_SHOWNOACTIVATE );
                 UpdateWindow( window );
+
+                // How early, from the kernel's record of when this process began (the macOS file says why).
+                FILETIME created, exited, kernel, user, now;
+                if ( GetProcessTimes( GetCurrentProcess(), &created, &exited, &kernel, &user ) )
+                {
+                    GetSystemTimeAsFileTime( &now );
+                    const auto ticks = []( const FILETIME& t )
+                    { return ( static_cast<unsigned long long>( t.dwHighDateTime ) << 32 ) | t.dwLowDateTime; };
+                    LOG_INFO( "[Splash] on screen {:.0f} ms after the process started",
+                              static_cast<double>( ticks( now ) - ticks( created ) ) / 10000.0 );
+                }
             }
             else
             {

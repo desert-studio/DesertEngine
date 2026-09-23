@@ -62,6 +62,13 @@ if not exist "%BIN%\AssetRegistryTool.exe" (
     echo   Build it: scripts\Windows\BuildWindows.bat %CONFIG% 1>&2
     exit /b 1
 )
+if not exist "%BIN%\TextureCook.exe" (
+    echo Package.bat: %BIN%\TextureCook.exe is missing. 1>&2
+    echo   It cooks the editor's splash picture into the drop ^(see the cook at the end of this script^); 1>&2
+    echo   without it the drop's first start shows its splash on a plain background. 1>&2
+    echo   Build it: scripts\Windows\BuildWindows.bat %CONFIG% 1>&2
+    exit /b 1
+)
 if not exist "%PROJECT%" (
     echo Package.bat: %PROJECT% is missing — the drop has no project to open 1>&2
     exit /b 1
@@ -147,7 +154,7 @@ REM unfiltered copy carried them. A FRESH CHECKOUT holds zero — Finder is what
 REM never saw one, and looking there says the hazard does not exist. Windows contributes Thumbs.db and
 REM desktop.ini the same way.
 REM ---------------------------------------------------------------------------
-for %%T in (Shaders Fonts Icons) do (
+for %%T in (Shaders Fonts Icons Splash) do (
     if not exist "%ROOT%\Editor\Resources\%%T" (
         echo Package.bat: engine resource tree Editor\Resources\%%T is missing 1>&2
         exit /b 1
@@ -228,6 +235,16 @@ REM Run from %OUT% because engine resource roots resolve against the WORKING DIR
 REM remapped by a project — the tool refuses rather than cooking a registry with no shaders in it,
 REM and that refusal is this step's check.
 REM ---------------------------------------------------------------------------
+REM The splash picture first, so the registry cooked from the disk below describes it too; see the same
+REM step in scripts/MacOS/Package.sh for why a drop must not leave this cook to its editor.
+pushd "%OUT%"
+"%BIN%\TextureCook.exe" "Desert.deproj" Resources\Splash\Splash.jpg
+popd
+if not exist "%OUT%\Cooked\Textures\Splash\Splash.tex" (
+    echo Package.bat: the drop has no Cooked\Textures\Splash\Splash.tex — its first start would show 1>&2
+    echo   the splash without its picture 1>&2
+    exit /b 1
+)
 pushd "%OUT%"
 "%BIN%\AssetRegistryTool.exe" cook "Desert.deproj" --disk
 popd
@@ -238,7 +255,7 @@ if not exist "%OUT%\Cooked\AssetRegistry.dreg" (
 )
 
 echo Package.bat: packaged -^> %OUT%
-echo   engine resources: Shaders + Fonts + Icons
+echo   engine resources: Shaders + Fonts + Icons + Splash ^(and its cooked picture^)
 echo   project assets:   !COPIED! files, the closure of Desert.deproj's DefaultScene
 endlocal
 exit /b 0

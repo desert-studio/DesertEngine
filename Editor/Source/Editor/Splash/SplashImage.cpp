@@ -15,13 +15,20 @@ namespace Desert::Editor::Splash
 
         const auto start = std::chrono::steady_clock::now();
 
+        // ABSENCE IS ASKED FIRST, and not left to the read: the reader logs its own error line for a missing
+        // file, and the first start on a fresh clone is expected to be missing this one. The splash owes
+        // the log ONE line saying why it has no picture, and it is the caller's (SplashScreen*::Run).
+        std::error_code ec;
+        if ( !std::filesystem::is_regular_file( cookedTex, ec ) )
+            return Common::MakeFormattedError<SplashPixels>( "'{}' is not there yet; it is cooked by the editor's "
+                                                             "'Cooking the splash picture' stage for the next "
+                                                             "start, and by scripts/MacOS/Package.sh",
+                                                             cookedTex.string() );
+
         auto bytes = Common::Utils::FileSystem::ReadFileContent( cookedTex );
         if ( !bytes.IsSuccess() )
-            return Common::MakeFormattedError<SplashPixels>( "'{}' is not there yet ({}); it is cooked by the "
-                                                             "editor's 'Cooking the splash picture' stage "
-                                                             "for the next start, and by "
-                                                             "scripts/MacOS/Package.sh",
-                                                             cookedTex.string(), bytes.GetError() );
+            return Common::MakeFormattedError<SplashPixels>( "'{}' could not be read: {}", cookedTex.string(),
+                                                             bytes.GetError() );
 
         const std::string whatFor = cookedTex.string();
         auto decoded = Assets::Serialization::DecodeTextureBinary( std::string_view( bytes.GetValue() ), whatFor );

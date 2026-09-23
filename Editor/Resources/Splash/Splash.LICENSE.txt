@@ -1,0 +1,8 @@
+Splash.jpg — the editor's start-up splash picture.
+
+Background photograph: "Klippad Sunrise 2" by Poly Haven, https://polyhaven.com/a/klippad_sunrise_2
+  (8k .hdr panorama), licensed CC0 1.0 (public domain dedication).
+  Frame u in [0.26, 0.60] of the panorama, horizon at 62 % of the height, EV +0.3, Reinhard tone map,
+  contrast 1.18, saturation 1.12, warm shift 6500 K -> 5600 K, vignette 0.55.
+
+Wordmark, glow, bottom darkening and copyright line: composed by Tools/SplashBake (see its README).
