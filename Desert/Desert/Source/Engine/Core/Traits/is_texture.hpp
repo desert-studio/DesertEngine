@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <type_traits>
+
 template <typename T>
 struct is_texture : std::false_type
 {

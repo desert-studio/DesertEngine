@@ -22,6 +22,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using Desert::Tests::SkyPanoramaRef::ApplySkyGain;
 using Desert::Tests::SkyPanoramaRef::PanoramaSampleUV;

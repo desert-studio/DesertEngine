@@ -1,7 +1,9 @@
 #include "WindowsFileSystem.hpp"
 
 #include <Windows.h>
+#include <algorithm>
 #include <filesystem>
+#include <string>
 #include <commdlg.h>
 #include <shlobj.h>
 

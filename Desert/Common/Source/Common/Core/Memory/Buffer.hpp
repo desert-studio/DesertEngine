@@ -2,6 +2,8 @@
 
 #include <Common/Core/Core.hpp>
 
+#include <cstring>
+
 namespace Common::Memory
 {
     struct Buffer

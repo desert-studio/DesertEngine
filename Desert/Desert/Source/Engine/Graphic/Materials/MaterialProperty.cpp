@@ -1,5 +1,7 @@
 #include "MaterialProperty.hpp"
 
+#include <string>
+
 namespace Desert::Graphic
 {
     void MaterialPropertySet::SetProperty( const std::string& name, const MaterialPropertyValue& value,

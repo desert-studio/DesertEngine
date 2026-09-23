@@ -3,6 +3,7 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <array>
+#include <cstring>
 
 #include <Engine/ShaderResources/ShaderReflectionTypes.hpp>
 #include <Engine/Graphic/Materials/Properties/PropertyDirty.hpp>

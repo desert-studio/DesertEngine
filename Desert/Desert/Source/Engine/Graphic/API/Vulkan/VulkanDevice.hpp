@@ -4,6 +4,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <unordered_set>
+
 namespace Desert::Graphic::API::Vulkan
 {
     class VulkanPhysicalDevice final

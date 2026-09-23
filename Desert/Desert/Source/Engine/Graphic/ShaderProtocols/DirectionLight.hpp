@@ -2,6 +2,9 @@
 
 #include <glm/glm.hpp>
 
+#include <string>
+#include <vector>
+
 namespace Desert::Graphic::ShaderProtocols
 {
     // std140-friendly layout (two vec4s, 32 bytes) matching DirectionLightsUB in PBR.glsl.frag.

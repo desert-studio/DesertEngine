@@ -2,6 +2,8 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include <cstdint>
+
 namespace Desert::Graphic::API::Vulkan
 {
     class VulkanMaterialBackend;

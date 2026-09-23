@@ -2,6 +2,8 @@
 
 #include <Engine/Graphic/MipMapGenerator.hpp>
 
+#include <memory>
+
 namespace Desert::Graphic::API::Vulkan
 {
     // Compute shader

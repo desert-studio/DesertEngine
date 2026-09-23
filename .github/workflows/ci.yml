@@ -94,6 +94,17 @@ jobs:
       - name: Repo-only includes
         run: ./scripts/CI/RepoOnlyIncludes.sh
 
+      # A standard symbol must be answered for by THIS repository's text. `sky_panorama_test.cpp`
+      # called std::clamp with only <cmath> included: libc++ reaches <algorithm> from there and MSVC
+      # does not, so it compiled on every developer machine and failed on Windows Debug -- and it sat
+      # invisible for days because the format gate was red and Windows `needs:` it. No compiler on a
+      # macOS machine can see this class, so the gate asks the SOURCE TEXT instead, and asks `git
+      # ls-files` rather than the disk. Here, on ubuntu, for the same reason the step above is here:
+      # neither Homebrew nor MSVC exists on this runner, so it cannot answer from a local prefix.
+      # Exit 2 means it could not look, which is a different answer from "I found nothing".
+      - name: Standard includes
+        run: python3 ./scripts/CI/StandardIncludes.py
+
   # Static analysis gate: the LINES CHANGED by this push/PR must be clean under clang-tidy.
   #
   # WHY CHANGED LINES AND NOT THE TREE, with the number behind it: measured on this commit, the check

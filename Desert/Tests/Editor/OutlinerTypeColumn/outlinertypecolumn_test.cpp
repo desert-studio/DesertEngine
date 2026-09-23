@@ -16,6 +16,7 @@
 
 #include <Editor/Panels/SceneHierarchy/EntityTypeCensus.hpp>
 
+#include <algorithm>
 #include <set>
 #include <string>
 #include <string_view>

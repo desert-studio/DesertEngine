@@ -12,6 +12,8 @@
 #include <glslang/Include/glslang_c_interface.h>
 #include <Common/Core/Algorithms/ScopeExit.hpp>
 
+#include <algorithm>
+
 const char* lvk::getVulkanResultString(VkResult result) {
 #define RESULT_CASE(res) \
   case res:              \

@@ -8,6 +8,8 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 
+#include <memory>
+
 namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;

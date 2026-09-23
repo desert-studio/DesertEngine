@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
