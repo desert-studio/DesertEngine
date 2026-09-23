@@ -11,8 +11,13 @@ project(test_name)
     -- Header-only rules (Engine/Core/Serialize/WorldPartitionStreamingRules.hpp over WorldPartitionRules.hpp):
     -- the streaming query is a pure function of a plan, the grid and the sources, so nothing but Common is
     -- linked, and that is the proof it is pure. The planner is compiled too, because one case holds the
-    -- query to the planner's own output rather than a hand-built plan.
-    files { test_files }
+    -- query to the planner's own output rather than a hand-built plan. The planner places a landscape tile
+    -- by its root's frame, so the two pure landscape files it calls are compiled with it.
+    files {
+        test_files,
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
+    }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
