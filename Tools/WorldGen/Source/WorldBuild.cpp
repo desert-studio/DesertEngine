@@ -216,10 +216,24 @@ namespace Desert::WorldGen
                     const int depthCm  = Range( d1, 4, 14 ) * 100;
                     const int heightCm = Range( d2, 3, 40 ) * 100;
 
+                    // A QUARTER TURN IS A SWAP OF THE TWO GROUND EDGES, NOT A YAW. A box has fourfold
+                    // symmetry, so turning it by 90 degrees is the same box with width and depth exchanged
+                    // (and 180 is the box itself). This used to be written as a yaw of 0/90/180/270 into
+                    // `Rotation` - which the engine reads in RADIANS (TransformComponent::GetTransform takes
+                    // glm::quat of it), so every building but a quarter of them stood at 116, 233 or 350
+                    // degrees, overhung its slot, and 1015 of 49152 crossed their tile edge in the `world`
+                    // preset (29 of them across an axis, so always-loaded under World Partition). Swapping the
+                    // edges keeps every number an integer centimetre (header, second bullet) and keeps the
+                    // building inside its slot, because the room below is taken from the edges it actually has on
+                    // the ground.
+                    const bool turned  = Range( d5, 0, 3 ) % 2 == 1;
+                    const int  footXCm = turned ? depthCm : widthCm;
+                    const int  footZCm = turned ? widthCm : depthCm;
+
                     const int slotCentreX = originX + sx * spacing + spacing / 2;
                     const int slotCentreZ = originZ + sz * spacing + spacing / 2;
-                    const int roomX       = std::max( ( spacing - widthCm ) / 2, 0 );
-                    const int roomZ       = std::max( ( spacing - depthCm ) / 2, 0 );
+                    const int roomX       = std::max( ( spacing - footXCm ) / 2, 0 );
+                    const int roomZ       = std::max( ( spacing - footZCm ) / 2, 0 );
 
                     const int x = slotCentreX + Range( d3, -roomX, roomX );
                     const int z = slotCentreZ + Range( d4, -roomZ, roomZ );
@@ -227,14 +241,10 @@ namespace Desert::WorldGen
                     char tag[48];
                     std::snprintf( tag, sizeof( tag ), "%s_B%02d", cellTag, i );
 
-                    auto building =
-                         MakeEntity( nextId++, tag,
-                                     { static_cast<float>( x ), static_cast<float>( heightCm ) / 2.0f,
-                                       static_cast<float>( z ) },
-                                     // Integer degrees, quarter turns: a box has fourfold symmetry, so a free yaw
-                                     // changes the bytes without changing the silhouette or the overdraw.
-                                     { 0.0f, static_cast<float>( Range( d5, 0, 3 ) * 90 ), 0.0f },
-                                     BoxScale( widthCm, heightCm, depthCm ) );
+                    auto building = MakeEntity( nextId++, tag,
+                                                { static_cast<float>( x ), static_cast<float>( heightCm ) / 2.0f,
+                                                  static_cast<float>( z ) },
+                                                { 0.0f, 0.0f, 0.0f }, BoxScale( footXCm, heightCm, footZCm ) );
 
                     Assets::StaticMeshComponentSer mesh;
                     const auto&                    material = buildingMaterials[static_cast<size_t>(

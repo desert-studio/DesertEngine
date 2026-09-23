@@ -239,9 +239,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // picture's path both exist only once the project is open, three blocks up, and a refusal above this
     // line must not flash a window on its way to exiting. Not later: everything below — the window, the
     // Vulkan instance and device, the renderer, the shader preload in OnAttach — is the wait it covers.
-    auto splash = Desert::Editor::Splash::SplashScreen::Show(
-         { Desert::Editor::ProjectContext::Current().Name, Common::Version::Base(),
-           Desert::Assets::CookedTexturePath( Desert::Editor::Splash::kSplashSource, ".tex" ) } );
+    auto splash = Desert::Editor::Splash::SplashScreen::Show( { Desert::Editor::ProjectContext::Current().Name,
+                                                                Common::Version::Base(),
+                                                                Desert::Editor::Splash::kSplashTexture } );
     // The plan is not known yet — the editor layer that owns the stage list does not exist — so no count.
     splash->SetStatus( "Starting the renderer...", 0, 0 );
 

@@ -331,6 +331,28 @@ why a cross-tree pixel A/B silently compares two different viewport resolutions 
 
 ---
 
+## 7. Context is the budget — how work is done, not only what is shipped (owner, 2026-09-24)
+
+Measured over ~30 agent tasks (`.claude/tools/agent_spend.py`): 60–70 % of the cost is the context being
+re-read on every turn, ~20 % is the cache rewritten after pauses over 5 minutes, ~10 % is output (priced 5×).
+Every token that enters the context is paid again on each later turn, so the rules below are part of the
+contract, for agents and for the lead alike:
+
+1. **Never read a whole file.** `grep -n` first, then at most ~80 lines of the range you need. Whole-file reads
+   of 7–12k tokens were the single largest item in the measured sessions.
+2. **Long output goes to a file**, and only its tail or a `grep` of it enters the context: builds, suite runs,
+   logs, `gh run view --log`.
+3. **Broad discovery is delegated** to a sub-agent (Explore): what it reads stays in its disposable context and
+   only the conclusion comes back. Read yourself only what you are about to change.
+4. **Batch independent calls** into one; every call is a turn and every turn re-reads everything.
+5. **Wait in chunks under 5 minutes** (a counted loop) up to ~50 minutes; a CI run is one background wait.
+6. **Proof is proportionate**: 3–5 mutations that attack the main invariant, a frame only when the change is
+   visible, the suites the change reaches plus the censuses — the full sweep only per the lead's batch rule.
+7. **Reports are short** (~40 lines): done, proven by (numbers), builds, what the brief got wrong, remainder.
+8. **Tasks are sized to ≤ ~120–150 turns.** A task that grows beyond ×1.5 is reported at once and split —
+   cost grows roughly with the square of the turns, because context grows while it is re-read.
+9. **Build through the shared ccache** and never rename a lane's worktree (the PCH pins absolute paths).
+
 ## Related
 
 - `DEV_CONTRACT.md`, bundled beside this file — the authority, with the history behind each rule.

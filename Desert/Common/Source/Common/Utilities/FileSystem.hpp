@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 
 #include <iostream>
 
@@ -72,6 +73,17 @@ namespace Common::Utils
         [[nodiscard]] static Common::ResultStr<std::string>
         ReadFileContent( const std::filesystem::path& filepath );
 
+        // FOR CALLERS WHOSE NORMAL PATH INCLUDES "NOT THERE YET": a cache probe, a freshness check
+        // against a cooked file that may not exist. ReadFileContent logs every miss as an ERROR, which is
+        // right when the file was promised and wrong here: a first run of the environment cache printed
+        // three "[error] Could not read file" lines for a miss the caller handles and explains itself,
+        // and real errors drowned in them (owner, 2026-09-23). Absent on disk AND in every mounted pak ->
+        // success holding nullopt, nothing logged. Present but unreadable is still an error, logged by
+        // the read it delegates to. Use this ONLY where absence is expected; a promised file keeps the
+        // loud read.
+        [[nodiscard]] static Common::ResultStr<std::optional<std::string>>
+        ReadFileContentIfExists( const std::filesystem::path& filepath );
+
         // THE FIRST @p maxBytes BYTES, and never more. Added when `.tex` grew a pixel payload (B17):
         // `TextureAsset::LoadFromFile` needs a texture's header and mip table — 64 bytes plus a small
         // row per level — and `TextureService` promises in its own comment that that load is "cheap:
@@ -91,6 +103,10 @@ namespace Common::Utils
         // belongs with mip streaming (`Docs/World/PROGRAMME.md` §5, the resident-tail step), not here.
         [[nodiscard]] static Common::ResultStr<std::string>
         ReadFileContentPrefix( const std::filesystem::path& filepath, std::size_t maxBytes );
+
+        // The prefix read with the same "absence is an answer" contract as ReadFileContentIfExists.
+        [[nodiscard]] static Common::ResultStr<std::optional<std::string>>
+        ReadFileContentPrefixIfExists( const std::filesystem::path& filepath, std::size_t maxBytes );
 
         // THE WRITE PRIMITIVE. There is exactly one body, and this is it; the `Content` spelling below
         // is the same call with the bytes taken from a string, and exists only so ~30 text call sites

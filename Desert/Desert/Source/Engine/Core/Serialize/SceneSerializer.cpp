@@ -436,12 +436,12 @@ namespace Desert::Core
 
         // IF THIS WORLD SAYS IT IS PARTITIONED, SAY WHAT THE PARTITION IS AND WHAT IT COST.
         //
-        // Nothing here can stop a load: a composite wider than a cell is held whole and its cell grows
-        // (owner decision 2026-09-18), so the only fact worth a line is HOW MUCH the cells grew — the
-        // number a streamer will one day pay in residency. It is stated at load because that is where
-        // somebody who has just moved an entity will see it. The work is one walk of the records the
-        // loader has already parsed, and an unpartitioned world (every `.desce` in the repository today)
-        // does none of it.
+        // Nothing here can stop a load: a composite wider than a cell goes up a level, and one no level
+        // holds is always-loaded (owner decision O1, 2026-09-23). So the facts worth a line are how the
+        // world spread over the levels and what stays loaded everywhere - the numbers a streamer will pay
+        // in residency. Stated at load because that is where somebody who has just moved an entity will
+        // see it. The work is one walk of records the loader has already parsed, and an unpartitioned
+        // world (every `.desce` in the repository today) does none of it.
         if ( scene.WorldPartition.has_value() )
         {
             const Rules::WorldPartitionPlan partition =
@@ -462,7 +462,7 @@ namespace Desert::Core
             {
                 // A THIRD, DIFFERENT FACT, and it is a limitation rather than a defect in the world: a
                 // prefab instance's transform is not in this file at all, so the partitioner put it at
-                // the origin (and let it grow no cell's bounds). Said out loud because "in cell (0,0)" is
+                // the origin (and it widens no composite's footprint). Said out loud because "in cell (0,0)" is
                 // otherwise indistinguishable from a correct answer.
                 LOG_WARN( "[WorldPartition] '{0}': {1} prefab instance(s) state no transform of their "
                           "own in this file, so they are partitioned AT THE ORIGIN. Placing them needs "
@@ -475,29 +475,26 @@ namespace Desert::Core
                 // The same limitation from a different cause: a tile is placed by its root's frame, and
                 // these name a root the file does not contain or one that cannot be tiled.
                 LOG_WARN( "[WorldPartition] '{0}': {1} landscape tile(s) have no root this file can place "
-                          "them by, so they are partitioned at their own entity position and grow no cell.",
+                          "them by, so they contribute no footprint.",
                           scene.SceneName, partition.UnplacedLandscapeTiles.size() );
             }
 
-            // The worst cell by name, because "grew by 30000" is only actionable next to WHAT grew it.
-            const float cellSize = scene.WorldPartition->CellSize;
-            if ( partition.MaxGrowthCell != Rules::kNoRecord && partition.MaxGrowth > 0.0f )
+            if ( partition.UnusedGrids > 0 )
             {
-                const Rules::PlannedCell& worst = partition.Cells[partition.MaxGrowthCell];
-                const auto&               grown = scene.Entities[worst.Furthest];
-                LOG_INFO( "[WorldPartition] '{0}': {1} composite(s) in {2} cell(s) of {3} world units; the "
-                          "cells grew to hold them whole by up to {4} world units ({5} cell sizes), in cell "
-                          "({6}, {7}), furthest out: '{8}' (id {9}).",
-                          scene.SceneName, partition.Composites.size(), partition.Cells.size(), cellSize,
-                          partition.MaxGrowth, partition.MaxGrowth / cellSize, worst.Cell.X, worst.Cell.Z,
-                          grown.Tag.value_or( "Entity" ),
-                          grown.id.has_value() ? static_cast<std::uint64_t>( *grown.id ) : 0u );
+                LOG_WARN( "[WorldPartition] '{0}': the world states {1} grid(s) beyond the first. Every "
+                          "composite is partitioned on grid 0 until a record can choose its grid.",
+                          scene.SceneName, partition.UnusedGrids );
             }
-            else
+
+            LOG_INFO( "[WorldPartition] '{0}': {1}.", scene.SceneName,
+                      Rules::SummarisePartition( partition, *scene.WorldPartition ) );
+            if ( partition.MaxLevelComposite != Rules::kNoRecord && partition.MaxLevel > 0 )
             {
-                LOG_INFO( "[WorldPartition] '{0}': {1} composite(s) in {2} cell(s) of {3} world units; no "
-                          "cell grew past its grid square.",
-                          scene.SceneName, partition.Composites.size(), partition.Cells.size(), cellSize );
+                // The worst promotion by name, because "level 3" is only actionable next to WHAT went there.
+                const auto& anchor = scene.Entities[partition.Composites[partition.MaxLevelComposite].Anchor];
+                LOG_INFO( "[WorldPartition] '{0}': the widest composite went up to level {1}: '{2}' (id {3}).",
+                          scene.SceneName, partition.MaxLevel, anchor.Tag.value_or( "Entity" ),
+                          anchor.id.has_value() ? static_cast<std::uint64_t>( *anchor.id ) : 0u );
             }
         }
 
