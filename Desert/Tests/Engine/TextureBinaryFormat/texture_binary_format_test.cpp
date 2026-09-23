@@ -936,6 +936,70 @@ TEST( TextureBinaryFormat, AnEncoderSignatureIsCarriedRatherThanRefused )
             "wants, without reading a single pixel";
 }
 
+TEST( TextureBinaryFormat, TheAuthoredIntentIsCarriedAndAnUnknownOneIsRefused )
+{
+    // THE THIRD MEMBER OF THE `Flags` / `EncoderHash` PAIR, and it behaves like `Flags`: an intent this
+    // build does not know was written by a NEWER cook, and reading it as some other enumerator would
+    // give the file a meaning nobody wrote.
+    TextureAssetData data = Cook( 8, 8, SyntheticRGBA8( 8, 8 ) );
+    EXPECT_EQ( data.Intent, Desert::Core::Formats::TextureIntent::Unspecified )
+         << "a texture nobody authored an intent for records none";
+
+    data.Intent     = Desert::Core::Formats::TextureIntent::NormalMap;
+    const auto read = DecodeTextureBinary( EncodeTextureBinary( data ), "normal.tex" );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_EQ( read.GetValue().Intent, Desert::Core::Formats::TextureIntent::NormalMap );
+
+    const auto header = DecodeTextureHeader( EncodeTextureBinary( data ), "normal.tex" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    EXPECT_EQ( header.GetValue().Intent, Desert::Core::Formats::TextureIntent::NormalMap )
+         << "the intent is header-only information and must survive a prefix read";
+
+    std::string    encoded = EncodeTextureBinary( data );
+    const uint32_t future  = Desert::Core::Formats::kTextureIntentCount + 3u;
+    std::memcpy( encoded.data() + 104, &future, sizeof( future ) ); // Intent
+    const auto refused = DecodeTextureBinary( encoded, "fromthefuture.tex" );
+    EXPECT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "texture intent" ), std::string::npos ) << refused.GetError();
+}
+
+TEST( TextureBinaryFormat, AnUnauthoredFileIsBYTEForBYTEWhatItWasBeforeTheIntentFieldExisted )
+{
+    // THIS IS THE WHOLE MIGRATION, AND IT IS EMPTY ON PURPOSE. The intent spent a reserved word rather
+    // than moving the container's version, which is only defensible if zero — the value every `.tex`
+    // ever written already holds there — is a DEFINED enumerator meaning exactly what the cook writes
+    // for a texture nobody classified. So an old file and a new unauthored one have to be the same
+    // bytes, and this is what says so: the reserve is still all zeros at the word the intent took, and
+    // the file's length has not moved.
+    //
+    // It is asserted against the literal 128-byte header rather than against a stored fixture, because
+    // a fixture would be a second copy of the format that this suite would then be testing instead of
+    // the format.
+    const TextureAssetData data    = Cook( 16, 16, SyntheticRGBA8( 16, 16 ) );
+    const std::string      encoded = EncodeTextureBinary( data );
+    ASSERT_GE( encoded.size(), 128u );
+
+    for ( std::size_t at = 104; at < 128; ++at )
+    {
+        EXPECT_EQ( static_cast<unsigned char>( encoded[at] ), 0u )
+             << "byte " << at
+             << " of the header is not zero; an unauthored cook must be indistinguishable "
+                "from one written before the intent field existed";
+    }
+
+    // And the one committed cooked texture in this repository still decodes, with no intent, through the
+    // reader that now knows about the field. If this fails the field was NOT free and every `.tex` in
+    // the tree needs re-cooking.
+    const std::filesystem::path tracked = RepositoryRoot() / "Editor" / "Cooked" / "Textures" / "T_Checker.tex";
+    if ( std::filesystem::exists( tracked ) )
+    {
+        const auto committed = DecodeTextureHeader( ReadFile( tracked ), tracked.string() );
+        ASSERT_TRUE( committed.IsSuccess() ) << committed.GetError();
+        EXPECT_EQ( committed.GetValue().Intent, Desert::Core::Formats::TextureIntent::Unspecified )
+             << "the committed cook predates the field and must read back as 'nobody said'";
+    }
+}
+
 // ── 6. A LEVEL IS A LEVEL OF EVERY LAYER (v3) ──────────────────────────────────────────────────────
 
 TEST( TextureBinaryFormat, ACubeRoundTripsWithEveryFaceDistinct )

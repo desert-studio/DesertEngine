@@ -56,7 +56,7 @@ namespace Desert::Graphic::API::Vulkan
                     return VK_FORMAT_D32_SFLOAT;
                 case Core::Formats::ImageFormat::DEPTH24STENCIL8:
                     return deviceDepthFormat;
-                // The two block formats. `textureCompressionBC` is read off the physical device and
+                // The four block formats. `textureCompressionBC` is read off the physical device and
                 // requested by `VulkanLogicalDevice::CreateDevice` (pinned by the TextureCompressionBC
                 // suite); without it these two VkFormats are not usable, and on THIS machine that is
                 // undetectable at run time — measured, four mode-6 blocks came back bit-exact with the
@@ -65,6 +65,15 @@ namespace Desert::Graphic::API::Vulkan
                     return VK_FORMAT_BC7_UNORM_BLOCK;
                 case Core::Formats::ImageFormat::BC6H_UFLOAT:
                     return VK_FORMAT_BC6H_UFLOAT_BLOCK;
+                // UNORM and not SNORM for both. The signed variants are different VkFormats with a
+                // different endpoint transform, and the engine's normal maps arrive as UNORM bytes that
+                // the shader re-centres with `2*n - 1`; picking the signed format here would move that
+                // re-centring into the hardware for BC5 and leave it in the shader for RGBA8, so one of
+                // the two paths would be wrong and only on the textures an author had marked up.
+                case Core::Formats::ImageFormat::BC4_UNORM:
+                    return VK_FORMAT_BC4_UNORM_BLOCK;
+                case Core::Formats::ImageFormat::BC5_UNORM:
+                    return VK_FORMAT_BC5_UNORM_BLOCK;
                 case Core::Formats::ImageFormat::Count:
                     break; // the sentinel is not a format — fall through to the error path below
             }

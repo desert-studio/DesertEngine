@@ -501,6 +501,14 @@ namespace
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
           "CalculateImageSize( kAerialPerspectiveWidth, kAerialPerspectiveHeight, " "kAerialPerspectiveDepth, Core::Formats::ImageFormat::RGBA16F )", Sizes::OneImage, Blocks::Correct,
           "the aerial perspective VOLUME's cost line -- three extents, not three layers" },
+        { "Editor/Source/Editor/Import/TextureImporter.cpp",
+          "GetTexelBlock( source.Format )", Sizes::TheBlockTable, Blocks::Correct,
+          "how many bytes ONE TEXEL of the uncompressed source occupies, which the cook's fidelity "
+          "measurement needs in order to step through two buffers texel by texel and compare only the "
+          "channels the block format promised to keep. It asks about the SOURCE format, which is "
+          "uncompressed by construction on this path, and it asks the block table rather than writing "
+          "a 4 -- a 1x1 block's Bytes IS its bytes per texel, so the table answers without the "
+          "question having a second spelling" },
         };
         return rows;
     }

@@ -7,19 +7,18 @@
 // mip chain and the chain had to be in the file before a block format could exist at all. It is, since
 // v1 of the container. This file is the step that finally puts blocks in it.
 //
-// ── TWO FORMATS, AND WHY NOT FOUR ────────────────────────────────────────────────────────────────
+// ── FOUR FORMATS, AND WHERE THE CHOICE BETWEEN THEM IS MADE ─────────────────────────────────────
 //
 // `Docs/Textures/T1_BCN_MEASUREMENT.md` names four and its rules are binding: BC5 for normals and
 // NEVER BC7 on them (52.51 dB against 46.48, and BC5 encodes 106x faster on the same image); BC4 for
 // single-channel masks; nothing block-compressed for noise (29.29 dB, the one substitution that was
-// visible in a frame). Every one of those three rules needs to know WHAT A TEXTURE IS FOR, and the
-// tree has no field that says so — `TextureAsset::Type` was deleted precisely because nobody assigned
-// it, and the only surviving signal is the material slot name, which lives in the material and can
-// differ between two materials using one texture. That field is step 3 of the plan and it is OPEN.
+// visible in a frame). Every one of those three rules needs to know WHAT A TEXTURE IS FOR, and until
+// `Core/Formats/TextureIntent.hpp` there was no field that said so — this file carried two formats for
+// exactly that reason, and the missing half was never the encoder.
 //
-// So this file encodes the two formats whose choice follows from something the cook already knows —
-// whether the source decodes as HDR — and the policy that selects them lives at the call sites, where
-// the answer is known, rather than here.
+// THE POLICY IS STILL NOT HERE. It is `BlockPolicyForIntent`, one pure function of the authored intent
+// and the source format, and this file knows only how to turn pixels into blocks. That split is what
+// lets the rules be tested without an importer and the encoders be measured without an opinion.
 //
 // ── QUALITY IS MEASURED IN THIS REPOSITORY, NOT QUOTED FROM A REFERENCE ENCODER ──────────────────
 //
@@ -28,6 +27,11 @@
 // MODE 11 only (one subset, 10-bit absolute endpoints) out of fourteen. A partitioned mode helps a
 // block that straddles an edge between two materially different colours, and neither of these will
 // find that. What they DO is chosen for what this project stores: smooth colour and smooth radiance.
+//
+// BC4 IS THE EXCEPTION AND IS IMPLEMENTED WHOLE: the format has no modes, both of its palette shapes
+// are here, and BC5 is literally two of its blocks. That is not this file being more careful about one
+// format — it is the format being small enough that "a subset of it" would have been more code than
+// all of it.
 //
 // The numbers are in `Desert/Tests/Engine/BlockCompression`, measured over this tree's own images,
 // and the suite FAILS if they regress. Claims about "BC7 quality" taken from a table elsewhere describe
@@ -50,13 +54,24 @@
 
 namespace Desert::Core::Formats
 {
-    /// THE BLOCK FORMAT A SOURCE FORMAT ENCODES INTO, or `ImageFormat::Count` for "this one does not".
+    /// THE BLOCK FORMAT A SOURCE FORMAT ENCODES INTO WHEN NOBODY SAID OTHERWISE, or `ImageFormat::Count`
+    /// for "this one does not".
     ///
     /// It is a function of the SOURCE's numeric range and nothing else — RGBA8 is LDR colour and becomes
-    /// BC7, RGBA32F is radiance and becomes BC6H — and that is the whole of what the cook can currently
-    /// derive. It is deliberately NOT a policy: whether a given texture SHOULD be compressed at all is a
-    /// different question with a different (and missing) owner, and it is asked at the call site.
+    /// BC7, RGBA32F is radiance and becomes BC6H — and that is the whole of what the cook can derive
+    /// without being told. It is the DEFAULT, not the policy: `TextureIntent.hpp`'s
+    /// `BlockPolicyForIntent` is what an author's answer goes through, and this is what the cook falls
+    /// back to when there is no author's answer to go through it.
     [[nodiscard]] ImageFormat BlockFormatFor( ImageFormat sourceFormat );
+
+    /// THE UNCOMPRESSED FORMAT A BLOCK FORMAT IS ENCODED FROM AND DECODES BACK TO, or
+    /// `ImageFormat::Count` when the argument is not a block format at all.
+    ///
+    /// IT IS NOT THE INVERSE OF `BlockFormatFor` AND MUST NOT BE WRITTEN AS ONE. Three block formats
+    /// are encoded from RGBA8, so the forward relation stopped being a bijection the day the authored
+    /// field arrived; this direction is still single-valued, which is why it is the one both entry
+    /// points below check their arguments with.
+    [[nodiscard]] ImageFormat SourceFormatFor( ImageFormat blockFormat );
 
     /// Encode one tightly-packed image. @p source holds exactly
     /// `CalculateImageSize(width, height, sourceFormat)` bytes; what comes back holds exactly

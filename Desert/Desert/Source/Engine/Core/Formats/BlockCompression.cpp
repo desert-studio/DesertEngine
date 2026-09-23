@@ -2,6 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+// `std::abs( int )` is declared here and NOT by <cmath>, which carries only the floating-point
+// overloads. libc++ drags it in anyway; MSVC does not, and the Windows-only defect register already
+// holds two entries of exactly this shape (<algorithm> for std::clamp, twice).
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 
@@ -667,6 +671,99 @@ namespace Desert::Core::Formats
                     texels[t][c] = FinishUnquantize( Interpolate( low[c], high[c], kWeight4[indices[t]] ) );
         }
 
+        // ── BC4, AND THEREFORE BC5 ───────────────────────────────────────────────────────────────
+        //
+        // The simplest block in the family and the only one in this file that is written WHOLE rather
+        // than in one mode out of many: BC4 has no modes, only two endpoint bytes and sixteen 3-bit
+        // indices, and both of its palette shapes are implemented below. BC5 is not a second format
+        // here — it is two BC4 blocks, red then green, which is exactly what the specification says it
+        // is and why the encoder for it is four lines.
+        //
+        // THE DIVISIONS TRUNCATE, and that is the specification's arithmetic rather than a shortcut.
+        // `(6*r0 + 1*r1) / 7` is what a GPU computes; rounding to nearest here would produce a decoder
+        // that disagrees with hardware by one on most texels and a measurement that flattered the
+        // encoder by comparing it with the wrong reference.
+
+        /// The eight values a BC4 block's indices select. Which SHAPE depends on the order of the two
+        /// endpoints — this is the format's one branch, and getting it backwards would turn indices 6
+        /// and 7 from interpolants into the constants 0 and 255.
+        void Bc4Palette( const int red0, const int red1, int palette[8] )
+        {
+            palette[0] = red0;
+            palette[1] = red1;
+            if ( red0 > red1 )
+            {
+                // Eight interpolated values. The encoder always produces this shape, because it puts
+                // the block's maximum in red0 and its minimum in red1.
+                for ( int i = 1; i <= 6; ++i )
+                    palette[1 + i] = ( ( 7 - i ) * red0 + i * red1 ) / 7;
+            }
+            else
+            {
+                // Six interpolated values plus the two constants. A block whose two endpoints are
+                // EQUAL lands here, and it still decodes exactly: every interpolant of r0 with itself
+                // is r0, so index 0 is the right answer for every texel of a flat block.
+                for ( int i = 1; i <= 4; ++i )
+                    palette[1 + i] = ( ( 5 - i ) * red0 + i * red1 ) / 5;
+                palette[6] = 0;
+                palette[7] = 255;
+            }
+        }
+
+        /// One channel of sixteen texels into eight bytes.
+        void EncodeBc4Block( const int values[16], unsigned char* out )
+        {
+            int red0 = values[0];
+            int red1 = values[0];
+            for ( int t = 1; t < 16; ++t )
+            {
+                red0 = std::max( red0, values[t] );
+                red1 = std::min( red1, values[t] );
+            }
+
+            int palette[8];
+            Bc4Palette( red0, red1, palette );
+
+            // 48 bits of indices, three per texel, texel 0 at the least significant end. Assembled in
+            // a `uint64_t` and then written a byte at a time rather than through a cast, because the
+            // byte order of the FILE is fixed and the byte order of this host is not the place to take
+            // it from -- the same rule the container's header note states.
+            uint64_t indices = 0;
+            for ( int t = 0; t < 16; ++t )
+            {
+                int best     = 0;
+                int bestCost = std::abs( values[t] - palette[0] );
+                for ( int p = 1; p < 8; ++p )
+                {
+                    const int cost = std::abs( values[t] - palette[p] );
+                    if ( cost < bestCost )
+                    {
+                        bestCost = cost;
+                        best     = p;
+                    }
+                }
+                indices |= static_cast<uint64_t>( best ) << ( 3 * t );
+            }
+
+            out[0] = static_cast<unsigned char>( red0 );
+            out[1] = static_cast<unsigned char>( red1 );
+            for ( int b = 0; b < 6; ++b )
+                out[2 + b] = static_cast<unsigned char>( ( indices >> ( 8 * b ) ) & 0xFFu );
+        }
+
+        void DecodeBc4Block( const unsigned char* in, int values[16] )
+        {
+            int palette[8];
+            Bc4Palette( in[0], in[1], palette );
+
+            uint64_t indices = 0;
+            for ( int b = 0; b < 6; ++b )
+                indices |= static_cast<uint64_t>( in[2 + b] ) << ( 8 * b );
+
+            for ( int t = 0; t < 16; ++t )
+                values[t] = palette[( indices >> ( 3 * t ) ) & 0x7u];
+        }
+
         /// WHICH SOURCE TEXEL A BLOCK TEXEL COMES FROM, with the edge CLAMPED. A level whose extent is
         /// not a multiple of four has partial blocks along its right and bottom edge, and the texels
         /// outside the image still take part in the endpoint fit. Left at zero they would be black, and
@@ -694,6 +791,27 @@ namespace Desert::Core::Formats
         }
     }
 
+    ImageFormat SourceFormatFor( const ImageFormat blockFormat )
+    {
+        switch ( blockFormat )
+        {
+            // THREE BLOCK FORMATS ARE ENCODED FROM ONE SOURCE, which is why this relation had to stop
+            // being the inverse of `BlockFormatFor`. Until BC4 and BC5 existed there was exactly one
+            // block format per source format, and both entry points below asked
+            // `BlockFormatFor(source) == blockFormat` as their argument check. That question now has
+            // three right answers for RGBA8 and would have refused two of them; this is the direction
+            // of the relation that stays single-valued, so it is the one the checks ask.
+            case ImageFormat::BC7_UNORM:
+            case ImageFormat::BC5_UNORM:
+            case ImageFormat::BC4_UNORM:
+                return ImageFormat::RGBA8F;
+            case ImageFormat::BC6H_UFLOAT:
+                return ImageFormat::RGBA32F;
+            default:
+                return ImageFormat::Count; // not a block format at all
+        }
+    }
+
     Common::ResultStr<std::vector<unsigned char>>
     BlockCompressImage( const uint32_t width, const uint32_t height, const ImageFormat sourceFormat,
                         const ImageFormat blockFormat, const unsigned char* source, const std::size_t sourceBytes )
@@ -703,12 +821,13 @@ namespace Desert::Core::Formats
             return Common::MakeFormattedError<std::vector<unsigned char>>(
                  "a {}x{} image has no blocks to encode.", width, height );
         }
-        if ( BlockFormatFor( sourceFormat ) != blockFormat )
+        if ( SourceFormatFor( blockFormat ) != sourceFormat )
         {
             return Common::MakeFormattedError<std::vector<unsigned char>>(
-                 "format {} is not encoded into format {} by this engine; BlockFormatFor says {}.",
+                 "format {} is not encoded into format {} by this engine; format {} is encoded from "
+                 "format {}.",
                  static_cast<uint32_t>( sourceFormat ), static_cast<uint32_t>( blockFormat ),
-                 static_cast<uint32_t>( BlockFormatFor( sourceFormat ) ) );
+                 static_cast<uint32_t>( blockFormat ), static_cast<uint32_t>( SourceFormatFor( blockFormat ) ) );
         }
 
         const uint64_t expected = CalculateImageSize( width, height, sourceFormat );
@@ -752,6 +871,30 @@ namespace Desert::Core::Formats
                     }
                     EncodeBc7Block( texels, block );
                 }
+                else if ( blockFormat == ImageFormat::BC4_UNORM || blockFormat == ImageFormat::BC5_UNORM )
+                {
+                    // ONE LOOP FOR BOTH, over the channels the format promises to keep. BC5's two
+                    // 8-byte halves are the red plane and then the green plane, so the channel index
+                    // and the half index are THE SAME NUMBER -- writing them as two hand-unrolled
+                    // calls is how the green plane ends up encoding red on the day somebody edits one
+                    // of them.
+                    const uint32_t channels = PreservedChannelCount( blockFormat );
+                    for ( uint32_t c = 0; c < channels; ++c )
+                    {
+                        int values[16];
+                        for ( uint32_t y = 0; y < 4; ++y )
+                        {
+                            for ( uint32_t x = 0; x < 4; ++x )
+                            {
+                                const uint32_t sx = ClampedIndex( bx * 4 + x, width );
+                                const uint32_t sy = ClampedIndex( by * 4 + y, height );
+                                const auto* rgba  = source + ( static_cast<std::size_t>( sy ) * width + sx ) * 4u;
+                                values[y * 4 + x] = rgba[c];
+                            }
+                        }
+                        EncodeBc4Block( values, block + c * 8u );
+                    }
+                }
                 else
                 {
                     int texels[16][3];
@@ -785,12 +928,12 @@ namespace Desert::Core::Formats
             return Common::MakeFormattedError<std::vector<unsigned char>>(
                  "a {}x{} image has no blocks to decode.", width, height );
         }
-        if ( BlockFormatFor( destFormat ) != blockFormat )
+        if ( SourceFormatFor( blockFormat ) != destFormat )
         {
             return Common::MakeFormattedError<std::vector<unsigned char>>(
-                 "format {} does not decode into format {}; BlockFormatFor says {} encodes into {}.",
+                 "format {} does not decode into format {}; it decodes into format {}.",
                  static_cast<uint32_t>( blockFormat ), static_cast<uint32_t>( destFormat ),
-                 static_cast<uint32_t>( destFormat ), static_cast<uint32_t>( BlockFormatFor( destFormat ) ) );
+                 static_cast<uint32_t>( SourceFormatFor( blockFormat ) ) );
         }
 
         const uint64_t expected = CalculateImageSize( width, height, blockFormat );
@@ -830,6 +973,38 @@ namespace Desert::Core::Formats
                             auto* rgba = out.data() + ( static_cast<std::size_t>( dy ) * width + dx ) * 4u;
                             for ( int c = 0; c < 4; ++c )
                                 rgba[c] = static_cast<unsigned char>( texels[y * 4 + x][c] );
+                        }
+                    }
+                }
+                else if ( blockFormat == ImageFormat::BC4_UNORM || blockFormat == ImageFormat::BC5_UNORM )
+                {
+                    // WHAT A SAMPLER RETURNS, AND NOT WHAT WAS PUT IN. The channels this format does
+                    // not carry come back as 0, 0, 1 from the hardware — that is the whole reason a
+                    // shader reading `.rgb` off a BC5 normal map gets a Z of minus one — so the
+                    // decoder writes zeros and an opaque alpha rather than leaving the destination's
+                    // previous contents or copying the source's. The measurement then compares only
+                    // `PreservedChannelCount` channels, which is the promise these zeros are the other
+                    // half of.
+                    const uint32_t channels = PreservedChannelCount( blockFormat );
+                    int            planes[2][16];
+                    for ( uint32_t c = 0; c < channels; ++c )
+                        DecodeBc4Block( block + c * 8u, planes[c] );
+
+                    for ( uint32_t y = 0; y < 4; ++y )
+                    {
+                        for ( uint32_t x = 0; x < 4; ++x )
+                        {
+                            const uint32_t dx = bx * 4 + x;
+                            const uint32_t dy = by * 4 + y;
+                            if ( dx >= width || dy >= height )
+                                continue;
+                            auto* rgba = out.data() + ( static_cast<std::size_t>( dy ) * width + dx ) * 4u;
+                            for ( uint32_t c = 0; c < 3; ++c )
+                            {
+                                rgba[c] = c < channels ? static_cast<unsigned char>( planes[c][y * 4 + x] )
+                                                       : static_cast<unsigned char>( 0 );
+                            }
+                            rgba[3] = 255;
                         }
                     }
                 }

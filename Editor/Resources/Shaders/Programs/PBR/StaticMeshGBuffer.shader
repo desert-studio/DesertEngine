@@ -113,6 +113,7 @@ Shader "StaticMeshGBuffer"
         // names one surface, and a reader comparing two of them should see the albedo map at the same
         // binding in both. A sparse set is not a problem for Vulkan, and the gaps are the record of what
         // this pass does NOT need.
+        #include <Common/TangentNormal.glslh>
         Uniform(11) sampler2D  u_AlbedoTexture;
         Uniform(12) sampler2D  u_NormalTexture;
         Uniform(18) sampler2D  u_OpacityTexture;
@@ -136,7 +137,7 @@ Shader "StaticMeshGBuffer"
         	const ivec2 nrmSize = textureSize(u_NormalTexture, 0);
         	if (nrmSize.x > 1 && nrmSize.y > 1)
         	{
-        		vec3 tangentNormal = normalize(2.0 * texture(u_NormalTexture, uv).rgb - 1.0);
+        		vec3 tangentNormal = SampleTangentNormal(u_NormalTexture, uv);
         		N = normalize(inVertex.TBN * tangentNormal);
         	}
 

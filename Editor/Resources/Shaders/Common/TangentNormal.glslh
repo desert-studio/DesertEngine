@@ -1,0 +1,44 @@
+// HOW A TANGENT-SPACE NORMAL IS READ OUT OF A TEXTURE, in one place for every shader that reads one.
+//
+// WHY THIS FILE EXISTS. `Core/Formats/TextureIntent.hpp` lets an artist mark a texture as a normal map,
+// and `Docs/Textures/T1_BCN_MEASUREMENT.md` then binds the cook to BC5 for one — 52.51 dB against BC7's
+// 46.48 on this project's own normal map, at a hundredth of the encode time. BC5 stores TWO channels.
+// A sampler returns `VK_FORMAT_BC5_UNORM_BLOCK` as (X, Y, 0, 1), so the line every mesh shader used to
+// carry —
+//
+//     vec3 tangentNormal = normalize(2.0 * texture(u_NormalTexture, uv).rgb - 1.0);
+//
+// — reads the missing blue as 0 and produces a Z of MINUS ONE for every texel: a surface lit from behind
+// itself, everywhere, with no error anywhere. Reconstructing Z is not an optimisation for BC5, it is
+// what makes the format mean anything.
+//
+// IT IS UNCONDITIONAL, AND THAT IS THE DECISION. A shader cannot ask what format its sampler holds, so
+// the alternative would be a material flag — a second thing to keep in step with the cook, set on the
+// material while the intent lives on the texture, and wrong the first time one texture is used by two
+// materials. Reconstruction is instead correct for BOTH kinds: a tangent-space normal is a UNIT vector
+// with a non-negative Z by construction, so `sqrt(1 - x*x - y*y)` recovers the stored Z of an RGBA8 map
+// to within its own quantisation, and recovers BC5's discarded one exactly as the format intends.
+//
+// WHAT IT COSTS ON AN RGBA8 MAP: the authored Z is ignored. For a unit-length map that is a no-op within
+// rounding. For a map whose normals are NOT unit length — a deliberately flattened or exaggerated one —
+// the reconstruction renormalises it, which is what `normalize` two lines later did anyway.
+//
+// NO COMMITTED SCENE IN THIS REPOSITORY BINDS A NORMAL MAP (2026-09-23: one material,
+// `Materials/base_basic_pbr/model.demat`, names `u_NormalTexture`, and no `.desce` references it), so
+// this change moves ZERO pixels in every scene we have — and, by the same token, no frame here can
+// witness it either. That is stated rather than glossed: the arithmetic below is pinned by the census in
+// `Desert/Tests/Engine/ShippedShaderPasses`, and the first scene that draws a normal-mapped surface is
+// what will confirm it.
+
+// The tangent-space normal a normal map holds at @p uv, ready for the TBN multiply.
+//
+// `max(0, ...)` GUARDS THE ROOT rather than trusting the data: a texel whose X and Y leave the unit disc
+// — a compression artifact at a steep edge, or an authored map that was never unit length — would
+// otherwise take the square root of a negative number, which is undefined and on some drivers is a NaN
+// that propagates through the whole lighting term.
+vec3 SampleTangentNormal(sampler2D normalMap, vec2 uv)
+{
+	vec2 xy = 2.0 * texture(normalMap, uv).rg - 1.0;
+	float z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
+	return normalize(vec3(xy, z));
+}

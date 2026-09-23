@@ -38,13 +38,12 @@ namespace Desert::Core::Formats
         // terms of `GetTexelBlock`, and `GetBytesPerPixel` REFUSES these two rather than answering
         // four or some other number that would multiply plausibly and be wrong.
         //
-        // WHY EXACTLY TWO, when `Docs/Textures/T1_BCN_MEASUREMENT.md` names four. An enumerator with no
-        // producer is a dead knob: BC5 and BC4 are the right answers for normals and single-channel
-        // masks, and the thing that is missing for both is not an encoder, it is the AUTHORED FIELD
-        // that says which slot a texture is for (`Docs/Textures/T3_FORMAT_PLAN.md` step 3, which is
-        // still open). Adding their enumerators today would add two formats nothing can ever select.
-        // The two below are the two that CAN be selected from what the cook already knows: the source
-        // is HDR or it is not.
+        // THERE ARE FOUR NOW, AND THE FOURTH ARRIVED WITH ITS SELECTOR. This list carried exactly two
+        // for as long as nothing could say what a texture was FOR: an enumerator with no producer is a
+        // dead knob, and BC5 and BC4 are answers to a question — "is this a normal map, is this one
+        // channel" — that no measurement over pixels can ask. `Core/Formats/TextureIntent.hpp` is that
+        // question's authored answer, and `BlockPolicyForIntent` is the one place that turns it into
+        // one of the two enumerators below. Neither was added before it existed.
 
         /// `VK_FORMAT_BC7_UNORM_BLOCK`. LDR colour, 4x4 texels in 16 bytes — a quarter of RGBA8.
         /// NEVER FOR NORMAL MAPS: measured on this project's own normal map, BC7 gives 46.48 dB against
@@ -59,6 +58,21 @@ namespace Desert::Core::Formats
         /// radiance is non-negative, and the signed variant is a different VkFormat with a different
         /// endpoint transform, so the choice is in the enumerator's name rather than in a flag.
         BC6H_UFLOAT,
+
+        /// `VK_FORMAT_BC4_UNORM_BLOCK`. ONE channel, 4x4 texels in EIGHT bytes — half of every other
+        /// block in this table, and the reason `TexelBlock` carries a byte count per format rather than
+        /// a single "a block is sixteen bytes" that three of the four would have agreed with. An eighth
+        /// of RGBA8. A sampler returns it as (R, 0, 0, 1), so the channels beyond the first are not
+        /// merely degraded, they are GONE: this is `TextureIntent::Mask` and nothing else.
+        BC4_UNORM,
+
+        /// `VK_FORMAT_BC5_UNORM_BLOCK`. TWO channels — two BC4 blocks side by side, 4x4 texels in 16
+        /// bytes, a half of RGBA8. It is the tangent-space normal format: X and Y are stored and Z is
+        /// reconstructed by the shader as `sqrt(1 - x*x - y*y)`, which a unit-length tangent normal
+        /// satisfies by construction. A sampler returns (R, G, 0, 1), so a shader that read `.rgb` and
+        /// did `2*n - 1` would get a Z of -1 everywhere; the reconstruction is not an optimisation,
+        /// it is what makes the format mean anything.
+        BC5_UNORM,
 
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
@@ -149,14 +163,19 @@ namespace Desert::Core::Formats
                 return { 1, 1, 4 }; // 24-bit depth + 8-bit stencil, packed into one 32-bit texel
             case ImageFormat::DEPTH32F:
                 return { 1, 1, 4 };
-            // Both BC formats in this engine are the same shape: sixteen texels in sixteen bytes, one
-            // bit per texel per channel-ish. The number is written here and NOWHERE ELSE — a second
-            // copy of it is the `kSkyEnvBytesPerPixel = 16` defect wearing a block's clothes, and the
-            // census has a gate for exactly that shape.
+            // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
+            // number is a column of this table and not a constant beside it. The comment here used to
+            // say "both BC formats in this engine are the same shape"; BC4 made that sentence false,
+            // and a `kBytesPerBlock = 16` written anywhere would have stayed true-looking and been
+            // wrong for a quarter of the table. The census has a gate for exactly that shape.
             case ImageFormat::BC7_UNORM:
                 return { 4, 4, 16 };
             case ImageFormat::BC6H_UFLOAT:
                 return { 4, 4, 16 };
+            case ImageFormat::BC4_UNORM:
+                return { 4, 4, 8 }; // one channel: two 8-bit endpoints and sixteen 3-bit indices
+            case ImageFormat::BC5_UNORM:
+                return { 4, 4, 16 }; // two channels: two BC4 blocks, red then green
             case ImageFormat::Count:
                 break; // the sentinel is not a format — fall through to the error path below
         }
@@ -173,6 +192,46 @@ namespace Desert::Core::Formats
     {
         const TexelBlock block = GetTexelBlock( format );
         return block.Width > 1 || block.Height > 1;
+    }
+
+    /// HOW MANY CHANNELS SURVIVE THIS FORMAT, counted from red. Four for every uncompressed format in
+    /// this table and for BC7; three for BC6H, which has no alpha; two for BC5 and one for BC4.
+    ///
+    /// IT EXISTS BECAUSE THE MEASUREMENT NEEDED IT AND WOULD OTHERWISE HAVE LIED. The cook grades a
+    /// block encode by decoding it and comparing with the image it came from. Compared over all four
+    /// channels, a correct BC4 encode of an opacity mask scores near zero decibels — the green, blue
+    /// and alpha it was never asked to keep are all wrong — so the gate would refuse every format
+    /// narrower than the source and the authored intent could never take effect. The comparison has to
+    /// know what the format PROMISED, and this is that promise in one place rather than at each site
+    /// that grades or decodes.
+    constexpr uint32_t PreservedChannelCount( ImageFormat format )
+    {
+        switch ( format )
+        {
+            case ImageFormat::RGBA8F:
+            case ImageFormat::RGBA16F:
+            case ImageFormat::RGBA32F:
+            case ImageFormat::BGRA8F:
+            case ImageFormat::BC7_UNORM:
+                return 4;
+            // A depth or depth+stencil image is not sampled as colour channels at all; one is the
+            // honest answer and the alternative is a zero that would multiply into an empty buffer.
+            case ImageFormat::DEPTH24STENCIL8:
+            case ImageFormat::DEPTH32F:
+                return 1;
+            case ImageFormat::BC6H_UFLOAT:
+                return 3; // radiance; the format has no alpha at all
+            case ImageFormat::BC5_UNORM:
+                return 2; // X and Y of a tangent normal; Z is reconstructed by the shader
+            case ImageFormat::BC4_UNORM:
+                return 1;
+            case ImageFormat::Count:
+                break; // the sentinel is not a format — fall through to the error path below
+        }
+
+        LOG_ERROR( "PreservedChannelCount: ImageFormat value {} is outside the enumeration",
+                   static_cast<uint32_t>( format ) );
+        DESERT_VERIFY( false, "ImageFormat outside the enumeration" );
     }
 
     /// How many whole blocks a row of @p width texels occupies. ROUNDED UP: a level three texels wide
@@ -237,6 +296,8 @@ namespace Desert::Core::Formats
             case ImageFormat::BGRA8F:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:
+            case ImageFormat::BC4_UNORM:
+            case ImageFormat::BC5_UNORM:
                 return ImageAspect_Colour;
             // A packed depth+stencil image has BOTH planes, and a barrier that names only DEPTH is a
             // VUID-VkImageMemoryBarrier-image-03319 violation. This is exactly what stopped the scene
@@ -275,6 +336,11 @@ namespace Desert::Core::Formats
                     return false;
                 if ( GetImageAspect( format ) == 0 )
                     return false;
+                // A format that preserved no channel would size a comparison over nothing and grade
+                // every encode as perfect. Asked for every enumerator, so a format added without a
+                // case falls off the end of a constexpr function here.
+                if ( PreservedChannelCount( format ) == 0 )
+                    return false;
 
                 // GetBytesPerPixel IS ASKED ONLY WHERE A PIXEL HAS A SIZE, and where it does, the two
                 // tables are made to AGREE here rather than merely both existing. A block format is
@@ -288,9 +354,9 @@ namespace Desert::Core::Formats
     } // namespace Detail
 
     static_assert( Detail::LookupsAreTotal(),
-                   "Every ImageFormat enumerator needs a case in GetTexelBlock and GetImageAspect, an "
-                   "uncompressed one needs a GetBytesPerPixel that AGREES with its block, and "
-                   "kImageFormatCount must count them all." );
+                   "Every ImageFormat enumerator needs a case in GetTexelBlock, GetImageAspect and "
+                   "PreservedChannelCount, an uncompressed one needs a GetBytesPerPixel that AGREES "
+                   "with its block, and kImageFormatCount must count them all." );
 
     // Byte size of a tightly-packed image. 64-bit because a volume is easy to size past 4 GiB, and a
     // silently truncated allocation size belongs to the same family of bugs as a zero bytes-per-pixel.

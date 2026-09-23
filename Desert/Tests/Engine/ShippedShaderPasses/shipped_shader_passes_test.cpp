@@ -405,6 +405,57 @@ namespace
     }
 } // namespace
 
+// ── A NORMAL MAP IS READ IN EXACTLY ONE WAY ───────────────────────────────────────────────────────
+//
+// An artist can now mark a texture `NormalMap` (`Core/Formats/TextureIntent.hpp`), and the cook then
+// stores it as BC5 — two channels. A sampler returns BC5 as (X, Y, 0, 1), so a shader that reads `.rgb`
+// and re-centres it gets a Z of MINUS ONE everywhere: every lit surface wrong, no error anywhere, and
+// only on the textures somebody took the trouble to classify.
+//
+// `Common/TangentNormal.glslh` reconstructs Z and is the only correct reading. This census is what stops
+// a sixth shader being written with the old line, or one of the five being edited back — which is a
+// realistic mistake, because the old line is what every reference on the internet says and it is right
+// for every format except the one the cook now produces.
+//
+// IT IS A CENSUS AND NOT A FRAME, and the reason is worth writing down: no `.desce` in this repository
+// binds a normal map at all (one material names `u_NormalTexture` and no scene references it), so there
+// is no shot that would go red if this were wrong. The first scene that draws a normal-mapped surface is
+// what will confirm the arithmetic; until then this holds the SHAPE.
+TEST( ShippedShaderPasses, EveryShaderThatReadsANormalMapGoesThroughTheSharedReconstruction )
+{
+    ASSERT_FALSE( ShippedShaders().empty() );
+
+    int readers = 0;
+    for ( const ParsedShader& shader : ShippedShaders() )
+    {
+        const std::string text = ReadFile( shader.File );
+        if ( text.find( "u_NormalTexture" ) == std::string::npos )
+            continue;
+        ++readers;
+
+        EXPECT_NE( text.find( "#include <Common/TangentNormal.glslh>" ), std::string::npos )
+             << shader.File.filename().string()
+             << " samples a normal map without including the shared reconstruction";
+        EXPECT_NE( text.find( "SampleTangentNormal(u_NormalTexture" ), std::string::npos )
+             << shader.File.filename().string() << " does not read its normal map through "
+             << "SampleTangentNormal; a BC5 normal map decodes to a Z of -1 through any other reading";
+
+        // THE OLD SPELLING, BY NAME. `.rgb` off a normal-map sampler is the defect, whatever the
+        // arithmetic around it looks like, because the third channel is not there to read.
+        const std::size_t sampled = text.find( "texture(u_NormalTexture" );
+        EXPECT_EQ( sampled, std::string::npos )
+             << shader.File.filename().string()
+             << " samples u_NormalTexture directly instead of through SampleTangentNormal";
+    }
+
+    // DERIVED, AND IT HAS TO BE NON-ZERO. A census over a set that turned out to be empty passes
+    // silently, and this one would the day somebody renamed the uniform.
+    EXPECT_GT( readers, 0 ) << "no shipped shader reads a normal map any more — either the uniform was "
+                               "renamed, or this census is looking at the wrong tree";
+    std::cout << "[  CENSUS  ] " << readers << " shipped shader(s) read a normal map, all through "
+              << "Common/TangentNormal.glslh\n";
+}
+
 TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )
 {
     int filesWithProseKeywords = 0;
