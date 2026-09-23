@@ -26,11 +26,24 @@
 // what it is doing right now and answers nullopt when it is not on any preset, so the toolbar can say
 // "Ortho" or "Perspective" truthfully instead of "Top" falsely.
 
-#include <Engine/Core/Camera.hpp>
+// NO <Engine/Core/Camera.hpp> HERE, ON PURPOSE. That header reaches Application.hpp and most of the
+// engine with it, and the rule this file states — "which named angle is a direction on" — needs none of
+// that. Forward declarations keep the rule reachable from a suite that links no graphics at all, which
+// is how `Tests/Editor/ViewportCameraPreset` can assert it. The camera-facing entry points below are
+// still declared here and still defined in the .cpp, where the full camera is available.
+#include <Engine/Core/CameraPitchLimit.hpp>
+
+#include <glm/glm.hpp>
 
 #include <array>
 #include <cstddef>
 #include <optional>
+
+namespace Desert::Core
+{
+    class EditorCamera;
+    enum class ProjectionType : int;
+} // namespace Desert::Core
 
 namespace Desert::Editor
 {
@@ -96,11 +109,54 @@ namespace Desert::Editor
     // user has since orbited off-axis). A perspective camera is always Perspective: that is what UE's
     // perspective viewport means, and it is the one preset that constrains no direction.
     //
-    // @p toleranceDegrees is how far off-axis still counts. Half a degree: far below anything a mouse
-    // drag produces, so orbiting by one pixel drops the label, and far above the float error that
-    // SnapToDirection's asin/atan2 round trip leaves behind.
+    // HOW FAR OFF-AXIS STILL COUNTS, and the number is NOT a taste — it is DERIVED from the camera,
+    // which cannot hold Top or Bottom at all. `EditorCamera::OnUpdate` clamps pitch to ±89° on every
+    // frame (Engine/Core/CameraPitchLimit.hpp) because glm::lookAt degenerates when the forward
+    // direction is parallel to the up vector, so a camera that has just been put on Top settles ONE FULL
+    // DEGREE off straight-down and stays there.
+    //
+    // A hand-written 0.5° stood here, and it meant the two views a four-up grid exists for were the only
+    // two that could never name themselves: both said "Ortho" from the moment the grid opened, which is
+    // precisely the failure the header of this file claims to be avoiding. The margin is the clamp's own
+    // miss plus half a degree of slack, spelled as an expression over the clamp so widening one moves the
+    // other — a second literal agreeing with the first is what produced the defect.
+    //
+    // THE RESIDUAL TILT IS REAL AND IS NOT FIXED HERE. A plan view one degree off is still not a plan;
+    // making the camera hold ±90° means giving UpdateCameraView a second up vector at the poles, which
+    // changes orbiting in every viewport in the editor and is not this panel's call to make.
+    inline constexpr float kPresetToleranceDegrees = ::Desert::Core::kCameraPitchClampMissDegrees + 0.5f;
+
+    // THE RULE ITSELF, over a direction rather than a camera, so it can be asked a question without a
+    // window, a device or an Input singleton. @p orthographic is the camera's projection: a perspective
+    // camera is always Perspective, which is what UE's perspective viewport means and the one preset
+    // that constrains no direction.
+    [[nodiscard]] inline std::optional<ViewportCameraPreset>
+    PresetOfDirection( const glm::vec3& forward, bool orthographic,
+                       float toleranceDegrees = kPresetToleranceDegrees )
+    {
+        if ( !orthographic )
+            return ViewportCameraPreset::Perspective;
+        if ( glm::length( forward ) < 1e-5f )
+            return std::nullopt;
+        const glm::vec3 f = glm::normalize( forward );
+
+        // Compared by the ANGLE between the two directions, not component by component: a per-component
+        // epsilon has a different meaning near an axis than away from one, and the caller's tolerance is
+        // stated in degrees because that is the unit a person can reason about.
+        const float cosLimit = glm::cos( glm::radians( toleranceDegrees ) );
+        for ( const ViewportCameraPresetRow& row : kViewportCameraPresets )
+        {
+            if ( !row.Orthographic )
+                continue; // Perspective is answered above and constrains no direction
+            if ( glm::dot( f, glm::vec3( row.ForwardX, row.ForwardY, row.ForwardZ ) ) >= cosLimit )
+                return row.Preset;
+        }
+        return std::nullopt;
+    }
+
+    // The same question asked of a live camera.
     [[nodiscard]] std::optional<ViewportCameraPreset>
-    PresetOfCamera( const ::Desert::Core::EditorCamera& camera, float toleranceDegrees = 0.5f );
+    PresetOfCamera( const ::Desert::Core::EditorCamera& camera, float toleranceDegrees = kPresetToleranceDegrees );
 
     // What the toolbar prints when PresetOfCamera finds nothing: the projection, which is still true.
     [[nodiscard]] const char* ViewportCameraPresetLabel( const ::Desert::Core::EditorCamera& camera );

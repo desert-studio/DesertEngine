@@ -1,5 +1,9 @@
 #include "ViewportCameraPreset.hpp"
 
+// The header deliberately does NOT pull the camera in; this translation unit is where the full camera
+// is needed and where it is paid for.
+#include <Engine/Core/Camera.hpp>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
@@ -24,32 +28,24 @@ namespace Desert::Editor
         // halves, so a preset never shows as "ortho, still pointing the old way" for a frame.
         camera.SetProjectionType( row.Orthographic ? ::Desert::Core::ProjectionType::Orthographic
                                                    : ::Desert::Core::ProjectionType::Perspective );
+        // WHAT IS ASKED FOR AND WHAT IS HELD ARE NOT THE SAME THING FOR TOP AND BOTTOM. SnapToDirection
+        // writes pitch = ±90°, and the camera's own OnUpdate clamps it back to ±89° on the very next
+        // frame (Camera.cpp, kMaxPitch) — so those two views settle one degree off the axis they name.
+        // PresetOfCamera's tolerance is sized from that clamp, and the header says why it is not fixed
+        // by widening the clamp.
         camera.SnapToDirection( ForwardOf( row ) );
     }
 
     std::optional<ViewportCameraPreset> PresetOfCamera( const ::Desert::Core::EditorCamera& camera,
                                                         float toleranceDegrees )
     {
-        if ( camera.GetProjectionType() == ::Desert::Core::ProjectionType::Perspective )
-            return ViewportCameraPreset::Perspective;
-
-        const glm::vec3 forward = camera.GetDirection();
-        if ( glm::length( forward ) < 1e-5f )
-            return std::nullopt;
-        const glm::vec3 f = glm::normalize( forward );
-
-        // Compared by the ANGLE between the two directions, not component by component: a per-component
-        // epsilon has a different meaning near an axis than away from one, and the caller's tolerance is
-        // stated in degrees because that is the unit a person can reason about.
-        const float cosLimit = std::cos( glm::radians( toleranceDegrees ) );
-        for ( const ViewportCameraPresetRow& row : kViewportCameraPresets )
-        {
-            if ( !row.Orthographic )
-                continue; // Perspective is answered above and constrains no direction
-            if ( glm::dot( f, ForwardOf( row ) ) >= cosLimit )
-                return row.Preset;
-        }
-        return std::nullopt;
+        // ONE IMPLEMENTATION, IN THE HEADER, asked here with what the camera happens to be doing. The
+        // comparison used to live in this function, where no suite could reach it without a window and a
+        // device — and the tolerance it carried was wrong for two of the seven presets for exactly as
+        // long as that was true.
+        return PresetOfDirection( camera.GetDirection(),
+                                  camera.GetProjectionType() == ::Desert::Core::ProjectionType::Orthographic,
+                                  toleranceDegrees );
     }
 
     const char* ViewportCameraPresetLabel( const ::Desert::Core::EditorCamera& camera )

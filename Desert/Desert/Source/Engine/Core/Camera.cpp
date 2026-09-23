@@ -1,4 +1,5 @@
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Core/CameraPitchLimit.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Core/Projection.hpp>
@@ -255,8 +256,11 @@ namespace Desert::Core
 
         // Clamp pitch BEFORE computing the view matrix — exceeding ±90° makes the lookAt target parallel to
         // the up vector, producing a degenerate matrix that collapses all vertices to one clip position.
-        static constexpr float kMaxPitch = glm::radians( 89.0f );
-        m_Pitch = glm::clamp( m_Pitch, -kMaxPitch, kMaxPitch );
+        //
+        // THE LIMIT IS NAMED IN ITS OWN HEADER, and not because this line needed tidying: it also decides
+        // how far off-axis a camera put on the Top or Bottom viewport preset ends up, and the code that
+        // has to recognise that camera was carrying its own copy of the number. Read CameraPitchLimit.hpp.
+        m_Pitch = glm::clamp( m_Pitch, -kMaxCameraPitch, kMaxCameraPitch );
 
         if ( m_Flying )
         {

@@ -144,3 +144,12 @@ TEST( GizmoIconSet, TheLicenceIsStillBesideTheArtwork )
     ASSERT_TRUE( fs::exists( licence ) ) << "the Phosphor MIT licence is missing from " << licence;
     EXPECT_GT( fs::file_size( licence ), 0u ) << licence << " is empty";
 }
+
+// The suites here link gtest WITHOUT gtest_main (Desert/Dependencies.lua lists only `gtest`), so
+// every one of them owns its entry point. This file did not, and nothing could say so until the
+// makefile existed: the link failed with `_main` undefined the first time it was generated.
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
