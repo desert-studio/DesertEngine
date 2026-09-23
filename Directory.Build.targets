@@ -1,0 +1,35 @@
+<!--
+  The second half of the MSVC compiler cache wiring; the first half, and why it lives in MSBuild
+  rather than premake, is in Directory.Build.props. INERT unless DESERT_MSVC_CCACHE is set.
+
+  /Zi AND /ZI ARE UNCACHEABLE, /Z7 IS NOT. /Zi (Release: premake writes no DebugInformationFormat
+  there, so MSBuild's default applies) and /ZI (Debug: premake's `symbols "On"` becomes
+  EditAndContinue) both have every compiler of a project write into ONE shared vc143.pdb through
+  mspdbsrv -- state outside the object file, which no cache can replay, and ccache counts such a
+  compile as "unsupported compiler option" and passes it through. /Z7 keeps the same debug information
+  inside the .obj, and the linker still produces the executable's .pdb from it; nothing a developer
+  reads in a debugger is lost. premake's `debugformat "c7"` would say the same thing, but only for
+  configurations with `symbols "On"`, and Release has none -- the default /Zi there is out of its reach.
+
+  `None` (Shipping) is left alone: it generates no debug information, and turning it INTO /Z7 would
+  change what the Shipping leg proves.
+
+  This is an ItemDefinitionGroup in a .targets file on purpose: MSBuild imports Directory.Build.targets
+  after the project body, so these definitions win over the per-configuration ones premake wrote;
+  explicit per-file metadata, if a project ever sets any, still wins over both.
+-->
+<Project>
+  <ItemDefinitionGroup Condition="'$(DESERT_MSVC_CCACHE)' != ''">
+    <ClCompile>
+      <DebugInformationFormat Condition="'%(ClCompile.DebugInformationFormat)' != 'None'">OldStyle</DebugInformationFormat>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <!-- A switch that is set but points at nothing must not quietly build without the cache: MSBuild
+       would fail later with a bare "cl.exe not found", or -- worse -- a stale directory would hold a
+       binary that is not ccache at all. Say which it is, before the first compile. -->
+  <Target Name="DesertCheckMsvcCcache" BeforeTargets="ClCompile" Condition="'$(DESERT_MSVC_CCACHE)' != ''">
+    <Error Condition="!Exists('$(DESERT_MSVC_CCACHE)\cl.exe')"
+           Text="DESERT_MSVC_CCACHE is set to '$(DESERT_MSVC_CCACHE)', but there is no cl.exe (a copy of ccache.exe) in it. Unset the variable to build without the cache." />
+  </Target>
+</Project>

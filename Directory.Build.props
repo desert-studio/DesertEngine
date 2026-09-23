@@ -1,0 +1,45 @@
+<!--
+  MSVC compiler cache wiring. INERT unless DESERT_MSVC_CCACHE is set, so a developer's Visual Studio
+  build is exactly what premake generated; CI's Windows job is what sets it (.github/workflows/ci.yml).
+
+  WHY HERE AND NOT IN PREMAKE. premake 5.0-beta8 has no spelling for CLToolExe, CLToolPath,
+  UseMultiToolTask or TrackFileAccess, and the switch is a property of the MACHINE doing the build (is
+  a ccache binary installed, and where), not of the project. MSBuild imports this file into every
+  .vcxproj it finds below this directory -- all of them, since the workspace writes every project to
+  the repository root -- before Microsoft.Cpp.props, the same place CMake's VS generator puts these
+  properties when it is told to use ccache.
+
+  WHAT EACH PROPERTY IS FOR, because none of them is optional:
+
+  - CLToolExe / CLToolPath: MSBuild runs "$(CLToolPath)\$(CLToolExe)" instead of the real cl.exe. The
+    directory holds ccache.exe COPIED TO THE NAME cl.exe, so ccache runs in masquerade mode and finds
+    the real compiler on the PATH the C++ targets set up (skipping itself). Calling ccache.exe by its
+    own name is not possible: the CL task cannot put the compiler's path in front of its arguments.
+
+  - UseMultiToolTask: the default CL task hands EVERY source of a project to ONE cl.exe invocation,
+    and ccache refuses any invocation with more than one input file ("multiple source files") -- so
+    without this the cache would see nothing at all and report it only in its statistics. The
+    MultiToolTask runs one cl.exe per source instead. It is also the only intra-project parallelism
+    this build has: without it Common -> Desert -> Editor, the chain every Windows build ends on,
+    compiles on one core each (measured: Editor is the last 16 minutes of Windows Release, alone).
+
+  - EnforceProcessCountAcrossBuilds: `msbuild -m` already runs one project per core, and each of
+    those would now spawn one compiler per core too. This makes the MultiToolTasks of all nodes share
+    one machine-wide count instead of multiplying (see the -m x /MP note in BuildScripts/Workspace.lua).
+
+  - TrackFileAccess=false: file tracking injects a DLL into the compiler process tree to write .tlog
+    files for incremental builds. A CI build is always clean, and the tracker would be following
+    ccache's own cache writes as well.
+
+  The /Zi -> /Z7 half is in Directory.Build.targets: item metadata has to be overridden AFTER the
+  project's own ItemDefinitionGroups, which a .props file is imported before.
+-->
+<Project>
+  <PropertyGroup Condition="'$(DESERT_MSVC_CCACHE)' != ''">
+    <CLToolExe>cl.exe</CLToolExe>
+    <CLToolPath>$(DESERT_MSVC_CCACHE)</CLToolPath>
+    <UseMultiToolTask>true</UseMultiToolTask>
+    <EnforceProcessCountAcrossBuilds>true</EnforceProcessCountAcrossBuilds>
+    <TrackFileAccess>false</TrackFileAccess>
+  </PropertyGroup>
+</Project>
