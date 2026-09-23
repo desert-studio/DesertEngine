@@ -280,7 +280,7 @@ namespace Common::Profiling
 // nothing a pass total does not, and some of those scopes run hundreds of times a frame.
 #define DESERT_PROFILE_PASS( NAME )                                                                               \
     DESERT_PROFILE_SCOPE( NAME );                                                                                 \
-    ::Common::Profiling::GpuScopedTimer DESERT_PROF_CONCAT( _desertGpu_, __LINE__ )( NAME )
+    const ::Common::Profiling::GpuScopedTimer DESERT_PROF_CONCAT( _desertGpu_, __LINE__ )( NAME )
 
 // DESERT_PROFILE_PASS for a runtime name (the render graph's pass.Name). The const char* must outlive the
 // scope; unlike the CPU side the GPU sink also copies it, because it is read a frame or two later.

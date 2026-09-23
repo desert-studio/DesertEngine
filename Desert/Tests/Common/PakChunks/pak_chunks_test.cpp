@@ -174,6 +174,24 @@ namespace
     // is the census's real subject: those are exactly the files that have no registry row, so a
     // derivation-driven packer is at its most likely to drop them, and that is the defect this
     // repository has already shipped once.
+    // COOK-ONLY KINDS: a kind whose files are derived by the cook and deliberately NOT committed, so a
+    // clean clone carries none of them. `.tex` left the repository with T_Checker.tex (PK1); the same row
+    // lives in CookedRegistryGate, and what it certified is certified by PackagedContent's
+    // TheTexturesAPackageCarriesAreCookedInsideIt against a real cooked texture in a real archive.
+    //
+    // THEY ARE EXCLUDED FROM THE SAMPLE, NOT MERELY TOLERATED. A developer's own cook puts `.tex` files on
+    // disk; counting them when present made this census answer 17 on one machine and 16 on a clean clone
+    // (CI 35892590485 went red on all three platforms while the local sweep was green). One answer
+    // everywhere, or the instrument measures the machine.
+    constexpr const char* kCookOnlyKinds[] = { "Texture" };
+    constexpr std::size_t kCookOnlyKindCount = sizeof( kCookOnlyKinds ) / sizeof( kCookOnlyKinds[0] );
+
+    bool IsCookOnlyKind( const std::string& kind )
+    {
+        return std::any_of( std::begin( kCookOnlyKinds ), std::end( kCookOnlyKinds ),
+                            [&kind]( const char* row ) { return kind == row; } );
+    }
+
     std::vector<fs::path> OneOfEveryKindAndEveryOtherExtension( const std::vector<fs::path>&     tree,
                                                                 std::map<std::string, fs::path>& byKind )
     {
@@ -191,10 +209,13 @@ namespace
             std::string extension = file.extension().string();
             std::transform( extension.begin(), extension.end(), extension.begin(),
                             []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+            const auto kind = kindByExtension.find( extension );
+            if ( kind != kindByExtension.end() && IsCookOnlyKind( kind->second ) )
+                continue;
             if ( !extensionsTaken.insert( extension ).second )
                 continue;
             picked.push_back( file );
-            if ( const auto kind = kindByExtension.find( extension ); kind != kindByExtension.end() )
+            if ( kind != kindByExtension.end() )
                 byKind.emplace( kind->second, file );
         }
         return picked;
@@ -441,9 +462,9 @@ TEST( PakChunks, EveryFileOfEveryContentKindLandsInExactlyOneArchiveAndNoneInZer
     const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
 
     // EVERY KIND, NOT ONE. A round trip that exercised a single extension would prove nothing about
-    // the seventeen the engine actually enumerates.
-    ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT )
-         << "the tree no longer carries a file of every kind ContentKinds.hpp declares";
+    // every committed kind the engine enumerates.
+    ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount )
+         << "the tree no longer carries a file of every committed kind ContentKinds.hpp declares";
 
     // A chunk rooted at a real asset of the project, so the closure below is over real edges.
     const fs::path    materialFile = byKind.at( "Material" );
@@ -548,7 +569,7 @@ TEST( PakChunks, APatchOverridesBaseAndChunkAndTheSourceArchiveIsAnAnswerNotAnIn
     ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheCommittedRegistry( registry.GetValue(), tree ) );
     std::map<std::string, fs::path> byKind;
     const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
-    ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT );
+    ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount );
 
     const fs::path    materialFile = byKind.at( "Material" );
     const std::string materialKey  = Common::AssetHandle::StableKeyForPath( materialFile );
@@ -646,7 +667,7 @@ TEST( PakChunks, EveryContentKindSurvivesTheDivisionByteForByte )
     ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheCommittedRegistry( registry.GetValue(), tree ) );
     std::map<std::string, fs::path> byKind;
     const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
-    ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT );
+    ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount );
 
     const std::string materialKey = Common::AssetHandle::StableKeyForPath( byKind.at( "Material" ) );
     ChunkScheme       scheme;

@@ -272,14 +272,14 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
         const auto        kind = static_cast<Common::Content::ContentKind>( i );
         const std::string name( Common::Content::KindName( kind ) );
 
-        const auto cookOnly = std::find_if( std::begin( kCookOnlyKinds ), std::end( kCookOnlyKinds ),
+        const auto* const cookOnly = std::find_if( std::begin( kCookOnlyKinds ), std::end( kCookOnlyKinds ),
                                             [&name]( const CookOnlyKind& row ) { return name == row.Kind; } );
         if ( cookOnly != std::end( kCookOnlyKinds ) )
         {
             EXPECT_EQ( kindsTracked.find( name ), kindsTracked.end() )
                  << "'" << name << "' is registered as produced-never-committed, and the repository tracks a "
                  << "file of it again: delete its row in kCookOnlyKinds so the ordinary check applies";
-            std::ifstream     suite( root / cookOnly->Suite );
+            const std::ifstream suite( root / cookOnly->Suite );
             std::stringstream text;
             text << suite.rdbuf();
             EXPECT_NE( text.str().find( std::string( ", " ) + cookOnly->Test + " )" ), std::string::npos )

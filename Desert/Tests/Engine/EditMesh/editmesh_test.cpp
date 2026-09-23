@@ -190,7 +190,7 @@ TEST( EditMesh, ClosedOctahedronHasNoBoundaryAndEulerTwo )
 TEST( EditMesh, AppendTriangleRefusesAndLeavesTheMeshUntouched )
 {
     EditMesh  mesh = MakeGrid( 1 ); // (0,1,3) and (0,3,2)
-    const int far  = mesh.AppendVertex( { 500, 500, 500 } );
+    const int farVertex  = mesh.AppendVertex( { 500, 500, 500 } );
     const int far2 = mesh.AppendVertex( { 600, 500, 500 } );
     const auto before = Take( mesh );
 
@@ -201,15 +201,15 @@ TEST( EditMesh, AppendTriangleRefusesAndLeavesTheMeshUntouched )
     EXPECT_EQ( mesh.AppendTriangle( 0, 1, 3, t ), EditResult::DuplicateTriangle );
     EXPECT_EQ( mesh.AppendTriangle( 3, 1, 0, t ), EditResult::DuplicateTriangle ); // other winding too
     // (0,1) is run 0 -> 1 by the first triangle; a second one running 0 -> 1 disagrees about the side.
-    EXPECT_EQ( mesh.AppendTriangle( 0, 1, far, t ), EditResult::InconsistentOrientation );
+    EXPECT_EQ( mesh.AppendTriangle( 0, 1, farVertex, t ), EditResult::InconsistentOrientation );
     // The diagonal (0,3) already carries two triangles.
-    EXPECT_EQ( mesh.AppendTriangle( 3, 0, far, t ), EditResult::NonManifoldEdge );
+    EXPECT_EQ( mesh.AppendTriangle( 3, 0, farVertex, t ), EditResult::NonManifoldEdge );
     EXPECT_EQ( t, 12345 );
     EXPECT_TRUE( Take( mesh ) == before );
 
     // The correctly wound neighbour is accepted, and a free-standing triangle too.
-    EXPECT_NE( Tri( mesh, 1, 0, far ), InvalidId );
-    EXPECT_NE( Tri( mesh, far, far2, 2 ), InvalidId );
+    EXPECT_NE( Tri( mesh, 1, 0, farVertex ), InvalidId );
+    EXPECT_NE( Tri( mesh, farVertex, far2, 2 ), InvalidId );
     EXPECT_TRUE( Valid( mesh ) );
 }
 

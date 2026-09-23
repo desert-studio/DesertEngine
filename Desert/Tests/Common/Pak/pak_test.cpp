@@ -746,7 +746,7 @@ TEST( Pak, CookedTexturesAreStoredWholeSoOneLevelStaysReadableOnItsOwn )
     // REAL package. What is left here is the rule itself, and the rule reads the key, not the bytes --
     // so all it needs from the payload is that it clears the compression threshold, which the control
     // below asserts rather than assumes.
-    std::string payload( 64 * 1024, '\0' );
+    std::string payload( std::size_t{ 64 } * 1024, '\0' );
     for ( std::size_t i = 0; i < payload.size(); ++i )
         payload[i] = static_cast<char>( ( i / 64 ) % 7 ); // long runs: LZ4 takes it far below the threshold
 

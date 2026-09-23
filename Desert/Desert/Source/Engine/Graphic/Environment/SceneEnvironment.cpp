@@ -126,7 +126,7 @@ namespace Desert::Graphic
                            panoramaPath.string(), meta.Filepath.string(), panorama.GetError() );
                 return {};
             }
-            std::shared_ptr<Texture2D> imagePanorama = panorama.ExtractValue();
+            const std::shared_ptr<Texture2D> imagePanorama = panorama.ExtractValue();
 
             // 1) Radiance cube (sharp environment) — also the source the prefilter convolves.
             auto        radianceCube   = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle(), look );

@@ -1588,7 +1588,7 @@ namespace
 
 TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
 {
-    EnvironmentGuard guard;
+    const EnvironmentGuard guard;
 
     const fs::path repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
@@ -1609,7 +1609,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     fs::copy_file( shipped / "Textures" / "HDR" / "PreviewCheck.hdr",
                    proj / "GameAssets" / "Textures" / "HDR" / "PreviewCheck.hdr" );
     fs::copy_file( shipped / "Textures" / "T_NormalWitness.png", proj / "GameAssets" / "Meshes" / "beside.png" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -1687,12 +1687,12 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     // their own LZ4. Measured on the real cooked checker in the real package (Tests/Common/Pak holds the
     // rule by name; this is the shipped bytes).
     {
-        Common::Utils::PakReader reader( pkg / "Content.dpak" );
+        const Common::Utils::PakReader reader( pkg / "Content.dpak" );
         ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
         EXPECT_EQ( reader.EntryCodec( "Cooked/Textures/T_Checker.tex" ), Common::Utils::PakCodec::Store );
         const std::optional<std::string> entry = reader.Read( "Cooked/Textures/T_Checker.tex" );
         ASSERT_TRUE( entry.has_value() ) << "the cooked checker texture is not an entry of the archive";
-        const auto header = TexSer::DecodeTextureHeader( *entry, "T_Checker.tex" );
+        const auto header = TexSer::DecodeTextureHeader( entry.value(), "T_Checker.tex" );
         ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
         EXPECT_LT( header.GetValue().StoredPayloadBytes, header.GetValue().PayloadBytes )
              << "the cook is no longer compressing the levels of what it ships";
@@ -1715,7 +1715,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
 // no texture's (a cloud type, a layout) is Tests/Engine/AssetReferenceCensus's business, not this one's.
 TEST( PackagedContent, EveryTextureTheShippedContentNamesIsOneThePackageCooks )
 {
-    EnvironmentGuard guard;
+    const EnvironmentGuard guard;
 
     const fs::path repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
