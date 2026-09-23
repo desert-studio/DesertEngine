@@ -182,12 +182,14 @@ namespace Desert::Graphic
             }
 
             LOG_INFO(
-                 "[SceneEnvironment] '{}' computed its IBL chain in {:.1f} ms ({:.1f} ms reading and convolving, {:.1f} ms "
+                 "[SceneEnvironment] '{}' computed its IBL chain in {:.1f} ms ({:.1f} ms reading and convolving, "
+                 "{:.1f} ms "
                  "caching) (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}) = {:.1f} MiB resident.",
                  meta.Filepath.string(),
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count(),
                  std::chrono::duration<double, std::milli>( convolvedAt - startedAt ).count(),
-                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - convolvedAt ).count(),
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - convolvedAt )
+                      .count(),
                  kSkyEnvCubeFaceSize, kSkyEnvRadianceMips, kSkyEnvIrradianceFaceSize, kSkyEnvPrefilterFaceSize,
                  kSkyEnvPrefilterMips,
                  static_cast<double>( SkyEnvironmentCubeBytes( kSkyEnvCubeFaceSize, kSkyEnvRadianceMips ) +

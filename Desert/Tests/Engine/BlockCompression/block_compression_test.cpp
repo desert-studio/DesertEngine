@@ -928,7 +928,7 @@ TEST( BlockCompression, TheCeilingCensusCountsExactlyWhatTheBC6HEncoderDrops )
     // this census necessary -- a real HDRI's sun (rural_asphalt_road_2k.hdr peaks at 131072) beside
     // ordinary sky, plus one NaN, which the encoder writes as black without a word.
     std::vector<float> rgba( 16u * 4u, 1.0f );
-    rgba[0] = 131072.0f; // texel 0, red: 2x the ceiling
+    rgba[0] = 131072.0f;       // texel 0, red: 2x the ceiling
     rgba[5] = std::nanf( "" ); // texel 1, green
 
     const Fmt::BC6HCeilingCensus census = Fmt::CensusBC6HCeiling( rgba.data(), 16u );
@@ -937,7 +937,7 @@ TEST( BlockCompression, TheCeilingCensusCountsExactlyWhatTheBC6HEncoderDrops )
     EXPECT_FLOAT_EQ( census.Peak, 131072.0f );
     EXPECT_DOUBLE_EQ( census.LostAboveCeiling, 131072.0 - Fmt::kBC6HLargestValue );
 
-    const auto* bytes = reinterpret_cast<const unsigned char*>( rgba.data() );
+    const auto* bytes  = reinterpret_cast<const unsigned char*>( rgba.data() );
     const auto  blocks = Fmt::BlockCompressImage( 4, 4, Fmt::ImageFormat::RGBA32F, Fmt::ImageFormat::BC6H_UFLOAT,
                                                   bytes, rgba.size() * sizeof( float ) );
     ASSERT_TRUE( blocks.IsSuccess() ) << blocks.GetError();

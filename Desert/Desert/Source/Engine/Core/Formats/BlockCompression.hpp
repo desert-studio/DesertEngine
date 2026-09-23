@@ -67,13 +67,16 @@ namespace Desert::Core::Formats
     struct BC6HCeilingCensus
     {
         uint64_t NonFiniteChannels = 0;
-        uint64_t ClampedTexels     = 0;   ///< texels with at least one channel above the ceiling
+        uint64_t ClampedTexels     = 0; ///< texels with at least one channel above the ceiling
         float    Peak              = 0.0f;
         double   Sum               = 0.0; ///< of every finite, non-negative channel
         double   LostAboveCeiling  = 0.0; ///< of (channel - ceiling) where it is positive
 
         /// The share of the counted energy the clamp removes; 0 for an empty or black image.
-        [[nodiscard]] double LostFraction() const { return Sum > 0.0 ? LostAboveCeiling / Sum : 0.0; }
+        [[nodiscard]] double LostFraction() const
+        {
+            return Sum > 0.0 ? LostAboveCeiling / Sum : 0.0;
+        }
     };
 
     /// @p rgba holds @p texelCount tightly packed RGBA32F texels.
