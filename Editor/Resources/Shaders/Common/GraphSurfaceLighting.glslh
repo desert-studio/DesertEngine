@@ -58,6 +58,13 @@
 Uniform(8) samplerCube u_EnvSpecularTex;
 Uniform(9) samplerCube u_EnvIrradianceTex;
 Uniform(10) sampler2D u_BRDFLUTTexture;
+// The sky's look — how the two cubes above are read (Common/SkyLook.glslh). Slot 19: free in
+// this layout and below kGraphOwnedBindingFirst (22 and 23 are the last two cascade maps here).
+Uniform(19) SkyLookUB
+{
+    vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
+    vec4 Gain;      // rgb = tint * intensity
+} skyLook;
 
 // Included HERE and not above because it names the three bindings just declared.
 #include <Mesh/AmbientIBL.glslh>

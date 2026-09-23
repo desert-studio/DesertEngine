@@ -2383,15 +2383,14 @@ namespace Desert::ECS
 
         // ── THE AUTHORED LOOK ─────────────────────────────────────────────────────────────────────────
         //
-        // All three reach the frame through ONE route: they are baked into the environment cubes
-        // (Graphic::SkyLook -> EnvironmentManager::Create), which is what the backdrop is drawn from AND
-        // what every lit surface reads its ambient and reflections out of. Intensity used to be applied
-        // to the sky pass alone and therefore lit nothing; that spelling is gone rather than kept beside
-        // the new one.
+        // All three reach the frame through ONE route: ECS::SkyLookOf packs them into a Graphic::SkyLook,
+        // and that one value is applied wherever the environment cubes are SAMPLED — the backdrop, and
+        // every lit surface's ambient and reflections (Shaders/Common/SkyLook.glslh). Intensity used to be
+        // applied to the sky pass alone and therefore lit nothing; the shader census in
+        // Tests/Engine/SkyPanorama is what keeps that state unreachable now.
         //
-        // THE PRICE IS A REBAKE, not a frame — SkyboxRenderer waits for the value to settle and then
-        // spends the same ~0.7 s the procedural sky spends when its sun moves. That is why none of these
-        // is a per-frame knob and why none of them is animated.
+        // THE PRICE IS A UNIFORM WRITE PER FRAME. They used to be baked into the cubes, and every slider
+        // value cost a device-idling rebake of ~0.7 s; the cubes are now the file as authored.
 
         PROPERTY( DisplayName( "Intensity" ), Category( "Skybox" ), Range( 0.0f, 10.0f ) )
         float Intensity = 1.0f;

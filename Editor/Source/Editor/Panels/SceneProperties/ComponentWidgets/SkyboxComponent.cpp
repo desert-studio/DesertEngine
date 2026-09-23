@@ -153,31 +153,13 @@ namespace Desert::Editor
                       ImGui::EndPopup();
                   }
 
-                  // IS THE SKY ON SCREEN THE SKY THESE SLIDERS DESCRIBE? The cubes are rebuilt when the
-                  // authored value settles (SkyboxRenderer::EnsureHdrEnvironment), so for a moment after
-                  // a drag they do not agree — and a control whose effect is late with nothing saying so
-                  // is indistinguishable from one that does not work. Asked of the MATERIAL, which is
-                  // the thing that knows, rather than of a flag this panel would have to keep in step.
-                  const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( skybox.SkyboxHandle );
-                  if ( material )
-                  {
-                      Graphic::SkyLook authored;
-                      authored.Intensity       = skybox.Intensity;
-                      authored.RotationDegrees = skybox.Rotation;
-                      authored.Tint            = skybox.Tint;
-                      if ( !( material->BakedLook() == authored ) )
-                          ImGui::TextDisabled( ICON_MDI_TIMER_SAND " Rebaking the environment..." );
-                      else
-                          ImGui::TextDisabled( "Lights the scene through its baked IBL" );
-                  }
-
                   ImGui::EndGroup();
 
                   // ── THE PARAMETERS ────────────────────────────────────────────────────────────────
                   //
-                  // All three are baked into the cubes rather than applied per frame, which is why they
-                  // reach the ambient and the reflections and not only the backdrop. See
-                  // Engine/Graphic/Environment/SkyLook.hpp for the trade that decides it.
+                  // All three are applied where the environment cubes are SAMPLED — the backdrop, the ambient
+                  // and the reflections alike — so a drag is a uniform write per frame, never a rebake. See
+                  // Engine/Graphic/Environment/SkyLook.hpp.
                   Utils::ImGuiUtilities::ResetPropertyRows();
 
                   Utils::ImGuiUtilities::BeginPropertyRow( "Intensity" );

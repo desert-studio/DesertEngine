@@ -16,8 +16,8 @@
 //     also compiles as C++ (see Desert/Tests/Engine/AmbientIBL) and the split-sum identity can be
 //     asserted without a GPU.
 //   * AmbientIBL does the three fetches and calls it. It names u_EnvIrradianceTex / u_EnvSpecularTex /
-//     u_BRDFLUTTexture, which the includer must have declared — every consumer already binds that trio
-//     at the same slots. Define AMBIENT_IBL_NO_SAMPLERS to take only the algebra half.
+//     u_BRDFLUTTexture and the `skyLook` block (Common/SkyLook.glslh), which the includer must have
+//     declared. Define AMBIENT_IBL_NO_SAMPLERS to take only the algebra half.
 //
 // Requires Mesh/PBRFunctions.glslh (fresnelSchlick) to have been included first.
 
@@ -67,19 +67,28 @@ vec3 ComposeAmbient(vec3 ibl, vec3 albedo, float ao, vec3 indirect)
 
 #ifndef AMBIENT_IBL_NO_SAMPLERS
 
+#include <Common/SkyLook.glslh>
+
 // The sampling half. `view` points from the surface toward the eye; `N` is the world-space shading
 // normal; `roughness` must already be clamped away from 0 by the caller (the GGX mip selection is linear
 // in it, so an unclamped 0 lands on mip 0 for a mirror, which is correct — the clamp is the NDF's).
+//
+// Both cube fetches go through the sky's look (Common/SkyLook.glslh): the cubes are the file as
+// authored, and the scene's rotation and gain turn and scale the lookup — the same two calls the skybox
+// pass draws the backdrop with, so a chrome ball reflects what is visible behind it.
 vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, vec3 albedo)
 {
-	vec3  irradiance = texture(u_EnvIrradianceTex, N).rgb;
+	vec2  yaw        = skyLook.YawCosSin.xy;
+	vec3  gain       = skyLook.Gain.rgb;
+	vec3  irradiance = ApplySkyGain(texture(u_EnvIrradianceTex, SkyLookDirection(N, yaw)).rgb, gain);
 	float cosLo      = max(0.0, dot(N, view));
 
 	// reflect(-view, N) = 2*dot(N,view)*N - view (unclamped, correct specular reflection)
 	vec3 Lr = reflect(-view, N);
 
 	int  specularTextureLevels = textureQueryLevels(u_EnvSpecularTex);
-	vec3 specularIrradiance    = textureLod(u_EnvSpecularTex, Lr, roughness * specularTextureLevels).rgb;
+	vec3 specularIrradiance    = ApplySkyGain(
+	     textureLod(u_EnvSpecularTex, SkyLookDirection(Lr, yaw), roughness * specularTextureLevels).rgb, gain);
 
 	vec2 specularBRDF = texture(u_BRDFLUTTexture, vec2(cosLo, roughness)).rg;
 

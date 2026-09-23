@@ -565,68 +565,8 @@ namespace Desert::Graphic::System
         // sky, the fog and the cloud layer already follow, and it is what lets a render system outlive the
         // scene it was built for (IRenderSystem::OnSceneReplaced).
         m_MaterialSkybox = material; // an empty weak_ptr when the scene has none
-        // The look is RECORDED, not applied: applying it means a bake, and a bake idles the device.
-        // EnsureHdrEnvironment runs it from the pre-graph slot. A scene with no cubemap keeps the
-        // identity look so that re-assigning one later is seen as a change rather than as agreement.
+        // A scene with no cubemap holds the identity look, so nothing stale rides along with the next one.
         m_SkyboxLook = material ? look : SkyLook{};
-    }
-
-    void SkyboxRenderer::EnsureHdrEnvironment( float deltaSeconds )
-    {
-        const auto material = m_MaterialSkybox.lock();
-        if ( !material )
-        {
-            m_SecondsSinceLookChanged = 0.0f;
-            m_SecondsSinceHdrStale    = 0.0f;
-            m_LastSeenLook            = SkyLook{};
-            return;
-        }
-
-        const float dt = glm::max( deltaSeconds, 0.0f );
-
-        // How long the AUTHORED value has held still — the settle half of the gate. Compared against
-        // last frame's value rather than against the baked one, because those answer different
-        // questions: this one is "has the person stopped dragging", the one below is "is the picture
-        // out of date". Conflating them is what made dragging the sun unusable before the sun's own
-        // gate existed (SkyRules::SkyEnvironmentRebakeMayRun).
-        if ( !( m_SkyboxLook == m_LastSeenLook ) )
-        {
-            m_LastSeenLook            = m_SkyboxLook;
-            m_SecondsSinceLookChanged = 0.0f;
-        }
-        else
-        {
-            m_SecondsSinceLookChanged += dt;
-        }
-
-        if ( material->BakedLook() == m_SkyboxLook )
-        {
-            m_SecondsSinceHdrStale = 0.0f;
-            return;
-        }
-
-        m_SecondsSinceHdrStale += dt;
-        if ( !SkyEnvironmentRebakeMayRun( m_SecondsSinceLookChanged, m_SecondsSinceHdrStale,
-                                          kSkyRebakeSettleSeconds, kSkyRebakeMaxDeferSeconds ) )
-            return;
-
-        const auto started     = std::chrono::steady_clock::now();
-        const bool rebaked     = material->EnsureBaked( m_SkyboxLook );
-        m_SecondsSinceHdrStale = 0.0f;
-
-        if ( !rebaked )
-            return;
-
-        // WALL TIME AROUND THE WHOLE CHAIN, printed rather than assumed — the same line, for the same
-        // reason, as the procedural bake's. It is also the only place a thrash between two views
-        // sharing one `.hdr` at two different rotations becomes visible.
-        const double bakeMs =
-             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count();
-        LOG_INFO( "[Skybox] HDR environment rebaked in {:.1f} ms for rotation {:.1f} deg, intensity "
-                  "{:.2f}, tint ({:.2f}, {:.2f}, {:.2f}). The device is idle for all of it, which is why "
-                  "the trigger is the authored value settling and not the frame.",
-                  bakeMs, m_SkyboxLook.RotationDegrees, m_SkyboxLook.Intensity, m_SkyboxLook.Tint.x,
-                  m_SkyboxLook.Tint.y, m_SkyboxLook.Tint.z );
     }
 
     void SkyboxRenderer::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
@@ -947,7 +887,7 @@ namespace Desert::Graphic::System
         if ( const auto& material = m_MaterialSkybox.lock() )
         {
             if ( m_ActiveCamera )
-                material->BindInputs( { m_ActiveCamera } );
+                material->BindInputs( { m_ActiveCamera, m_SkyboxLook } );
             renderer.SubmitFullscreenQuad( m_Pipeline.get(), material->GetMaterialExecutor() );
         }
     }

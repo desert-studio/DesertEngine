@@ -12,15 +12,8 @@ Shader "DiffuseIrradiance"
         Uniform(0) sampler2D  inputTexture;
         layout(binding=1, rgba32f) restrict writeonly uniform imageCube outputTexture;
 
-        // The same block, with the same meaning and the same identity default, as PanoramaToCubemap's.
-        // The two programs read ONE panorama and their results light one scene: a rotation that reached
-        // only one of them would turn the visible sky away from the ambient it casts.
-        PushConstant SkyLook
-        {
-            vec4 YawCosSin; // xy = (cos yaw, sin yaw); zw unused
-            vec4 Gain;      // rgb = tint * intensity; a unused
-        } skyLook;
-
+        // NO LOOK HERE, for the same reason as PanoramaToCubemap: the scene's rotation and gain are
+        // applied where this cube is sampled (Common/SkyLook.glslh), so a rotation never re-integrates.
         #include <Common/SkyPanorama.glslh>
 
         float radicalInverse_VdC(uint bits)
@@ -125,9 +118,9 @@ Shader "DiffuseIrradiance"
         		vec3 Li = tangentToWorld(sampleHemisphere(u.x, u.y), N, S, T);
         		float cosTheta = max(0.0, dot(Li, N));
 
-        		// Shared with PanoramaToCubemap — see Common/SkyPanorama.glslh for why the mapping and
-        		// the yaw may not exist twice.
-        		vec2 sampleUV = PanoramaSampleUV(Li, skyLook.YawCosSin.xy);
+        		// Shared with PanoramaToCubemap — see Common/SkyPanorama.glslh for why the mapping may
+        		// not exist twice.
+        		vec2 sampleUV = PanoramaSampleUV(Li);
 
         		// PIs here cancel out because of division by pdf.
         		// The +1 is Colbert & Krivanek's bias: the footprint of a sample overlaps its neighbours',
@@ -137,8 +130,7 @@ Shader "DiffuseIrradiance"
         		float lod      = clamp(0.5 * log2(sampleSolidAngle / (texelSolidAngle * sinTheta)) + 1.0,
         		                       0.0, panoramaTop);
 
-        		irradiance += 2.0 * ApplySkyGain(textureLod(inputTexture, sampleUV, lod).rgb, skyLook.Gain.rgb)
-        		              * cosTheta;
+        		irradiance += 2.0 * textureLod(inputTexture, sampleUV, lod).rgb * cosTheta;
         	}
         	irradiance /= vec3(NumSamples);
 

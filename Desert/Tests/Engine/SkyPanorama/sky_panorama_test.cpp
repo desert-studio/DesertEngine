@@ -1,15 +1,19 @@
-// THE HDR SKY'S LOOKUP, AND THE RULE THAT BOTH BAKE PROGRAMS APPLY IT.
+// THE HDR SKY'S LOOKUP, AND WHERE ITS AUTHORED LOOK IS APPLIED.
 //
 // An HDR skybox becomes THREE images from ONE panorama: PanoramaToCubemap writes the radiance cube the
 // background is drawn from and the GGX prefilter convolves, and DiffuseIrradiance integrates the same
-// panorama into the cube every lit surface reads. The sky's authored look — rotation, intensity, tint —
-// is applied at that step and nowhere else, so the picture and the light it casts cannot disagree.
+// panorama into the cube every lit surface reads. Those cubes are the FILE as authored. The sky's look —
+// rotation, intensity, tint — is applied where they are SAMPLED (Common/SkyLook.glslh), so a slider drag
+// is a uniform write per frame and not a device-idling rebake per value.
 //
-// That is a property of TWO FILES AGREEING, and no frame can state it: a rotation that reached the
-// radiance cube and missed the irradiance cube would turn the visible sky while leaving the ambient
-// where it was, which looks like a lighting opinion and not like a defect. It is exactly the shape the
-// engine shipped for `Intensity`'s whole life (applied in the skybox fragment shader, so a sky authored
-// at 5x lit the world at 1x), and the census at the bottom of this file is what makes it unspellable.
+// Two properties of FILES AGREEING, which no frame can state:
+//   * every program that reads an environment cube applies the look — one that did not would show the
+//     unturned sky in its reflections under a turned backdrop, which looks like a lighting opinion. It
+//     is exactly the shape the engine shipped for `Intensity`'s whole life (applied in the skybox pass
+//     alone, so a sky authored at 5x lit the world at 1x);
+//   * no bake program applies it — one that did would apply it TWICE and bring the per-value rebake
+//     back through the cache key.
+// The census at the bottom of this file makes both unspellable.
 
 #include "SkyPanoramaReference.hpp"
 
@@ -19,6 +23,9 @@
 
 #include <algorithm> // std::clamp -- libc++ pulls it in transitively, MSVC does not (Windows Debug, 2026-09-23)
 #include <cmath>
+#include <filesystem>
+#include <regex>
+#include <set>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -26,6 +33,7 @@
 
 using Desert::Tests::SkyPanoramaRef::ApplySkyGain;
 using Desert::Tests::SkyPanoramaRef::PanoramaSampleUV;
+using Desert::Tests::SkyPanoramaRef::SkyLookDirection;
 
 namespace
 {
@@ -104,7 +112,7 @@ namespace
 // The numbers
 // ---------------------------------------------------------------------------------------------------
 
-TEST( SkyPanoramaLookup, IdentityYawIsTheTextbookEquirectMapping )
+TEST( SkyPanoramaLookup, IsTheTextbookEquirectMapping )
 {
     // The mapping the two shaders held their own copies of before this header existed, written out once
     // here so the move is a refactor with a witness rather than a rewrite anyone has to take on trust.
@@ -113,56 +121,76 @@ TEST( SkyPanoramaLookup, IdentityYawIsTheTextbookEquirectMapping )
         const float phi   = std::atan2( d.z, d.x );
         const float theta = std::acos( std::clamp( d.y, -1.0f, 1.0f ) );
 
-        const glm::vec2 uv = PanoramaSampleUV( d, CosSin( 0.0f ) );
+        const glm::vec2 uv = PanoramaSampleUV( d );
         EXPECT_NEAR( uv.x, phi / ( 2.0f * kPi ) + 0.5f, 1e-6f );
         EXPECT_NEAR( uv.y, theta / kPi, 1e-6f );
     }
 }
 
-TEST( SkyPanoramaLookup, TheImageTurnsWITHTheAngleAndNotAgainstIt )
+TEST( SkyLookLookup, IdentityYawReadsTheCubeWhereItWasBaked )
+{
+    for ( const glm::vec3& d : Directions() )
+    {
+        const glm::vec3 r = SkyLookDirection( d, CosSin( 0.0f ) );
+        EXPECT_NEAR( glm::length( r - d ), 0.0f, 1e-6f );
+    }
+}
+
+TEST( SkyLookLookup, TheImageTurnsWITHTheAngleAndNotAgainstIt )
 {
     // THE RELATION, not a value: a feature the unrotated sky showed in direction `d` must be found in
     // direction `d rotated by +yaw` once the sky is rotated by +yaw. An author who types 90 expects the
     // sun that was in the east to end up in the north, and a sign error here gives them 270 with a
-    // frame that looks perfectly plausible.
+    // frame that looks perfectly plausible. The cube stores the unrotated sky, so "found" means: the
+    // turned direction, read through the look, lands on the texel `d` has in the cube.
     for ( const float yaw : { 15.0f, 90.0f, 180.0f, 270.0f, 359.0f } )
     {
         for ( const glm::vec3& d : Directions() )
         {
-            const glm::vec2 before = PanoramaSampleUV( d, CosSin( 0.0f ) );
-            const glm::vec2 after  = PanoramaSampleUV( RotateAboutUp( d, yaw ), CosSin( yaw ) );
-
-            // u wraps: 0.0 and 1.0 are the same texel column, so compare the wrapped distance.
-            const float du = std::fabs( after.x - before.x );
-            EXPECT_NEAR( std::min( du, 1.0f - du ), 0.0f, 1e-5f ) << "yaw " << yaw;
-            EXPECT_NEAR( after.y, before.y, 1e-5f ) << "yaw " << yaw;
+            const glm::vec3 read = SkyLookDirection( RotateAboutUp( d, yaw ), CosSin( yaw ) );
+            EXPECT_NEAR( glm::length( read - d ), 0.0f, 1e-5f ) << "yaw " << yaw;
         }
     }
 }
 
-TEST( SkyPanoramaLookup, YawTouchesTheAZIMUTHONLY )
+TEST( SkyLookLookup, TheRotationIsTheOneTheBakeUsedToApply )
 {
-    // The negative half of the same statement, and the one a frame CAN be fooled about: the elevation of
-    // a texel must be untouched by a yaw. A rotation built as a general matrix — or about the wrong axis
-    // — would tilt the horizon, and on an azimuthally uniform sky nobody would see it.
-    for ( const float yaw : { 37.0f, 123.0f, 300.0f } )
+    // THE BEFORE/AFTER RELATION. The bake used to write, at cube direction `d`, the panorama texel
+    // PanoramaSampleUV-with-yaw(d); the sampler now reads the identity cube at SkyLookDirection(d). Those
+    // are the same texel only if SkyLookDirection is the rotation the bake's lookup performed — written
+    // out here from the old text (rotation about +Y by -yaw), so a sign flip in either reddens this.
+    for ( const float yaw : { 15.0f, 90.0f, 200.0f } )
     {
+        const glm::vec2 cs = CosSin( yaw );
         for ( const glm::vec3& d : Directions() )
-            EXPECT_NEAR( PanoramaSampleUV( d, CosSin( yaw ) ).y, PanoramaSampleUV( d, CosSin( 0.0f ) ).y, 1e-6f )
-                 << "yaw " << yaw;
+        {
+            const glm::vec3 oldLookup( cs.x * d.x - cs.y * d.z, d.y, cs.x * d.z + cs.y * d.x );
+            const glm::vec2 oldUV = PanoramaSampleUV( oldLookup );
+            const glm::vec2 newUV = PanoramaSampleUV( SkyLookDirection( d, cs ) );
+            EXPECT_NEAR( oldUV.x, newUV.x, 1e-6f ) << "yaw " << yaw;
+            EXPECT_NEAR( oldUV.y, newUV.y, 1e-6f ) << "yaw " << yaw;
+        }
     }
 }
 
-TEST( SkyPanoramaLookup, APoleIsUnMOVEDByAnyYaw )
+TEST( SkyLookLookup, IsARotationAboutUpAndNothingElse )
 {
-    // Straight up and straight down are fixed points of a rotation about up. This is the frame control's
-    // own statement in numbers: the probe panorama's zenith is one flat colour, so a 180-degree yaw must
-    // leave the zenith frame byte-identical while the horizon changes completely.
-    for ( const float yaw : { 5.0f, 90.0f, 180.0f, 271.0f } )
+    // Why applying it at the SAMPLE is exact and not an approximation of applying it at the bake: the
+    // irradiance and prefilter convolutions commute with a rigid rotation, and only with one. So the look
+    // must preserve every length and angle, and must leave the elevation alone — a general matrix, or a
+    // rotation about the wrong axis, would tilt the horizon, and on an azimuthally uniform sky nobody
+    // would see it.
+    for ( const float yaw : { 37.0f, 123.0f, 300.0f } )
     {
-        for ( const glm::vec3& pole : { glm::vec3( 0, 1, 0 ), glm::vec3( 0, -1, 0 ) } )
-            EXPECT_NEAR( PanoramaSampleUV( pole, CosSin( yaw ) ).y, PanoramaSampleUV( pole, CosSin( 0.0f ) ).y,
-                         1e-6f );
+        const glm::vec2 cs = CosSin( yaw );
+        for ( const glm::vec3& a : Directions() )
+        {
+            const glm::vec3 ra = SkyLookDirection( a, cs );
+            EXPECT_NEAR( glm::length( ra ), glm::length( a ), 1e-6f );
+            EXPECT_NEAR( ra.y, a.y, 1e-6f ) << "yaw " << yaw << " moved the elevation";
+            for ( const glm::vec3& b : Directions() )
+                EXPECT_NEAR( glm::dot( ra, SkyLookDirection( b, cs ) ), glm::dot( a, b ), 1e-5f );
+        }
     }
 }
 
@@ -172,7 +200,7 @@ TEST( SkyPanoramaLookup, AnOverlongDirectionDoesNotProduceNaN )
     // cube. The clamp is why the header takes a direction rather than insisting on a unit vector.
     for ( const float scale : { 1.0f + 1e-6f, 1.5f, 8.0f } )
     {
-        const glm::vec2 uv = PanoramaSampleUV( glm::vec3( 0, scale, 0 ), CosSin( 0.0f ) );
+        const glm::vec2 uv = PanoramaSampleUV( glm::vec3( 0, scale, 0 ) );
         EXPECT_FALSE( std::isnan( uv.x ) );
         EXPECT_FALSE( std::isnan( uv.y ) );
         EXPECT_NEAR( uv.y, 0.0f, 1e-6f );
@@ -191,17 +219,14 @@ TEST( SkyPanoramaGain, ScalesEachChannelIndependently )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// The census: BOTH bake programs apply the look, and NEITHER carries its own mapping
+// The census: the bake reads the panorama bare, and EVERY reader of the cubes applies the look
 // ---------------------------------------------------------------------------------------------------
 
-TEST( SkyPanoramaCensus, BothBakeProgramsReadThePanoramaThroughTheSharedText )
+TEST( SkyPanoramaCensus, BothBakeProgramsReadThePanoramaBareThroughTheSharedText )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the test's working directory";
 
-    // WHAT THIS FORBIDS, said out loud so the next reader knows what it is guarding: a compute program
-    // that reads the sky panorama and spells the direction->UV mapping, the yaw, or the gain itself.
-    // Any of the three gives the engine two descriptions of one sky.
     struct Program
     {
         const char* Path;
@@ -224,17 +249,84 @@ TEST( SkyPanoramaCensus, BothBakeProgramsReadThePanoramaThroughTheSharedText )
              << program.Path << " (" << program.Why << ") does not include the shared lookup";
         EXPECT_NE( code.find( "PanoramaSampleUV(" ), std::string::npos )
              << program.Path << " (" << program.Why << ") does not call PanoramaSampleUV";
-        EXPECT_NE( code.find( "ApplySkyGain(" ), std::string::npos )
-             << program.Path << " (" << program.Why
-             << ") does not apply the sky's gain — its cube would ignore intensity and tint while the "
-                "other one honours them";
-        EXPECT_NE( code.find( "skyLook.YawCosSin" ), std::string::npos )
-             << program.Path << " declares no yaw to apply";
-
-        // The mapping itself, in either program, is the second copy this header exists to remove.
+        // The mapping itself, in either program, is the second copy the header exists to remove.
         EXPECT_EQ( code.find( "atan(" ), std::string::npos )
              << program.Path << " spells its own direction->UV mapping again";
+
+        // THE LOOK MAY NOT COME BACK HERE. Applied at the bake it would be applied twice (the readers
+        // apply it too), and it would put the per-value rebake the owner complained about back in.
+        for ( const char* banned : { "skyLook", "SkyLookUB", "ApplySkyGain(", "SkyLookDirection(" } )
+            EXPECT_EQ( code.find( banned ), std::string::npos )
+                 << program.Path << " (" << program.Why << ") applies the sky's look ('" << banned
+                 << "') — the cubes must be the file as authored";
     }
+}
+
+TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    // THE REGISTER — every shader text that declares a cube the environment services fill, named, one
+    // row each. It is compared with what a scan of the shader tree FINDS, in both directions: a new
+    // reader of the cubes that nobody listed reddens this before it can ship an unturned reflection, and
+    // a row whose file stopped declaring a cube reddens it too, so the list cannot rot into prose.
+    const std::set<std::string> registered = {
+         "Common/GraphSurfaceLighting.glslh",         // every lit shader-graph surface
+         "Programs/Deferred/DeferredLighting.shader", // the deferred composite's ambient
+         "Programs/PBR/SkinnedMeshPBR.shader",
+         "Programs/PBR/StaticMeshGlass.shader", // the reflection at the glass's grazing edge
+         "Programs/PBR/StaticMeshPBR.shader",
+         "Programs/PBR/StaticMeshPBR_Instanced.shader",
+         "Programs/Preview/CubemapSphere.shader", // the Details panel's ball beside the sliders
+         "Programs/Skybox/Skybox.shader",         // the backdrop
+    };
+
+    // The names the engine binds environment cubes under: the IBL pair, the skybox pass's cube, and
+    // the preview ball's. A `samplerCube` declared under any of them is a reader of the environment.
+    static const std::regex kEnvCube(
+         R"(samplerCube\s+(u_EnvSpecularTex|u_EnvIrradianceTex|samplerCubeMap|u_CubeMap)\b)" );
+
+    const std::string     shaders = root + "Editor/Resources/Shaders/";
+    std::set<std::string> found;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders ) )
+    {
+        if ( !entry.is_regular_file() )
+            continue;
+        const std::string ext = entry.path().extension().string();
+        if ( ext != ".shader" && ext != ".glslh" )
+            continue;
+        const std::string code = CodeOnly( ReadFile( entry.path().string() ) );
+        if ( !std::regex_search( code, kEnvCube ) )
+            continue;
+
+        const std::string rel = std::filesystem::relative( entry.path(), shaders ).generic_string();
+        found.insert( rel );
+
+        EXPECT_NE( code.find( "SkyLookUB" ), std::string::npos )
+             << rel
+             << " reads an environment cube but declares no SkyLookUB — it would show the sky "
+                "unturned and at unit intensity while the backdrop is turned and scaled";
+        // Through the shared text, directly or via AmbientIBL (which calls both on its two fetches).
+        const bool direct = code.find( "SkyLookDirection(" ) != std::string::npos &&
+                            code.find( "ApplySkyGain(" ) != std::string::npos;
+        const bool viaIbl = code.find( "#include <Mesh/AmbientIBL.glslh>" ) != std::string::npos;
+        EXPECT_TRUE( direct || viaIbl ) << rel << " declares the look but never reads through it";
+    }
+
+    EXPECT_EQ( found, registered ) << "the set of environment-cube readers changed; update the register "
+                                      "above only after the new reader applies the look";
+
+    // AmbientIBL is what `viaIbl` trusts, so it is held to the same rule: both fetches, both calls.
+    const std::string ibl = CodeOnly( ReadFile( shaders + "Mesh/AmbientIBL.glslh" ) );
+    ASSERT_FALSE( ibl.empty() );
+    EXPECT_NE( ibl.find( "texture(u_EnvIrradianceTex, SkyLookDirection(" ), std::string::npos );
+    EXPECT_NE( ibl.find( "textureLod(u_EnvSpecularTex, SkyLookDirection(" ), std::string::npos );
+    size_t gains = 0;
+    for ( size_t at = ibl.find( "ApplySkyGain(" ); at != std::string::npos;
+          at        = ibl.find( "ApplySkyGain(", at + 1 ) )
+        ++gains;
+    EXPECT_EQ( gains, 2u ) << "each of AmbientIBL's two cube fetches must be scaled by the sky's gain";
 }
 
 TEST( SkyPanoramaCensus, TheSkyboxProgramHasNoBrightnessOfItsOwn )
@@ -242,16 +334,17 @@ TEST( SkyPanoramaCensus, TheSkyboxProgramHasNoBrightnessOfItsOwn )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // THE DEFECT THIS WHOLE ARRANGEMENT REPLACES. `SkyboxParamsUB` carried SkyboxComponent::Intensity
-    // into the fullscreen sky pass — and only there. Re-adding a multiplier to this program would make
-    // the backdrop brighter than the cube that lights the scene, which is the state the owner reported
-    // and the one nothing in a frame distinguishes from a deliberate look.
+    // THE DEFECT THE LOOK'S SINGLE ROUTE REPLACES. `SkyboxParamsUB` carried SkyboxComponent::Intensity
+    // into the fullscreen sky pass — and only there. The backdrop's brightness now comes through
+    // SkyLookUB, the same block and the same call every lit surface uses; a second multiplier here would
+    // make the backdrop brighter than the light it casts, which nothing in a frame distinguishes from a
+    // deliberate look.
     const std::string code =
          CodeOnly( ReadFile( root + "Editor/Resources/Shaders/Programs/Skybox/Skybox.shader" ) );
     ASSERT_FALSE( code.empty() );
 
     EXPECT_EQ( code.find( "SkyboxParamsUB" ), std::string::npos )
-         << "the skybox program has a brightness uniform again; the sky's intensity belongs in the cube";
+         << "the skybox program has a brightness uniform of its own again";
     EXPECT_EQ( code.find( "u_SkyboxParams" ), std::string::npos );
 }
 

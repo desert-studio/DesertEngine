@@ -108,6 +108,14 @@ Shader "StaticMeshGlass"
         #include <Common/TangentNormal.glslh>
         Uniform(8) samplerCube u_EnvSpecularTex;
         Uniform(12) sampler2D  u_NormalTexture;
+        // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). The same slot as
+        // the rest of the mesh family.
+        Uniform(22) SkyLookUB
+        {
+            vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
+            vec4 Gain;      // rgb = tint * intensity
+        } skyLook;
+        #include <Common/SkyLook.glslh>
         Uniform(19) sampler2D  u_SceneColor; // copy of the composited opaque scene (for refraction)
 
         // THE CLOUD LAYER'S SHADOW ON THE WORLD — at the same slots as the four other mesh shaders. Glass
@@ -156,7 +164,8 @@ Shader "StaticMeshGlass"
 
         	// Environment reflection at grazing edges (skybox); Fresnel mixes refraction (centre) -> reflection (edge).
         	vec3 R       = reflect(-V, N);
-        	vec3 envRefl = texture(u_EnvSpecularTex, R).rgb;
+        	vec3 envRefl = ApplySkyGain(texture(u_EnvSpecularTex, SkyLookDirection(R, skyLook.YawCosSin.xy)).rgb,
+        	                            skyLook.Gain.rgb);
 
         	vec3 color = mix(refracted, envRefl, fresnel) + vec3(spec);
 
