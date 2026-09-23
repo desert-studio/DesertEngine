@@ -81,6 +81,7 @@
 #include <array>
 #include <ImGuizmo.h>
 #include "Editor/Import/ImportManager.hpp"
+#include "Editor/Splash/SplashImage.hpp"
 #include "Editor/Builtin/BuiltinMeshRegistry.hpp"
 
 // 3. Editor Panels
@@ -330,8 +331,9 @@ namespace Desert::Editor
     // Cognitive complexity 27 against a threshold of 19, PRE-EXISTING and reported for any edit inside
     // this constructor (Г26 added the autosave-migration call below). Named as debt, not fixed here.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-    EditorLayer::EditorLayer( const Engine::Application* application, const std::string& layerName )
-         : Common::Layer( layerName ), m_Application( application )
+    EditorLayer::EditorLayer( const Engine::Application* application, const std::string& layerName,
+                              std::unique_ptr<Splash::SplashScreen> splash )
+         : Common::Layer( layerName ), m_Application( application ), m_Splash( std::move( splash ) )
 
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
@@ -342,7 +344,7 @@ namespace Desert::Editor
         // Cooked/Meshes/Collections/... where the preloader discovers them (see CookPaths::CookedMesh).
         //
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
-        // The stages now execute one-per-frame from OnUpdate while OnUIRender shows a loading overlay.
+        // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
         // NOTE: shaders are NOT staged — they load synchronously in OnAttach, because the render systems
         // (MeshECSSystem's default PBR materials) resolve their shaders in their constructors.
         m_StartupStages.push_back(
@@ -368,6 +370,13 @@ namespace Desert::Editor
         // fresh.)
         m_StartupStages.push_back(
              { "Cooking textures...", [this] { (void)m_ImportManager->CookLooseTextures(); } } );
+        // THE SPLASH'S OWN PICTURE, for the NEXT start. This start's splash has already read it — or has
+        // said in the log that it is not there yet and drawn on its plain background, which is what the
+        // first start on a fresh clone looks like. Not one of `LooseTextureRoots()`, because it is the
+        // editor's branding and not project content: a game package must never carry it. Freshness is
+        // the importer's own (one CRC-32C over the JPEG), so every start after the first cooks nothing.
+        m_StartupStages.push_back( { "Cooking the splash picture...",
+                                     [this] { (void)m_ImportManager->ImportTexture( Splash::kSplashSource ); } } );
         m_StartupStages.push_back( { "Preloading meshes, textures and materials...",
                                      [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } } );
         m_StartupStages.push_back(
@@ -651,7 +660,9 @@ namespace Desert::Editor
                   Assets::ContentRegistry::Get().Count(), registry.GetValue() );
 
         // Shaders must exist BEFORE the render systems below are constructed (their default materials
-        // resolve shaders in the ctor). Meshes/skyboxes are staged behind the loading overlay instead.
+        // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the
+        // start, and one call: the splash says what it is before it begins, and cannot say more during it.
+        ReportSplashStep( "Compiling shaders...", kSplashShaderStep );
         m_AssetPreloader->PreloadShaders();
 
         BuildSceneSystems( *m_MainScene );
@@ -1079,13 +1090,15 @@ namespace Desert::Editor
 
         ServiceControlChannel();
 
-        // Staged startup loading: run ONE heavy stage per frame — but only after at least one frame with
-        // the loading overlay has been PRESENTED (else the first cook would freeze a blank window anyway).
-        // While loading, the scene is NOT rendered at all (shaders/assets aren't there yet — rendering
-        // before the preload stage crashed on the missing StaticMeshPBR shader); the frame is ImGui-only.
+        // Staged startup loading: run ONE heavy stage per frame. While loading, the scene is NOT rendered
+        // at all (shaders/assets aren't there yet — rendering before the preload stage crashed on the
+        // missing StaticMeshPBR shader); the frame is ImGui-only and the window it goes to is still hidden.
+        //
+        // THERE USED TO BE A GATE HERE — "only after one frame with the loading overlay has been
+        // presented" — and it existed for the overlay alone: a stage run before that frame froze a blank
+        // window. The overlay is gone (the splash, a window of its own, replaced it), and so is the gate.
         if ( StartupLoading() )
         {
-            if ( m_StartupFramesRendered >= 1 )
             {
                 DESERT_PROFILE_SCOPE( "Startup stage" );
 
@@ -1105,6 +1118,7 @@ namespace Desert::Editor
                 // accumulation rule is how the two numbers stop being comparable. The SCHEDULER stays
                 // here: running one stage per frame behind a progress overlay is this layer's own
                 // arrangement and has nothing to do with timing. See Engine/Core/BootTimeline.hpp.
+                ReportSplashStep( m_StartupStages[m_StartupNext].Label, m_StartupNext + 1 );
                 const auto stageStart = std::chrono::steady_clock::now();
                 m_StartupStages[m_StartupNext].Run();
                 const double stageMs =
@@ -1115,12 +1129,16 @@ namespace Desert::Editor
 
                 if ( !StartupLoading() )
                 {
+                    // THE SETTLE PHASE GETS ITS OWN LABEL. A splash that says nothing while it waits is
+                    // indistinguishable from an editor that has hung, and this wait is the one the
+                    // demand-driven model introduced.
+                    ReportSplashStep( "Waiting for the scene's content...", SplashSettleStep() );
                     m_Boot.LogSummary();
                     LOG_INFO( "[Startup] all {} stage(s) done in {:.1f} ms; the editor is now answering "
                               "about a project it has actually read.",
                               m_StartupStages.size(), m_Boot.ElapsedMs() );
-                    // AND THE BOOT IS OVER HERE — not at the first frame, which the loading overlay has
-                    // been presenting for the whole of the staged load. Every synchronous asset load
+                    // AND THE BOOT IS OVER HERE — not at the first frame, which the hidden window has
+                    // been presented for the whole of the staged load. Every synchronous asset load
                     // after this line reports itself as a hitch. See Engine/Assets/SyncLoadLedger.hpp.
                     Assets::SyncLoadLedger::NoteBootFinished();
                     LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
@@ -1944,6 +1962,8 @@ namespace Desert::Editor
     void EditorLayer::OnFramePresented()
     {
         ++m_FrameIndex;
+
+        RevealWhenReady();
 
         if ( !m_ControlSocket.IsListening() )
             return;
@@ -3265,53 +3285,16 @@ namespace Desert::Editor
 
         SyncWindowTitle();
 
-        // ---- Startup loading overlay (UI loader) ----
-        // Fullscreen dim + progress while the staged boot work (mesh cook / preload) runs in OnUpdate.
+        // LOADING FRAMES DRAW NOTHING. They go to a window that is still hidden — the splash is what a
+        // person sees until the start is over — and there is no dockspace or panel to draw yet (the
+        // viewport panel would touch the not-yet-rendered scene image). The fullscreen ImGui overlay that
+        // stood here was replaced by the splash, and deleted with the same change.
         if ( StartupLoading() || ContentSettling() )
         {
-            ++m_StartupFramesRendered;
-
-            const ImGuiViewport* vp = ::ImGui::GetMainViewport();
-            ::ImGui::SetNextWindowPos( vp->Pos );
-            ::ImGui::SetNextWindowSize( vp->Size );
-            ::ImGui::SetNextWindowBgAlpha( 0.92f );
-            ::ImGui::Begin( "##StartupLoader", nullptr,
-                            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav |
-                                 ImGuiWindowFlags_NoDocking );
-
-            const float  cx    = vp->Size.x * 0.5f;
-            const float  cy    = vp->Size.y * 0.5f;
-            const float  barW  = 420.0f;
-            const size_t total = m_StartupStages.size();
-            const float  frac  = total ? (float)m_StartupNext / (float)total : 1.0f;
-            // THE SETTLE PHASE GETS ITS OWN LABEL rather than the empty string the finished stage list
-            // leaves behind. An overlay that says nothing while it waits is indistinguishable from an
-            // editor that has hung, and this wait is the one the demand-driven model introduced.
-            const char* label = m_StartupNext < total ? m_StartupStages[m_StartupNext].Label.c_str()
-                                                      : "Waiting for the scene's content...";
-
-            ::ImGui::SetCursorPos( ImVec2( cx - barW * 0.5f, cy - 60.0f ) );
-            ::ImGui::PushFont( EditorResources::GetBoldFont() );
-            ::ImGui::TextUnformatted( "DESERT ENGINE" );
-            ::ImGui::PopFont();
-
-            ::ImGui::SetCursorPos( ImVec2( cx - barW * 0.5f, cy - 24.0f ) );
-            ::ImGui::TextDisabled( "%s", label );
-
-            ::ImGui::SetCursorPos( ImVec2( cx - barW * 0.5f, cy ) );
-            ::ImGui::ProgressBar( frac, ImVec2( barW, 8.0f ), "" );
-
-            ::ImGui::SetCursorPos( ImVec2( cx - barW * 0.5f, cy + 20.0f ) );
-            ::ImGui::TextDisabled( "%zu / %zu", m_StartupNext, total );
-
-            ::ImGui::End();
-
-            // Loading frames are ImGui-only: no dockspace, no panels (the viewport panel would touch the
-            // not-yet-rendered scene image).
             m_ImGuiLayer->End();
             return BOOLSUCCESS;
         }
+        m_RealFrameDrawn = true;
 
         // ---- Global editing shortcuts ----
         // Edit mode only (Play discards its changes on Stop anyway) and never while a text field owns the
@@ -5468,6 +5451,27 @@ namespace Desert::Editor
     void EditorLayer::BeginContentSettle()
     {
         m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
+    }
+
+    void EditorLayer::ReportSplashStep( const std::string& label, const size_t step )
+    {
+        if ( m_Splash )
+            m_Splash->SetStatus( label, step, SplashStepCount() );
+    }
+
+    // SHOWN AFTER THE FIRST REAL FRAME IS PRESENTED, NOT BEFORE IT IS DRAWN. The window has been presented
+    // loading frames the whole time it was hidden, and a window shown ahead of the first real present would
+    // put the last of those — an empty frame — on screen for as long as that frame takes. Shown here, the
+    // surface it reveals already holds the editor, and the splash is closed in the same instant.
+    void EditorLayer::RevealWhenReady()
+    {
+        if ( !m_Splash || !m_RealFrameDrawn )
+            return;
+        if ( const auto& window = m_Application->GetWindow() )
+            window->Show();
+        m_Splash->Close();
+        m_Splash.reset();
+        LOG_INFO( "[Startup] the editor is on screen and the splash is closed" );
     }
 
     void EditorLayer::UpdateContentSettling()

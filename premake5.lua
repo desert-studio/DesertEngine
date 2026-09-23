@@ -51,6 +51,9 @@ include "Tools/AssetRegistryTool/"
 -- rather than linking the Editor project, which is what keeps it buildable on a machine that has no
 -- display and no Vulkan driver (see Tools/GamePackager/premake5.lua).
 include "Tools/GamePackager/"
+-- TextureCook compiles the editor's TextureImporter into itself for the same reason, and cooks the one
+-- texture a script has to: the editor splash that scripts/MacOS/Package.sh puts in the engine drop.
+include "Tools/TextureCook/"
 group ""
 
 include "Editor/"

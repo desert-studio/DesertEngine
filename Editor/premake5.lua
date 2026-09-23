@@ -135,8 +135,15 @@ project "Editor"
         -- (error C1128). /bigobj lifts the format cap and costs nothing at runtime.
         buildoptions { "/bigobj" }
 
+    -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The
+    -- Source/** glob above picks the Windows one up everywhere, so it is dropped where it cannot build;
+    -- the macOS one is Objective-C++, which the glob does not match at all and is added by name.
+    filter "system:not windows"
+        removefiles { "Source/Editor/Splash/Windows/**" }
+
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
+        files { "Source/Editor/Splash/MacOS/**.mm" }
 
         -- Unlike Visual Studio, gmake does not link static-lib dependencies
         -- transitively — the executable has to pull in everything the engine

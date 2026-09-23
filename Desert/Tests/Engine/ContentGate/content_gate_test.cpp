@@ -1,7 +1,7 @@
 // THE RULE THAT DECIDES WHETHER A PLAYER SEES A HALF-READ WORLD.
 //
 // `ContentGate` is the state both hosts hold while demand-driven content is still arriving: the editor
-// keeps its loading overlay up for it, and the shipping runtime does not blit the scene into the
+// keeps its splash up (and its window hidden) for it, and the shipping runtime does not blit the scene into the
 // swapchain at all until it opens. Everything about whether that works reduces to WHEN IT OPENS.
 //
 // The dangerous shape is the one-condition gate. "Nothing outstanding" alone looks like the whole
