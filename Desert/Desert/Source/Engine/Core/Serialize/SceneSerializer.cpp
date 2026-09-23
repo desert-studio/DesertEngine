@@ -7,6 +7,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
@@ -316,6 +317,58 @@ namespace Desert::Core
                       "bare), and {2} parent link(s) name an entity this file does not contain. {3} id(s) "
                       "were minted for records that carried none.",
                       scene.SceneName, plan.Shadowed, plan.UnresolvedParents, plan.Minted );
+        }
+
+        // IF THIS WORLD SAYS IT IS PARTITIONED, SAY WHETHER IT ACTUALLY PARTITIONS.
+        //
+        // AND LOAD IT EITHER WAY. A refusal here is NOT a refusal to load: the invariant belongs to
+        // partition time, nothing streams yet, and the scene in front of the user is not the thing that
+        // is wrong — a world with one oversized composite is a world with one thing to fix in it. The
+        // version gate above refuses because an old file cannot be READ; this cannot make that claim.
+        //
+        // It runs at load rather than only in a tool because that is where somebody who has just moved
+        // an entity will see it. The work is one walk of the records the loader has already parsed, and
+        // an unpartitioned world (every `.desce` in the repository today) does none of it.
+        if ( scene.WorldPartition.has_value() )
+        {
+            const Rules::WorldPartitionPlan partition =
+                 Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition );
+
+            for ( const Rules::OversizedComposite& refusal : partition.Refusals )
+            {
+                LOG_ERROR( "[WorldPartition] '{0}': {1}", scene.SceneName,
+                           Rules::DescribeRefusal( scene.Entities, refusal ) );
+            }
+
+            if ( !partition.Dangling.empty() )
+            {
+                // NOT a refusal, and said separately because it is a different fact: a composite that is
+                // smaller than its author thinks, because one of its parts names an entity this file
+                // does not contain.
+                LOG_WARN( "[WorldPartition] '{0}': {1} containment reference(s) name an entity this file "
+                          "does not contain, so whatever they were meant to hold together is partitioned "
+                          "as separate composites.",
+                          scene.SceneName, partition.Dangling.size() );
+            }
+
+            if ( !partition.UnplacedPrefabInstances.empty() )
+            {
+                // A THIRD, DIFFERENT FACT, and it is a limitation rather than a defect in the world: a
+                // prefab instance's transform is not in this file at all, so the partitioner put it at
+                // the origin. Said out loud because "in cell (0,0)" is otherwise indistinguishable from
+                // a correct answer.
+                LOG_WARN( "[WorldPartition] '{0}': {1} prefab instance(s) state no transform of their "
+                          "own in this file, so they are partitioned AT THE ORIGIN. Placing them needs "
+                          "the prefab's own bounds, which are not stored in the asset yet.",
+                          scene.SceneName, partition.UnplacedPrefabInstances.size() );
+            }
+
+            if ( !partition.Refused() )
+            {
+                LOG_INFO( "[WorldPartition] '{0}': partitions into {1} composite(s) at a cell size of "
+                          "{2} world units.",
+                          scene.SceneName, partition.Composites.size(), scene.WorldPartition->CellSize );
+            }
         }
 
         std::unordered_map<Common::UUID, ECS::Entity> entityMap;
