@@ -42,8 +42,11 @@
 *.deproj       -text
 
 # The cooked texture container (B17). It stopped being JSON the day it grew a pixel payload, and a
-# line-ending translation inside 5.3 MB of RGBA8 would not merely resize the file — it would rewrite
-# every 0x0A byte of image data, which is one texel component in 256. The registry records this file's
+# line-ending translation inside a mip chain would not merely resize the file — it would rewrite every
+# 0x0A byte of image data, which is one texel component in 256. Since the levels carry their own codec
+# (v2) it is worse than that: a translated byte inside an LZ4 block is not one wrong texel but a block
+# that no longer decodes, so the refusal names the level and the whole texture fails to load. The
+# registry records this file's
 # SIZE, so a translated checkout also fails CookedRegistryGate, which is how the shader files were
 # caught; the difference is that a shader survives being read, and these pixels do not.
 *.tex          -text

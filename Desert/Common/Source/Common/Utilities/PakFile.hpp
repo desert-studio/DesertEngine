@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -52,7 +53,9 @@ namespace Common::Utils
     //     over the whole shipping corpus, .stmesh and .spv compress 1.9x while .png, .gif, .fbx and
     //     the baked volumes compress 1.00-1.03x, so a whole-archive codec would pay decompression on
     //     a third of the bytes to save nothing on them. The packer compresses an entry only when it
-    //     saves at least 37.5 % (kCompressionThreshold), and stores it verbatim otherwise.
+    //     saves at least 37.5 % (kCompressionNumerator/kCompressionDenominator), and stores it
+    //     verbatim otherwise. The ONE kind that is exempt whatever its bytes do is listed, with its
+    //     reason, in kStoredVerbatimRules below.
     //   * ON LOAD TIME ALONE, COMPRESSION IS A MEASURED REFUSAL ON THIS MACHINE, and the condition
     //     that would return it is written down rather than left to taste. A codec pays exactly when
     //     the storage device is slower than P*(r-1)/r for decompression speed P and ratio r; ours is
@@ -129,6 +132,48 @@ namespace Common::Utils
     // stored verbatim and cost no decompression at all.
     inline constexpr uint64_t kCompressionNumerator   = 5;
     inline constexpr uint64_t kCompressionDenominator = 8;
+
+    // THE ONE EXCEPTION TO "THE DATA DECIDES", AND IT IS A LIST OF REASONS, NOT A LIST OF EXTENSIONS.
+    //
+    // The policy above asks the bytes and keeps the answer, which is right for every kind of content
+    // whose only question is how many bytes it costs to ship. It is WRONG for a container whose whole
+    // purpose is that a PART of it can be read on its own, because compressing the entry destroys that
+    // property silently: the archive still round-trips, every test still passes, and the only thing
+    // that changed is that reading one mip now costs decompressing the whole texture.
+    //
+    // MEASURED, NOT FEARED (2026-09-23, this tree, the archive's own Lz4Block at the threshold above).
+    // `Editor/Cooked/Textures/T_Checker.tex` is 5 592 752 bytes and LZ4 takes it to 65 825 — it saves
+    // 98.8 % where the packer asks for 37.5 %, so the entry WOULD be compressed, by a factor of 26
+    // more than the policy demands. Over the fourteen textures this repository can cook, twelve clear
+    // the threshold as whole files. A `.tex` is a mip chain of raw pixels, and raw pixels are not PNG:
+    // the container is compressible by construction, and the disease it was written to cure — "to get
+    // mip 4 you must decode everything" — would come back through the archive rather than through the
+    // image format. This list exists because that is a policy decision, not luck, and luck is what
+    // decides it when nobody writes it down: the day per-level compression lands the whole file stops
+    // clearing the threshold on its own, and an exception that only holds while a measurement holds is
+    // not an exception at all.
+    //
+    // It is deliberately a REGISTER — one row per kind, each carrying the sentence that justifies it —
+    // so that Desert/Tests/Common/Pak can pin the rows by name and derive the count from them. A gate
+    // that pinned a NUMBER could be satisfied by editing the number.
+    struct StoredVerbatimRule
+    {
+        std::string_view Extension; // lower-case, with the dot
+        std::string_view Why;       // why this kind must not be compressed as one entry
+    };
+
+    inline constexpr std::array<StoredVerbatimRule, 1> kStoredVerbatimRules{ {
+         { ".tex", "the cooked texture container exists so that ONE mip level can be read without "
+                   "reading the file; compressing the whole entry makes the resident tail — a short "
+                   "read of the smallest levels — inexpressible again. It carries its own per-level "
+                   "codec instead (Engine/Assets/Serialization/TextureBinary.hpp)." },
+    } };
+
+    // The rule that forbids compressing @p key as one entry, or nullptr when the data decides as usual.
+    // The extension is taken after the last '/' so a directory called "Foo.tex" cannot answer for a
+    // file inside it, and it is compared ASCII-lower-cased so the verdict cannot depend on the case a
+    // filesystem happened to hand back.
+    const StoredVerbatimRule* StoredVerbatimRuleFor( std::string_view key );
 
     // How an entry's payload lies in the archive. The column exists so the DATA decides per entry;
     // see the format note above on why a per-archive codec would be the wrong shape.

@@ -46,6 +46,9 @@
 
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 
+// For the compression threshold, which the container shares with the archive rather than restating.
+#include <Common/Utilities/PakFile.hpp>
+
 #include <gtest/gtest.h>
 
 #include <stb_image/stb_image.h>
@@ -136,6 +139,41 @@ namespace
             }
         }
         return pixels;
+    }
+
+    /// A deterministic image the codec can do something with. `SyntheticRGBA8` is deliberately
+    /// noise-like — that is what makes it a good test of a box filter — and noise is exactly what the
+    /// compression threshold refuses, so a test about the codec needs its own corpus.
+    std::vector<unsigned char> CompressibleRGBA8( const uint32_t width, const uint32_t height )
+    {
+        std::vector<unsigned char> pixels( static_cast<size_t>( width ) * height * 4 );
+        for ( uint32_t y = 0; y < height; ++y )
+        {
+            for ( uint32_t x = 0; x < width; ++x )
+            {
+                const size_t at = ( static_cast<size_t>( y ) * width + x ) * 4;
+                // Broad bands rather than a flat fill: a mip chain of one colour is a chain the filter
+                // could get wrong in every level identically and still look compressible.
+                const unsigned char band = static_cast<unsigned char>( ( ( x / 32u ) & 1u ) ? 0xE0u : 0x20u );
+                pixels[at + 0]           = band;
+                pixels[at + 1]           = static_cast<unsigned char>( ( y / 32u ) & 1u ? 0xC0u : 0x40u );
+                pixels[at + 2]           = 0x80u;
+                pixels[at + 3]           = 0xFFu;
+            }
+        }
+        return pixels;
+    }
+
+    /// The width of one level row, READ OUT OF THE FILE. The table lies between the header and the
+    /// source key, so the stride is that span over the level count — a number the file states rather
+    /// than one a test remembers and stops being right about.
+    size_t RowStride( const std::string& encoded )
+    {
+        uint32_t levelCount = 0, keyOffset = 0;
+        std::memcpy( &levelCount, encoded.data() + 32, sizeof( levelCount ) ); // FileHeader::LevelCount
+        std::memcpy( &keyOffset, encoded.data() + 44, sizeof( keyOffset ) );   // FileHeader::SourceKeyOffset
+        EXPECT_GT( levelCount, 0u );
+        return levelCount == 0 ? 0 : ( keyOffset - kTextureBinaryHeaderSize ) / levelCount;
     }
 
     TextureAssetData Cook( const uint32_t width, const uint32_t height, const std::vector<unsigned char>& base,
@@ -295,10 +333,12 @@ TEST( TextureBinaryFormat, ALevelOffsetThatStillFitsIsRefused )
     const uint32_t w = 32, h = 32;
     std::string    encoded = EncodeTextureBinary( Cook( w, h, SyntheticRGBA8( w, h ) ) );
 
-    // Level 1's ByteOffset is the first field of the second row, at header(128) + one row(16). Move it
-    // forward by 16 bytes: still inside the payload, still level-aligned, still leaving room for the
-    // declared size — and the image it would produce is a complete, plausible, WRONG one.
-    const size_t offsetField = kTextureBinaryHeaderSize + 16u;
+    // Level 1's ByteOffset is the first field of the second row. THE ROW'S WIDTH IS DERIVED FROM THE
+    // FILE, not remembered here: the table runs from the end of the header to the source key, so the
+    // stride is that span over the level count. A literal 16 was right for v1 and silently addressed
+    // the middle of row 0 the day the row grew.
+    const size_t rowStride   = RowStride( encoded );
+    const size_t offsetField = kTextureBinaryHeaderSize + rowStride;
     uint64_t     moved       = 0;
     std::memcpy( &moved, encoded.data() + offsetField, sizeof( moved ) );
     moved += 16;
@@ -532,6 +572,255 @@ TEST( TextureBinaryFormat, TheResidentTailIsAContiguousPrefixOfTheFile )
         if ( level.Width <= 16 && level.Height <= 16 )
             tailEnd = std::max( tailEnd, level.ByteOffset + level.ByteSize );
     EXPECT_LT( tailEnd, 2048u ) << "the resident tail does not fit in one small read";
+
+    // AND THE SAME CLAIM ABOUT THE FILE, which is the one that actually matters and which the loop
+    // above cannot make: `TextureLevel::ByteOffset` is an offset into the DECODED buffer. Since v2
+    // those are two different layouts, so the property has to be asserted in both spellings or it is
+    // being asserted about the wrong bytes.
+    const auto header = DecodeTextureHeader( encoded, "order" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    const auto& located = header.GetValue().Levels;
+    ASSERT_EQ( located.size(), levels.size() );
+    for ( size_t i = 0; i + 1 < located.size(); ++i )
+    {
+        EXPECT_GT( located[i].FileOffset, located[i + 1].FileOffset )
+             << "level " << i << " lies before level " << ( i + 1 ) << " IN THE FILE";
+    }
+    uint64_t fileTailEnd = 0;
+    for ( size_t i = 0; i < located.size(); ++i )
+        if ( levels[i].Width <= 16 && levels[i].Height <= 16 )
+            fileTailEnd = std::max( fileTailEnd, located[i].FileOffset + located[i].StoredSize );
+    EXPECT_LE( fileTailEnd, kTextureBinaryPrefixBytes )
+         << "the resident tail no longer fits in the prefix a loader reads first";
+}
+
+// ── 11. PER-LEVEL COMPRESSION ──────────────────────────────────────────────────────────────────────
+//
+// WHY THE LEVEL AND NOT THE FILE. A `.tex` is a mip chain of raw pixels, and raw pixels compress: the
+// one texture this repository tracks goes from 5 592 752 bytes to 65 825 under the archive's own codec,
+// which is 98.8 % against a threshold of 37.5 %. So the question was never whether the container would
+// be compressed — it was WHERE, and compressing the ENTRY brings back exactly what the container was
+// written to cure: to read mip 4 you must decode everything. The codec therefore lives in the level
+// row, and the archive is told to keep its hands off the file (`Common/Utilities/PakFile.hpp`,
+// kStoredVerbatimRules, pinned by `Desert/Tests/Common/Pak`).
+
+TEST( TextureBinaryFormat, CompressionIsTransparentToTheRoundTrip )
+{
+    // THE RELATION, not the bytes: the two encodings are DIFFERENT FILES and must decode to the SAME
+    // texture, field for field and byte for byte. A codec that is merely present would pass a test
+    // that only checked the compressed file round-trips against itself.
+    const uint32_t w = 128, h = 96;
+    const auto     data = Cook( w, h, CompressibleRGBA8( w, h ) );
+
+    const std::string packed = EncodeTextureBinary( data, TextureEncodeOptions{ true } );
+    const std::string plain  = EncodeTextureBinary( data, TextureEncodeOptions{ false } );
+    EXPECT_LT( packed.size(), plain.size() ) << "compression produced a file no smaller than the raw one";
+    EXPECT_NE( packed, plain );
+
+    const auto fromPacked = DecodeTextureBinary( packed, "packed.tex" );
+    const auto fromPlain  = DecodeTextureBinary( plain, "plain.tex" );
+    ASSERT_TRUE( fromPacked.IsSuccess() ) << fromPacked.GetError();
+    ASSERT_TRUE( fromPlain.IsSuccess() ) << fromPlain.GetError();
+
+    const auto& a = fromPacked.GetValue();
+    const auto& b = fromPlain.GetValue();
+    ASSERT_EQ( a.Levels.size(), b.Levels.size() );
+    for ( size_t i = 0; i < a.Levels.size(); ++i )
+    {
+        EXPECT_EQ( a.Levels[i].Width, b.Levels[i].Width ) << "level " << i;
+        EXPECT_EQ( a.Levels[i].Height, b.Levels[i].Height ) << "level " << i;
+        EXPECT_EQ( a.Levels[i].ByteOffset, b.Levels[i].ByteOffset ) << "level " << i;
+        EXPECT_EQ( a.Levels[i].ByteSize, b.Levels[i].ByteSize ) << "level " << i;
+        EXPECT_EQ( a.Levels[i].RowPitch, b.Levels[i].RowPitch ) << "level " << i;
+    }
+    ASSERT_EQ( a.Pixels.size(), b.Pixels.size() );
+    EXPECT_EQ( std::memcmp( a.Pixels.data(), b.Pixels.data(), a.Pixels.size() ), 0 );
+
+    // And against the input, so "the same as each other" cannot mean "the same wrong thing".
+    ASSERT_EQ( a.Pixels.size(), data.Pixels.size() );
+    EXPECT_EQ( std::memcmp( a.Pixels.data(), data.Pixels.data(), a.Pixels.size() ), 0 );
+
+    // THE OTHER END OF THE POLICY. On a corpus the codec cannot help — `SyntheticRGBA8` is noise by
+    // design — no level clears the threshold, so asking for compression must produce the SAME FILE as
+    // not asking. A codec that wrote a different container for the same bytes would mean the cook's
+    // output depended on a flag nobody set.
+    const auto        noisy    = Cook( w, h, SyntheticRGBA8( w, h ) );
+    const std::string asked    = EncodeTextureBinary( noisy, TextureEncodeOptions{ true } );
+    const std::string notAsked = EncodeTextureBinary( noisy, TextureEncodeOptions{ false } );
+    EXPECT_EQ( asked, notAsked ) << "nothing in this image compresses, so the two encodings must agree";
+}
+
+TEST( TextureBinaryFormat, EveryLevelDecidesItsOwnCodecAndBothVerdictsHappen )
+{
+    // A large, very compressible image, so the big levels clear the threshold and the tail of the chain
+    // cannot: a 1x1 level is four bytes and no codec shrinks four bytes. That is the whole reason the
+    // column is per level, and a chain where every level agreed would leave it untested.
+    const uint32_t             w = 256, h = 256;
+    std::vector<unsigned char> flat( static_cast<size_t>( w ) * h * 4, 0u );
+    for ( size_t at = 0; at < flat.size(); at += 4 )
+    {
+        flat[at + 0] = 0x40;
+        flat[at + 1] = 0x80;
+        flat[at + 2] = 0xC0;
+        flat[at + 3] = 0xFF;
+    }
+
+    const std::string encoded = EncodeTextureBinary( Cook( w, h, flat ) );
+    const auto        header  = DecodeTextureHeader( encoded, "mixed.tex" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    const auto& levels = header.GetValue().Levels;
+
+    size_t compressed = 0, stored = 0;
+    for ( size_t i = 0; i < levels.size(); ++i )
+    {
+        if ( levels[i].Codec == TextureLevelCodec::LZ4 )
+        {
+            ++compressed;
+            // The threshold is a RELATION and is asserted as one, against the archive's constants
+            // rather than a number remembered here.
+            EXPECT_LE( static_cast<uint64_t>( levels[i].StoredSize ) * Common::Utils::kCompressionDenominator,
+                       static_cast<uint64_t>( levels[i].ByteSize ) * Common::Utils::kCompressionNumerator )
+                 << "level " << i << " was kept compressed without clearing the threshold";
+        }
+        else
+        {
+            ++stored;
+            EXPECT_EQ( levels[i].StoredSize, levels[i].ByteSize ) << "level " << i << " is stored and short";
+        }
+    }
+    EXPECT_GT( compressed, 0u ) << "nothing compressed; the codec path was never taken";
+    EXPECT_GT( stored, 0u ) << "everything compressed; the stored path was never taken";
+
+    // The two declared totals are the two things the file holds and the buffer needs, and they are not
+    // the same number once anything compressed.
+    uint64_t declared = 0, storedSum = 0;
+    for ( const TextureLevelLocation& level : levels )
+    {
+        declared += level.ByteSize;
+        storedSum += level.StoredSize;
+    }
+    EXPECT_EQ( header.GetValue().PayloadBytes, declared );
+    EXPECT_EQ( header.GetValue().StoredPayloadBytes, storedSum );
+    EXPECT_LT( header.GetValue().StoredPayloadBytes, header.GetValue().PayloadBytes );
+}
+
+TEST( TextureBinaryFormat, TheFileChainsOnStoredSizesAndTheBufferChainsOnDecodedOnes )
+{
+    // THE MIDDLE LINK. Both ends of this format look right whichever size the chain is built on, and a
+    // decoder that chained the file on the DECODED sizes would validate a compressed container only by
+    // accident — namely when nothing compressed. So both layouts are walked here, independently.
+    const uint32_t    w = 64, h = 64;
+    const auto        data    = Cook( w, h, SyntheticRGBA8( w, h ) );
+    const std::string encoded = EncodeTextureBinary( data );
+
+    const auto header = DecodeTextureHeader( encoded, "chain.tex" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    const auto decoded = DecodeTextureBinary( encoded, "chain.tex" );
+    ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
+
+    const auto& located = header.GetValue().Levels;
+    const auto& levels  = decoded.GetValue().Levels;
+    ASSERT_EQ( located.size(), levels.size() );
+
+    const auto alignUp = []( const uint64_t at ) { return ( at + 15u ) & ~static_cast<uint64_t>( 15u ); };
+
+    uint64_t fileAt   = located.back().FileOffset; // physical order: the smallest level is first
+    uint64_t bufferAt = 0;
+    for ( size_t i = 0; i < located.size(); ++i )
+    {
+        const size_t level = located.size() - 1 - i;
+        EXPECT_EQ( located[level].FileOffset, fileAt ) << "level " << level << " is not where the STORED "
+                                                       << "sizes put it in the file";
+        EXPECT_EQ( levels[level].ByteOffset, bufferAt ) << "level " << level << " is not where the DECODED "
+                                                        << "sizes put it in the buffer";
+        fileAt   = alignUp( fileAt + located[level].StoredSize );
+        bufferAt = alignUp( bufferAt + located[level].ByteSize );
+    }
+
+    // The file ends at the last stored level, with no trailing pad.
+    EXPECT_EQ( located.front().FileOffset + located.front().StoredSize, header.GetValue().FileSize );
+    EXPECT_EQ( header.GetValue().FileSize, encoded.size() );
+}
+
+TEST( TextureBinaryFormat, ALevelCodecThisVersionDoesNotKnowIsRefused )
+{
+    std::string encoded = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
+    // The Codec column of the first row: header (128) + 20 bytes into a 24-byte row.
+    const uint32_t future = 7u;
+    std::memcpy( encoded.data() + 128 + 20, &future, sizeof( future ) );
+
+    const auto read = DecodeTextureBinary( encoded, "futurecodec.tex" );
+    EXPECT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "codec 7" ), std::string::npos ) << read.GetError();
+}
+
+TEST( TextureBinaryFormat, AStoredLevelThatIsShorterThanItsPixelsIsRefused )
+{
+    std::string encoded =
+         EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ), TextureEncodeOptions{ false } );
+    // The StoredSize column of the first row, made to disagree with ByteSize while the codec still
+    // says Store. Under a reader that took StoredSize on trust this is a texture whose level 0 is
+    // partly whatever followed it.
+    const uint32_t shorter = 16u;
+    std::memcpy( encoded.data() + 128 + 16, &shorter, sizeof( shorter ) );
+
+    const auto read = DecodeTextureBinary( encoded, "shortstore.tex" );
+    EXPECT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "stored uncompressed" ), std::string::npos ) << read.GetError();
+}
+
+TEST( TextureBinaryFormat, ACompressedLevelThatDoesNotDecodeIsAFailedReadAndNotAShortLevel )
+{
+    const uint32_t             w = 64, h = 64;
+    std::vector<unsigned char> flat( static_cast<size_t>( w ) * h * 4, 0x5Au );
+    std::string                encoded = EncodeTextureBinary( Cook( w, h, flat ) );
+
+    const auto header = DecodeTextureHeader( encoded, "block.tex" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    ASSERT_EQ( header.GetValue().Levels[0].Codec, TextureLevelCodec::LZ4 )
+         << "level 0 of a flat image did not compress; this test has nothing to corrupt";
+
+    // Zero the block. An LZ4 token of 0x00 asks for a match at offset 0, which no block may name, so
+    // the decoder refuses rather than producing something of the right length out of nothing.
+    const auto& level = header.GetValue().Levels[0];
+    std::fill_n( encoded.data() + level.FileOffset, level.StoredSize, '\0' );
+
+    const auto read = DecodeTextureBinary( encoded, "block.tex" );
+    EXPECT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "did not decode" ), std::string::npos ) << read.GetError();
+}
+
+TEST( TextureBinaryFormat, TheTrackedCheckerTextureCarriesItsLevelsCompressed )
+{
+    // THE COMMITTED FILE IS THE CLAIM. A format that can compress and a cook that never does are the
+    // same thing on disk, and the disk is what ships.
+    const auto        path  = RepositoryRoot() / "Editor" / "Cooked" / "Textures" / "T_Checker.tex";
+    const std::string bytes = ReadFile( path );
+    ASSERT_FALSE( bytes.empty() ) << path.string();
+
+    const auto header = DecodeTextureHeader( bytes, path.string() );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+
+    size_t compressed = 0;
+    for ( const TextureLevelLocation& level : header.GetValue().Levels )
+        if ( level.Codec == TextureLevelCodec::LZ4 )
+            ++compressed;
+    EXPECT_GT( compressed, 0u ) << "the tracked texture was cooked with every level stored; the cook is "
+                                   "no longer compressing what it ships";
+
+    EXPECT_LT( header.GetValue().StoredPayloadBytes, header.GetValue().PayloadBytes );
+    EXPECT_EQ( header.GetValue().FileSize, bytes.size() );
+
+    // The declared decoded total, derived here rather than remembered: eleven levels of a 1024x1024
+    // RGBA8 chain, PADDING EXCLUDED — which is why it is not the size of the pixel buffer.
+    uint64_t chain = 0;
+    for ( uint32_t w = 1024, h = 1024;; w = w > 1 ? w / 2 : 1, h = h > 1 ? h / 2 : 1 )
+    {
+        chain += static_cast<uint64_t>( w ) * h * 4;
+        if ( w == 1 && h == 1 )
+            break;
+    }
+    EXPECT_EQ( header.GetValue().PayloadBytes, chain );
 }
 
 TEST( TextureBinaryFormat, AFlagOrAnEncoderThisVersionCannotHonourIsRefused )

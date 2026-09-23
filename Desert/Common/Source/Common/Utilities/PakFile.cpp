@@ -76,6 +76,38 @@ namespace Common::Utils
         return h;
     }
 
+    const StoredVerbatimRule* StoredVerbatimRuleFor( const std::string_view key )
+    {
+        // AFTER THE LAST SEPARATOR, so a directory named "Cooked.tex" cannot answer for the files
+        // inside it. A key with no dot in its final component has no extension and no rule.
+        //
+        // BOTH SEPARATORS, though a pak key is generic by contract: the one caller that could hand a
+        // backslash through is a Windows walk that forgot `generic_string()`, and the cost of the
+        // defect — a shipped archive whose contents differ by build host — is not worth the one
+        // character it takes to be immune to it.
+        const size_t           slash = key.find_last_of( "/\\" );
+        const std::string_view name  = slash == std::string_view::npos ? key : key.substr( slash + 1 );
+        const size_t           dot   = name.find_last_of( '.' );
+        if ( dot == std::string_view::npos )
+            return nullptr;
+
+        // ASCII-lower-cased rather than compared as it came. A key is spelled by whatever walked the
+        // tree, and on a case-preserving filesystem "T_Checker.TEX" is the same content as
+        // "T_Checker.tex" — a policy that answered differently for the two would be a platform
+        // difference in what a shipped archive contains.
+        std::string lowered;
+        lowered.reserve( name.size() - dot );
+        for ( const char c : name.substr( dot ) )
+            lowered.push_back( c >= 'A' && c <= 'Z' ? static_cast<char>( c - 'A' + 'a' ) : c );
+
+        for ( const StoredVerbatimRule& rule : kStoredVerbatimRules )
+        {
+            if ( lowered == rule.Extension )
+                return &rule;
+        }
+        return nullptr;
+    }
+
     // ---------------------------------------------------------------- PakWriter
 
     PakWriter::PakWriter( const std::filesystem::path& pakPath ) : PakWriter( pakPath, Mode::Create )
@@ -194,15 +226,18 @@ namespace Common::Utils
         if ( !m_Ok )
             return false;
 
-        // THE DATA DECIDES, not a table of extensions. Compress, and keep the result only if it
-        // cleared the threshold; everything else is stored verbatim and costs the reader nothing.
-        // An extension list would have to be maintained against a content tree that grows, and it
-        // would be wrong the first time a .desce became a container or a .tex became BCn.
+        // THE DATA DECIDES, not a table of extensions — except for the kinds whose REASON forbids it,
+        // which are named one row at a time in kStoredVerbatimRules. Compress, and keep the result only
+        // if it cleared the threshold; everything else is stored verbatim and costs the reader nothing.
+        // A general extension list would have to be maintained against a content tree that grows, and
+        // it would be wrong the first time a .desce became a container; the register is not that list —
+        // it holds only the kinds for which compressing the WHOLE entry destroys a property the file
+        // format exists to provide, and each row has to say which property.
         const char*       stored     = static_cast<const char*>( data );
         uint64_t          storedSize = size;
         PakCodec          codec      = PakCodec::Store;
         std::vector<char> compressed;
-        if ( size > 0 )
+        if ( size > 0 && StoredVerbatimRuleFor( key ) == nullptr )
         {
             compressed.resize( Lz4BlockBound( size ) );
             const size_t packed = Lz4BlockCompress( data, size, compressed.data(), compressed.size() );
