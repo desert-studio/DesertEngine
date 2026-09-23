@@ -169,11 +169,75 @@ namespace
     /// than one a test remembers and stops being right about.
     size_t RowStride( const std::string& encoded )
     {
-        uint32_t levelCount = 0, keyOffset = 0;
+        uint32_t levelCount = 0, layerCount = 0, keyOffset = 0;
         std::memcpy( &levelCount, encoded.data() + 32, sizeof( levelCount ) ); // FileHeader::LevelCount
         std::memcpy( &keyOffset, encoded.data() + 44, sizeof( keyOffset ) );   // FileHeader::SourceKeyOffset
+        std::memcpy( &layerCount, encoded.data() + 96, sizeof( layerCount ) ); // FileHeader::LayerCount (v3)
         EXPECT_GT( levelCount, 0u );
-        return levelCount == 0 ? 0 : ( keyOffset - kTextureBinaryHeaderSize ) / levelCount;
+        EXPECT_GT( layerCount, 0u );
+        const uint64_t rows = static_cast<uint64_t>( levelCount ) * layerCount;
+        return rows == 0 ? 0 : static_cast<size_t>( ( keyOffset - kTextureBinaryHeaderSize ) / rows );
+    }
+
+    /// A cube whose six faces are all DIFFERENT, so a reader that dropped one, permuted two or wrote
+    /// the same face six times cannot pass. `SyntheticRGBA8` is seeded per face for exactly that.
+    std::vector<unsigned char> SyntheticFace( const uint32_t side, const uint32_t face )
+    {
+        std::vector<unsigned char> pixels( static_cast<size_t>( side ) * side * 4 );
+        for ( uint32_t y = 0; y < side; ++y )
+        {
+            for ( uint32_t x = 0; x < side; ++x )
+            {
+                const size_t at = ( static_cast<size_t>( y ) * side + x ) * 4;
+                pixels[at + 0]  = static_cast<unsigned char>( ( x * 7u + y * 13u + face * 41u ) & 0xFFu );
+                pixels[at + 1]  = static_cast<unsigned char>( ( ( x ^ y ) + face ) & 0xFFu );
+                pixels[at + 2]  = static_cast<unsigned char>( face * 40u );
+                pixels[at + 3]  = 0xFFu;
+            }
+        }
+        return pixels;
+    }
+
+    /// Every level of every face, tightly packed in TABLE ORDER — level 0's six faces, then level 1's.
+    /// This is the shape a cube arrives in from the device (`VulkanImageCube::RT_ReadAllLevels`), so the
+    /// tests below drive `BuildLevelTable` with the same layout the engine hands it.
+    std::vector<unsigned char> TightCubeChain( const uint32_t faceSize, const uint32_t levelCount )
+    {
+        std::vector<unsigned char> out;
+        uint32_t                   side = faceSize;
+        for ( uint32_t level = 0; level < levelCount; ++level )
+        {
+            for ( uint32_t face = 0; face < kTextureCubeLayerCount; ++face )
+            {
+                // The seed carries the LEVEL as well, so a chain that placed a level's faces at
+                // another level's offsets is a chain the identity check below cannot survive.
+                const auto one = SyntheticFace( side, face + level * 11u );
+                out.insert( out.end(), one.begin(), one.end() );
+            }
+            side = side > 1u ? side / 2u : 1u;
+        }
+        return out;
+    }
+
+    TextureAssetData CookCube( const uint32_t faceSize, const uint32_t levelCount,
+                               const std::string& key = "assets:Textures/Env.hdr" )
+    {
+        TextureAssetData data;
+        data.Handle            = Common::UUID( 0x0123456789ABCDEFull );
+        data.SourcePath        = key;
+        data.SourceContentHash = 0x00001234DEADBEEFull;
+        data.Width             = faceSize;
+        data.Height            = faceSize;
+        data.LayerCount        = kTextureCubeLayerCount;
+        data.Kind              = TextureKind::Cube;
+        data.Format            = ImageFormat::RGBA8F;
+
+        const auto tight = TightCubeChain( faceSize, levelCount );
+        auto table = BuildLevelTable( faceSize, faceSize, levelCount, kTextureCubeLayerCount, ImageFormat::RGBA8F,
+                                      tight, data.Pixels );
+        EXPECT_TRUE( table.IsSuccess() ) << table.GetError();
+        data.Levels = table.ExtractValue();
+        return data;
     }
 
     TextureAssetData Cook( const uint32_t width, const uint32_t height, const std::vector<unsigned char>& base,
@@ -186,6 +250,8 @@ namespace
         data.Width             = width;
         data.Height            = height;
         data.Format            = ImageFormat::RGBA8F;
+        data.LayerCount        = 1;
+        data.Kind              = TextureKind::Texture2D;
         auto chain             = BuildMipChain( width, height, ImageFormat::RGBA8F, base, data.Pixels );
         EXPECT_TRUE( chain.IsSuccess() ) << chain.GetError();
         data.Levels = chain.ExtractValue();
@@ -823,26 +889,308 @@ TEST( TextureBinaryFormat, TheTrackedCheckerTextureCarriesItsLevelsCompressed )
     EXPECT_EQ( header.GetValue().PayloadBytes, chain );
 }
 
-TEST( TextureBinaryFormat, AFlagOrAnEncoderThisVersionCannotHonourIsRefused )
+TEST( TextureBinaryFormat, AFlagThisVersionCannotHonourIsRefused )
 {
-    // Both fields are written as zero by version 1 and both are guards rather than dead space: a file
-    // that sets one was made by a build that knows something this one does not, and decoding it anyway
-    // would draw the texture in the wrong colour space or out of the wrong bytes -- silently.
+    // `Flags` is written as zero by every version so far and it is a guard rather than dead space: a
+    // file that sets one was made by a build that knows something this one does not -- an sRGB marking
+    // it would have to honour -- and decoding it anyway would draw the texture in the wrong colour
+    // space, silently.
+    std::string    encoded = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
+    const uint32_t srgb    = 1u;
+    std::memcpy( encoded.data() + 36, &srgb, sizeof( srgb ) ); // Flags
+    const auto read = DecodeTextureBinary( encoded, "flagged.tex" );
+    EXPECT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "content flags" ), std::string::npos ) << read.GetError();
+}
+
+TEST( TextureBinaryFormat, AnEncoderSignatureIsCarriedRatherThanRefused )
+{
+    // ITS SIBLING WENT THE OTHER WAY IN v3, AND THE PAIR IS THE POINT. `Flags` above says something the
+    // READER would have to honour, so an unknown value must stop it. `EncoderHash` says what the cook's
+    // settings were, which only a caller with an expectation can judge -- so the container carries it
+    // and refuses nothing. A texture importer records 0 and this asserts both halves of that.
+    TextureAssetData data = Cook( 8, 8, SyntheticRGBA8( 8, 8 ) );
+    EXPECT_EQ( data.EncoderHash, 0ull ) << "a plain cook records no settings";
+
+    data.EncoderHash = 0x1122334455667788ull;
+    const auto read  = DecodeTextureBinary( EncodeTextureBinary( data ), "baked.tex" );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_EQ( read.GetValue().EncoderHash, 0x1122334455667788ull );
+
+    const auto header = DecodeTextureHeader( EncodeTextureBinary( data ), "baked.tex" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    EXPECT_EQ( header.GetValue().EncoderHash, 0x1122334455667788ull )
+         << "a reader that only reads the prefix must be able to ask whether the bake is the one it "
+            "wants, without reading a single pixel";
+}
+
+// ── 6. A LEVEL IS A LEVEL OF EVERY LAYER (v3) ──────────────────────────────────────────────────────
+
+TEST( TextureBinaryFormat, ACubeRoundTripsWithEveryFaceDistinct )
+{
+    const uint32_t face = 32, levels = 6;
+    const auto     source = CookCube( face, levels );
+    const auto     read   = DecodeTextureBinary( EncodeTextureBinary( source ), "env.tex" );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    const TextureAssetData& back = read.GetValue();
+
+    EXPECT_EQ( back.Kind, TextureKind::Cube );
+    EXPECT_EQ( back.LayerCount, kTextureCubeLayerCount );
+    EXPECT_EQ( back.LevelCount(), levels );
+    EXPECT_EQ( back.Levels.size(), static_cast<size_t>( levels ) * kTextureCubeLayerCount );
+
+    // FACE BY FACE, NOT BLOB BY BLOB. Comparing the payloads alone would pass for a container that
+    // stored the six faces in the wrong order, because the same bytes are all there.
+    for ( uint32_t level = 0; level < levels; ++level )
     {
-        std::string    encoded = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
-        const uint32_t srgb    = 1u;
-        std::memcpy( encoded.data() + 36, &srgb, sizeof( srgb ) ); // Flags
-        const auto read = DecodeTextureBinary( encoded, "flagged.tex" );
+        for ( uint32_t layer = 0; layer < kTextureCubeLayerCount; ++layer )
+        {
+            const size_t row = TextureLevelIndex( level, layer, kTextureCubeLayerCount );
+            ASSERT_EQ( back.Levels[row].Width, source.Levels[row].Width ) << level << "/" << layer;
+            ASSERT_EQ( back.Levels[row].ByteSize, source.Levels[row].ByteSize ) << level << "/" << layer;
+            ASSERT_EQ( std::memcmp( back.Pixels.data() + back.Levels[row].ByteOffset,
+                                    source.Pixels.data() + source.Levels[row].ByteOffset,
+                                    static_cast<size_t>( source.Levels[row].ByteSize ) ),
+                       0 )
+                 << "level " << level << " face " << layer << " came back as different pixels";
+        }
+    }
+}
+
+TEST( TextureBinaryFormat, TheSixFacesOfALevelSitTogetherAndTheSmallestLevelComesFirst )
+{
+    // THE RELATION THE RESIDENT TAIL DEPENDS ON. It is not enough that the file holds all 6N images:
+    // the property the container exists for is that the smallest levels are a CONTIGUOUS PREFIX, and
+    // for a cube that means all six faces of level N-1 before any face of level N-2.
+    const uint32_t face = 32, levels = 6;
+    const auto     header = DecodeTextureHeader( EncodeTextureBinary( CookCube( face, levels ) ), "env.tex" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    const auto& table = header.GetValue().Levels;
+
+    // The run starts where the header, the table and the source key end -- the first row's own offset,
+    // taken from the file rather than recomputed here.
+    uint64_t previousEnd = table[TextureLevelIndex( levels - 1, 0, kTextureCubeLayerCount )].FileOffset;
+    for ( uint32_t i = 0; i < levels; ++i )
+    {
+        const uint32_t level = levels - 1 - i; // physical order
+        for ( uint32_t layer = 0; layer < kTextureCubeLayerCount; ++layer )
+        {
+            const auto& row = table[TextureLevelIndex( level, layer, kTextureCubeLayerCount )];
+            EXPECT_GE( row.FileOffset, previousEnd )
+                 << "level " << level << " face " << layer << " starts before the previous one ended";
+            EXPECT_LT( row.FileOffset - previousEnd, kTextureLevelAlignment )
+                 << "level " << level << " face " << layer
+                 << " leaves more than a level boundary's worth of bytes nobody reads";
+            previousEnd = row.FileOffset + row.StoredSize;
+        }
+    }
+
+    // And the tail really is a prefix: the header, the table, the key and the smallest level's six
+    // faces are all inside one read window.
+    const auto& smallest =
+         table[TextureLevelIndex( levels - 1, kTextureCubeLayerCount - 1, kTextureCubeLayerCount )];
+    EXPECT_LE( smallest.FileOffset + smallest.StoredSize, kTextureBinaryPrefixBytes )
+         << "the smallest level of a cube no longer fits in the one read a loader makes";
+}
+
+TEST( TextureBinaryFormat, TheLastBytesOfACubeBelongToTheLastFaceOfLevelZero )
+{
+    // THE ONE LINE THIS CHANGE COULD HAVE DROPPED A PROPERTY IN. The truncation check asks where the
+    // file's last stored bytes are; with one layer that was always row 0, and a cube's last row is 5.
+    // A reader that kept `front()` would declare every healthy cube short by five faces -- and would
+    // ACCEPT a cube whose last five faces had been cut off, which is the direction that draws.
+    const auto encoded = EncodeTextureBinary( CookCube( 16, 5 ) );
+    const auto header  = DecodeTextureHeader( encoded, "env.tex" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+    const auto& last =
+         header.GetValue().Levels[TextureLevelIndex( 0, kTextureCubeLayerCount - 1, kTextureCubeLayerCount )];
+    EXPECT_EQ( last.FileOffset + last.StoredSize, encoded.size() );
+
+    const auto& firstFaceOfLevelZero = header.GetValue().Levels[TextureLevelIndex( 0, 0, kTextureCubeLayerCount )];
+    EXPECT_LT( firstFaceOfLevelZero.FileOffset + firstFaceOfLevelZero.StoredSize, encoded.size() )
+         << "face 0 of level 0 ends the file, so five faces are missing and nothing said so";
+}
+
+TEST( TextureBinaryFormat, ACubeThatIsNotSixSquareFacesIsRefusedByName )
+{
+    // Each of these is a shape the header can SPELL and the sampler cannot use, so each has to be
+    // refused where the numbers are still in hand rather than at a descriptor.
+    {
+        TextureAssetData data    = CookCube( 16, 5 );
+        std::string      encoded = EncodeTextureBinary( data );
+        const uint32_t   five    = 5u;
+        std::memcpy( encoded.data() + 96, &five, sizeof( five ) ); // FileHeader::LayerCount
+        const auto read = DecodeTextureBinary( encoded, "fiveface.tex" );
         EXPECT_FALSE( read.IsSuccess() );
-        EXPECT_NE( read.GetError().find( "content flags" ), std::string::npos ) << read.GetError();
+        EXPECT_NE( read.GetError().find( "a cube is 6 layers" ), std::string::npos ) << read.GetError();
     }
     {
-        std::string    encoded  = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
-        const uint64_t settings = 0x1122334455667788ull;
-        std::memcpy( encoded.data() + 56, &settings, sizeof( settings ) ); // EncoderHash
-        const auto read = DecodeTextureBinary( encoded, "encoded.tex" );
+        std::string    encoded = EncodeTextureBinary( CookCube( 16, 5 ) );
+        const uint32_t eight   = 8u;
+        std::memcpy( encoded.data() + 24, &eight, sizeof( eight ) ); // FileHeader::Height
+        const auto read = DecodeTextureBinary( encoded, "oblong.tex" );
         EXPECT_FALSE( read.IsSuccess() );
-        EXPECT_NE( read.GetError().find( "encoder settings" ), std::string::npos ) << read.GetError();
+        EXPECT_NE( read.GetError().find( "a cube face is square" ), std::string::npos ) << read.GetError();
+    }
+    {
+        // Six layers that do not say they are a cube, and a 2D texture that says it has six.
+        std::string    encoded = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
+        const uint32_t six     = 6u;
+        std::memcpy( encoded.data() + 96, &six, sizeof( six ) ); // LayerCount, Kind still Texture2D
+        const auto read = DecodeTextureBinary( encoded, "arrayish.tex" );
+        EXPECT_FALSE( read.IsSuccess() );
+        EXPECT_NE( read.GetError().find( "one layer per 2D texture" ), std::string::npos ) << read.GetError();
+    }
+    {
+        std::string    encoded = EncodeTextureBinary( Cook( 8, 8, SyntheticRGBA8( 8, 8 ) ) );
+        const uint32_t alien   = 7u;
+        std::memcpy( encoded.data() + 100, &alien, sizeof( alien ) ); // FileHeader::Kind
+        const auto read = DecodeTextureBinary( encoded, "alien.tex" );
+        EXPECT_FALSE( read.IsSuccess() );
+        EXPECT_NE( read.GetError().find( "not one this version knows" ), std::string::npos ) << read.GetError();
+    }
+}
+
+TEST( TextureBinaryFormat, EveryFaceOfEveryLevelDecidesItsOwnCodec )
+{
+    // The per-level codec column is now a per-(level, face) column, and it has to be: face 0 of a
+    // 1024-face environment cube compresses and the 1x1 tail of every face does not.
+    TextureAssetData data;
+    data.SourcePath = "assets:Textures/Env.hdr";
+    data.Width = data.Height = 32;
+    data.LayerCount          = kTextureCubeLayerCount;
+    data.Kind                = TextureKind::Cube;
+    data.Format              = ImageFormat::RGBA8F;
+
+    const uint32_t             levels = 6;
+    std::vector<unsigned char> tight;
+    uint32_t                   side = 32;
+    for ( uint32_t level = 0; level < levels; ++level )
+    {
+        for ( uint32_t face = 0; face < kTextureCubeLayerCount; ++face )
+        {
+            const auto one = CompressibleRGBA8( side, side );
+            tight.insert( tight.end(), one.begin(), one.end() );
+        }
+        side = side > 1u ? side / 2u : 1u;
+    }
+    auto table =
+         BuildLevelTable( 32, 32, levels, kTextureCubeLayerCount, ImageFormat::RGBA8F, tight, data.Pixels );
+    ASSERT_TRUE( table.IsSuccess() ) << table.GetError();
+    data.Levels = table.ExtractValue();
+
+    const auto header = DecodeTextureHeader( EncodeTextureBinary( data ), "env.tex" );
+    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+
+    int compressed = 0, stored = 0;
+    for ( const auto& row : header.GetValue().Levels )
+        ( row.Codec == TextureLevelCodec::LZ4 ? compressed : stored )++;
+    EXPECT_GT( compressed, 0 ) << "no face repaid its codec, so this corpus proves nothing";
+    EXPECT_GT( stored, 0 ) << "every face compressed, so the per-row verdict was never exercised";
+
+    // And it is still transparent: the decoded cube is the cube that went in.
+    const auto read = DecodeTextureBinary( EncodeTextureBinary( data ), "env.tex" );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_EQ( read.GetValue().Pixels, data.Pixels );
+}
+
+TEST( TextureBinaryFormat, TheLevelPlacerRefusesAnInputThatIsNotTheShapeItWasToldAbout )
+{
+    std::vector<unsigned char> payload;
+    {
+        // One face short -- the exact mistake a readback that forgot a layer would make.
+        auto tight = TightCubeChain( 16, 5 );
+        tight.resize( tight.size() - 4u );
+        const auto table =
+             BuildLevelTable( 16, 16, 5, kTextureCubeLayerCount, ImageFormat::RGBA8F, tight, payload );
+        EXPECT_FALSE( table.IsSuccess() );
+        EXPECT_NE( table.GetError().find( "tightly packed" ), std::string::npos ) << table.GetError();
+    }
+    {
+        // More levels than the face has.
+        const auto table = BuildLevelTable( 16, 16, 9, kTextureCubeLayerCount, ImageFormat::RGBA8F,
+                                            TightCubeChain( 16, 9 ), payload );
+        EXPECT_FALSE( table.IsSuccess() );
+        EXPECT_NE( table.GetError().find( "at most 5 levels" ), std::string::npos ) << table.GetError();
+    }
+    {
+        // And the size it demands is the size it publishes, so a caller sizing a GPU readback with
+        // `TightlyPackedChainBytes` cannot be handed a refusal for having believed it.
+        EXPECT_EQ( TightlyPackedChainBytes( 16, 16, 5, kTextureCubeLayerCount, ImageFormat::RGBA8F ),
+                   TightCubeChain( 16, 5 ).size() );
+    }
+}
+
+TEST( TextureBinaryFormat, HowManyLevelsAFileOwesDependsOnItsKind )
+{
+    // THE RULE THAT WAS A 2D RULE APPLIED TO EVERYTHING. A cooked PNG owes its whole chain, because the
+    // resident tail is what this container exists for. A baked environment cube owes the levels it was
+    // baked with: `kSkyEnvRadianceMips` is 1 on a 1024 face by measurement, and the prefiltered cube's
+    // levels are a GGX roughness ramp rather than a minification chain. Demanding a full chain of a cube
+    // refused the first environment this container ever wrote, on its own second load.
+    {
+        // One level of a 32-texel face -- legal, and the shape the radiance cube actually has.
+        const auto read = DecodeTextureBinary( EncodeTextureBinary( CookCube( 32, 1 ) ), "radiance.tex" );
+        ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+        EXPECT_EQ( read.GetValue().LevelCount(), 1u );
+    }
+    {
+        // ... and the DEVICE's bound still holds: more levels than the face supports is an invalid
+        // vkCreateImage, so it is refused here where the numbers are in hand.
+        // Shrink the FACE rather than grow the table: the table's length is checked against the source
+        // key's offset before this, so the only way to reach the level bound is a file whose extent
+        // cannot carry the levels it declares -- which is exactly the corruption it guards.
+        std::string    encoded = EncodeTextureBinary( CookCube( 16, 5 ) );
+        const uint32_t four    = 4u;
+        std::memcpy( encoded.data() + 20, &four, sizeof( four ) ); // FileHeader::Width
+        std::memcpy( encoded.data() + 24, &four, sizeof( four ) ); // FileHeader::Height
+        const auto read = DecodeTextureBinary( encoded, "toomany.tex" );
+        EXPECT_FALSE( read.IsSuccess() );
+        EXPECT_NE( read.GetError().find( "supports at most 3" ), std::string::npos ) << read.GetError();
+    }
+    {
+        // A 2D texture keeps the stricter rule, and losing it is the thing this test exists to stop.
+        TextureAssetData data = Cook( 32, 32, SyntheticRGBA8( 32, 32 ) );
+        data.Levels.resize( 3 );
+        data.Pixels.resize( static_cast<size_t>( data.Levels[2].ByteOffset + data.Levels[2].ByteSize ) );
+        const auto read = DecodeTextureBinary( EncodeTextureBinary( data ), "partial.tex" );
+        EXPECT_FALSE( read.IsSuccess() );
+        EXPECT_NE( read.GetError().find( "The cook is partial" ), std::string::npos ) << read.GetError();
+    }
+}
+
+TEST( TextureBinaryFormat, AOneLayerTextureIsLaidOutExactlyAsItWasBeforeLayersExisted )
+{
+    // THE REGRESSION THIS BUMP COULD HAVE CAUSED SILENTLY. Every 2D texture in the project is one
+    // layer, so `TextureLevelIndex(level, 0, 1) == level` and the payload must be byte-for-byte what
+    // the level-only container produced. Asserted as a RELATION against the placer, which knows
+    // nothing about mip filtering, rather than against a remembered byte string.
+    const uint32_t w = 32, h = 16;
+    const auto     base = SyntheticRGBA8( w, h );
+
+    std::vector<unsigned char> viaChain;
+    const auto                 chain = BuildMipChain( w, h, ImageFormat::RGBA8F, base, viaChain );
+    ASSERT_TRUE( chain.IsSuccess() ) << chain.GetError();
+
+    // The same levels, handed to the placer tightly packed in table order.
+    std::vector<unsigned char> tight;
+    for ( const auto& level : chain.GetValue() )
+    {
+        tight.insert( tight.end(), viaChain.begin() + static_cast<long>( level.ByteOffset ),
+                      viaChain.begin() + static_cast<long>( level.ByteOffset + level.ByteSize ) );
+    }
+
+    std::vector<unsigned char> viaPlacer;
+    const auto placed = BuildLevelTable( w, h, static_cast<uint32_t>( chain.GetValue().size() ), 1u,
+                                         ImageFormat::RGBA8F, tight, viaPlacer );
+    ASSERT_TRUE( placed.IsSuccess() ) << placed.GetError();
+    EXPECT_EQ( viaPlacer, viaChain ) << "the two layouts disagree, so one of them is not the file's";
+
+    for ( size_t level = 0; level < chain.GetValue().size(); ++level )
+    {
+        EXPECT_EQ( TextureLevelIndex( static_cast<uint32_t>( level ), 0u, 1u ), level );
+        EXPECT_EQ( placed.GetValue()[level].ByteOffset, chain.GetValue()[level].ByteOffset );
+        EXPECT_EQ( placed.GetValue()[level].RowPitch, chain.GetValue()[level].RowPitch );
     }
 }
 

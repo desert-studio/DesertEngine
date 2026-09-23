@@ -43,16 +43,18 @@ namespace Desert::Assets::Serialization
             uint32_t Height;
             uint32_t Format; // an ImageFormat enumerator, travelling at a width the file fixes
             uint32_t LevelCount;
-            uint32_t Flags; // v1 defines none; a non-zero value is REFUSED, see below
+            uint32_t Flags; // no version defines one; a non-zero value is REFUSED, see below
             uint32_t SourceKeyLength;
             uint32_t SourceKeyOffset; // from file start
             uint64_t SourceContentHash;
-            uint64_t EncoderHash;  // v1 has no encoder; a non-zero value is REFUSED, see below
+            uint64_t EncoderHash;  // v3: the settings that produced these pixels; 0 = none recorded
             uint64_t PayloadBytes; // declared sum of the level sizes, padding excluded
             uint64_t FileSize;     // declared; compared against the bytes actually in hand
             uint64_t Handle;
             uint64_t StoredPayloadBytes; // v2: declared sum of the STORED level sizes, padding excluded
-            uint32_t Reserved[8];
+            uint32_t LayerCount;         // v3: images per level -- 1, or 6 for a cube
+            uint32_t Kind;               // v3: a TextureKind, travelling at a width the file fixes
+            uint32_t Reserved[6];
         };
         static_assert( sizeof( FileHeader ) == kTextureBinaryHeaderSize );
         static_assert( alignof( FileHeader ) == 8 );
@@ -63,6 +65,11 @@ namespace Desert::Assets::Serialization
         // `kTextureBinaryHeaderSize` promises and what every reader's first read is sized by; the
         // reserve existed for exactly this.
         static_assert( offsetof( FileHeader, StoredPayloadBytes ) == 88 );
+        // v3 SPENT TWO MORE OF THEM, FOR THE SAME REASON. The header is still 128 bytes and still at a
+        // fixed offset, so every reader's first read is sized by the same constant it always was.
+        static_assert( offsetof( FileHeader, LayerCount ) == 96 );
+        static_assert( offsetof( FileHeader, Kind ) == 100 );
+        static_assert( sizeof( TextureKind ) == 4, "the texture kind is a u32 in the file" );
 
         struct LevelRow
         {
@@ -118,6 +125,58 @@ namespace Desert::Assets::Serialization
         constexpr uint32_t HalfExtent( const uint32_t n )
         {
             return n > 1u ? n / 2u : 1u;
+        }
+
+        /// Every level's extent, level 0 first, by the same halving rule. ONE SPELLING: the encoder,
+        /// the layout helper and the decoder all ask this, so a change to the chain rule cannot reach
+        /// one of them and miss another.
+        std::vector<std::pair<uint32_t, uint32_t>> LevelExtents( const uint32_t width, const uint32_t height,
+                                                                 const uint32_t levelCount )
+        {
+            std::vector<std::pair<uint32_t, uint32_t>> extents( levelCount );
+            uint32_t                                   w = width, h = height;
+            for ( uint32_t level = 0; level < levelCount; ++level )
+            {
+                extents[level] = { w, h };
+                w              = HalfExtent( w );
+                h              = HalfExtent( h );
+            }
+            return extents;
+        }
+
+        /// The shape checks every entry point owes before it believes a (level, layer) table: what the
+        /// two columns mean TOGETHER. Returns an empty string when the shape is legal.
+        std::string LayoutRefusal( const uint32_t width, const uint32_t height, const uint32_t layerCount,
+                                   const TextureKind kind )
+        {
+            if ( layerCount == 0 )
+                return "a texture with zero array layers holds no image at all";
+            if ( kind != TextureKind::Texture2D && kind != TextureKind::Cube )
+            {
+                return fmt::format( "texture kind {} is not one this version knows ({} = 2D, {} = cube)",
+                                    static_cast<uint32_t>( kind ), static_cast<uint32_t>( TextureKind::Texture2D ),
+                                    static_cast<uint32_t>( TextureKind::Cube ) );
+            }
+            if ( kind == TextureKind::Texture2D && layerCount != 1 )
+            {
+                return fmt::format(
+                     "kind {} (2D) names {} array layers; this version stores one layer per 2D texture, "
+                     "and a layered image has to say what its layers mean",
+                     static_cast<uint32_t>( kind ), layerCount );
+            }
+            if ( kind == TextureKind::Cube )
+            {
+                if ( layerCount != kTextureCubeLayerCount )
+                {
+                    return fmt::format( "a cube is {} layers and this one names {}", kTextureCubeLayerCount,
+                                        layerCount );
+                }
+                if ( width != height )
+                {
+                    return fmt::format( "a cube face is square and this one is {}x{}", width, height );
+                }
+            }
+            return {};
         }
 
         /// One 2x2 box step, in the component type the format stores. The source block is CLAMPED
@@ -266,14 +325,7 @@ namespace Desert::Assets::Serialization
         std::vector<TextureLevel> levels( levelCount );
         chainOut.clear();
 
-        uint32_t                                   levelW = width, levelH = height;
-        std::vector<std::pair<uint32_t, uint32_t>> extents( levelCount );
-        for ( uint32_t level = 0; level < levelCount; ++level )
-        {
-            extents[level] = { levelW, levelH };
-            levelW         = HalfExtent( levelW );
-            levelH         = HalfExtent( levelH );
-        }
+        const std::vector<std::pair<uint32_t, uint32_t>> extents = LevelExtents( width, height, levelCount );
 
         for ( uint32_t i = 0; i < levelCount; ++i )
         {
@@ -293,11 +345,118 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( std::move( levels ) );
     }
 
+    uint64_t TightlyPackedChainBytes( const uint32_t width, const uint32_t height, const uint32_t levelCount,
+                                      const uint32_t layerCount, const Core::Formats::ImageFormat format )
+    {
+        const uint64_t bpp   = Core::Formats::GetBytesPerPixel( format );
+        uint64_t       bytes = 0;
+        for ( const auto& [w, h] : LevelExtents( width, height, levelCount ) )
+            bytes += static_cast<uint64_t>( w ) * h * bpp * layerCount;
+        return bytes;
+    }
+
+    Common::ResultStr<std::vector<TextureLevel>>
+    BuildLevelTable( const uint32_t width, const uint32_t height, const uint32_t levelCount,
+                     const uint32_t layerCount, const Core::Formats::ImageFormat format,
+                     const std::vector<unsigned char>& images, std::vector<unsigned char>& chainOut )
+    {
+        if ( width == 0 || height == 0 || levelCount == 0 || layerCount == 0 )
+        {
+            return Common::MakeFormattedError<std::vector<TextureLevel>>(
+                 "a level table was asked for a {}x{} image with {} levels and {} layers; every one of "
+                 "those has to be at least one.",
+                 width, height, levelCount, layerCount );
+        }
+
+        const uint32_t maxLevels = Core::Formats::MipChainLength( std::max( width, height ) );
+        if ( levelCount > maxLevels )
+        {
+            return Common::MakeFormattedError<std::vector<TextureLevel>>(
+                 "a {}x{} image has a chain of at most {} levels and {} were asked for.", width, height, maxLevels,
+                 levelCount );
+        }
+
+        const uint64_t expected = TightlyPackedChainBytes( width, height, levelCount, layerCount, format );
+        if ( images.size() != expected )
+        {
+            return Common::MakeFormattedError<std::vector<TextureLevel>>(
+                 "{} levels x {} layers of a {}x{} image at {} bytes per pixel is {} bytes tightly packed "
+                 "and {} were handed in.",
+                 levelCount, layerCount, width, height, Core::Formats::GetBytesPerPixel( format ), expected,
+                 images.size() );
+        }
+
+        const uint32_t bpp     = Core::Formats::GetBytesPerPixel( format );
+        const auto     extents = LevelExtents( width, height, levelCount );
+
+        // Where each (level, layer) starts in the TIGHTLY PACKED input, which is table order.
+        std::vector<uint64_t> sourceOffset( static_cast<size_t>( levelCount ) * layerCount );
+        {
+            uint64_t at = 0;
+            for ( uint32_t level = 0; level < levelCount; ++level )
+            {
+                const uint64_t one = static_cast<uint64_t>( extents[level].first ) * extents[level].second * bpp;
+                for ( uint32_t layer = 0; layer < layerCount; ++layer )
+                {
+                    sourceOffset[TextureLevelIndex( level, layer, layerCount )] = at;
+                    at += one;
+                }
+            }
+        }
+
+        std::vector<TextureLevel> levels( static_cast<size_t>( levelCount ) * layerCount );
+        chainOut.clear();
+
+        // SMALLEST LEVEL FIRST, LAYERS TOGETHER INSIDE IT — the file's physical order, and the same
+        // order `EncodeTextureBinary` writes the payload in. The two are separate loops over the same
+        // rule, so the suite asserts the RELATION between them rather than trusting either.
+        for ( uint32_t i = 0; i < levelCount; ++i )
+        {
+            const uint32_t level = levelCount - 1 - i;
+            for ( uint32_t layer = 0; layer < layerCount; ++layer )
+            {
+                while ( ( chainOut.size() % kTextureLevelAlignment ) != 0 )
+                    chainOut.push_back( 0 );
+
+                const size_t   row = TextureLevelIndex( level, layer, layerCount );
+                const uint64_t one = static_cast<uint64_t>( extents[level].first ) * extents[level].second * bpp;
+
+                levels[row].Width      = extents[level].first;
+                levels[row].Height     = extents[level].second;
+                levels[row].ByteOffset = chainOut.size();
+                levels[row].ByteSize   = one;
+                levels[row].RowPitch   = extents[level].first * bpp;
+
+                const unsigned char* src = images.data() + sourceOffset[row];
+                chainOut.insert( chainOut.end(), src, src + one );
+            }
+        }
+
+        return Common::MakeSuccess( std::move( levels ) );
+    }
+
     std::string EncodeTextureBinary( const TextureAssetData& data, const TextureEncodeOptions& options )
     {
-        const uint32_t levelCount = static_cast<uint32_t>( data.Levels.size() );
+        // THE WRITER REFUSES A SHAPE IT COULD NOT READ BACK. It has no Result to fail into — a cook that
+        // produced bytes is what every caller wants — so the refusal is the ONLY other thing a reader
+        // treats as "not a container": nothing. An empty string carries no magic and the loader's first
+        // sentence names it as such, instead of a file whose header says six layers and whose table has
+        // one row.
+        if ( !LayoutRefusal( data.Width, data.Height, data.LayerCount, data.Kind ).empty() ||
+             data.Levels.empty() || ( data.Levels.size() % data.LayerCount ) != 0 )
+        {
+            LOG_ERROR( "EncodeTextureBinary refused a {}x{} texture of kind {} with {} layers and {} level "
+                       "rows: the shape does not describe a container this version can write.",
+                       data.Width, data.Height, static_cast<uint32_t>( data.Kind ), data.LayerCount,
+                       data.Levels.size() );
+            return {};
+        }
 
-        const uint64_t keyOffset = sizeof( FileHeader ) + static_cast<uint64_t>( levelCount ) * sizeof( LevelRow );
+        const uint32_t layerCount = data.LayerCount;
+        const uint32_t rowCount   = static_cast<uint32_t>( data.Levels.size() );
+        const uint32_t levelCount = data.LevelCount();
+
+        const uint64_t keyOffset = sizeof( FileHeader ) + static_cast<uint64_t>( rowCount ) * sizeof( LevelRow );
         const uint64_t payloadOffset = AlignUp( keyOffset + data.SourcePath.size() );
 
         uint64_t payloadBytes = 0;
@@ -315,8 +474,8 @@ namespace Desert::Assets::Serialization
         // In practice the tail of the chain always stores — a 1x1 level is four bytes and LZ4 cannot
         // shrink them — which is precisely why the codec is a per-LEVEL column. A file-wide flag would
         // have to claim something false about one end of the chain.
-        std::vector<std::string> encoded( levelCount ); // physical bytes per level, empty = use the pixels
-        std::vector<LevelRow>    table( levelCount );
+        std::vector<std::string> encoded( rowCount ); // physical bytes per row, empty = use the pixels
+        std::vector<LevelRow>    table( rowCount );
 
         // PHYSICAL ORDER IS SMALLEST FIRST, and the offsets have to be laid out in the order the bytes
         // are written, not in level order. With compression the two stopped being derivable from each
@@ -329,32 +488,41 @@ namespace Desert::Assets::Serialization
         uint64_t storedBytes = 0;
         for ( uint32_t i = 0; i < levelCount; ++i )
         {
-            const uint32_t       level  = levelCount - 1 - i;
-            const TextureLevel&  source = data.Levels[level];
-            const unsigned char* bytes  = data.Pixels.data() + source.ByteOffset;
-
-            uint64_t          storedSize = source.ByteSize;
-            TextureLevelCodec codec      = TextureLevelCodec::Store;
-            if ( options.CompressLevels && source.ByteSize > 0 )
+            const uint32_t level = levelCount - 1 - i;
+            // LAYERS TOGETHER, INSIDE THE LEVEL. That is what keeps the first bullet of the header note
+            // true for a cube: the resident tail is the smallest levels OF EVERY FACE, and it is still
+            // one contiguous read because the six faces of a level sit next to each other.
+            for ( uint32_t layer = 0; layer < layerCount; ++layer )
             {
-                std::string packed( Common::Utils::Lz4BlockBound( static_cast<size_t>( source.ByteSize ) ), '\0' );
-                const size_t produced = Common::Utils::Lz4BlockCompress(
-                     bytes, static_cast<size_t>( source.ByteSize ), packed.data(), packed.size() );
-                if ( produced > 0 && static_cast<uint64_t>( produced ) * Common::Utils::kCompressionDenominator <=
-                                          source.ByteSize * Common::Utils::kCompressionNumerator )
-                {
-                    packed.resize( produced );
-                    encoded[level] = std::move( packed );
-                    storedSize     = produced;
-                    codec          = TextureLevelCodec::LZ4;
-                }
-            }
+                const size_t         row    = TextureLevelIndex( level, layer, layerCount );
+                const TextureLevel&  source = data.Levels[row];
+                const unsigned char* bytes  = data.Pixels.data() + source.ByteOffset;
 
-            table[level] = LevelRow{ cursor, static_cast<uint32_t>( source.ByteSize ), source.RowPitch,
-                                     static_cast<uint32_t>( storedSize ), static_cast<uint32_t>( codec ) };
-            storedBytes += storedSize;
-            fileEnd = cursor + storedSize;
-            cursor  = AlignUp( fileEnd );
+                uint64_t          storedSize = source.ByteSize;
+                TextureLevelCodec codec      = TextureLevelCodec::Store;
+                if ( options.CompressLevels && source.ByteSize > 0 )
+                {
+                    std::string  packed( Common::Utils::Lz4BlockBound( static_cast<size_t>( source.ByteSize ) ),
+                                         '\0' );
+                    const size_t produced = Common::Utils::Lz4BlockCompress(
+                         bytes, static_cast<size_t>( source.ByteSize ), packed.data(), packed.size() );
+                    if ( produced > 0 &&
+                         static_cast<uint64_t>( produced ) * Common::Utils::kCompressionDenominator <=
+                              source.ByteSize * Common::Utils::kCompressionNumerator )
+                    {
+                        packed.resize( produced );
+                        encoded[row] = std::move( packed );
+                        storedSize   = produced;
+                        codec        = TextureLevelCodec::LZ4;
+                    }
+                }
+
+                table[row] = LevelRow{ cursor, static_cast<uint32_t>( source.ByteSize ), source.RowPitch,
+                                       static_cast<uint32_t>( storedSize ), static_cast<uint32_t>( codec ) };
+                storedBytes += storedSize;
+                fileEnd = cursor + storedSize;
+                cursor  = AlignUp( fileEnd );
+            }
         }
 
         FileHeader header{};
@@ -366,11 +534,13 @@ namespace Desert::Assets::Serialization
         header.Height            = data.Height;
         header.Format            = static_cast<uint32_t>( data.Format );
         header.LevelCount        = levelCount;
+        header.LayerCount         = layerCount;
+        header.Kind               = static_cast<uint32_t>( data.Kind );
         header.Flags             = 0;
         header.SourceKeyLength   = static_cast<uint32_t>( data.SourcePath.size() );
         header.SourceKeyOffset   = static_cast<uint32_t>( keyOffset );
         header.SourceContentHash = data.SourceContentHash;
-        header.EncoderHash        = 0;
+        header.EncoderHash        = data.EncoderHash;
         header.PayloadBytes       = payloadBytes;
         header.StoredPayloadBytes = storedBytes;
         header.FileSize           = fileEnd;
@@ -388,11 +558,15 @@ namespace Desert::Assets::Serialization
         for ( uint32_t i = 0; i < levelCount; ++i )
         {
             const uint32_t level = levelCount - 1 - i;
-            PadToLevelBoundary( out );
-            if ( encoded[level].empty() )
-                Append( out, data.Pixels.data() + data.Levels[level].ByteOffset, data.Levels[level].ByteSize );
-            else
-                Append( out, encoded[level].data(), encoded[level].size() );
+            for ( uint32_t layer = 0; layer < layerCount; ++layer )
+            {
+                const size_t row = TextureLevelIndex( level, layer, layerCount );
+                PadToLevelBoundary( out );
+                if ( encoded[row].empty() )
+                    Append( out, data.Pixels.data() + data.Levels[row].ByteOffset, data.Levels[row].ByteSize );
+                else
+                    Append( out, encoded[row].data(), encoded[row].size() );
+            }
         }
         return out;
     }
@@ -461,13 +635,21 @@ namespace Desert::Assets::Serialization
                      "Re-cook it with a build that does.",
                      who, header.Flags, kTextureBinaryVersion );
             }
-            if ( header.EncoderHash != 0 )
-            {
-                return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                     "'{}' names encoder settings {:#018x}; version {} cooks uncompressed levels only "
-                     "and has no encoder to compare against. Re-cook it.",
-                     who, header.EncoderHash, kTextureBinaryVersion );
-            }
+            // `EncoderHash` IS NO LONGER REFUSED, AND THAT IS A v3 DECISION WITH AN ARGUMENT. v1 and v2
+            // refused a non-zero value because they could not say what it meant; the sentence they
+            // printed said "no encoder to compare against". v3 gives it its meaning: it is the
+            // SETTINGS THAT PRODUCED THESE PIXELS — not how they are packed, which is the per-level
+            // `Codec` column and is still checked by name.
+            //
+            // WHY IGNORING IT IS SAFE HERE AND CHECKING IT IS SOMEBODY ELSE'S JOB. The pixels of a
+            // cooked texture are the pixels: a reader with no expectation about how they were made can
+            // draw them and be right. A reader that DOES have one — the environment loader, which will
+            // not accept a cube baked from a different sky look — is handed the number and refuses the
+            // mismatch itself, because only it knows what it asked for. A container that tried to make
+            // that comparison would need to carry the question as well as the answer.
+            //
+            // `TextureImporter` writes 0, so an ordinary `.tex` still says "no settings" and the
+            // suite pins that it does.
 
             if ( header.Format >= Core::Formats::kImageFormatCount )
             {
@@ -486,13 +668,26 @@ namespace Desert::Assets::Serialization
                      "'{}' declares zero mip levels: the cook wrote a container with no image in it.", who );
             }
 
-            const uint64_t tableEnd = static_cast<uint64_t>( header.HeaderSize ) +
-                                      static_cast<uint64_t>( header.LevelCount ) * sizeof( LevelRow );
+            // THE SHAPE BEFORE THE SIZES. `LayerCount` multiplies the table's length and every byte
+            // total below it, so a nonsense pair has to be named here rather than surviving into an
+            // arithmetic that would merely produce a wrong — and plausible — number of rows.
+            const TextureKind kind = static_cast<TextureKind>( header.Kind );
+            if ( const std::string bad = LayoutRefusal( header.Width, header.Height, header.LayerCount, kind );
+                 !bad.empty() )
+            {
+                return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                     "'{}' does not describe a shape this version can store: {}. Re-cook it.", who, bad );
+            }
+
+            const uint64_t rowCount =
+                 static_cast<uint64_t>( header.LevelCount ) * static_cast<uint64_t>( header.LayerCount );
+            const uint64_t tableEnd = static_cast<uint64_t>( header.HeaderSize ) + rowCount * sizeof( LevelRow );
             if ( tableEnd > bytes.size() )
             {
                 return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                     "'{}' declares {} mip levels, whose table needs {} bytes, and only {} are present.", who,
-                     header.LevelCount, tableEnd, bytes.size() );
+                     "'{}' declares {} mip levels of {} layers, whose table needs {} bytes, and only {} are "
+                     "present.",
+                     who, header.LevelCount, header.LayerCount, tableEnd, bytes.size() );
             }
 
             if ( header.SourceKeyOffset != tableEnd ||
@@ -508,7 +703,7 @@ namespace Desert::Assets::Serialization
             const uint64_t payloadOffset =
                  AlignUp( static_cast<uint64_t>( header.SourceKeyOffset ) + header.SourceKeyLength );
 
-            tableOut.resize( header.LevelCount );
+            tableOut.resize( static_cast<size_t>( rowCount ) );
             std::memcpy( tableOut.data(), bytes.data() + header.HeaderSize, tableOut.size() * sizeof( LevelRow ) );
 
             // THE LAYOUT IS DERIVED, NOT TRUSTED — the lesson `MeshBinary.cpp` paid for. Checking only
@@ -520,95 +715,118 @@ namespace Desert::Assets::Serialization
             const Core::Formats::ImageFormat format = static_cast<Core::Formats::ImageFormat>( header.Format );
             const uint32_t                   bpp    = Core::Formats::GetBytesPerPixel( format );
 
-            const uint32_t expectLevels = Core::Formats::MipChainLength( std::max( header.Width, header.Height ) );
-            if ( header.LevelCount != expectLevels )
+            // ── HOW MANY LEVELS A FILE OWES, AND WHY THE ANSWER DEPENDS ON THE KIND ──────────────
+            //
+            // A 2D TEXTURE OWES ITS WHOLE CHAIN. That is what this container was built for: the resident
+            // tail is the levels at 16x16 and below, and a file that stops at level 3 has no tail to
+            // read — "an object on screen with no texture" becomes possible again, quietly, for one
+            // texture. A short chain there is a cook that stopped early and is named as such.
+            //
+            // A CUBE OWES THE LEVELS IT WAS BAKED WITH, and demanding a full chain of one is simply
+            // wrong. `kSkyEnvRadianceMips` is 1 on a 1024 face and that single level is a MEASURED
+            // refusal of the other ten (`SkyRules.hpp`: 96 -> 128 MiB per live SceneRenderer for a
+            // change of at most 1/255); the prefiltered cube's nine levels are a GGX roughness ramp,
+            // not a minification chain, and its count is `MipChainLength(256)` by arithmetic rather
+            // than by obligation. The bound that survives for both is the one the DEVICE imposes:
+            // more levels than the extent supports is an invalid `vkCreateImage`
+            // (VUID-VkImageCreateInfo-mipLevels-00958).
+            //
+            // FOUND BY RUNNING IT. The first baked environment this container ever wrote was refused on
+            // its own second load, with "the cook is partial" — against a cube whose level count the
+            // engine had deliberately chosen. Both ends were right and the rule in the middle was a 2D
+            // rule applied to everything.
+            const uint32_t maxLevels = Core::Formats::MipChainLength( std::max( header.Width, header.Height ) );
+            if ( header.LevelCount > maxLevels )
             {
                 return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                     "'{}' carries {} mip levels and a {}x{} image has a chain of {}. The cook is partial.", who,
-                     header.LevelCount, header.Width, header.Height, expectLevels );
+                     "'{}' carries {} mip levels and a {}x{} image supports at most {}.", who, header.LevelCount,
+                     header.Width, header.Height, maxLevels );
+            }
+            if ( kind == TextureKind::Texture2D && header.LevelCount != maxLevels )
+            {
+                return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                     "'{}' carries {} mip levels and a {}x{} texture has a chain of {}. The cook is partial.", who,
+                     header.LevelCount, header.Width, header.Height, maxLevels );
             }
 
-            std::vector<std::pair<uint32_t, uint32_t>> extents( header.LevelCount );
-            {
-                uint32_t w = header.Width, h = header.Height;
-                for ( uint32_t level = 0; level < header.LevelCount; ++level )
-                {
-                    extents[level] = { w, h };
-                    w              = HalfExtent( w );
-                    h              = HalfExtent( h );
-                }
-            }
+            const std::vector<std::pair<uint32_t, uint32_t>> extents =
+                 LevelExtents( header.Width, header.Height, header.LevelCount );
 
             uint64_t expectedOffset = payloadOffset;
             uint64_t declaredBytes  = 0;
             uint64_t storedBytes    = 0;
             for ( uint32_t i = 0; i < header.LevelCount; ++i )
             {
-                const uint32_t  level = header.LevelCount - 1 - i; // physical order: smallest first
-                const LevelRow& row   = tableOut[level];
+                const uint32_t level = header.LevelCount - 1 - i; // physical order: smallest first
+                for ( uint32_t layer = 0; layer < header.LayerCount; ++layer )
+                {
+                    const LevelRow& row = tableOut[TextureLevelIndex( level, layer, header.LayerCount )];
 
-                // THE CODEC IS CHECKED BEFORE ANYTHING IS BELIEVED ABOUT THE SIZES, because what the
-                // two size columns mean to each other depends on it. An enumerator this build does not
-                // know is a file from a newer cook, and it is named rather than treated as Store —
-                // which would hand the sampler a buffer of compressed bytes that draws.
-                if ( row.Codec > static_cast<uint32_t>( TextureLevelCodec::LZ4 ) )
-                {
-                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                         "'{}' stores level {} with codec {}, and version {} knows {}. The file was "
-                         "written by a newer cook; re-cook it.",
-                         who, level, row.Codec, kTextureBinaryVersion,
-                         static_cast<uint32_t>( TextureLevelCodec::LZ4 ) + 1 );
-                }
-                if ( row.StoredSize == 0 )
-                {
-                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                         "'{}' level {} occupies zero bytes of the file; a level that was cooked has "
-                         "bytes.",
-                         who, level );
-                }
-                // A STORED LEVEL'S TWO SIZES ARE THE SAME NUMBER, and saying so is what stops the pair
-                // from drifting into "stored, but shorter than its pixels" — which reads back as a
-                // complete image made partly of whatever followed it.
-                if ( row.Codec == static_cast<uint32_t>( TextureLevelCodec::Store ) &&
-                     row.StoredSize != row.ByteSize )
-                {
-                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                         "'{}' level {} is stored uncompressed and claims {} bytes in the file against "
-                         "{} bytes of pixels. An uncompressed level is its pixels.",
-                         who, level, row.StoredSize, row.ByteSize );
-                }
+                    // THE CODEC IS CHECKED BEFORE ANYTHING IS BELIEVED ABOUT THE SIZES, because what the
+                    // two size columns mean to each other depends on it. An enumerator this build does not
+                    // know is a file from a newer cook, and it is named rather than treated as Store —
+                    // which would hand the sampler a buffer of compressed bytes that draws.
+                    if ( row.Codec > static_cast<uint32_t>( TextureLevelCodec::LZ4 ) )
+                    {
+                        return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                             "'{}' stores level {} layer {} with codec {}, and version {} knows {}. The file "
+                             "was written by a newer cook; re-cook it.",
+                             who, level, layer, row.Codec, kTextureBinaryVersion,
+                             static_cast<uint32_t>( TextureLevelCodec::LZ4 ) + 1 );
+                    }
+                    if ( row.StoredSize == 0 )
+                    {
+                        return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                             "'{}' level {} layer {} occupies zero bytes of the file; a level that was "
+                             "cooked has bytes.",
+                             who, level, layer );
+                    }
+                    // A STORED LEVEL'S TWO SIZES ARE THE SAME NUMBER, and saying so is what stops the pair
+                    // from drifting into "stored, but shorter than its pixels" — which reads back as a
+                    // complete image made partly of whatever followed it.
+                    if ( row.Codec == static_cast<uint32_t>( TextureLevelCodec::Store ) &&
+                         row.StoredSize != row.ByteSize )
+                    {
+                        return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                             "'{}' level {} layer {} is stored uncompressed and claims {} bytes in the file "
+                             "against {} bytes of pixels. An uncompressed level is its pixels.",
+                             who, level, layer, row.StoredSize, row.ByteSize );
+                    }
 
-                const uint64_t expectSize =
-                     static_cast<uint64_t>( extents[level].first ) * extents[level].second * bpp;
-                if ( row.ByteSize != expectSize )
-                {
-                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                         "'{}' level {} ({}x{}) claims {} bytes; {} bytes per pixel makes it {}.", who, level,
-                         extents[level].first, extents[level].second, row.ByteSize, bpp, expectSize );
-                }
-                if ( row.RowPitch != extents[level].first * bpp )
-                {
-                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                         "'{}' level {} declares a row pitch of {}; a {}-texel row at {} bytes per pixel "
-                         "is {}.",
-                         who, level, row.RowPitch, extents[level].first, bpp, extents[level].first * bpp );
-                }
-                if ( row.ByteOffset != expectedOffset )
-                {
-                    return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
-                         "'{}' level {} starts at {}, and the levels stored before it put it at {}. The "
-                         "level table does not describe this file.",
-                         who, level, row.ByteOffset, expectedOffset );
-                }
+                    const uint64_t expectSize =
+                         static_cast<uint64_t>( extents[level].first ) * extents[level].second * bpp;
+                    if ( row.ByteSize != expectSize )
+                    {
+                        return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                             "'{}' level {} layer {} ({}x{}) claims {} bytes; {} bytes per pixel makes it {}.",
+                             who, level, layer, extents[level].first, extents[level].second, row.ByteSize, bpp,
+                             expectSize );
+                    }
+                    if ( row.RowPitch != extents[level].first * bpp )
+                    {
+                        return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                             "'{}' level {} layer {} declares a row pitch of {}; a {}-texel row at {} bytes "
+                             "per pixel is {}.",
+                             who, level, layer, row.RowPitch, extents[level].first, bpp,
+                             extents[level].first * bpp );
+                    }
+                    if ( row.ByteOffset != expectedOffset )
+                    {
+                        return Common::MakeFormattedError<TextureBinaryHeaderInfo>(
+                             "'{}' level {} layer {} starts at {}, and the levels stored before it put it at "
+                             "{}. The level table does not describe this file.",
+                             who, level, layer, row.ByteOffset, expectedOffset );
+                    }
 
-                declaredBytes += row.ByteSize;
-                storedBytes += row.StoredSize;
-                // THE CHAIN IS OVER THE STORED SIZES, and that is the one line where per-level
-                // compression could have been dropped in the middle. Where the next level begins is a
-                // fact about the FILE, so it follows from how many bytes the previous level occupies
-                // there — not from how many it decodes to. Chaining on `ByteSize` would validate a
-                // compressed file by accident only when nothing compressed.
-                expectedOffset = AlignUp( row.ByteOffset + row.StoredSize );
+                    declaredBytes += row.ByteSize;
+                    storedBytes += row.StoredSize;
+                    // THE CHAIN IS OVER THE STORED SIZES, and that is the one line where per-level
+                    // compression could have been dropped in the middle. Where the next level begins is a
+                    // fact about the FILE, so it follows from how many bytes the previous level occupies
+                    // there — not from how many it decodes to. Chaining on `ByteSize` would validate a
+                    // compressed file by accident only when nothing compressed.
+                    expectedOffset = AlignUp( row.ByteOffset + row.StoredSize );
+                }
             }
 
             // The declared payload total is a second, independent statement of the same quantity, and
@@ -632,10 +850,13 @@ namespace Desert::Assets::Serialization
             info.Handle = Common::UUID( header.Handle );
             info.SourcePath.assign( bytes.data() + header.SourceKeyOffset, header.SourceKeyLength );
             info.SourceContentHash = header.SourceContentHash;
+            info.EncoderHash        = header.EncoderHash;
             info.Width             = header.Width;
             info.Height            = header.Height;
             info.Format            = format;
             info.LevelCount         = header.LevelCount;
+            info.LayerCount         = header.LayerCount;
+            info.Kind               = kind;
             info.PayloadBytes       = header.PayloadBytes;
             info.StoredPayloadBytes = header.StoredPayloadBytes;
             info.FileSize           = header.FileSize;
@@ -693,7 +914,13 @@ namespace Desert::Assets::Serialization
         // IT IS THE STORED SIZE THAT ENDS THE FILE. Level 0 of a compressed texture occupies fewer
         // bytes than it decodes to, and a file measured by the decoded size would be declared short by
         // exactly the amount the codec saved — a truncation refusal fired at every healthy file.
-        const uint64_t payloadEnd = table.front().ByteOffset + table.front().StoredSize;
+        // THE LAST ROW WRITTEN, WHICH IS NOT ROW 0 ANY MORE. Physical order is smallest level first with
+        // the layers together inside a level, so the bytes that end the file belong to level 0's LAST
+        // layer. For a 2D texture that is still row 0 and this line reads exactly as it did; for a cube
+        // it is row 5, and taking `front()` here would declare every healthy cube short by five faces.
+        const LevelRow& lastWritten =
+             table[TextureLevelIndex( 0, info.GetValue().LayerCount - 1, info.GetValue().LayerCount )];
+        const uint64_t payloadEnd = lastWritten.ByteOffset + lastWritten.StoredSize;
         if ( payloadEnd != info.GetValue().FileSize )
         {
             return Common::MakeFormattedError<TextureAssetData>(
@@ -706,6 +933,7 @@ namespace Desert::Assets::Serialization
         data.Handle            = info.GetValue().Handle;
         data.SourcePath        = info.GetValue().SourcePath;
         data.SourceContentHash = info.GetValue().SourceContentHash;
+        data.EncoderHash       = info.GetValue().EncoderHash;
         data.Width             = info.GetValue().Width;
         data.Height            = info.GetValue().Height;
         data.Format            = info.GetValue().Format;
@@ -722,33 +950,44 @@ namespace Desert::Assets::Serialization
         // Both layouts are laid out in PHYSICAL order — smallest level first — because that is the
         // order the padding accumulates in. Walking the table in level order would place level 0 at
         // offset 0 and every other level after it, which is neither layout.
-        uint32_t levelW = info.GetValue().Width, levelH = info.GetValue().Height;
+        const uint32_t levelCount = info.GetValue().LevelCount;
+        const uint32_t layerCount = info.GetValue().LayerCount;
+        data.LayerCount           = layerCount;
+        data.Kind                 = info.GetValue().Kind;
+
+        const auto extents = LevelExtents( info.GetValue().Width, info.GetValue().Height, levelCount );
         data.Levels.resize( table.size() );
-        for ( size_t level = 0; level < table.size(); ++level )
+        for ( uint32_t level = 0; level < levelCount; ++level )
         {
-            data.Levels[level].Width    = levelW;
-            data.Levels[level].Height   = levelH;
-            data.Levels[level].ByteSize = table[level].ByteSize;
-            data.Levels[level].RowPitch = table[level].RowPitch;
-            levelW                      = levelW > 1u ? levelW / 2u : 1u;
-            levelH                      = levelH > 1u ? levelH / 2u : 1u;
+            for ( uint32_t layer = 0; layer < layerCount; ++layer )
+            {
+                const size_t row          = TextureLevelIndex( level, layer, layerCount );
+                data.Levels[row].Width    = extents[level].first;
+                data.Levels[row].Height   = extents[level].second;
+                data.Levels[row].ByteSize = table[row].ByteSize;
+                data.Levels[row].RowPitch = table[row].RowPitch;
+            }
         }
 
         uint64_t decodedRun = 0;
-        for ( size_t i = 0; i < table.size(); ++i )
+        for ( uint32_t i = 0; i < levelCount; ++i )
         {
-            const size_t level            = table.size() - 1 - i;
-            decodedRun                    = AlignUp( decodedRun );
-            data.Levels[level].ByteOffset = decodedRun;
-            decodedRun += table[level].ByteSize;
+            const uint32_t level = levelCount - 1 - i;
+            for ( uint32_t layer = 0; layer < layerCount; ++layer )
+            {
+                const size_t row            = TextureLevelIndex( level, layer, layerCount );
+                decodedRun                  = AlignUp( decodedRun );
+                data.Levels[row].ByteOffset = decodedRun;
+                decodedRun += table[row].ByteSize;
+            }
         }
 
         data.Pixels.resize( static_cast<size_t>( decodedRun ) );
-        for ( size_t level = 0; level < table.size(); ++level )
+        for ( size_t index = 0; index < table.size(); ++index )
         {
-            const LevelRow& row = table[level];
+            const LevelRow& row = table[index];
             const char*     src = bytes.data() + row.ByteOffset;
-            unsigned char*  dst = data.Pixels.data() + data.Levels[level].ByteOffset;
+            unsigned char*  dst = data.Pixels.data() + data.Levels[index].ByteOffset;
 
             if ( static_cast<TextureLevelCodec>( row.Codec ) == TextureLevelCodec::Store )
             {
@@ -762,9 +1001,10 @@ namespace Desert::Assets::Serialization
             if ( !Common::Utils::Lz4BlockDecompress( src, row.StoredSize, dst, row.ByteSize ) )
             {
                 return Common::MakeFormattedError<TextureAssetData>(
-                     "'{}' level {} is {} compressed bytes at {} and did not decode to the {} bytes it "
-                     "declares. Nothing was loaded.",
-                     who, level, row.StoredSize, row.ByteOffset, row.ByteSize );
+                     "'{}' level {} layer {} is {} compressed bytes at {} and did not decode to the {} "
+                     "bytes it declares. Nothing was loaded.",
+                     who, static_cast<uint32_t>( index / layerCount ), static_cast<uint32_t>( index % layerCount ),
+                     row.StoredSize, row.ByteOffset, row.ByteSize );
             }
         }
 

@@ -235,6 +235,10 @@ namespace Desert::Graphic::API::Vulkan
         /// memory is not a statement.
         NO_DISCARD Common::BoolResultStr RT_ClearToColor( float r, float g, float b, float a );
 
+        /// Every level of every face, in the image's OWN format, tightly packed in table order
+        /// (level 0's six faces, then level 1's). See the definition for why it converts nothing.
+        NO_DISCARD Common::ResultStr<std::vector<unsigned char>> RT_ReadAllLevels();
+
     private:
         Common::BoolResultStr CreateResource();
         void UploadData( VkCommandBuffer cmdBuffer, VkBuffer stagingBuffer );

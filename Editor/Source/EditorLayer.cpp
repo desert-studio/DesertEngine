@@ -351,6 +351,25 @@ namespace Desert::Editor
         m_StartupStages.push_back(
              { "Cooking collections...", [this]
                { m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::COLLECTIONS_PATH ); } } );
+        // AND THE LOOSE TEXTURES, WHICH NOTHING COOKED. A texture under `Assets/Textures/` reached its
+        // cooked form only as a mesh's dependency or through a drag-and-drop, so the one cooked texture
+        // this repository SHIPS had no producer in any automatic path -- and a stale one (a container
+        // version moved, a PNG re-exported) stayed stale until somebody dragged the file back in. The
+        // freshness question costs one CRC-32C pass per source at 8.17 GB/s and answers "nothing
+        // changed" without decoding anything; see TextureImporter.cpp for why it is bytes and not
+        // mtimes.
+        m_StartupStages.push_back(
+             { "Cooking textures...", [this]
+               {
+                   m_ImportManager->ImportAllTexturesFromDirectory( Common::Constants::Path::TEXTUREDIR_PATH );
+                   m_ImportManager->ImportAllTexturesFromDirectory( Common::Constants::Path::MESH_PATH );
+                   // AND THE TEXTURES THAT LIVE BESIDE A MESH. `Assets/Meshes/*.png` cook to
+                   // `Cooked/Textures/Assets/Meshes/*.tex`, and they are written only when the MESH is
+                   // re-imported -- which the boot scan skips whenever the `.stmesh` is newer than its
+                   // source. So a container version bump left four of them stranded at version 1 and
+                   // every launch printed four load failures that no automatic path could clear.
+                   m_ImportManager->ImportAllTexturesFromDirectory( Common::Constants::Path::MESH_PATH );
+               } } );
         m_StartupStages.push_back( { "Preloading meshes, textures and materials...",
                                      [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } } );
         m_StartupStages.push_back(
@@ -5318,6 +5337,14 @@ namespace Desert::Editor
         {
             m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::MESH_PATH, /*force=*/true );
             m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::COLLECTIONS_PATH, /*force=*/true );
+            // AND THE TEXTURES DIRECTORY, WHICH THIS COMMAND DID NOT REACH. Loose textures are cooked
+            // only as a mesh's dependency or by a drag-and-drop, so `Assets/Textures/` — which is where
+            // the one cooked texture this repository SHIPS comes from — was the one place "Rebuild
+            // Cooked Assets" could not rebuild. Found the day the container's version moved: the menu
+            // entry whose whole job is "the cooked form is stale, make it again" left `T_Checker.tex`
+            // stale, and the only remedy left was to drag the file back into the editor.
+            m_ImportManager->ImportAllTexturesFromDirectory( Common::Constants::Path::TEXTUREDIR_PATH );
+            m_ImportManager->ImportAllTexturesFromDirectory( Common::Constants::Path::MESH_PATH );
         }
 
         if ( m_AssetPreloader )
