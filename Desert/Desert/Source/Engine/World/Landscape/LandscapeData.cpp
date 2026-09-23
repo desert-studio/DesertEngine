@@ -52,10 +52,10 @@ namespace Desert::World::Landscape
             const auto inRange = []( uint32_t n )
             { return n >= kLandscapeMinTileSamples && n <= kLandscapeMaxTileSamples; };
             if ( !inRange( samplesX ) || !inRange( samplesZ ) )
-                return Common::MakeFormattedError<bool>( "Landscape tile of {} x {} samples: each side must lie in "
-                                                         "[{}, {}]",
-                                                         samplesX, samplesZ, kLandscapeMinTileSamples,
-                                                         kLandscapeMaxTileSamples );
+                return Common::MakeFormattedError<bool>(
+                     "Landscape tile of {} x {} samples: each side must lie in "
+                     "[{}, {}]",
+                     samplesX, samplesZ, kLandscapeMinTileSamples, kLandscapeMaxTileSamples );
             return Common::MakeSuccess( true );
         }
 
@@ -65,9 +65,10 @@ namespace Desert::World::Landscape
                 return Common::MakeFormattedError<bool>( "Landscape region [{}, {}) x [{}, {}) is empty", rect.X0,
                                                          rect.X1, rect.Z0, rect.Z1 );
             if ( rect.X1 > samplesX || rect.Z1 > samplesZ )
-                return Common::MakeFormattedError<bool>( "Landscape region [{}, {}) x [{}, {}) leaves a tile of {} "
-                                                         "x {} samples",
-                                                         rect.X0, rect.X1, rect.Z0, rect.Z1, samplesX, samplesZ );
+                return Common::MakeFormattedError<bool>(
+                     "Landscape region [{}, {}) x [{}, {}) leaves a tile of {} "
+                     "x {} samples",
+                     rect.X0, rect.X1, rect.Z0, rect.Z1, samplesX, samplesZ );
             return Common::MakeSuccess( true );
         }
 
@@ -86,7 +87,7 @@ namespace Desert::World::Landscape
     } // namespace
 
     LandscapeTileData::LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples )
-        : m_SamplesX( samplesX ), m_SamplesZ( samplesZ ), m_Samples( std::move( samples ) )
+         : m_SamplesX( samplesX ), m_SamplesZ( samplesZ ), m_Samples( std::move( samples ) )
     {
         MarkDirty( Bounds() );
     }
@@ -106,8 +107,9 @@ namespace Desert::World::Landscape
             return Common::MakeError<LandscapeTileData>( valid.GetError() );
         const size_t expected = static_cast<size_t>( samplesX ) * samplesZ;
         if ( samples.size() != expected )
-            return Common::MakeFormattedError<LandscapeTileData>( "Landscape tile of {} x {} needs {} samples, got {}",
-                                                                  samplesX, samplesZ, expected, samples.size() );
+            return Common::MakeFormattedError<LandscapeTileData>(
+                 "Landscape tile of {} x {} needs {} samples, got {}", samplesX, samplesZ, expected,
+                 samples.size() );
         return Common::MakeSuccess( LandscapeTileData( samplesX, samplesZ, std::move( samples ) ) );
     }
 
@@ -143,13 +145,14 @@ namespace Desert::World::Landscape
         return Common::MakeSuccess( std::move( out ) );
     }
 
-    Common::BoolResultStr LandscapeTileData::WriteRegion( const LandscapeRect& rect, std::span<const uint16_t> values )
+    Common::BoolResultStr LandscapeTileData::WriteRegion( const LandscapeRect&      rect,
+                                                          std::span<const uint16_t> values )
     {
         if ( auto valid = ValidateRect( rect, m_SamplesX, m_SamplesZ ); !valid )
             return valid;
         if ( values.size() != rect.Area() )
-            return Common::MakeFormattedError<bool>( "Landscape region {} x {} needs {} values, got {}", rect.Width(),
-                                                     rect.Depth(), rect.Area(), values.size() );
+            return Common::MakeFormattedError<bool>( "Landscape region {} x {} needs {} values, got {}",
+                                                     rect.Width(), rect.Depth(), rect.Area(), values.size() );
         bool changed = false;
         for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
         {
@@ -210,8 +213,10 @@ namespace Desert::World::Landscape
         std::optional<GridPoint> Locate( const LandscapeTileData& tile, const LandscapeFrame& frame, float worldX,
                                          float worldZ )
         {
-            const float gx = ( worldX - frame.OriginX ) / frame.SpacingCm;
-            const float gz = ( worldZ - frame.OriginZ ) / frame.SpacingCm;
+            if ( tile.SamplesX() < kLandscapeMinTileSamples || tile.SamplesZ() < kLandscapeMinTileSamples )
+                return std::nullopt; // the empty tile: covers nothing
+            const float gx    = ( worldX - frame.OriginX ) / frame.SpacingCm;
+            const float gz    = ( worldZ - frame.OriginZ ) / frame.SpacingCm;
             const auto  lastX = static_cast<float>( tile.SamplesX() - 1u );
             const auto  lastZ = static_cast<float>( tile.SamplesZ() - 1u );
             // Written as !(inside) so NaN lands outside rather than on sample 0.
@@ -273,12 +278,12 @@ namespace Desert::World::Landscape
         const auto p = Locate( tile, frame, worldX, worldZ );
         if ( !p )
             return std::nullopt;
-        const auto g00 = GradientAt( tile, frame, p->CellX, p->CellZ );
-        const auto g10 = GradientAt( tile, frame, p->CellX + 1u, p->CellZ );
-        const auto g01 = GradientAt( tile, frame, p->CellX, p->CellZ + 1u );
-        const auto g11 = GradientAt( tile, frame, p->CellX + 1u, p->CellZ + 1u );
-        const float dx = Bilinear( g00.first, g10.first, g01.first, g11.first, p->Fx, p->Fz );
-        const float dz = Bilinear( g00.second, g10.second, g01.second, g11.second, p->Fx, p->Fz );
+        const auto  g00 = GradientAt( tile, frame, p->CellX, p->CellZ );
+        const auto  g10 = GradientAt( tile, frame, p->CellX + 1u, p->CellZ );
+        const auto  g01 = GradientAt( tile, frame, p->CellX, p->CellZ + 1u );
+        const auto  g11 = GradientAt( tile, frame, p->CellX + 1u, p->CellZ + 1u );
+        const float dx  = Bilinear( g00.first, g10.first, g01.first, g11.first, p->Fx, p->Fz );
+        const float dz  = Bilinear( g00.second, g10.second, g01.second, g11.second, p->Fx, p->Fz );
         // The surface y = h(x, z) has the (unnormalised) normal (-dh/dx, 1, -dh/dz).
         return glm::normalize( glm::vec3( -dx, 1.0f, -dz ) );
     }
@@ -287,6 +292,8 @@ namespace Desert::World::Landscape
 
     std::vector<unsigned char> EncodeLandscapeTile( const LandscapeTileData& tile )
     {
+        DESERT_VERIFY( tile.SamplesX() >= kLandscapeMinTileSamples && tile.SamplesZ() >= kLandscapeMinTileSamples,
+                       "Encoding an empty landscape tile ({} x {})", tile.SamplesX(), tile.SamplesZ() );
         const std::vector<uint16_t>& samples      = tile.Samples();
         const uint64_t               payloadBytes = static_cast<uint64_t>( samples.size() ) * 2u;
 
@@ -311,9 +318,10 @@ namespace Desert::World::Landscape
     {
         using Result = LandscapeTileData;
         if ( bytes.size() < kLandscapeTileHeaderSize + kLandscapeTileTrailerSize )
-            return Common::MakeFormattedError<Result>( "Landscape tile blob of {} bytes is shorter than its {}-byte "
-                                                       "header and trailer",
-                                                       bytes.size(), kLandscapeTileHeaderSize + kLandscapeTileTrailerSize );
+            return Common::MakeFormattedError<Result>(
+                 "Landscape tile blob of {} bytes is shorter than its {}-byte "
+                 "header and trailer",
+                 bytes.size(), kLandscapeTileHeaderSize + kLandscapeTileTrailerSize );
         const unsigned char* at = bytes.data();
         if ( std::memcmp( at, kLandscapeTileMagic, sizeof( kLandscapeTileMagic ) ) != 0 )
             return Common::MakeFormattedError<Result>( "Landscape tile blob has magic {:02x}{:02x}{:02x}{:02x}, "
@@ -350,10 +358,10 @@ namespace Desert::World::Landscape
                                                        "the dimensions need {}",
                                                        samplesX, samplesZ, payloadBytes, expected );
         if ( covered != kLandscapeTileHeaderSize + expected )
-            return Common::MakeFormattedError<Result>( "Landscape tile blob is {} bytes, header + payload + trailer "
-                                                       "is {}",
-                                                       bytes.size(),
-                                                       kLandscapeTileHeaderSize + expected + kLandscapeTileTrailerSize );
+            return Common::MakeFormattedError<Result>(
+                 "Landscape tile blob is {} bytes, header + payload + trailer "
+                 "is {}",
+                 bytes.size(), kLandscapeTileHeaderSize + expected + kLandscapeTileTrailerSize );
 
         const unsigned char*  payload = at + kLandscapeTileHeaderSize;
         std::vector<uint16_t> samples( static_cast<size_t>( samplesX ) * samplesZ );

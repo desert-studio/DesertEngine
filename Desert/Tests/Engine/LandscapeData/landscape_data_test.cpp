@@ -24,6 +24,7 @@
 
 #include <Common/Utilities/Crc32c.hpp>
 
+#include <glm/geometric.hpp>
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -51,7 +52,7 @@ namespace
         const float x   = height * 128.0f + 32768.f;
         const float lo  = 0.f;
         const float hi  = 65535.f;
-        const float cl  = x < lo ? lo : ( x < hi ? x : hi );     // FMath::Clamp
+        const float cl  = x < lo ? lo : ( x < hi ? x : hi );           // FMath::Clamp
         const int   rnd = static_cast<int>( std::floor( cl + 0.5f ) ); // FMath::RoundToInt
         return static_cast<uint16_t>( rnd );
     }
@@ -70,9 +71,10 @@ namespace
         std::vector<uint16_t> samples( static_cast<size_t>( sx ) * sz );
         for ( uint32_t z = 0; z < sz; ++z )
             for ( uint32_t x = 0; x < sx; ++x )
-                samples[static_cast<size_t>( z ) * sx + x] = LandscapeSampleFromHeightCm(
-                    heightCm( static_cast<float>( x ) * frame.SpacingCm, static_cast<float>( z ) * frame.SpacingCm ),
-                    frame.ZScale );
+                samples[static_cast<size_t>( z ) * sx + x] =
+                     LandscapeSampleFromHeightCm( heightCm( static_cast<float>( x ) * frame.SpacingCm,
+                                                            static_cast<float>( z ) * frame.SpacingCm ),
+                                                  frame.ZScale );
         auto r = LandscapeTileData::FromSamples( sx, sz, std::move( samples ) );
         EXPECT_TRUE( r.IsSuccess() ) << r.GetError();
         return r.ExtractValue();
@@ -98,7 +100,8 @@ TEST( LandscapeEncoding, BoundarySamplesAreUesNumbers )
     EXPECT_EQ( LandscapeSampleFromHeightCm( -25600.0f, 100.0f ), 0u );
     EXPECT_EQ( LandscapeSampleFromHeightCm( 0.0f, 100.0f ), 32768u );
     EXPECT_EQ( LandscapeSampleFromHeightCm( 25599.21875f, 100.0f ), 65535u );
-    EXPECT_EQ( LandscapeSampleFromHeightCm( 25600.0f, 100.0f ), 65535u ) << "+256 m is one step past the top: clamps";
+    EXPECT_EQ( LandscapeSampleFromHeightCm( 25600.0f, 100.0f ), 65535u )
+         << "+256 m is one step past the top: clamps";
     EXPECT_EQ( LandscapeSampleFromHeightCm( 1.0e9f, 100.0f ), 65535u );
     EXPECT_EQ( LandscapeSampleFromHeightCm( -1.0e9f, 100.0f ), 0u );
 
@@ -158,8 +161,8 @@ TEST( LandscapeSampling, PlaneIsExactHeightAndNormal )
     const auto plane = []( float lx, float lz ) { return 10.0f + 0.12f * lx - 0.08f * lz; };
     const auto tile  = TileFrom( 17u, 9u, frame, plane );
 
-    const glm::vec3 expectedNormal = glm::normalize( glm::vec3( -0.12f, 1.0f, 0.08f ) );
-    std::mt19937    rng( 7u );
+    const glm::vec3                       expectedNormal = glm::normalize( glm::vec3( -0.12f, 1.0f, 0.08f ) );
+    std::mt19937                          rng( 7u );
     std::uniform_real_distribution<float> ux( 0.0f, 16.0f * frame.SpacingCm );
     std::uniform_real_distribution<float> uz( 0.0f, 8.0f * frame.SpacingCm );
     for ( int i = 0; i < 2000; ++i )
@@ -189,9 +192,13 @@ TEST( LandscapeSampling, InteriorOfACellIsBilinearNotNearestOrTriangle )
     const auto h = SampleLandscapeHeight( tile, frame, 50.0f, 50.0f );
     ASSERT_TRUE( h.has_value() );
     EXPECT_FLOAT_EQ( *h, 32.0f );
-    const auto q = SampleLandscapeHeight( tile, frame, 25.0f, 75.0f );
+    // The raised corner at (1, 1) weighs fx·fz, which is symmetric in the two fractions; a raised corner
+    // at (1, 0) weighs fx·(1 - fz), which is not — so this is the probe that sees X and Z swapped.
+    auto skew = MakeTile( 2u, 2u );
+    skew.SetSample( 1u, 0u, static_cast<uint16_t>( kLandscapeMidSample + 128u ) );
+    const auto q = SampleLandscapeHeight( skew, frame, 25.0f, 75.0f );
     ASSERT_TRUE( q.has_value() );
-    EXPECT_FLOAT_EQ( *q, 128.0f * 0.25f * 0.75f ) << "the X and Z fractions must not be swapped or shared";
+    EXPECT_FLOAT_EQ( *q, 128.0f * 0.25f * 0.25f ) << "the X and Z fractions must not be swapped or shared";
 }
 
 TEST( LandscapeSampling, SineIsWithinTheInterpolationAndQuantisationBound )
@@ -203,9 +210,9 @@ TEST( LandscapeSampling, SineIsWithinTheInterpolationAndQuantisationBound )
     const auto     tile      = TileFrom( 65u, 5u, frame, wave );
 
     // Bilinear along X on a sine: |error| <= A k^2 s^2 / 8. Quantisation adds at most half a step.
-    const float s          = frame.SpacingCm;
-    const float step       = 100.0f / 128.0f;
-    const float heightTol  = amplitude * k * k * s * s / 8.0f + 0.5f * step + 1e-2f;
+    const float s         = frame.SpacingCm;
+    const float step      = 100.0f / 128.0f;
+    const float heightTol = amplitude * k * k * s * s / 8.0f + 0.5f * step + 1e-2f;
     // Central difference of a sine: slope error <= A k^3 s^2 / 6, plus quantisation (step / s), then the
     // bilinear blend of those slopes adds its own A k^3 s^2 / 8.
     const float slopeTol = amplitude * k * k * k * s * s * ( 1.0f / 6.0f + 1.0f / 8.0f ) + step / s + 1e-4f;
@@ -278,9 +285,9 @@ TEST( LandscapeSampling, FrameValidationNamesTheNumber )
     ASSERT_FALSE( r.IsSuccess() );
     EXPECT_NE( r.GetError().find( "spacing" ), std::string::npos ) << r.GetError();
 
-    f           = {};
-    f.ZScale    = -1.0f;
-    r           = ValidateLandscapeFrame( f );
+    f        = {};
+    f.ZScale = -1.0f;
+    r        = ValidateLandscapeFrame( f );
     ASSERT_FALSE( r.IsSuccess() );
     EXPECT_NE( r.GetError().find( "-1" ), std::string::npos ) << r.GetError();
 
@@ -337,7 +344,7 @@ TEST( LandscapeDirty, TouchingMergesFarStaysApartBridgeJoinsTheChain )
     // Chain: B, then A, then R, where R touches only A and only A ∪ R reaches B. B sits EARLIER in the
     // list than A, so a merge that does not rescan after growing leaves two rectangles that touch.
     tile.TakeDirtyRects();
-    tile.SetSample( 2u, 8u, 9u );                                                        // B
+    tile.SetSample( 2u, 8u, 9u );                                                                         // B
     ASSERT_TRUE( tile.WriteRegion( { 0u, 0u, 1u, 10u }, std::vector<uint16_t>( 10u, 9u ) ).IsSuccess() ); // A
     ASSERT_EQ( tile.DirtyRects().size(), 2u );
     tile.SetSample( 1u, 0u, 9u ); // R
@@ -372,7 +379,7 @@ TEST( LandscapeDirty, RefusedWritesWriteNothingAndNameTheNumbers )
 TEST( LandscapeDirty, SnapshotRestoresExactlyTheUndoContract )
 {
     LandscapeFrame frame;
-    auto tile = TileFrom( 20u, 20u, frame, []( float x, float z ) { return 0.5f * x - 0.25f * z; } );
+    auto           tile = TileFrom( 20u, 20u, frame, []( float x, float z ) { return 0.5f * x - 0.25f * z; } );
     tile.TakeDirtyRects();
     const std::vector<uint16_t> original = tile.Samples();
 
@@ -407,6 +414,13 @@ TEST( LandscapeDirty, DimensionsAreValidated )
     EXPECT_FALSE( LandscapeTileData::Create( 1u, 8u ).IsSuccess() );
     EXPECT_FALSE( LandscapeTileData::Create( 8u, kLandscapeMaxTileSamples + 1u ).IsSuccess() );
     EXPECT_TRUE( LandscapeTileData::Create( 2u, 2u ).IsSuccess() );
+    // The empty tile a failed unwrap hands back is inert, not plausible.
+    const LandscapeTileData empty;
+    EXPECT_FALSE( SampleLandscapeHeight( empty, LandscapeFrame{}, 0.0f, 0.0f ).has_value() );
+    EXPECT_FALSE( SampleLandscapeNormal( empty, LandscapeFrame{}, 0.0f, 0.0f ).has_value() );
+    EXPECT_FALSE( empty.ReadRegion( { 0u, 0u, 1u, 1u } ).IsSuccess() );
+    EXPECT_TRUE( empty.DirtyRects().empty() );
+
     auto r = LandscapeTileData::FromSamples( 4u, 4u, std::vector<uint16_t>( 15u ) );
     ASSERT_FALSE( r.IsSuccess() );
     EXPECT_NE( r.GetError().find( "got 15" ), std::string::npos ) << r.GetError();
@@ -443,12 +457,12 @@ TEST( LandscapeBlob, LayoutIsPinnedByteByByte )
     ASSERT_EQ( bytes.size(), 28u + 2u * 6u + 4u );
 
     const unsigned char header[28] = {
-        'D', 'L', 'H', 'T', //
-        1,   0,   0,   0,   // container version
-        2,   0,   0,   0,   // samplesX
-        3,   0,   0,   0,   // samplesZ
-        0,   0,   0,   0,   // edit layers
-        12,  0,   0,   0,   0, 0, 0, 0, // payload bytes (u64)
+         'D', 'L', 'H', 'T',             //
+         1,   0,   0,   0,               // container version
+         2,   0,   0,   0,               // samplesX
+         3,   0,   0,   0,               // samplesZ
+         0,   0,   0,   0,               // edit layers
+         12,  0,   0,   0,   0, 0, 0, 0, // payload bytes (u64)
     };
     EXPECT_EQ( std::memcmp( bytes.data(), header, sizeof( header ) ), 0 );
 

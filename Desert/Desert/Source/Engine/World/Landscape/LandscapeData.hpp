@@ -68,7 +68,8 @@ namespace Desert::World::Landscape
     /// Height in the landscape's local space. UE:LandscapeDataAccess.h:29-32 (GetLocalHeight).
     inline constexpr float LandscapeLocalHeight( uint16_t sample )
     {
-        return ( static_cast<float>( sample ) - static_cast<float>( kLandscapeMidSample ) ) * kLandscapeLocalPerStep;
+        return ( static_cast<float>( sample ) - static_cast<float>( kLandscapeMidSample ) ) *
+               kLandscapeLocalPerStep;
     }
 
     /**
@@ -101,11 +102,11 @@ namespace Desert::World::Landscape
      */
     struct LandscapeFrame
     {
-        float OriginX    = 0.0f;
-        float OriginZ    = 0.0f;
-        float BaseY      = 0.0f;
-        float SpacingCm  = kLandscapeDefaultSpacingCm;
-        float ZScale     = kLandscapeDefaultZScale;
+        float OriginX   = 0.0f;
+        float OriginZ   = 0.0f;
+        float BaseY     = 0.0f;
+        float SpacingCm = kLandscapeDefaultSpacingCm;
+        float ZScale    = kLandscapeDefaultZScale;
     };
 
     /// Refuses a frame the sampling maths cannot honour (non-positive or non-finite spacing or scale),
@@ -171,6 +172,12 @@ namespace Desert::World::Landscape
     class LandscapeTileData
     {
     public:
+        /// An EMPTY tile: zero samples, no dirty rectangles. It exists because a ResultStr must be able to
+        /// hand back something on a failed unwrap, and it is inert rather than plausible: every sample
+        /// query answers nullopt, every region is refused, and encoding it is a verified caller defect.
+        /// A real tile only ever comes from Create, FromSamples or DecodeLandscapeTile.
+        LandscapeTileData() = default;
+
         /// A flat tile at height zero (every sample kLandscapeMidSample). Refuses dimensions outside
         /// [kLandscapeMinTileSamples, kLandscapeMaxTileSamples], naming them.
         static Common::ResultStr<LandscapeTileData> Create( uint32_t samplesX, uint32_t samplesZ );
@@ -300,8 +307,9 @@ namespace Desert::World::Landscape
     inline constexpr size_t kLandscapeTileHeaderSize  = 28u;
     inline constexpr size_t kLandscapeTileTrailerSize = 4u;
 
-    /// Serialises a tile's samples. The result is exactly header + 2·SamplesX·SamplesZ +
-    /// trailer bytes. Dirty state is not part of the blob — it describes the GPU copy, not the terrain.
+    /// Serialises a tile's samples. An empty (default-constructed) tile is a caller defect and verified. The
+    /// result is exactly header + 2·SamplesX·SamplesZ + trailer bytes. Dirty state is not part of the blob — it
+    /// describes the GPU copy, not the terrain.
     std::vector<unsigned char> EncodeLandscapeTile( const LandscapeTileData& tile );
 
     /**
