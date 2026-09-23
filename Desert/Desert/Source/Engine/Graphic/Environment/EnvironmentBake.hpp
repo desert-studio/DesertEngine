@@ -77,7 +77,10 @@ namespace Desert::Graphic
     ///      is no longer FOUND, because the signature it was filed under has moved. That is the right
     ///      shape here and not a waste: the v1 file costs sixteen times its successor in resident
     ///      memory, and going on using it is the defect this version exists to prevent.
-    inline constexpr uint32_t kEnvironmentBakeVersion = 2;
+    ///   3  the radiance cube carries its whole mip chain and both convolutions read it filtered
+    ///      (mipmap-filtered importance sampling in PrefilterEnvMap AND DiffuseIrradiance). A v2 file's
+    ///      irradiance and prefilter were integrated from level 0 alone and show the sun as splats.
+    inline constexpr uint32_t kEnvironmentBakeVersion = 3;
 
     /// Everything except the source file that the baked pixels depend on. See the header note.
     [[nodiscard]] uint64_t EnvironmentBakeSignature( const SkyLook& look, BakedEnvironmentCube which,

@@ -207,22 +207,28 @@ namespace Desert::Graphic
     inline constexpr uint32_t kSkyEnvCubeFaceSize       = 1024;
     inline constexpr uint32_t kSkyEnvIrradianceFaceSize = 32;
     // The radiance cube is the SHARP environment: the skybox pass draws its mip 0 and the prefilter
-    // convolves it. A single level is a MEASURED refusal of the full chain (2026-09-06, Starter +
-    // MAT_ProbeClouds, 90-frame shots, zero-byte repeat floor): the prefilter's mipmap-filtered
-    // importance sampling wants lower mips, but with the ONLY live producer being the procedural bake —
-    // which deliberately writes NO sun disc (BakeProceduralSky.shader) and whose panorama tops out at
-    // 2048x1024 — enabling them moved the cloud-probe scene by at most 1/255 while costing 96 -> 128 MiB
-    // of RGBA32F per live SceneRenderer (x6 slots). Revisit if a high-frequency environment producer
-    // appears: an .hdr asset path with real content (the repository currently ships none) or a sun disc
-    // baked into the panorama. (The chain also bakes ~15% faster with mips — cache locality — so speed
-    // is an argument FOR them the day the memory is earned.)
-    inline constexpr uint32_t kSkyEnvRadianceMips = 1u;
-    // The prefiltered specular face. 256 is the MEASURED choice, not the historical 1024 the cost report
-    // used to charge for (same protocol as above): 1024 changed the Starter metal ladder by at most
-    // 13/255 and the cloudy probe scene by at most 3/255 — no resolvable structure, because the
-    // environment producer is low-frequency by design — while costing 128 MiB against 8 MiB per live
-    // SceneRenderer and 1.7x the whole bake chain (~670 ms -> ~1130 ms sky-only, ~725 -> ~1265 ms with
-    // clouds marched in).
+    // convolves it. IT CARRIES ITS WHOLE CHAIN, because both convolutions read it (or the panorama) by
+    // mipmap-filtered importance sampling, and a filtered sample with no lower level to read is a point
+    // sample. Measured 2026-09-23 on SKY_HDR_PolyHaven (rural_asphalt_road_2k.hdr, sun peak 131072;
+    // camera 0,220,-900 look 0,-0.08,1; 90 frames; repeat floor 0 px): with ONE level the satin sphere
+    // reflected the sun as a spray of square splats and the matte sphere's high-pass luminance std was
+    // 2.71; with the chain the splats are gone and it is 1.06. Cost: the radiance cube is 96 -> 128 MiB
+    // of RGBA32F on the bake that computes it, 6.0 -> 8.0 MiB of BC6H on every load that reads the
+    // cache, and on the procedural path nothing resident (that path frees its radiance cube after the
+    // prefilter). The bake got FASTER, as the 2026-09-06 note predicted: .hdr convolution 1876 ->
+    // 1325..1635 ms, procedural rebake 1024x512 sky-only ~440 -> ~395 ms, 512x256 ~360 -> ~318 ms.
+    // The procedural frame (Clouds_Protocol + the same three spheres) moved by at most 2/255 on the
+    // matte and satin spheres and 22/255 at one chrome pixel. (The refusal this replaces rested on
+    // "the only live producer is the procedural bake"; an .hdr with a real sun made that false.)
+    inline constexpr uint32_t kSkyEnvRadianceMips = Core::Formats::MipChainLength( kSkyEnvCubeFaceSize );
+    // The prefiltered specular face. 256 is the MEASURED choice, re-measured 2026-09-23 on real content
+    // (same protocol as above, radiance chain on): 1024 moved SKY_HDR_PolyHaven by at most 64/255 --
+    // at the rim of the sun's highlight on the chrome sphere, mean 0.07/255 over the frame, no
+    // structure visible side by side -- and the procedural sphere scene by at most 31/255, while
+    // costing 8 -> 128 MiB of RGBA32F (0.5 -> 8 MiB cached), 1.5x the procedural rebake (~318 ->
+    // ~487 ms at 512x256) and ~2x the .hdr cache write. The face only matters where a mirror covers
+    // more screen per degree than 256/90 texels do (~2.8 per degree); revisit for a close-up mirror,
+    // not for a brighter sky. (The first measurement, 2026-09-06 on the synthetic content, found 13/255.)
     inline constexpr uint32_t kSkyEnvPrefilterFaceSize = 256;
     // Derived from the face, never authored: a hand-typed pair is how 11 mips got requested on a 256
     // face — an invalid vkCreateImage (VUID-...-00958) away from VK_ERROR_DEVICE_LOST.

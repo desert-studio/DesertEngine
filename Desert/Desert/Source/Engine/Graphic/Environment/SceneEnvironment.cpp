@@ -143,6 +143,11 @@ namespace Desert::Graphic
             const auto prefilteredHandle = imageService->Register(
                  std::move( prefiltered ), Runtime::ImageHandle::Type::ImageCube );
 
+            // The two halves of a miss are timed apart because they answer different questions: the
+            // convolutions are GPU work every bake repeats, the write below is a CPU block encode paid
+            // once per panorama. One total hid which of them a change had moved.
+            const auto convolvedAt = std::chrono::steady_clock::now();
+
             // ── AND THEN IT IS WRITTEN, ONCE ─────────────────────────────────────────────────────
             //
             // The write happens AFTER the three cubes exist and reads them back off the device, so what
@@ -177,10 +182,14 @@ namespace Desert::Graphic
             }
 
             LOG_INFO(
-                 "[SceneEnvironment] '{}' computed its IBL chain in {:.1f} ms (radiance {}^2 x{}, "
-                 "irradiance {}^2, prefilter {}^2 x{}) = {:.1f} MiB resident.",
+                 "[SceneEnvironment] '{}' computed its IBL chain in {:.1f} ms ({:.1f} ms reading and convolving, "
+                 "{:.1f} ms "
+                 "caching) (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}) = {:.1f} MiB resident.",
                  meta.Filepath.string(),
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count(),
+                 std::chrono::duration<double, std::milli>( convolvedAt - startedAt ).count(),
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - convolvedAt )
+                      .count(),
                  kSkyEnvCubeFaceSize, kSkyEnvRadianceMips, kSkyEnvIrradianceFaceSize, kSkyEnvPrefilterFaceSize,
                  kSkyEnvPrefilterMips,
                  static_cast<double>( SkyEnvironmentCubeBytes( kSkyEnvCubeFaceSize, kSkyEnvRadianceMips ) +

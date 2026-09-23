@@ -78,8 +78,8 @@ namespace Desert::Core::Formats
         {
             if ( !( value > 0.0f ) ) // also catches NaN
                 return 0;
-            if ( value > 65504.0f )
-                value = 65504.0f;
+            if ( value > kBC6HLargestValue )
+                value = kBC6HLargestValue;
 
             uint32_t bits = 0;
             std::memcpy( &bits, &value, sizeof( bits ) );
@@ -774,6 +774,33 @@ namespace Desert::Core::Formats
             return at < extent ? at : extent - 1;
         }
     } // namespace
+
+    BC6HCeilingCensus CensusBC6HCeiling( const float* rgba, const std::size_t texelCount )
+    {
+        BC6HCeilingCensus census;
+        for ( std::size_t t = 0; t < texelCount; ++t )
+        {
+            bool clamped = false;
+            for ( std::size_t c = 0; c < 3; ++c )
+            {
+                const float value = rgba[t * 4u + c];
+                if ( !std::isfinite( value ) )
+                {
+                    ++census.NonFiniteChannels;
+                    continue;
+                }
+                census.Peak = std::max( census.Peak, value );
+                census.Sum += std::max( value, 0.0f );
+                if ( value > kBC6HLargestValue )
+                {
+                    census.LostAboveCeiling += value - kBC6HLargestValue;
+                    clamped = true;
+                }
+            }
+            census.ClampedTexels += clamped ? 1u : 0u;
+        }
+        return census;
+    }
 
     ImageFormat BlockFormatFor( const ImageFormat sourceFormat )
     {

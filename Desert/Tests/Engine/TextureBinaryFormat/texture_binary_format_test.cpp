@@ -1131,11 +1131,11 @@ TEST( TextureBinaryFormat, HowManyLevelsAFileOwesDependsOnItsKind )
 {
     // THE RULE THAT WAS A 2D RULE APPLIED TO EVERYTHING. A cooked PNG owes its whole chain, because the
     // resident tail is what this container exists for. A baked environment cube owes the levels it was
-    // baked with: `kSkyEnvRadianceMips` is 1 on a 1024 face by measurement, and the prefiltered cube's
+    // baked with: `kSkyEnvRadianceMips` is a measured choice that was 1 for a month, and the prefiltered cube's
     // levels are a GGX roughness ramp rather than a minification chain. Demanding a full chain of a cube
     // refused the first environment this container ever wrote, on its own second load.
     {
-        // One level of a 32-texel face -- legal, and the shape the radiance cube actually has.
+        // One level of a 32-texel face -- legal, and the shape the irradiance cube actually has.
         const auto read = DecodeTextureBinary( EncodeTextureBinary( CookCube( 32, 1 ) ), "radiance.tex" );
         ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
         EXPECT_EQ( read.GetValue().LevelCount(), 1u );
