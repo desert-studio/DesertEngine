@@ -6,7 +6,7 @@
 // reentrancy defects for one frame of latency, and it has a price: a host that does not call `Pump()`
 // gets a loader that reads files on workers and never tells anybody they arrived. Every cloud kind
 // would then be Pending forever, the sky would never draw, and nothing in the engine would say why —
-// the loading overlay would simply stay up.
+// the splash would simply stay up.
 //
 // This is the same defect shape, and the same file pair, as `AssetPreloadCensus` next door:
 // `AssetPreloader::PreloadCloudLayouts` scanned a directory, registered what it found, and was called
@@ -180,7 +180,7 @@ TEST( AsyncAssetPump, BothHostsPumpTheLoaderOnceATick )
              << " never calls AsyncAssetLoader::Pump(). Completion is ALWAYS deferred to a pump -- even "
                 "for an asset that is already resident -- so this host reads cloud volumes on workers and "
                 "is never told they arrived. Every cloud kind stays Pending forever, the sky never draws, "
-                "and nothing says why: the loading overlay simply does not come down. This is the exact "
+                "and nothing says why: the splash simply does not come down. This is the exact "
                 "shape of PreloadCloudLayouts, which scanned, registered, and was called by nobody.";
     }
 }

@@ -5,7 +5,7 @@
 // — and the project's default scene, queued for load by the CONSTRUCTOR that ran a moment earlier, threw
 // all of it away as soon as the staged startup finished. Nobody ever saw a frame of that first scene:
 // `OnUpdate` returns before any scene render for the whole of the startup load, and `OnUIRender` draws
-// the loading overlay and nothing else. Measured cost in Debug: see the task's report.
+// nothing into a window that is still hidden behind the splash. Measured cost in Debug: see the task's report.
 //
 // WHY IT NEEDS A TEST RATHER THAN A COMMENT. The fix is one condition in OnAttach and one fallback in
 // OnUpdate, and they are 300 lines apart in a file three developers are editing. Alone, each looks

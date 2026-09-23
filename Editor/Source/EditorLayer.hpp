@@ -22,6 +22,7 @@
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
+#include "Editor/Splash/SplashScreen.hpp"
 
 #include <chrono>
 #include <optional>
@@ -38,7 +39,10 @@ namespace Desert::Editor
     class EditorLayer : public Common::Layer
     {
     public:
-        explicit EditorLayer( const Engine::Application* window, const std::string& layerName );
+        // @p splash is the start-up splash CreateApplication put up before the renderer existed; this
+        // layer reports its steps to it and takes it down on the first real frame (RevealWhenReady).
+        EditorLayer( const Engine::Application* window, const std::string& layerName,
+                     std::unique_ptr<Splash::SplashScreen> splash );
         ~EditorLayer();
 
         [[nodiscard]] Common::BoolResultStr OnAttach() override;
@@ -656,17 +660,42 @@ namespace Desert::Editor
         // Scene -> Four-Up Viewports. Deferred like the two above, and for the same reason.
         bool                                    m_ViewportGridRequested = false;
 
-        // Staged startup loading (UI loader): the heavy boot work (mesh cooking, asset preload) runs one
-        // stage per frame from OnUpdate while OnUIRender shows a fullscreen progress overlay — instead
-        // of silently freezing the window for seconds before the first frame.
+        // Staged startup loading: the heavy boot work (mesh cooking, asset preload) runs one stage per
+        // frame from OnUpdate, each announced on the splash, with the main window still hidden.
         struct StartupStage
         {
             std::string           Label;
             std::function<void()> Run;
         };
         std::vector<StartupStage> m_StartupStages;
-        size_t                    m_StartupNext           = 0;
-        int                       m_StartupFramesRendered = 0;
+        size_t                    m_StartupNext = 0;
+
+        // ===== The splash's steps, and the moment the editor is shown =====
+        //
+        // THE STEPS THE SPLASH COUNTS are the shader preload (OnAttach — not a stage, because the render
+        // systems resolve their shaders in their constructors and it has to finish before they exist),
+        // every entry of m_StartupStages, and the settle wait after them. One count, derived here, so the
+        // "N / M" a person reads cannot drift from the list that is actually run.
+        static constexpr size_t kSplashShaderStep = 0;
+        size_t                  SplashStepCount() const
+        {
+            return m_StartupStages.size() + 2;
+        }
+        size_t SplashSettleStep() const
+        {
+            return m_StartupStages.size() + 1;
+        }
+        void ReportSplashStep( const std::string& label, size_t step );
+        // Called at every presented frame; the first one presented after the start is over shows the
+        // hidden main window and closes the splash. Until then the splash is the only window.
+        void RevealWhenReady();
+        // KEPT after it is closed, until the layer goes: Close() only starts the crossfade, and the
+        // object's destructor is what waits for its window and thread — at teardown, not on the frame
+        // the editor has just appeared on.
+        std::unique_ptr<Splash::SplashScreen> m_Splash;
+        bool                                  m_Revealed = false;
+        // Set by the first OnUIRender that draws the editor rather than a loading frame.
+        bool m_RealFrameDrawn = false;
         // WHERE THE ELAPSED TOTAL LIVES NOW. It used to be a `long long` accumulated here with the
         // accumulation rule written in this comment; the rule (sum of the stages, NOT wall clock between
         // the first and the last, because a stage runs one per frame) now lives in `Core::BootTimeline`
@@ -689,8 +718,8 @@ namespace Desert::Editor
         // The answer is not "the scene without its clouds". A sky that appears several frames after the
         // rest of the world is exactly the hitch GAP_ANALYSIS §3.1 warns the lazy model moves into the
         // frame -- it is not a stall, but it is a visible change, and shipping it would be trading a
-        // measurable boot cost for an unmeasurable visual one. So the loading overlay that was already up
-        // for the staged boot stays up until the content the scene asked for has settled, and the cost
+        // measurable boot cost for an unmeasurable visual one. So the splash that was already up for the
+        // staged boot stays up until the content the scene asked for has settled, and the cost
         // stays in the loading screen where it was.
         //
         // THE RULE ITSELF IS NOT HERE ANY MORE. It was three fields and two methods in this class, and

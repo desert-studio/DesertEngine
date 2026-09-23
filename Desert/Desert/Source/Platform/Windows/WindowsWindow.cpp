@@ -87,6 +87,9 @@ namespace Desert::Platform::Windows
             m_Data.Specification.Height = height;
         }
 
+        // Through the hint, so a hidden window is never on screen for even one frame; reset below with the
+        // other sticky hint.
+        glfwWindowHint( GLFW_VISIBLE, m_Data.Specification.Visible ? GLFW_TRUE : GLFW_FALSE );
         m_GLFWWindow =
              glfwCreateWindow( (int)width, (int)height, m_Data.Specification.Title.c_str(), nullptr, nullptr );
 
@@ -120,6 +123,7 @@ namespace Desert::Platform::Windows
         }
 
         glfwWindowHint( GLFW_MAXIMIZED, GLFW_FALSE ); // reset sticky hint
+        glfwWindowHint( GLFW_VISIBLE, GLFW_TRUE );    // and this one
 
         // EngineContext::GetInstance().m_CurrentWindow = m_GLFWWindow;
 
@@ -271,6 +275,12 @@ namespace Desert::Platform::Windows
     {
         glfwMaximizeWindow( m_GLFWWindow );
         RefreshCachedSize();
+    }
+
+    void WindowsWindow::Show()
+    {
+        glfwShowWindow( m_GLFWWindow );
+        glfwFocusWindow( m_GLFWWindow );
     }
 
     void WindowsWindow::Restore()

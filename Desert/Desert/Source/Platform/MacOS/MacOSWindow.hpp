@@ -33,6 +33,7 @@ namespace Desert::Platform::MacOS
         virtual void Maximize() override;
         virtual void Restore() override;
         virtual void Minimize() override;
+        virtual void Show() override;
 
         [[nodiscard]] virtual bool IsWindowMaximized() const override;
         [[nodiscard]] virtual bool IsDecorated() const override
