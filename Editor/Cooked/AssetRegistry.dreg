@@ -176,9 +176,9 @@ DesertAssetRegistry 1
 9232 Shader - - engine:Shaders/Programs/Composite/SceneComposite.shader
 839 Shader - - engine:Shaders/Programs/Composite/SwapchainBlit.shader
 32023 Shader - - engine:Shaders/Programs/Compute/BakeProceduralSky.shader
-5005 Shader - - engine:Shaders/Programs/Compute/DiffuseIrradiance.shader
+5658 Shader - - engine:Shaders/Programs/Compute/DiffuseIrradiance.shader
 942 Shader - - engine:Shaders/Programs/Compute/GenerateMipMap_2D.shader
-1870 Shader - - engine:Shaders/Programs/Compute/PanoramaToCubemap.shader
+2727 Shader - - engine:Shaders/Programs/Compute/PanoramaToCubemap.shader
 7549 Shader - - engine:Shaders/Programs/Compute/PrefilterEnvMap.shader
 1069 Shader - - engine:Shaders/Programs/Debug/DebugLine.shader
 1199 Shader - - engine:Shaders/Programs/Debug/Overdraw.shader
@@ -230,7 +230,7 @@ DesertAssetRegistry 1
 9711 Shader - - engine:Shaders/Programs/Sky/SkyMultiScatterLut.shader
 4237 Shader - - engine:Shaders/Programs/Sky/SkyTransmittanceLut.shader
 7904 Shader - - engine:Shaders/Programs/Sky/SkyViewLut.shader
-2262 Shader - - engine:Shaders/Programs/Skybox/Skybox.shader
+3367 Shader - - engine:Shaders/Programs/Skybox/Skybox.shader
 24408 Shader - - engine:Shaders/Programs/Terrain/Terrain.shader
 2514 Shader - - engine:Shaders/Programs/Text/TextSDF.shader
 1209 Shader - - engine:Shaders/Programs/UI/UI2D.shader
