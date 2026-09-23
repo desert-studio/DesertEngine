@@ -297,5 +297,5 @@ __pycache__/
 # finished brief sat at the repository root looking like documentation -- naming a worktree path and
 # a branch that no longer exist. That is the stale-citation shape this project keeps paying for, and
 # a file at the root is the most authoritative-looking place to put one.
-# The brief the agents actually share is .claude/AGENT_BRIEF_COMMON.md, which IS tracked.
+# The brief the agents actually share is .claude/AGENT_BRIEF_COMMON.md (core) + AGENT_BRIEF_REFERENCE.md, both tracked.
 /BRIEF.md

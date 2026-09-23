@@ -34,6 +34,7 @@
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
 
 namespace Desert::Geometry
 {
@@ -315,6 +316,51 @@ namespace Desert::ECS
         std::shared_ptr<Graphic::Image2D> SplatMap;
         std::vector<unsigned char>        SplatPixels; // size = SplatResolution^2 * 4, lazily allocated
         bool                              SplatDirty = false;
+    };
+
+    // THE LANDSCAPE ROOT (UE: ALandscape). Owns the frame every tile is placed by: the entity's own world
+    // position is sample (0, 0) of tile (0, 0), and these three say how far apart samples are, how tall a
+    // sample step is and how many quads a tile has. It owns NO heights and NO tile list — the tiles are the
+    // entities whose LandscapeTileComponent names this entity, and a count here would be a second answer
+    // (World/Landscape/LandscapeLayout.hpp says what is deliberately not stored).
+    //
+    // Rotation and scale of the root entity are not part of the frame: LandscapeFrame has no rotation, as
+    // the TES sampling it feeds has none. That is stated here rather than hidden behind a transform the
+    // tiles would silently ignore; a landscape that must turn is a new frame field, not a gizmo.
+    struct LandscapeComponent
+    {
+        uint32_t QuadsPerTile = World::Landscape::kLandscapeDefaultTileQuads; // UE section size, 7..255
+        float    SpacingCm    = World::Landscape::kLandscapeDefaultSpacingCm; // cm between neighbouring samples
+        float    ZScale       = World::Landscape::kLandscapeDefaultZScale;    // cm per local height unit
+    };
+
+    // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
+    //
+    // `Landscape` names the root BY ID AND NOT AS A PARENT, and that is the whole reason this is a field:
+    // a parent link is containment, and WorldPartition keeps a composite whole in one cell — every tile of
+    // a landscape would be one composite and one cell would grow to hold the entire terrain. As an
+    // OBSERVATION (WorldPartitionRules.hpp, kEntityReferences) each tile is its own composite, placed by its
+    // own rectangle; a tile whose root is not loaded simply has no frame yet.
+    //
+    // `HeightFile` is where the heights live — a DLHT blob beside the scene, never inside the .desce: a
+    // 64x64 tile is 8 KiB of samples and JSON would carry it as text, eleven times over. The path is
+    // written as the scene file spells its other files (relative to the working directory), and it is
+    // RE-DERIVED on every save from the destination (LandscapeTileFiles.hpp, LandscapeTileBlobPath), so "Save As"
+    // never writes one scene's heights into another's files.
+    //
+    // `Heights` is the loaded tile — the single source of truth for this tile's terrain (landscape
+    // analysis A2). Runtime state: it is not in the scene block, it is what the block's file decodes to.
+    // HELD BY VALUE, because the component is its one owner (PointerOwnership's Q1): a pointer here would
+    // answer a sharing question nobody has asked yet. A consumer that must keep the tile across frames
+    // (the GPU copy, LS-4) cannot keep an address into an entt pool anyway, and decides its own form then.
+    struct LandscapeTileComponent
+    {
+        Common::UUID Landscape = Common::UUID::Null(); // the root entity; null = no frame
+        int32_t      TileX     = 0;                    // which tile of the root's grid, either side of it
+        int32_t      TileZ     = 0;
+        std::string  HeightFile;
+
+        std::optional<World::Landscape::LandscapeTileData> Heights;
     };
 
     // One overridden material parameter (keyed by the shader's #pragma param name). vec4 stores any
@@ -2348,15 +2394,14 @@ namespace Desert::ECS
 
         // ── THE AUTHORED LOOK ─────────────────────────────────────────────────────────────────────────
         //
-        // All three reach the frame through ONE route: they are baked into the environment cubes
-        // (Graphic::SkyLook -> EnvironmentManager::Create), which is what the backdrop is drawn from AND
-        // what every lit surface reads its ambient and reflections out of. Intensity used to be applied
-        // to the sky pass alone and therefore lit nothing; that spelling is gone rather than kept beside
-        // the new one.
+        // All three reach the frame through ONE route: ECS::SkyLookOf packs them into a Graphic::SkyLook,
+        // and that one value is applied wherever the environment cubes are SAMPLED — the backdrop, and
+        // every lit surface's ambient and reflections (Shaders/Common/SkyLook.glslh). Intensity used to be
+        // applied to the sky pass alone and therefore lit nothing; the shader census in
+        // Tests/Engine/SkyPanorama is what keeps that state unreachable now.
         //
-        // THE PRICE IS A REBAKE, not a frame — SkyboxRenderer waits for the value to settle and then
-        // spends the same ~0.7 s the procedural sky spends when its sun moves. That is why none of these
-        // is a per-frame knob and why none of them is animated.
+        // THE PRICE IS A UNIFORM WRITE PER FRAME. They used to be baked into the cubes, and every slider
+        // value cost a device-idling rebake of ~0.7 s; the cubes are now the file as authored.
 
         PROPERTY( DisplayName( "Intensity" ), Category( "Skybox" ), Range( 0.0f, 10.0f ) )
         float Intensity = 1.0f;
@@ -2396,6 +2441,22 @@ namespace Desert::ECS
     // NOT a render or gameplay flag: nothing in the runtime reads it, and a packaged game has no
     // viewport to pick in. VisibilityComponent is the one that changes what is drawn.
     struct LockComponent
+    {
+    };
+
+    // WORLD PARTITION: KEEP THIS LOADED EVERYWHERE. The author's one input to partitioning besides the
+    // grid (owner decision 2026-09-23): the level and the cell are derived from the footprint, whether a
+    // thing is global is derived from its components (Rules::kComponentLoading), and this marker is for
+    // what neither can see - a game-manager script, a trigger that must hear the player from anywhere.
+    //
+    // MARKER for the reason LockComponent above is one: presence is the state, so there is no
+    // present-and-false second spelling of "not always-loaded". It reaches the partition through its key
+    // on disk, "AlwaysLoaded" (ComponentRegistry.cpp), which Rules::PlanWorldPartition reads; one marked
+    // member makes its whole composite always-loaded, because a composite is never divided.
+    //
+    // In a world with no WorldPartition block it changes nothing, and its toggle in the Details header
+    // says so in its tooltip.
+    struct AlwaysLoadedComponent
     {
     };
 

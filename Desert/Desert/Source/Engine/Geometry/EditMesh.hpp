@@ -52,7 +52,7 @@ namespace Desert::Geometry
     {
         int                OriginalEdge = InvalidId; // keeps its ID, now spans (kept end, NewVertex)
         int                NewVertex    = InvalidId;
-        int                NewEdge      = InvalidId; // the other half of the split edge
+        int                NewEdge      = InvalidId;             // the other half of the split edge
         std::array<int, 2> NewTriangles{ InvalidId, InvalidId }; // [1] is InvalidId on a boundary edge
         std::array<int, 2> NewSpokes{ InvalidId, InvalidId };    // NewVertex -> opposite corner, per side
     };
@@ -67,12 +67,12 @@ namespace Desert::Geometry
 
     struct CollapseEdgeInfo
     {
-        int                KeptVertex       = InvalidId;
-        int                RemovedVertex    = InvalidId;
-        int                CollapsedEdge    = InvalidId;                  // removed
-        std::array<int, 2> RemovedTriangles{ InvalidId, InvalidId };      // [1] InvalidId on a boundary edge
-        std::array<int, 2> RemovedEdges{ InvalidId, InvalidId };          // the edge merged away, per side
-        std::array<int, 2> KeptEdges{ InvalidId, InvalidId };             // the edge it merged into, per side
+        int                KeptVertex    = InvalidId;
+        int                RemovedVertex = InvalidId;
+        int                CollapsedEdge = InvalidId;                // removed
+        std::array<int, 2> RemovedTriangles{ InvalidId, InvalidId }; // [1] InvalidId on a boundary edge
+        std::array<int, 2> RemovedEdges{ InvalidId, InvalidId };     // the edge merged away, per side
+        std::array<int, 2> KeptEdges{ InvalidId, InvalidId };        // the edge it merged into, per side
     };
 
     class EditMesh
@@ -218,13 +218,13 @@ namespace Desert::Geometry
     private:
         int AllocateTriangle();
 
-        int  AddEdge( int a, int b );
-        void RemoveEdge( int e );
-        void AddEdgeTriangle( int e, int t );
-        void RemoveEdgeTriangle( int e, int t );
-        void ReplaceEdgeTriangle( int e, int oldT, int newT );
-        void ReplaceEdgeVertex( int e, int oldV, int newV );
-        void EraseVertexEdge( int v, int e );
+        int               AddEdge( int a, int b );
+        void              RemoveEdge( int e );
+        void              AddEdgeTriangle( int e, int t );
+        void              RemoveEdgeTriangle( int e, int t );
+        void              ReplaceEdgeTriangle( int e, int oldT, int newT );
+        void              ReplaceEdgeVertex( int e, int oldV, int newV );
+        void              EraseVertexEdge( int v, int e );
         [[nodiscard]] int OtherTriangle( int e, int t ) const;
         // Index j of t's edge e: corners j and j+1 are the edge's ends in t's winding.
         [[nodiscard]] int EdgeSlot( int t, int e ) const;

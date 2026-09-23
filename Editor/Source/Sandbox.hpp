@@ -10,6 +10,10 @@
 #include <Editor/Core/ShotOptions.hpp>
 #include <Editor/Core/Control/ControlChannelOptions.hpp>
 #include <Engine/Project/StartupLayout.hpp>
+#include <Editor/Splash/SplashImage.hpp>
+#include <Editor/Splash/SplashScreen.hpp>
+#include <Engine/Assets/CookedTexturePath.hpp>
+#include <Common/Core/Version.hpp>
 
 #include <Common/Core/Profiler.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -25,10 +29,14 @@ namespace Desert
     class Sandbox : public Engine::Application
     {
     public:
-        Sandbox( const Engine::ApplicationInfo& appinfo );
+        Sandbox( const Engine::ApplicationInfo& appinfo, std::unique_ptr<Editor::Splash::SplashScreen> splash );
 
         virtual void OnCreate() override;
         virtual void OnDestroy() override;
+
+    private:
+        // Held from before the renderer exists until the editor layer takes it over in OnCreate.
+        std::unique_ptr<Editor::Splash::SplashScreen> m_Splash;
     };
 } // namespace Desert
 
@@ -227,8 +235,21 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     Common::Profiling::Profiler::Get().GpuEnabled()    = options.Shot.GpuProfile && options.Shot.GpuTiming;
     Common::Profiling::Profiler::Get().GpuPassScopes() = !options.Shot.GpuFrameOnly;
 
+    // THE SPLASH, AS EARLY AS IT CAN SAY SOMETHING TRUE. Not earlier: the project it names and the cooked
+    // picture's path both exist only once the project is open, three blocks up, and a refusal above this
+    // line must not flash a window on its way to exiting. Not later: everything below — the window, the
+    // Vulkan instance and device, the renderer, the shader preload in OnAttach — is the wait it covers.
+    auto splash = Desert::Editor::Splash::SplashScreen::Show( { Desert::Editor::ProjectContext::Current().Name,
+                                                                Common::Version::Base(),
+                                                                Desert::Editor::Splash::kSplashTexture } );
+    // The plan is not known yet — the editor layer that owns the stage list does not exist — so no count.
+    splash->SetStatus( "Starting the renderer...", 0, 0 );
+
     ApplicationInfo appInfo;
     appInfo.Title = "Desert Engine — " + Desert::Editor::ProjectContext::Current().Name;
+    // HIDDEN UNTIL THE EDITOR IS READY: the splash is what is on screen until then, and EditorLayer shows
+    // the window on its first real frame (RevealWhenReady).
+    appInfo.Visible = false;
     appInfo.VSync = false;
     // THE EDITOR DRAWS ITS OWN TITLE BAR. Its menu bar has carried the project name, the open level, the
     // menus and the engine stats for a long time while the system bar sat above it — two title bars on one
@@ -238,5 +259,5 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     appInfo.Decorated = false;
     // Width/Height left as std::nullopt -> start fullscreen at the monitor's native resolution.
 
-    return std::make_unique<Desert::Sandbox>( appInfo );
+    return std::make_unique<Desert::Sandbox>( appInfo, std::move( splash ) );
 }

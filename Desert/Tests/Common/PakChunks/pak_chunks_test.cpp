@@ -183,7 +183,7 @@ namespace
     // disk; counting them when present made this census answer 17 on one machine and 16 on a clean clone
     // (CI 35892590485 went red on all three platforms while the local sweep was green). One answer
     // everywhere, or the instrument measures the machine.
-    constexpr const char* kCookOnlyKinds[] = { "Texture" };
+    constexpr const char* kCookOnlyKinds[]   = { "Texture" };
     constexpr std::size_t kCookOnlyKindCount = sizeof( kCookOnlyKinds ) / sizeof( kCookOnlyKinds[0] );
 
     bool IsCookOnlyKind( const std::string& kind )

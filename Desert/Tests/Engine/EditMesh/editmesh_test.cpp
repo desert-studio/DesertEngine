@@ -168,10 +168,10 @@ TEST( EditMesh, ClosedOctahedronHasNoBoundaryAndEulerTwo )
 
 TEST( EditMesh, AppendTriangleRefusesAndLeavesTheMeshUntouched )
 {
-    EditMesh  mesh = MakeGrid( 1 ); // (0,1,3) and (0,3,2)
-    const int farVertex  = mesh.AppendVertex( { 500, 500, 500 } );
-    const int far2 = mesh.AppendVertex( { 600, 500, 500 } );
-    const auto before = Take( mesh );
+    EditMesh   mesh      = MakeGrid( 1 ); // (0,1,3) and (0,3,2)
+    const int  farVertex = mesh.AppendVertex( { 500, 500, 500 } );
+    const int  far2      = mesh.AppendVertex( { 600, 500, 500 } );
+    const auto before    = Take( mesh );
 
     int t = 12345;
     EXPECT_EQ( mesh.AppendTriangle( 0, 1, 99, t ), EditResult::InvalidVertex );
@@ -194,11 +194,11 @@ TEST( EditMesh, AppendTriangleRefusesAndLeavesTheMeshUntouched )
 
 TEST( EditMesh, RemoveTriangleLeavesHolesAndReusesFreedIds )
 {
-    EditMesh  mesh     = MakeGrid( 2 );
-    const int loner    = mesh.AppendVertex( { -1000, 0, 0 } ); // isolated BEFORE: never removed
-    const int triangle = 3;
-    const auto corners = mesh.GetTriangle( triangle );
-    const auto others  = Collect( mesh.TriangleIds() );
+    EditMesh   mesh     = MakeGrid( 2 );
+    const int  loner    = mesh.AppendVertex( { -1000, 0, 0 } ); // isolated BEFORE: never removed
+    const int  triangle = 3;
+    const auto corners  = mesh.GetTriangle( triangle );
+    const auto others   = Collect( mesh.TriangleIds() );
 
     ASSERT_EQ( mesh.RemoveTriangle( triangle ), EditResult::Ok );
     EXPECT_FALSE( mesh.IsTriangle( triangle ) );
@@ -235,9 +235,9 @@ TEST( EditMesh, RemoveTriangleDropsOrphanedVerticesOnlyWhenAsked )
 
 TEST( EditMesh, SplitInteriorEdgeKeepsEveryIdAndWinding )
 {
-    EditMesh  mesh     = MakeGrid( 1 );
-    const int diagonal = mesh.FindEdge( 0, 3 );
-    const auto tris    = mesh.GetEdgeTriangles( diagonal );
+    EditMesh   mesh     = MakeGrid( 1 );
+    const int  diagonal = mesh.FindEdge( 0, 3 );
+    const auto tris     = mesh.GetEdgeTriangles( diagonal );
 
     SplitEdgeInfo info;
     ASSERT_EQ( mesh.SplitEdge( diagonal, 0.25f, info ), EditResult::Ok );
@@ -361,7 +361,7 @@ TEST( EditMesh, CollapseInteriorEdgeRemovesTwoTrianglesAndThreeEdges )
 
 TEST( EditMesh, CollapseBoundaryEdge )
 {
-    EditMesh mesh = MakeGrid( 3 );
+    EditMesh  mesh = MakeGrid( 3 );
     const int v = mesh.VertexCount(), e = mesh.EdgeCount(), t = mesh.TriangleCount();
 
     CollapseEdgeInfo info;
@@ -689,9 +689,9 @@ namespace
             else
                 op = roll % 2 == 0 || layers ? Op::Remove : Op::Append;
 
-            const Snapshot before     = Take( mesh );
-            const int      euler      = EulerCharacteristic( mesh );
-            EditResult     result      = EditResult::Ok;
+            const Snapshot before = Take( mesh );
+            const int      euler  = EulerCharacteristic( mesh );
+            EditResult     result = EditResult::Ok;
 
             switch ( op )
             {
@@ -710,12 +710,12 @@ namespace
                 }
                 case Op::Collapse:
                 {
-                    const int        edge = Pick( edges, rng );
-                    const auto&      ends = mesh.GetEdgeVertices( edge );
-                    const bool       swap = ( rng() & 1u ) != 0;
-                    const int        keep = ends[swap ? 1 : 0];
-                    const int        gone = ends[swap ? 0 : 1];
-                    float            t    = 0.5f;
+                    const int   edge = Pick( edges, rng );
+                    const auto& ends = mesh.GetEdgeVertices( edge );
+                    const bool  swap = ( rng() & 1u ) != 0;
+                    const int   keep = ends[swap ? 1 : 0];
+                    const int   gone = ends[swap ? 0 : 1];
+                    float       t    = 0.5f;
                     if ( layers )
                     {
                         // Where the merged vertex may land without leaving any element's value behind: a seam
@@ -741,9 +741,9 @@ namespace
                     break;
                 case Op::Append:
                 {
-                    int t = InvalidId;
-                    result =
-                        mesh.AppendTriangle( Pick( vertices, rng ), Pick( vertices, rng ), Pick( vertices, rng ), t );
+                    int t  = InvalidId;
+                    result = mesh.AppendTriangle( Pick( vertices, rng ), Pick( vertices, rng ),
+                                                  Pick( vertices, rng ), t );
                     break;
                 }
                 case Op::Compact:
@@ -760,9 +760,9 @@ namespace
                 return ::testing::AssertionFailure() << "seed " << seed << " step " << step << " op " << kind
                                                      << " (" << ToString( result ) << "): " << valid.GetError();
             if ( result != EditResult::Ok && !( Take( mesh ) == before ) )
-                return ::testing::AssertionFailure() << "seed " << seed << " step " << step << " op " << kind
-                                                     << " was refused (" << ToString( result )
-                                                     << ") but changed the mesh";
+                return ::testing::AssertionFailure()
+                       << "seed " << seed << " step " << step << " op " << kind << " was refused ("
+                       << ToString( result ) << ") but changed the mesh";
             if ( layers )
                 if ( auto follows = LayersFollowSides( mesh ); !follows )
                     return ::testing::AssertionFailure()
@@ -772,9 +772,9 @@ namespace
             if ( result == EditResult::Ok && preserving )
             {
                 if ( EulerCharacteristic( mesh ) != euler )
-                    return ::testing::AssertionFailure() << "seed " << seed << " step " << step << " op " << kind
-                                                         << " changed V-E+F from " << euler << " to "
-                                                         << EulerCharacteristic( mesh );
+                    return ::testing::AssertionFailure()
+                           << "seed " << seed << " step " << step << " op " << kind << " changed V-E+F from "
+                           << euler << " to " << EulerCharacteristic( mesh );
             }
             if ( result == EditResult::Ok )
             {
@@ -793,9 +793,9 @@ namespace
     {
         std::printf( "[ fuzz ] %s: split %d/%d flip %d/%d collapse %d/%d remove %d/%d append %d/%d "
                      "compact %d (applied/refused), max %d triangles\n",
-                     name, stats.Applied[0], stats.Refused[0], stats.Applied[1], stats.Refused[1], stats.Applied[2],
-                     stats.Refused[2], stats.Applied[3], stats.Refused[3], stats.Applied[4], stats.Refused[4],
-                     stats.Applied[5], stats.MaxTriangles );
+                     name, stats.Applied[0], stats.Refused[0], stats.Applied[1], stats.Refused[1],
+                     stats.Applied[2], stats.Refused[2], stats.Applied[3], stats.Refused[3], stats.Applied[4],
+                     stats.Refused[4], stats.Applied[5], stats.MaxTriangles );
     }
 } // namespace
 

@@ -1,9 +1,12 @@
 #pragma once
 
+#include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -40,6 +43,11 @@ namespace Common::Utils
     //     file declared rather than one derived from a path, and a key column could not express it.
     //   * the DECLARED IDENTITY, when the file carries a handle of its own (a `.tex` stores `Handle`,
     //     a `.demat` stores `MaterialId`). Absent — written `-` — for the great majority.
+    //   * the BOUNDS, for content that occupies space: a mesh's box around its own origin, a prefab's
+    //     around its root. It is what lets the world partitioner place a record that names the asset
+    //     WITHOUT loading it — UE's Actor Descriptor, which carries an actor's bounds for exactly that
+    //     reason. Like the identity, it is known only once the asset has been read, so it is filled in
+    //     after the row exists (`SetBounds`), and absent — `-` — for everything with no extent.
     //
     // WHAT IS NOT IN A ROW IS THE PATH-DERIVED HANDLE, and the absence is the design. It is
     // `AssetHandle::FromKey( Key )` and nothing else, so storing it would be a second spelling of a
@@ -49,10 +57,20 @@ namespace Common::Utils
     //
     // ── THE FORM, AND WHY IT IS NOT JSON ──────────────────────────────────────────────────────────
     //
-    //   DesertAssetRegistry 1
-    //   <size> <kind> <identity:16 hex | -> <deps: 16 hex, comma separated | -> <key>
+    //   DesertAssetRegistry 2
+    //   <size> <kind> <identity:16 hex | -> <deps: 16 hex, comma separated | -> <bounds | -> <key>
     //
-    // Five columns, the key LAST so a key containing a space round-trips — every rule here is taken
+    // <bounds> is min x,y,z then max x,y,z, each the 8-hex-digit BIT PATTERN of an IEEE float, comma
+    // separated. Bits and not decimal because the value must survive a round trip exactly and identically
+    // on every platform: a decimal spelling depends on the formatter's precision and locale, and the
+    // registry's whole contract is that two cooks of one tree are one byte string.
+    //
+    // VERSION 1 had no bounds column. `Parse` still reads it, as rows with no bounds — the migration is
+    // that pure function, the same arrangement `ReadMeshAssetData` has — and `Serialize` writes only 2,
+    // so the next cook rewrites a version-1 file and the committed one was converted when the column
+    // arrived.
+    //
+    // Six columns, the key LAST so a key containing a space round-trips — every rule here is taken
     // from `ContentManifest`, which is the same kind of artifact for the same kind of reason (a
     // per-line text file that a human reads in a diff, that sorts and compares by line, and that
     // needs nothing from reflect-cpp, which `Common` does not link).
@@ -75,6 +93,8 @@ namespace Common::Utils
         std::string           Kind;         // the scan this file belongs to; see Common/Content/ContentKinds.hpp
         uint64_t              Identity = 0; // the handle the FILE declares, or 0 when it declares none
         std::vector<uint64_t> Dependencies; // handles this asset names, read once at cook
+        // The asset's box around its own origin, in world units; absent for content with no extent.
+        std::optional<Common::Math::AABB> Bounds;
 
         // The handle this file's PATH derives — `AssetHandle::FromKey( Key )`. A method rather than a
         // column, for the reason the header note gives.
@@ -84,6 +104,20 @@ namespace Common::Utils
         // one, the path-derived handle otherwise. This is the number a scene reference holds.
         [[nodiscard]] uint64_t EffectiveHandle() const;
     };
+
+    // Two bounds columns are the same when they are the same BITS — the column is written as bits, and a
+    // tolerance here would let a moved mesh keep its old row.
+    [[nodiscard]] inline bool SameBounds( const std::optional<Common::Math::AABB>& a,
+                                          const std::optional<Common::Math::AABB>& b )
+    {
+        if ( a.has_value() != b.has_value() )
+            return false;
+        if ( !a.has_value() )
+            return true;
+        const auto same = []( float x, float y ) { return std::memcmp( &x, &y, sizeof( float ) ) == 0; };
+        return same( a->Min.x, b->Min.x ) && same( a->Min.y, b->Min.y ) && same( a->Min.z, b->Min.z ) &&
+               same( a->Max.x, b->Max.x ) && same( a->Max.y, b->Max.y ) && same( a->Max.z, b->Max.z );
+    }
 
     class AssetRegistry
     {
@@ -99,7 +133,7 @@ namespace Common::Utils
         // it will fail to read, once per boot, for ever.
         bool Remove( std::string_view key );
 
-        // The two fields a row acquires AFTER it is first written, and the only two that may change
+        // The fields a row acquires AFTER it is first written, and the only ones that may change
         // without the file changing. A row is created from the filesystem — key, size, kind — and the
         // identity and the edges can only be read from a LOADED asset, which happens later and in a
         // different program (the editor's cook) from where the row is first inserted.
@@ -109,6 +143,8 @@ namespace Common::Utils
         // keys and for documents no scan enumerates.
         bool SetIdentity( std::string_view key, uint64_t identity );
         bool SetDependencies( std::string_view key, std::vector<uint64_t> dependencies );
+        // A third such field, for the same reason: a box is read out of a LOADED mesh or prefab.
+        bool SetBounds( std::string_view key, std::optional<Common::Math::AABB> bounds );
 
         [[nodiscard]] const std::vector<AssetRegistryEntry>& Entries() const;
         [[nodiscard]] std::size_t                            Count() const;
@@ -122,6 +158,11 @@ namespace Common::Utils
         // inside it, and a lookup that only knew one of the two would answer for half the corpus.
         [[nodiscard]] const AssetRegistryEntry* FindByHandle( uint64_t handle ) const;
         [[nodiscard]] const AssetRegistryEntry* FindByKey( std::string_view key ) const;
+
+        // THE ROW A SCENE REFERENCE NAMES, in the order the loader resolves one: the handle when there is
+        // one, else the path — as its stable key, so a working-directory-relative spelling and an absolute
+        // one name the same row. nullptr when neither names content.
+        [[nodiscard]] const AssetRegistryEntry* FindByReference( uint64_t handle, std::string_view path ) const;
 
         // Every row of one kind, in key order. This is what replaces a directory walk at the call
         // site: `ListFilesRecursive(root)` filtered by extension becomes `OfKind("Texture")`.

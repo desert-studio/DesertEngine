@@ -70,7 +70,7 @@ namespace Desert::Core
         // unique only if every caller of CreateEntityWithUUID was careful, and the index it replaced — a
         // UUID -> slot map — lost track of the older of two entities sharing one, leaving a slot nothing
         // could ever remove.
-        std::unordered_map<entt::entity, std::size_t> m_SlotOf;
+        std::unordered_map<entt::entity, std::size_t>  m_SlotOf;
         std::unordered_map<Common::UUID, entt::entity> m_ByUuid;
     };
 

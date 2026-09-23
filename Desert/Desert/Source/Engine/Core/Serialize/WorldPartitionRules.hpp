@@ -1,14 +1,14 @@
 #pragma once
 
-// WHICH CELL EACH THING IN A PARTITIONED WORLD BELONGS TO, AND HOW FAR EACH CELL HAD TO GROW TO HOLD IT.
+// WHICH CELL OF WHICH GRID LEVEL EACH THING IN A PARTITIONED WORLD BELONGS TO, AND WHAT IS ALWAYS LOADED.
 //
 // ── WHAT THIS IS NOT ──────────────────────────────────────────────────────────────────────────────
 //
-// It is not streaming. There is no residency here, no coarse layer, no root set that moves with the
-// camera, and no spatial index: `PROGRAMME.md` §8 names those as three separate absences and this file
-// is the first of them only — making the scene FORMAT able to express a partition, and making the
-// partitioner assign every whole to exactly one cell and say what that cost. A cell is a set of records
-// and a rectangle here, nothing more.
+// It is not streaming. There is no residency here, no root set that moves with the camera, and no
+// spatial index: this file makes the scene FORMAT able to express a partition and makes the partitioner
+// assign every whole to exactly one cell of one level — or to the always-loaded set — and say why. A
+// cell is a set of records and a rectangle here, nothing more. Which cells are resident at a camera
+// position is WP4's pure query over this plan, and `GridSerialized::LoadingRange` is its input.
 //
 // ── THE UNIT IS THE COMPOSITE, NOT THE ENTITY ─────────────────────────────────────────────────────
 //
@@ -24,36 +24,62 @@
 //     new rule: `AttachmentSystem` already takes exactly that path for a target it cannot find, and
 //     `SocketAttachmentComponent::Target` is a `UUID` with a `Null()` for the purpose.
 //
-// ── THE CELL GROWS (owner decision, 2026-09-18, Docs/World/PROGRAMME.md) ──────────────────────────
+// ── A WIDE COMPOSITE GOES UP A LEVEL; THE CELL DOES NOT GROW (owner decision O1, 2026-09-23) ──────
 //
-// The owner chose UE's approach to partitioning on 2026-09-18, and with it UE's answer to the one
-// question the composite rule leaves open — a composite wider than a cell. The answer is that THE CELL
-// GROWS: its bounds become the union of its own grid square and everything assigned to it, so a
-// composite of any size is held whole and nothing is refused. (Commit 6a122bae on this branch refused
-// such a composite instead and called that an owner decision of 2026-09-23; it was not one, and the
-// refusal is gone.)
+// The grid has LEVELS. Level L is the same grid with cells CellSize·2^L wide, aligned on the origin, so
+// every level-L edge is also an edge of every level below it. A composite is put, whole, on the LOWEST
+// level at which its footprint lies inside exactly ONE cell; a composite that no level can hold that way
+// goes to the ALWAYS-LOADED set. The level is derived from the footprint and is never authored.
 //
-// What UE's answer costs is named rather than hidden: with a grown cell, what is resident at a camera
-// position is no longer a function of the grid alone but of the content. So the growth is not left to be
-// discovered — it is a NUMBER the plan states for every cell, and for the world as a whole:
+// This replaces WP1's growing cell, and the reason is what growth cost: a cell grown to reach one wide
+// thing dragged EVERY small thing in that cell out to the wide thing's loading distance. A level moves
+// only the wide thing — the small things beside it stay in their small cell. It is the pattern of UE's
+// FSquare2DGridHelper::GetPartitionedActors (UE:Engine/Source/Runtime/Engine/Private/WorldPartition/
+// RuntimeSpatialHash/RuntimeSpatialHashGridHelper.cpp:211-262), not its letter:
 //
-//   > EVERY CELL CARRIES ITS GRID SQUARE, THE BOUNDS OF WHAT IT HOLDS, AND HOW FAR THE LATTER
-//   > OVERHANGS THE FORMER. `WorldPartitionPlan::MaxGrowth` IS THE WORST OF THEM.
+//   * UE's top level is ONE cell centred on the origin and as wide as the world, so nothing spatial ever
+//     misses it. Ours stays aligned on the origin to the top, so the top level has up to four cells and a
+//     composite straddling X = 0 or Z = 0 fits no level. That composite is ALWAYS-LOADED, which is what
+//     UE's world-sized top cell amounts to anyway — a cell containing every camera position there is.
+//   * UE sizes the level count from the world bounds; so does this: the top level is the first whose
+//     cell reaches the furthest footprint from the origin (`WorldPartitionPlan::LevelCount`).
 //
-// It is a number and not a gate. A threshold that refuses or warns would be a policy, and the policy
-// belongs with the thing that pays for growth — streaming — which does not exist yet. UE's own answer
-// for a very large cluster is to lift it into a coarser level of the grid; that is deliberately not
-// here either, because a coarser level is a streaming concept and has nothing to be resident in yet.
+// What WP1 called `MaxGrowth` is now `WorldPartitionPlan::MaxLevel`: the level the worst composite was
+// promoted to, and which composite it is.
 //
-// ── WHAT A CELL'S BOUNDS ARE MADE OF: POINTS, AND WHERE THEY COME FROM ────────────────────────────
+// ── ALWAYS-LOADED: DERIVED FROM COMPONENTS, OVERRIDDEN BY ONE AUTHORED FLAG ───────────────────────
 //
-// A scene record carries no extent of its own: a mesh's bounds live in the mesh asset, a prefab's are
-// not stored anywhere (see UnplacedPrefabInstances), so what this file can see is a POSITION per record.
-// There is exactly one exception, and it is taken because it is the case that grows a cell the most:
-// an InstancedStaticMesh record carries the WORLD-space matrix of every instance it draws
-// (MeshECSSystem.hpp submits the snapshot without the entity's transform), so its contents are that set
-// of points, not the entity's own position. A foliage field spanning a kilometre is one record; treating
-// it as one point would report a cell of zero growth that loads a kilometre of grass.
+// The sun does not belong to cell (0,0). A composite is always-loaded when any member carries a
+// component classified GLOBAL in `kComponentLoading` (camera, sun, sky, fog, clouds, a screen-space
+// canvas, a non-spatial sound — the register below says why for each), when any member carries the
+// author's `AlwaysLoaded` marker, or when no level holds its footprint. Every component key the
+// registry serialises has exactly one row there, and Desert/Tests/Engine/WorldPartition derives the
+// key list from ComponentRegistry.cpp itself: a component added without a row is red.
+//
+// ── A COMPOSITE'S FOOTPRINT: WHAT THIS FILE CAN SEE, AND WHERE WP15 PLUGS IN ──────────────────────
+//
+// A scene record carries no extent of its own: a mesh's bounds live in the mesh asset and a prefab's are
+// not stored anywhere (see UnplacedPrefabInstances). So a footprint is the XZ rectangle around a set of
+// world-space POINTS, and `Detail::AppendFootprint` is the one place that decides which points a record
+// contributes. It knows five things, each stated where it is read, and a sixth is handled beside it
+// because it needs another record (a LANDSCAPE TILE: the rectangle its root's frame gives it, see
+// kLandscapeTileComponent — the tile's own position is read by nothing and is not a point):
+//
+//   * the record's own world position — every record;
+//   * the eight corners of the box a PRIMITIVE draws — Cube, Sphere, Plane — through the world matrix.
+//     The box is `Geometry::PrimitiveBounds`, the same statement the factory stamps on the submesh. A
+//     primitive the factory builds NOTHING for (Pyramid, Cylinder, Capsule: `Create` returns nullptr)
+//     draws nothing, so its position is its whole extent — true, and a defect of the factory, not here;
+//   * the four corners of a Terrain's square, `Size` wide and centred (TerrainMeshFactory.hpp);
+//   * every instance of an InstancedStaticMesh, whose matrices are WORLD-space (MeshECSSystem.hpp submits
+//     the snapshot without the entity's transform) — a kilometre of grass is one record;
+//   * the eight corners of a mesh ASSET's stored bounds (StaticMesh or SkinnedMesh naming a file) — the
+//     one fact that comes from outside this file. It is asked of an `AssetBoundsSource`, which the loader
+//     fills from the cooked asset registry's Bounds column: UE's Actor-Descriptor pattern, an extent read
+//     without loading the thing it describes. The function stays pure — the registry is handed in, not
+//     reached for — and a suite hands in a table.
+//
+// A record nobody can state an extent for is its position, and `PointOnlyRecords` counts them.
 //
 // ── WHAT COUNTS AS CONTAINMENT IS DERIVED, AND AN UNKNOWN REFERENCE IS RED ────────────────────────
 //
@@ -72,14 +98,21 @@
 //
 // ── PURE ──────────────────────────────────────────────────────────────────────────────────────────
 //
-// In: parsed records and one number. Out: a plan. No Scene, no renderer, no filesystem, no globals —
+// In: parsed records and the world's block. Out: a plan. No Scene, no renderer, no filesystem, no globals —
 // same split as `SceneStitchRules.hpp` and for the same reason: `SceneSerializer.cpp` reaches the
 // renderer through `Scene.hpp`, so anything left inside it cannot be reached by any suite in this
 // repository. Desert/Tests/Engine/WorldPartition is what reaches this.
 
+#include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Geometry/PrimitiveType.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
+
+// A primitive's name on disk is reflect-cpp's spelling of the enumerator (the StaticMesh block is written
+// through it), so it is read back through the same function rather than through a hand-typed name list.
+#include <rflcpp/rfl/enums.hpp>
 
 // The transform composition below, and NOT Engine/ECS/Components.hpp for it. TransformComponent's
 // GetTransform() is the three lines this file needs, but that header carries entt, the reflection
@@ -92,14 +125,18 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm> // std::max — MSVC does not get it transitively (scripts/CI/StandardIncludes.py)
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <initializer_list>
 #include <map>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -129,11 +166,14 @@ namespace Desert::Core::Rules
     // The cell a world position falls in. `std::floor` and not a cast: a cast truncates towards zero,
     // which makes the two cells either side of the origin the SAME cell and twice as wide as every
     // other one. Half the worlds anyone authors are centred on the origin.
-    [[nodiscard]] inline CellCoord CellOf( float worldX, float worldZ, float cellSize )
+    //
+    // `double` for the size because a level's cell is CellSize·2^L, and the division happens in double so
+    // a coordinate on a high level's edge is not rounded into the neighbouring cell.
+    [[nodiscard]] inline CellCoord CellOf( float worldX, float worldZ, double cellSize )
     {
         CellCoord cell;
-        cell.X = static_cast<std::int32_t>( std::floor( worldX / cellSize ) );
-        cell.Z = static_cast<std::int32_t>( std::floor( worldZ / cellSize ) );
+        cell.X = static_cast<std::int32_t>( std::floor( static_cast<double>( worldX ) / cellSize ) );
+        cell.Z = static_cast<std::int32_t>( std::floor( static_cast<double>( worldZ ) / cellSize ) );
         return cell;
     }
 
@@ -141,7 +181,7 @@ namespace Desert::Core::Rules
     // what the register below records.
     enum class ReferenceKind
     {
-        // Parts of one whole. The partitioner keeps them in one cell, whole, and grows the cell.
+        // Parts of one whole. The partitioner keeps them in one cell, whole.
         Containment,
         // "That thing over there". Nulls across a boundary; the reader handles null, as
         // AttachmentSystem already does for a target it cannot find.
@@ -180,6 +220,12 @@ namespace Desert::Core::Rules
          // Who fired the bullet, kept so a projectile can skip self-hits. The bullet is not part of
          // the shooter; a null owner costs one redundant hit test.
          { "Projectile", "Owner", ReferenceKind::Observation },
+         // A landscape tile names its root, and it is OBSERVATION ON PURPOSE (landscape analysis A1). As
+         // containment every tile of a landscape would be one composite, and the whole terrain would be
+         // placed as one footprint — the opposite of why a landscape is cut into tiles. The reader handles
+         // null the way observation requires: a tile whose root is not loaded has no frame and is placed
+         // nowhere (WorldPartitionPlan::UnplacedLandscapeTiles); it does not drag the root in.
+         { "LandscapeTile", "Landscape", ReferenceKind::Observation },
     };
 
     // REFERENCES THAT NAME THEIR TARGET BY A NAME INSTEAD OF AN ID — the BLIND SPOT of the discovery
@@ -245,15 +291,6 @@ namespace Desert::Core::Rules
         Common::UUID NamedId;
     };
 
-    // ONE COMPOSITE AND THE ONE CELL IT IS IN. Members are record indices in file order and always
-    // include the anchor.
-    struct PlannedComposite
-    {
-        std::size_t              Anchor = kNoRecord; // whose position decides the cell
-        CellCoord                Cell;
-        std::vector<std::size_t> Members;
-    };
-
     // A RECTANGLE ON THE GROUND, in world units (centimetres). X and Z only, for the same reason the
     // grid is two-dimensional: height does not partition.
     struct CellBounds
@@ -264,37 +301,91 @@ namespace Desert::Core::Rules
         float MaxZ = 0.0f;
     };
 
-    // The square the grid gives a cell before anything is put in it.
-    [[nodiscard]] inline CellBounds GridSquareOf( const CellCoord& cell, float cellSize )
+    // Edge of one cell of grid level @p level: CellSize·2^level. ldexp and not a loop of doublings, so a
+    // level is exactly a power of two times the authored number with no accumulated rounding.
+    [[nodiscard]] inline double LevelCellSize( float cellSize, int level )
+    {
+        return std::ldexp( static_cast<double>( cellSize ), level );
+    }
+
+    // The square a cell of a level covers.
+    [[nodiscard]] inline CellBounds GridSquareOf( const CellCoord& cell, double levelCellSize )
     {
         CellBounds square;
-        square.MinX = static_cast<float>( cell.X ) * cellSize;
-        square.MinZ = static_cast<float>( cell.Z ) * cellSize;
-        square.MaxX = square.MinX + cellSize;
-        square.MaxZ = square.MinZ + cellSize;
+        square.MinX = static_cast<float>( static_cast<double>( cell.X ) * levelCellSize );
+        square.MinZ = static_cast<float>( static_cast<double>( cell.Z ) * levelCellSize );
+        square.MaxX = static_cast<float>( static_cast<double>( cell.X + 1 ) * levelCellSize );
+        square.MaxZ = static_cast<float>( static_cast<double>( cell.Z + 1 ) * levelCellSize );
         return square;
     }
 
-    // ONE CELL THAT HOLDS SOMETHING, AND WHAT HOLDING IT COST.
+    // THE ONE CELL OF A LEVEL THAT HOLDS @p footprint WHOLE, if there is one.
     //
-    // `Bounds` is the cell's grid square GROWN to contain every point of every composite assigned to it
-    // (owner decision 2026-09-18: the cell grows). `Content` is those points alone — it can be smaller
-    // than the square, and it is what a later coarse layer or a residency test would want to know.
-    // `Growth` is how far `Bounds` overhangs the square, the worst of its four sides, in world units: zero
-    // means the cell is exactly its square, one cell size means a streamer must treat it as three
-    // squares wide along that axis.
-    //
-    // `Furthest` is the record whose point sets `Growth` — the thing to look at when the number is large.
-    // kNoRecord when nothing overhangs.
+    // A cell is HALF-OPEN, [k·s, (k+1)·s), so a footprint whose maximum lies exactly on an edge does not
+    // spill into the next cell. That is not a nicety: WorldGen's ground tile is exactly one cell wide and
+    // sits exactly on the edges, and a closed interval would push every tile of a generated world up a
+    // level. A zero-width footprint (one point) is in the cell of its minimum.
+    [[nodiscard]] inline std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint,
+                                                                     double            levelCellSize )
+    {
+        // The last cell the footprint touches: the one before its maximum's cell when the maximum lies
+        // exactly on an edge, never before its first cell.
+        const auto last = []( float min, float max, double size )
+        {
+            const double low = std::floor( static_cast<double>( min ) / size );
+            return std::max( low, std::ceil( static_cast<double>( max ) / size ) - 1.0 );
+        };
+
+        // A coordinate whose cell index an int32 cannot hold (a corrupt 1e30, a NaN) fits no cell of this
+        // level: it is not converted, because that conversion is undefined behaviour.
+        for ( const float edge : { footprint.MinX, footprint.MinZ, footprint.MaxX, footprint.MaxZ } )
+        {
+            if ( !( std::fabs( static_cast<double>( edge ) / levelCellSize ) < 2147483647.0 ) )
+                return std::nullopt;
+        }
+
+        const CellCoord cell = CellOf( footprint.MinX, footprint.MinZ, levelCellSize );
+        if ( static_cast<double>( cell.X ) != last( footprint.MinX, footprint.MaxX, levelCellSize ) ||
+             static_cast<double>( cell.Z ) != last( footprint.MinZ, footprint.MaxZ, levelCellSize ) )
+            return std::nullopt;
+        return cell;
+    }
+
+    // WHY A COMPOSITE IS IN THE ALWAYS-LOADED SET. Most specific first: the author said so, a component
+    // says so, the grid could not hold it, or there is no grid.
+    enum class AlwaysLoadedReason
+    {
+        None,      // it is in a cell
+        Author,    // a member carries the `AlwaysLoaded` marker
+        Component, // a member carries a component `kComponentLoading` classifies Global
+        NoFit,     // no level has one cell holding its footprint (it straddles X = 0 or Z = 0)
+        NoGrid,    // the world states no usable grid: no `Grids` entry, or a CellSize <= 0
+    };
+
+    // ONE COMPOSITE AND WHERE IT WENT. Members are record indices in file order and always include the
+    // anchor. `Level`/`Cell` are meaningful only when `Reason` is None.
+    struct PlannedComposite
+    {
+        std::size_t              Anchor = kNoRecord; // first member in file order that hangs off nothing
+        std::vector<std::size_t> Members;
+        // nullopt when no member has a known position — only unplaced prefab instances. Such a composite
+        // is put in the level-0 cell of the origin, which is wrong and is why they are listed.
+        std::optional<CellBounds> Footprint;
+
+        AlwaysLoadedReason Reason  = AlwaysLoadedReason::None;
+        std::size_t        Because = kNoRecord; // the member that made it Author/Component
+        int                Level   = 0;
+        CellCoord          Cell;
+    };
+
+    // ONE CELL OF ONE LEVEL THAT HOLDS SOMETHING. `Square` is the cell's own square at its level: a cell
+    // never grows, so everything it holds lies inside it — the suite asserts exactly that over the corpus.
     struct PlannedCell
     {
-        CellCoord Cell;
-        // nullopt when nothing in the cell has a known position — only unplaced prefab instances.
-        std::optional<CellBounds> Content;
-        CellBounds                Bounds;
-        float                     Growth   = 0.0f;
-        std::size_t               Furthest = kNoRecord;
-        std::vector<std::size_t>  Composites; // indices into WorldPartitionPlan::Composites
+        int                      Level = 0;
+        CellCoord                Cell;
+        CellBounds               Square;
+        std::vector<std::size_t> Composites; // indices into WorldPartitionPlan::Composites
     };
 
     struct WorldPartitionPlan
@@ -309,34 +400,186 @@ namespace Desert::Core::Rules
         // instance's translation, rotation and scale out of the record (SceneSerializer.cpp:112) and
         // re-states them as override records addressed by ids that only the `.deprefab` can resolve.
         // So the one thing a partitioner needs from such a record - where it is - is in another file,
-        // and a pure function of THIS file cannot have it. They are planned at the origin, which is
-        // wrong, and listed here, which is what makes it a stated limitation instead of a wrong answer
-        // nobody asked about. Four such records exist in the repository today, in two scenes.
-        //
-        // Closing it is not this task: `PROGRAMME.md` already names the same gap from the other end -
-        // a prefab has no bounds of its own, they have to be computed at import and stored in the
-        // asset - and until that exists, placing an instance means opening its file.
-        //
-        // AND THEY DO NOT GROW A CELL. Their origin is not a position, it is the absence of one, so it
-        // contributes no point to any cell's Content: a cell grown to reach the origin by a record that
-        // is not there would state a number that is simply false.
+        // and a pure function of THIS file cannot have it. They contribute no point to any footprint
+        // and are listed here, which is what makes it a stated limitation instead of a wrong answer.
         std::vector<std::size_t> UnplacedPrefabInstances;
 
-        // Every cell that holds at least one composite, ordered by X then Z so the plan does not depend
-        // on the iteration order of a hash map. A cell nothing is assigned to is not listed.
+        // Records whose footprint is their position alone — a light, a script, a mesh whose bounds the
+        // source could not state. A number, so the size of that gap is visible.
+        std::size_t PointOnlyRecords = 0;
+
+        // LANDSCAPE TILES THAT HAVE NO PLACE, for the same reason and treated the same way as unplaced prefab
+        // instances: a tile is placed by its ROOT's frame (World/Landscape/LandscapeLayout.hpp), and a tile
+        // whose root this file does not contain — or whose root cannot be tiled — has no rectangle. Its own
+        // entity position is not a stand-in: nothing reads it. Listed, and contributing no point.
+        std::vector<std::size_t> UnplacedLandscapeTiles;
+
+        // How many levels the grid has for THIS world: level LevelCount-1 is the first whose cell reaches
+        // the footprint furthest from the origin. At least 1 when there is a grid; 0 when there is none.
+        int LevelCount = 0;
+
+        // Every cell that holds at least one composite, ordered by level, then X, then Z, so the plan
+        // does not depend on a hash map's iteration order. A cell nothing is assigned to is not listed.
         std::vector<PlannedCell> Cells;
 
-        // THE WORLD'S ONE NUMBER FOR "HOW MUCH DID HOLDING WHOLES COST": the largest Growth of any cell,
-        // and which cell it is (an index into Cells, kNoRecord for a world with no cells). Zero means
-        // every cell is exactly its grid square.
-        float       MaxGrowth     = 0.0f;
-        std::size_t MaxGrowthCell = kNoRecord;
+        // The always-loaded composites, as indices into Composites, in file order of their anchors.
+        std::vector<std::size_t> AlwaysLoaded;
+
+        // THE WORLD'S ONE NUMBER FOR "HOW MUCH DID HOLDING WHOLES COST" (WP1's MaxGrowth): the highest
+        // level any composite was promoted to, and which composite (kNoRecord when no composite is in a
+        // cell). Zero means every placed composite fits a cell of the authored size.
+        int         MaxLevel          = 0;
+        std::size_t MaxLevelComposite = kNoRecord;
+
+        // A world may state more grids than the planner uses. Every composite goes to `Grids[0]` until
+        // WP22 lets a record choose its grid; how many were stated and not used is said, not dropped.
+        std::size_t UnusedGrids = 0;
     };
 
-    // THE ONE RECORD KIND WHOSE CONTENTS ARE NOT AT ITS OWN POSITION, by its names on disk. One row,
-    // named, so a suite can pin it: see "WHAT A CELL'S BOUNDS ARE MADE OF" at the top of this file.
+    // ── WHICH COMPONENTS MAKE THEIR ENTITY ALWAYS-LOADED ──────────────────────────────────────────
+    //
+    // ONE ROW PER COMPONENT KEY THE REGISTRY SERIALISES, and the census in Desert/Tests/Engine/
+    // WorldPartition reads the key list out of ComponentRegistry.cpp and requires the two sets to be
+    // equal — so a new component cannot reach a scene file without somebody deciding here whether a
+    // world keeps it loaded everywhere.
+    //
+    // SPATIAL does not mean "has a position of its own"; it means "does not by itself make the entity
+    // global": the entity's composite is placed by its footprint. A UI element is Spatial because it is a
+    // child of its canvas, and the canvas decides for the whole tree.
+    enum class ComponentLoading
+    {
+        Spatial,
+        Global,
+        // Decided by one scalar field of the block: Spatial when it equals `SpatialWhen`, Global otherwise.
+        ByField,
+    };
+
+    struct ComponentLoadingRow
+    {
+        std::string_view ComponentKey;
+        ComponentLoading Loading;
+        // ByField only: which field, which value means Spatial, and what an ABSENT field means. The last is
+        // the struct default restated, because this file cannot include Components.hpp (see the note on
+        // ComposeLocal below); every reflected block is written whole, so only a hand-edited file omits it.
+        std::string_view Field          = {};
+        double           SpatialWhen    = 0.0;
+        bool             AbsentIsGlobal = false;
+    };
+
+    inline constexpr ComponentLoadingRow kComponentLoading[] = {
+         // ── Global: seen from everywhere, or owns the frame rather than a place in it ──
+         { "Camera", ComponentLoading::Global },               // the view itself; brief O1: sun/sky/camera
+         { "DirectionLight", ComponentLoading::Global },       // the sun lights every cell at once
+         { "Skybox", ComponentLoading::Global },               // at infinity
+         { "SkyAtmosphere", ComponentLoading::Global },        // at infinity
+         { "ExponentialHeightFog", ComponentLoading::Global }, // a world-wide medium, not a volume
+         { "VolumetricCloud", ComponentLoading::Global },      // the cloud layer covers the planet
+         // A hero cloud stands kilometres up and is seen from tens of kilometres away; no ground loading
+         // range is that wide, so it would vanish while in plain view.
+         { "HeroCloud", ComponentLoading::Global },
+         // A landscape root owns the FRAME every tile is placed by, not a place of its own; UE loads
+         // ALandscape the same way (not spatially loaded) and streams the proxies.
+         { "Landscape", ComponentLoading::Global },
+         // The author's override, and the only authored input to partitioning besides the grid.
+         { "AlwaysLoaded", ComponentLoading::Global },
+         // ── By field ──
+         // RenderMode 1 = WorldSpace (a nameplate, a floating panel): it lives at its entity. 0 =
+         // ScreenSpace (HUD, menus), the default: it has no place in the world at all.
+         { "UICanvas", ComponentLoading::ByField, "RenderMode", 1.0, true },
+         // `Spatial` true (the default) attenuates from the entity; false is music/ambience — no place.
+         { "AudioSource", ComponentLoading::ByField, "Spatial", 1.0, false },
+         // ── Spatial ──
+         { "Animation", ComponentLoading::Spatial },
+         { "CharacterController", ComponentLoading::Spatial },
+         { "Collider", ComponentLoading::Spatial },
+         { "ControlRig", ComponentLoading::Spatial },
+         { "Folder", ComponentLoading::Spatial }, // an outliner grouping: its children decide
+         { "Foliage", ComponentLoading::Spatial },
+         { "InstancedStaticMesh", ComponentLoading::Spatial }, // its instances are its footprint
+         { "Lock", ComponentLoading::Spatial },
+         { "Locomotion", ComponentLoading::Spatial },
+         { "Material", ComponentLoading::Spatial },
+         { "Morph", ComponentLoading::Spatial },
+         { "ParticleEmitter", ComponentLoading::Spatial },
+         { "PointLight", ComponentLoading::Spatial }, // has a radius; the sun is the global light
+         { "Projectile", ComponentLoading::Spatial },
+         { "Retarget", ComponentLoading::Spatial },
+         { "RigidBody", ComponentLoading::Spatial },
+         // A script's reach is whatever it does, which no file states. Spatial, and a game-manager script
+         // is exactly what the author's AlwaysLoaded marker is for.
+         { "Script", ComponentLoading::Spatial },
+         { "SkinnedMesh", ComponentLoading::Spatial },
+         { "SocketAttachment", ComponentLoading::Spatial },
+         { "SpotLight", ComponentLoading::Spatial },
+         { "StaticMesh", ComponentLoading::Spatial },
+         { "LandscapeTile", ComponentLoading::Spatial }, // its rectangle is its footprint
+         { "Terrain", ComponentLoading::Spatial },       // its square is its footprint
+         { "Text", ComponentLoading::Spatial },
+         { "TwoBoneIK", ComponentLoading::Spatial },
+         { "Visibility", ComponentLoading::Spatial },
+         // UI elements: children of a canvas, which decides for the tree (a canvas-less element draws
+         // nothing).
+         { "UIAnim", ComponentLoading::Spatial },
+         { "UIBinding", ComponentLoading::Spatial },
+         { "UIButton", ComponentLoading::Spatial },
+         { "UIDraggable", ComponentLoading::Spatial },
+         { "UIDropTarget", ComponentLoading::Spatial },
+         { "UIDropdown", ComponentLoading::Spatial },
+         { "UIIcon", ComponentLoading::Spatial },
+         { "UIImage", ComponentLoading::Spatial },
+         { "UIInputField", ComponentLoading::Spatial },
+         { "UILayout", ComponentLoading::Spatial },
+         { "UILayoutGroup", ComponentLoading::Spatial },
+         { "UIListView", ComponentLoading::Spatial },
+         { "UIOverlay", ComponentLoading::Spatial }, // lives on a canvas entity
+         { "UIOverlayTrigger", ComponentLoading::Spatial },
+         { "UIPanel", ComponentLoading::Spatial },
+         { "UIPointerEvents", ComponentLoading::Spatial },
+         { "UIProgressBar", ComponentLoading::Spatial },
+         { "UIRenderTexture", ComponentLoading::Spatial },
+         { "UIScreen", ComponentLoading::Spatial },
+         { "UIScreenStack", ComponentLoading::Spatial }, // lives on a canvas entity
+         { "UIScrollView", ComponentLoading::Spatial },
+         { "UISlider", ComponentLoading::Spatial },
+         { "UIStyle", ComponentLoading::Spatial },
+         { "UIText", ComponentLoading::Spatial },
+         { "UIToggle", ComponentLoading::Spatial },
+         { "UITween", ComponentLoading::Spatial },
+    };
+
+    // The author's marker, by its key on disk. Named once: the register row above and the reason
+    // Author are both about it.
+    inline constexpr std::string_view kAlwaysLoadedComponent = "AlwaysLoaded";
+
+    // THE RECORD KINDS WHOSE CONTENTS ARE NOT A POINT AT THEIR OWN POSITION, by their names on disk. One
+    // constant per name, so a suite can pin them: see "A COMPOSITE'S FOOTPRINT" at the top of this file.
     inline constexpr std::string_view kInstancePointsComponent = "InstancedStaticMesh";
     inline constexpr std::string_view kInstancePointsField     = "InstanceTransforms";
+    inline constexpr std::string_view kPrimitiveComponent      = "StaticMesh";
+    inline constexpr std::string_view kPrimitiveField          = "Primitive";
+    inline constexpr std::string_view kTerrainComponent        = "Terrain";
+    inline constexpr std::string_view kTerrainSizeField        = "Size";
+    // A landscape tile's footprint is a RECTANGLE computed from its coordinate and its root's frame. The
+    // root is not a part of the tile (see the register row): it is read, never joined.
+    inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
+    inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
+    // TerrainData::Size's default, for a block that omits it (same restatement as AbsentIsGlobal above).
+    inline constexpr float kTerrainDefaultSize = 5000.0f;
+
+    // THE MESH BLOCKS THAT NAME A MESH ASSET, and the two fields a reference is written as
+    // (StaticMeshComponentSer / SkinnedMeshComponentSer in PrefabData.hpp): the handle, and the path beside it.
+    inline constexpr std::array<std::string_view, 2> kMeshAssetComponents = { "StaticMesh", "SkinnedMesh" };
+    inline constexpr std::string_view                kMeshHandleField     = "MeshGuid";
+    inline constexpr std::string_view                kMeshPathField       = "MeshPath";
+
+    // WHAT THE PARTITIONER MAY KNOW FROM OUTSIDE THE FILE: a mesh asset's box around its own origin, asked
+    // by the handle its block holds (0 when it holds none) and the path beside it.
+    //
+    // AN EMPTY SOURCE IS A STATED CONDITION, not a fallback: every mesh-asset record is then its position
+    // and is counted in `PointOnlyRecords`, which is what a caller with no registry — a suite over one
+    // file, a tool run outside a project — is actually able to say.
+    using AssetBoundsSource =
+         std::function<std::optional<Common::Math::AABB>( std::uint64_t handle, std::string_view path )>;
 
     namespace Detail
     {
@@ -446,6 +689,213 @@ namespace Desert::Core::Rules
                     out.emplace_back( x, z );
             }
         }
+
+        // A scalar field of a component block as a number: a bool reads as 1/0, an enum is written as its
+        // integer. False when the field is absent or is not a scalar.
+        [[nodiscard]] inline bool ReadScalar( const rfl::Generic::Object& block, std::string_view field,
+                                              double& out )
+        {
+            const auto value = block.get( std::string( field ) );
+            if ( !value.has_value() )
+                return false;
+            if ( const auto flag = value.value().to_bool(); flag.has_value() )
+            {
+                out = flag.value() ? 1.0 : 0.0;
+                return true;
+            }
+            float number = 0.0f;
+            if ( !ReadNumber( value.value(), number ) )
+                return false;
+            out = static_cast<double>( number );
+            return true;
+        }
+
+        // Whether this record's own components make it always-loaded, and why. Author before Component,
+        // because the author's marker is the more specific statement.
+        [[nodiscard]] inline AlwaysLoadedReason GlobalReasonOf( const Assets::EntityData& record )
+        {
+            if ( record.Components.get( std::string( kAlwaysLoadedComponent ) ).has_value() )
+                return AlwaysLoadedReason::Author;
+
+            for ( const ComponentLoadingRow& row : kComponentLoading )
+            {
+                if ( row.Loading == ComponentLoading::Spatial )
+                    continue;
+                const auto payload = record.Components.get( std::string( row.ComponentKey ) );
+                if ( !payload.has_value() )
+                    continue;
+                if ( row.Loading == ComponentLoading::Global )
+                    return AlwaysLoadedReason::Component;
+
+                bool global = row.AbsentIsGlobal;
+                if ( const auto block = payload.value().to_object(); block.has_value() )
+                {
+                    double value = 0.0;
+                    if ( ReadScalar( block.value(), row.Field, value ) )
+                        global = value != row.SpatialWhen;
+                }
+                if ( global )
+                    return AlwaysLoadedReason::Component;
+            }
+            return AlwaysLoadedReason::None;
+        }
+
+        // A component block of the record, if it has one and it is an object.
+        [[nodiscard]] inline std::optional<rfl::Generic::Object> BlockOf( const Assets::EntityData& record,
+                                                                          std::string_view          key )
+        {
+            const auto payload = record.Components.get( std::string( key ) );
+            if ( !payload.has_value() )
+                return std::nullopt;
+            const auto block = payload.value().to_object();
+            if ( !block.has_value() )
+                return std::nullopt;
+            return block.value();
+        }
+
+        // Appends the XZ of a local-space box's eight corners, through @p world.
+        inline void AppendBoxCorners( const glm::mat4& world, const glm::vec3& half, std::vector<glm::vec2>& out )
+        {
+            for ( int corner = 0; corner < 8; ++corner )
+            {
+                const glm::vec4 local( ( corner & 1 ) ? half.x : -half.x, ( corner & 2 ) ? half.y : -half.y,
+                                       ( corner & 4 ) ? half.z : -half.z, 1.0f );
+                const glm::vec4 placed = world * local;
+                out.emplace_back( placed.x, placed.z );
+            }
+        }
+
+        // Appends the XZ of a local-space AABB's eight corners, through @p world.
+        inline void AppendBoundsCorners( const glm::mat4& world, const Common::Math::AABB& box,
+                                         std::vector<glm::vec2>& out )
+        {
+            const glm::vec3 centre = ( box.Min + box.Max ) * 0.5f;
+            const glm::vec3 half   = ( box.Max - box.Min ) * 0.5f;
+            AppendBoxCorners( world * glm::translate( glm::mat4( 1.0f ), centre ), half, out );
+        }
+
+        // The handle a mesh block names. StaticMeshComponentSer writes it as a JSON integer (a uint64 above
+        // 2^63 reads back as the same bits through int64), so it is read as one and NEVER through a
+        // double: 53 bits of mantissa would name a different asset.
+        [[nodiscard]] inline std::uint64_t ReadHandle( const rfl::Generic::Object& block, std::string_view field )
+        {
+            const auto value = block.get( std::string( field ) );
+            if ( !value.has_value() )
+                return 0;
+            const auto whole = value.value().to_int64();
+            return whole.has_value() ? static_cast<std::uint64_t>( whole.value() ) : 0;
+        }
+
+        // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
+        // the top of this file. Returns false when the record contributed its position and nothing more.
+        inline bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
+                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out )
+        {
+            out.emplace_back( world[3].x, world[3].z );
+            const std::size_t before = out.size();
+
+            if ( const auto mesh = BlockOf( record, kPrimitiveComponent ); mesh.has_value() )
+            {
+                const auto primitive = mesh.value().get( std::string( kPrimitiveField ) );
+                const auto shape     = rfl::string_to_enum<Geometry::PrimitiveType>(
+                     primitive.has_value() ? primitive.value().to_string().value_or( "" ) : std::string() );
+                if ( shape.has_value() )
+                {
+                    if ( const auto box = Geometry::PrimitiveBounds( shape.value() ); box.has_value() )
+                        AppendBoundsCorners( world, box.value(), out );
+                }
+            }
+
+            if ( bounds )
+            {
+                for ( const std::string_view key : kMeshAssetComponents )
+                {
+                    const auto mesh = BlockOf( record, key );
+                    if ( !mesh.has_value() )
+                        continue;
+                    const std::uint64_t handle = ReadHandle( mesh.value(), kMeshHandleField );
+                    const auto          path   = mesh.value().get( std::string( kMeshPathField ) );
+                    const std::string   text   = path.has_value() ? path.value().to_string().value_or( "" ) : "";
+                    if ( handle == 0 && text.empty() )
+                        continue;
+                    if ( const auto box = bounds( handle, text ); box.has_value() )
+                        AppendBoundsCorners( world, box.value(), out );
+                }
+            }
+
+            if ( const auto terrain = BlockOf( record, kTerrainComponent ); terrain.has_value() )
+            {
+                // An absent Size is the struct default; an unreadable one is taken as the same.
+                double size = 0.0;
+                if ( !ReadScalar( terrain.value(), kTerrainSizeField, size ) )
+                    size = kTerrainDefaultSize;
+                const float half = static_cast<float>( size ) * 0.5f;
+                AppendBoxCorners( world, glm::vec3( half, 0.0f, half ), out );
+            }
+
+            AppendInstancePoints( record, out );
+            return out.size() > before;
+        }
+
+        // A whole number inside a component payload; absent leaves @p out alone, as the loader does.
+        template <class T>
+        inline bool ReadWhole( const rfl::Generic::Object& block, std::string_view field, T& out )
+        {
+            const auto value = block.get( std::string( field ) );
+            if ( !value.has_value() )
+                return true;
+            const auto whole = value.value().to_int64();
+            if ( !whole.has_value() )
+                return false;
+            out = static_cast<T>( whole.value() );
+            return true;
+        }
+
+        // THE GROUND RECTANGLE OF A LANDSCAPE TILE RECORD, or nullopt when it has none. The root's fields are
+        // read with the loader's rule — an absent field is the component's default, which is LandscapeRoot's
+        // default because both are spelled from the same constants — and the root is refused by the same
+        // ValidateLandscapeRoot the loader applies, so the partition never places a tile the loader refuses.
+        //
+        // @p world holds the composed world matrices: the root's translation is the frame's origin, as
+        // Entity::GetWorldTransform is for the loaded root.
+        inline std::optional<World::Landscape::LandscapeTileRect>
+        LandscapeTileRectOf( const Assets::EntityData& tile, const std::vector<glm::mat4>& world,
+                             std::span<const Assets::EntityData>                  records,
+                             const std::unordered_map<Common::UUID, std::size_t>& byId )
+        {
+            const auto tileBlock = BlockOf( tile, kLandscapeTileComponent );
+            if ( !tileBlock.has_value() )
+                return std::nullopt;
+
+            Common::UUID rootId;
+            if ( !ReadReference( *tileBlock, "Landscape", rootId ) || rootId.IsNull() )
+                return std::nullopt;
+            const auto found = byId.find( rootId );
+            if ( found == byId.end() )
+                return std::nullopt;
+            const auto rootBlock = BlockOf( records[found->second], kLandscapeRootComponent );
+            if ( !rootBlock.has_value() )
+                return std::nullopt;
+
+            World::Landscape::LandscapeRoot root;
+            root.Origin = glm::vec3( world[found->second][3] );
+            if ( !ReadWhole( *rootBlock, "QuadsPerTile", root.QuadsPerTile ) )
+                return std::nullopt;
+            if ( const auto spacing = rootBlock->get( "SpacingCm" ); spacing.has_value() )
+                if ( !ReadNumber( spacing.value(), root.SpacingCm ) )
+                    return std::nullopt;
+            if ( const auto zScale = rootBlock->get( "ZScale" ); zScale.has_value() )
+                if ( !ReadNumber( zScale.value(), root.ZScale ) )
+                    return std::nullopt;
+            if ( !World::Landscape::ValidateLandscapeRoot( root ) )
+                return std::nullopt;
+
+            std::int32_t tileX = 0;
+            std::int32_t tileZ = 0;
+            if ( !ReadWhole( *tileBlock, "TileX", tileX ) || !ReadWhole( *tileBlock, "TileZ", tileZ ) )
+                return std::nullopt;
+            return World::Landscape::LandscapeTileBounds( root, tileX, tileZ );
+        }
     } // namespace Detail
 
     // EVERY ENTITY REFERENCE IN THESE RECORDS THAT `kEntityReferences` DOES NOT HAVE A ROW FOR.
@@ -515,9 +965,9 @@ namespace Desert::Core::Rules
         return found;
     }
 
-    // THE PARTITION, as a pure function of the parsed records and the world's one authored number.
+    // THE PARTITION, as a pure function of the parsed records and the world's own block.
     //
-    // THE FOUR STEPS, and why in this order:
+    // THE STEPS, and why in this order:
     //
     //   1. WORLD POSITIONS, composed down the hierarchy. A record's `Translation` is LOCAL — the
     //      loader hands it straight to `TransformComponent`, which `Entity::GetWorldTransform`
@@ -531,32 +981,31 @@ namespace Desert::Core::Rules
     //      and whatever it held when the file was saved is what is in the file. It is used as-is —
     //      there is no skeleton at partition time and inventing one would be worse — and it is
     //      harmless precisely BECAUSE the relation is containment: the entity is in the hand of a
-    //      target that is in the same composite, so whatever the sample was, the cell holding the
-    //      target holds it too — at worst it grows that cell by the length of an arm.
+    //      target in the same composite, so at worst it widens that composite by the length of an arm.
     //
     //   2. COMPOSITES, as the connected components of the containment relations. Both relations, one
     //      union: an entity can have a hierarchy parent AND a socket target (a weapon parented under
-    //      a rack while socketed to a hand is exactly that), and both make it part of one whole.
+    //      a rack while socketed to a hand is exactly that), and both make it part of one whole. The
+    //      anchor is the first member in FILE ORDER that hangs off nothing — the same tie-break the
+    //      identity stitch uses; a composite that is nothing but a cycle (a corrupt file) anchors on its
+    //      first member, which is a definition rather than a crash.
     //
-    //   3. THE CELL, from the ANCHOR. The anchor is the first member in FILE ORDER that hangs off
-    //      nothing — a composite joined by a socket can have two such, and file order is the same
-    //      tie-break the identity stitch uses, so the answer does not depend on iteration order of a
-    //      hash map. A composite that is nothing but a cycle (a corrupt file) has no such member and
-    //      anchors on its first member instead, which is a definition rather than a crash.
+    //   3. FOOTPRINT AND ALWAYS-LOADED, per composite: the rectangle around every point its members
+    //      contribute (Detail::AppendFootprint), and whether any member makes the whole global. One
+    //      global member makes the whole composite global — the composite is never divided, and a
+    //      camera parented to a character keeps the character with it.
     //
-    //   4. THE GROWTH, last, because it needs all three: every point of every composite is folded into
-    //      the bounds of the cell its anchor chose, and how far that overhangs the grid square is
-    //      recorded per cell and as the world's maximum. Nothing is refused.
+    //   4. THE LEVEL COUNT, from the furthest footprint of a composite that still has to be placed.
     //
-    // @p settings is the world's own block. `CellSize` <= 0 is not sanitised into something plausible:
-    //    every composite lands in cell (0,0) and the world is one cell, which is what "no grid" means
-    //    and is visibly wrong rather than quietly approximate. That cell's Bounds are its Content and its
-    //    Growth is zero: there is no square for it to outgrow.
+    //   5. PLACEMENT: the lowest level with one cell holding the footprint, else always-loaded (NoFit).
+    //
+    // `bounds` answers for the one extent that lives in other files, a mesh asset's (AssetBoundsSource);
+    // left empty, every mesh-asset record is its position and is counted as such.
     [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const Assets::EntityData> records,
-                                                                const WorldPartitionSerialized&     settings )
+                                                                const WorldPartitionSerialized&     settings,
+                                                                const AssetBoundsSource&            bounds = {} )
     {
-        WorldPartitionPlan plan;
-
+        WorldPartitionPlan                            plan;
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
@@ -605,6 +1054,18 @@ namespace Desert::Core::Rules
                 world[slot]            = above;
                 resolved[slot]         = true;
             }
+        }
+
+        // A landscape tile's footprint is its rectangle, from its root — after step 1, because the root's
+        // origin is the root's WORLD position.
+        std::vector<std::optional<World::Landscape::LandscapeTileRect>> tileRect( records.size() );
+        for ( std::size_t record = 0; record < records.size(); ++record )
+        {
+            if ( !records[record].Components.get( std::string( kLandscapeTileComponent ) ).has_value() )
+                continue;
+            tileRect[record] = Detail::LandscapeTileRectOf( records[record], world, records, byId );
+            if ( !tileRect[record].has_value() )
+                plan.UnplacedLandscapeTiles.push_back( record );
         }
 
         // ── 2. Containment edges, then composites ─────────────────────────────────────────────────
@@ -682,7 +1143,7 @@ namespace Desert::Core::Rules
                 forest[member] = holder;
         }
 
-        // ── 3. One cell per composite ─────────────────────────────────────────────────────────────
+        // ── 2b. Composites, and each one's anchor ──────────────────────────────────────────────────
         std::unordered_map<std::size_t, std::size_t> composite; // root of the set -> index in Composites
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
@@ -701,7 +1162,6 @@ namespace Desert::Core::Rules
         for ( const ContainmentEdge& edge : plan.Containment )
             hangs[edge.Member] = true;
 
-        const float cellSize = settings.CellSize;
         for ( PlannedComposite& group : plan.Composites )
         {
             group.Anchor = group.Members.front();
@@ -713,120 +1173,203 @@ namespace Desert::Core::Rules
                     break;
                 }
             }
-
-            // A NON-POSITIVE CELL SIZE IS ONE CELL. It is not repaired into something plausible: every
-            // composite reports cell (0,0), which is what "this world has no grid" looks like from the
-            // outside. Nothing in the editor can produce it — the format's default is 12800 — so the only
-            // way to get here is by hand-editing the file.
-            if ( cellSize <= 0.0f )
-                continue;
-
-            const glm::mat4& anchorWorld = world[group.Anchor];
-            group.Cell                   = CellOf( anchorWorld[3].x, anchorWorld[3].z, cellSize );
         }
 
-        // ── 4. THE CELL GROWS to hold what was assigned to it ─────────────────────────────────────
-        //
-        // Every point of every composite in a cell is folded into that cell's Content, and Bounds is the
-        // grid square grown to contain it. No point is tested against a limit: a composite of any size is
-        // held whole, and what holding it cost is the Growth computed here.
+        // ── 3. Footprint and always-loaded, per composite ─────────────────────────────────────────
         std::vector<bool> unplaced( records.size(), false );
         for ( const std::size_t record : plan.UnplacedPrefabInstances )
             unplaced[record] = true;
-
-        // Ordered by X then Z, so the plan does not depend on a hash map's iteration order.
-        std::map<std::pair<std::int32_t, std::int32_t>, std::size_t> cellIndex;
-        for ( const PlannedComposite& group : plan.Composites )
-            cellIndex.emplace( std::make_pair( group.Cell.X, group.Cell.Z ), kNoRecord );
-        for ( auto& [coord, index] : cellIndex )
-        {
-            index = plan.Cells.size();
-            PlannedCell cell;
-            cell.Cell.X = coord.first;
-            cell.Cell.Z = coord.second;
-            // No grid, no square: the one cell is exactly what it holds and has nothing to outgrow.
-            if ( cellSize > 0.0f )
-                cell.Bounds = GridSquareOf( cell.Cell, cellSize );
-            plan.Cells.push_back( cell );
-        }
-
-        // How far a point lies outside a square on the worse of the two axes; zero inside. Chebyshev and
-        // not Euclidean: the bounds are axis-aligned, so a streamer asking "is the camera inside this
-        // cell's bounds" is asking per axis.
-        struct Overhang
-        {
-            static float Of( const CellBounds& square, const glm::vec2& point )
-            {
-                const float x = std::max( square.MinX - point.x, point.x - square.MaxX );
-                const float z = std::max( square.MinZ - point.y, point.y - square.MaxZ );
-                return std::max( 0.0f, std::max( x, z ) );
-            }
-        };
+        for ( const std::size_t record : plan.UnplacedLandscapeTiles )
+            unplaced[record] = true;
 
         std::vector<glm::vec2> points;
-        for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
+        for ( PlannedComposite& group : plan.Composites )
         {
-            const PlannedComposite& held = plan.Composites[group];
-            PlannedCell&            cell = plan.Cells[cellIndex.at( std::make_pair( held.Cell.X, held.Cell.Z ) )];
-            cell.Composites.push_back( group );
-
-            for ( const std::size_t member : held.Members )
+            for ( const std::size_t member : group.Members )
             {
+                const AlwaysLoadedReason reason = Detail::GlobalReasonOf( records[member] );
+                // Author outranks Component, and the first member in file order names it.
+                if ( reason != AlwaysLoadedReason::None &&
+                     ( group.Reason == AlwaysLoadedReason::None ||
+                       ( reason == AlwaysLoadedReason::Author && group.Reason != AlwaysLoadedReason::Author ) ) )
+                {
+                    group.Reason  = reason;
+                    group.Because = member;
+                }
+
                 if ( unplaced[member] )
                     continue;
 
                 points.clear();
-                points.emplace_back( world[member][3].x, world[member][3].z );
-                Detail::AppendInstancePoints( records[member], points );
-
+                if ( const auto& rect = tileRect[member]; rect.has_value() )
+                {
+                    // The four corners and NOT the entity's own position: nothing reads a tile's transform.
+                    points.emplace_back( rect->MinX, rect->MinZ );
+                    points.emplace_back( rect->MaxX, rect->MinZ );
+                    points.emplace_back( rect->MinX, rect->MaxZ );
+                    points.emplace_back( rect->MaxX, rect->MaxZ );
+                }
+                else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points ) )
+                    ++plan.PointOnlyRecords;
                 for ( const glm::vec2& point : points )
                 {
-                    if ( !cell.Content.has_value() )
-                        cell.Content = CellBounds{ point.x, point.y, point.x, point.y };
-                    CellBounds& content = *cell.Content;
-                    content.MinX        = std::min( content.MinX, point.x );
-                    content.MinZ        = std::min( content.MinZ, point.y );
-                    content.MaxX        = std::max( content.MaxX, point.x );
-                    content.MaxZ        = std::max( content.MaxZ, point.y );
-
-                    if ( cellSize <= 0.0f )
-                        continue;
-                    const float overhang = Overhang::Of( GridSquareOf( cell.Cell, cellSize ), point );
-                    if ( overhang > cell.Growth )
-                    {
-                        cell.Growth   = overhang;
-                        cell.Furthest = member;
-                    }
+                    if ( !group.Footprint.has_value() )
+                        group.Footprint = CellBounds{ point.x, point.y, point.x, point.y };
+                    CellBounds& box = *group.Footprint;
+                    box.MinX        = std::min( box.MinX, point.x );
+                    box.MinZ        = std::min( box.MinZ, point.y );
+                    box.MaxX        = std::max( box.MaxX, point.x );
+                    box.MaxZ        = std::max( box.MaxZ, point.y );
                 }
             }
         }
 
-        for ( std::size_t index = 0; index < plan.Cells.size(); ++index )
+        // ── 4. The grid, and how many levels it has for this world ────────────────────────────────
+        //
+        // NO USABLE GRID IS NOT REPAIRED INTO A PLAUSIBLE ONE. A partitioned world with no `Grids` entry,
+        // or with a cell size that is not positive, has nothing to stream by: every composite is
+        // always-loaded and says NoGrid, which is what "this world has no grid" looks like from outside.
+        plan.UnusedGrids     = settings.Grids.size() > 1 ? settings.Grids.size() - 1 : 0;
+        const float cellSize = settings.Grids.empty() ? 0.0f : settings.Grids.front().CellSize;
+        if ( !( cellSize > 0.0f ) )
         {
-            PlannedCell& cell = plan.Cells[index];
-            if ( cell.Content.has_value() )
+            for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
             {
-                if ( cellSize > 0.0f )
-                {
-                    cell.Bounds.MinX = std::min( cell.Bounds.MinX, cell.Content->MinX );
-                    cell.Bounds.MinZ = std::min( cell.Bounds.MinZ, cell.Content->MinZ );
-                    cell.Bounds.MaxX = std::max( cell.Bounds.MaxX, cell.Content->MaxX );
-                    cell.Bounds.MaxZ = std::max( cell.Bounds.MaxZ, cell.Content->MaxZ );
-                }
-                else
-                {
-                    cell.Bounds = *cell.Content;
-                }
+                if ( plan.Composites[group].Reason == AlwaysLoadedReason::None )
+                    plan.Composites[group].Reason = AlwaysLoadedReason::NoGrid;
+                plan.AlwaysLoaded.push_back( group );
+            }
+            return plan;
+        }
+
+        // The top level is the first whose cell reaches the furthest footprint edge from the origin, so
+        // at the top every footprint that does not straddle an axis is inside one of the four cells
+        // around the origin. Only composites still to be placed count: the sun at 10 km does not widen
+        // the grid. The cap keeps a corrupt coordinate (1e30) from asking for a level past what an
+        // int32 cell index can express at level 0; a footprint beyond it is simply NoFit.
+        constexpr int kMaxLevels = 31;
+        double        furthest   = 0.0;
+        for ( const PlannedComposite& group : plan.Composites )
+        {
+            if ( group.Reason != AlwaysLoadedReason::None || !group.Footprint.has_value() )
+                continue;
+            const CellBounds& box = *group.Footprint;
+            furthest              = std::max( { furthest, std::fabs( static_cast<double>( box.MinX ) ),
+                                                std::fabs( static_cast<double>( box.MaxX ) ),
+                                                std::fabs( static_cast<double>( box.MinZ ) ),
+                                                std::fabs( static_cast<double>( box.MaxZ ) ) } );
+        }
+        plan.LevelCount = 1;
+        while ( plan.LevelCount < kMaxLevels && LevelCellSize( cellSize, plan.LevelCount - 1 ) < furthest )
+            ++plan.LevelCount;
+
+        // ── 5. Placement: the lowest level with ONE cell holding the whole footprint ──────────────
+        for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
+        {
+            PlannedComposite& held = plan.Composites[group];
+            if ( held.Reason != AlwaysLoadedReason::None )
+            {
+                plan.AlwaysLoaded.push_back( group );
+                continue;
             }
 
-            if ( plan.MaxGrowthCell == kNoRecord || cell.Growth > plan.MaxGrowth )
+            // Unplaced prefab instances alone: the origin's level-0 cell, and they are listed.
+            const CellBounds footprint = held.Footprint.value_or( CellBounds{} );
+
+            bool placed = false;
+            for ( int level = 0; level < plan.LevelCount; ++level )
             {
-                plan.MaxGrowth     = cell.Growth;
-                plan.MaxGrowthCell = index;
+                const auto cell = SingleCellHolding( footprint, LevelCellSize( cellSize, level ) );
+                if ( cell.has_value() )
+                {
+                    held.Level = level;
+                    held.Cell  = *cell;
+                    placed     = true;
+                    break;
+                }
             }
+            if ( !placed )
+            {
+                held.Reason = AlwaysLoadedReason::NoFit;
+                plan.AlwaysLoaded.push_back( group );
+                continue;
+            }
+
+            if ( plan.MaxLevelComposite == kNoRecord || held.Level > plan.MaxLevel )
+            {
+                plan.MaxLevel          = held.Level;
+                plan.MaxLevelComposite = group;
+            }
+        }
+
+        // ── 6. The cells, ordered by level, X, Z ──────────────────────────────────────────────────
+        std::map<std::tuple<int, std::int32_t, std::int32_t>, std::vector<std::size_t>> cells;
+        for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
+        {
+            const PlannedComposite& held = plan.Composites[group];
+            if ( held.Reason == AlwaysLoadedReason::None )
+                cells[std::make_tuple( held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
+        }
+        for ( auto& [key, composites] : cells )
+        {
+            PlannedCell cell;
+            cell.Level      = std::get<0>( key );
+            cell.Cell.X     = std::get<1>( key );
+            cell.Cell.Z     = std::get<2>( key );
+            cell.Square     = GridSquareOf( cell.Cell, LevelCellSize( cellSize, cell.Level ) );
+            cell.Composites = std::move( composites );
+            plan.Cells.push_back( std::move( cell ) );
         }
 
         return plan;
+    }
+
+    // How many cells each level holds, index = level. Sized LevelCount.
+    [[nodiscard]] inline std::vector<std::size_t> CellsPerLevel( const WorldPartitionPlan& plan )
+    {
+        std::vector<std::size_t> perLevel( static_cast<std::size_t>( plan.LevelCount ), 0 );
+        for ( const PlannedCell& cell : plan.Cells )
+            ++perLevel[static_cast<std::size_t>( cell.Level )];
+        return perLevel;
+    }
+
+    // How many always-loaded composites each reason accounts for, indexed by AlwaysLoadedReason.
+    [[nodiscard]] inline std::vector<std::size_t> AlwaysLoadedByReason( const WorldPartitionPlan& plan )
+    {
+        std::vector<std::size_t> byReason( static_cast<std::size_t>( AlwaysLoadedReason::NoGrid ) + 1, 0 );
+        for ( const std::size_t group : plan.AlwaysLoaded )
+            ++byReason[static_cast<std::size_t>( plan.Composites[group].Reason )];
+        return byReason;
+    }
+
+    // THE PLAN IN ONE LINE — one wording, used by the loader's log and by `WorldGen --partition`, so the
+    // two never describe the same world differently. Lengths are printed as whole world units.
+    [[nodiscard]] inline std::string SummarisePartition( const WorldPartitionPlan&       plan,
+                                                         const WorldPartitionSerialized& settings )
+    {
+        const auto units = []( float value ) { return std::to_string( std::llround( value ) ); };
+
+        std::string line = std::to_string( plan.Composites.size() ) +
+                           " composite(s): " + std::to_string( plan.Cells.size() ) + " cell(s) over " +
+                           std::to_string( plan.LevelCount ) + " level(s) [";
+        const auto perLevel = CellsPerLevel( plan );
+        for ( std::size_t level = 0; level < perLevel.size(); ++level )
+            line +=
+                 ( level == 0 ? "L" : ", L" ) + std::to_string( level ) + ": " + std::to_string( perLevel[level] );
+
+        const auto byReason = AlwaysLoadedByReason( plan );
+        line += "], " + std::to_string( plan.AlwaysLoaded.size() ) + " always-loaded (author " +
+                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Author )] ) +
+                ", component " +
+                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Component )] ) +
+                ", no fit " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoFit )] ) +
+                ", no grid " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoGrid )] ) +
+                "); highest promotion: level " + std::to_string( plan.MaxLevel ) + "; " +
+                std::to_string( plan.PointOnlyRecords ) + " record(s) placed by position alone";
+        if ( !settings.Grids.empty() )
+            line += "; grid 0: cell " + units( settings.Grids.front().CellSize ) + ", loading range " +
+                    units( settings.Grids.front().LoadingRange ) + " world units";
+        return line;
     }
 
 } // namespace Desert::Core::Rules

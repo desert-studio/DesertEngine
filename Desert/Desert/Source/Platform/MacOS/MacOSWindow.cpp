@@ -90,6 +90,9 @@ namespace Desert::Platform::MacOS
             m_Data.Specification.Height = height;
         }
 
+        // Through the hint, so a hidden window is never on screen for even one frame; reset below with the
+        // other sticky hint.
+        glfwWindowHint( GLFW_VISIBLE, m_Data.Specification.Visible ? GLFW_TRUE : GLFW_FALSE );
         m_GLFWWindow =
              glfwCreateWindow( (int)width, (int)height, m_Data.Specification.Title.c_str(), nullptr, nullptr );
 
@@ -136,6 +139,7 @@ namespace Desert::Platform::MacOS
         }
 
         glfwWindowHint( GLFW_MAXIMIZED, GLFW_FALSE ); // reset sticky hint
+        glfwWindowHint( GLFW_VISIBLE, GLFW_TRUE );    // and this one
 
         // WRITTEN BACK, because IsDecorated() answers out of this field and a caller that asks "do I own
         // the frame?" must get what HAPPENED, not what was requested. A fullscreen-over-the-taskbar
@@ -300,6 +304,12 @@ namespace Desert::Platform::MacOS
     {
         glfwMaximizeWindow( m_GLFWWindow );
         RefreshCachedSize();
+    }
+
+    void MacOSWindow::Show()
+    {
+        glfwShowWindow( m_GLFWWindow );
+        glfwFocusWindow( m_GLFWWindow );
     }
 
     void MacOSWindow::Restore()

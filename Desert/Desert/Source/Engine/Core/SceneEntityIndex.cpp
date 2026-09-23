@@ -20,8 +20,8 @@ namespace Desert::Core
         if ( slotIt == m_SlotOf.end() )
             return false;
 
-        const std::size_t slot = slotIt->second;
-        const std::size_t last = m_Entities.size() - 1;
+        const std::size_t  slot = slotIt->second;
+        const std::size_t  last = m_Entities.size() - 1;
         const Common::UUID uuid = m_Ids[slot];
         m_SlotOf.erase( slotIt );
 
@@ -32,9 +32,9 @@ namespace Desert::Core
 
         if ( slot != last )
         {
-            m_Entities[slot]                          = m_Entities[last];
-            m_Ids[slot]                               = m_Ids[last];
-            m_SlotOf[m_Entities[slot].GetHandle()]    = slot;
+            m_Entities[slot]                       = m_Entities[last];
+            m_Ids[slot]                            = m_Ids[last];
+            m_SlotOf[m_Entities[slot].GetHandle()] = slot;
         }
         m_Entities.pop_back();
         m_Ids.pop_back();
@@ -64,7 +64,8 @@ namespace Desert::Core
             return;
 
         // Unlink the ROOT from its parent — the one parent that survives this call.
-        if ( const auto* rel = registry.try_get<ECS::RelationshipComponent>( root ); rel && rel->Parent != entt::null )
+        if ( const auto* rel = registry.try_get<ECS::RelationshipComponent>( root );
+             rel && rel->Parent != entt::null )
         {
             if ( auto* parentRel = registry.try_get<ECS::RelationshipComponent>( rel->Parent ) )
             {

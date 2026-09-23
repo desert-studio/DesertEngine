@@ -45,7 +45,7 @@ namespace
 
     std::string ReadAll( const fs::path& path )
     {
-        std::ifstream in( path );
+        std::ifstream      in( path );
         std::ostringstream ss;
         ss << in.rdbuf();
         return ss.str();
@@ -98,7 +98,8 @@ namespace
                     {
                         // A brace initialiser `T name{...}` is a member; a nested type or a body is not.
                         const std::string t = Trim( stmt );
-                        if ( t.rfind( "struct", 0 ) == 0 || t.rfind( "enum", 0 ) == 0 || t.rfind( "class", 0 ) == 0 )
+                        if ( t.rfind( "struct", 0 ) == 0 || t.rfind( "enum", 0 ) == 0 ||
+                             t.rfind( "class", 0 ) == 0 )
                             stmt += "\x01"; // poison: nested type
                     }
                     ++depth;
@@ -112,7 +113,8 @@ namespace
                     if ( depth != 1 )
                         continue;
                     // A closed nested type or function body ends its own statement (no `;` follows a body).
-                    if ( c == '}' && ( stmt.find( '\x01' ) != std::string::npos || stmt.find( '(' ) != std::string::npos ) )
+                    if ( c == '}' &&
+                         ( stmt.find( '\x01' ) != std::string::npos || stmt.find( '(' ) != std::string::npos ) )
                         stmt.clear();
                     // A bare annotation macro — REFLECT(), PROPERTY( ... ) — carries no `;` either and would
                     // otherwise swallow the member it annotates.
@@ -121,8 +123,12 @@ namespace
                         const std::string t     = Trim( stmt );
                         const std::size_t paren = t.find( '(' );
                         const std::string head  = Trim( t.substr( 0, paren ) );
-                        const bool        macro = !head.empty() && std::all_of( head.begin(), head.end(), []( char h )
-                                                                        { return std::isupper( static_cast<unsigned char>( h ) ) || h == '_'; } );
+                        const bool        macro =
+                             !head.empty() &&
+                             std::all_of( head.begin(), head.end(),
+                                          []( char h ) {
+                                              return std::isupper( static_cast<unsigned char>( h ) ) || h == '_';
+                                          } );
                         if ( macro )
                             stmt.clear();
                     }
@@ -133,13 +139,14 @@ namespace
                     std::string t = Trim( stmt );
                     stmt.clear();
                     // Drop an initialiser: `T name = v` / `T name{ v }` / `T name( v )` is not legal for members.
-                    const std::size_t eq = t.find( '=' );
-                    const std::size_t br = t.find( '{' );
+                    const std::size_t eq  = t.find( '=' );
+                    const std::size_t br  = t.find( '{' );
                     std::size_t       cut = std::min( eq, br );
                     if ( cut != std::string::npos )
                         t = Trim( t.substr( 0, cut ) );
                     if ( t.empty() || t.find( '(' ) != std::string::npos || t.rfind( "using", 0 ) == 0 ||
-                         t.rfind( "static", 0 ) == 0 || t.rfind( "friend", 0 ) == 0 || t.find( '\x01' ) != std::string::npos )
+                         t.rfind( "static", 0 ) == 0 || t.rfind( "friend", 0 ) == 0 ||
+                         t.find( '\x01' ) != std::string::npos )
                         continue;
                     std::size_t end = t.size();
                     std::size_t beg = end;
@@ -261,13 +268,13 @@ TEST( RuntimeHandleCensus, EveryComponentHandleFieldHasARegisteredRelease )
     // The scan must SEE the component set, or every assertion above is vacuous: ask it for fields that are
     // known to be there, including ones that sit under a PROPERTY(...) annotation and after a REFLECT().
     EXPECT_GT( scanned, 100u ) << "the field scan found almost nothing; the parser is broken";
-    for ( const auto& [component, field] : std::vector<std::pair<std::string, std::string>>{
-               { "TransformComponent", "Translation" },
-               { "StaticMeshComponent", "MeshHandle" },
-               { "CharacterControllerComponent", "VerticalVelocity" },
-               { "RigidBodyComponent", "Data" } } )
-        EXPECT_TRUE( seen.count( { component, field } ) ) << "the field scan no longer sees " << component
-                                                           << "::" << field;
+    for ( const auto& [component, field] :
+          std::vector<std::pair<std::string, std::string>>{ { "TransformComponent", "Translation" },
+                                                            { "StaticMeshComponent", "MeshHandle" },
+                                                            { "CharacterControllerComponent", "VerticalVelocity" },
+                                                            { "RigidBodyComponent", "Data" } } )
+        EXPECT_TRUE( seen.count( { component, field } ) )
+             << "the field scan no longer sees " << component << "::" << field;
 
     for ( const ComponentHandleRow& row : kComponentHandles )
     {
@@ -300,8 +307,8 @@ TEST( RuntimeHandleCensus, EveryEntityKeyedTableHasARegisteredRelease )
         {
             found.insert( { rel, member } );
             const bool registered =
-                 std::any_of( kEntityTables.begin(), kEntityTables.end(), [&]( const EntityTableRow& r )
-                              { return r.File == rel && r.Member == member; } );
+                 std::any_of( kEntityTables.begin(), kEntityTables.end(),
+                              [&]( const EntityTableRow& r ) { return r.File == rel && r.Member == member; } );
             EXPECT_TRUE( registered ) << rel << ": `" << member
                                       << "` is keyed by entt::entity and has no row in "
                                          "runtime_handle_register.hpp. Say how a destroyed entity leaves it.";

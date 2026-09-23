@@ -20,6 +20,10 @@ project(test_name)
         -- state is preserved. That is a claim about this file, so this file is compiled and asserted
         -- rather than described. It is pure -- its only includes are its own header and <utility>.
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
+        -- A landscape tile is placed by its root's frame, and the partitioner computes the rectangle with
+        -- the same functions the loader uses. Both files are pure and link only Common.
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
 
     includedirs {
@@ -56,6 +60,10 @@ project(test_name)
 
     filter "system:not windows"
         links { "ReflectCpp" }
+    -- The corpus census reads the committed asset registry (Common/Utilities/AssetRegistry.cpp), whose
+    -- file reads go through Common's FileSystem, and on macOS that object carries the Cocoa file dialogs.
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

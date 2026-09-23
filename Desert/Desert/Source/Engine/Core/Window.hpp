@@ -36,6 +36,11 @@ namespace Desert
         // monitor work area (taskbar stays visible).
         bool        FullscreenCoverTaskbar = false;
         bool        VSync                  = true;
+        // FALSE = CREATED HIDDEN, and nothing but `Window::Show` puts it on screen. The editor asks for it:
+        // a full-size window that is blank and not answering for the seconds its start takes is what its
+        // own splash exists to replace (Editor/Splash/SplashScreen.hpp), and the swapchain renders into a
+        // hidden window exactly as into a visible one. The packaged Runtime leaves it true.
+        bool Visible = true;
     };
 
     class Window : public Common::EventHandler
@@ -95,6 +100,11 @@ namespace Desert
         // application owns the frame, so one build serves both answers and neither is a second code path
         // nobody exercises.
         [[nodiscard]] virtual bool IsDecorated() const = 0;
+
+        // Puts a window created with `Visible = false` on screen and gives it the focus. Called by the
+        // editor when its start is over — every stage run and the scene's content settled — immediately
+        // before the first frame a person is meant to see (EditorLayer::RevealWhenReady).
+        virtual void Show() = 0;
 
         virtual void                      SetVSync( bool enabled ) = 0;
         [[nodiscard]] virtual uint32_t    GetWidth() const         = 0;

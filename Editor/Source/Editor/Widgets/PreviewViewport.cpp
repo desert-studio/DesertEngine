@@ -641,7 +641,7 @@ namespace Desert::Editor
         ResetView();
     }
 
-    void PreviewViewport::SetCubemapMaterial( std::function<const Graphic::ImageCube*()> resolveCube )
+    void PreviewViewport::SetCubemapMaterial( std::function<Graphic::SampledCube()> resolveCube )
     {
         EnsureInit();
 

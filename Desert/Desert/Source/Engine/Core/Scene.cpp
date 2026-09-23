@@ -317,14 +317,12 @@ namespace Desert::Core
                     if ( m_Registry.has<ECS::TransformComponent>( cur ) )
                         world = m_Registry.get<ECS::TransformComponent>( cur ).GetTransform() * world;
                 }
-                const glm::vec3 worldPos   = glm::vec3( world[3] );
-                const glm::vec3 worldEuler = glm::eulerAngles( glm::quat_cast( world ) );
-
                 if ( !m_GameplayCamera )
                     m_GameplayCamera = std::make_shared<GameplayCamera>();
                 static_cast<GameplayCamera*>( m_GameplayCamera.get() )
-                     ->SetFromTransform( worldPos, worldEuler, mainCam->Data.FOV, mainCam->Data.Near,
-                                         mainCam->Data.Far, m_ViewportWidth, m_ViewportHeight );
+                     ->SetView(
+                          CameraEntityViewOf( world, mainCam->Data.FOV, mainCam->Data.Near, mainCam->Data.Far ),
+                          m_ViewportWidth, m_ViewportHeight );
                 if ( GetActiveCamera() != m_GameplayCamera )
                     SetActiveCamera( m_GameplayCamera );
             }

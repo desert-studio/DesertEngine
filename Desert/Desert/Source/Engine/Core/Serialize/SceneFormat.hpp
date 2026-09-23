@@ -47,36 +47,56 @@ namespace Desert::Core
     // and run it, because nothing converts a file at load any more.
     inline constexpr int kUnitVersion = 1;
 
-    // THIS WORLD IS PARTITIONED, AND THE ONE NUMBER THAT CANNOT BE DERIVED.
+    // THIS WORLD IS PARTITIONED, AND THE NUMBERS THAT CANNOT BE DERIVED.
     //
     // PRESENCE IS THE SWITCH. A world is partitioned or it is not, and the absence of this block is how a
     // file says "not". There is no `Enabled` flag, because a flag would make `{"Enabled":false}` and no
     // block at all two spellings of one state - and the moment a state has two spellings, the two drift.
     // It is a `std::optional` member below for the same reason the mesh mirrors' `CastShadows` is one:
-    // reflect-cpp omits a `nullopt` field entirely, so none of the 144 `.desce` files in this repository
-    // changes a single byte and `kSceneVersion` does not move. The suite
-    // Desert/Tests/Engine/WorldPartition asserts that over the corpus rather than asserting it here.
+    // reflect-cpp omits a `nullopt` field entirely, so none of the `.desce` files in this repository
+    // changes a single byte. The suite Desert/Tests/Engine/WorldPartition asserts that over the corpus.
     //
-    // WHY IT IS A PROPERTY OF THE WORLD AND NOT AN ENGINE SETTING: owner decision 2026-09-18, recorded in
-    // Docs/World/PROGRAMME.md - a world is partitioned or it is not, and this is never an engine mode. A
-    // scene of twenty-four entities must not pay for a grid.
+    // WHY IT IS A PROPERTY OF THE WORLD AND NOT AN ENGINE SETTING: owner decision 2026-09-18 - a world is
+    // partitioned or it is not, and this is never an engine mode. A scene of twenty-four entities must not
+    // pay for a grid.
     //
-    // WHY ONE NUMBER. Cell boundaries are DERIVED from coordinates and are never authored (same decision),
-    // so the only thing a human can state is how big a cell is. Everything else - which cell an entity is
-    // in, which assets a cell's chunk holds - is a function of the scene's own contents; see
-    // Rules::PlanWorldPartition and Common/Content/ContentChunks.hpp.
-    struct WorldPartitionSerialized
+    // WHAT A HUMAN STATES, AND WHAT IS DERIVED. Cell boundaries, grid LEVELS, which level and cell a
+    // composite is in, and what is always loaded are all functions of the scene's own contents (owner
+    // decisions 2026-09-18 and O1 2026-09-23; Rules::PlanWorldPartition). What cannot be derived is how
+    // big a cell is and how far away one starts to load - per grid.
+    //
+    // THE GRID IS ONE ENTRY OF A LIST FROM THE FIRST FORMAT THAT HAS IT (A7). One grid is used today;
+    // several - per-record grid choice, e.g. a coarse grid for distant landmarks - are WP22, and a list
+    // now means that step adds entries rather than reshaping the block.
+    //
+    // DATA LAYERS HAVE A PLACE, AND NOT A FIELD (O4: deferred). They will be a SIBLING of `Grids` in this
+    // object - `DataLayers`, a list of named layers - plus a membership list on the record, and the cell a
+    // composite lands in gains the layer as a third coordinate beside level and square. Every piece of
+    // that is ADDITIVE to this shape, which is the reservation: nothing here has to move for it. It is not
+    // an empty field today because an empty field is a setting nothing reads, and because what it would
+    // not buy is the one real hazard - an OLDER build reading a newer file and loading every layer at
+    // once. That is closed the way every schema step is closed: the step that adds `DataLayers` raises
+    // kSceneVersion, and an older build refuses the file by name (SceneIsAtCurrentVersion).
+    struct WorldPartitionGridSerialized
     {
-        // Edge length of one cell in WORLD UNITS, and a world unit is a CENTIMETRE (Common/Core/Units.hpp).
-        // The default is UE's own 128 m, in our units, and it is a default rather than a requirement: it is
-        // the number a world gets when it is switched on, not a number anything depends on.
+        // Edge length of one level-0 cell in WORLD UNITS, and a world unit is a CENTIMETRE
+        // (Common/Core/Units.hpp). Level L cells are CellSize * 2^L. The default is UE's own main grid,
+        // 128 m, in our units; it is the number a world gets when switched on, nothing depends on it.
         //
         // CELLS ARE SQUARE AND THE GRID IS TWO-DIMENSIONAL - X and Z, unbounded in Y. That is the PATTERN
-        // of UE's grid and not its letter (owner, 2026-09-22: take the pattern and the approach, not a
-        // one-to-one copy): the acceptance criterion is running ACROSS a map, so the axis a player leaves
-        // behind is horizontal. A third axis would multiply the cell count by a number that is 1 for every
-        // world we have.
+        // of UE's grid and not its letter (owner, 2026-09-22): the acceptance criterion is running ACROSS a
+        // map, so the axis a player leaves behind is horizontal.
         float CellSize = 12800.0f;
+
+        // How far from a streaming source a cell of this grid starts to load, in world units. UE's main
+        // grid default, 256 m. Read by the streaming query (WP4); the partition itself does not depend
+        // on it, which is why a cell's contents never change when it is edited.
+        float LoadingRange = 25600.0f;
+    };
+
+    struct WorldPartitionSerialized
+    {
+        std::vector<WorldPartitionGridSerialized> Grids;
     };
 
     // The on-disk shape of a .desce file, and the ONLY definition of it: the loader parses into this, the

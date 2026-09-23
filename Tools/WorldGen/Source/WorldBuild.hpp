@@ -76,7 +76,7 @@ namespace Desert::WorldGen
     //     distributions are implementation-defined - libc++ and libstdc++ disagree on the same seed - so a
     //     scene generated on this Mac and on the Windows target would differ, and the file is supposed to
     //     be the same MEASURING STICK on both.
-    //   * every number that reaches the file is an integer count of centimetres, degrees or hundredths,
+    //   * every number that reaches the file is an integer count of centimetres or hundredths,
     //     divided at most by 100 or 2. The world is 2^23 cm across at the shipped preset, so every
     //     coordinate is exactly representable as a float and survives float -> double -> shortest-decimal
     //     with no rounding to disagree about. This is the same trap SettingsCanonical documents from the

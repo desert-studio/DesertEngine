@@ -81,7 +81,7 @@ done
 # out fresh too, which is why no CI artifact ever carried one and why this could stay invisible: it
 # only ever affected a drop packaged on a developer's own machine, which is the one a developer
 # hands to somebody.
-for tree in Shaders Fonts Icons; do
+for tree in Shaders Fonts Icons Splash; do
     if [ ! -d "$ROOT/Editor/Resources/$tree" ]; then
         echo "Package.sh: engine resource tree Editor/Resources/$tree is missing" >&2
         exit 1
@@ -148,7 +148,12 @@ fi
 # Run from $OUT because engine resource roots resolve against the WORKING DIRECTORY and are never
 # remapped by a project — the tool refuses rather than cooking a registry with no shaders in it, and
 # that refusal is this step's check.
+
 ( cd "$OUT" && "$BIN/AssetRegistryTool" cook "$(basename "$PROJECT")" --disk )
+if [ ! -f "$OUT/Resources/Splash/Splash.tex" ]; then
+    echo "Package.sh: the drop has no Resources/Splash/Splash.tex — its splash would open without its picture" >&2
+    exit 1
+fi
 if [ ! -f "$OUT/Cooked/AssetRegistry.dreg" ]; then
     echo "Package.sh: the drop has no Cooked/AssetRegistry.dreg — its editor would start with zero" >&2
     echo "  shaders and abort before the first frame" >&2
@@ -156,6 +161,6 @@ if [ ! -f "$OUT/Cooked/AssetRegistry.dreg" ]; then
 fi
 
 echo "Package.sh: packaged -> $OUT"
-echo "  engine resources: Shaders + Fonts + Icons"
+echo "  engine resources: Shaders + Fonts + Icons + Splash (its picture is committed there)"
 echo "  project assets:   $COPIED files, the closure of $(basename "$PROJECT")'s DefaultScene"
 du -sh "$OUT"

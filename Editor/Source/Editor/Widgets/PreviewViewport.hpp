@@ -218,7 +218,7 @@ namespace Desert::Editor
         // state, so a cubemap dropped onto the material shows next frame with no invalidation call.
         // Resolving to null draws an empty pane; the REFUSAL prose for that state belongs to the
         // panel, which knows why (no slot in the schema vs nothing bound vs a dangling handle).
-        void SetCubemapMaterial( std::function<const Graphic::ImageCube*()> resolveCube );
+        void SetCubemapMaterial( std::function<Graphic::SampledCube()> resolveCube );
 
         // Show a VOLUME-domain material as the sky it authors: a preview world with ground, a sun and a
         // wide enough vertical lens that horizon, mid-elevation and zenith are in one frame.

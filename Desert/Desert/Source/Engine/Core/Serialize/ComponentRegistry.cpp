@@ -4,6 +4,7 @@
 #include <Engine/Core/Serialize/GenericBlock.hpp>
 #include <Engine/Core/Serialize/StoredAssetForm.hpp>
 #include <Engine/Core/Serialize/TextureSlot.hpp>
+#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
@@ -231,6 +232,61 @@ namespace Desert::Core::Serialize
                 auto& comp =
                      e.HasComponent<TComponent>() ? e.GetComponent<TComponent>() : e.AddComponent<TComponent>();
                 ReadComponent( object.value(), comp );
+            };
+            return s;
+        }
+
+        // A LANDSCAPE TILE: the hand-mapped block, and then the heights its `HeightFile` names.
+        //
+        // THE LOAD IS HERE, IN THE REGISTRY, AND NOT IN THE SCENE LOADER, because every path that rebuilds
+        // an entity from its blocks comes through here — open, Play/Stop, Ctrl+C/Ctrl+V, delete-undo,
+        // prefab instancing. A load in SceneSerializer alone would give a pasted tile a file name and no
+        // terrain, which is the "middle link drops a property" shape.
+        //
+        // A tile that already holds heights decoded from THIS file keeps them: an undo restoring the block
+        // in place must not replace the terrain in memory with an older copy from disk.
+        //
+        // A failure is REPORTED, by file and reason, and the tile is left without heights; it does not take
+        // the entity or the scene with it.
+        //
+        // The key is spelled inside, in the MakeAuthored call, because that is the form the WorldPartition
+        // census reads the registry's keys by.
+        ComponentSerializer MakeLandscapeTile()
+        {
+            ComponentSerializer s = MakeAuthored<ECS::LandscapeTileComponent>( "LandscapeTile" );
+            s.Deserialize = [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& )
+            {
+                const auto object = g.to_object();
+                if ( !object.has_value() )
+                {
+                    LOG_WARN( "[Scene] component '{0}' is not an object; it kept its current values.", key );
+                    return;
+                }
+                auto& comp = e.HasComponent<ECS::LandscapeTileComponent>()
+                                  ? e.GetComponent<ECS::LandscapeTileComponent>()
+                                  : e.AddComponent<ECS::LandscapeTileComponent>();
+
+                const std::string before = comp.HeightFile;
+                ReadComponent( object.value(), comp );
+                if ( comp.Heights && comp.HeightFile == before )
+                    return;
+
+                comp.Heights.reset();
+                if ( comp.HeightFile.empty() )
+                {
+                    LOG_WARN( "[Landscape] tile ({0}, {1}) names no height file; it has no terrain until one is "
+                              "saved for it.",
+                              comp.TileX, comp.TileZ );
+                    return;
+                }
+                auto loaded = World::Landscape::ReadLandscapeTileFile( comp.HeightFile );
+                if ( !loaded )
+                {
+                    LOG_ERROR( "[Landscape] tile ({0}, {1}) has no terrain: {2}", comp.TileX, comp.TileZ,
+                               loaded.GetError() );
+                    return;
+                }
+                comp.Heights = loaded.ExtractValue();
             };
             return s;
         }
@@ -1488,6 +1544,10 @@ namespace Desert::Core::Serialize
         // The authoring lock. Serialized for the reason Components.hpp gives: a lock that does not
         // survive a reload protects nothing. No version bump — an added key is what ForeignKeys is for.
         Register( MakeMarker<ECS::LockComponent>( "Lock" ) );
+        // World Partition's author override (Components.hpp, AlwaysLoadedComponent). Serialized because its
+        // whole effect is on the file: the partitioner reads the key, not the ECS. No version bump - an
+        // added key is what ForeignKeys is for.
+        Register( MakeMarker<ECS::AlwaysLoadedComponent>( "AlwaysLoaded" ) );
 
         // ---- Single-flag components ----
         // The outliner's eye, for the same reason the lock beside it is here: a hidden object that comes
@@ -1510,6 +1570,12 @@ namespace Desert::Core::Serialize
         Register( MakeAuthored<ECS::MorphComponent>( "Morph" ) );
         Register( MakeAuthored<ECS::SocketAttachmentComponent>( "SocketAttachment" ) );
         Register( MakeAuthored<ECS::ProjectileComponent>( "Projectile" ) );
+
+        // ---- Landscape (LS-3) ----
+        // The root is its frame and nothing else; the tile loads its heights from the file it names
+        // (MakeLandscapeTile above). No version bump: two new block keys, and no scene carried them before.
+        Register( MakeAuthored<ECS::LandscapeComponent>( "Landscape" ) );
+        Register( MakeLandscapeTile() );
 
         // ---- Skybox (now FULLY REFLECTED via RA3) ----
         // No more hand-written SkyboxComponentSer / field mapping: the whole component reflects, and its

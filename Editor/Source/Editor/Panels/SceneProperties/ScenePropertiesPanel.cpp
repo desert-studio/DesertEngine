@@ -3,6 +3,7 @@
 
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/SkyboxECSSystem.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Engine/ECS/EntityLock.hpp>
@@ -266,21 +267,30 @@ namespace Desert::Editor
 
             if ( entity.HasComponent<ECS::SkyboxComponent>() )
             {
-                // RESOLVED THROUGH THE HANDLE EVERY FRAME, never held as a pointer: a rebake replaces all
-                // three cubes and unregisters the old ones, so a captured pointer would name a freed image
-                // from the first rotation edit onward.
-                const Assets::AssetHandle handle = entity.GetComponent<ECS::SkyboxComponent>().SkyboxHandle;
+                // RESOLVED EVERY FRAME, never held: the cube through the asset handle (a reload replaces
+                // it and unregisters the old one), and the LOOK through the entity, because the sliders
+                // beside this ball edit the component and the cube no longer carries them — they are
+                // applied where it is sampled, here as everywhere else.
+                const Assets::AssetHandle handle   = entity.GetComponent<ECS::SkyboxComponent>().SkyboxHandle;
+                const auto                entityId = *selectedOpt;
                 m_Preview->SetCubemapMaterial(
-                     [handle]() -> const Graphic::ImageCube*
+                     [this, handle, entityId]() -> Graphic::SampledCube
                      {
                          const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( handle );
                          if ( !material )
-                             return nullptr;
+                             return {};
                          const auto& environment = material->GetEnvironment();
                          if ( !environment.RadianceMap.IsValid() )
-                             return nullptr;
-                         return static_cast<Graphic::ImageCube*>(
+                             return {};
+
+                         Graphic::SampledCube source;
+                         source.Cube = static_cast<Graphic::ImageCube*>(
                               Runtime::ResourceRegistry::GetImageService()->Resolve( environment.RadianceMap ) );
+                         if ( m_Scene )
+                             if ( const auto owner = m_Scene->FindEntityByID( entityId );
+                                  owner && owner->get().HasComponent<ECS::SkyboxComponent>() )
+                                 source.Look = ECS::SkyLookOf( owner->get().GetComponent<ECS::SkyboxComponent>() );
+                         return source;
                      } );
             }
             else
@@ -419,6 +429,34 @@ namespace Desert::Editor
                 ImGui::SetTooltip( locked ? "Locked: the viewport will not pick this and the gizmo will not "
                                             "move it. Click to unlock."
                                           : "Click to lock: refuse viewport picking and gizmo edits." );
+            ImGui::SameLine();
+        }
+
+        // World Partition's one authored input per entity (ECS::AlwaysLoadedComponent). Beside the lock
+        // because it is the same kind of thing - a marker whose presence is the state, toggled in place.
+        // Not recursive: the partitioner keeps a whole composite together, so marking one member already
+        // keeps its parent and children loaded with it.
+        {
+            ECS::Entity& entity       = const_cast<ECS::Entity&>( selectedEntity );
+            const bool   alwaysLoaded = entity.HasComponent<ECS::AlwaysLoadedComponent>();
+            ImGui::PushStyleColor( ImGuiCol_Text, alwaysLoaded
+                                                       ? ThemeManager::GetIconColor()
+                                                       : ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
+            ImGui::TextUnformatted( alwaysLoaded ? ICON_MDI_PIN : ICON_MDI_PIN_OUTLINE );
+            ImGui::PopStyleColor();
+            if ( ImGui::IsItemClicked() )
+            {
+                if ( alwaysLoaded )
+                    entity.RemoveComponent<ECS::AlwaysLoadedComponent>();
+                else
+                    entity.AddComponent<ECS::AlwaysLoadedComponent>();
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip(
+                     alwaysLoaded ? "Always loaded: in a partitioned world this entity and everything it "
+                                    "is attached to stay loaded everywhere. Click to let its position decide."
+                                  : "Click to keep this entity loaded everywhere in a partitioned world. "
+                                    "Worlds without a WorldPartition block load everything anyway." );
             ImGui::SameLine();
         }
 

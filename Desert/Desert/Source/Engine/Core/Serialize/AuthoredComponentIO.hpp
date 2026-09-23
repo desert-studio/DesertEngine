@@ -46,6 +46,7 @@
 #include <rflcpp/rfl/Generic.hpp>
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -94,6 +95,31 @@ namespace Desert::Core::Serialize
                 return;
             }
             out = flag.value();
+        }
+
+        // An integer field of type T. Whole JSON numbers only: `2.5` for a tile coordinate is not a value
+        // this project writes, and truncating it would put the tile somewhere nobody asked. A number that
+        // does not fit T is refused the same way — narrowing 2^32 into a uint32 is 0, a real place.
+        template <class T>
+        inline void ReadInteger( const rfl::Generic::Object& from, const char* key, T& out )
+        {
+            const auto value = from.get( key );
+            if ( !value.has_value() )
+                return;
+            const auto whole = value.value().to_int64();
+            if ( !whole.has_value() )
+            {
+                LOG_WARN( "[Scene] '{0}' is not a whole number; the field kept its current value.", key );
+                return;
+            }
+            if ( whole.value() < static_cast<int64_t>( std::numeric_limits<T>::min() ) ||
+                 whole.value() > static_cast<int64_t>( std::numeric_limits<T>::max() ) )
+            {
+                LOG_WARN( "[Scene] '{0}' = {1} does not fit the field; it kept its current value.", key,
+                          whole.value() );
+                return;
+            }
+            out = static_cast<T>( whole.value() );
         }
 
         inline void ReadString( const rfl::Generic::Object& from, const char* key, std::string& out )
@@ -398,5 +424,44 @@ namespace Desert::Core::Serialize
         AuthoredIO::ReadFloat( from, "LifeRemaining", c.LifeRemaining );
         AuthoredIO::ReadFloat( from, "Damage", c.Damage );
         AuthoredIO::ReadUUID( from, "Owner", c.Owner );
+    }
+    // ── LANDSCAPE ──────────────────────────────────────────────────────────────────────────────────
+    // Hand-mapped for the reason the file header gives: the tile's `Landscape` is a Common::UUID, which is
+    // not a reflectable field type, and the tile carries loaded heights that must NOT be written. The root
+    // goes with it so the two halves of one feature are read in one place.
+    inline rfl::Generic::Object WriteComponent( const ECS::LandscapeComponent& c )
+    {
+        rfl::Generic::Object o;
+        o["QuadsPerTile"] = rfl::Generic( static_cast<int64_t>( c.QuadsPerTile ) );
+        o["SpacingCm"]    = rfl::Generic( static_cast<double>( c.SpacingCm ) );
+        o["ZScale"]       = rfl::Generic( static_cast<double>( c.ZScale ) );
+        return o;
+    }
+
+    inline void ReadComponent( const rfl::Generic::Object& from, ECS::LandscapeComponent& c )
+    {
+        AuthoredIO::ReadInteger( from, "QuadsPerTile", c.QuadsPerTile );
+        AuthoredIO::ReadFloat( from, "SpacingCm", c.SpacingCm );
+        AuthoredIO::ReadFloat( from, "ZScale", c.ZScale );
+    }
+
+    // `Heights` is not written: it is what `HeightFile` decodes to, and the registry's LandscapeTile
+    // serializer is what loads it (ComponentRegistry.cpp). Writing both would be two copies of one terrain.
+    inline rfl::Generic::Object WriteComponent( const ECS::LandscapeTileComponent& c )
+    {
+        rfl::Generic::Object o;
+        o["Landscape"]  = AuthoredIO::WriteUUID( c.Landscape );
+        o["TileX"]      = rfl::Generic( static_cast<int64_t>( c.TileX ) );
+        o["TileZ"]      = rfl::Generic( static_cast<int64_t>( c.TileZ ) );
+        o["HeightFile"] = rfl::Generic( c.HeightFile );
+        return o;
+    }
+
+    inline void ReadComponent( const rfl::Generic::Object& from, ECS::LandscapeTileComponent& c )
+    {
+        AuthoredIO::ReadUUID( from, "Landscape", c.Landscape );
+        AuthoredIO::ReadInteger( from, "TileX", c.TileX );
+        AuthoredIO::ReadInteger( from, "TileZ", c.TileZ );
+        AuthoredIO::ReadString( from, "HeightFile", c.HeightFile );
     }
 } // namespace Desert::Core::Serialize

@@ -447,17 +447,22 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //     PhysicsECSSystem::m_Lifetime. Raw 387+3, Unique 120+1.
     //     M1 (2026-09-23) removed two: ModelingPanel's ToolBtn table (Icon, Name) went with the five
     //     placeholder Create buttons it described. Raw 390-2.
+    //   and +2 Unique with SP1 (878 -> 880 after WP6 and M1): the start-up splash, owned by `Sandbox::m_Splash`
+    //   from before the renderer exists until the editor layer takes it (`EditorLayer::m_Splash`). One object
+    //   handed over once -- a move, never a second owner -- so Unique is the honest form and neither owes a row.
+    //     ENV1 (2026-09-24) added one raw member, SampledCube::Cube, with its row: the cubemap preview's
+    //     resolver now answers the cube AND the look it is read with. Raw 388+1.
     //     M4 (2026-09-23) added three shared_ptr<const Geometry::EditMesh> members, and each is shared ON
     //     PURPOSE: the mesh is IMMUTABLE once on a component, so the undo record holding the old one by
     //     reference IS the snapshot, with no copy. StaticMeshComponent::EditableMesh (the entity's source of
     //     truth), PolyEditTool::m_DragBefore (the mesh a drag started from) and the EditMeshCommand's
     //     m_Before/m_After declaration. Shared 331+3. PolyEdit's picking target holds the ENTITY, not a
     //     StaticMeshComponent*, so Raw does not move: that pointer would have been into an entt pool.
-    EXPECT_EQ( CountOf( Form::Raw ), 388 );
+    EXPECT_EQ( CountOf( Form::Raw ), 389 );
     EXPECT_EQ( CountOf( Form::Shared ), 334 );
-    EXPECT_EQ( CountOf( Form::Unique ), 121 );
+    EXPECT_EQ( CountOf( Form::Unique ), 123 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 881 )
+    EXPECT_EQ( (int)Members().size(), 884 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

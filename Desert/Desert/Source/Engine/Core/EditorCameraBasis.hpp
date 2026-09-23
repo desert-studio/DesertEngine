@@ -104,6 +104,43 @@ namespace Desert::Core
         return OrbitForward( yaw, ClampOrbitPitch( pitch ) );
     }
 
+    // ── ROLL ──────────────────────────────────────────────────────────────────────────────────────
+    //
+    // The orbit has no roll: its up is world up. A piloted camera entity DOES have one, and flying it
+    // must not flatten it, so the editor camera carries a roll angle measured from the orbit's own up —
+    // world Y made perpendicular to @p forward — about the forward axis. These two functions are the
+    // whole definition, and they are inverses of each other.
+
+    // World up made perpendicular to @p forward: the up the orbit (and a roll of zero) means. Looking
+    // straight down or up it takes the axis views' choice (-Z for down, +Z for up), so the answer is
+    // continuous with AxisViewBasisOf instead of undefined.
+    [[nodiscard]] inline glm::vec3 RollFreeUp( const glm::vec3& forward )
+    {
+        const glm::vec3 f     = glm::normalize( forward );
+        const glm::vec3 right = glm::cross( f, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+        if ( glm::length( right ) < 1e-5f )
+            return f.y < 0.0f ? glm::vec3( 0.0f, 0.0f, -1.0f ) : glm::vec3( 0.0f, 0.0f, 1.0f );
+        return glm::normalize( glm::cross( glm::normalize( right ), f ) );
+    }
+
+    // The up vector after rotating the roll-free up by @p roll radians about @p forward (Rodrigues;
+    // the roll-free up is perpendicular to forward, so two terms suffice).
+    [[nodiscard]] inline glm::vec3 UpWithRoll( const glm::vec3& forward, float roll )
+    {
+        const glm::vec3 f  = glm::normalize( forward );
+        const glm::vec3 u0 = RollFreeUp( f );
+        return glm::normalize( u0 * std::cos( roll ) + glm::cross( f, u0 ) * std::sin( roll ) );
+    }
+
+    // The roll of @p basis: the signed angle from RollFreeUp(Forward) to Up, about Forward.
+    [[nodiscard]] inline float RollOf( const ViewBasis& basis )
+    {
+        const glm::vec3 f  = glm::normalize( basis.Forward );
+        const glm::vec3 u0 = RollFreeUp( f );
+        const glm::vec3 up = glm::normalize( basis.Up );
+        return std::atan2( glm::dot( glm::cross( u0, up ), f ), glm::dot( u0, up ) );
+    }
+
     // ── THE AXIS VIEWS ────────────────────────────────────────────────────────────────────────────
 
     // How close to an axis a direction must be to BE that axis. This is not a tolerance on what the user

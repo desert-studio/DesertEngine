@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
@@ -166,6 +167,22 @@ namespace Desert::Graphic
         }
     }
 
+    /// The scene's sky look — rotation and gain — for any program that declares `SkyLookUB`. THE ONE
+    /// WRITER: the lit materials (through SceneEnvironmentBind), the deferred composite and the skybox
+    /// pass all call this, so no reader of the environment cubes can be handed a differently packed look.
+    /// Written EVERY call, identity included, for the same reason the cubes are: a block that is not
+    /// written keeps what the previous scene left in it.
+    inline void SceneSkyLookBind( Material* material, const SkyLook& look )
+    {
+        if ( !material )
+            return;
+        if ( auto* ub = material->Get<UniformBufferProperty>( kSkyLookBlockName ) )
+        {
+            const SkyLookGPU data = ToGPU( look );
+            ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
+        }
+    }
+
     /// The IBL inputs of Mesh/AmbientIBL.glslh: the diffuse irradiance and prefiltered specular cubes and
     /// the split-sum BRDF LUT.
     ///
@@ -180,11 +197,16 @@ namespace Desert::Graphic
     /// The BRDF LUT keeps its guard, and the asymmetry is deliberate: it is a renderer-global built once
     /// by Renderer::Init and never released, so it is never legitimately absent — a null here is a
     /// startup-order fault, and overwriting a good LUT with the fallback would hide it.
+    ///
+    /// @p look is how the two cubes are read (Environment::Look); it travels with them because a cube
+    /// bound without its look is the unturned sky under a turned backdrop.
     inline void SceneEnvironmentBind( Material* material, ImageCube* irradiance, ImageCube* prefiltered,
-                                      Image2D* brdfLut )
+                                      Image2D* brdfLut, const SkyLook& look )
     {
         if ( !material )
             return;
+
+        SceneSkyLookBind( material, look );
 
         if ( auto* tex = material->Get<TextureCubeProperty>( MaterialPBRBase::kEnvIrradianceName ) )
             tex->SetTexture( irradiance );

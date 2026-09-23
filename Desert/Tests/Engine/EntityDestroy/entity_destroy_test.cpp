@@ -28,7 +28,8 @@ namespace
 {
     using namespace Desert;
 
-    entt::entity Make( entt::registry& reg, Core::SceneEntityIndex& index, const Common::UUID& id = Common::UUID::Generate() )
+    entt::entity Make( entt::registry& reg, Core::SceneEntityIndex& index,
+                       const Common::UUID& id = Common::UUID::Generate() )
     {
         // The same four components Scene::CreateEntityWithUUID gives every entity.
         const entt::entity e = reg.create();
@@ -62,8 +63,8 @@ namespace
 
 TEST( EntityDestroy, RemovingFromTheMiddleKeepsEveryOtherLookupRight )
 {
-    entt::registry         reg;
-    Core::SceneEntityIndex index;
+    entt::registry            reg;
+    Core::SceneEntityIndex    index;
     std::vector<entt::entity> all;
     for ( int i = 0; i < 200; ++i )
         all.push_back( Make( reg, index ) );
@@ -151,12 +152,12 @@ TEST( EntityDestroy, DestroyingTheEntityGivesItsJoltBodyAndCharacterBack )
 {
     Physics::PhysicsWorld world;
     ASSERT_TRUE( world.Init( 981.0f ) );
-    entt::registry              reg;
-    Core::SceneEntityIndex      index;
-    ECS::PhysicsBodyLifetime    lifetime( world );
+    entt::registry           reg;
+    Core::SceneEntityIndex   index;
+    ECS::PhysicsBodyLifetime lifetime( world );
     lifetime.Attach( reg );
 
-    const uint32_t bodiesBefore = world.GetBodyCount();
+    const uint32_t            bodiesBefore = world.GetBodyCount();
     std::vector<entt::entity> doomed;
     for ( int i = 0; i < 64; ++i )
         doomed.push_back( MakeBody( reg, index, world, 300.0f * static_cast<float>( i ) ) );
@@ -218,8 +219,8 @@ TEST( EntityDestroy, WithoutTheListenerTheBodiesLeak )
     entt::registry         reg;
     Core::SceneEntityIndex index;
 
-    const uint32_t before = world.GetBodyCount();
-    const entt::entity e  = MakeBody( reg, index, world, 0.0f );
+    const uint32_t     before = world.GetBodyCount();
+    const entt::entity e      = MakeBody( reg, index, world, 0.0f );
     Core::DestroyEntityTree( reg, index, e );
     EXPECT_EQ( world.GetBodyCount(), before + 1u );
     world.Shutdown();

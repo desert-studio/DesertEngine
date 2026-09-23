@@ -9,15 +9,21 @@
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include <Common/Core/Units.hpp>
 #include <rflcpp/rfl/json.hpp>
+#include <cmath>
+#include <filesystem>
 #include <map>
+#include <optional>
 #include <memory>
 #include <unordered_set>
 
@@ -46,6 +52,116 @@ namespace Desert::Core
         {
             auto set = std::make_shared<std::unordered_set<std::string>>( names.begin(), names.end() );
             return [set]( const std::string& key ) { return set->count( key ) != 0; };
+        }
+
+        // THE ROOT A TILE NAMES, as the frame LandscapeLayout computes with. nullopt when the id names no
+        // entity with a LandscapeComponent — an observation that did not resolve, which the caller reports.
+        std::optional<World::Landscape::LandscapeRoot> FindLandscapeRoot( const Scene&        scene,
+                                                                          const Common::UUID& id )
+        {
+            const auto found = scene.FindEntityByID( id );
+            if ( !found.has_value() || !found->get().HasComponent<ECS::LandscapeComponent>() )
+                return std::nullopt;
+
+            const ECS::Entity&              entity    = found->get();
+            const ECS::LandscapeComponent&  component = entity.GetComponent<ECS::LandscapeComponent>();
+            World::Landscape::LandscapeRoot root;
+            root.Origin       = glm::vec3( entity.GetWorldTransform()[3] );
+            root.QuadsPerTile = component.QuadsPerTile;
+            root.SpacingCm    = component.SpacingCm;
+            root.ZScale       = component.ZScale;
+            return root;
+        }
+
+        // AFTER A LOAD: every tile's heights against the root it names. A tile of the wrong size, or under
+        // a root that cannot be tiled, is REFUSED — its heights are dropped and the reason is logged with
+        // the tile's coordinate — rather than kept at a size its neighbours do not share. A root that is
+        // rotated or scaled is said out loud: the frame has neither (Components.hpp, LandscapeComponent),
+        // and a landscape that silently ignores its own gizmo is the dead-setting shape.
+        void CheckLandscapeTiles( const Scene& scene, std::string_view sceneName )
+        {
+            for ( const auto& entity : scene.GetAllEntities() )
+            {
+                if ( entity.HasComponent<ECS::LandscapeComponent>() )
+                {
+                    const glm::mat4 world = entity.GetWorldTransform();
+                    const glm::vec3 x( world[0] ), y( world[1] ), z( world[2] );
+                    const bool      axisAligned = std::abs( x.y ) + std::abs( x.z ) + std::abs( y.x ) +
+                                                  std::abs( y.z ) + std::abs( z.x ) + std::abs( z.y ) <
+                                             1e-5f;
+                    const bool unitScale =
+                         std::abs( x.x - 1.0f ) + std::abs( y.y - 1.0f ) + std::abs( z.z - 1.0f ) < 1e-5f;
+                    if ( !axisAligned || !unitScale )
+                        LOG_WARN( "[Landscape] '{0}': a landscape root is rotated or scaled; its tiles are placed "
+                                  "by its position alone, because the landscape frame has no rotation or scale.",
+                                  sceneName );
+                }
+
+                if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
+                    continue;
+                auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
+                if ( !tile.Heights )
+                    continue;
+
+                const auto root = FindLandscapeRoot( scene, tile.Landscape );
+                if ( !root.has_value() )
+                {
+                    LOG_WARN( "[Landscape] '{0}': tile ({1}, {2}) names landscape {3}, which this scene does not "
+                              "contain; the tile keeps its heights and has no place in the world.",
+                              sceneName, tile.TileX, tile.TileZ, static_cast<uint64_t>( tile.Landscape ) );
+                    continue;
+                }
+
+                auto refused = World::Landscape::ValidateLandscapeRoot( *root );
+                if ( refused )
+                    refused = World::Landscape::CheckTileMatchesRoot( *tile.Heights, *root );
+                if ( !refused )
+                {
+                    LOG_ERROR( "[Landscape] '{0}': tile ({1}, {2}) was refused: {3}", sceneName, tile.TileX,
+                               tile.TileZ, refused.GetError() );
+                    tile.Heights.reset();
+                }
+            }
+        }
+
+        // BEFORE A SAVE: every tile's heights, into files derived from the destination. The first failure
+        // stops the save and names the file, so the scene is never written pointing at a tile file that
+        // did not land. A tile holding no heights keeps whatever file it named — this save did not lose
+        // them, and writing nothing over that file is the only answer that does not invent terrain.
+        Common::BoolResultStr WriteLandscapeTiles( Scene& scene, const std::filesystem::path& scenePath )
+        {
+            // The path the .desce records is spelled the way the scene's other files are: relative to the
+            // working directory, so a scene saved on one machine opens on another.
+            const std::filesystem::path relative =
+                 scenePath.is_absolute() ? scenePath.lexically_proximate( std::filesystem::current_path() )
+                                         : scenePath;
+
+            for ( const auto& entity : scene.GetAllEntities() )
+            {
+                if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
+                    continue;
+                auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
+                if ( !tile.Heights )
+                {
+                    LOG_WARN( "[Landscape] tile ({0}, {1}) holds no heights; the scene keeps naming '{2}'.",
+                              tile.TileX, tile.TileZ, tile.HeightFile );
+                    continue;
+                }
+
+                // The file is named by the entity's id, so an entity without one has no file name that
+                // could not collide with another's; refused rather than numbered zero.
+                if ( !entity.HasComponent<ECS::UUIDComponent>() )
+                    return Common::MakeFormattedError( "tile ({}, {}) has no entity id to name its file by",
+                                                       tile.TileX, tile.TileZ );
+                const uint64_t id = static_cast<uint64_t>( entity.GetComponent<ECS::UUIDComponent>().UUID );
+                const std::filesystem::path file = World::Landscape::LandscapeTileBlobPath( relative, id );
+                if ( const auto written = World::Landscape::WriteLandscapeTileFile( file, *tile.Heights );
+                     !written )
+                    return Common::MakeFormattedError( "tile ({}, {}): {}", tile.TileX, tile.TileZ,
+                                                       written.GetError() );
+                tile.HeightFile = file.generic_string();
+            }
+            return BOOLSUCCESS;
         }
     } // namespace
 
@@ -321,16 +437,26 @@ namespace Desert::Core
 
         // IF THIS WORLD SAYS IT IS PARTITIONED, SAY WHAT THE PARTITION IS AND WHAT IT COST.
         //
-        // Nothing here can stop a load: a composite wider than a cell is held whole and its cell grows
-        // (owner decision 2026-09-18), so the only fact worth a line is HOW MUCH the cells grew — the
-        // number a streamer will one day pay in residency. It is stated at load because that is where
-        // somebody who has just moved an entity will see it. The work is one walk of the records the
-        // loader has already parsed, and an unpartitioned world (every `.desce` in the repository today)
-        // does none of it.
+        // Nothing here can stop a load: a composite wider than a cell goes up a level, and one no level
+        // holds is always-loaded (owner decision O1, 2026-09-23). So the facts worth a line are how the
+        // world spread over the levels and what stays loaded everywhere - the numbers a streamer will pay
+        // in residency. Stated at load because that is where somebody who has just moved an entity will
+        // see it. The work is one walk of records the loader has already parsed, and an unpartitioned
+        // world (every `.desce` in the repository today) does none of it.
         if ( scene.WorldPartition.has_value() )
         {
+            // A mesh asset's box comes from the cooked registry's Bounds column: read without loading the
+            // mesh, which is the point — a partition that had to load every mesh to place it would be the
+            // eager boot this engine removed.
+            const Rules::AssetBoundsSource meshBounds =
+                 []( uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
+            {
+                const Common::Utils::AssetRegistryEntry* row =
+                     Assets::ContentRegistry::Get().FindByReference( handle, path );
+                return row != nullptr ? row->Bounds : std::nullopt;
+            };
             const Rules::WorldPartitionPlan partition =
-                 Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition );
+                 Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition, meshBounds );
 
             if ( !partition.Dangling.empty() )
             {
@@ -347,7 +473,7 @@ namespace Desert::Core
             {
                 // A THIRD, DIFFERENT FACT, and it is a limitation rather than a defect in the world: a
                 // prefab instance's transform is not in this file at all, so the partitioner put it at
-                // the origin (and let it grow no cell's bounds). Said out loud because "in cell (0,0)" is
+                // the origin (and it widens no composite's footprint). Said out loud because "in cell (0,0)" is
                 // otherwise indistinguishable from a correct answer.
                 LOG_WARN( "[WorldPartition] '{0}': {1} prefab instance(s) state no transform of their "
                           "own in this file, so they are partitioned AT THE ORIGIN. Placing them needs "
@@ -355,25 +481,31 @@ namespace Desert::Core
                           scene.SceneName, partition.UnplacedPrefabInstances.size() );
             }
 
-            // The worst cell by name, because "grew by 30000" is only actionable next to WHAT grew it.
-            const float cellSize = scene.WorldPartition->CellSize;
-            if ( partition.MaxGrowthCell != Rules::kNoRecord && partition.MaxGrowth > 0.0f )
+            if ( !partition.UnplacedLandscapeTiles.empty() )
             {
-                const Rules::PlannedCell& worst = partition.Cells[partition.MaxGrowthCell];
-                const auto&               grown = scene.Entities[worst.Furthest];
-                LOG_INFO( "[WorldPartition] '{0}': {1} composite(s) in {2} cell(s) of {3} world units; the "
-                          "cells grew to hold them whole by up to {4} world units ({5} cell sizes), in cell "
-                          "({6}, {7}), furthest out: '{8}' (id {9}).",
-                          scene.SceneName, partition.Composites.size(), partition.Cells.size(), cellSize,
-                          partition.MaxGrowth, partition.MaxGrowth / cellSize, worst.Cell.X, worst.Cell.Z,
-                          grown.Tag.value_or( "Entity" ),
-                          grown.id.has_value() ? static_cast<std::uint64_t>( *grown.id ) : 0u );
+                // The same limitation from a different cause: a tile is placed by its root's frame, and
+                // these name a root the file does not contain or one that cannot be tiled.
+                LOG_WARN( "[WorldPartition] '{0}': {1} landscape tile(s) have no root this file can place "
+                          "them by, so they contribute no footprint.",
+                          scene.SceneName, partition.UnplacedLandscapeTiles.size() );
             }
-            else
+
+            if ( partition.UnusedGrids > 0 )
             {
-                LOG_INFO( "[WorldPartition] '{0}': {1} composite(s) in {2} cell(s) of {3} world units; no "
-                          "cell grew past its grid square.",
-                          scene.SceneName, partition.Composites.size(), partition.Cells.size(), cellSize );
+                LOG_WARN( "[WorldPartition] '{0}': the world states {1} grid(s) beyond the first. Every "
+                          "composite is partitioned on grid 0 until a record can choose its grid.",
+                          scene.SceneName, partition.UnusedGrids );
+            }
+
+            LOG_INFO( "[WorldPartition] '{0}': {1}.", scene.SceneName,
+                      Rules::SummarisePartition( partition, *scene.WorldPartition ) );
+            if ( partition.MaxLevelComposite != Rules::kNoRecord && partition.MaxLevel > 0 )
+            {
+                // The worst promotion by name, because "level 3" is only actionable next to WHAT went there.
+                const auto& anchor = scene.Entities[partition.Composites[partition.MaxLevelComposite].Anchor];
+                LOG_INFO( "[WorldPartition] '{0}': the widest composite went up to level {1}: '{2}' (id {3}).",
+                          scene.SceneName, partition.MaxLevel, anchor.Tag.value_or( "Entity" ),
+                          anchor.id.has_value() ? static_cast<std::uint64_t>( *anchor.id ) : 0u );
             }
         }
 
@@ -475,6 +607,9 @@ namespace Desert::Core
             }
         }
 
+        // After every pass: a tile is checked against its root, and a root may be in a prefab instance.
+        CheckLandscapeTiles( *m_Scene, scene.SceneName );
+
         return BOOLSUCCESS;
     }
 
@@ -497,6 +632,11 @@ namespace Desert::Core
             return Common::MakeFormattedError( "could not create the directory {} for '{}': {}",
                                                path.parent_path().string(), m_Scene->GetSceneName(),
                                                ec.message() );
+
+        // The tiles first: the scene records the files they were written to, so it is serialized after.
+        if ( const auto tiles = WriteLandscapeTiles( *m_Scene, path ); !tiles )
+            return Common::MakeFormattedError( "could not save the landscape of '{}': {}", m_Scene->GetSceneName(),
+                                               tiles.GetError() );
 
         if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, SerializeToJson() );
              !written )

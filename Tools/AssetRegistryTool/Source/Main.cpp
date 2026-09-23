@@ -44,12 +44,12 @@
 //
 // ── WHAT IT DELIBERATELY DOES NOT WRITE ───────────────────────────────────────────────────────────
 //
-// The DECLARED IDENTITY column (a `.tex`'s own `Handle`, a `.demat`'s `MaterialId`) and the DEPENDENCY
-// EDGES. Both require parsing the asset with the class that owns its format, and tools here link
-// `Common` only — deliberately, so that they still build on a machine that cannot build an engine. The
-// editor fills both on its next boot (`ContentRegistry::NoteAsset` at the moment `CreateAsset` parses
-// the file) and writes them back in its post-boot cook, so the columns converge after one session
-// rather than being wrong for ever.
+// The DECLARED IDENTITY column (a `.tex`'s own `Handle`, a `.demat`'s `MaterialId`), the DEPENDENCY
+// EDGES and the BOUNDS of a mesh or a prefab. All three require parsing the asset with the class that
+// owns its format, and tools here link `Common` only — deliberately, so that they still build on a
+// machine that cannot build an engine. The editor fills them (`ContentRegistry::NoteAsset` at the moment
+// `CreateAsset` parses the file, the bounds in its post-boot cook) and writes them back, so the columns
+// converge after one session rather than being wrong for ever; this tool carries them across a cook.
 //
 // So `check` asserts what this tool can honestly know: that the set of rows and the set of content
 // files on disk are the same set, and that each row's recorded size is the file's size. It does not
@@ -182,7 +182,7 @@ namespace
         const fs::path out = Common::Utils::AssetRegistry::DefaultPath();
 
         // THE EXISTING REGISTRY IS READ FIRST AND ITS IDENTITY AND EDGE COLUMNS ARE KEPT. Re-cooking is
-        // a routine operation — CI runs it to compare — and a cook that dropped the two columns it
+        // a routine operation — CI runs it to compare — and a cook that dropped the columns it
         // cannot compute would make every run of this tool erase what the editor had learned, which is
         // the "middle link drops a property" shape, delivered by the tool meant to guard against it.
         Common::Utils::AssetRegistry previous;
@@ -205,6 +205,7 @@ namespace
             {
                 entry.Identity     = old->Identity;
                 entry.Dependencies = old->Dependencies;
+                entry.Bounds       = old->Bounds;
             }
             if ( const auto inserted = registry.Insert( std::move( entry ) ); !inserted )
                 return Fail( inserted.GetError() );

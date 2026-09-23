@@ -5,7 +5,7 @@
 // WHAT IT REPLACED, MEASURED ON THIS TREE. An `.hdr` skybox reached the screen through three compute
 // passes every time a scene naming it was opened: `PanoramaToCubemap` into a 1024 face, `DiffuseIrradiance`
 // into a 32 face and `PrefilterEnvMap` into a 256 face with a nine-level GGX chain. Nothing about that
-// depends on anything but the FILE and the sky's authored look, and both of those are on disk — so the
+// depends on anything but the FILE, which is on disk — so the
 // work was the same work, repeated, at every load. What it cost is in `SkyRules.hpp` beside the sizes.
 //
 // ── THE BOUNDARY, AND IT IS THE WHOLE DESIGN ────────────────────────────────────────────────────────
@@ -26,8 +26,8 @@
 //     IT IS READ OUT OF THE COOKED PANORAMA'S HEADER, NOT COMPUTED FROM THE `.hdr`: the cook recorded
 //     exactly this number when it read those bytes, so the runtime needs neither the source file nor a
 //     decoder for it — see `FindCookedPanorama` below.
-//   * `EncoderHash` — everything else the output depends on: the authored `SkyLook` (rotation, tint,
-//     intensity), the three face sizes, the two mip counts, and this file's own version. It is the
+//   * `EncoderHash` — everything else the output depends on: the three face sizes, the two mip counts, and this
+//   file's own version. It is the
 //     container's v3 provenance column, and the reason that column stopped being refused: only the
 //     caller knows what it asked for, so only the caller can judge the answer. See the note at the
 //     check in `TextureBinary.cpp`.
@@ -46,7 +46,6 @@
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
-#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Image.hpp>
 
 #include <cstdint>
@@ -80,13 +79,17 @@ namespace Desert::Graphic
     ///   3  the radiance cube carries its whole mip chain and both convolutions read it filtered
     ///      (mipmap-filtered importance sampling in PrefilterEnvMap AND DiffuseIrradiance). A v2 file's
     ///      irradiance and prefilter were integrated from level 0 alone and show the sun as splats.
-    inline constexpr uint32_t kEnvironmentBakeVersion = 3;
+    ///   4  the cubes no longer carry the authored `SkyLook`: they are the panorama as it is, at unit
+    ///      gain, and rotation/intensity/tint are applied where the cubes are SAMPLED. The look left the
+    ///      signature with the same change, so one `.hdr` is one set of three files whatever its sliders
+    ///      say; the bump makes that a stated miss rather than a hash that merely happened to move.
+    inline constexpr uint32_t kEnvironmentBakeVersion = 4;
 
     /// Everything except the source file that the baked pixels depend on. See the header note.
-    [[nodiscard]] uint64_t EnvironmentBakeSignature( const SkyLook& look, BakedEnvironmentCube which,
-                                                     uint32_t faceSize, uint32_t mips );
+    [[nodiscard]] uint64_t EnvironmentBakeSignature( BakedEnvironmentCube which, uint32_t faceSize,
+                                                     uint32_t mips );
 
-    /// Where this (source, look, cube) lands. Deterministic and content-addressed: the same three
+    /// Where this (source, cube) lands. Deterministic and content-addressed: the same three
     /// inputs name the same file on every machine, which is what lets a cooked environment be committed.
     [[nodiscard]] std::filesystem::path EnvironmentBakePath( uint64_t sourceSignature, uint64_t bakeSignature );
 
@@ -109,7 +112,7 @@ namespace Desert::Graphic
     [[nodiscard]] Common::ResultStr<CookedPanorama> FindCookedPanorama( const std::filesystem::path& hdr );
 
     /// A baked cube off the disk, or a REFUSAL NAMING WHY. Every reason is a sentence: no file, a file
-    /// from another source, a file from another look, a cube of the wrong shape. The caller's answer to
+    /// from another source, a file from another bake version, a cube of the wrong shape. The caller's answer to
     /// all of them is the same — bake — but the log has to be able to say which one happened, because
     /// "the cache never hits" and "the cache is never written" look identical from the frame rate.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<ImageCube>>
