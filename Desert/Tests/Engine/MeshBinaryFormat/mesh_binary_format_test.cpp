@@ -52,6 +52,8 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
@@ -61,6 +63,7 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -497,6 +500,62 @@ TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
         ASSERT_TRUE( read.IsSuccess() ) << relative << ": " << read.GetError();
         EXPECT_FALSE( read.GetValue().Submeshes.empty() ) << relative << " carries no submesh";
     }
+}
+
+// THE REGISTRY'S BOUNDS COLUMN AGREES WITH THE MESH IT DESCRIBES, for every mesh row the repository
+// commits. The column exists so the world partitioner can place a mesh WITHOUT reading it (WP15), which
+// means nothing downstream ever reads the file to notice a stale box: a re-cooked mesh with its old row is
+// a partition that is wrong in silence. So the relation is held here, bit for bit, against the file.
+//
+// The cook states the box with Serialization::MeshDataBounds and the loaded asset unions the same stored
+// submesh boxes (Geometry::LocalBounds), so one function is the right side of the comparison.
+TEST( MeshBinaryFormat, EveryCommittedMeshRowStatesTheBoundsOfItsFile )
+{
+    const std::filesystem::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const auto registry =
+         Common::Utils::AssetRegistry::Parse( ReadFile( root / "Editor" / "Cooked" / "AssetRegistry.dreg" ) );
+    ASSERT_TRUE( registry ) << registry.GetError();
+
+    // Keys resolve against the editor's working directory, as they do in the engine.
+    struct WorkingDirectory
+    {
+        std::filesystem::path Saved = std::filesystem::current_path();
+        ~WorkingDirectory()
+        {
+            std::error_code ec;
+            std::filesystem::current_path( Saved, ec );
+        }
+    } restore;
+    std::filesystem::current_path( std::filesystem::absolute( root / "Editor" ) );
+
+    std::size_t meshes = 0;
+    for ( const Common::Utils::AssetRegistryEntry& row : registry.GetValue().Entries() )
+    {
+        if ( row.Kind != "StaticMesh" && row.Kind != "SkinnedMesh" )
+        {
+            EXPECT_FALSE( row.Bounds.has_value() )
+                 << row.Key << " is a " << row.Kind << " and states bounds nothing computes for it";
+            continue;
+        }
+        ++meshes;
+        const std::filesystem::path file  = Common::AssetHandle::PathForStableKey( row.Key );
+        const std::string           bytes = ReadFile( file );
+        ASSERT_FALSE( bytes.empty() ) << row.Key << " -> " << file.string();
+        const auto read = Ser::ReadMeshAssetData( bytes, file.string() );
+        ASSERT_TRUE( read.IsSuccess() ) << row.Key << ": " << read.GetError();
+
+        const std::optional<Common::Math::AABB> box = Ser::MeshDataBounds( read.GetValue() );
+        ASSERT_TRUE( box.has_value() ) << row.Key << " has no submesh";
+        char text[256];
+        std::snprintf( text, sizeof( text ), "%.9g %.9g %.9g %.9g %.9g %.9g", box->Min.x, box->Min.y, box->Min.z,
+                       box->Max.x, box->Max.y, box->Max.z );
+        EXPECT_TRUE( Common::Utils::SameBounds( row.Bounds, box ) )
+             << row.Key << " states " << ( row.Bounds.has_value() ? "a different box" : "no box" )
+             << "; the file's is " << text << ". Re-cook the mesh in the editor (its registry row is "
+             << "rewritten with the file) and commit the row.";
+    }
+    EXPECT_GT( meshes, 0u ) << "the committed registry has no mesh row; this test compares nothing";
 }
 
 TEST( MeshBinaryFormat, TheImporterWritesTheContainerAndNotJson )

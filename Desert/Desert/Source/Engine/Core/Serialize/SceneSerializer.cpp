@@ -9,6 +9,7 @@
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
@@ -444,8 +445,18 @@ namespace Desert::Core
         // world (every `.desce` in the repository today) does none of it.
         if ( scene.WorldPartition.has_value() )
         {
+            // A mesh asset's box comes from the cooked registry's Bounds column: read without loading the
+            // mesh, which is the point — a partition that had to load every mesh to place it would be the
+            // eager boot this engine removed.
+            const Rules::AssetBoundsSource meshBounds =
+                 []( uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
+            {
+                const Common::Utils::AssetRegistryEntry* row =
+                     Assets::ContentRegistry::Get().FindByReference( handle, path );
+                return row != nullptr ? row->Bounds : std::nullopt;
+            };
             const Rules::WorldPartitionPlan partition =
-                 Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition );
+                 Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition, meshBounds );
 
             if ( !partition.Dangling.empty() )
             {
