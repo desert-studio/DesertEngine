@@ -17,14 +17,31 @@ namespace Desert::Graphic
 {
     struct Environment
     {
-        Common::Filepath     Filepath; // TODO: Asset Env
+        Common::Filepath Filepath; // TODO: Asset Env
+
+        // THE SHARP CUBE, AND IT IS NOT ALWAYS THERE. Only the .hdr path keeps one: it is what the
+        // skybox pass draws as the backdrop and what the two editor previews read. The procedural sky
+        // marches its backdrop fullscreen and never samples a cube, so `CreateProcedural` frees this one
+        // the moment the prefilter has consumed it (96 MiB per environment) and leaves the handle empty.
+        // Resolving an empty handle answers nullptr, never another image — ImageService::Resolve is
+        // generation-checked — so a consumer that forgets to ask gets nothing rather than the wrong sky.
         Runtime::ImageHandle RadianceMap;
         Runtime::ImageHandle IrradianceMap;
         Runtime::ImageHandle PreFilteredMap;
 
+        /// "This environment can light and reflect the scene", which is the only question its eight
+        /// callers ask — a failed bake, a previous environment worth releasing, a skybox worth previewing.
+        ///
+        /// THE RADIANCE CUBE IS NOT PART OF THE ANSWER ANY MORE, and leaving it in would have been the
+        /// quiet half of freeing it: `SkyboxRenderer::GetEnvironment` gates on this operator, so a
+        /// procedural environment carrying an empty radiance handle would have reported itself as NO
+        /// ENVIRONMENT — taking every scene's ambient and reflections away while the sky still drew,
+        /// and the bake would have re-run every frame because `EnsureProceduralEnvironment` reads the
+        /// same bit as "not baked yet". The backdrop is asked for by name where it is needed
+        /// (`MaterialSkybox::BindInputs` and both editor previews all test `RadianceMap.IsValid()`).
         operator bool() const
         {
-            return RadianceMap.IsValid() && IrradianceMap.IsValid() && PreFilteredMap.IsValid();
+            return IrradianceMap.IsValid() && PreFilteredMap.IsValid();
         }
     };
 

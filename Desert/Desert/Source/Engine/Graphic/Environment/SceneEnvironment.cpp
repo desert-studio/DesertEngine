@@ -148,7 +148,33 @@ namespace Desert::Graphic
         // The panorama was only an intermediate (consumed by the synchronous compute dispatches above).
         imageService->Unregister( panoramaHandle );
 
-        return { Common::Filepath( "ProceduralSky" ), radianceHandle, diffuseIrradianceHandle,
+        // AND SO WAS THE RADIANCE CUBE, ON THIS PATH ONLY. The sharp cube has exactly one consumer here
+        // — `CreatePrefilteredMap` three lines up, which has already convolved it — and then nothing at
+        // all. The procedural sky's BACKDROP is marched fullscreen: `SkyboxRenderer::Render` submits the
+        // atmosphere quad and RETURNS before `MaterialSkybox::BindInputs`, the only code in the engine
+        // that samples a radiance cube for the sky. What lights and reflects the world is the other two
+        // — `SceneRenderer` and `MeshRenderer` bind `IrradianceMap` and `PreFilteredMap` by name and
+        // never ask for this one. Measured: 100 663 296 B (96 MiB) per live environment, and six camera
+        // points of Fog_Showcase (zenith x2, mid x2, horizon x2) are byte-identical without it.
+        //
+        // IT IS STILL BAKED, and that is not a detail to optimise away next: `PrefilterEnvMap.shader`
+        // declares `Uniform(0,0) samplerCube inputTexture` and this cube is its only input. Transient,
+        // not absent.
+        //
+        // THE HANDLE IS CLEARED RATHER THAN CARRIED. `ImageService::Resolve` is generation-checked, so a
+        // handle whose image has been unregistered answers nullptr and never somebody else's image — but
+        // an Environment that NAMES a radiance cube is making a claim its consumers are entitled to
+        // believe, and `Unregister` would report the stale handle as an error on the next rebake. Absent
+        // is the honest value, and `operator bool` below no longer asks for it.
+        //
+        // `EnvironmentManager::Create` (the .hdr path) deliberately does NOT do this: there the cube is
+        // the backdrop the skybox pass draws and the image both editor previews read, and the two
+        // measured substitutes for it both lose — prefilter mip 0 is visibly blockier (max delta 123/255
+        // at the zenith on real content) and the panorama sampled directly crawls under motion (rms
+        // 14.33 vs 10.60 under a 0.40 deg camera nudge, coherence 1.49 — per-pixel speckle).
+        imageService->Unregister( radianceHandle );
+
+        return { Common::Filepath( "ProceduralSky" ), Runtime::ImageHandle{}, diffuseIrradianceHandle,
                  prefilteredHandle };
     }
 

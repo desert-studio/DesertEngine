@@ -198,6 +198,44 @@ namespace
         }
         return out;
     }
+
+    /// The body of @p function in @p source, comments already blanked: from its name to the matching
+    /// closing brace. Empty when the function is not there, which the callers assert on.
+    std::string BodyOf( const std::string& source, const std::string& function )
+    {
+        const size_t at = source.find( function );
+        if ( at == std::string::npos )
+            return {};
+        const size_t open = source.find( '{', at );
+        if ( open == std::string::npos )
+            return {};
+
+        int depth = 0;
+        for ( size_t i = open; i < source.size(); ++i )
+        {
+            if ( source[i] == '{' )
+                ++depth;
+            else if ( source[i] == '}' && --depth == 0 )
+                return source.substr( open, i - open + 1 );
+        }
+        return {};
+    }
+
+    /// Every place a skybox ASSET HANDLE is bound to something that will draw with it. Each one has to
+    /// be able to build the environment itself, because the boot no longer builds all of them — see
+    /// `AssetPreloadCensus.TheSkyboxStageScansWithoutBaking`. The spellings are the actual call, not a
+    /// bare `Register(`: a renamed local should make this red and be named here again, rather than be
+    /// silently satisfied by some other Register in the file.
+    struct SkyboxBindSite
+    {
+        const char* File;
+        const char* Spelling;
+    };
+    constexpr SkyboxBindSite kSkyboxBindSites[] = {
+         { "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp", "GetSkyboxService()->Register(" },
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp", "svc.Register(" },
+         { "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp", "svc->Register(" },
+    };
 } // namespace
 
 TEST( AssetPreloadCensus, TheHeaderStillDeclaresPreloadsAtAll )
@@ -332,6 +370,78 @@ TEST( AssetPreloadCensus, NoLayerFillsTheAnimationLibraryItself )
                     "forbids were live at once: the editor had exactly this loop and ran it before the "
                     "`.anim` scan, and the runtime had nothing and shipped T-posing characters. The fill "
                     "belongs to Animation::PopulateLibrary, called from AssetPreloader.";
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// THE THIRD SUBJECT: A STAGE THAT SCANS IS NOT A STAGE THAT BUILDS, and the skybox stage used to be both.
+//
+// `PreloadSkyboxes` scanned every `.hdr` in the project AND called `SkyboxService::Register` on each one,
+// which constructs a MaterialSkybox, which runs the whole radiance/irradiance/prefilter compute chain.
+// Measured on this machine, that stage was 320.0 ms of a 352.4 ms staged boot — 90.8 % of it — for one
+// 32 KB `.hdr`; deleting the loop took the staged boot to 45.7 ms and the stage itself to 0.1 ms. A
+// second, unreferenced 8 MiB `.hdr` added 1119 ms on top of that, so the cost is per FILE. The comment that stood
+// over the loop named the benefit it bought ("selecting an HDR skybox in the editor is instant, no per-select
+// compute stall"), and the benefit was real; what it did not say is that every boot paid it for every skybox
+// nobody asked for, which is the same shape as the three cloud stages above.
+//
+// WHAT MAKES THE DELETION SAFE IS NOT A NEW MECHANISM — it is that every site which binds a skybox handle
+// ALREADY registers on demand, each with its own `WaitDeviceIdle`, and has done since before this
+// change. The scene deserialiser does it, the component's picker does it, the material editor's slot
+// does it. That is the relation this pair of tests pins, because it is the relation that would rot: a
+// future edit that removes one of those three on-demand registrations restores the old defect shape (a
+// scene naming a skybox that nothing ever baked draws no sky and says nothing), and the eager preload
+// that used to cover for it is gone.
+// ---------------------------------------------------------------------------------------------------
+TEST( AssetPreloadCensus, TheSkyboxStageScansWithoutBaking )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string source = WithoutComments( ReadFile( root + kPreloaderSource ) );
+    ASSERT_FALSE( source.empty() ) << "could not read " << kPreloaderSource;
+
+    const std::string body = BodyOf( source, "void AssetPreloader::PreloadSkyboxes" );
+    ASSERT_FALSE( body.empty() ) << "AssetPreloader::PreloadSkyboxes is not where this suite expects it";
+
+    // THE SCAN STAYS, and it is not vestigial: the component's picker lists the project's skyboxes by
+    // asking the asset manager for `FindAllByType<SkyboxAsset>()`, which is exactly what this mints.
+    EXPECT_NE( body.find( "ProcessAssetKind<SkyboxAsset>" ), std::string::npos )
+         << "PreloadSkyboxes no longer scans. The scan is what mints every `.hdr`'s handle, so without it "
+            "the Skybox component's picker dropdown is empty and a scene's reference has no handle to "
+            "resolve against.";
+
+    EXPECT_EQ( body.find( "GetSkyboxService" ), std::string::npos )
+         << "PreloadSkyboxes is building IBL environments at boot again. Measured, that stage was "
+            "320.0 ms of a 352.4 ms staged boot, against 45.7 ms without it, and it grows per file; the "
+            "three sites that bind a skybox handle all register on demand already (see "
+            "AssetPreloadCensus.EverySkyboxBindSiteCanBuildItsOwnEnvironment). If the per-select stall is "
+            "the problem being solved, the answer is an asynchronous bake with a Pending state, the way "
+            "the cloud kinds answered it — not paying for every file on every boot.";
+}
+
+TEST( AssetPreloadCensus, EverySkyboxBindSiteCanBuildItsOwnEnvironment )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    for ( const auto& site : kSkyboxBindSites )
+    {
+        const std::string source = WithoutComments( ReadFile( root + site.File ) );
+        ASSERT_FALSE( source.empty() ) << "could not read " << site.File;
+
+        // Rule out the empty answer first: a stripper that blanked the file would satisfy nothing below
+        // and pass anyway.
+        ASSERT_NE( source.find( "GetSkyboxService" ), std::string::npos )
+             << site.File << " no longer reaches the skybox service at all, so this check is asserting nothing.";
+
+        EXPECT_NE( source.find( site.Spelling ), std::string::npos )
+             << site.File << " no longer contains '" << site.Spelling
+             << "', so it binds a skybox handle without being able to build that skybox's environment. "
+                "The boot stopped baking every `.hdr` in the project (see "
+                "AssetPreloadCensus.TheSkyboxStageScansWithoutBaking), so this site is now the only "
+                "thing standing between a bound handle and a scene with no sky and no log line. If the "
+                "call was renamed, name the new spelling in kSkyboxBindSites.";
     }
 }
 
