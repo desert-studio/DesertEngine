@@ -20,6 +20,8 @@ namespace Desert::Geometry
                 return "InvalidTriangle";
             case EditResult::InvalidEdge:
                 return "InvalidEdge";
+            case EditResult::InvalidElement:
+                return "InvalidElement";
             case EditResult::DegenerateTriangle:
                 return "DegenerateTriangle";
             case EditResult::DuplicateTriangle:
@@ -34,6 +36,10 @@ namespace Desert::Geometry
                 return "FlipCreatesExistingEdge";
             case EditResult::CollapseBreaksTopology:
                 return "CollapseBreaksTopology";
+            case EditResult::AttributeSeam:
+                return "AttributeSeam";
+            case EditResult::ElementOnOtherVertex:
+                return "ElementOnOtherVertex";
         }
         return "Unknown";
     }
@@ -58,33 +64,68 @@ namespace Desert::Geometry
 
     // ── ID pools ─────────────────────────────────────────────────────────────────────────────────────
 
-    int EditMesh::AllocateId( std::vector<uint8_t>& alive, std::vector<int>& freeList, int& liveCount )
+    int IdPool::Allocate()
     {
-        ++liveCount;
-        if ( !freeList.empty() )
+        ++Live;
+        if ( !Free.empty() )
         {
-            const int id = freeList.back();
-            freeList.pop_back();
-            alive[id] = 1;
+            const int id = Free.back();
+            Free.pop_back();
+            Alive[id] = 1;
             return id;
         }
-        alive.push_back( 1 );
-        return static_cast<int>( alive.size() ) - 1;
+        Alive.push_back( 1 );
+        return static_cast<int>( Alive.size() ) - 1;
     }
 
-    void EditMesh::FreeId( std::vector<uint8_t>& alive, std::vector<int>& freeList, int& liveCount, int id )
+    void IdPool::Release( int id )
     {
-        assert( alive[id] != 0 );
-        alive[id] = 0;
-        freeList.push_back( id );
-        --liveCount;
+        assert( Alive[id] != 0 );
+        Alive[id] = 0;
+        Free.push_back( id );
+        --Live;
+    }
+
+    std::vector<int> IdPool::Compact()
+    {
+        std::vector<int> map( Alive.size(), InvalidId );
+        int              next = 0;
+        for ( size_t id = 0; id < Alive.size(); ++id )
+            if ( Alive[id] != 0 )
+                map[id] = next++;
+        Alive.assign( static_cast<size_t>( next ), 1 );
+        Free.clear();
+        Live = next;
+        return map;
+    }
+
+    Common::BoolResultStr IdPool::Check( const char* kind, size_t payloadSize ) const
+    {
+        using Common::MakeFormattedError;
+        if ( payloadSize != Alive.size() )
+            return MakeFormattedError<bool>( "{}: {} payload slots for {} IDs", kind, payloadSize, Alive.size() );
+        const auto live = static_cast<int>( std::count( Alive.begin(), Alive.end(), uint8_t( 1 ) ) );
+        if ( live != Live )
+            return MakeFormattedError<bool>( "{}: {} live IDs but the count says {}", kind, live, Live );
+        if ( static_cast<size_t>( live ) + Free.size() != Alive.size() )
+            return MakeFormattedError<bool>( "{}: {} live + {} free != {} IDs", kind, live, Free.size(),
+                                             Alive.size() );
+        std::vector<uint8_t> seen( Alive.size(), 0 );
+        for ( const int id : Free )
+        {
+            if ( id < 0 || id >= static_cast<int>( Alive.size() ) || Alive[id] != 0 || seen[id] != 0 )
+                return MakeFormattedError<bool>( "{}: free list holds {} which is out of range, live or repeated",
+                                                 kind, id );
+            seen[id] = 1;
+        }
+        return Common::MakeSuccess( true );
     }
 
     // ── low-level bookkeeping ────────────────────────────────────────────────────────────────────────
 
     int EditMesh::AddEdge( int a, int b )
     {
-        const int e = AllocateId( m_EdgeAlive, m_EdgeFree, m_EdgeLive );
+        const int e = m_EdgePool.Allocate();
         if ( e == static_cast<int>( m_EdgeVertices.size() ) )
         {
             m_EdgeVertices.emplace_back();
@@ -102,7 +143,7 @@ namespace Desert::Geometry
         EraseVertexEdge( m_EdgeVertices[e][0], e );
         EraseVertexEdge( m_EdgeVertices[e][1], e );
         m_EdgeTriangles[e] = { InvalidId, InvalidId };
-        FreeId( m_EdgeAlive, m_EdgeFree, m_EdgeLive, e );
+        m_EdgePool.Release( e );
     }
 
     void EditMesh::AddEdgeTriangle( int e, int t )
@@ -176,11 +217,23 @@ namespace Desert::Geometry
         return 0;
     }
 
+    int EditMesh::AllocateTriangle()
+    {
+        const int t = m_TrianglePool.Allocate();
+        if ( t == static_cast<int>( m_TriangleVertices.size() ) )
+        {
+            m_TriangleVertices.emplace_back();
+            m_TriangleEdges.emplace_back();
+        }
+        m_Attributes.OnTriangleAllocated( t );
+        return t;
+    }
+
     // ── construction ─────────────────────────────────────────────────────────────────────────────────
 
     int EditMesh::AppendVertex( const glm::vec3& position )
     {
-        const int v = AllocateId( m_VertexAlive, m_VertexFree, m_VertexLive );
+        const int v = m_VertexPool.Allocate();
         if ( v == static_cast<int>( m_Positions.size() ) )
         {
             m_Positions.emplace_back();
@@ -219,12 +272,7 @@ namespace Desert::Geometry
             edges[j] = e;
         }
 
-        const int t = AllocateId( m_TriangleAlive, m_TriangleFree, m_TriangleLive );
-        if ( t == static_cast<int>( m_TriangleVertices.size() ) )
-        {
-            m_TriangleVertices.emplace_back();
-            m_TriangleEdges.emplace_back();
-        }
+        const int t = AllocateTriangle();
         for ( int j = 0; j < 3; ++j )
         {
             if ( edges[j] == InvalidId )
@@ -243,18 +291,19 @@ namespace Desert::Geometry
             return EditResult::InvalidTriangle;
 
         const std::array<int, 3> corners = m_TriangleVertices[triangle];
+        m_Attributes.OnRemoveTriangle( triangle );
         for ( const int e : m_TriangleEdges[triangle] )
         {
             RemoveEdgeTriangle( e, triangle );
             if ( m_EdgeTriangles[e][0] == InvalidId )
                 RemoveEdge( e );
         }
-        FreeId( m_TriangleAlive, m_TriangleFree, m_TriangleLive, triangle );
+        m_TrianglePool.Release( triangle );
 
         if ( removeIsolatedVertices )
             for ( const int v : corners )
                 if ( m_VertexEdges[v].empty() )
-                    FreeId( m_VertexAlive, m_VertexFree, m_VertexLive, v );
+                    m_VertexPool.Release( v );
         return EditResult::Ok;
     }
 
@@ -274,6 +323,7 @@ namespace Desert::Geometry
         ReplaceEdgeVertex( edge, v1, f );
         m_EdgeTriangles[edge] = { InvalidId, InvalidId };
 
+        std::array<Detail::SplitSide, 2> sides{};
         out              = {};
         out.OriginalEdge = edge;
         out.NewVertex    = f;
@@ -297,12 +347,8 @@ namespace Desert::Geometry
             const int halfQ = q == v0 ? edge : newEdge;
             const int spoke = AddEdge( f, o );
 
-            const int created = AllocateId( m_TriangleAlive, m_TriangleFree, m_TriangleLive );
-            if ( created == static_cast<int>( m_TriangleVertices.size() ) )
-            {
-                m_TriangleVertices.emplace_back();
-                m_TriangleEdges.emplace_back();
-            }
+            const int created = AllocateTriangle();
+            sides[side]       = { tri, created, j, p == v0 ? t : 1.0f - t };
 
             m_TriangleVertices[tri][Next( j )] = f;
             m_TriangleEdges[tri][j]            = halfP;
@@ -320,6 +366,7 @@ namespace Desert::Geometry
             out.NewTriangles[side] = created;
             out.NewSpokes[side]    = spoke;
         }
+        m_Attributes.OnSplitEdge( sides, f );
         return EditResult::Ok;
     }
 
@@ -341,6 +388,8 @@ namespace Desert::Geometry
         const int d  = m_TriangleVertices[t1][Prev( j1 )];
         if ( c == d || FindEdge( c, d ) != InvalidId )
             return EditResult::FlipCreatesExistingEdge;
+        if ( !m_Attributes.CanFlipEdge( t0, j0, t1, j1 ) )
+            return EditResult::AttributeSeam;
 
         const int ebc = m_TriangleEdges[t0][Next( j0 )];
         const int eca = m_TriangleEdges[t0][Prev( j0 )];
@@ -360,6 +409,7 @@ namespace Desert::Geometry
         m_VertexEdges[c].push_back( edge );
         m_VertexEdges[d].push_back( edge );
         m_EdgeVertices[edge] = Sorted( c, d );
+        m_Attributes.OnFlipEdge( t0, j0, t1, j1 );
 
         out             = {};
         out.Edge        = edge;
@@ -379,14 +429,18 @@ namespace Desert::Geometry
         if ( edge == InvalidId )
             return EditResult::InvalidEdge;
 
-        const std::array<int, 2> tris = m_EdgeTriangles[edge];
-        std::array<int, 2>       opposite{ InvalidId, InvalidId };
+        const std::array<int, 2>            tris = m_EdgeTriangles[edge];
+        std::array<int, 2>                  opposite{ InvalidId, InvalidId };
+        std::array<Detail::CollapseSide, 2> sides{};
         for ( int side = 0; side < 2; ++side )
         {
             const int tri = tris[side];
             if ( tri == InvalidId )
                 continue;
-            opposite[side] = m_TriangleVertices[tri][Prev( EdgeSlot( tri, edge ) )];
+            const int j       = EdgeSlot( tri, edge );
+            opposite[side]    = m_TriangleVertices[tri][Prev( j )];
+            const bool aFirst = m_TriangleVertices[tri][j] == a;
+            sides[side]       = { tri, aFirst ? j : Next( j ), aFirst ? Next( j ) : j };
         }
         if ( opposite[0] == opposite[1] )
             return EditResult::CollapseBreaksTopology;
@@ -430,6 +484,8 @@ namespace Desert::Geometry
             if ( FindTriangle( renamed[0], renamed[1], renamed[2] ) != InvalidId )
                 return EditResult::CollapseBreaksTopology; // the tetrahedron case
         }
+        if ( !m_Attributes.CanCollapseEdge( sides ) )
+            return EditResult::AttributeSeam;
 
         // ── every check passed; from here on nothing is refused ──
         out               = {};
@@ -453,7 +509,7 @@ namespace Desert::Geometry
             if ( beyond != InvalidId )
                 m_TriangleEdges[beyond][EdgeSlot( beyond, ebc )] = eac;
             RemoveEdge( ebc );
-            FreeId( m_TriangleAlive, m_TriangleFree, m_TriangleLive, tri );
+            m_TrianglePool.Release( tri );
 
             out.RemovedTriangles[side] = tri;
             out.RemovedEdges[side]     = ebc;
@@ -469,26 +525,24 @@ namespace Desert::Geometry
         for ( const int be : movedEdges )
             ReplaceEdgeVertex( be, b, a );
 
+        // After the rename, while b's ID is still live: the layers read the removed triangles' elements and
+        // re-home b's elements onto a.
+        m_Attributes.OnCollapseEdge( sides, movedTriangles, a, b, t );
+
         assert( m_VertexEdges[b].empty() );
-        FreeId( m_VertexAlive, m_VertexFree, m_VertexLive, b );
+        m_VertexPool.Release( b );
         return EditResult::Ok;
     }
 
     CompactMaps EditMesh::Compact()
     {
         CompactMaps maps;
-        const auto  buildMap = []( const std::vector<uint8_t>& alive, std::vector<int>& map )
-        {
-            map.assign( alive.size(), InvalidId );
-            int next = 0;
-            for ( size_t id = 0; id < alive.size(); ++id )
-                if ( alive[id] != 0 )
-                    map[id] = next++;
-            return next;
-        };
-        const int vertexCount   = buildMap( m_VertexAlive, maps.Vertices );
-        const int triangleCount = buildMap( m_TriangleAlive, maps.Triangles );
-        const int edgeCount     = buildMap( m_EdgeAlive, maps.Edges );
+        maps.Vertices           = m_VertexPool.Compact();
+        maps.Triangles          = m_TrianglePool.Compact();
+        maps.Edges              = m_EdgePool.Compact();
+        const int vertexCount   = m_VertexPool.Size();
+        const int triangleCount = m_TrianglePool.Size();
+        const int edgeCount     = m_EdgePool.Size();
 
         const auto remap = []( const std::vector<int>& map, int id ) { return id == InvalidId ? id : map[id]; };
 
@@ -537,12 +591,7 @@ namespace Desert::Geometry
         m_TriangleEdges    = std::move( triangleEdges );
         m_EdgeVertices     = std::move( edgeVertices );
         m_EdgeTriangles    = std::move( edgeTriangles );
-        m_VertexAlive.assign( vertexCount, 1 );
-        m_TriangleAlive.assign( triangleCount, 1 );
-        m_EdgeAlive.assign( edgeCount, 1 );
-        m_VertexFree.clear();
-        m_TriangleFree.clear();
-        m_EdgeFree.clear();
+        m_Attributes.OnCompact( maps );
         return maps;
     }
 
@@ -689,47 +738,21 @@ namespace Desert::Geometry
     {
         using Common::MakeFormattedError;
 
-        const auto checkPool = []( const char* kind, const std::vector<uint8_t>& alive, const std::vector<int>& freeList,
-                                   int liveCount, size_t payloadSize ) -> Common::BoolResultStr
-        {
-            if ( payloadSize != alive.size() )
-                return MakeFormattedError<bool>( "{}: {} payload slots for {} IDs", kind, payloadSize, alive.size() );
-            const auto live = static_cast<int>( std::count( alive.begin(), alive.end(), uint8_t( 1 ) ) );
-            if ( live != liveCount )
-                return MakeFormattedError<bool>( "{}: {} live IDs but the count says {}", kind, live, liveCount );
-            if ( static_cast<size_t>( live ) + freeList.size() != alive.size() )
-                return MakeFormattedError<bool>( "{}: {} live + {} free != {} IDs", kind, live, freeList.size(),
-                                                 alive.size() );
-            std::vector<uint8_t> seen( alive.size(), 0 );
-            for ( const int id : freeList )
-            {
-                if ( id < 0 || id >= static_cast<int>( alive.size() ) || alive[id] != 0 || seen[id] != 0 )
-                    return MakeFormattedError<bool>( "{}: free list holds {} which is out of range, live or repeated",
-                                                     kind, id );
-                seen[id] = 1;
-            }
-            return Common::MakeSuccess( true );
-        };
-
-        if ( auto r = checkPool( "vertex", m_VertexAlive, m_VertexFree, m_VertexLive, m_Positions.size() );
-             !r.IsSuccess() )
+        if ( auto r = m_VertexPool.Check( "vertex", m_Positions.size() ); !r.IsSuccess() )
             return r;
-        if ( m_VertexEdges.size() != m_VertexAlive.size() )
+        if ( m_VertexEdges.size() != m_Positions.size() )
             return MakeFormattedError<bool>( "vertex: {} edge lists for {} IDs", m_VertexEdges.size(),
-                                             m_VertexAlive.size() );
-        if ( auto r = checkPool( "triangle", m_TriangleAlive, m_TriangleFree, m_TriangleLive,
-                                 m_TriangleVertices.size() );
-             !r.IsSuccess() )
+                                             m_Positions.size() );
+        if ( auto r = m_TrianglePool.Check( "triangle", m_TriangleVertices.size() ); !r.IsSuccess() )
             return r;
-        if ( m_TriangleEdges.size() != m_TriangleAlive.size() )
+        if ( m_TriangleEdges.size() != m_TriangleVertices.size() )
             return MakeFormattedError<bool>( "triangle: {} edge triples for {} IDs", m_TriangleEdges.size(),
-                                             m_TriangleAlive.size() );
-        if ( auto r = checkPool( "edge", m_EdgeAlive, m_EdgeFree, m_EdgeLive, m_EdgeVertices.size() );
-             !r.IsSuccess() )
+                                             m_TriangleVertices.size() );
+        if ( auto r = m_EdgePool.Check( "edge", m_EdgeVertices.size() ); !r.IsSuccess() )
             return r;
-        if ( m_EdgeTriangles.size() != m_EdgeAlive.size() )
+        if ( m_EdgeTriangles.size() != m_EdgeVertices.size() )
             return MakeFormattedError<bool>( "edge: {} triangle pairs for {} IDs", m_EdgeTriangles.size(),
-                                             m_EdgeAlive.size() );
+                                             m_EdgeVertices.size() );
 
         // Triangles: live distinct corners, and edge j is exactly (corner j, corner j+1) and knows t.
         std::vector<std::array<int, 3>> vertexSets;
@@ -797,11 +820,11 @@ namespace Desert::Geometry
 
         // Vertices: every listed edge is live, touches v, and leads to a distinct neighbour; dead vertices
         // hold nothing.
-        for ( size_t id = 0; id < m_VertexAlive.size(); ++id )
+        for ( size_t id = 0; id < m_Positions.size(); ++id )
         {
             const int   v     = static_cast<int>( id );
             const auto& edges = m_VertexEdges[v];
-            if ( m_VertexAlive[v] == 0 )
+            if ( !IsVertex( v ) )
             {
                 if ( !edges.empty() )
                     return MakeFormattedError<bool>( "dead vertex {} still lists {} edges", v, edges.size() );
@@ -819,6 +842,6 @@ namespace Desert::Geometry
                 return MakeFormattedError<bool>( "vertices {} and {} are joined by more than one edge", v, *dup );
         }
 
-        return Common::MakeSuccess( true );
+        return m_Attributes.CheckValidity( *this );
     }
 } // namespace Desert::Geometry

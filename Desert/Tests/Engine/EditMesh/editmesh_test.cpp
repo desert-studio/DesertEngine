@@ -1,10 +1,11 @@
 #include <gtest/gtest.h>
 
-#include <Engine/Geometry/EditMesh.hpp>
+#include "EditMeshTestSupport.hpp"
 
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <random>
 #include <vector>
@@ -15,68 +16,13 @@ using Desert::Geometry::EditResult;
 using Desert::Geometry::FlipEdgeInfo;
 using Desert::Geometry::InvalidId;
 using Desert::Geometry::SplitEdgeInfo;
+using EditMeshTest::MakeGrid;
+using EditMeshTest::MakeOctahedron;
+using EditMeshTest::Tri;
+using EditMeshTest::Valid;
 
 namespace
 {
-    // gtest prints the invariant CheckValidity names, so a red run says WHICH rule and which IDs.
-    ::testing::AssertionResult Valid( const EditMesh& mesh )
-    {
-        const auto result = mesh.CheckValidity();
-        if ( result.IsSuccess() )
-            return ::testing::AssertionSuccess();
-        return ::testing::AssertionFailure() << result.GetError();
-    }
-
-    int Tri( EditMesh& mesh, int a, int b, int c )
-    {
-        int        t = InvalidId;
-        const auto r = mesh.AppendTriangle( a, b, c, t );
-        EXPECT_EQ( r, EditResult::Ok ) << ToString( r ) << " for (" << a << ", " << b << ", " << c << ")";
-        return t;
-    }
-
-    // n x n quads in the z = 0 plane, every triangle wound counter-clockwise seen from +z.
-    EditMesh MakeGrid( int n, float cell = 100.0f )
-    {
-        EditMesh mesh;
-        for ( int y = 0; y <= n; ++y )
-            for ( int x = 0; x <= n; ++x )
-                mesh.AppendVertex( { x * cell, y * cell, 0.0f } );
-        const int stride = n + 1;
-        for ( int y = 0; y < n; ++y )
-            for ( int x = 0; x < n; ++x )
-            {
-                const int a = y * stride + x;
-                const int b = a + 1;
-                const int c = a + stride;
-                const int d = c + 1;
-                Tri( mesh, a, b, d );
-                Tri( mesh, a, d, c );
-            }
-        return mesh;
-    }
-
-    // A closed octahedron: every edge interior, every vertex manifold.
-    EditMesh MakeOctahedron()
-    {
-        EditMesh  mesh;
-        const int px = mesh.AppendVertex( { 100, 0, 0 } );
-        const int nx = mesh.AppendVertex( { -100, 0, 0 } );
-        const int py = mesh.AppendVertex( { 0, 100, 0 } );
-        const int ny = mesh.AppendVertex( { 0, -100, 0 } );
-        const int pz = mesh.AppendVertex( { 0, 0, 100 } );
-        const int nz = mesh.AppendVertex( { 0, 0, -100 } );
-        Tri( mesh, px, py, pz );
-        Tri( mesh, py, nx, pz );
-        Tri( mesh, nx, ny, pz );
-        Tri( mesh, ny, px, pz );
-        Tri( mesh, py, px, nz );
-        Tri( mesh, nx, py, nz );
-        Tri( mesh, ny, nx, nz );
-        Tri( mesh, px, ny, nz );
-        return mesh;
-    }
-
     glm::vec3 Normal( const EditMesh& mesh, int t )
     {
         const auto& c = mesh.GetTriangle( t );
@@ -106,6 +52,9 @@ namespace
         std::vector<std::array<int, 2>> EdgeTriangles;
         std::vector<glm::vec3>          Positions;
         std::array<int, 6>              Sizes{};
+        // Attribute layers: per live triangle its polygroup, material and every layer's element IDs and
+        // values, then each layer's element counts - so a refusal that touched only a layer is caught too.
+        std::vector<float> Layers;
 
         bool operator==( const Snapshot& ) const = default;
     };
@@ -124,6 +73,36 @@ namespace
             s.Positions.push_back( mesh.GetPosition( v ) );
         s.Sizes = { mesh.VertexCount(), mesh.TriangleCount(), mesh.EdgeCount(),
                     mesh.MaxVertexId(), mesh.MaxTriangleId(), mesh.MaxEdgeId() };
+
+        const auto& attributes = mesh.Attributes();
+        const auto  layer      = [&]( const auto* overlay )
+        {
+            if ( overlay == nullptr )
+                return;
+            for ( const int t : mesh.TriangleIds() )
+                for ( const int e : overlay->GetTriangle( t ) )
+                {
+                    s.Layers.push_back( static_cast<float>( e ) );
+                    if ( e != InvalidId )
+                    {
+                        const auto& value = overlay->GetElement( e );
+                        for ( int i = 0; i < value.length(); ++i )
+                            s.Layers.push_back( value[i] );
+                    }
+                }
+            s.Layers.push_back( static_cast<float>( overlay->ElementCount() ) );
+            s.Layers.push_back( static_cast<float>( overlay->MaxElementId() ) );
+        };
+        for ( const int t : mesh.TriangleIds() )
+        {
+            s.Layers.push_back( static_cast<float>( attributes.GetPolyGroup( t ) ) );
+            s.Layers.push_back( static_cast<float>( attributes.GetMaterialId( t ) ) );
+        }
+        layer( attributes.Normals() );
+        layer( attributes.Tangents() );
+        layer( attributes.Colors() );
+        for ( int i = 0; i < attributes.UVLayerCount(); ++i )
+            layer( attributes.UV( i ) );
         return s;
     }
 
@@ -534,8 +513,139 @@ namespace
     {
         int Applied[6]{};
         int Refused[6]{};
+        int SeamRefused[6]{}; // the share of Refused that was EditResult::AttributeSeam
         int MaxTriangles = 0;
     };
+
+    // ── the attribute oracle ─────────────────────────────────────────────────────────────────────────
+    // A flat grid cut in two by a seam line x = kSeamX. Every layer is a KNOWN function of (side, position),
+    // with side = the triangle's polygroup, so after any edit each set corner can be checked against the
+    // value it must have: linear functions survive split and collapse interpolation exactly (up to float
+    // rounding), and constants survive renormalisation. The layers differ across the line, so it is a seam
+    // in every overlay at once; UV layer 1 is set on side 0 only, a set/unset boundary on the same line.
+    constexpr float kSeamX = 300.0f;
+
+    glm::vec3 SideNormal( int side )
+    {
+        return side == 0 ? glm::vec3( 0, 0, 1 ) : glm::vec3( 0, 0.6f, 0.8f );
+    }
+    glm::vec4 SideTangent( int side )
+    {
+        return side == 0 ? glm::vec4( 1, 0, 0, 1 ) : glm::vec4( 1, 0, 0, -1 );
+    }
+    glm::vec4 SideColor( int side, const glm::vec3& p )
+    {
+        return { p.x * 0.001f, p.y * 0.001f, static_cast<float>( side ), 1.0f };
+    }
+    glm::vec2 SideUV0( int side, const glm::vec3& p )
+    {
+        return glm::vec2( p.x, p.y ) * 0.01f + ( side == 0 ? glm::vec2( 0.0f ) : glm::vec2( 10.0f, 0.0f ) );
+    }
+    glm::vec2 SideUV1( const glm::vec3& p )
+    {
+        return glm::vec2( p.y, p.x ) * 0.02f;
+    }
+
+    void PaintSides( EditMesh& mesh )
+    {
+        auto& attributes = mesh.Attributes();
+        attributes.EnableNormals();
+        attributes.EnableTangents();
+        attributes.EnableColors();
+        ASSERT_TRUE( attributes.SetUVLayerCount( 2 ) );
+
+        // One element per (vertex, side) in each layer: shared inside a side, split across the line.
+        std::vector<std::array<std::array<int, 5>, 2>> elements(
+             static_cast<size_t>( mesh.MaxVertexId() ),
+             { { { InvalidId, InvalidId, InvalidId, InvalidId, InvalidId },
+                 { InvalidId, InvalidId, InvalidId, InvalidId, InvalidId } } } );
+        for ( const int t : mesh.TriangleIds() )
+        {
+            const auto& c = mesh.GetTriangle( t );
+            const float centroid =
+                 ( mesh.GetPosition( c[0] ).x + mesh.GetPosition( c[1] ).x + mesh.GetPosition( c[2] ).x ) / 3.0f;
+            const int side = centroid < kSeamX ? 0 : 1;
+            attributes.SetPolyGroup( t, side );
+            std::array<std::array<int, 3>, 5> tri{};
+            for ( int j = 0; j < 3; ++j )
+            {
+                auto&            el = elements[c[j]][side];
+                const glm::vec3& p  = mesh.GetPosition( c[j] );
+                if ( el[0] == InvalidId )
+                {
+                    el[0] = attributes.Normals()->AppendElement( SideNormal( side ) );
+                    el[1] = attributes.Tangents()->AppendElement( SideTangent( side ) );
+                    el[2] = attributes.Colors()->AppendElement( SideColor( side, p ) );
+                    el[3] = attributes.UV( 0 )->AppendElement( SideUV0( side, p ) );
+                    if ( side == 0 )
+                        el[4] = attributes.UV( 1 )->AppendElement( SideUV1( p ) );
+                }
+                for ( int k = 0; k < 5; ++k )
+                    tri[k][j] = el[k];
+            }
+            ASSERT_EQ( attributes.Normals()->SetTriangle( mesh, t, tri[0] ), EditResult::Ok );
+            ASSERT_EQ( attributes.Tangents()->SetTriangle( mesh, t, tri[1] ), EditResult::Ok );
+            ASSERT_EQ( attributes.Colors()->SetTriangle( mesh, t, tri[2] ), EditResult::Ok );
+            ASSERT_EQ( attributes.UV( 0 )->SetTriangle( mesh, t, tri[3] ), EditResult::Ok );
+            if ( side == 0 )
+                ASSERT_EQ( attributes.UV( 1 )->SetTriangle( mesh, t, tri[4] ), EditResult::Ok );
+        }
+    }
+
+    template <typename V>
+    bool Near( const V& a, const V& b )
+    {
+        for ( int i = 0; i < a.length(); ++i )
+            if ( std::abs( a[i] - b[i] ) > 1e-3f * ( 1.0f + std::abs( b[i] ) ) )
+                return false;
+        return true;
+    }
+
+    ::testing::AssertionResult LayersFollowSides( const EditMesh& mesh )
+    {
+        const auto& attributes = mesh.Attributes();
+        for ( const int t : mesh.TriangleIds() )
+        {
+            const int side = attributes.GetPolyGroup( t );
+            if ( side != 0 && side != 1 )
+                return ::testing::AssertionFailure() << "triangle " << t << " is in group " << side;
+            if ( !attributes.Normals()->IsSetTriangle( t ) || !attributes.UV( 0 )->IsSetTriangle( t ) ||
+                 attributes.UV( 1 )->IsSetTriangle( t ) != ( side == 0 ) )
+                return ::testing::AssertionFailure()
+                       << "triangle " << t << " (side " << side << ") has the wrong set/unset layers";
+            const auto& c = mesh.GetTriangle( t );
+            for ( int j = 0; j < 3; ++j )
+            {
+                const glm::vec3& p  = mesh.GetPosition( c[j] );
+                const auto       at = [&]( const auto* overlay )
+                { return overlay->GetElement( overlay->GetTriangle( t )[j] ); };
+                const bool ok = Near( at( attributes.Normals() ), SideNormal( side ) ) &&
+                                Near( at( attributes.Tangents() ), SideTangent( side ) ) &&
+                                Near( at( attributes.Colors() ), SideColor( side, p ) ) &&
+                                Near( at( attributes.UV( 0 ) ), SideUV0( side, p ) ) &&
+                                ( side == 1 || Near( at( attributes.UV( 1 ) ), SideUV1( p ) ) );
+                if ( !ok )
+                    return ::testing::AssertionFailure()
+                           << "triangle " << t << " corner " << j << " (vertex " << c[j] << " at " << p.x << ", "
+                           << p.y << ", side " << side
+                           << "): a layer value is not the side's function of the position";
+            }
+        }
+        return ::testing::AssertionSuccess();
+    }
+
+    bool OnSeam( const EditMesh& mesh, int v )
+    {
+        int first = InvalidId;
+        for ( const int t : mesh.GetVertexTriangles( v ) )
+        {
+            const int g = mesh.Attributes().GetPolyGroup( t );
+            if ( first != InvalidId && g != first )
+                return true;
+            first = g;
+        }
+        return false;
+    }
 
     template <typename Rng>
     int Pick( const std::vector<int>& ids, Rng& rng )
@@ -543,7 +653,11 @@ namespace
         return ids[std::uniform_int_distribution<size_t>( 0, ids.size() - 1 )( rng )];
     }
 
-    ::testing::AssertionResult Fuzz( EditMesh& mesh, uint32_t seed, int steps, bool topologyOnly, FuzzStats& stats )
+    // layers: the mesh was painted by PaintSides; collapse positions are chosen so the oracle stays exact,
+    // Append is replaced by Remove (a fresh triangle is unset, which the oracle does not model), and the
+    // layers are checked against it after every step.
+    ::testing::AssertionResult Fuzz( EditMesh& mesh, uint32_t seed, int steps, bool topologyOnly, FuzzStats& stats,
+                                     bool layers = false )
     {
         std::mt19937 rng( seed );
         bool         manifold = mesh.IsManifold(); // carried across steps: recomputed only after a change
@@ -573,7 +687,7 @@ namespace
             else if ( topologyOnly )
                 op = roll % 5 == 0 ? Op::Compact : Op::Flip;
             else
-                op = roll % 2 == 0 ? Op::Remove : Op::Append;
+                op = roll % 2 == 0 || layers ? Op::Remove : Op::Append;
 
             const Snapshot before     = Take( mesh );
             const int      euler      = EulerCharacteristic( mesh );
@@ -596,10 +710,30 @@ namespace
                 }
                 case Op::Collapse:
                 {
-                    const auto&      ends = mesh.GetEdgeVertices( Pick( edges, rng ) );
+                    const int        edge = Pick( edges, rng );
+                    const auto&      ends = mesh.GetEdgeVertices( edge );
                     const bool       swap = ( rng() & 1u ) != 0;
+                    const int        keep = ends[swap ? 1 : 0];
+                    const int        gone = ends[swap ? 0 : 1];
+                    float            t    = 0.5f;
+                    if ( layers )
+                    {
+                        // Where the merged vertex may land without leaving any element's value behind: a seam
+                        // vertex's elements are pinned to its position, so it must not move (or the other end
+                        // must move onto it); a collapse ALONG the seam blends both sides' pairs and may land
+                        // anywhere on it. Two seam vertices joined across a side have no such position.
+                        const bool keepSeam = OnSeam( mesh, keep );
+                        const bool goneSeam = OnSeam( mesh, gone );
+                        t                   = std::uniform_real_distribution<float>( 0.0f, 1.0f )( rng );
+                        if ( keepSeam && !goneSeam )
+                            t = 0.0f;
+                        else if ( !keepSeam && goneSeam )
+                            t = 1.0f;
+                        else if ( keepSeam && goneSeam && !mesh.Attributes().IsAttributeSeamEdge( mesh, edge ) )
+                            continue;
+                    }
                     CollapseEdgeInfo info;
-                    result = mesh.CollapseEdge( ends[swap ? 1 : 0], ends[swap ? 0 : 1], 0.5f, info );
+                    result = mesh.CollapseEdge( keep, gone, t, info );
                     break;
                 }
                 case Op::Remove:
@@ -619,6 +753,8 @@ namespace
 
             const int kind = static_cast<int>( op );
             ( result == EditResult::Ok ? stats.Applied : stats.Refused )[kind]++;
+            if ( result == EditResult::AttributeSeam )
+                stats.SeamRefused[kind]++;
 
             if ( const auto valid = mesh.CheckValidity(); !valid.IsSuccess() )
                 return ::testing::AssertionFailure() << "seed " << seed << " step " << step << " op " << kind
@@ -627,6 +763,11 @@ namespace
                 return ::testing::AssertionFailure() << "seed " << seed << " step " << step << " op " << kind
                                                      << " was refused (" << ToString( result )
                                                      << ") but changed the mesh";
+            if ( layers )
+                if ( auto follows = LayersFollowSides( mesh ); !follows )
+                    return ::testing::AssertionFailure()
+                           << "seed " << seed << " step " << step << " op " << kind << " (" << ToString( result )
+                           << "): " << follows.message();
             const bool preserving = op == Op::Split || op == Op::Flip || op == Op::Collapse || op == Op::Compact;
             if ( result == EditResult::Ok && preserving )
             {
@@ -704,6 +845,32 @@ TEST( EditMeshFuzz, EveryOperationIncludingRemoveAndAppend )
     EXPECT_GT( stats.Applied[static_cast<int>( Op::Remove )], 100 );
     EXPECT_GT( stats.Applied[static_cast<int>( Op::Append )], 20 );
     EXPECT_GT( stats.Refused[static_cast<int>( Op::Append )], 100 );
+}
+
+// The same fuzz with every layer painted: after each step the structure (CheckValidity now covers the
+// layers: parents, reference counts, set/unset, slot counts) AND every value against the oracle.
+TEST( EditMeshFuzz, AttributeLayersFollowEveryOperation )
+{
+    FuzzStats stats;
+    for ( uint32_t seed = 2000; seed <= 2007; ++seed )
+    {
+        EditMesh mesh = MakeGrid( 6 );
+        PaintSides( mesh );
+        ASSERT_TRUE( Valid( mesh ) );
+        ASSERT_TRUE( LayersFollowSides( mesh ) );
+        EXPECT_TRUE( Fuzz( mesh, seed, 1200, seed % 2 == 0, stats, true ) );
+    }
+    Report( "attribute layers", stats );
+    std::printf( "[ fuzz ] attribute layers: AttributeSeam refusals flip %d collapse %d\n",
+                 stats.SeamRefused[static_cast<int>( Op::Flip )],
+                 stats.SeamRefused[static_cast<int>( Op::Collapse )] );
+    for ( const Op op : { Op::Split, Op::Flip, Op::Collapse } )
+        EXPECT_GT( stats.Applied[static_cast<int>( op )], 500 ) << static_cast<int>( op );
+    EXPECT_GT( stats.Applied[static_cast<int>( Op::Remove )], 50 );
+    EXPECT_GT( stats.Applied[static_cast<int>( Op::Compact )], 20 );
+    // Evidence the flip rule was reached, not just the easy interior. (This seam crosses the whole grid, so
+    // it has no interior END and the collapse refusal cannot fire here; SeamEndCollapseIsRefused covers it.)
+    EXPECT_GT( stats.SeamRefused[static_cast<int>( Op::Flip )], 20 );
 }
 
 int main( int argc, char** argv )

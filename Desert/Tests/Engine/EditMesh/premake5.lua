@@ -11,6 +11,10 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshNormals.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshPolyGroups.cpp",
     }
 
     includedirs {
