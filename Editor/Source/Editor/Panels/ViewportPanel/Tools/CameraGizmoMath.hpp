@@ -29,7 +29,11 @@ namespace Desert::Editor::Tools
     // is where that decision lives, alone and testable.
     //
     // WHAT WE TOOK FROM UE AND WHAT WE DID NOT. Taken: the apex is the camera, the shape says which way
-    // it looks and how wide, and an up marker says which way is up so roll is visible. Not taken: UE's
+    // it looks and how wide, and roll is read off the frame itself — the rectangle has the viewport's
+    // aspect, so it is not square and a roll turns its long edge. An earlier version drew a triangle
+    // above the top edge as an "up marker"; the owner read it as a stray shape INSIDE the camera's line
+    // of sight, and UE draws none, so it was removed (the one thing it added — telling a 180-degree
+    // roll from none — is not worth a mark that reads as a defect). Not taken: UE's
     // world-sized frustum drawn to a fixed distance — it is precisely the thing that stops being
     // legible when you move — and its separate near rectangle.
     //
@@ -51,10 +55,6 @@ namespace Desert::Editor::Tools
         // Bottom-left, bottom-right, top-right, top-left of the rectangle the edges reach, in world
         // space, wound so that consecutive entries share an edge.
         glm::vec3 FarCorners[4]{};
-
-        // The roll marker: a triangle sitting on top of the far rectangle, apex along the camera's up
-        // axis. Two cameras that differ only in roll are indistinguishable without it.
-        glm::vec3 UpMarker[3]{};
 
         // How far down the camera's forward axis FarCorners sit, in world units.
         float Depth = 0.0f;
@@ -108,7 +108,7 @@ namespace Desert::Editor::Tools
      * @param world       the camera entity's WORLD transform (parents composed). Its translation is the
      *                    apex; columns 0/1/2 are its right/up/backward axes, which is where roll comes
      *                    from — taking the axes from the matrix rather than rebuilding them from a
-     *                    forward vector and a global up is what makes the up marker mean anything.
+     *                    forward vector and a global up is what makes the frame turn with roll.
      * @param aspect      width / height of the rectangle. The camera component stores no aspect of its
      *                    own, so the caller passes the viewport's; the gizmo then shows the frame the
      *                    editor would actually render through this camera.
@@ -140,12 +140,6 @@ namespace Desert::Editor::Tools
         out.FarCorners[1] = centre + right * halfWidth - up * halfHeight;
         out.FarCorners[2] = centre + right * halfWidth + up * halfHeight;
         out.FarCorners[3] = centre - right * halfWidth + up * halfHeight;
-
-        // The marker sits on the TOP edge and points further up, so it cannot be confused with a corner.
-        const float markerHalf = halfWidth * 0.25f;
-        out.UpMarker[0]        = centre + up * halfHeight - right * markerHalf;
-        out.UpMarker[1]        = centre + up * halfHeight + right * markerHalf;
-        out.UpMarker[2]        = centre + up * ( halfHeight + markerHalf * 1.5f );
 
         return out;
     }

@@ -4,6 +4,7 @@
 #include <Common/Core/Events/KeyEvents.hpp>
 #include <Common/Core/Events/MouseEvents.hpp>
 #include <Engine/Core/Application.hpp>
+#include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/EditorCameraBasis.hpp>
 #include <Engine/Core/Projection.hpp>
 
@@ -152,6 +153,47 @@ namespace Desert::Core
         // CURRENT view direction to `distance`. Drives F-focus and hierarchy double-click.
         void Focus( const glm::vec3& point, float distance = 500.0f );
 
+        // ── PILOTING A CAMERA ENTITY ──────────────────────────────────────────────────────────────
+        //
+        // The editor's Pilot mode (Editor/Panels/ViewportPanel/CameraPilot.hpp) locks this camera to a
+        // scene camera and writes the result of flying back into it. It needs four things the orbit did
+        // not have, and nothing else in the editor uses them:
+
+        // Stand EXACTLY at @p position looking along @p basis, roll included. Held as an axis view so the
+        // pitch clamp does not bend a steep camera, and the roll is kept through the next rotation (the
+        // orbit applies it about the forward axis), so turning a rolled camera does not flatten it. The
+        // damping deltas are left alone on purpose: a flight in progress keeps its inertia.
+        void PlaceAt( const glm::vec3& position, const ViewBasis& basis );
+
+        // Where the camera looks and which way is up, whichever model is driving it.
+        [[nodiscard]] ViewBasis GetBasis() const
+        {
+            return CurrentBasis();
+        }
+
+        // Exact lens: the plain vertical-FOV projection (Camera::UpdateProjectionMatrix) instead of the
+        // height-anchored editor one, so FOV means what it means on the camera component.
+        void SetExactLens( bool exact );
+
+        // Everything a pilot session changes, so Eject can put the viewport back where it was.
+        struct Pose
+        {
+            glm::vec3                Position{ 0.0f };
+            glm::vec3                FocalPoint{ 0.0f };
+            float                    Distance = 0.0f;
+            float                    Yaw      = 0.0f;
+            float                    Pitch    = 0.0f;
+            float                    Roll     = 0.0f;
+            std::optional<ViewBasis> AxisView;
+            float                    FOV        = 45.0f;
+            float                    NearPlane  = kDefaultNearPlane;
+            float                    FarPlane   = kDefaultFarPlane;
+            ProjectionType           Projection = ProjectionType::Perspective;
+            bool                     ExactLens  = false;
+        };
+        [[nodiscard]] Pose CapturePose() const;
+        void               RestorePose( const Pose& pose );
+
     private:
         bool OnKeyPress( Common::KeyPressedEvent& e );
         bool OnMouseMove( Common::MouseMovedEvent& e );
@@ -185,6 +227,13 @@ namespace Desert::Core
         // is stale by construction and nothing may read it — CurrentBasis() is what every reader asks.
         std::optional<ViewBasis> m_AxisView;
 
+        // Radians about the forward axis, applied to the ORBIT's up (RollFreeUp). Zero except while a
+        // pilot session has placed the camera on a rolled entity; every named direction resets it.
+        float m_Roll = 0.0f;
+
+        // SetExactLens: plain vertical FOV while piloting (see UpdateProjectionMatrix).
+        bool m_ExactLens = false;
+
         float m_MovementSpeed = 1.0f; // multiplies the base fly speed (user-adjustable)
 
         // OFF until a viewport claims this camera (ViewportPanel sets it every frame from its hover state).
@@ -203,7 +252,12 @@ namespace Desert::Core
     public:
         GameplayCamera() = default;
 
-        // Set from the entity's world position + rotation (Euler radians) and the component params.
+        // Set from what the camera entity sees (CameraEntityViewOf) at the viewport's size. It used to
+        // take Euler angles that Play mode derived with glm::quat_cast from a SCALED world matrix; the
+        // view is now read from the matrix's normalised axes, the same function the editor's pilot uses.
+        void SetView( const CameraEntityView& view, uint32_t width, uint32_t height );
+
+        // The previews' spelling (an orbit given as Euler radians); builds the same view and calls SetView.
         void SetFromTransform( const glm::vec3& position, const glm::vec3& eulerRotation, float fovDegrees,
                                float nearPlane, float farPlane, uint32_t width, uint32_t height );
     };

@@ -873,6 +873,11 @@ namespace Desert::Editor
             const glm::vec3 worldPos = glm::vec3( worldXf[3] );
             const bool      selected = IsSelected( entity );
 
+            // The viewer is standing inside this camera — a viewport piloting it. Every edge would pass
+            // through the eye and the icon would cover the whole view, so there is nothing to draw.
+            if ( glm::length( worldPos - camera->GetPosition() ) < 1.0f )
+                continue;
+
             // ── THE WIREFRAME ───────────────────────────────────────────────────────────────────────
             //
             // Built by Tools/CameraGizmoMath.hpp, which is where the whole account of what was wrong
@@ -903,8 +908,6 @@ namespace Desert::Editor
                 line( frustum.Apex, frustum.FarCorners[i] ); // the edges, FROM the camera itself
                 line( frustum.FarCorners[i], frustum.FarCorners[( i + 1 ) % 4] ); // the rectangle
             }
-            for ( int i = 0; i < 3; ++i )
-                line( frustum.UpMarker[i], frustum.UpMarker[( i + 1 ) % 3] ); // which way is up
 
             // Billboard icon at the camera position.
             glm::vec2 screenPos;

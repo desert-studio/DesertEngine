@@ -2,6 +2,7 @@
 // metadata (PropertyEditorBuilder) — no widget class, no edit to ComponentEditor. To expose a new
 // reflected component in the editor, copy one line below.
 
+#include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/UI/UIAnchorControls.hpp>
 #include <Editor/Core/DragPayloads.hpp>
@@ -563,27 +564,35 @@ namespace Desert::Editor
             ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
                  "The same setting as Field of View, in 35mm-equivalent lens terms (24mm sensor height)." );
 
-            // "Look through": the editor camera is moved to this camera's transform instead of the
-            // viewport being handed over — nothing about the scene's active camera changes, so leaving
-            // is just moving the view again.
-            if ( scene && en.HasComponent<::Desert::ECS::TransformComponent>() )
+            // PILOT, AS IN UE: the viewport locks to this camera and shows exactly what it sees — and keeps
+            // showing it, so the FOV above moves the view the moment it is dragged. It replaced a one-off
+            // jump of the editor camera that carried neither roll nor lens (CameraPilot.hpp).
+            if ( scene && en.HasComponent<::Desert::ECS::TransformComponent>() &&
+                 en.HasComponent<::Desert::ECS::UUIDComponent>() )
             {
-                if ( ImGui::Button( ICON_MDI_EYE "  Look through this camera", ImVec2( -1.0f, 0.0f ) ) )
+                const auto uuid = en.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
+                if ( ::Desert::Editor::IsPiloted( uuid ) )
                 {
-                    if ( auto* editorCam =
-                              dynamic_cast<::Desert::Core::EditorCamera*>( scene->GetActiveCamera().get() ) )
+                    if ( ImGui::Button( ICON_MDI_EJECT "  Eject", ImVec2( -1.0f, 0.0f ) ) )
                     {
-                        const glm::mat4 world    = en.GetWorldTransform();
-                        const glm::vec3 position = glm::vec3( world[3] );
-                        const glm::vec3 forward  = -glm::normalize( glm::vec3( world[2] ) );
-
-                        // Focus() backs the camera off along its CURRENT direction, so aim first.
-                        editorCam->SnapToDirection( forward );
-                        editorCam->Focus( position + forward * 100.0f, 100.0f );
+                        if ( const auto ejected = ::Desert::Editor::EjectPilot(); !ejected )
+                            LOG_WARN( "[Camera] eject refused: {}", ejected.GetError() );
                     }
+                    ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                         "Stop piloting: the viewport returns to where it was before." );
                 }
-                ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
-                     "Moves the EDITOR camera to this camera's position and orientation" );
+                else
+                {
+                    if ( ImGui::Button( ICON_MDI_EYE "  Pilot (look through this camera)",
+                                        ImVec2( -1.0f, 0.0f ) ) )
+                    {
+                        if ( const auto piloted = ::Desert::Editor::PilotCameraEntity( uuid ); !piloted )
+                            LOG_WARN( "[Camera] pilot refused: {}", piloted.GetError() );
+                    }
+                    ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                         "Locks the viewport to this camera: it shows exactly what the camera sees (FOV, roll,\n"
+                         "near/far), and flying the viewport moves the camera. Eject returns the viewport." );
+                }
             }
         };
         return e;

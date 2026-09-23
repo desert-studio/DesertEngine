@@ -13,6 +13,7 @@
 
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 
+#include "CameraPilot.hpp"
 #include "LightGizmoRenderer.hpp"
 #include "ViewportCameraPreset.hpp"
 #include "PerfHudOverlay.hpp"
@@ -151,6 +152,15 @@ namespace Desert::Editor
         // toolbar and the palette mean "the viewport I am working in"; the grid builder means "the
         // third pane", which it knows by scene-view id and could not name any other way — an index
         // into the live list is a different window the moment one closes (SceneViewIdentity.hpp).
+        // ── PILOT / EJECT (CameraPilot.hpp) ────────────────────────────────────────────────────────
+        //
+        // The viewport the user is working in pilots @p entity; refuses with a reason (no viewport, the
+        // scene is playing, not a camera). RequestEject ends every pilot session: there is one Eject
+        // button per piloting viewport, and the palette's "Eject" means "stop looking through cameras".
+        NO_DISCARD static Common::BoolResultStr RequestPilot( const Common::UUID& entity );
+        NO_DISCARD static Common::BoolResultStr RequestEject();
+        NO_DISCARD static bool                  IsPilotingAnywhere( const Common::UUID& entity );
+
         NO_DISCARD static Common::BoolResultStr RequestCameraPreset( ViewportCameraPreset preset );
         NO_DISCARD static Common::BoolResultStr SetCameraPreset( uint64_t sceneViewId, ViewportCameraPreset preset );
 
@@ -214,6 +224,9 @@ namespace Desert::Editor
         // which way world X/Y/Z point in the current view. Overlay only — pure ImGui, no scene interaction.
         void DrawViewAxisGizmo( const glm::vec2& viewportPos, const glm::vec2& viewportSize );
 
+        // "Piloting: <name>" + Eject, top-left of the image, while m_Pilot is active.
+        void DrawPilotOverlay();
+
         // Draws the active scene's UICanvas over the viewport + (for a selected UI element) a selection marquee
         // and 8 drag/resize handles, and applies mouse drag to its UILayout offsets. In-scene UI editing.
         void DrawUIInScene();
@@ -235,6 +248,11 @@ namespace Desert::Editor
         // True while the cursor is over the corner view-axis gizmo — set in DrawViewAxisGizmo, read in
         // OnMousePressed to suppress scene picking (a click there snaps the camera, it doesn't select).
         bool m_ViewAxisGizmoHovered = false;
+
+        // Pilot/Eject session of THIS viewport, and whether the cursor is on its overlay (the Eject
+        // button must not also pick the object behind it).
+        CameraPilot m_Pilot;
+        bool        m_PilotOverlayHovered = false;
 
         // WHAT THIS ONE VIEWPORT IS DOING — not what the user has chosen to see. 2D UI-editing mode
         // (toolbar "2D") hides the grid and the orientation triad so a screen-space canvas reads like a UI
