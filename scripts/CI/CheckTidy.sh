@@ -245,10 +245,44 @@ print(" ".join(f for f in changed if f.endswith((".cpp", ".mm")) and f not in db
 COVERED=$(printf '%s\n' "$COUNTS" | sed -n 1p)
 ORPHANS=$(printf '%s\n' "$COUNTS" | sed -n 2p)
 echo "changed C++ files vs $BASE: $N_CHANGED, of which $COVERED are translation units in the database"
-if [ -n "$ORPHANS" ]; then
+
+# A THIRD CAUSE OF ABSENCE, AND THE MESSAGE BELOW USED TO BLAME THE WRONG TWO.
+#
+# `Desert/Common/premake5.lua:99` carries `filter { "system:not windows" } removefiles
+# { "Source/Common/Platform/Windows/**" }`, and this gate runs on macOS by deliberate design. So a
+# Windows-only source can NEVER appear in this database: it is not "premake was not re-run" and not
+# "missing from a premake5.lua" — this platform does not compile that file, by construction, and no
+# amount of re-running changes it.
+#
+# The gate already separates "I found violations" from "I could not run". This is the distinction one
+# level finer — "I could not run HERE" — and it is the same split RepoOnlyIncludes.sh needed on the
+# same day, for its submodule half. "Cannot answer here" and "answered no" must not share an exit
+# code, or a platform's files become unreviewable the moment anyone touches them.
+#
+# NAMED, NOT SILENT. A silent skip is how coverage disappears: this project spent a day undoing a
+# gate that skipped Windows and macOS entirely while looking like an ordinary red. These files are
+# listed on every run, so the hole is visible in the log rather than inferred from its absence.
+PLATFORM_FOREIGN=""
+TRUE_ORPHANS=""
+for f in $ORPHANS; do
+    case "$f" in
+        */Platform/Windows/*|*/Platform/Linux/*) PLATFORM_FOREIGN="$PLATFORM_FOREIGN $f" ;;
+        *)                                       TRUE_ORPHANS="$TRUE_ORPHANS $f" ;;
+    esac
+done
+
+if [ -n "$PLATFORM_FOREIGN" ]; then
+    echo "clang-tidy: NOT ANALYSABLE ON THIS RUNNER — these sources belong to a platform this host"
+    echo "does not compile, so premake removed them from the build and they cannot be in the database:"
+    printf '    %s\n' $PLATFORM_FOREIGN
+    echo "They are skipped, not passed. Re-running premake will not change this; only running the gate"
+    echo "on that platform would. This is a GAP IN COVERAGE, stated rather than hidden."
+fi
+
+if [ -n "$TRUE_ORPHANS" ]; then
     echo "clang-tidy: these changed sources are in NO premake project, so nothing compiles them and" >&2
     echo "the gate cannot know their flags:" >&2
-    printf '    %s\n' $ORPHANS >&2
+    printf '    %s\n' $TRUE_ORPHANS >&2
     echo "Re-generate with 'CI=true premake5 gmake2' — test projects exist only with CI set or" >&2
     echo "--with-tests. If a file is still absent afterwards, it is missing from a premake5.lua and" >&2
     echo "is not being built at all. This is an environment failure, NOT an analysis finding." >&2
@@ -263,7 +297,15 @@ fi
 
 # -p1 because `git diff` prefixes a/ and b/. -W ignore silences Python 3.13+ SyntaxWarnings about
 # LLVM 18's own unescaped regex literals, which are not ours to fix and bury the real output.
-OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' '*.mm' '*.h' \
+# The skipped files are excluded from the DIFF as well, not only from the count: clang-tidy-diff.py
+# would otherwise interpolate another project's flags for them, which is the trap documented above --
+# it yields clang-diagnostic-errors that WarningsAsErrors reports as findings about your code.
+EXCLUDE_PATHSPEC=""
+for f in $PLATFORM_FOREIGN; do
+    EXCLUDE_PATHSPEC="$EXCLUDE_PATHSPEC :(exclude)${f#$ROOT/}"
+done
+
+OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' '*.mm' '*.h' $EXCLUDE_PATHSPEC \
       | python3 -W ignore "$DIFFPY" -clang-tidy-binary "$TIDY" -p1 -path "$ROOT" -j "$JOBS" \
                 -quiet ${EXTRA[@]+"${EXTRA[@]}"} 2>&1)
 RC=$?
