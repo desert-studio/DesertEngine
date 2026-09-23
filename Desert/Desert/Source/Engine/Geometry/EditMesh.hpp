@@ -1,6 +1,7 @@
 #pragma once
 
-#include <Common/Core/ResultStr.hpp>
+#include "EditMeshAttributes.hpp"
+#include "EditMeshTypes.hpp"
 
 #include <glm/vec3.hpp>
 
@@ -16,9 +17,11 @@ namespace Desert::Geometry
     // DynamicMesh (Engine/Geometry/DynamicMesh.hpp) is a RENDER buffer: it has vertices and an index list
     // and nothing else, so every modeling tool that needs "the triangle across this edge" has to re-derive
     // it (PolyEditTool floods coplanar triangles on every click for exactly this reason). EditMesh is the
-    // structure those tools stand on. It is plain CPU data - no GPU, no ECS, no attributes: attribute
-    // layers, polygroups and material IDs are a separate layer on top (M3), and conversion to the render
-    // buffer lives there too.
+    // structure those tools stand on. It is plain CPU data - no GPU, no ECS. Attribute layers (normals,
+    // tangents, colours, UV channels as overlays with seams), polygroups and material IDs live in the
+    // EditMeshAttributes it OWNS (EditMeshAttributes.hpp): every edit below updates them in the same call,
+    // and refuses with EditResult::AttributeSeam where the attribute outcome would be meaningless.
+    // Conversion to and from the render buffer is EditMeshConversion.hpp.
     //
     // THE SHAPE IS UE's FDynamicMesh3, re-implemented rather than ported. It was measured before choosing:
     // the port would have been ~7.4k lines (DynamicMesh3.h/.cpp/_Edits/_Queries + DynamicVector,
@@ -37,32 +40,13 @@ namespace Desert::Geometry
     //   * an edge carries AT MOST TWO triangles, and the two traverse it in opposite directions. This is
     //     enforced at AppendTriangle (refused, never repaired), so every edit operation can rely on it.
     //     Vertices may still be non-manifold (a "bowtie": two triangle fans meeting at one vertex); that is
-    //     legal and IsManifold() reports it - the importers of M3 need to represent it.
+    //     legal and IsManifold() reports it - FromRenderMesh (EditMeshConversion.hpp) welds them from real data.
     //
     // Operations do not repair or guess: an edit that would break an invariant is REFUSED with a named
     // result and leaves the mesh untouched. CheckValidity() verifies every invariant from scratch.
     //
     // Units: positions are world-space centimetres like everything else in the engine; the topology does
     // not read them.
-
-    inline constexpr int InvalidId = -1;
-
-    enum class EditResult : uint8_t
-    {
-        Ok,
-        InvalidVertex,           // an argument names a vertex that does not exist
-        InvalidTriangle,         // ... a triangle that does not exist
-        InvalidEdge,             // ... an edge that does not exist (or the two vertices share none)
-        DegenerateTriangle,      // two corners of a new triangle are the same vertex
-        DuplicateTriangle,       // a triangle over the same three vertices already exists
-        NonManifoldEdge,         // the edit would put a third triangle on an edge
-        InconsistentOrientation, // the edit would put two triangles on an edge in the SAME direction
-        BoundaryEdge,            // FlipEdge on an edge with one triangle: there is nothing to flip towards
-        FlipCreatesExistingEdge, // FlipEdge: the other diagonal already exists, the flip would duplicate it
-        CollapseBreaksTopology,  // CollapseEdge: link condition / pinch / ear / tetrahedron - see CollapseEdge
-    };
-
-    [[nodiscard]] const char* ToString( EditResult result );
 
     struct SplitEdgeInfo
     {
@@ -91,73 +75,9 @@ namespace Desert::Geometry
         std::array<int, 2> KeptEdges{ InvalidId, InvalidId };             // the edge it merged into, per side
     };
 
-    // Old ID -> new ID for every element kind; a removed/hole ID maps to InvalidId.
-    struct CompactMaps
-    {
-        std::vector<int> Vertices;
-        std::vector<int> Triangles;
-        std::vector<int> Edges;
-    };
-
     class EditMesh
     {
     public:
-        // Iterates the LIVE IDs of one element kind, skipping holes. Invalidated by any edit.
-        class IdRange
-        {
-        public:
-            class Iterator
-            {
-            public:
-                Iterator( std::span<const uint8_t> alive, int id ) : m_Alive( alive ), m_Id( id )
-                {
-                    SkipDead();
-                }
-                int operator*() const
-                {
-                    return m_Id;
-                }
-                Iterator& operator++()
-                {
-                    ++m_Id;
-                    SkipDead();
-                    return *this;
-                }
-                bool operator==( const Iterator& other ) const
-                {
-                    return m_Id == other.m_Id;
-                }
-                bool operator!=( const Iterator& other ) const
-                {
-                    return m_Id != other.m_Id;
-                }
-
-            private:
-                void SkipDead()
-                {
-                    while ( m_Id < static_cast<int>( m_Alive.size() ) && m_Alive[m_Id] == 0 )
-                        ++m_Id;
-                }
-                std::span<const uint8_t> m_Alive;
-                int                      m_Id;
-            };
-
-            explicit IdRange( std::span<const uint8_t> alive ) : m_Alive( alive )
-            {
-            }
-            [[nodiscard]] Iterator begin() const
-            {
-                return Iterator( m_Alive, 0 );
-            }
-            [[nodiscard]] Iterator end() const
-            {
-                return Iterator( m_Alive, static_cast<int>( m_Alive.size() ) );
-            }
-
-        private:
-            std::span<const uint8_t> m_Alive;
-        };
-
         // ── construction ─────────────────────────────────────────────────────────────────────────────
         int AppendVertex( const glm::vec3& position );
 
@@ -175,7 +95,9 @@ namespace Desert::Geometry
         [[nodiscard]] EditResult SplitEdge( int edge, float t, SplitEdgeInfo& out );
 
         // Replaces the edge between two triangles with the other diagonal of their quad. Refused on a
-        // boundary edge and when the other diagonal already exists.
+        // boundary edge and when the other diagonal already exists. Refused with AttributeSeam when the two
+        // triangles differ in polygroup or material, or the edge is a seam of any overlay (including one
+        // side set and the other not): the flip would hand part of one side's area to the other.
         [[nodiscard]] EditResult FlipEdge( int edge, FlipEdgeInfo& out );
 
         // Merges removeVertex into keepVertex (they must share an edge), moving keepVertex to
@@ -188,64 +110,68 @@ namespace Desert::Geometry
         //   * a triangle on the edge has both other edges on the boundary (an "ear": its two edges would
         //     merge into an edge with no triangle);
         //   * the two opposite corners are the same vertex, or a renamed triangle would duplicate one that
-        //     exists (the tetrahedron case).
+        //     exists (the tetrahedron case);
+        //   * (AttributeSeam) the edge is a seam END in some overlay - split at one end only. Collapsing it
+        //     either merges two sides of a seam that continues elsewhere or needs an arbitrary split; a
+        //     seam split at BOTH ends collapses fine, each side blending its own pair of elements.
+        // Polygroup and material boundaries are not refused: they move with the vertex, like the geometry.
         [[nodiscard]] EditResult CollapseEdge( int keepVertex, int removeVertex, float t, CollapseEdgeInfo& out );
 
-        // Renumbers every element densely in ascending old-ID order and drops the holes. The ONLY
-        // operation that changes surviving IDs.
+        // Renumbers every element (overlay elements included) densely in ascending old-ID order and drops
+        // the holes. The ONLY operation that changes surviving IDs.
         CompactMaps Compact();
 
         // ── queries ──────────────────────────────────────────────────────────────────────────────────
         [[nodiscard]] bool IsVertex( int v ) const
         {
-            return v >= 0 && v < static_cast<int>( m_VertexAlive.size() ) && m_VertexAlive[v] != 0;
+            return m_VertexPool.Contains( v );
         }
         [[nodiscard]] bool IsTriangle( int t ) const
         {
-            return t >= 0 && t < static_cast<int>( m_TriangleAlive.size() ) && m_TriangleAlive[t] != 0;
+            return m_TrianglePool.Contains( t );
         }
         [[nodiscard]] bool IsEdge( int e ) const
         {
-            return e >= 0 && e < static_cast<int>( m_EdgeAlive.size() ) && m_EdgeAlive[e] != 0;
+            return m_EdgePool.Contains( e );
         }
 
         [[nodiscard]] int VertexCount() const
         {
-            return m_VertexLive;
+            return m_VertexPool.Live;
         }
         [[nodiscard]] int TriangleCount() const
         {
-            return m_TriangleLive;
+            return m_TrianglePool.Live;
         }
         [[nodiscard]] int EdgeCount() const
         {
-            return m_EdgeLive;
+            return m_EdgePool.Live;
         }
         // One past the highest ID ever handed out: the size an array indexed by ID must have.
         [[nodiscard]] int MaxVertexId() const
         {
-            return static_cast<int>( m_VertexAlive.size() );
+            return m_VertexPool.Size();
         }
         [[nodiscard]] int MaxTriangleId() const
         {
-            return static_cast<int>( m_TriangleAlive.size() );
+            return m_TrianglePool.Size();
         }
         [[nodiscard]] int MaxEdgeId() const
         {
-            return static_cast<int>( m_EdgeAlive.size() );
+            return m_EdgePool.Size();
         }
 
         [[nodiscard]] IdRange VertexIds() const
         {
-            return IdRange( m_VertexAlive );
+            return m_VertexPool.Ids();
         }
         [[nodiscard]] IdRange TriangleIds() const
         {
-            return IdRange( m_TriangleAlive );
+            return m_TrianglePool.Ids();
         }
         [[nodiscard]] IdRange EdgeIds() const
         {
-            return IdRange( m_EdgeAlive );
+            return m_EdgePool.Ids();
         }
 
         // The accessors below take a LIVE ID; passing anything else is a caller defect, checked by assert.
@@ -275,12 +201,22 @@ namespace Desert::Geometry
         // No bowtie vertex. (Edges are manifold by construction.)
         [[nodiscard]] bool IsManifold() const;
 
-        // Verifies every structural invariant from scratch and names the first one broken, with IDs.
+        // ── attributes ───────────────────────────────────────────────────────────────────────────────
+        [[nodiscard]] EditMeshAttributes& Attributes()
+        {
+            return m_Attributes;
+        }
+        [[nodiscard]] const EditMeshAttributes& Attributes() const
+        {
+            return m_Attributes;
+        }
+
+        // Verifies every structural invariant from scratch, attribute layers included, and names the first
+        // one broken, with IDs.
         [[nodiscard]] Common::BoolResultStr CheckValidity() const;
 
     private:
-        static int AllocateId( std::vector<uint8_t>& alive, std::vector<int>& freeList, int& liveCount );
-        static void FreeId( std::vector<uint8_t>& alive, std::vector<int>& freeList, int& liveCount, int id );
+        int AllocateTriangle();
 
         int  AddEdge( int a, int b );
         void RemoveEdge( int e );
@@ -300,14 +236,10 @@ namespace Desert::Geometry
         std::vector<std::array<int, 2>> m_EdgeVertices;
         std::vector<std::array<int, 2>> m_EdgeTriangles;
 
-        std::vector<uint8_t> m_VertexAlive;
-        std::vector<uint8_t> m_TriangleAlive;
-        std::vector<uint8_t> m_EdgeAlive;
-        std::vector<int>     m_VertexFree;
-        std::vector<int>     m_TriangleFree;
-        std::vector<int>     m_EdgeFree;
-        int                  m_VertexLive   = 0;
-        int                  m_TriangleLive = 0;
-        int                  m_EdgeLive     = 0;
+        IdPool m_VertexPool;
+        IdPool m_TrianglePool;
+        IdPool m_EdgePool;
+
+        EditMeshAttributes m_Attributes;
     };
 } // namespace Desert::Geometry
