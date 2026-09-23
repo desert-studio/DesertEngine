@@ -20,6 +20,9 @@ namespace Desert::ECS
     // OnUpdate(dt) per frame. Also owns the per-frame INPUT plumbing the scripts read — cursor capture and the
     // mouse delta — which used to live in PhysicsECSSystem (it now only executes the move intent the scripts
     // set). Left Alt toggles the cursor free so you can click Stop / the editor UI.
+    // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: it runs gameplay Lua and owns the frame's cursor
+    // capture. A hidden entity whose script stops running is a behaviour change, not a drawing one.
+    // Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
     class ScriptSystem final : public System
     {
     public:

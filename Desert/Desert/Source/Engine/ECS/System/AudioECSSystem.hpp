@@ -16,6 +16,9 @@ namespace Desert::ECS
     // camera. On the Play->Edit transition every source stops — Edit mode is silent, matching how
     // physics/scripts freeze. The system OWNS the runtime source ids (the component stays pure data,
     // so Play never dirties the authored scene).
+    // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: sound is not a picture. An ambience emitter carries
+    // no mesh at all, so hiding one in the outliner to declutter the scene would silently mute the level.
+    // Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
     class AudioECSSystem final : public System
     {
     public:

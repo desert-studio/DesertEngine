@@ -3,6 +3,7 @@
 #include "System.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
 #include <Engine/Graphic/Render/Commands/VolumetricCloudCommand.hpp>
 
@@ -61,7 +62,16 @@ namespace Desert::ECS
             std::vector<entt::entity> entities;
             auto                      view = registry.view<ECS::VolumetricCloudComponent>();
             for ( const auto entity : view )
+            {
+                // A hidden layer entity is not a candidate for the election below — same rule, same
+                // reason, as the fog's: with two layers authored, hiding the one that wins is how an
+                // artist asks for the other. If it was the only one, `entities` is empty and the
+                // `present = false` command above says so, which is what makes the layer disappear
+                // instead of the renderer keeping last frame's.
+                if ( ECS::IsHidden( registry, entity ) )
+                    continue;
                 entities.push_back( entity );
+            }
 
             if ( entities.empty() )
             {
@@ -140,6 +150,12 @@ namespace Desert::ECS
             size_t seen = 0;
             for ( const auto entity : view )
             {
+                // A hidden body is not collected. Enabled is the AUTHORED switch on the component and
+                // Visible is the outliner's; they are two different owners of the same decision and the
+                // body has to satisfy both, exactly as a hidden mesh with a valid asset is still not drawn.
+                if ( ECS::IsHidden( registry, entity ) )
+                    continue;
+
                 const auto& hero = registry.get<ECS::HeroCloudComponent>( entity );
                 if ( !hero.Data.Enabled || hero.Data.Volume == Assets::AssetHandle::Null() )
                     continue;

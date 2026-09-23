@@ -3,6 +3,7 @@
 #include "System.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Render/Commands/HeightFogCommand.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -38,7 +39,15 @@ namespace Desert::ECS
             std::vector<entt::entity> entities;
             auto                      view = registry.view<ECS::ExponentialHeightFogComponent>();
             for ( const auto entity : view )
+            {
+                // A hidden fog entity is NOT A CANDIDATE, rather than "the election still picks it and
+                // then the frame drops it": with two fog volumes authored, hiding the one that currently
+                // wins is how an artist asks for the other one. Dropping it after the election would
+                // leave the scene with no fog at all and no way to say which volume was meant.
+                if ( ECS::IsHidden( registry, entity ) )
+                    continue;
                 entities.push_back( entity );
+            }
 
             if ( entities.empty() )
             {

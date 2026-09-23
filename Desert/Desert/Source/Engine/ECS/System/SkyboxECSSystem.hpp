@@ -4,6 +4,7 @@
 #include "SystemRules.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
@@ -48,6 +49,12 @@ namespace Desert::ECS
                 auto atmospheres = registry.view<ECS::SkyAtmosphereComponent>();
                 for ( const auto entity : atmospheres )
                 {
+                    // A hidden Sky Atmosphere is not a candidate. Unticking Visible on the sky used to do
+                    // NOTHING — this collector never asked — and the renderer keeps its sky state across
+                    // frames, so the only thing that can clear the sky is the `Enabled = false` command
+                    // emitted below when no candidate survives.
+                    if ( ECS::IsHidden( registry, entity ) )
+                        continue;
                     skyEntities.push_back( entity );
                     skyIds.push_back( EntityId( registry, entity ) );
                 }
@@ -112,6 +119,13 @@ namespace Desert::ECS
                 auto skyboxes = registry.view<ECS::SkyboxComponent>();
                 for ( const auto skyboxEntity : skyboxes )
                 {
+                    // Hidden HDR skybox: skip it and keep looking, so hiding one of two authored cubemaps
+                    // hands the frame to the other rather than leaving the sky black-by-accident. If none
+                    // survives, `cubemap` stays null and the SkyboxCommand below carries NOTHING — the
+                    // one command every frame that makes "this scene has no HDR skybox" expressible.
+                    if ( ECS::IsHidden( registry, skyboxEntity ) )
+                        continue;
+
                     const auto& skybox = registry.get<ECS::SkyboxComponent>( skyboxEntity );
                     cubemap            = Runtime::ResourceRegistry::GetSkyboxService()->Get( skybox.SkyboxHandle );
                     cubemapIntensity   = skybox.Intensity;
@@ -166,6 +180,16 @@ namespace Desert::ECS
             auto dirLights = registry.view<ECS::DirectionLightComponent, ECS::TransformComponent>();
             for ( const auto entity : dirLights )
             {
+                // A HIDDEN SUN IS NOT A SUN CANDIDATE. The sun disc, the light shafts and the atmosphere's
+                // in-scattering are all that one light's contribution, and the same entity is dropped from
+                // the deferred light list in Scene.cpp — dropping it in only one of the two places gives a
+                // sky lit by a light that lights nothing, which is worse than either answer alone.
+                //
+                // TimeOfDayECSSystem deliberately does NOT filter here: it drives the sun's TRANSFORM from
+                // the clock, and freezing that on hide would make unhiding a sun a jump back in time.
+                if ( ECS::IsHidden( registry, entity ) )
+                    continue;
+
                 const auto& transform = dirLights.get<ECS::TransformComponent>( entity );
                 const auto& light     = dirLights.get<ECS::DirectionLightComponent>( entity );
 

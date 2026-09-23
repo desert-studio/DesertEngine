@@ -6,6 +6,7 @@
 #include <Common/Core/Math/Ray.hpp>
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -401,6 +402,14 @@ namespace Desert::Core
             dirLightGroup.each(
                  [&]( entt::entity entity, const auto& light, const auto& transform )
                  {
+                     // A HIDDEN SUN CONTRIBUTES NOTHING, and it is dropped BEFORE the degenerate-direction
+                     // report below: a light the artist deliberately hid is not a light they mis-authored,
+                     // and naming it in that error every frame would train them to ignore the one message
+                     // that tells them a real sun is aimed wrong. SkyboxECSSystem drops the same entity
+                     // from its sun candidates — one hidden light, both of its effects gone.
+                     if ( ECS::IsHidden( m_Registry, entity ) )
+                         return;
+
                      // ONE gate, shared with the sky (SystemRules.hpp): this site used to open-code
                      // `length > 0.001f`, ten times kSunDirectionEpsilon, so a light in between was a
                      // sun to the atmosphere and no light at all to the renderer.
