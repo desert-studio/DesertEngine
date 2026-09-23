@@ -65,6 +65,7 @@ using Desert::Core::Rules::kEntityReferences;
 using Desert::Core::Rules::kEntityReferencesByName;
 using Desert::Core::Rules::kInstancePointsComponent;
 using Desert::Core::Rules::kInstancePointsField;
+using Desert::Core::Rules::kLandscapeTileComponent;
 using Desert::Core::Rules::kNoRecord;
 using Desert::Core::Rules::LevelCellSize;
 using Desert::Core::Rules::PlannedCell;
@@ -1108,6 +1109,160 @@ TEST( WorldPartitionAlwaysLoaded, TheSummaryStatesCellsPerLevelAndAlwaysLoadedBy
     EXPECT_NE( summary.find( "cell 10000, loading range 30000" ), std::string::npos ) << summary;
 }
 
+// ── 6a. A LANDSCAPE IS PARTITIONED BY TILE ─────────────────────────────────────────────────────────
+//
+// A root and a 2 x 2 grid of tiles, 63 quads of one metre each — 6300 cm a tile — on a grid of 6300 cm, so
+// every tile is exactly one level-0 cell. What must hold: every tile is its own composite, at level 0, in
+// the cell its rectangle covers — a tile does not drag its neighbours or its root up a level. The root owns
+// the frame and is always-loaded (as UE loads ALandscape). The tile ENTITIES are placed far away on purpose:
+// a tile's own transform is read by nothing, and a partitioner that used it would put all four elsewhere.
+namespace
+{
+    constexpr std::uint64_t kLandscapeRootId = 9000;
+    constexpr float         kTileCm          = 63.0f * 100.0f;
+
+    EntityData LandscapeRootRecord( glm::vec3 origin, std::int64_t quads = 63 )
+    {
+        EntityData           root = Record( kLandscapeRootId, "Landscape", origin );
+        rfl::Generic::Object block;
+        block["QuadsPerTile"]        = rfl::Generic( quads );
+        block["SpacingCm"]           = rfl::Generic( 100.0 );
+        block["ZScale"]              = rfl::Generic( 100.0 );
+        root.Components["Landscape"] = rfl::Generic( block );
+        return root;
+    }
+
+    EntityData LandscapeTileRecord( std::uint64_t id, std::int64_t x, std::int64_t z,
+                                    std::uint64_t root = kLandscapeRootId )
+    {
+        EntityData           tile = Record( id, "LandscapeTile", { 987654.0f, 0.0f, -987654.0f } );
+        rfl::Generic::Object block;
+        block["Landscape"]               = rfl::Generic( std::to_string( root ) );
+        block["TileX"]                   = rfl::Generic( x );
+        block["TileZ"]                   = rfl::Generic( z );
+        block["HeightFile"]              = rfl::Generic( "Scenes/L_Landscape/" + std::to_string( id ) + ".dlht" );
+        tile.Components["LandscapeTile"] = rfl::Generic( block );
+        return tile;
+    }
+
+    std::vector<EntityData> TwoByTwoLandscape()
+    {
+        std::vector<EntityData> records;
+        records.push_back( LandscapeRootRecord( glm::vec3( 0.0f ) ) );
+        records.push_back( LandscapeTileRecord( 9001, 0, 0 ) );
+        records.push_back( LandscapeTileRecord( 9002, 1, 0 ) );
+        records.push_back( LandscapeTileRecord( 9003, 0, 1 ) );
+        records.push_back( LandscapeTileRecord( 9004, 1, 1 ) );
+        return records;
+    }
+} // namespace
+
+TEST( WorldPartitionLandscape, EveryTileIsItsOwnCompositeAtLevelZeroInItsOwnCell )
+{
+    const auto               records = TwoByTwoLandscape();
+    const WorldPartitionPlan plan    = PlanWorldPartition( records, Cells( kTileCm ) );
+
+    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    ASSERT_EQ( plan.Composites.size(), 5u ) << "the root and four tiles, none joined to another";
+    for ( std::size_t record = 0; record < records.size(); ++record )
+        EXPECT_EQ( HeldBy( plan, record ).Members.size(), 1u ) << records[record].Tag.value_or( "" );
+
+    EXPECT_EQ( HeldBy( plan, 0 ).Reason, AlwaysLoadedReason::Component ) << "the root owns the frame";
+
+    const struct
+    {
+        std::size_t  Record;
+        std::int32_t X, Z;
+    } expected[] = { { 1, 0, 0 }, { 2, 1, 0 }, { 3, 0, 1 }, { 4, 1, 1 } };
+    for ( const auto& tile : expected )
+    {
+        const PlannedComposite& held = HeldBy( plan, tile.Record );
+        EXPECT_EQ( held.Reason, AlwaysLoadedReason::None ) << "tile record " << tile.Record;
+        EXPECT_EQ( held.Level, 0 ) << "tile record " << tile.Record;
+        EXPECT_EQ( held.Cell.X, tile.X ) << "tile record " << tile.Record;
+        EXPECT_EQ( held.Cell.Z, tile.Z ) << "tile record " << tile.Record;
+        // The tile's footprint IS its rectangle: all four corners, nothing of its far-away entity position.
+        ASSERT_TRUE( held.Footprint.has_value() );
+        EXPECT_FLOAT_EQ( held.Footprint->MinX, tile.X * kTileCm );
+        EXPECT_FLOAT_EQ( held.Footprint->MaxX, ( tile.X + 1 ) * kTileCm );
+        EXPECT_FLOAT_EQ( held.Footprint->MinZ, tile.Z * kTileCm );
+        EXPECT_FLOAT_EQ( held.Footprint->MaxZ, ( tile.Z + 1 ) * kTileCm );
+    }
+
+    EXPECT_EQ( plan.Cells.size(), 4u );
+    EXPECT_EQ( plan.MaxLevel, 0 ) << "no tile pulls a neighbour or its root up a level";
+    EXPECT_TRUE( FindUnregisteredEntityReferences( records ).empty() );
+}
+
+// THE NEGATIVE CONTROL for the test above, in the two shapes the refused relation takes. Tiles made CHILDREN
+// of the root are one composite with it, and since the root owns the frame that composite is ALWAYS-LOADED —
+// the whole terrain resident everywhere. Tiles made children of one another (no root in the union) are one
+// composite too, and it goes UP A LEVEL to find a cell wide enough. Either is what the Observation row
+// prevents; were the row Containment, the test above would read like one of these.
+TEST( WorldPartitionLandscape, TilesJoinedByHierarchyBecomeOneCompositeThatIsResidentOrPromoted )
+{
+    auto underRoot = TwoByTwoLandscape();
+    for ( std::size_t record = 1; record < underRoot.size(); ++record )
+    {
+        Under( underRoot[record], kLandscapeRootId );
+        underRoot[record].Translation = glm::vec3( 0.0f );
+    }
+    const WorldPartitionPlan resident = PlanWorldPartition( underRoot, Cells( kTileCm ) );
+    ASSERT_EQ( resident.Composites.size(), 1u );
+    EXPECT_EQ( resident.Composites[0].Reason, AlwaysLoadedReason::Component );
+    EXPECT_TRUE( resident.Cells.empty() );
+
+    auto underTile = TwoByTwoLandscape();
+    for ( std::size_t record = 2; record < underTile.size(); ++record )
+    {
+        Under( underTile[record], 9001 );
+        underTile[record].Translation = glm::vec3( 0.0f );
+    }
+    const WorldPartitionPlan promoted = PlanWorldPartition( underTile, Cells( kTileCm ) );
+    ASSERT_EQ( promoted.Composites.size(), 2u ) << "the root, and the four tiles as one";
+    EXPECT_EQ( HeldBy( promoted, 1 ).Members.size(), 4u );
+    EXPECT_GT( HeldBy( promoted, 1 ).Level, 0 );
+    EXPECT_GT( promoted.MaxLevel, 0 );
+}
+
+// The rectangle follows the root's WORLD position: a moved root moves every tile, negative tile coordinates
+// lie on the other side of it, and a root under a moved parent is composed like any other record.
+TEST( WorldPartitionLandscape, TilesArePlacedByTheirRootsWorldFrame )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 8000, "World", { -2.0f * kTileCm, 0.0f, 0.0f } ) );
+    records.push_back( LandscapeRootRecord( { kTileCm, 500.0f, 0.0f } ) );
+    Under( records[1], 8000 );                               // root at world (-6300, 500, 0)
+    records.push_back( LandscapeTileRecord( 9001, -1, 0 ) ); // [-12600, -6300] x [0, 6300]
+    records.push_back( LandscapeTileRecord( 9002, 0, -1 ) ); // [-6300, 0] x [-6300, 0]
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( kTileCm ) );
+    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    EXPECT_EQ( HeldBy( plan, 2 ).Level, 0 );
+    EXPECT_EQ( HeldBy( plan, 2 ).Cell.X, -2 );
+    EXPECT_EQ( HeldBy( plan, 2 ).Cell.Z, 0 );
+    EXPECT_EQ( HeldBy( plan, 3 ).Level, 0 );
+    EXPECT_EQ( HeldBy( plan, 3 ).Cell.X, -1 );
+    EXPECT_EQ( HeldBy( plan, 3 ).Cell.Z, -1 );
+}
+
+// A tile with no place is LISTED and contributes no footprint: its root is not in the file, or its root
+// cannot be tiled (64 quads is not a section size UE offers — the loader refuses the same root).
+TEST( WorldPartitionLandscape, ATileWithoutAPlaceableRootIsListedAndHasNoFootprint )
+{
+    std::vector<EntityData> records;
+    records.push_back( LandscapeRootRecord( glm::vec3( 0.0f ), 64 ) );
+    records.push_back( LandscapeTileRecord( 9001, 0, 0 ) );            // root cannot be tiled
+    records.push_back( LandscapeTileRecord( 9002, 1, 0, 123456789 ) ); // root not in this file
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( kTileCm ) );
+    ASSERT_EQ( plan.UnplacedLandscapeTiles.size(), 2u );
+    EXPECT_EQ( plan.UnplacedLandscapeTiles[0], 1u );
+    EXPECT_EQ( plan.UnplacedLandscapeTiles[1], 2u );
+    EXPECT_FALSE( HeldBy( plan, 1 ).Footprint.has_value() );
+    EXPECT_FALSE( HeldBy( plan, 2 ).Footprint.has_value() );
+}
+
 // ── 7. THE CENSUS: EVERY SERIALISED COMPONENT IS CLASSIFIED ────────────────────────────────────────
 
 // The key list comes from ComponentRegistry.cpp's source, and the reader is checked against the number of
@@ -1153,12 +1308,13 @@ TEST( WorldPartitionCensus, TheGlobalRowsAreTheOnesTheWorldNeedsEverywhere )
         return ComponentLoading::Spatial;
     };
     for ( const char* key : { "Camera", "DirectionLight", "Skybox", "SkyAtmosphere", "ExponentialHeightFog",
-                              "VolumetricCloud", "HeroCloud", "AlwaysLoaded" } )
+                              "VolumetricCloud", "HeroCloud", "AlwaysLoaded", "Landscape" } )
         EXPECT_EQ( loadingOf( key ), ComponentLoading::Global ) << key;
     EXPECT_EQ( loadingOf( "UICanvas" ), ComponentLoading::ByField );
     EXPECT_EQ( loadingOf( "AudioSource" ), ComponentLoading::ByField );
     EXPECT_EQ( loadingOf( "StaticMesh" ), ComponentLoading::Spatial );
     EXPECT_EQ( loadingOf( "PointLight" ), ComponentLoading::Spatial );
+    EXPECT_EQ( loadingOf( "LandscapeTile" ), ComponentLoading::Spatial );
 }
 
 // ── 8. DANGLING AND CYCLIC CONTAINMENT; THE REGISTER OF ENTITY REFERENCES; THE CORPUS ─────────────
@@ -1216,6 +1372,19 @@ TEST( WorldPartitionReferences, TheRegisterNamesTheReferencesItClassifies )
     }
     EXPECT_TRUE( socket );
     EXPECT_TRUE( projectile );
+
+    // The landscape tile's root. OBSERVATION, and WorldPartitionLandscape goes red if it is ever made
+    // containment: every tile would join its root's composite and the whole terrain would be one footprint.
+    bool landscape = false;
+    for ( const auto& row : kEntityReferences )
+    {
+        if ( row.ComponentKey == "LandscapeTile" && row.Field == "Landscape" )
+        {
+            landscape = true;
+            EXPECT_EQ( row.Kind, ReferenceKind::Observation );
+        }
+    }
+    EXPECT_TRUE( landscape );
 }
 
 // THE BLIND SPOT, PINNED. Two references in this engine address their target by a NAME, so the
@@ -1376,10 +1545,14 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
                      << path.string() << ": record " << record << " at (" << x << ", " << z << ")";
             };
 
-            // Root records: no parent, so the stated translation IS the world position.
+            // Root records: no parent, so the stated translation IS the world position. A landscape tile is
+            // the exception the planner states: its own translation is read by nothing, and its place is the
+            // rectangle checked below.
             for ( std::size_t record = 0; record < records.size(); ++record )
             {
                 if ( records[record].parent.has_value() && !records[record].parent->IsNull() )
+                    continue;
+                if ( records[record].Components.get( std::string( kLandscapeTileComponent ) ).has_value() )
                     continue;
                 if ( records[record].Translation.has_value() )
                     Inside( record, records[record].Translation->x, records[record].Translation->z );
@@ -1417,6 +1590,37 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
                     Inside( record, Number( m[12] ), Number( m[14] ) );
                     ++instancesSeen;
                 }
+            }
+
+            // Landscape tiles, their rectangle worked out here by hand — tile coordinate times quads times
+            // spacing, from the root's stated translation — and not through LandscapeTileBounds, which is the
+            // planner's own reader. Only tiles under an unparented root with every field stated: that is
+            // the case this arithmetic covers exactly, and the planner's composition is pinned elsewhere.
+            for ( std::size_t record = 0; record < list.size(); ++record )
+            {
+                const auto tile = list[record].to_object().value().get( std::string( kLandscapeTileComponent ) );
+                if ( !tile.has_value() )
+                    continue;
+                const auto  block  = tile->to_object().value();
+                const auto  rootId = block.get( "Landscape" )->to_string().value();
+                std::size_t root   = kNoRecord;
+                for ( std::size_t other = 0; other < records.size(); ++other )
+                    if ( records[other].id.has_value() &&
+                         std::to_string( static_cast<std::uint64_t>( *records[other].id ) ) == rootId )
+                        root = other;
+                if ( root == kNoRecord || ( records[root].parent.has_value() && !records[root].parent->IsNull() ) )
+                    continue;
+                const auto      rootBlock = list[root].to_object().value().get( "Landscape" )->to_object().value();
+                const auto      quads = static_cast<float>( rootBlock.get( "QuadsPerTile" )->to_int64().value() );
+                const auto      spacing = static_cast<float>( rootBlock.get( "SpacingCm" )->to_double().value() );
+                const auto      tileX   = static_cast<float>( block.get( "TileX" )->to_int64().value() );
+                const auto      tileZ   = static_cast<float>( block.get( "TileZ" )->to_int64().value() );
+                const glm::vec3 origin  = records[root].Translation.value_or( glm::vec3( 0.0f ) );
+                const float     minX    = origin.x + tileX * quads * spacing;
+                const float     minZ    = origin.z + tileZ * quads * spacing;
+                for ( const float x : { minX, minX + quads * spacing } )
+                    for ( const float z : { minZ, minZ + quads * spacing } )
+                        Inside( record, x, z );
             }
         }
     }

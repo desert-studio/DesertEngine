@@ -20,6 +20,10 @@ project(test_name)
         -- state is preserved. That is a claim about this file, so this file is compiled and asserted
         -- rather than described. It is pure -- its only includes are its own header and <utility>.
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
+        -- A landscape tile is placed by its root's frame, and the partitioner computes the rectangle with
+        -- the same functions the loader uses. Both files are pure and link only Common.
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
 
     includedirs {

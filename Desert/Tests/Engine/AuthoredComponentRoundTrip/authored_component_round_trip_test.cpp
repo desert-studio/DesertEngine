@@ -182,6 +182,9 @@ namespace
            "MorphComponent's cache of the last weights the runtime blended into the geometry. Writing a "
            "frame of cache into the file would make a saved scene differ from itself depending on when "
            "it was saved." },
+         { "Heights",
+           "LandscapeTileComponent's loaded tile: what HeightFile decodes to. The samples live in the DLHT "
+           "file beside the scene, and writing them into the block too would be two copies of one terrain." },
     };
 
     // Asserts that every declared field of @p structName is a key of @p written, except the ones
@@ -472,6 +475,64 @@ TEST( AuthoredComponentRoundTrip, AKeyOfTheWrongTypeIsRefusedRatherThanSilentlyZ
     EXPECT_FLOAT_EQ( foliage.Density, 42.0f );
     EXPECT_TRUE( foliage.AlignToNormal );
     EXPECT_FLOAT_EQ( foliage.ScaleMax, 8.5f );
+}
+
+// ── LANDSCAPE ──────────────────────────────────────────────────────────────────────────────────────
+// Values off every default, a negative tile coordinate (a landscape extends either side of its root) and an
+// id above INT64_MAX, which is the half of the id space rule 2 exists for.
+TEST( AuthoredComponentRoundTrip, EveryLandscapeFieldComesBack )
+{
+    ECS::LandscapeComponent written;
+    written.QuadsPerTile = 127u;
+    written.SpacingCm    = 50.0f;
+    written.ZScale       = 256.0f;
+
+    const ECS::LandscapeComponent read = RoundTrip( written );
+    EXPECT_EQ( read.QuadsPerTile, written.QuadsPerTile );
+    EXPECT_FLOAT_EQ( read.SpacingCm, written.SpacingCm );
+    EXPECT_FLOAT_EQ( read.ZScale, written.ZScale );
+}
+
+TEST( AuthoredComponentRoundTrip, TheLandscapeBlockNamesEveryLandscapeField )
+{
+    ExpectEveryFieldIsWritten( "LandscapeComponent", WriteComponent( ECS::LandscapeComponent{} ) );
+}
+
+TEST( AuthoredComponentRoundTrip, EveryLandscapeTileFieldComesBack )
+{
+    ECS::LandscapeTileComponent written;
+    written.Landscape  = Common::UUID( 0xF00DFACE12345678ull );
+    written.TileX      = -3;
+    written.TileZ      = 7;
+    written.HeightFile = "Resources/Assets/Scenes/Hills_Landscape/42.dlht";
+
+    const ECS::LandscapeTileComponent read = RoundTrip( written );
+    EXPECT_EQ( static_cast<uint64_t>( read.Landscape ), static_cast<uint64_t>( written.Landscape ) );
+    EXPECT_EQ( read.TileX, written.TileX );
+    EXPECT_EQ( read.TileZ, written.TileZ );
+    EXPECT_EQ( read.HeightFile, written.HeightFile );
+    EXPECT_FALSE( read.Heights.has_value() ) << "the block carries a file name, never the samples";
+}
+
+TEST( AuthoredComponentRoundTrip, TheLandscapeTileBlockNamesEveryLandscapeTileField )
+{
+    ExpectEveryFieldIsWritten( "LandscapeTileComponent", WriteComponent( ECS::LandscapeTileComponent{} ) );
+}
+
+// A tile coordinate that does not fit is refused, not wrapped: 2^32 narrowed into an int32 is 0, which is
+// a real tile, and a fractional coordinate truncated is a real tile too.
+TEST( AuthoredComponentRoundTrip, ALandscapeTileCoordinateThatDoesNotFitIsRefused )
+{
+    rfl::Generic::Object block;
+    block["TileX"] = rfl::Generic( static_cast<int64_t>( 4294967296ll ) );
+    block["TileZ"] = rfl::Generic( 2.5 );
+
+    ECS::LandscapeTileComponent tile;
+    tile.TileX = 5;
+    tile.TileZ = 6;
+    ReadComponent( ThroughJsonText( block ), tile );
+    EXPECT_EQ( tile.TileX, 5 );
+    EXPECT_EQ( tile.TileZ, 6 );
 }
 
 int main( int argc, char** argv )
