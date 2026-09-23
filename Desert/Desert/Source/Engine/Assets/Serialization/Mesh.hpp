@@ -76,5 +76,8 @@ namespace Desert::Assets::Serialization
         // Blendshapes (empty for meshes without morph targets). New field — meshes cooked before this exists
         // are read with rfl::DefaultIfMissing so they simply come back with an empty list.
         std::vector<MorphTargetData>   MorphTargets;
+        // One polygroup per FACE of Indices, or empty (a mesh cooked before MeshBinary v2, or with no groups).
+        // What an EditMesh lifted from this mesh needs beyond the render arrays (MeshBinary.hpp, version 2).
+        std::vector<int32_t> PolyGroups;
     };
 } // namespace Desert::Assets::Serialization

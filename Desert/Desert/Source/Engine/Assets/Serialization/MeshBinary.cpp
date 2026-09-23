@@ -131,9 +131,17 @@ namespace Desert::Assets::Serialization
             SecMorphTargets,
             SecMorphDeltas,
             SecStrings,
-            SecCount_ // one past the last id; also the number of rows in the table
+            SecPolyGroups, // version 2
+            SecCount_      // one past the last id; also the number of rows in the table
         };
         constexpr uint32_t kSectionCount = SecCount_ - 1;
+        // Version 1 is version 2 without its last section (MeshBinary.hpp); the table is otherwise identical.
+        constexpr uint32_t kSectionCountV1 = SecStrings;
+
+        uint32_t SectionCountOf( const uint32_t version )
+        {
+            return version == 1 ? kSectionCountV1 : kSectionCount;
+        }
 
         constexpr uint32_t kFlagIsSkinned            = 1u << 0;
         constexpr uint32_t kFlagHasSkeletonSignature = 1u << 1;
@@ -162,6 +170,8 @@ namespace Desert::Assets::Serialization
                     return sizeof( BinVec3 );
                 case SecStrings:
                     return 1;
+                case SecPolyGroups:
+                    return sizeof( int32_t );
                 default:
                     return 0;
             }
@@ -189,6 +199,8 @@ namespace Desert::Assets::Serialization
                     return "MorphDeltas";
                 case SecStrings:
                     return "Strings";
+                case SecPolyGroups:
+                    return "PolyGroups";
                 default:
                     return "<unknown>";
             }
@@ -316,6 +328,7 @@ namespace Desert::Assets::Serialization
              { SecMorphTargets, AsBytes( morphTargets.data(), morphTargets.size() ), morphTargets.size() },
              { SecMorphDeltas, AsBytes( morphDeltas.data(), morphDeltas.size() ), morphDeltas.size() },
              { SecStrings, AsBytes( strings.data(), strings.size() ), strings.size() },
+             { SecPolyGroups, AsBytes( data.PolyGroups.data(), data.PolyGroups.size() ), data.PolyGroups.size() },
         };
 
         // Offsets are computed before anything is written, because the table sits in front of the
@@ -388,7 +401,7 @@ namespace Desert::Assets::Serialization
                  who, header.ByteOrder, kByteOrderTag );
         }
 
-        if ( header.Version != kMeshBinaryVersion )
+        if ( header.Version != kMeshBinaryVersion && header.Version != 1 )
         {
             return Common::MakeFormattedError<MeshAssetData>(
                  "'{}' is cooked-mesh format version {}, this build reads version {}. Re-cook it "
@@ -406,15 +419,23 @@ namespace Desert::Assets::Serialization
                  who, header.FileSize, bytes.size() );
         }
 
-        if ( header.SectionCount != kSectionCount )
+        const uint32_t sectionCount = SectionCountOf( header.Version );
+        if ( header.SectionCount != sectionCount )
         {
             return Common::MakeFormattedError<MeshAssetData>(
                  "'{}' declares {} sections, version {} has exactly {}.", who, header.SectionCount,
-                 kMeshBinaryVersion, kSectionCount );
+                 header.Version, sectionCount );
+        }
+        if ( bytes.size() < sizeof( FileHeader ) + sizeof( SectionRow ) * sectionCount )
+        {
+            return Common::MakeFormattedError<MeshAssetData>(
+                 "'{}' is {} bytes, shorter than its own header and {}-row section table.", who, bytes.size(),
+                 sectionCount );
         }
 
+        // Rows past the version's count stay zero, and read as empty sections below.
         SectionRow table[kSectionCount] = {};
-        std::memcpy( table, bytes.data() + sizeof( FileHeader ), sizeof( table ) );
+        std::memcpy( table, bytes.data() + sizeof( FileHeader ), sizeof( SectionRow ) * sectionCount );
 
         // THE LAYOUT IS DERIVED, NOT TRUSTED. Version 1 packs the sections in table order, each starting
         // at the next 8-byte boundary after the last, so the offset a row SHOULD carry follows from the
@@ -425,16 +446,16 @@ namespace Desert::Assets::Serialization
         // the file, still 8-aligned and still left room for the declared count. The decode succeeded and
         // handed back a mesh of shifted floats. That is the silent wrong answer §1.4 forbids, produced
         // by a single corrupt byte.
-        uint64_t expectedOffset = sizeof( FileHeader ) + sizeof( table );
-        for ( uint32_t i = 0; i < kSectionCount; ++i )
+        uint64_t expectedOffset = sizeof( FileHeader ) + sizeof( SectionRow ) * sectionCount;
+        for ( uint32_t i = 0; i < sectionCount; ++i )
         {
             const SectionRow& row      = table[i];
-            const uint32_t    expectId = i + 1; // ids are 1..kSectionCount in table order, per version 1
+            const uint32_t    expectId = i + 1; // ids are 1..sectionCount in table order, in every version
             if ( row.Id != expectId )
             {
                 return Common::MakeFormattedError<MeshAssetData>(
                      "'{}' section table row {} names id {} where version {} puts {} ({}).", who, i, row.Id,
-                     kMeshBinaryVersion, expectId, SectionName( expectId ) );
+                     header.Version, expectId, SectionName( expectId ) );
             }
 
             const uint32_t expectSize = ExpectedElementSize( row.Id );
@@ -594,6 +615,16 @@ namespace Desert::Assets::Serialization
                              static_cast<size_t>( range.Count ) * sizeof( IndexData ) );
             }
         }
+
+        // One per face or none: a partial list would pair groups with the wrong triangles past its end.
+        if ( N( SecPolyGroups ) != 0 && N( SecPolyGroups ) != N( SecIndices ) )
+        {
+            return Common::MakeFormattedError<MeshAssetData>( "'{}' carries {} polygroups for {} faces.", who,
+                                                              N( SecPolyGroups ), N( SecIndices ) );
+        }
+        data.PolyGroups.resize( N( SecPolyGroups ) );
+        if ( !data.PolyGroups.empty() )
+            std::memcpy( data.PolyGroups.data(), At( SecPolyGroups ), N( SecPolyGroups ) * sizeof( int32_t ) );
 
         data.MorphTargets.resize( N( SecMorphTargets ) );
         for ( size_t i = 0; i < data.MorphTargets.size(); ++i )
