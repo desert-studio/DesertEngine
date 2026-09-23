@@ -77,6 +77,8 @@
 #include <stb_image/stb_image_write.h>
 #include "Editor/Core/ImGuiUtilities.hpp"
 #include <ImGui/imgui_internal.h>
+
+#include <array>
 #include <ImGuizmo.h>
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Builtin/BuiltinMeshRegistry.hpp"
@@ -1244,6 +1246,13 @@ namespace Desert::Editor
             AddSceneViewport();
         }
 
+        // Four angles at once — the same deferral again: it opens up to three views.
+        if ( m_ViewportGridRequested && !StartupLoading() )
+        {
+            m_ViewportGridRequested = false;
+            BuildViewportGrid();
+        }
+
         // ...and closing one destroys the same resources, so it is deferred to the same place. It must also
         // run BEFORE the OnPreUpdate loop below and before UpdateSceneFrame: a document whose window the user
         // dismissed last frame would otherwise get one more full scene render, and — until this existed at
@@ -1894,7 +1903,13 @@ namespace Desert::Editor
         quiescence.Set( Control::PendingWork::StartupLoading, StartupLoading() || ContentSettling() );
         quiescence.Set( Control::PendingWork::SceneLoad, m_SceneLoadRequested.has_value() );
         quiescence.Set( Control::PendingWork::NewScene, m_NewSceneRequested );
-        quiescence.Set( Control::PendingWork::SceneView, m_AddSceneViewRequested || m_AddSceneViewportRequested );
+        // THE GRID BELONGS HERE TOO, and the pending DOCK is part of it: the layout is applied a frame
+        // after the views open, so a reply released between the two would hand back a screenshot of four
+        // floating windows and call it the grid.
+        quiescence.Set( Control::PendingWork::SceneView, m_AddSceneViewRequested ||
+                                                              m_AddSceneViewportRequested ||
+                                                              m_ViewportGridRequested ||
+                                                              !m_PendingViewportGrid.empty() );
         quiescence.Set( Control::PendingWork::SceneStop, m_PendingSceneStop );
         quiescence.Set( Control::PendingWork::DocumentCloses, !m_DocumentsToClose.empty() );
         // The queue is a file-static inbox drained by ServiceSubjectOpenRequests, so "is anything queued"
@@ -2686,6 +2701,74 @@ namespace Desert::Editor
                   Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
     }
 
+    void EditorLayer::BuildViewportGrid()
+    {
+        const auto scene = m_MainScene;
+        if ( !scene )
+        {
+            LOG_ERROR( "[Editor] no active scene to build a viewport grid on." );
+            return;
+        }
+
+        // The four panes, in the order the dock split below consumes them. The MAIN viewport is always
+        // the perspective one and always the top-left: it is the window every other part of the editor
+        // already refers to as "Scene", and moving the user's familiar view into a corner to make room
+        // for a new one is exactly the "the editor lost my panel" complaint.
+        //
+        // Top / Front / Right and not all six axis views: four panes is what the request names, and the
+        // remaining three are one combo away in each pane's camera gear.
+        static constexpr std::array<ViewportCameraPreset, 3> kExtraAngles = {
+             ViewportCameraPreset::Top, ViewportCameraPreset::Front, ViewportCameraPreset::Right };
+
+        // REUSE WHAT IS ALREADY OPEN. Running this twice must not open three more viewports and burn the
+        // renderer budget — the second run re-aims the panes it finds and re-docks them, which is also
+        // what makes it the "put my viewports back" command.
+        std::vector<SceneViewport*> panes;
+        for ( const auto& view : m_ExtraViewports )
+            if ( view->Scene.lock() == scene && view->Viewport && panes.size() < kExtraAngles.size() )
+                panes.push_back( view.get() );
+
+        while ( panes.size() < kExtraAngles.size() )
+        {
+            const size_t before = m_ExtraViewports.size();
+            AddSceneViewport();
+            if ( m_ExtraViewports.size() == before )
+            {
+                // AddSceneViewport has already said why (the view list refused, or there was no scene).
+                // REFUSING HALFWAY IS STILL AN ANSWER: the panes that did open are laid out below, and a
+                // grid of two is honest where a grid of four that silently became two is not.
+                LOG_WARN( "[Editor] the viewport grid stops at {} pane(s): '{}' would not open another.",
+                          panes.size() + 1, scene->GetSceneName() );
+                break;
+            }
+            panes.push_back( m_ExtraViewports.back().get() );
+        }
+
+        m_PendingViewportGrid.clear();
+        m_PendingViewportGrid.push_back( PanelDisplayTitle( "Scene###scene" ) );
+        if ( const auto aimed = Editor::ViewportPanel::SetCameraPreset( kPrimarySceneViewId,
+                                                                        ViewportCameraPreset::Perspective );
+             !aimed )
+        {
+            LOG_WARN( "[Editor] the grid's perspective pane was not aimed: {}", aimed.GetError() );
+        }
+
+        for ( size_t i = 0; i < panes.size(); ++i )
+        {
+            m_PendingViewportGrid.push_back( PanelDisplayTitle( panes[i]->Viewport->GetName() ) );
+            if ( const auto aimed = Editor::ViewportPanel::SetCameraPreset( panes[i]->Id, kExtraAngles[i] );
+                 !aimed )
+            {
+                LOG_WARN( "[Editor] grid pane '{}' was not aimed: {}", panes[i]->Name, aimed.GetError() );
+            }
+        }
+
+        LOG_INFO( "[Editor] Viewport grid: {} pane(s) on '{}' ({}/{} renderer slots in use); the dock "
+                  "split runs on the next frame.",
+                  m_PendingViewportGrid.size(), scene->GetSceneName(),
+                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+    }
+
     void EditorLayer::CloseDismissedSceneViewports()
     {
         std::vector<uint64_t> dismissed;
@@ -3473,6 +3556,47 @@ namespace Desert::Editor
                 ::ImGui::DockBuilderDockWindow( kDocumentWellWindow, documents );
 
                 ::ImGui::DockBuilderFinish( dockspace_id );
+            }
+
+            // ── THE FOUR-UP GRID, APPLIED ─────────────────────────────────────────────────────────
+            //
+            // It splits THE NODE THE MAIN VIEWPORT IS IN, not the whole dockspace: the Outliner, Details
+            // and the bottom drawer keep their places, and the grid costs exactly the pixels the single
+            // viewport had. That is the difference between "a layout command" and "Reset to Default
+            // Layout with four viewports in it", and it is why this is not folded into the block above.
+            //
+            // A FLOATING main viewport has no node to split (DockId 0); the dockspace is the honest
+            // fallback, and it is said out loud because the result then displaces the other panels.
+            if ( !m_PendingViewportGrid.empty() )
+            {
+                ImGuiID node = 0;
+                if ( const ::ImGuiWindow* win = ::ImGui::FindWindowByName( m_PendingViewportGrid[0].c_str() ) )
+                    node = win->DockId;
+                if ( node == 0 || ::ImGui::DockBuilderGetNode( node ) == nullptr )
+                {
+                    LOG_WARN( "[Editor] the main viewport is not docked; the grid takes the whole "
+                              "dockspace, so other panels move." );
+                    node = dockspace_id;
+                }
+
+                // Quarters, in the order BuildViewportGrid filled the list: top-left, top-right,
+                // bottom-left, bottom-right. A list shorter than four (the slot budget refused a pane)
+                // simply leaves that quarter to its neighbours, which is what DockBuilder does with an
+                // empty node.
+                ImGuiID topLeft     = node;
+                ImGuiID topRight    = ::ImGui::DockBuilderSplitNode( topLeft, ImGuiDir_Right, 0.5f, nullptr,
+                                                                     &topLeft );
+                ImGuiID bottomLeft  = ::ImGui::DockBuilderSplitNode( topLeft, ImGuiDir_Down, 0.5f, nullptr,
+                                                                     &topLeft );
+                ImGuiID bottomRight = ::ImGui::DockBuilderSplitNode( topRight, ImGuiDir_Down, 0.5f, nullptr,
+                                                                     &topRight );
+
+                const ImGuiID quarters[4] = { topLeft, topRight, bottomLeft, bottomRight };
+                for ( size_t i = 0; i < m_PendingViewportGrid.size() && i < 4; ++i )
+                    ::ImGui::DockBuilderDockWindow( m_PendingViewportGrid[i].c_str(), quarters[i] );
+
+                ::ImGui::DockBuilderFinish( dockspace_id );
+                m_PendingViewportGrid.clear();
             }
         }
 
@@ -4301,6 +4425,26 @@ namespace Desert::Editor
                                   m_AddSceneViewportRequested = true;
                                   return PaletteCommandDone();
                               } } );
+
+        // FOUR ANGLES IN ONE ACTION. Opening three viewports by hand and dragging each into a quarter is
+        // eleven gestures, none of which a headless run can make (synthetic input is closed on this
+        // machine) — so without this entry the arrangement the owner asked for could never be
+        // photographed, and an arrangement nobody can see is an arrangement nobody can check.
+        commands.push_back( { "Scene", "Four-Up Viewports", [this]
+                              {
+                                  m_ViewportGridRequested = true;
+                                  return PaletteCommandDone();
+                              } } );
+
+        // The named angles, for the viewport the user is working in. Same argument as the four-up entry
+        // above: the only other door is a combo inside a popup behind a toolbar button.
+        for ( const ViewportCameraPresetRow& preset : kViewportCameraPresets )
+        {
+            const ViewportCameraPreset p = preset.Preset;
+            commands.push_back( { "Scene", std::string( "Viewport Camera: " ) + preset.Name,
+                                  [p]() -> Common::BoolResultStr
+                                  { return Editor::ViewportPanel::RequestCameraPreset( p ); } } );
+        }
 
         for ( const auto& view : m_ExtraViewports )
         {
@@ -6498,6 +6642,18 @@ namespace Desert::Editor
             // scene active — the Outliner / Details / gizmo follow it.
             if ( ImGui::MenuItem( ICON_MDI_PLUS_BOX_MULTIPLE " New Scene View" ) )
                 m_AddSceneViewRequested = true; // deferred to OnUpdate (allocates GPU resources)
+            // A SECOND ANGLE, and FOUR of them. Both are about the ACTIVE scene, not a second one, which
+            // is what the item above opens — the menu says so in the tooltips because the two read alike.
+            if ( ImGui::MenuItem( ICON_MDI_BORDER_ALL " New Viewport (same scene)" ) )
+                m_AddSceneViewportRequested = true;
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Another camera on the SAME world: same entities, same edits." );
+            if ( ImGui::MenuItem( ICON_MDI_GRID " Four-Up Viewports" ) )
+                m_ViewportGridRequested = true;
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Perspective, Top, Front and Right on the active scene, docked in a\n"
+                                   "2x2 grid. The panes are ordinary windows: re-arrange them and save\n"
+                                   "the result under View > Layouts." );
             if ( !m_ExtraScenes.empty() )
                 ImGui::TextDisabled( "%d scene view(s) open + main", static_cast<int>( m_ExtraScenes.size() ) );
             // Closing from here does exactly what the window's x does — clear the VIEWPORT PANEL's

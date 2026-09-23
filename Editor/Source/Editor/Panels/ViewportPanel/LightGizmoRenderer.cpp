@@ -1,5 +1,6 @@
 #include "LightGizmoRenderer.hpp"
 
+#include <Editor/Core/GizmoIconSet.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>
@@ -9,6 +10,7 @@
 #include <Editor/Panels/ViewportPanel/Tools/CameraGizmoMath.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Icon/IconService.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
@@ -21,8 +23,6 @@
 #include <cmath>
 #include <functional>
 #include <optional>
-
-#include "../../Core/EditorResources.hpp"
 
 namespace Desert::Editor
 {
@@ -86,20 +86,32 @@ namespace Desert::Editor
         // sprite artwork, and an eight-tap halo answers "readable on any background" with less than UE
         // spends on it.
         //
-        // Returns whether the pointer is over the glyph this frame — the caller decides what a click
+        // ── AND THE FOURTH, WHICH A FONT GLYPH COULD NOT GIVE ───────────────────────────────────────
+        //
+        //  4. READS AS AN OBJECT, NOT A SYMBOL. The artwork is now a Phosphor DUOTONE .svg baked to a
+        //     signed distance field (Editor/Core/GizmoIconSet.hpp), drawn as one tinted quad per colour
+        //     run out of the shared icon atlas. Duotone is what separates "a lamp" from "a lamp-shaped
+        //     letter": the faint body reads as volume, the solid run as the outline. A font is one
+        //     coverage mask and can express neither.
+        //
+        // The two tones are separated by `opacity`, not by colour — both Phosphor runs are
+        // `currentColor` — so the LAYER'S OWN ALPHA is the whole of the duotone, and it multiplies the
+        // caller's tint here. Dropping it (the Details icon preview does, deliberately, because it is
+        // showing artwork rather than marking an object) collapses the icon back to one flat blob.
+        //
+        // Returns whether the pointer is over the billboard this frame — the caller decides what a click
         // means, because only it knows which entity this is.
-        bool DrawBillboardIcon( ImDrawList* drawList, const ImVec2& centre, const char* icon, const ImVec4& tint,
-                                bool selected )
+        bool DrawBillboardIcon( ImDrawList* drawList, const ImVec2& centre, GizmoIcon role, const ImVec4& tint,
+                                bool selected, Editor::UI::UIHelper* ui )
         {
-            ImFont*      iconFont = EditorResources::GetBigIconFont();
-            const ImVec2 size     = iconFont->CalcTextSizeA( kIconSize, FLT_MAX, 0.0f, icon );
-            const ImVec2 topLeft( centre.x - size.x * 0.5f, centre.y - size.y * 0.5f );
+            const ImVec2 topLeft( centre.x - kIconSize * 0.5f, centre.y - kIconSize * 0.5f );
+            const ImVec2 bottomRight( topLeft.x + kIconSize, topLeft.y + kIconSize );
 
-            const ImVec2 mouse   = ImGui::GetMousePos();
-            const bool   hovered = mouse.x >= topLeft.x && mouse.x <= topLeft.x + size.x && mouse.y >= topLeft.y &&
-                                 mouse.y <= topLeft.y + size.y;
+            const ImVec2 mouse = ImGui::GetMousePos();
+            const bool   hovered = mouse.x >= topLeft.x && mouse.x <= bottomRight.x && mouse.y >= topLeft.y &&
+                                 mouse.y <= bottomRight.y;
 
-            const float radius = std::max( size.x, size.y ) * 0.62f;
+            const float radius = kIconSize * 0.62f;
             if ( selected )
             {
                 const glm::vec3& outline = EditorPreferences::Get().OutlineColor;
@@ -111,31 +123,69 @@ namespace Desert::Editor
                 drawList->AddCircle( centre, radius, IM_COL32( 255, 255, 255, 110 ), 0, 1.5f );
             }
 
-            // The halo. Eight taps rather than four: a diagonal edge of a glyph is left uncovered by the
-            // axis-aligned four, which is exactly where a thin icon stroke disappears into a light sky.
-            constexpr float kHalo          = 1.0f;
-            const ImVec2    haloOffsets[8] = { { -kHalo, 0.0f },  { kHalo, 0.0f },    { 0.0f, -kHalo },
-                                               { 0.0f, kHalo },   { -kHalo, -kHalo }, { kHalo, -kHalo },
-                                               { -kHalo, kHalo }, { kHalo, kHalo } };
-            const ImU32     haloColor      = IM_COL32( 0, 0, 0, 190 );
-            for ( const ImVec2& offset : haloOffsets )
-            {
-                drawList->AddText( iconFont, kIconSize, ImVec2( topLeft.x + offset.x, topLeft.y + offset.y ),
-                                   haloColor, icon );
-            }
-
             // Hover brightens rather than recolours: the tint carries meaning (a light's own colour, a
             // text entity's colour), so replacing it would throw information away to say "hovered".
             const float  lift = hovered ? 0.35f : 0.0f;
             const ImVec4 drawn( std::min( tint.x + lift, 1.0f ), std::min( tint.y + lift, 1.0f ),
                                 std::min( tint.z + lift, 1.0f ), tint.w );
-            drawList->AddText( iconFont, kIconSize, topLeft, ImColor( drawn ), icon );
+
+            const Runtime::Icon* icon    = ResolveGizmoIcon( role );
+            auto*                service = Runtime::ResourceRegistry::GetIconService();
+            const void*          texture =
+                 ( icon && ui && service && service->Atlas() ) ? ui->GetTextureID( service->Atlas() ) : nullptr;
+
+            if ( !texture )
+            {
+                // NOT A STUB — the answer for "this role has no artwork yet". The atlas does not exist
+                // until the first icon is imported, and an import is one frame of work, so the very first
+                // frame that shows a light legitimately has nothing to draw. A marker is still owed:
+                // without one the billboard would be an invisible click target, which is worse than an
+                // ugly one. A disc in the caller's tint keeps position, selection and picking all true.
+                drawList->AddCircleFilled( centre, kIconSize * 0.28f, IM_COL32( 0, 0, 0, 190 ) );
+                drawList->AddCircleFilled( centre, kIconSize * 0.22f, ImColor( drawn ) );
+                return hovered;
+            }
+
+            const ImTextureID texId = reinterpret_cast<ImTextureID>( const_cast<void*>( texture ) );
+
+            // The halo. Eight taps rather than four: a diagonal edge is left uncovered by the axis-aligned
+            // four, which is exactly where a thin icon stroke disappears into a light sky. Every LAYER is
+            // haloed, not just the solid one — the duotone body extends past the outline in several of
+            // these icons, and a halo that stopped at the outline would leave that edge unreadable.
+            constexpr float kHalo          = 1.0f;
+            const ImVec2    haloOffsets[8] = { { -kHalo, 0.0f },  { kHalo, 0.0f },    { 0.0f, -kHalo },
+                                               { 0.0f, kHalo },   { -kHalo, -kHalo }, { kHalo, -kHalo },
+                                               { -kHalo, kHalo }, { kHalo, kHalo } };
+            for ( const ImVec2& offset : haloOffsets )
+            {
+                const ImVec2 p0( topLeft.x + offset.x, topLeft.y + offset.y );
+                const ImVec2 p1( bottomRight.x + offset.x, bottomRight.y + offset.y );
+                for ( const Runtime::IconLayer& layer : icon->Layers )
+                {
+                    const int alpha = static_cast<int>( 190.0f * static_cast<float>( layer.RGBA & 0xFFu ) / 255.0f );
+                    drawList->AddImage( texId, p0, p1, ImVec2( layer.U0, layer.V0 ), ImVec2( layer.U1, layer.V1 ),
+                                        IM_COL32( 0, 0, 0, alpha ) );
+                }
+            }
+
+            for ( const Runtime::IconLayer& layer : icon->Layers )
+            {
+                const int alpha = static_cast<int>( 255.0f * drawn.w * static_cast<float>( layer.RGBA & 0xFFu ) /
+                                                    255.0f );
+                drawList->AddImage( texId, topLeft, bottomRight, ImVec2( layer.U0, layer.V0 ),
+                                    ImVec2( layer.U1, layer.V1 ),
+                                    IM_COL32( static_cast<int>( drawn.x * 255.0f ),
+                                              static_cast<int>( drawn.y * 255.0f ),
+                                              static_cast<int>( drawn.z * 255.0f ), alpha ) );
+            }
 
             return hovered;
         }
     } // namespace
 
-    LightGizmoRenderer::LightGizmoRenderer( const std::shared_ptr<Desert::Core::Scene>& scene ) : m_Scene( scene )
+    LightGizmoRenderer::LightGizmoRenderer( const std::shared_ptr<Desert::Core::Scene>& scene,
+                                            Editor::UI::UIHelper* uiHelper )
+         : m_Scene( scene ), m_UIHelper( uiHelper )
     {
     }
 
@@ -546,13 +596,19 @@ namespace Desert::Editor
             ImDrawList*  drawList = ImGui::GetWindowDrawList();
             const ImVec4 lightColor( light.Color.r, light.Color.g, light.Color.b, 1.0f );
 
-            const bool hovered = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ), ICON_MDI_LIGHTBULB,
-                                                    lightColor, IsSelected( entity ) );
+            const bool hovered = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ),
+                                                    GizmoIcon::LightPoint, lightColor, IsSelected( entity ),
+                                                    m_UIHelper );
 
-            if ( light.ShowRadius )
+            // AUTHORED ALWAYS-ON **OR** SELECTED. ShowRadius is a per-light setting for the case where
+            // the shell must stay visible while working on something else; selection is transient and
+            // means "I am editing THIS light", and UE draws the selected light's attenuation
+            // unconditionally for that reason. Without the second half the radius handle below sat on an
+            // invisible sphere, which is editing blind.
+            if ( light.ShowRadius || IsSelected( entity ) )
             {
-                DrawLightRadiusSphere( camera, worldPos, light.Radius, width, height, windowPos.x,
-                                       windowPos.y, absoluteX, absoluteY );
+                DrawLightRadiusSphere( camera, worldPos, light.Radius, light.Color, width, height,
+                                       windowPos.x, windowPos.y );
             }
 
             // Radius handle on the SELECTED light: a dot on the sphere, placed along the camera's right
@@ -567,15 +623,13 @@ namespace Desert::Editor
                 {
                     const ImVec2 center( absoluteX, absoluteY );
                     const ImVec2 handle( windowPos.x + handleScreen.x, windowPos.y + handleScreen.y );
-                    if ( DragValueHandle( HandleKind::PointRadius, entity.GetComponent<ECS::UUIDComponent>().UUID,
-                                          center, handle, light.Radius, 1.0f, 100000.0f, "Radius",
-                                          &light.Radius ) &&
-                         !light.ShowRadius )
-                    {
-                        // Dragging the radius while the sphere is hidden is editing blind — show it.
-                        DrawLightRadiusSphere( camera, worldPos, light.Radius, width, height, windowPos.x,
-                                               windowPos.y, absoluteX, absoluteY );
-                    }
+                    // THE MID-DRAG REDRAW THAT STOOD HERE IS GONE, not commented out: it existed only
+                    // because a hidden shell could be dragged, and a selected light's shell is never
+                    // hidden now. Two answers to "is the sphere visible" was the defect waiting to
+                    // happen; the guard above is the only one.
+                    (void)DragValueHandle( HandleKind::PointRadius,
+                                           entity.GetComponent<ECS::UUIDComponent>().UUID, center, handle,
+                                           light.Radius, 1.0f, 100000.0f, "Radius", &light.Radius );
                 }
             }
             if ( hovered )
@@ -636,11 +690,17 @@ namespace Desert::Editor
             const float absoluteX = windowPos.x + screenPos.x;
             const float absoluteY = windowPos.y + screenPos.y;
 
-            const ImVec4 sunTint( 1.0f, 0.84f, 0.35f, 1.0f );
+            // THE LIGHT'S OWN COLOUR, not a hardcoded warm yellow. A sun tinted at dusk and a sun
+            // tinted for a moonlit scene are the same object in the outliner and were the same pixel
+            // here; the billboard is the only place the authored colour is visible without opening
+            // Details. The arrow takes the same colour, so icon and direction read as one marker.
+            const auto&  sun = entity.GetComponent<ECS::DirectionLightComponent>().Data;
+            const ImVec4 sunTint( sun.Color.r, sun.Color.g, sun.Color.b, 1.0f );
             const ImU32  sunCol = ImColor( sunTint );
 
-            const bool hovered = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ),
-                                                    ICON_MDI_WHITE_BALANCE_SUNNY, sunTint, IsSelected( entity ) );
+            const bool hovered =
+                 DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ), GizmoIcon::LightDirectional, sunTint,
+                                    IsSelected( entity ), m_UIHelper );
 
             // Direction arrow: from the sun into the scene (the direction the LIGHT travels).
             {
@@ -665,7 +725,6 @@ namespace Desert::Editor
                 }
             }
 
-            const auto& light = entity.GetComponent<ECS::DirectionLightComponent>().Data;
             if ( hovered )
             {
                 m_LightIconHovered = true;
@@ -675,7 +734,7 @@ namespace Desert::Editor
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
                 Utils::ImGuiUtilities::Tooltip(
                      std::format( "Directional Light (sun)\nIntensity: {}\nDirection: ({:.2f}, {:.2f}, {:.2f})",
-                                  light.Intensity, lightDir.x, lightDir.y, lightDir.z )
+                                  sun.Intensity, lightDir.x, lightDir.y, lightDir.z )
                           .c_str() );
                 ImGui::PopStyleColor( 2 );
             }
@@ -708,15 +767,21 @@ namespace Desert::Editor
             const float absoluteY = windowPos.y + screenPos.y;
 
             ImDrawList* drawList = ImGui::GetWindowDrawList();
-            const bool  hovered  = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ), ICON_MDI_SPOTLIGHT,
-                                                      ImVec4( 1.0f, 0.9f, 0.5f, 1.0f ), IsSelected( entity ) );
+            // Tinted with the spot's OWN colour, like the point light beside it. It used to be a fixed
+            // warm yellow, so two spots of deliberately different colours were one picture.
+            const ImVec4 spotTint( light.Color.r, light.Color.g, light.Color.b, 1.0f );
+            const bool   hovered = DrawBillboardIcon( drawList, ImVec2( absoluteX, absoluteY ),
+                                                      GizmoIcon::LightSpot, spotTint, IsSelected( entity ),
+                                                      m_UIHelper );
 
             // Forward = entity's -Z in world space (matches the SpotLightECSSystem direction).
             const glm::vec3 forward = glm::normalize( -glm::vec3( worldXf[2] ) );
 
-            if ( light.ShowCone )
-                DrawSpotCone( camera, worldPos, forward, light.OuterConeAngle, light.Range, width,
-                              height, windowPos.x, windowPos.y );
+            // Authored always-on OR selected — the same rule as the point light's shell above, and for
+            // the same reason: the range and cone handles below are grabbed ON this drawing.
+            if ( light.ShowCone || IsSelected( entity ) )
+                DrawSpotCone( camera, worldPos, forward, light.InnerConeAngle, light.OuterConeAngle,
+                              light.Range, light.Color, width, height, windowPos.x, windowPos.y );
 
             // Range + cone handles on the SELECTED spot light.
             if ( IsSelected( entity ) )
@@ -846,12 +911,13 @@ namespace Desert::Editor
             if ( ProjectToScreen( worldPos, mvp, width, height, screenPos ) )
             {
                 const ImVec2 centre( windowPos.x + screenPos.x, windowPos.y + screenPos.y );
-                // ICON_MDI_VIDEO is a video/movie camera, not a photo camera. It used to be drawn with the
-                // DEFAULT font at its own 16 px while every other billboard used the big icon font at 30 —
-                // the "one size so the markers read as a consistent set" comment at the top of this file
-                // was true of five callers out of six.
-                if ( DrawBillboardIcon( drawList, centre, ICON_MDI_VIDEO, ImVec4( 0.6f, 0.85f, 1.0f, 1.0f ),
-                                        selected ) )
+                // A PHOTO CAMERA, which is what the entity is. This was ICON_MDI_VIDEO — a movie
+                // camera — drawn with the DEFAULT font at its own 16 px while every other billboard used
+                // the big icon font at 30; the "one size so the markers read as a consistent set" comment
+                // at the top of this file was true of five callers out of six. Both halves are closed by
+                // the role table: there is one size and the artwork is named `camera.svg`.
+                if ( DrawBillboardIcon( drawList, centre, GizmoIcon::Camera, ImVec4( 0.6f, 0.85f, 1.0f, 1.0f ),
+                                        selected, m_UIHelper ) )
                 {
                     // Shares the icon-hover gate so the scene ray-pick does not fire under the glyph, and
                     // selects on click: a camera entity has no geometry, so before this the only way to
@@ -1183,36 +1249,35 @@ namespace Desert::Editor
                                                                  // overlay, a world billboard just confuses
                 continue;
 
-            // Pick the icon by the most specific "invisible" role the entity plays.
-            const char* icon  = ICON_MDI_AXIS_ARROW; // generic empty / transform helper
-            ImVec4      color = ImVec4( 0.75f, 0.78f, 0.85f, 1.0f );
-            const char* label = "Empty";
+            // Pick the icon by the most specific "invisible" role the entity plays. The LABEL is the
+            // role's own (GizmoIconSet), not a string repeated here: this tooltip and the artwork have to
+            // say the same thing, and while they were two literals a spawn point was drawn as a map
+            // marker and a trigger volume as a rounded square, with nothing able to notice.
+            GizmoIcon role  = GizmoIcon::TransformEmpty; // generic empty / transform helper
+            ImVec4    color = ImVec4( 0.75f, 0.78f, 0.85f, 1.0f );
             if ( entity.HasComponent<ECS::AudioSourceComponent>() )
             {
-                icon  = ICON_MDI_VOLUME_HIGH;
+                role  = GizmoIcon::AudioSource;
                 color = ImVec4( 0.60f, 0.90f, 0.70f, 1.0f );
-                label = "Audio Source";
             }
             else if ( entity.HasComponent<ECS::CharacterControllerComponent>() ||
                       entity.HasComponent<ECS::ProjectileComponent>() )
             {
-                icon  = ICON_MDI_MAP_MARKER;
+                role  = GizmoIcon::SpawnPoint;
                 color = ImVec4( 1.00f, 0.80f, 0.40f, 1.0f );
-                label = "Spawn Point";
             }
             else if ( entity.HasComponent<ECS::ColliderComponent>() &&
                       !entity.HasComponent<ECS::RigidBodyComponent>() )
             {
-                icon  = ICON_MDI_SHAPE_OUTLINE;
+                role  = GizmoIcon::TriggerVolume;
                 color = ImVec4( 0.50f, 0.85f, 1.00f, 1.0f );
-                label = "Trigger / Volume";
             }
             else if ( entity.HasComponent<ECS::ScriptComponent>() )
             {
-                icon  = ICON_MDI_SCRIPT;
+                role  = GizmoIcon::Script;
                 color = ImVec4( 0.85f, 0.70f, 1.00f, 1.0f );
-                label = "Script";
             }
+            const char* const label = GizmoIconRowOf( role ).Label;
 
             const glm::vec3 worldPos = glm::vec3( entity.GetWorldTransform()[3] );
             glm::vec2       screenPos;
@@ -1222,7 +1287,7 @@ namespace Desert::Editor
             const float ax = windowPos.x + screenPos.x;
             const float ay = windowPos.y + screenPos.y;
 
-            if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), icon, color, IsSelected( entity ) ) )
+            if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), role, color, IsSelected( entity ), m_UIHelper ) )
             {
                 // These entities have no geometry either, so the same gate + click-select the camera and
                 // text billboards use: without it the pointer passes through the glyph to the scene
@@ -1270,7 +1335,8 @@ namespace Desert::Editor
             const auto&  tc = entity.GetComponent<ECS::TextComponent>();
             const ImVec4 col( tc.Color.r, tc.Color.g, tc.Color.b, 1.0f );
 
-            if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), ICON_MDI_FORMAT_TEXT, col, IsSelected( entity ) ) )
+            if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), GizmoIcon::Text, col, IsSelected( entity ),
+                                    m_UIHelper ) )
             {
                 m_LightIconHovered = true; // shares the icon-hover gate so scene ray-pick doesn't fire under it
                 if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
@@ -1291,45 +1357,67 @@ namespace Desert::Editor
     }
 
     void LightGizmoRenderer::DrawSpotCone( const std::shared_ptr<Desert::Core::Camera>& camera,
-                                           const glm::vec3& apex, const glm::vec3& dir, float outerAngleDeg,
-                                           float range, float width, float height, float windowX, float windowY )
+                                           const glm::vec3& apex, const glm::vec3& dir, float innerAngleDeg,
+                                           float outerAngleDeg, float range, const glm::vec3& lightColour,
+                                           float width, float height, float windowX, float windowY )
     {
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         const auto  mvp      = camera->GetProjectionMatrix() * camera->GetViewMatrix();
-        const ImU32 color    = ImColor( 1.0f, 0.9f, 0.5f, 0.85f );
+
+        // THE LIGHT'S OWN COLOUR again, and for the same reason as the point light's shell. The fixed
+        // warm yellow that stood here made every spot in a scene the same object.
+        const glm::vec3 lifted( std::max( lightColour.r, 0.25f ), std::max( lightColour.g, 0.25f ),
+                                std::max( lightColour.b, 0.25f ) );
+        const ImU32 outerCol = ImColor( ImVec4( lifted.r, lifted.g, lifted.b, 0.85f ) );
+        const ImU32 innerCol = ImColor( ImVec4( lifted.r, lifted.g, lifted.b, 0.40f ) );
 
         // Build an orthonormal basis around the cone axis.
         glm::vec3 up = ( glm::abs( dir.y ) > 0.99f ) ? glm::vec3( 1.0f, 0.0f, 0.0f ) : glm::vec3( 0.0f, 1.0f, 0.0f );
         glm::vec3 right = glm::normalize( glm::cross( dir, up ) );
         up             = glm::normalize( glm::cross( right, dir ) );
 
-        const float  outer       = glm::radians( outerAngleDeg );
-        const float  capRadius   = range * glm::tan( outer );
         const glm::vec3 capCenter = apex + dir * range;
 
-        const int    segments = 48;
-        glm::vec2    prev;
-        bool         prevValid = false;
-        glm::vec2    apexS;
-        const bool   apexValid = ProjectToScreen( apex, mvp, width, height, apexS );
+        glm::vec2  apexS;
+        const bool apexValid = ProjectToScreen( apex, mvp, width, height, apexS );
 
-        for ( int i = 0; i <= segments; ++i )
+        // ── TWO CONES, BECAUSE THE LIGHT HAS TWO ANGLES ──────────────────────────────────────────
+        //
+        // Only the OUTER one was drawn, and InnerConeAngle — the half-angle inside which the spot is at
+        // full intensity — had no picture anywhere in the editor. Two spots with the same outer angle
+        // and inner angles of 5 and 29 degrees are a hard-edged stage light and a soft wash, and they
+        // were the same gizmo. The inner rim is drawn faint and RIBLESS: it is a reading of the
+        // falloff, not a second cone to grab, and ribs on both would read as a lattice.
+        const auto ring = [&]( float angleDeg, ImU32 colour, bool ribs )
         {
-            const float a   = 2.0f * glm::pi<float>() * i / segments;
-            glm::vec3   p   = capCenter + capRadius * ( glm::cos( a ) * right + glm::sin( a ) * up );
-            glm::vec2   s;
-            const bool  ok  = ProjectToScreen( p, mvp, width, height, s );
-            const ImVec2 sp = ImVec2( windowX + s.x, windowY + s.y );
+            const float capRadius = range * glm::tan( glm::radians( glm::clamp( angleDeg, 0.5f, 89.0f ) ) );
+            const int   segments  = 48;
+            glm::vec2   prev;
+            bool        prevValid = false;
+            for ( int i = 0; i <= segments; ++i )
+            {
+                const float  a  = 2.0f * glm::pi<float>() * i / segments;
+                glm::vec3    p  = capCenter + capRadius * ( glm::cos( a ) * right + glm::sin( a ) * up );
+                glm::vec2    s;
+                const bool   ok = ProjectToScreen( p, mvp, width, height, s );
+                const ImVec2 sp = ImVec2( windowX + s.x, windowY + s.y );
 
-            if ( ok && prevValid )
-                drawList->AddLine( ImVec2( windowX + prev.x, windowY + prev.y ), sp, color, 1.5f );
-            // A few rib lines from the apex to the cap edge.
-            if ( ok && apexValid && ( i % 12 == 0 ) )
-                drawList->AddLine( ImVec2( windowX + apexS.x, windowY + apexS.y ), sp, color, 1.5f );
+                if ( ok && prevValid )
+                    drawList->AddLine( ImVec2( windowX + prev.x, windowY + prev.y ), sp, colour, 1.5f );
+                // A few rib lines from the apex to the cap edge.
+                if ( ribs && ok && apexValid && ( i % 12 == 0 ) )
+                    drawList->AddLine( ImVec2( windowX + apexS.x, windowY + apexS.y ), sp, colour, 1.5f );
 
-            prev      = s;
-            prevValid = ok;
-        }
+                prev      = s;
+                prevValid = ok;
+            }
+        };
+
+        ring( outerAngleDeg, outerCol, true );
+        // A zero-width hotspot has no ring to draw; clamping it to 0.5 degrees instead would put a dot
+        // on the axis that reads as an inner cone the light does not have.
+        if ( innerAngleDeg >= 1.0f && innerAngleDeg < outerAngleDeg )
+            ring( innerAngleDeg, innerCol, false );
     }
 
     bool LightGizmoRenderer::IsSelected( const ECS::Entity& entity ) const
@@ -1406,9 +1494,9 @@ namespace Desert::Editor
     }
 
     void LightGizmoRenderer::DrawLightRadiusSphere( const std::shared_ptr<Desert::Core::Camera>& camera,
-                                                    const glm::vec3& worldPos, float radius, float width,
-                                                    float height, float windowX, float windowY,
-                                                    float /*iconCenterX*/, float /*iconCenterY*/ )
+                                                    const glm::vec3& worldPos, float radius,
+                                                    const glm::vec3& lightColour, float width, float height,
+                                                    float windowX, float windowY )
     {
         ImDrawList* drawList         = ImGui::GetWindowDrawList();
         const auto  viewMatrix       = camera->GetViewMatrix();
@@ -1417,16 +1505,22 @@ namespace Desert::Editor
 
         const int segments = 64;
 
-        ImU32 colorWhite = ImColor( 1.0f, 1.0f, 1.0f, 1.0f );
+        // THE LIGHT'S OWN COLOUR, not white. Three white rings say "something has a radius here"; the
+        // same rings in the light's colour say WHICH light, which is the whole question a scene with
+        // four overlapping lights asks. Slightly transparent so two overlapping shells still read as
+        // two, and lifted off black so a nearly-unlit light is still a visible ring.
+        const glm::vec3 lifted( std::max( lightColour.r, 0.25f ), std::max( lightColour.g, 0.25f ),
+                                std::max( lightColour.b, 0.25f ) );
+        const ImU32     colour = ImColor( ImVec4( lifted.r, lifted.g, lifted.b, 0.8f ) );
 
         DrawAxisAlignedCircle( drawList, worldPos, radius, segments, glm::vec3( 1.0f, 0.0f, 0.0f ),
-                               glm::vec3( 0.0f, 0.0f, 1.0f ), mvp, width, height, windowX, windowY, colorWhite );
+                               glm::vec3( 0.0f, 0.0f, 1.0f ), mvp, width, height, windowX, windowY, colour );
 
         DrawAxisAlignedCircle( drawList, worldPos, radius, segments, glm::vec3( 1.0f, 0.0f, 0.0f ),
-                               glm::vec3( 0.0f, 1.0f, 0.0f ), mvp, width, height, windowX, windowY, colorWhite );
+                               glm::vec3( 0.0f, 1.0f, 0.0f ), mvp, width, height, windowX, windowY, colour );
 
         DrawAxisAlignedCircle( drawList, worldPos, radius, segments, glm::vec3( 0.0f, 1.0f, 0.0f ),
-                               glm::vec3( 0.0f, 0.0f, 1.0f ), mvp, width, height, windowX, windowY, colorWhite );
+                               glm::vec3( 0.0f, 0.0f, 1.0f ), mvp, width, height, windowX, windowY, colour );
     }
 
     void LightGizmoRenderer::DrawAxisAlignedCircle( ImDrawList* drawList, const glm::vec3& center, float radius,

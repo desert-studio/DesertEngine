@@ -126,16 +126,28 @@ namespace Desert::Runtime
             raw->Layers.push_back( IconLayer{ 0.0f, 0.0f, 1.0f, 1.0f, rgba } );
         }
 
-        if ( !RepackAtlas() )
+        // THE REPACK IS THE OTHER HALF OF WHAT AN IMPORT COSTS, and it was not in the number above.
+        // Every import rebuilds the WHOLE page — a dim*dim*4 CPU buffer, one Image2D::Create upload,
+        // and the old page retired for the session — so N icons cost N repacks, the last of which is
+        // the biggest. The line below said "this icon cost the startup X ms" while reporting only the
+        // parse/cache half; the two are now separate numbers, because they answer different questions
+        // (a cache hit removes the first and never the second).
+        const auto repackStart = std::chrono::steady_clock::now();
+        const bool packed      = RepackAtlas();
+        const auto repackUs    = std::chrono::duration_cast<std::chrono::microseconds>(
+                                   std::chrono::steady_clock::now() - repackStart )
+                                   .count();
+        if ( !packed )
         {
             m_Bitmaps.resize( firstBitmap ); // roll the new runs back out so the atlas stays consistent
             raw->Layers.clear();
             RepackAtlas();
             return raw;
         }
-        LOG_INFO( "[IconService] {} '{}' ({} layer(s)) into the {}x{} icon atlas in {} ms",
+        LOG_INFO( "[IconService] {} '{}' ({} layer(s)) into the {}x{} icon atlas in {} ms + {} us repacking "
+                  "({} layer(s) on the page)",
                   fromCache ? "Loaded cached" : "Imported", path, raw->Layers.size(), m_AtlasSize, m_AtlasSize,
-                  bakeMs );
+                  bakeMs, repackUs, m_Bitmaps.size() );
         return raw;
     }
 

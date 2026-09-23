@@ -253,6 +253,24 @@ namespace Desert::Editor
         // Scene::AddView (Engine/Core/SceneViewList.hpp); the ECS is still walked once per frame no
         // matter how many of these are open.
         void AddSceneViewport();
+
+        // ── THE FOUR-UP GRID (UE's pattern, spelled in our docking) ───────────────────────────────
+        //
+        // What UE's four-viewport layout buys is "see the same object from fixed orthogonal directions
+        // at once". UE spells it as a dedicated splitter widget with a per-pane type menu, because its
+        // viewport area is not a general docking host. OURS IS — every viewport is an ordinary dockable
+        // window — so a bespoke splitter here would be a second, weaker layout system: its panes could
+        // not be tabbed, floated, resized against the Outliner, or saved as a named layout, all of
+        // which the docking already gives. So this opens the three extra views, aims the four cameras
+        // at Perspective / Top / Front / Right, and asks DockBuilder for the quarters.
+        //
+        // Runs from OnUpdate (between frames) because opening a view leases a renderer slot and builds
+        // GPU resources. REFUSES with the reason printed when the slot budget cannot carry four.
+        void BuildViewportGrid();
+        // The window titles waiting for the quarters, in grid order: top-left, top-right, bottom-left,
+        // bottom-right. Filled by BuildViewportGrid and drained by the dockspace pass on the NEXT frame
+        // — DockBuilder must run inside the ImGui frame, and BuildViewportGrid runs outside one.
+        std::vector<std::string> m_PendingViewportGrid;
         // Destroys viewport @p id: its panel, then the renderer whose destructor hands the slot back.
         // The scene is NOT touched beyond dropping the view — the other viewports of that world go on.
         void CloseSceneViewport( uint64_t id );
@@ -634,7 +652,9 @@ namespace Desert::Editor
         bool                                    m_AddSceneViewRequested = false; // Scenes -> New Scene View
         // Deferred for the same reason as the flag above: opening a viewport leases a renderer slot and
         // builds GPU resources, neither of which may happen inside the ImGui pass.
-        bool m_AddSceneViewportRequested = false;
+        bool                                    m_AddSceneViewportRequested = false;
+        // Scene -> Four-Up Viewports. Deferred like the two above, and for the same reason.
+        bool                                    m_ViewportGridRequested = false;
 
         // Staged startup loading (UI loader): the heavy boot work (mesh cooking, asset preload) runs one
         // stage per frame from OnUpdate while OnUIRender shows a fullscreen progress overlay — instead

@@ -1,57 +1,61 @@
-# N9 — the HDR skybox has no material and no preview
+# E4 — viewport layout, and ten icons that are downloaded but wired to nothing
 
 Read `.claude/AGENT_BRIEF_COMMON.md` first. Your tree:
-`/Users/daniilsavcenko/Desktop/Programming/C++/DesertEngine-N9`, branch `task/N9-sky`.
+`/Users/daniilsavcenko/Desktop/Programming/C++/DesertEngine-E4`, branch `task/E4-viewports`.
 Absolute paths ALWAYS.
 
-## Start by reading what your predecessor proved
+## The owner's report
 
-`Docs/Sky/N7_HANDOVER.md`, and the two commits it names (`1d14f3cf`, `82e06b71`), already merged
-into `dev`. That agent died on an API error, not on a mistake. **Its finding is load-bearing for
-you**: the green-face-everywhere defect was a missing perspective divide in the view-ray
-reconstruction, now fixed and held by `Tests/Engine/DepthConvention` (14/14, I re-ran it).
-Evidence frames: `/Users/daniilsavcenko/Desktop/Programming/C++/DesertEngine-N7-evidence`.
+«несколько окон просмотра сцены с разных углов, поправить camera gizmos … а так же в целом
+поправить все gizmos: красивые иконки как в UE, информативность итд!»
 
-Do not re-diagnose that. Build on it.
+The camera gizmo itself is DONE — its frustum was drawn 2.5 cm long, a literal that predated the
+project's decision that one world unit is one centimetre. That is merged. Two pieces remain.
 
-## The owner's two reports
+## 1. The layout
 
-1. «для hdr скайбокс нет материаллов (как для mesh) со своими параметрами, а так же там нельзя
-   посмотреть preview на шаре (как в UE)» — a mesh has a material section with parameters and a
-   sphere thumbnail; an HDR skybox has neither.
-2. «Ну надо еще добавить какие можно, можно опять же подсмотреть на UE» — more sky parameters.
+`Scenes -> New Scene View` exists and several live SceneRenderers are now legal — the scene holds
+its views and one ECS walk feeds N of them (merged yesterday as U9, read that commit). Six
+renderer slots; a preview must be DESTROYED to give its slot back.
 
-## Scope
+What is missing is the LAYOUT: UE gives four viewports in a grid with per-viewport camera
+presets (perspective / top / front / side). Today each new view is a floating panel the user
+arranges by hand.
 
-**The preview.** Your predecessor had oriented itself at `AssetThumbnailRenderer`,
-`ThumbnailSubject` and the thumbnail service, and had written nothing. Start there. The mesh
-material preview already exists — find it and ask whether the sky can reuse it rather than
-growing a second one.
+Take the PATTERN, not the letter. Ask what the four-up grid actually buys — the answer is
+"see the same object from fixed orthogonal directions at once", and how we spell that is ours to
+choose. If a simpler mechanism answers it, take ours and write down why.
 
-**The parameters.** Candidates: yaw rotation, tint, cubemap resolution, lower-hemisphere colour,
-volumetric contribution. These were already triaged once: five UE occlusion knobs,
-`SkyDistanceThreshold`, `CastShadows`, `SourceType` and `AffectsWorld` were **explicitly refused
-with reasons**. Find those reasons before resurrecting any of them.
+**Check before you build**: verify that `AddSceneView` now attaches to the CURRENT scene. It used
+to create a brand-new empty Scene, which is why a second view rendered nothing. I believe U9 fixed
+this; confirm it rather than assuming.
 
-UE is a reference to a PROBLEM, not a shape to copy. For each parameter say what question it
-answers; if our mechanism answers it more simply, take ours and write down why. A reasoned
-refusal is a full answer here — the owner has said so.
+## 2. The icons
 
-## Do not
+Ten Phosphor duotone SVGs live in `Editor/Resources/Icons/Gizmo/`, named by ROLE
+(`light-point.svg`, `light-directional.svg`, `light-spot.svg`, `camera.svg`, `audio-source.svg`,
+`trigger-volume.svg`, `spawn-point.svg`, `text.svg`, `transform-empty.svg`, `script.svg`), with
+`LICENSE-MIT-Phosphor.txt` and a `NOTICE.md` recording why Phosphor over MDI. The SVG parser was
+taught to fold `opacity` / `fill-opacity` into the fill alpha, without which duotone collapses to
+one flat layer — `Tests/Engine/VectorImage` holds that with a negative control.
 
-Split the skybox into separate atmosphere/HDR components. The owner asked whether that is right
-(«стоит ли делить»); it has no answer yet and it is not yours to decide inside this task.
+**Nothing is wired.** Gizmos still draw font glyphs. That is the job: make the renderer use these.
+
+While you are there, "информативность": a gizmo should say WHICH light it is, not just that a
+light exists. Colour from the light's own colour, a radius ring for point lights, a cone for
+spots. Propose, measure, and refuse anything that costs more than it tells.
 
 ## Proof
 
-A parameter that is written but never read is the recurring defect in this codebase — find the
-line that DOES the thing, do not trust a comment claiming it. For each parameter you add, show a
-frame where changing it changes pixels, and a negative control where it must not. Measure the
-noise floor **per region**, never over the whole window. Shoot zenith, mid and horizon.
-`--shot-frames 3` is FORBIDDEN: below frames-in-flight `--shot` writes an EMPTY png and two
-empties are byte-identical.
+The editor DOES run here — `scripts/MacOS/RunEditor.sh`, and `--scene X --shot out.png --camera
+--look` renders unattended. **Render and LOOK before claiming a visual change works.** Panel UI is
+verifiable; the common brief has the section. `--shot-frames 3` is FORBIDDEN (empty png below
+frames-in-flight).
 
 ## Rules
 
 Never run clang-tidy or clang-format. English commit messages. Own scratchpad subdirectory.
-WIP-commit whenever you pause. Never commit ThirdParty pointers. Build at `-j3`.
+WIP-commit whenever you pause — an agent died mid-task yesterday and only its commits survived.
+Never commit ThirdParty pointers. Build at `-j3`; two other agents share this machine.
+
+If a claim above is false, say so. Briefs here have carried stale citations before.

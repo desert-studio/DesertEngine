@@ -14,6 +14,7 @@
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 
 #include "LightGizmoRenderer.hpp"
+#include "ViewportCameraPreset.hpp"
 #include "PerfHudOverlay.hpp"
 #include "Tools/FoliagePaintTool.hpp"
 #include "Tools/CubeGridTool.hpp"
@@ -141,6 +142,18 @@ namespace Desert::Editor
         // wrong.
         NO_DISCARD static Common::BoolResultStr RequestAuthoringMode( Core::AuthoringMode mode );
 
+        // ── NAMED CAMERA ANGLES ───────────────────────────────────────────────────────────────────
+        //
+        // The half of UE's four-up pattern that carries the meaning; ViewportCameraPreset.hpp argues
+        // why the other half (the fixed splitter widget) is refused in favour of docking.
+        //
+        // TWO ENTRY POINTS BECAUSE THERE ARE TWO QUESTIONS, and one implementation behind them. The
+        // toolbar and the palette mean "the viewport I am working in"; the grid builder means "the
+        // third pane", which it knows by scene-view id and could not name any other way — an index
+        // into the live list is a different window the moment one closes (SceneViewIdentity.hpp).
+        NO_DISCARD static Common::BoolResultStr RequestCameraPreset( ViewportCameraPreset preset );
+        NO_DISCARD static Common::BoolResultStr SetCameraPreset( uint64_t sceneViewId, ViewportCameraPreset preset );
+
         // CAN THE SELECTED ENTITY BE AUTHORED THIS WAY, and if not, the sentence that says why. An error
         // rather than a bool because every caller shows the reason: the toolbar as the disabled segment's
         // tooltip, the palette as the refusal on the wire.
@@ -154,6 +167,16 @@ namespace Desert::Editor
         }
 
     private:
+        // THE VIEWPORT THE USER IS WORKING IN: the one holding the bone-authoring context, else the
+        // first live one. Named once, because picking "the first" blindly moves a command off the view
+        // the user is in the moment a second viewport exists — and several viewports at once is a
+        // shipped feature here, not a corner case. Null only when no viewport exists at all.
+        static ViewportPanel* ActiveViewport();
+
+        // Aim THIS viewport's camera. Refuses with a reason when the view has no editor camera — a
+        // closed view, or Play mode, where the camera is the scene's and not the user's to orbit.
+        NO_DISCARD Common::BoolResultStr ApplyCameraPreset( ViewportCameraPreset preset );
+
         bool OnMousePressed( Common::MouseButtonPressedEvent& e );
         bool OnKeyPressedEvent( Common::KeyPressedEvent& e );
 
