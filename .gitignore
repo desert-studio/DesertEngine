@@ -302,3 +302,9 @@ nuclei-*.txt
 # path (`--scene ../Worlds/World_Grid8km.desce`), which is how every headless capture names a scene
 # anyway; what it loses is a row in the Content Browser.
 Worlds/
+
+# Built artefacts of the standalone BC7 driver probe (scripts/Probes/bc7/build.sh).
+scripts/Probes/bc7/bc7upload
+scripts/Probes/bc7/bc7upload.exe
+scripts/Probes/bc7/bc7fetch.spv
+scripts/Probes/bc7/*.obj

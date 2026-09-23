@@ -78,6 +78,17 @@ namespace Desert::Engine
         uint32_t MaxTexture2DSize      = 0;
         uint32_t MaxTextureArrayLayers = 0;
         uint32_t MaxColorAttachments   = 0; ///< The deferred G-buffer needs 4 + depth; RSM mirrors it.
+        /// VK textureCompressionBC: the BC1..BC7 block-compressed formats, as a DEVICE FEATURE.
+        ///
+        /// NOT the same question as `IsFormatSupported(BC7, Sampled)`. That one reads
+        /// vkGetPhysicalDeviceFormatProperties, which describes the PHYSICAL device and answers "could
+        /// this driver do it"; this one says the feature was asked for on the logical device we actually
+        /// created, which is what the spec requires before a BC image may exist. On MoltenVK the two
+        /// diverge silently in the dangerous direction -- a BC7 image creates, uploads and samples
+        /// correctly on a device that never enabled the feature, and neither the driver nor validation
+        /// layer 1.4.350.1 says a word (measured 2026-09-23). A driver that enforces it would refuse,
+        /// and nothing on this machine would have warned us first.
+        bool SupportsTextureCompressionBC = false;
         /// Bitmask of usable MSAA counts (bit N set = 2^N samples), colour AND depth both supported.
         uint32_t MSAASampleMask = 1;
 
