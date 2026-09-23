@@ -186,8 +186,8 @@ namespace Desert::Geometry
 
     void EditMesh::EraseVertexEdge( int v, int e )
     {
-        auto& edges = m_VertexEdges[v];
-        const auto it = std::find( edges.begin(), edges.end(), e );
+        auto&      edges = m_VertexEdges[v];
+        const auto it    = std::find( edges.begin(), edges.end(), e );
         if ( it != edges.end() )
             edges.erase( it );
     }
@@ -763,17 +763,17 @@ namespace Desert::Geometry
                 if ( !IsVertex( v ) )
                     return MakeFormattedError<bool>( "triangle {} names dead vertex {}", t, v );
             if ( corners[0] == corners[1] || corners[1] == corners[2] || corners[2] == corners[0] )
-                return MakeFormattedError<bool>( "triangle {} is degenerate ({}, {}, {})", t, corners[0], corners[1],
-                                                 corners[2] );
+                return MakeFormattedError<bool>( "triangle {} is degenerate ({}, {}, {})", t, corners[0],
+                                                 corners[1], corners[2] );
             for ( int j = 0; j < 3; ++j )
             {
                 const int e = m_TriangleEdges[t][j];
                 if ( !IsEdge( e ) )
                     return MakeFormattedError<bool>( "triangle {} edge slot {} names dead edge {}", t, j, e );
                 if ( m_EdgeVertices[e] != Sorted( corners[j], corners[Next( j )] ) )
-                    return MakeFormattedError<bool>( "triangle {} edge slot {} is edge {} = ({}, {}), expected ({}, {})",
-                                                     t, j, e, m_EdgeVertices[e][0], m_EdgeVertices[e][1], corners[j],
-                                                     corners[Next( j )] );
+                    return MakeFormattedError<bool>(
+                         "triangle {} edge slot {} is edge {} = ({}, {}), expected ({}, {})", t, j, e,
+                         m_EdgeVertices[e][0], m_EdgeVertices[e][1], corners[j], corners[Next( j )] );
                 if ( m_EdgeTriangles[e][0] != t && m_EdgeTriangles[e][1] != t )
                     return MakeFormattedError<bool>( "triangle {} uses edge {} which does not list it", t, e );
             }
@@ -800,7 +800,8 @@ namespace Desert::Geometry
             if ( !IsTriangle( tris[0] ) )
                 return MakeFormattedError<bool>( "edge {} has no live first triangle ({})", e, tris[0] );
             if ( tris[1] != InvalidId && ( !IsTriangle( tris[1] ) || tris[1] == tris[0] ) )
-                return MakeFormattedError<bool>( "edge {} second triangle {} is dead or repeats the first", e, tris[1] );
+                return MakeFormattedError<bool>( "edge {} second triangle {} is dead or repeats the first", e,
+                                                 tris[1] );
             int firstCorner = InvalidId;
             for ( int side = 0; side < 2; ++side )
             {
@@ -834,11 +835,13 @@ namespace Desert::Geometry
             for ( const int e : edges )
             {
                 if ( !IsEdge( e ) || ( m_EdgeVertices[e][0] != v && m_EdgeVertices[e][1] != v ) )
-                    return MakeFormattedError<bool>( "vertex {} lists edge {} which is dead or does not touch it", v, e );
+                    return MakeFormattedError<bool>( "vertex {} lists edge {} which is dead or does not touch it",
+                                                     v, e );
                 neighbours.push_back( m_EdgeVertices[e][0] == v ? m_EdgeVertices[e][1] : m_EdgeVertices[e][0] );
             }
             std::sort( neighbours.begin(), neighbours.end() );
-            if ( const auto dup = std::adjacent_find( neighbours.begin(), neighbours.end() ); dup != neighbours.end() )
+            if ( const auto dup = std::adjacent_find( neighbours.begin(), neighbours.end() );
+                 dup != neighbours.end() )
                 return MakeFormattedError<bool>( "vertices {} and {} are joined by more than one edge", v, *dup );
         }
 

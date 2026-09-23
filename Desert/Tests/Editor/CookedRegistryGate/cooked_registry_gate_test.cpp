@@ -272,8 +272,9 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
         const auto        kind = static_cast<Common::Content::ContentKind>( i );
         const std::string name( Common::Content::KindName( kind ) );
 
-        const auto* const cookOnly = std::find_if( std::begin( kCookOnlyKinds ), std::end( kCookOnlyKinds ),
-                                            [&name]( const CookOnlyKind& row ) { return name == row.Kind; } );
+        const auto* const cookOnly =
+             std::find_if( std::begin( kCookOnlyKinds ), std::end( kCookOnlyKinds ),
+                           [&name]( const CookOnlyKind& row ) { return name == row.Kind; } );
         if ( cookOnly != std::end( kCookOnlyKinds ) )
         {
             EXPECT_EQ( kindsTracked.find( name ), kindsTracked.end() )
