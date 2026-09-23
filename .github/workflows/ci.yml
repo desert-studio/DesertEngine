@@ -178,12 +178,25 @@ jobs:
     # ViewportCameraPreset, ProceduralEnvironmentCube, TextureCompressionBC) were not in ANY of the four
     # runs, having landed after the last of them.
     #
-    # WHAT ACTUALLY FIXED IT is on the test side of the job, not here: the sweep ran 279 suites strictly
-    # one after another on a THREE-core runner, 40.1 minutes with two cores idle, 71.7 % of it inside
-    # ten suites. scripts/MacOS/RunTests.sh now runs them concurrently — see its header for the
-    # distribution and the schedule. The build half (26-44 min, ~70 % of it spent reaching
-    # `Linking Desert`) is untouched and is now the larger half; ccache or a build-artifact split is the
-    # next lever and is its own task with its own measurement.
+    # WHAT CHANGED is on the test side of the job, not here: the sweep ran 279 suites strictly one after
+    # another on a THREE-core runner, 40.1 minutes with two cores idle, 71.7 % of it inside ten suites.
+    # scripts/MacOS/RunTests.sh now runs them concurrently — see its header for the distribution.
+    #
+    # WHAT THAT BOUGHT, measured end to end on this workflow (run 35813546798, job 107030112391, 283 of
+    # 283 suites green): 77 m 58 s total — 45 m 41 s build, 30 m 19 s test. That runner was 1.22x slower
+    # than the reference one, so the serial sweep on it would have been ~48.7 minutes and the job ~96:
+    # this is a run that would have been cancelled and instead passed. The speedup is 1.6x rather than
+    # 3x because the heavy suites are compute-bound and contend (per-suite durations inflate 2.25x under
+    # three-way concurrency); there is no idle left on this runner to sell.
+    #
+    # AND IT IS NOT ENOUGH, which the job says itself: the budget step below warned at 86 %. The two
+    # remaining levers are both named by measurement rather than guessed at. The build is now the larger
+    # half and ~70 % of it is spent reaching `Linking Desert`, one 1.3 GB static archive that 283 test
+    # binaries then each link — ccache, or splitting build-once from test-many across jobs, is the next
+    # task. On the test side the binding constraint is a single suite: CloudField, 1182 s under
+    # concurrency, 65 % of the whole makespan. Sharding this job into a matrix was considered and NOT
+    # taken yet, on the numbers above: every shard pays the same ~45-minute library build, so the
+    # makespan floor is set by the build and not by how the suites are divided.
     #
     # SO THE CEILING STAYS. Raising it would have bought a month and taught the job to grow unwatched;
     # lowering it now, against one measurement, would trade a real failure mode for a fake one. What is

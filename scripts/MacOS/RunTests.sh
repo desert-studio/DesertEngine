@@ -24,10 +24,27 @@
 # 20.7 %). Four independent CI runs the same night agreed on that shape to within a percent.
 #
 # A serial sweep over a distribution like that spends most of its wall clock waiting on a handful of
-# suites while the machine is idle. Concurrency makes the floor `max(longest suite, total / JOBS)`
-# instead of `total`. It is not a fix for a pathological suite and does not pretend to be one: the
-# per-suite table this script now prints on every run is what makes the next pathological suite
-# visible before it becomes a ceiling.
+# suites while the machine is idle. What concurrency actually bought, MEASURED and not modelled (job
+# 107030112391, the same workspace, three jobs on three cores): 30 m 16 s of makespan where the serial
+# sweep on a runner of that speed would have been about 48.7 minutes. The job went 78 minutes instead
+# of the ~96 it was heading for, and passed.
+#
+# THE MODEL THAT PREDICTED 13 MINUTES WAS WRONG, and the number it was wrong by is the useful part.
+# `max(longest suite, total / JOBS)` assumes a suite costs the same whether or not two others are
+# running beside it. It does not: the SUM of the per-suite durations went from 2403 s serial to 5416 s
+# under three-way concurrency, 2.25x, and the worst offenders inflated most (CloudNoiseVolume 3.33x,
+# CloudPlacementSpectrum 3.34x, CloudField 2.38x). These suites are compute-bound and three of them on
+# three cores saturate the machine, so the real speedup is 1.6x, not 3x. Raising JOBS past the core
+# count would buy nothing; there is no idle left to sell.
+#
+# WHICH MOVES THE BINDING CONSTRAINT. CloudField alone is 1182 s under concurrency — 65 % of the whole
+# makespan — so the next minute has to come out of that suite, out of the build, or out of a second
+# machine. This is not a fix for a pathological suite and does not pretend to be one: the per-suite
+# table below is what makes the next one visible before it becomes a ceiling, and it is what named
+# this one.
+#
+# MEMORY IS NOT THE LIMIT, which was the open question when this was written: peak RSS over the whole
+# concurrent sweep was 1122 MiB, in SceneForeignKeys, against a 7 GB runner.
 #
 # THE SCHEDULE IS FIFO over the alphabetical glob, deliberately, because every alternative needs
 # state that rots — a committed weights table, or the previous run's timings restored from an
@@ -222,7 +239,14 @@ if [ -f "$MANIFEST" ]; then
     EXPECTED="$(grep -c '[^[:space:]]' "$MANIFEST")"
     echo "suites run: $RAN of $COUNT found ($EXPECTED in build/TestManifest.txt)"
     if [ "$COUNT" -ne "$EXPECTED" ]; then
-        echo "::warning title=Test suite count::$COUNT binaries in $TEST_DIR but $EXPECTED projects in build/TestManifest.txt — a suite is not linking, or the manifest is stale"
+        MSG="$COUNT binaries in $TEST_DIR but $EXPECTED projects in build/TestManifest.txt — a suite is not linking, or the manifest is stale"
+        # The ::workflow command:: form is an annotation on CI and line noise in a terminal, so the
+        # same fact is said in whichever dialect the reader is actually in.
+        if [ -n "${GITHUB_ACTIONS:-}" ]; then
+            echo "::warning title=Test suite count::$MSG"
+        else
+            echo "[WARN] $MSG"
+        fi
     fi
 else
     echo "suites run: $RAN of $COUNT found (no build/TestManifest.txt to compare against)"
