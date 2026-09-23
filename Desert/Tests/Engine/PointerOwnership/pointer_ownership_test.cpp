@@ -437,11 +437,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   378+2+3, Shared 330+1+0, Unique 117+1+2, Weak unmoved) and then CONFIRMED by running, never
     //   pasted from one side. Same shape as the merge two days ago, and the reason the register pins
     //   rows rather than a count: a number can be fixed by editing the number.
-    EXPECT_EQ( CountOf( Form::Raw ), 383 );
+    //     E4 (2026-09-23) added FOUR raw members and was green against its own base, while dev was green
+    //     against itself -- the sum was neither, and the integrator pushed it red. Exactly the failure
+    //     this comment already described one merge earlier, which is the point: the register survives it
+    //     because a row cannot be satisfied by editing a number. The four are the two literal columns of
+    //     GizmoIconRow, ViewportCameraPresetRow::Name, and LightGizmoRenderer::m_UIHelper. Raw 383+4.
+    EXPECT_EQ( CountOf( Form::Raw ), 387 );
     EXPECT_EQ( CountOf( Form::Shared ), 331 );
     EXPECT_EQ( CountOf( Form::Unique ), 120 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 872 )
+    EXPECT_EQ( (int)Members().size(), 876 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
