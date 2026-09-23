@@ -422,6 +422,33 @@ namespace Desert::Editor
             ImGui::SameLine();
         }
 
+        // World Partition's one authored input per entity (ECS::AlwaysLoadedComponent). Beside the lock
+        // because it is the same kind of thing - a marker whose presence is the state, toggled in place.
+        // Not recursive: the partitioner keeps a whole composite together, so marking one member already
+        // keeps its parent and children loaded with it.
+        {
+            ECS::Entity& entity       = const_cast<ECS::Entity&>( selectedEntity );
+            const bool   alwaysLoaded = entity.HasComponent<ECS::AlwaysLoadedComponent>();
+            ImGui::PushStyleColor( ImGuiCol_Text, alwaysLoaded ? ThemeManager::GetIconColor()
+                                                               : ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
+            ImGui::TextUnformatted( alwaysLoaded ? ICON_MDI_PIN : ICON_MDI_PIN_OUTLINE );
+            ImGui::PopStyleColor();
+            if ( ImGui::IsItemClicked() )
+            {
+                if ( alwaysLoaded )
+                    entity.RemoveComponent<ECS::AlwaysLoadedComponent>();
+                else
+                    entity.AddComponent<ECS::AlwaysLoadedComponent>();
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( alwaysLoaded
+                                        ? "Always loaded: in a partitioned world this entity and everything it "
+                                          "is attached to stay loaded everywhere. Click to let its position decide."
+                                        : "Click to keep this entity loaded everywhere in a partitioned world. "
+                                          "Worlds without a WorldPartition block load everything anyway." );
+            ImGui::SameLine();
+        }
+
         ImGui::PushStyleColor( ImGuiCol_Text, ThemeManager::GetIconColor() );
         ImGui::TextUnformatted( GetEntityIcon( selectedEntity ) );
         ImGui::PopStyleColor();

@@ -3,6 +3,8 @@
 #include "WorldBuild.hpp"
 #include "SettingsCanonical.hpp"
 
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <rflcpp/rfl/json.hpp>
@@ -55,7 +57,7 @@ namespace Desert::WorldGen
                 presets += std::string( presets.empty() ? "" : ", " ) + p.Key;
             return "usage: WorldGen --out <scene.desce> [--preset <" + presets +
                    ">] [--assets <dir>] [--cells N] [--per-cell N] [--cell-size CM] [--seed N] "
-                   "[--name <scene name>] [--verify]";
+                   "[--name <scene name>] [--partition] [--verify]";
         }
 
         // ONE FIELD OF A .demat, NAMED AS A TYPE. The generator needs a material's identity and nothing
@@ -135,7 +137,8 @@ namespace Desert::WorldGen
         std::optional<int> perCell;
         std::optional<int> cellSize;
         std::optional<int> seed;
-        bool               verify = false;
+        bool               verify    = false;
+        bool               partition = false;
 
         for ( size_t i = 0; i < args.size(); ++i )
         {
@@ -151,6 +154,8 @@ namespace Desert::WorldGen
             std::string v;
             if ( a == "--verify" )
                 verify = true;
+            else if ( a == "--partition" )
+                partition = true;
             else if ( a == "--out" && value( v ) )
                 outPath = v;
             else if ( a == "--assets" && value( v ) )
@@ -256,6 +261,18 @@ namespace Desert::WorldGen
         {
             auto scene = BuildWorld( spec, palette, ground.GetValue(), stats );
 
+            // --partition: the world states a WorldPartition block whose level-0 cell IS the generator's
+            // tile, so every ground tile is exactly one cell and what the plan promotes is what really
+            // crosses a tile edge. The loading range is the 768 m radius the preset's own sizing argument
+            // is made against (see kPresets): about 29 of 1024 tiles resident.
+            if ( partition )
+            {
+                Core::WorldPartitionGridSerialized grid;
+                grid.CellSize     = static_cast<float>( spec.CellSizeCm );
+                grid.LoadingRange = 76800.0f;
+                scene.WorldPartition = Core::WorldPartitionSerialized{ { grid } };
+            }
+
             // The Settings block, written the way the ENGINE'S SAVER writes it - every field this build
             // declares, in the registry's order, through the same serializer. Reusing SceneMigrator's
             // canonicaliser rather than hand-writing 51 fields is the difference between a scene that
@@ -316,6 +333,42 @@ namespace Desert::WorldGen
             << "  schema       : SceneVersion " << Core::kSceneVersion << ", UnitVersion " << Core::kUnitVersion
             << "\n"
             << "  generated in : " << elapsedMs << " ms\n";
+
+        if ( partition )
+        {
+            // THE PLAN OF THE FILE AS WRITTEN, not of the tree in memory: the text is parsed back the way
+            // the loader parses it, so what is reported is what a load of this file will partition.
+            const auto parsed = rfl::json::read<Core::SceneSerialized>( json );
+            if ( !parsed.has_value() || !parsed.value().WorldPartition.has_value() )
+            {
+                err << "WorldGen: the written scene does not parse back with its WorldPartition block\n";
+                return 7;
+            }
+            const auto& scene = parsed.value();
+            const auto  plan  = Core::Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition );
+            out << "  partition    : " << Core::Rules::SummarisePartition( plan, *scene.WorldPartition ) << "\n";
+            if ( plan.MaxLevelComposite != Core::Rules::kNoRecord && plan.MaxLevel > 0 )
+            {
+                const auto& anchor = scene.Entities[plan.Composites[plan.MaxLevelComposite].Anchor];
+                out << "  widest       : '" << anchor.Tag.value_or( "Entity" ) << "' went up to level "
+                    << plan.MaxLevel << "\n";
+            }
+            // Named, up to a screenful; the count is in the summary line above.
+            constexpr std::size_t kNamed = 16;
+            for ( std::size_t index = 0; index < plan.AlwaysLoaded.size() && index < kNamed; ++index )
+            {
+                const auto& held = plan.Composites[plan.AlwaysLoaded[index]];
+                const auto& who  = scene.Entities[held.Because != Core::Rules::kNoRecord ? held.Because : held.Anchor];
+                out << "  always-loaded: '" << who.Tag.value_or( "Entity" ) << "' ("
+                    << ( held.Reason == Core::Rules::AlwaysLoadedReason::Component ? "component"
+                         : held.Reason == Core::Rules::AlwaysLoadedReason::Author  ? "author"
+                         : held.Reason == Core::Rules::AlwaysLoadedReason::NoFit   ? "no fit"
+                                                                                   : "no grid" )
+                    << ")\n";
+            }
+            if ( plan.AlwaysLoaded.size() > kNamed )
+                out << "  always-loaded: ... and " << plan.AlwaysLoaded.size() - kNamed << " more\n";
+        }
         return 0;
     }
 } // namespace Desert::WorldGen

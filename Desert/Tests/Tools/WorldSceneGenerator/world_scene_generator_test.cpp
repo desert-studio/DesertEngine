@@ -29,6 +29,7 @@
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 
 #include <rflcpp/rfl/json.hpp>
@@ -554,6 +555,102 @@ TEST( WorldSceneGenerator, RefusalsAreNamedAndNothingIsWritten )
     EXPECT_NE( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 );
     EXPECT_NE( refused.str().find( "CB_White" ), std::string::npos ) << refused.str();
     EXPECT_FALSE( std::filesystem::exists( out ) );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// WORLD PARTITION: --partition writes the block, and the plan it prints is the plan of the file
+// ---------------------------------------------------------------------------------------------------
+
+// Without --partition no block: the flag is the only way a generated world becomes partitioned. With it,
+// one grid whose cell IS the generator's tile, and the plan of the written file: the three fixtures (sun,
+// sky, camera) always-loaded by component, every ground tile - exactly one tile wide and sitting exactly
+// on the tile edges - on level 0 (the half-open rule), and every composite accounted for once.
+TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFixturesLoaded )
+{
+    std::string plain;
+    ASSERT_EQ( GenerateSmoke( Scratch() / "unpartitioned.desce", plain ), 0 ) << plain;
+    EXPECT_FALSE( rfl::json::read<SceneSerialized>( plain )->WorldPartition.has_value() );
+
+    const auto               out = Scratch() / "partitioned.desce";
+    std::vector<std::string> args{ "--out", out.string(), "--assets", AssetsRoot(), "--preset", "smoke", "--partition" };
+    std::ostringstream       reported;
+    std::ostringstream       refused;
+    ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
+
+    const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
+    ASSERT_TRUE( scene.has_value() );
+    ASSERT_TRUE( scene->WorldPartition.has_value() );
+    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u );
+    EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].CellSize, 25600.0f );
+
+    namespace Rules  = Desert::Core::Rules;
+    const auto plan  = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    const auto per   = Rules::CellsPerLevel( plan );
+    const auto why   = Rules::AlwaysLoadedByReason( plan );
+    std::size_t sunSkyCamera = 0;
+    for ( const std::size_t group : plan.AlwaysLoaded )
+    {
+        const auto& tag = scene->Entities[plan.Composites[group].Anchor].Tag.value_or( "" );
+        if ( plan.Composites[group].Reason == Rules::AlwaysLoadedReason::Component &&
+             ( tag == "Sun" || tag == "Sky" || tag == "Camera" ) )
+            ++sunSkyCamera;
+    }
+    EXPECT_EQ( sunSkyCamera, 3u ) << "the three fixtures must be always-loaded by their components";
+    EXPECT_EQ( why[static_cast<std::size_t>( Rules::AlwaysLoadedReason::Component )], 3u );
+
+    // Every ground tile on level 0, in the cell its tag names.
+    std::size_t tiles = 0;
+    for ( std::size_t record = 0; record < scene->Entities.size(); ++record )
+    {
+        const auto& tag = scene->Entities[record].Tag.value_or( "" );
+        if ( tag.size() < 7 || tag.substr( tag.size() - 7 ) != "_Ground" )
+            continue;
+        for ( const auto& composite : plan.Composites )
+        {
+            if ( composite.Members.front() != record )
+                continue;
+            EXPECT_EQ( composite.Reason, Rules::AlwaysLoadedReason::None ) << tag;
+            EXPECT_EQ( composite.Level, 0 ) << tag << " is one tile wide and must fit one level-0 cell";
+            ++tiles;
+        }
+    }
+    EXPECT_EQ( tiles, 4u );
+    ASSERT_FALSE( per.empty() );
+    EXPECT_GE( per[0], 4u );
+
+    // And the tool printed the same plan, in the same words the loader logs.
+    EXPECT_NE( reported.str().find( "partition    : " + Rules::SummarisePartition( plan, *scene->WorldPartition ) ),
+               std::string::npos )
+         << reported.str();
+}
+
+// EVERY BUILDING FITS ITS OWN TILE, AS THE ENGINE READS IT - checked through the partition plan, which
+// composes the transform the way the loader does (radians) and takes the primitive cube's corners. The
+// defect this pins: yaw was written as 0/90/180/270 into a field read in radians, so three buildings in
+// four stood at 116, 233 or 350 degrees and 1015 of the `world` preset's 49152 crossed a tile edge. On an
+// 8 x 8 world every composite but the three fixtures must sit on level 0, and no rotation is written.
+TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
+{
+    const auto               out = Scratch() / "fits.desce";
+    std::vector<std::string> args{ "--out", out.string(), "--assets", AssetsRoot(), "--cells", "8", "--partition" };
+    std::ostringstream       reported;
+    std::ostringstream       refused;
+    ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
+
+    const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
+    ASSERT_TRUE( scene.has_value() && scene->WorldPartition.has_value() );
+    for ( const auto& entity : scene->Entities )
+    {
+        if ( entity.Rotation.has_value() )
+            EXPECT_EQ( *entity.Rotation, glm::vec3( 0.0f ) ) << entity.Tag.value_or( "" );
+    }
+
+    namespace Rules = Desert::Core::Rules;
+    const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    EXPECT_EQ( plan.MaxLevel, 0 ) << reported.str();
+    EXPECT_EQ( plan.AlwaysLoaded.size(), 3u ) << reported.str();
+    EXPECT_EQ( plan.Cells.size(), 64u );
+    EXPECT_EQ( plan.PointOnlyRecords, 3u ) << "only the fixtures have no primitive footprint";
 }
 
 int main( int argc, char** argv )
