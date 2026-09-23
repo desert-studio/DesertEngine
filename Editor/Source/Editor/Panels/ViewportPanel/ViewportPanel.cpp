@@ -36,6 +36,7 @@
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UILayout.hpp>
+#include <Editor/Panels/ViewportPanel/ActiveViewportRule.hpp>
 #include <Editor/Panels/UI/UIElementCatalog.hpp>
 #include <Editor/Panels/UI/UIElementFactory.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -44,6 +45,9 @@
 #include <Common/Core/Math/Ray.hpp>
 
 #include <ImGuizmo.h>
+// ImGuiContext::WindowsFocusOrder — the editor's one record of where the user has been. See
+// ActiveViewportRule.hpp for why the order is read rather than a focus flag stored.
+#include <imgui_internal.h>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -54,6 +58,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstdio>
+#include <string_view>
 
 namespace Desert::Editor
 {
@@ -519,12 +524,36 @@ namespace Desert::Editor
 
     ViewportPanel* ViewportPanel::ActiveViewport()
     {
+        // ── THE ONE AUTHORITY ON "WHERE THE USER IS", READ RATHER THAN COPIED ─────────────────────
+        //
+        // This used to answer "whoever holds the bone-AUTHORING context, else the first live one", and
+        // those are two different questions: the authoring context is legitimately held by a Sequencer
+        // document or by the Details bone tree, and while one of them held it this answer fell through
+        // to `s_Live.front()` with focus never consulted at all — "Viewport Camera: Top" re-aimed a grid
+        // pane while the user was driving the Scene pane.
+        //
+        // ImGui's own focus order is the answer and it is already maintained for us, so nothing is
+        // stored here. ActiveViewportRule.hpp carries the rule (and the reason the most RECENT entry is
+        // not enough: the palette that issued the command is focused, not a viewport).
         if ( s_Live.empty() )
             return nullptr;
-        for ( ViewportPanel* panel : s_Live )
-            if ( Core::ActiveAuthoringContext().Holder() == panel->m_AuthoringOwner )
-                return panel;
-        return s_Live.front();
+
+        std::vector<std::string_view> live;
+        live.reserve( s_Live.size() );
+        for ( const ViewportPanel* panel : s_Live )
+            live.emplace_back( panel->GetName() );
+
+        std::vector<std::string_view> focusOrder;
+        if ( const ImGuiContext* ctx = ImGui::GetCurrentContext() )
+        {
+            focusOrder.reserve( static_cast<size_t>( ctx->WindowsFocusOrder.Size ) );
+            for ( const ImGuiWindow* window : ctx->WindowsFocusOrder )
+                if ( window && window->Name )
+                    focusOrder.emplace_back( window->Name );
+        }
+
+        const auto index = ActiveViewportIndex( live, focusOrder );
+        return index ? s_Live[*index] : nullptr;
     }
 
     Common::BoolResultStr ViewportPanel::ApplyCameraPreset( ViewportCameraPreset preset )

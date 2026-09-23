@@ -1,5 +1,6 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/CameraPitchLimit.hpp>
+#include <Engine/Core/EditorCameraBasis.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Core/Projection.hpp>
@@ -108,8 +109,8 @@ namespace Desert::Core
         m_Yaw        = 3.0f * glm::pi<float>() / 4.0f;
         m_Distance   = 100.0f; // 1 m — the pivot sits just in front of the eye
 
-        m_Position                  = m_FocalPoint - GetForwardDirection() * m_Distance + m_LocationDelta;
-        const glm::quat orientation = GetOrientation();
+        m_Position                  = m_FocalPoint - CurrentBasis().Forward * m_Distance + m_LocationDelta;
+        const glm::quat orientation = OrbitOrientation( m_Yaw, m_Pitch );
 
         m_Direction  = glm::eulerAngles( orientation ) * ( 180.f / glm::pi<float>() );
         m_ViewMatrix = glm::translate( glm::mat4( 1.0 ), m_Position ) * glm::toMat4( orientation );
@@ -128,7 +129,7 @@ namespace Desert::Core
         m_Yaw   = 3.0f * glm::pi<float>() / 4.0f;
         m_Pitch = glm::pi<float>() / 4.0f;
 
-        m_Position = m_FocalPoint - GetForwardDirection() * m_Distance;
+        m_Position = m_FocalPoint - CurrentBasis().Forward * m_Distance;
         UpdateCameraView();
     }
 
@@ -199,7 +200,7 @@ namespace Desert::Core
 
         if ( allowKeyboard )
         {
-            const float YAWSign = GetUpDirection().y < 0 ? -1.0f : 1.0f;
+            const float YAWSign = CurrentBasis().Up.y < 0 ? -1.0f : 1.0f;
 
             // Shift = x4 boost, Ctrl = x0.25 precision crawl.
             float speedScale = 1.0f;
@@ -241,7 +242,7 @@ namespace Desert::Core
 
         if ( m_Flying )
         {
-            const float     YAWSign       = GetUpDirection().y < 0 ? -1.0f : 1.0f;
+            const float     YAWSign       = CurrentBasis().Up.y < 0 ? -1.0f : 1.0f;
             const float     rotationSpeed = 0.133f * timestep.GetMilliseconds();
             constexpr float maxRate       = 0.12f;
             m_YawDelta   += glm::clamp( YAWSign * MouseDelta.x * rotationSpeed, -maxRate, maxRate );
@@ -251,45 +252,72 @@ namespace Desert::Core
         m_InitialMousePosition = MousePosition;
 
         m_Position += m_LocationDelta;
-        m_Yaw      += m_YawDelta;
-        m_Pitch    += m_PitchDelta;
 
-        // Clamp pitch BEFORE computing the view matrix — exceeding ±90° makes the lookAt target parallel to
-        // the up vector, producing a degenerate matrix that collapses all vertices to one clip position.
+        // ── LEAVING AN AXIS VIEW IS WHAT TURNING MEANS ────────────────────────────────────────────
         //
-        // THE LIMIT IS NAMED IN ITS OWN HEADER, and not because this line needed tidying: it also decides
-        // how far off-axis a camera put on the Top or Bottom viewport preset ends up, and the code that
-        // has to recognise that camera was carrying its own copy of the number. Read CameraPitchLimit.hpp.
-        m_Pitch = glm::clamp( m_Pitch, -kMaxCameraPitch, kMaxCameraPitch );
+        // A rotation arrived, so the user is orbiting and the exact basis is given up HERE — before the
+        // angles are advanced, so the drag starts from where the axis view pointed. Moving the camera
+        // (the m_LocationDelta above) is deliberately not a reason: panning across a plan view must not
+        // tilt it, which is the whole difference between a plan and a high camera.
+        //
+        // The deltas are exactly zero while nothing rotates: SnapToAxisView zeroes them, the damping
+        // below multiplies zero by 0.6, and both input sites add nothing when the mouse has not moved.
+        if ( m_AxisView && ( m_YawDelta != 0.0f || m_PitchDelta != 0.0f ) )
+            LeaveAxisView();
+
+        if ( !m_AxisView )
+        {
+            m_Yaw += m_YawDelta;
+            m_Pitch += m_PitchDelta;
+
+            // Clamp pitch BEFORE computing the view matrix — exceeding ±90° makes the lookAt target
+            // parallel to the up vector, producing a degenerate matrix that collapses all vertices to one
+            // clip position.
+            //
+            // THE LIMIT IS NAMED IN ITS OWN HEADER (CameraPitchLimit.hpp) and applied through its one
+            // function (EditorCameraBasis.hpp), and it is UNCHANGED: widening it would mean choosing a
+            // second up vector at the poles for every orbiting viewport in the editor. What changed is
+            // that the two views which cannot be expressed as an orbit angle no longer try to be one —
+            // they are held as a basis and never reach this line at all.
+            m_Pitch = ClampOrbitPitch( m_Pitch );
+        }
 
         if ( m_Flying )
         {
             const float distance = glm::distance( m_FocalPoint, m_Position );
-            m_FocalPoint         = m_Position + GetForwardDirection() * distance;
+            m_FocalPoint         = m_Position + CurrentBasis().Forward * distance;
             m_Distance           = distance;
         }
 
         UpdateCameraView();
     }
 
-    glm::quat EditorCamera::GetOrientation() const
+    // THE FOUR PRIVATE DIRECTION ACCESSORS ARE GONE AND ARE NOT MISSED. Each of them read m_Yaw/m_Pitch
+    // directly, which is exactly the thing that must not happen while an axis view is held — the angles
+    // are stale then by construction. CurrentBasis() is the one reader, and Engine/Core/EditorCameraBasis.hpp
+    // holds the orbit arithmetic itself so that a suite can compile it without a device.
+    ViewBasis EditorCamera::CurrentBasis() const
     {
-        return glm::quat( glm::vec3( -m_Pitch, -m_Yaw, 0.0f ) );
+        if ( m_AxisView )
+            return *m_AxisView;
+
+        // THE ORBIT, SPELLED EXACTLY AS IT WAS. The up vector is world up flipped by the sign of the
+        // orbit's own up — which is what `glm::lookAt` was handed before this function existed, and the
+        // reason the clamp is needed: at ±90° that vector is parallel to the forward direction.
+        const float YAWsign = OrbitUp( m_Yaw, m_Pitch ).y > 0 ? 1.0f : -1.0f;
+        return ViewBasis{ glm::normalize( OrbitForward( m_Yaw, m_Pitch ) ), glm::vec3{ 0.f, YAWsign, 0.f } };
     }
 
-    glm::vec3 EditorCamera::GetUpDirection() const
+    void EditorCamera::LeaveAxisView()
     {
-        return glm::rotate( GetOrientation(), glm::vec3( 0.0, 1.0, 0.0 ) );
-    }
-
-    glm::vec3 EditorCamera::GetRightDirection() const
-    {
-        return glm::rotate( GetOrientation(), glm::vec3( 1.0, 0.0, 0.0 ) );
-    }
-
-    glm::vec3 EditorCamera::GetForwardDirection() const
-    {
-        return glm::rotate( GetOrientation(), glm::vec3( 0.0, 0.0, -1.0 ) );
+        if ( !m_AxisView )
+            return;
+        // The orbit takes over FROM WHERE THE AXIS VIEW POINTED, so the first degree of a drag off Top
+        // starts at Top and not at wherever the yaw/pitch pair was left before the preset was applied.
+        // `OrbitAnglesFor` is unclamped; OnUpdate clamps one line later, which is the moment the camera
+        // legitimately gives up the exact angle because the user asked it to turn.
+        OrbitAnglesFor( m_AxisView->Forward, m_Yaw, m_Pitch );
+        m_AxisView.reset();
     }
 
     void EditorCamera::SnapToDirection( const glm::vec3& forward )
@@ -298,35 +326,56 @@ namespace Desert::Core
             return;
         const glm::vec3 f = glm::normalize( forward );
 
-        // Invert this camera's forward model  f = ( sin(yaw)cos(pitch), -sin(pitch), -cos(yaw)cos(pitch) ).
-        m_Pitch      = glm::asin( glm::clamp( -f.y, -1.0f, 1.0f ) );
-        m_Yaw        = std::atan2( f.x, -f.z );
+        // THE ORBIT GESTURE, and it stays one: this is the clickable view-axis triad and the `--look`
+        // placement, both of which mean "turn the camera to face that way" and are expected to behave
+        // like a drag that ended there — including the clamp. An EXACT axis view is a different request
+        // with a different entry point (SnapToAxisView).
+        m_AxisView.reset();
+        OrbitAnglesFor( f, m_Yaw, m_Pitch );
         m_YawDelta   = 0.0f;
         m_PitchDelta = 0.0f;
 
         // Keep the current framing distance; orbit the position onto the new direction.
         const float dist = glm::max( glm::distance( m_Position, m_FocalPoint ), 1.0f );
-        m_Position       = m_FocalPoint - GetForwardDirection() * dist;
+        m_Position       = m_FocalPoint - CurrentBasis().Forward * dist;
+        UpdateCameraView();
+    }
+
+    void EditorCamera::SnapToAxisView( const ViewBasis& basis )
+    {
+        if ( glm::length( basis.Forward ) < 1e-5f || glm::length( basis.Up ) < 1e-5f )
+            return;
+
+        m_AxisView   = ViewBasis{ glm::normalize( basis.Forward ), glm::normalize( basis.Up ) };
+        m_YawDelta   = 0.0f;
+        m_PitchDelta = 0.0f;
+
+        // Same framing as SnapToDirection: a named angle changes where you look FROM, never what you are
+        // looking at, which is what makes flipping between Top and Front useful rather than disorienting.
+        const float dist = glm::max( glm::distance( m_Position, m_FocalPoint ), 1.0f );
+        m_Position       = m_FocalPoint - m_AxisView->Forward * dist;
         UpdateCameraView();
     }
 
     void EditorCamera::Focus( const glm::vec3& point, float distance )
     {
-        // Keep the current orientation — only re-center and re-frame (matches Unity/Godot 'F').
+        // Keep the current orientation — only re-center and re-frame (matches Unity/Godot 'F'). An axis
+        // view survives it: framing is not a rotation, and an F-focus that quietly dropped the plan view
+        // would be the same defect one level up.
         m_FocalPoint = point;
-        m_Position   = point - GetForwardDirection() * glm::max( distance, 50.0f );
+        m_Position   = point - CurrentBasis().Forward * glm::max( distance, 50.0f );
         UpdateCameraView();
     }
 
     void EditorCamera::UpdateCameraView()
     {
-        const float     YAWsign       = GetUpDirection().y > 0 ? 1 : -1;
-        const glm::vec3 lookDirection = m_Position + GetForwardDirection();
-        m_Direction                   = glm::normalize( GetForwardDirection() );
+        const ViewBasis basis         = CurrentBasis();
+        const glm::vec3 lookDirection = m_Position + basis.Forward;
+        m_Direction                   = basis.Forward;
         m_Distance                    = glm::distance( lookDirection, m_FocalPoint );
-        m_RightDirection              = glm::cross( m_Direction, glm::vec3{ 0.f, YAWsign, 0.f } );
+        m_RightDirection              = glm::cross( m_Direction, basis.Up );
 
-        m_ViewMatrix = glm::lookAt( m_Position, lookDirection, glm::vec3{ 0.f, YAWsign, 0.f } );
+        m_ViewMatrix = glm::lookAt( m_Position, lookDirection, basis.Up );
 
         // Damping
         m_YawDelta *= 0.6f;

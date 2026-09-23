@@ -4,6 +4,7 @@
 #include <Common/Core/Events/KeyEvents.hpp>
 #include <Common/Core/Events/MouseEvents.hpp>
 #include <Engine/Core/Application.hpp>
+#include <Engine/Core/EditorCameraBasis.hpp>
 #include <Engine/Core/Projection.hpp>
 
 #include "Frustum.hpp"
@@ -125,6 +126,28 @@ namespace Desert::Core
         // Right/... ortho-ish views). Derives yaw/pitch from the target forward under this camera's model.
         void SnapToDirection( const glm::vec3& forward );
 
+        // ── AN AXIS VIEW, WHICH IS NOT AN ORBIT ANGLE ─────────────────────────────────────────────
+        //
+        // Hold @p basis EXACTLY — forward and up both given, both honoured, and the ±89° pitch clamp
+        // skipped entirely while it lasts. This is how a Top preset becomes a plan view instead of a
+        // camera one degree off one: the orbit's yaw/pitch pair cannot name straight down without
+        // making `glm::lookAt` degenerate, so the preset path does not use it. See
+        // Engine/Core/EditorCameraBasis.hpp for the whole argument.
+        //
+        // THE ORBIT IS UNCHANGED AND THE CLAMP IS UNTOUCHED. The axis view is a state the camera is
+        // PUT INTO and LEAVES the moment the user asks to turn: any yaw or pitch input converts the
+        // held basis back into angles and hands control to the orbit, from where the clamp applies
+        // exactly as it always has. Moving (WASD/Q/E) and framing (F) keep the basis, because neither
+        // is a rotation.
+        void SnapToAxisView( const ViewBasis& basis );
+
+        // The basis being held exactly, or nothing when this camera is orbiting. Readers that must tell
+        // "on Top" from "one degree off Top" ask this rather than inferring it from the direction.
+        [[nodiscard]] const std::optional<ViewBasis>& AxisView() const
+        {
+            return m_AxisView;
+        }
+
         // Frame a world point: the focal point moves there and the camera backs off along its
         // CURRENT view direction to `distance`. Drives F-focus and hierarchy double-click.
         void Focus( const glm::vec3& point, float distance = 500.0f );
@@ -133,10 +156,14 @@ namespace Desert::Core
         bool OnKeyPress( Common::KeyPressedEvent& e );
         bool OnMouseMove( Common::MouseMovedEvent& e );
 
-        glm::quat GetOrientation() const;
-        glm::vec3 GetUpDirection() const;
-        glm::vec3 GetRightDirection() const;
-        glm::vec3 GetForwardDirection() const;
+        // WHERE THIS CAMERA IS POINTING, WHICHEVER MODEL IS DRIVING IT. One accessor and not a pair,
+        // because every reader below wants the answer and none of them wants to decide which spelling
+        // produced it — a call site that asks the orbit directly while an axis view is held reads a
+        // stale yaw/pitch pair, which is precisely the "middle link drops a property" shape.
+        [[nodiscard]] ViewBasis CurrentBasis() const;
+
+        // Convert the held basis back into orbit angles and drop it. Called when a rotation arrives.
+        void LeaveAxisView();
 
         void UpdateCameraView();
 
@@ -153,6 +180,11 @@ namespace Desert::Core
         float m_Distance = 0.0f;
         float m_Pitch = 0.0f, m_PitchDelta = 0.0f;
         float m_Yaw = 0.0f, m_YawDelta = 0.0f;
+
+        // SET ONLY BY SnapToAxisView, CLEARED BY ANY ROTATION. While it holds, the yaw/pitch pair above
+        // is stale by construction and nothing may read it — CurrentBasis() is what every reader asks.
+        std::optional<ViewBasis> m_AxisView;
+
         float m_MovementSpeed = 1.0f; // multiplies the base fly speed (user-adjustable)
 
         // OFF until a viewport claims this camera (ViewportPanel sets it every frame from its hover state).

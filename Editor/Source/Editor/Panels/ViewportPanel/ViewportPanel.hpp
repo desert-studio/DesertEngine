@@ -167,10 +167,15 @@ namespace Desert::Editor
         }
 
     private:
-        // THE VIEWPORT THE USER IS WORKING IN: the one holding the bone-authoring context, else the
-        // first live one. Named once, because picking "the first" blindly moves a command off the view
-        // the user is in the moment a second viewport exists — and several viewports at once is a
-        // shipped feature here, not a corner case. Null only when no viewport exists at all.
+        // THE VIEWPORT THE USER IS WORKING IN: the most recently FOCUSED one, else the first live one.
+        // Null only when no viewport exists at all.
+        //
+        // It used to be "the one holding the bone-authoring context, else the first live one", which is
+        // the answer to a different question — that context is legitimately held by a Sequencer document
+        // or the Details bone tree, and while one of them held it this fell through to the first live
+        // viewport with focus never consulted. ActiveViewportRule.hpp carries the rule and the argument;
+        // the short version is that ImGui's focus order already IS this state and a second copy of it is
+        // the defect, not the fix.
         static ViewportPanel* ActiveViewport();
 
         // Aim THIS viewport's camera. Refuses with a reason when the view has no editor camera — a
