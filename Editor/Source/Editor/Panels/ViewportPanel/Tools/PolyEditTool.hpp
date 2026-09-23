@@ -34,8 +34,6 @@ namespace Desert::Editor::Tools
         void        ClearSelection();
         void        FinishDrag();
         bool        PickFace( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray );
-        static bool WorldToScreen( const glm::vec3& world, const glm::mat4& vp, const glm::vec2& pos,
-                                   const glm::vec2& size, glm::vec2& out );
 
         Common::UUID     m_Entity = Common::UUID::Null(); // entity whose mesh we edit (the current selection)
         std::vector<int> m_SelVerts;                      // EditMesh vertex IDs moved together

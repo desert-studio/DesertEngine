@@ -90,7 +90,9 @@ namespace Desert::Geometry
     class ElementSelection
     {
     public:
-        explicit ElementSelection( ElementMode mode = ElementMode::Triangle ) : m_Mode( mode ) {}
+        explicit ElementSelection( ElementMode mode = ElementMode::Triangle ) : m_Mode( mode )
+        {
+        }
 
         [[nodiscard]] ElementMode Mode() const
         {
@@ -134,7 +136,7 @@ namespace Desert::Geometry
         // The corners an ID named when it was selected (edge: 2, triangle: 3, others unused) - what lets Prune
         // tell a reused ID from the element that was picked.
         using Key = std::array<int, 3>;
-        [[nodiscard]] static Key KeyOf( const EditMesh& mesh, ElementMode mode, int id );
+        [[nodiscard]] static Key  KeyOf( const EditMesh& mesh, ElementMode mode, int id );
         [[nodiscard]] static bool Exists( const EditMesh& mesh, ElementMode mode, int id );
 
         ElementMode      m_Mode;

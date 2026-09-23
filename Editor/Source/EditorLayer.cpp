@@ -139,6 +139,8 @@
 #include <Engine/ECS/System/TerrainECSSystem.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
+#include <Editor/Core/Selection/MeshElementSelection.hpp>
+#include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
@@ -4298,6 +4300,40 @@ namespace Desert::Editor
             commands.push_back( { "View", std::string( "Viewport mode: " ) + Core::AuthoringModeName( mode ),
                                   [mode] { return Editor::ViewportPanel::RequestAuthoringMode( mode ); } } );
         }
+        // MESH ELEMENT SELECTION (Modeling Mode). Palette entries for the same reason as the modes above: the
+        // selection a later Extrude / Delete works on must be reachable - and photographable - unattended.
+        commands.push_back( { "Modeling", "Select Elements tool", []
+                              {
+                                  Core::ModelingState::Get().ActiveTool = Core::ModelingState::Tool::ElementSelect;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::ElementMode mode :
+              { Geometry::ElementMode::Vertex, Geometry::ElementMode::Edge, Geometry::ElementMode::Triangle,
+                Geometry::ElementMode::PolyGroup } )
+        {
+            commands.push_back( { "Modeling", std::string( "Mesh selection mode: " ) + Geometry::ToString( mode ),
+                                  [mode] { return Core::MeshElementSelection::Get().SetMode( mode ); } } );
+        }
+        using SelectionOp = Core::MeshElementSelection::Op;
+        for ( const SelectionOp op : { SelectionOp::SelectAll, SelectionOp::SelectConnected, SelectionOp::Grow,
+                                       SelectionOp::Shrink, SelectionOp::Clear } )
+        {
+            commands.push_back( { "Modeling",
+                                  std::string( "Mesh selection: " ) + Core::MeshElementSelection::ToString( op ),
+                                  [op] { return Core::MeshElementSelection::Get().Apply( op ); } } );
+        }
+        commands.push_back(
+             { "Modeling", "Mesh selection: pick at the viewport centre", []
+               {
+                   auto& state = Core::MeshElementSelection::Get();
+                   if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect ||
+                        !state.HasMesh() )
+                       return PaletteCommandOutcome(
+                            false, "the Select Elements tool is not on an entity with an editable mesh" );
+                   state.ReqPickCentre = true;
+                   return PaletteCommandDone();
+               } } );
         commands.push_back( { "View", "Toggle 2D UI mode", [this]
                               {
                                   // REFUSES RATHER THAN DOING NOTHING when there is no scene. The mode is

@@ -59,10 +59,11 @@ namespace
 
     Camera LookAt( const glm::vec3& eye, const glm::vec3& target )
     {
-        const glm::vec3 up = std::abs( glm::normalize( target - eye ).y ) > 0.99f ? glm::vec3( 0, 0, -1 )
-                                                                                  : glm::vec3( 0, 1, 0 );
+        const glm::vec3 up =
+             std::abs( glm::normalize( target - eye ).y ) > 0.99f ? glm::vec3( 0, 0, -1 ) : glm::vec3( 0, 1, 0 );
         return { eye, target,
-                 glm::perspective( glm::radians( 60.0f ), 1.0f, 1.0f, 10000.0f ) * glm::lookAt( eye, target, up ) };
+                 glm::perspective( glm::radians( 60.0f ), 1.0f, 1.0f, 10000.0f ) *
+                      glm::lookAt( eye, target, up ) };
     }
 
     // The view the tool would build for a cursor at `pixel`: the ray is unprojected independently of
@@ -143,13 +144,14 @@ TEST( ElementPick, VertexWithinTheToleranceAndNotBeyondIt )
     // Outwards (up-right, off the mesh), just inside and just outside the tolerance.
     const glm::vec2 out = glm::normalize( glm::vec2( 1.0f, -1.0f ) );
 
-    const ElementHit inside = PickElement( mesh, ElementMode::Vertex, ViewAt( kFront, at + out * ( kTolerance - 0.5f ) ) );
+    const ElementHit inside =
+         PickElement( mesh, ElementMode::Vertex, ViewAt( kFront, at + out * ( kTolerance - 0.5f ) ) );
     ASSERT_TRUE( inside.IsHit() );
     EXPECT_EQ( inside.Id, corner );
     EXPECT_NEAR( inside.PixelDistance, kTolerance - 0.5f, 1e-2f );
 
     EXPECT_FALSE(
-        PickElement( mesh, ElementMode::Vertex, ViewAt( kFront, at + out * ( kTolerance + 0.5f ) ) ).IsHit() );
+         PickElement( mesh, ElementMode::Vertex, ViewAt( kFront, at + out * ( kTolerance + 0.5f ) ) ).IsHit() );
 }
 
 TEST( ElementPick, AVertexBehindTheFrontFaceIsNotPicked )
@@ -160,23 +162,26 @@ TEST( ElementPick, AVertexBehindTheFrontFaceIsNotPicked )
 
     // Seen from above the same corner is in plain view.
     const Camera     top = LookAt( { 300, 600, -300 }, { 0, 100, 0 } );
-    const ElementHit hit = PickElement( mesh, ElementMode::Vertex, ViewAt( top, Project( top, { 100, 200, -100 } ) ) );
+    const ElementHit hit =
+         PickElement( mesh, ElementMode::Vertex, ViewAt( top, Project( top, { 100, 200, -100 } ) ) );
     ASSERT_TRUE( hit.IsHit() );
     EXPECT_EQ( hit.Id, VertexAt( mesh, { 100, 200, -100 } ) );
 }
 
 TEST( ElementPick, EdgeFromOutsideAndFromInsideItsFace )
 {
-    const EditMesh  mesh = MakeCube();
-    const int       edge = mesh.FindEdge( VertexAt( mesh, { -100, 200, 100 } ), VertexAt( mesh, { 100, 200, 100 } ) );
-    const glm::vec2 mid  = Project( kFront, { 0, 200, 100 } );
+    const EditMesh mesh = MakeCube();
+    const int edge = mesh.FindEdge( VertexAt( mesh, { -100, 200, 100 } ), VertexAt( mesh, { 100, 200, 100 } ) );
+    const glm::vec2 mid = Project( kFront, { 0, 200, 100 } );
 
     // Above the top edge (off the mesh): tolerance edge in both directions.
-    const ElementHit above = PickElement( mesh, ElementMode::Edge, ViewAt( kFront, mid + glm::vec2( 0, -( kTolerance - 0.5f ) ) ) );
+    const ElementHit above =
+         PickElement( mesh, ElementMode::Edge, ViewAt( kFront, mid + glm::vec2( 0, -( kTolerance - 0.5f ) ) ) );
     ASSERT_TRUE( above.IsHit() );
     EXPECT_EQ( above.Id, edge );
     EXPECT_FALSE(
-        PickElement( mesh, ElementMode::Edge, ViewAt( kFront, mid + glm::vec2( 0, -( kTolerance + 0.5f ) ) ) ).IsHit() );
+         PickElement( mesh, ElementMode::Edge, ViewAt( kFront, mid + glm::vec2( 0, -( kTolerance + 0.5f ) ) ) )
+              .IsHit() );
 
     // Below it, ON the face the edge bounds: the face must not hide its own edge.
     const ElementHit onFace = PickElement( mesh, ElementMode::Edge, ViewAt( kFront, mid + glm::vec2( 0, 5.0f ) ) );
@@ -191,7 +196,7 @@ TEST( ElementPick, CylinderWallAndCapAreTheirOwnGroups )
     const ElementHit wall = PickElement( mesh, ElementMode::PolyGroup, ViewAt( kFront, { 400, 400 } ) );
     ASSERT_TRUE( wall.IsHit() );
     const ElementSelection wallTris =
-        ConvertSelection( mesh, Select( mesh, ElementMode::PolyGroup, { wall.Id } ), ElementMode::Triangle );
+         ConvertSelection( mesh, Select( mesh, ElementMode::PolyGroup, { wall.Id } ), ElementMode::Triangle );
     EXPECT_EQ( wallTris.Size(), 24 ); // 12 quads
 
     const Camera     above = LookAt( { 0, 700, 1 }, { 0, 0, 0 } );
@@ -199,7 +204,7 @@ TEST( ElementPick, CylinderWallAndCapAreTheirOwnGroups )
     ASSERT_TRUE( cap.IsHit() );
     EXPECT_NE( cap.Id, wall.Id );
     const ElementSelection capTris =
-        ConvertSelection( mesh, Select( mesh, ElementMode::PolyGroup, { cap.Id } ), ElementMode::Triangle );
+         ConvertSelection( mesh, Select( mesh, ElementMode::PolyGroup, { cap.Id } ), ElementMode::Triangle );
     EXPECT_EQ( capTris.Size(), 12 );
     // The top cap (MakeCylinder winds every face inwards, so the normal's sign says nothing here).
     for ( const int t : capTris.Ids() )
@@ -207,9 +212,10 @@ TEST( ElementPick, CylinderWallAndCapAreTheirOwnGroups )
             EXPECT_NEAR( mesh.GetPosition( v ).y, 200.0f, 1e-3f );
 
     // A wall vertex at the tolerance edge, from a view where it is on the silhouette side.
-    const glm::vec3 rim = mesh.GetPosition( VertexAt( mesh, { 100, 200, 0 } ) );
-    const glm::vec2 at  = Project( kFront, rim );
-    const ElementHit v  = PickElement( mesh, ElementMode::Vertex, ViewAt( kFront, at + glm::vec2( kTolerance - 0.5f, 0 ) ) );
+    const glm::vec3  rim = mesh.GetPosition( VertexAt( mesh, { 100, 200, 0 } ) );
+    const glm::vec2  at  = Project( kFront, rim );
+    const ElementHit v =
+         PickElement( mesh, ElementMode::Vertex, ViewAt( kFront, at + glm::vec2( kTolerance - 0.5f, 0 ) ) );
     ASSERT_TRUE( v.IsHit() );
     EXPECT_EQ( v.Id, VertexAt( mesh, { 100, 200, 0 } ) );
 }
@@ -228,24 +234,28 @@ TEST( ElementConvert, DownIsEveryPartUpIsOnlyWhatIsWhole )
     EXPECT_EQ( ConvertSelection( mesh, group, ElementMode::Vertex ).Size(), 4 );
 
     // Round trips.
-    EXPECT_EQ( ConvertSelection( mesh, ConvertSelection( mesh, tris, ElementMode::Vertex ), ElementMode::Triangle ), tris );
+    EXPECT_EQ(
+         ConvertSelection( mesh, ConvertSelection( mesh, tris, ElementMode::Vertex ), ElementMode::Triangle ),
+         tris );
     EXPECT_EQ( ConvertSelection( mesh, tris, ElementMode::PolyGroup ), group );
 
     // One triangle of the face is not the face; one corner is no triangle.
     EXPECT_TRUE(
-        ConvertSelection( mesh, Select( mesh, ElementMode::Triangle, { tris.Ids()[0] } ), ElementMode::PolyGroup ).Empty() );
-    EXPECT_TRUE( ConvertSelection( mesh, Select( mesh, ElementMode::Vertex, { VertexAt( mesh, { 100, 200, 100 } ) } ),
+         ConvertSelection( mesh, Select( mesh, ElementMode::Triangle, { tris.Ids()[0] } ), ElementMode::PolyGroup )
+              .Empty() );
+    EXPECT_TRUE( ConvertSelection( mesh,
+                                   Select( mesh, ElementMode::Vertex, { VertexAt( mesh, { 100, 200, 100 } ) } ),
                                    ElementMode::Triangle )
-                     .Empty() );
+                      .Empty() );
 }
 
 // ── connected / grow / shrink ───────────────────────────────────────────────────────────────────────────
 
 TEST( ElementTopology, ConnectedStopsAtTheOtherPiece )
 {
-    ShapeMesh two   = MakeBox( glm::vec3( 200.0f ) );
-    ShapeMesh other = MakeBox( glm::vec3( 200.0f ) );
-    const auto base = static_cast<uint32_t>( two.Vertices.size() );
+    ShapeMesh  two   = MakeBox( glm::vec3( 200.0f ) );
+    ShapeMesh  other = MakeBox( glm::vec3( 200.0f ) );
+    const auto base  = static_cast<uint32_t>( two.Vertices.size() );
     for ( Desert::Vertex& v : other.Vertices )
     {
         v.Position.x += 1000.0f;
@@ -256,10 +266,12 @@ TEST( ElementTopology, ConnectedStopsAtTheOtherPiece )
     const EditMesh mesh = Import( two );
     ASSERT_EQ( mesh.TriangleCount(), 24 );
 
-    const int first = *mesh.TriangleIds().begin();
+    const int  first = *mesh.TriangleIds().begin();
     const auto piece = SelectConnected( mesh, Select( mesh, ElementMode::Triangle, { first } ) );
     EXPECT_EQ( piece.Size(), 12 );
-    EXPECT_EQ( SelectConnected( mesh, Select( mesh, ElementMode::Vertex, { mesh.GetTriangle( first )[0] } ) ).Size(), 8 );
+    EXPECT_EQ(
+         SelectConnected( mesh, Select( mesh, ElementMode::Vertex, { mesh.GetTriangle( first )[0] } ) ).Size(),
+         8 );
 }
 
 TEST( ElementTopology, GrowAndShrinkByOneRing )
@@ -273,8 +285,8 @@ TEST( ElementTopology, GrowAndShrinkByOneRing )
     EXPECT_EQ( Ids( ShrinkSelection( grid, grown ) ), std::vector<int>{ centre } );
 
     // A triangle grows by everything sharing a corner, and shrinks back to itself.
-    const int  t    = grid.GetVertexTriangles( centre )[0];
-    const auto ring = GrowSelection( grid, Select( grid, ElementMode::Triangle, { t } ) );
+    const int     t    = grid.GetVertexTriangles( centre )[0];
+    const auto    ring = GrowSelection( grid, Select( grid, ElementMode::Triangle, { t } ) );
     std::set<int> expected;
     for ( const int v : grid.GetTriangle( t ) )
         for ( const int n : grid.GetVertexTriangles( v ) )
@@ -299,13 +311,13 @@ TEST( ElementTopology, GrowAndShrinkByOneRing )
 
 TEST( ElementSelectionEdits, RemovedTrianglesDropOutAndAreCounted )
 {
-    EditMesh   mesh  = MakeCube();
-    const int  front = PickElement( mesh, ElementMode::PolyGroup, ViewAt( kFront, { 400, 400 } ) ).Id;
-    auto       tris  = ConvertSelection( mesh, Select( mesh, ElementMode::PolyGroup, { front } ), ElementMode::Triangle );
-    auto       group = Select( mesh, ElementMode::PolyGroup, { front } );
-    const int  gone  = tris.Ids()[0];
-    const int  kept  = tris.Ids()[1];
-    auto       verts = ConvertSelection( mesh, tris, ElementMode::Vertex );
+    EditMesh  mesh  = MakeCube();
+    const int front = PickElement( mesh, ElementMode::PolyGroup, ViewAt( kFront, { 400, 400 } ) ).Id;
+    auto tris = ConvertSelection( mesh, Select( mesh, ElementMode::PolyGroup, { front } ), ElementMode::Triangle );
+    auto group      = Select( mesh, ElementMode::PolyGroup, { front } );
+    const int gone  = tris.Ids()[0];
+    const int kept  = tris.Ids()[1];
+    auto      verts = ConvertSelection( mesh, tris, ElementMode::Vertex );
 
     ASSERT_EQ( mesh.RemoveTriangle( gone, true ), EditResult::Ok );
     PruneReport report = tris.Prune( mesh );
@@ -342,8 +354,8 @@ TEST( ElementSelectionEdits, RemovedTrianglesDropOutAndAreCounted )
 
 TEST( ElementSelectionEdits, CompactionRenumbersTheSelection )
 {
-    EditMesh   mesh = MakeCube();
-    const int  first = *mesh.TriangleIds().begin();
+    EditMesh  mesh  = MakeCube();
+    const int first = *mesh.TriangleIds().begin();
     ASSERT_EQ( mesh.RemoveTriangle( first, false ), EditResult::Ok );
     ElementSelection sel( ElementMode::Triangle );
     for ( const int t : mesh.TriangleIds() )

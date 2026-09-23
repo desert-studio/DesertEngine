@@ -1,0 +1,92 @@
+#pragma once
+
+#include <Common/Core/ResultStr.hpp>
+#include <Common/Core/UUID.hpp>
+
+#include <Engine/Geometry/EditMeshSelection.hpp>
+
+#include <memory>
+#include <string>
+
+namespace Desert::Editor::Core
+{
+    // The Modeling Mode's mesh element selection (UE: the PolygonSelectionMechanic every mesh-editing tool
+    // shares): which vertices / edges / triangles / polygroups of the selected entity's EditMesh the next
+    // operation works on. One per editor, like ModelingState; the viewport tool (ElementSelectTool) picks
+    // and draws, the Modeling panel and the command palette read and change it.
+    //
+    // Every change of the ID set goes through Commit, which makes it ONE undo step (UE records a selection
+    // change as its own transaction), so Undo after a mis-click gives the previous selection back.
+    class MeshElementSelection
+    {
+    public:
+        static MeshElementSelection& Get()
+        {
+            static MeshElementSelection s;
+            return s;
+        }
+
+        enum class Op
+        {
+            SelectAll,
+            SelectConnected,
+            Grow,
+            Shrink,
+            Clear,
+        };
+        [[nodiscard]] static const char* ToString( Op op );
+
+        [[nodiscard]] const Common::UUID& Entity() const
+        {
+            return m_Entity;
+        }
+        [[nodiscard]] const Geometry::ElementSelection& Selection() const
+        {
+            return m_Selection;
+        }
+        [[nodiscard]] Geometry::ElementMode Mode() const
+        {
+            return m_Selection.Mode();
+        }
+        // What the last check against an edited mesh dropped, and the running total since the entity was
+        // picked - the panel shows both, so an edit that emptied the selection says so.
+        [[nodiscard]] const Geometry::PruneReport& LastDropped() const
+        {
+            return m_LastDropped;
+        }
+        [[nodiscard]] int TotalDropped() const
+        {
+            return m_TotalDropped;
+        }
+        [[nodiscard]] bool HasMesh() const
+        {
+            return m_Mesh != nullptr;
+        }
+
+        // Called by the tool every frame with the entity it edits and that entity's current mesh (null when
+        // it has none). A new entity starts an empty selection (not an undo step: nothing was un-selected
+        // by the user); a new mesh on the same entity prunes the selection against it and counts the drop.
+        void Track( const Common::UUID& entity, std::shared_ptr<const Geometry::EditMesh> mesh );
+
+        // Replaces the selection as one undo step labelled `label`; nothing is recorded when it is unchanged.
+        void Commit( Geometry::ElementSelection next, const std::string& label );
+        // The same part of the mesh in another mode (ConvertSelection) - an undo step like any other change.
+        [[nodiscard]] Common::BoolResultStr SetMode( Geometry::ElementMode mode );
+        // Refused, by name, when no editable mesh is being tracked.
+        [[nodiscard]] Common::BoolResultStr Apply( Op op );
+
+        // Undo / redo land here: the selection as it was, on the entity it was made on.
+        void Restore( const Common::UUID& entity, Geometry::ElementSelection selection );
+
+        // One-shot for the command palette / control channel: pick at the viewport's centre on the next
+        // frame, as if clicked there (no modifier). The viewport owns the camera, so only the tool can.
+        bool ReqPickCentre = false;
+
+    private:
+        Common::UUID                              m_Entity = Common::UUID::Null();
+        std::shared_ptr<const Geometry::EditMesh> m_Mesh;
+        Geometry::ElementSelection                m_Selection{ Geometry::ElementMode::PolyGroup };
+        Geometry::PruneReport                     m_LastDropped;
+        int                                       m_TotalDropped = 0;
+    };
+} // namespace Desert::Editor::Core

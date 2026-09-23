@@ -81,7 +81,8 @@ namespace Desert::Geometry
                 const auto& tri = mesh.GetTriangle( t );
                 float       hitT;
                 if ( RayTriangle( view.RayOrigin, view.RayDirection, WorldPosition( mesh, view, tri[0] ),
-                                  WorldPosition( mesh, view, tri[1] ), WorldPosition( mesh, view, tri[2] ), hitT ) &&
+                                  WorldPosition( mesh, view, tri[1] ), WorldPosition( mesh, view, tri[2] ),
+                                  hitT ) &&
                      hitT < bestT )
                 {
                     bestT = hitT;
@@ -108,7 +109,8 @@ namespace Desert::Geometry
                 const auto& tri = mesh.GetTriangle( t );
                 float       hitT;
                 if ( RayTriangle( view.RayOrigin, dir, WorldPosition( mesh, view, tri[0] ),
-                                  WorldPosition( mesh, view, tri[1] ), WorldPosition( mesh, view, tri[2] ), hitT ) &&
+                                  WorldPosition( mesh, view, tri[1] ), WorldPosition( mesh, view, tri[2] ),
+                                  hitT ) &&
                      hitT < limit )
                     return false;
             }
@@ -137,8 +139,8 @@ namespace Desert::Geometry
                        []( const Candidate& l, const Candidate& r )
                        {
                            return l.Hit.PixelDistance != r.Hit.PixelDistance
-                                      ? l.Hit.PixelDistance < r.Hit.PixelDistance
-                                      : l.Hit.RayT < r.Hit.RayT;
+                                       ? l.Hit.PixelDistance < r.Hit.PixelDistance
+                                       : l.Hit.RayT < r.Hit.RayT;
                        } );
             for ( const Candidate& c : candidates )
                 if ( Visible( mesh, view, c.Point ) )
@@ -310,7 +312,8 @@ namespace Desert::Geometry
         }
 
         // Every element of `mode` with at least one vertex in `vertexMask`.
-        std::vector<int> ElementsTouching( const EditMesh& mesh, ElementMode mode, const std::vector<char>& vertexMask )
+        std::vector<int> ElementsTouching( const EditMesh& mesh, ElementMode mode,
+                                           const std::vector<char>& vertexMask )
         {
             std::vector<int> out;
             const auto       touches = [&]( ElementMode m, int id )
@@ -374,7 +377,8 @@ namespace Desert::Geometry
                 const auto [triangle, rayT] = RayCast( mesh, view );
                 if ( triangle == InvalidId )
                     return {};
-                const int id = mode == ElementMode::Triangle ? triangle : mesh.Attributes().GetPolyGroup( triangle );
+                const int id =
+                     mode == ElementMode::Triangle ? triangle : mesh.Attributes().GetPolyGroup( triangle );
                 return { id, rayT, 0.0f };
             }
             case ElementMode::Vertex:
@@ -432,7 +436,8 @@ namespace Desert::Geometry
     Common::BoolResultStr ElementSelection::Add( const EditMesh& mesh, int id )
     {
         if ( !Exists( mesh, m_Mode, id ) )
-            return Common::MakeFormattedError<bool>( "ElementSelection: the mesh has no {} {}", ToString( m_Mode ), id );
+            return Common::MakeFormattedError<bool>( "ElementSelection: the mesh has no {} {}", ToString( m_Mode ),
+                                                     id );
         const auto it = std::lower_bound( m_Ids.begin(), m_Ids.end(), id );
         if ( it != m_Ids.end() && *it == id )
             return Common::MakeSuccess( true );
@@ -538,7 +543,8 @@ namespace Desert::Geometry
 
     // ── operations ───────────────────────────────────────────────────────────────────────────────────────
 
-    ElementSelection ConvertSelection( const EditMesh& mesh, const ElementSelection& selection, ElementMode target )
+    ElementSelection ConvertSelection( const EditMesh& mesh, const ElementSelection& selection,
+                                       ElementMode target )
     {
         ElementMode      mode = selection.Mode();
         std::vector<int> ids( selection.Ids().begin(), selection.Ids().end() );

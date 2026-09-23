@@ -15,7 +15,8 @@ namespace Desert::Editor::Core
         {
             None = 0,
             CubeGrid,
-            PolyEdit
+            PolyEdit,
+            ElementSelect, // mesh element selection (MeshElementSelection)
         };
 
         static ModelingState& Get()
