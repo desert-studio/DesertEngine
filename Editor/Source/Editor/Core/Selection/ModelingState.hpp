@@ -38,7 +38,7 @@ namespace Desert::Editor::Core
         // CubeGrid block size (Resize Grid) in world units — one unit is one centimetre, so the default
         // 100 is a one-metre block, the same default as UE.
         float CellSize = 100.0f;
-        int BlocksPerStep = 1; // cells extruded/removed per Push/Pull (UE "Blocks Per Step")
+        int   BlocksPerStep = 1; // cells extruded/removed per Push/Pull (UE "Blocks Per Step")
 
         // --- Grid frame (UE "Grid Reinitialization" / "Options") ---
         // World position of grid cell (0,0,0). Moving it re-aligns the lattice to an object's corner so
