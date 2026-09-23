@@ -54,6 +54,31 @@
 
 namespace Desert::Core::Formats
 {
+    /// THE LARGEST VALUE BC6H_UFLOAT CAN HOLD: its endpoints are half-float bit patterns, so its ceiling
+    /// is the largest finite half. The encoder clamps anything above it rather than writing an infinity,
+    /// and that clamp is an ENERGY LOSS on real skies — rural_asphalt_road_2k.hdr's sun peaks at 131072 —
+    /// so the one producer that feeds radiance into this encoder (`WriteBakedEnvironmentCube`) counts
+    /// what it is about to lose against this same number and says so.
+    inline constexpr float kBC6HLargestValue = 65504.0f;
+
+    /// What encoding RGBA32F texels to BC6H would do to them, counted BEFORE it is done: the encoder
+    /// writes a non-finite channel as 0 and clamps anything above `kBC6HLargestValue`, and neither is
+    /// visible in its output. Channels are R, G, B; alpha is not stored by BC6H and is not counted.
+    struct BC6HCeilingCensus
+    {
+        uint64_t NonFiniteChannels = 0;
+        uint64_t ClampedTexels     = 0;   ///< texels with at least one channel above the ceiling
+        float    Peak              = 0.0f;
+        double   Sum               = 0.0; ///< of every finite, non-negative channel
+        double   LostAboveCeiling  = 0.0; ///< of (channel - ceiling) where it is positive
+
+        /// The share of the counted energy the clamp removes; 0 for an empty or black image.
+        [[nodiscard]] double LostFraction() const { return Sum > 0.0 ? LostAboveCeiling / Sum : 0.0; }
+    };
+
+    /// @p rgba holds @p texelCount tightly packed RGBA32F texels.
+    [[nodiscard]] BC6HCeilingCensus CensusBC6HCeiling( const float* rgba, std::size_t texelCount );
+
     /// THE BLOCK FORMAT A SOURCE FORMAT ENCODES INTO WHEN NOBODY SAID OTHERWISE, or `ImageFormat::Count`
     /// for "this one does not".
     ///

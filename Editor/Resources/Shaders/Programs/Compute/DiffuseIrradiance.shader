@@ -103,6 +103,22 @@ Shader "DiffuseIrradiance"
         	// Monte Carlo integration of hemispherical irradiance.
         	// As a small optimization this also includes Lambertian BRDF assuming perfectly white surface (albedo of 1.0)
         	// so we don't need to normalize in PBR fragment shader (so technically it encodes exitant radiance rather than irradiance).
+        	//
+        	// MIPMAP-FILTERED IMPORTANCE SAMPLING (Colbert & Krivanek, GPU Gems 3 ch. 20.4 -- the same rule
+        	// PrefilterEnvMap applies to the radiance cube). Each sample stands for 2*pi/NumSamples sr of the
+        	// hemisphere, so it reads the panorama level whose texel covers that much sky, instead of one
+        	// level-0 texel. Point-sampling level 0 is what made the matte sphere under
+        	// rural_asphalt_road_2k.hdr blotchy: its sun is nine texels at up to 131072, a sample spacing of
+        	// ~3 level-0 texels either hits one of them or misses all, and which it does changes from one
+        	// irradiance texel to the next. A panorama with ONE level (the procedural bake's) clamps every
+        	// LOD to 0, so that path integrates exactly what it integrated before.
+        	vec2  panoramaSize = vec2(textureSize(inputTexture, 0));
+        	float panoramaTop  = float(textureQueryLevels(inputTexture) - 1);
+        	// Solid angle of one uniform-hemisphere sample, and of one level-0 texel on the equator (an
+        	// equirect texel shrinks by sin(theta) towards the poles, applied per sample below).
+        	const float sampleSolidAngle = TWOPI / float(NumSamples);
+        	float       texelSolidAngle  = (TWOPI / panoramaSize.x) * (PI / panoramaSize.y);
+
         	vec3 irradiance = vec3(0);
         	for(uint i=0; i<NumSamples; ++i) {
         		vec2 u  = sampleHammersley(i);
@@ -114,7 +130,14 @@ Shader "DiffuseIrradiance"
         		vec2 sampleUV = PanoramaSampleUV(Li, skyLook.YawCosSin.xy);
 
         		// PIs here cancel out because of division by pdf.
-        		irradiance += 2.0 * ApplySkyGain(textureLod(inputTexture, sampleUV, 0).rgb, skyLook.Gain.rgb)
+        		// The +1 is Colbert & Krivanek's bias: the footprint of a sample overlaps its neighbours',
+        		// which is what makes the sum smooth rather than merely unbiased. The pole guard keeps the
+        		// log finite where an equirect texel's solid angle goes to zero.
+        		float sinTheta = sqrt(max(1.0 - Li.y * Li.y, 1e-6));
+        		float lod      = clamp(0.5 * log2(sampleSolidAngle / (texelSolidAngle * sinTheta)) + 1.0,
+        		                       0.0, panoramaTop);
+
+        		irradiance += 2.0 * ApplySkyGain(textureLod(inputTexture, sampleUV, lod).rgb, skyLook.Gain.rgb)
         		              * cosTheta;
         	}
         	irradiance /= vec3(NumSamples);

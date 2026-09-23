@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -918,6 +919,44 @@ TEST( BlockCompression, EveryIntentNameRoundTripsAndNothingElseParses )
     EXPECT_EQ( Fmt::TextureIntentFromName( "Normal" ), Fmt::TextureIntent::Count );
     EXPECT_EQ( Fmt::TextureIntentFromName( "" ), Fmt::TextureIntent::Count );
     EXPECT_EQ( Fmt::TextureIntentFromName( "NormalMap" ), Fmt::TextureIntent::NormalMap );
+}
+
+TEST( BlockCompression, TheCeilingCensusCountsExactlyWhatTheBC6HEncoderDrops )
+{
+    // THE CENSUS AND THE ENCODER ARE TWO DESCRIPTIONS OF ONE CLAMP, so the test is the RELATION: what the
+    // census says is lost must be what a round trip actually loses. The input is the shape that made
+    // this census necessary -- a real HDRI's sun (rural_asphalt_road_2k.hdr peaks at 131072) beside
+    // ordinary sky, plus one NaN, which the encoder writes as black without a word.
+    std::vector<float> rgba( 16u * 4u, 1.0f );
+    rgba[0] = 131072.0f; // texel 0, red: 2x the ceiling
+    rgba[5] = std::nanf( "" ); // texel 1, green
+
+    const Fmt::BC6HCeilingCensus census = Fmt::CensusBC6HCeiling( rgba.data(), 16u );
+    EXPECT_EQ( census.NonFiniteChannels, 1u );
+    EXPECT_EQ( census.ClampedTexels, 1u );
+    EXPECT_FLOAT_EQ( census.Peak, 131072.0f );
+    EXPECT_DOUBLE_EQ( census.LostAboveCeiling, 131072.0 - Fmt::kBC6HLargestValue );
+
+    const auto* bytes = reinterpret_cast<const unsigned char*>( rgba.data() );
+    const auto  blocks = Fmt::BlockCompressImage( 4, 4, Fmt::ImageFormat::RGBA32F, Fmt::ImageFormat::BC6H_UFLOAT,
+                                                  bytes, rgba.size() * sizeof( float ) );
+    ASSERT_TRUE( blocks.IsSuccess() ) << blocks.GetError();
+    const auto decoded = Fmt::BlockDecompressImage( 4, 4, Fmt::ImageFormat::BC6H_UFLOAT, Fmt::ImageFormat::RGBA32F,
+                                                    blocks.GetValue().data(), blocks.GetValue().size() );
+    ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
+    std::vector<float> back( 16u * 4u );
+    std::memcpy( back.data(), decoded.GetValue().data(), back.size() * sizeof( float ) );
+
+    // Nothing the encoder wrote exceeds the ceiling the census measured against, and the NaN came back
+    // finite -- i.e. both losses the census reported really happen, and neither is an infinity.
+    for ( const float v : back )
+    {
+        EXPECT_TRUE( std::isfinite( v ) );
+        EXPECT_LE( v, Fmt::kBC6HLargestValue );
+    }
+    const Fmt::BC6HCeilingCensus after = Fmt::CensusBC6HCeiling( back.data(), 16u );
+    EXPECT_EQ( after.ClampedTexels, 0u );
+    EXPECT_EQ( after.NonFiniteChannels, 0u );
 }
 
 int main( int argc, char** argv )

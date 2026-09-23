@@ -7,11 +7,14 @@
 
 #include <Engine/Assets/CookedTexturePath.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
+#include <Engine/Core/Formats/BlockCompression.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 
 namespace Desert::Graphic
@@ -272,6 +275,67 @@ namespace Desert::Graphic
         if ( !table.IsSuccess() )
             return Common::MakeError<bool>( table.GetError() );
         data.Levels = table.ExtractValue();
+
+        // ── WHAT THE BLOCK FORMAT IS ABOUT TO LOSE, COUNTED BEFORE IT LOSES IT ───────────────────
+        //
+        // BC6H stores half-float endpoints, so everything above `kBC6HLargestValue` is clamped by the
+        // encoder. On the procedural sky that never happens (no sun disc is baked); on a real HDRI it
+        // does, and silently: rural_asphalt_road_2k.hdr's sun reaches 131072 and nine of its texels hold
+        // 13.4 % of the panorama's luminance ABOVE the ceiling. So the chain is censused here, per level,
+        // and a clamp that is about to happen is a line with its numbers — and a non-finite texel, which
+        // the encoder would write as black, is a refused cache entry rather than a black sun.
+        //
+        // WHY A CLAMP AND NOT A DIFFERENT FORMAT. The convolved terms (irradiance, prefilter levels past
+        // the mirror) are integrated from the RGBA32F panorama BEFORE this encode, so they keep the sun's
+        // energy; what is clamped is the sharp image of the sun itself, which is white after exposure
+        // either way. That is also where UE draws the line: an HDRI is captured into a half-float sky
+        // cube, and a sun that must light the scene at full strength is a DirectionalLight, not texels.
+        {
+            Core::Formats::BC6HCeilingCensus whole;
+            double                           worstLoss  = 0.0;
+            uint32_t                         worstLevel = 0;
+            for ( uint32_t mip = 0; mip < mips; ++mip )
+            {
+                Core::Formats::BC6HCeilingCensus level;
+                for ( uint32_t face = 0; face < Ser::kTextureCubeLayerCount; ++face )
+                {
+                    const Ser::TextureLevel& image =
+                         data.Levels[Ser::TextureLevelIndex( mip, face, Ser::kTextureCubeLayerCount )];
+                    std::vector<float> texels( static_cast<size_t>( image.ByteSize / sizeof( float ) ) );
+                    std::memcpy( texels.data(), data.Pixels.data() + image.ByteOffset, image.ByteSize );
+                    const auto faceCensus = Core::Formats::CensusBC6HCeiling( texels.data(), texels.size() / 4u );
+                    level.NonFiniteChannels += faceCensus.NonFiniteChannels;
+                    level.ClampedTexels += faceCensus.ClampedTexels;
+                    level.Peak = std::max( level.Peak, faceCensus.Peak );
+                    level.Sum += faceCensus.Sum;
+                    level.LostAboveCeiling += faceCensus.LostAboveCeiling;
+                }
+                if ( level.LostFraction() > worstLoss )
+                {
+                    worstLoss  = level.LostFraction();
+                    worstLevel = mip;
+                }
+                whole.NonFiniteChannels += level.NonFiniteChannels;
+                whole.ClampedTexels += level.ClampedTexels;
+                whole.Peak = std::max( whole.Peak, level.Peak );
+            }
+
+            if ( whole.NonFiniteChannels > 0 )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "the baked cube holds {} non-finite channel value(s); BC6H would store them as black, "
+                     "so this bake is not cached.",
+                     whole.NonFiniteChannels );
+            }
+            if ( whole.ClampedTexels > 0 )
+            {
+                LOG_WARN( "[EnvironmentBake] '{}': {} texel(s) exceed the BC6H ceiling {} (peak {}); the cached "
+                          "cube loses {:.2f} % of level {}'s energy to the clamp. The bake in memory is "
+                          "unclamped RGBA32F; the NEXT load reads the clamped file.",
+                          path.string(), whole.ClampedTexels, Core::Formats::kBC6HLargestValue, whole.Peak,
+                          100.0 * worstLoss, worstLevel );
+            }
+        }
 
         // ── AND THEN THE SIXTEEN BYTES A TEXEL BECOME ONE ────────────────────────────────────────
         //

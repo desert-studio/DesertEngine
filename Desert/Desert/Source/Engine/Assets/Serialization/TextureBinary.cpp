@@ -847,9 +847,9 @@ namespace Desert::Assets::Serialization
             // texture. A short chain there is a cook that stopped early and is named as such.
             //
             // A CUBE OWES THE LEVELS IT WAS BAKED WITH, and demanding a full chain of one is simply
-            // wrong. `kSkyEnvRadianceMips` is 1 on a 1024 face and that single level is a MEASURED
-            // refusal of the other ten (`SkyRules.hpp`: 96 -> 128 MiB per live SceneRenderer for a
-            // change of at most 1/255); the prefiltered cube's nine levels are a GGX roughness ramp,
+            // wrong. A cube's level count is whatever `SkyRules.hpp` measured it should be — the radiance
+            // cube held ONE level for a month by measurement and carries its whole chain since a real
+            // HDRI earned it — and the prefiltered cube's nine levels are a GGX roughness ramp,
             // not a minification chain, and its count is `MipChainLength(256)` by arithmetic rather
             // than by obligation. The bound that survives for both is the one the DEVICE imposes:
             // more levels than the extent supports is an invalid `vkCreateImage`
