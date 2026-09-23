@@ -250,13 +250,6 @@ namespace Desert::Graphic
         pipeline->SetInput( 0, input );
         pipeline->SetOutput( 1, output.get(), 0 );
 
-        // The authored sky, pushed UNCONDITIONALLY. Both programs this function ever runs declare the
-        // block, and a declared-but-unwritten push-constant range is undefined memory — so "only push it
-        // when the look is not identity" would make the procedural sky's bake read whatever the previous
-        // dispatch left behind. Identity is a value, not an absence.
-        const SkyLookPush push = MakeSkyLookPush( spec.Look );
-        pipeline->SetPushConstants( &push, sizeof( push ) );
-
         // One thread per face texel (the shaders normalize by `imageSize(outputTexture)`, which is the
         // face). When this dispatch was derived from the old cross-layout Width it launched 4x3 = TWELVE
         // times the invocations the image has texels — for DiffuseIrradiance, where every invocation

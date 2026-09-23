@@ -496,15 +496,15 @@ namespace Desert::Editor
         return shader->GetProgramMeta().Domain;
     }
 
-    const Graphic::ImageCube* MaterialEditorPanel::ResolveSubjectCubemap() const
+    Graphic::SampledCube MaterialEditorPanel::ResolveSubjectCubemap() const
     {
         if ( !m_AssetManager )
-            return nullptr;
+            return {};
         // The working copy: this closure is what the ball resolves through every frame, so it is the
         // window's live edit that must reach it, not the state the scene is still rendering.
         const auto asset = DrawnMaterial();
         if ( !asset )
-            return nullptr;
+            return {};
 
         // An instance's textures come from its parent (the same v1 rule DrawParameters states: no
         // per-instance texture descriptors yet), so the slot is read off the parent's data.
@@ -514,7 +514,7 @@ namespace Desert::Editor
         auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
         auto  shader        = shaderService ? shaderService->GetByName( data.EffectiveShaderName() ) : nullptr;
         if ( !shader )
-            return nullptr;
+            return {};
 
         // The FIRST cube property is the one the ball wraps. Not a hardcoded sampler name: any
         // Skybox-domain shader an artist writes names its own slot, and the schema is the contract.
@@ -522,22 +522,22 @@ namespace Desert::Editor
         const auto  cubeParam =
              std::find_if( params.begin(), params.end(), []( const auto& p ) { return p.IsCubeTexture; } );
         if ( cubeParam == params.end() )
-            return nullptr;
+            return {};
 
         const uint64_t bound = data.GetTexture( cubeParam->Name );
         if ( bound == 0 )
-            return nullptr;
+            return {};
 
         // The slot holds an HDR skybox asset; its service caches the baked environment (radiance +
         // IBL) per asset, so this is a map lookup, not a bake.
         auto*      skyboxService = Runtime::ResourceRegistry::GetSkyboxService();
         const auto skybox        = skyboxService ? skyboxService->Get( Assets::AssetHandle( bound ) ) : nullptr;
         if ( !skybox )
-            return nullptr;
+            return {};
 
         const auto& radiance = skybox->GetEnvironment().RadianceMap;
         if ( !radiance.IsValid() || radiance.ImageType != Runtime::ImageHandle::Type::ImageCube )
-            return nullptr;
+            return {};
 
         // Checked like the two services above it. Not because this one is likelier to be absent — it is the
         // same registry and the same lifetime — but because a third call spelled differently beside two
@@ -545,9 +545,10 @@ namespace Desert::Editor
         // three is wrong.
         auto* imageService = Runtime::ResourceRegistry::GetImageService();
         if ( !imageService )
-            return nullptr;
+            return {};
 
-        return static_cast<const Graphic::ImageCube*>( imageService->Resolve( radiance ) );
+        // A cubemap MATERIAL has no scene look of its own: the asset as authored, identity.
+        return { static_cast<const Graphic::ImageCube*>( imageService->Resolve( radiance ) ), {} };
     }
 
     void MaterialEditorPanel::DrawPreviewPlaceholder( float side, const std::string& reason ) const

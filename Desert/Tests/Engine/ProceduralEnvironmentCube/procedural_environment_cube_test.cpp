@@ -330,8 +330,8 @@ TEST( ProceduralEnvironmentCube, ReleasingNothingReleasesNothing )
     const auto first = service.Register( Stand( 0x1000 ), Desert::Runtime::ImageHandle::Type::ImageCube );
     ASSERT_TRUE( first.IsValid() );
 
-    // The three cubes of a previous environment are released together, unconditionally, by both
-    // SkyboxRenderer and MaterialSkybox::ReleaseEnvironment -- and one of the three is now routinely
+    // The three cubes of a previous environment are released together, unconditionally, by
+    // SkyboxRenderer -- and one of the three is now routinely
     // empty. Handing an empty handle to Unregister is therefore a NORMAL event, not an error, and must
     // disturb nothing.
     service.Unregister( Desert::Runtime::ImageHandle{} );

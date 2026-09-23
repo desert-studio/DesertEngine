@@ -328,12 +328,13 @@ namespace Desert::Editor
         // each resolve the shader and answer differently within one frame.
         [[nodiscard]] std::optional<::Desert::Core::Formats::ShaderDomain> EffectiveDomain() const;
 
-        // The cube the subject material's cubemap slot currently resolves to, or null (no slot in the
+        // The cube the subject material's cubemap slot currently resolves to — read at identity, a
+        // material has no scene look — or a null cube (no slot in the
         // schema, nothing bound, or a dangling handle — PreviewUnavailableReason tells those apart, this
         // only answers "what would the ball show"). Called from the preview pass EVERY frame via the
         // closure SetCubemapMaterial carries, which is what makes a texture drop show without any
         // invalidation call; see EditorCubemapPreviewPass.hpp for why the pass holds no copy.
-        [[nodiscard]] const Graphic::ImageCube* ResolveSubjectCubemap() const;
+        [[nodiscard]] Graphic::SampledCube ResolveSubjectCubemap() const;
 
         // The name of the shader this document's material actually draws with, or empty if the material is
         // gone. Recomputed rather than cached: the shader a material names is editable (this window's own

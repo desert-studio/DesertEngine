@@ -60,6 +60,13 @@ Shader "DeferredLighting"
         Uniform(17) samplerCube u_EnvIrradianceTex; // diffuse irradiance (cosine-convolved sky)
         Uniform(18) samplerCube u_EnvSpecularTex;   // GGX-prefiltered radiance, roughness across mips
         Uniform(19) sampler2D   u_BRDFLUTTexture;   // split-sum BRDF integration (cosLo, roughness)
+        // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). Slot 20: the
+        // first free one in this layout.
+        Uniform(20) SkyLookUB
+        {
+            vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
+            vec4 Gain;      // rgb = tint * intensity
+        } skyLook;
 
         Out(0) vec4 oColor;
 

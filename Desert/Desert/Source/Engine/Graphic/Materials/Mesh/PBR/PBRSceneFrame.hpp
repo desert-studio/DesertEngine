@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
@@ -69,6 +70,8 @@ namespace Desert::Graphic
         ImageCube* IrradianceMap  = nullptr;
         ImageCube* PrefilteredMap = nullptr;
         Image2D*   BrdfLut        = nullptr;
+        // How the two cubes above are read — Environment::Look, captured with them from the same answer.
+        SkyLook EnvironmentLook{};
 
         // The cloud layer's shadow on the sun — the SECOND occluder, beside the cascades above. It
         // belongs in this snapshot for the reason the snapshot exists: it is scene state, one per

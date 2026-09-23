@@ -34,7 +34,7 @@ namespace Desert::Editor::Render
         // What to show: the cube resolved fresh each frame, and the ball's radius in world units.
         // A null resolver — or a resolver answering null — draws nothing (the pane's refusal text is
         // the panel's job; a silent black ball here would bury it).
-        void SetSource( std::function<const Graphic::ImageCube*()> resolveCube, float radiusWorldUnits )
+        void SetSource( std::function<Graphic::SampledCube()> resolveCube, float radiusWorldUnits )
         {
             m_ResolveCube = std::move( resolveCube );
             m_Radius      = radiusWorldUnits;
@@ -49,7 +49,7 @@ namespace Desert::Editor::Render
         std::weak_ptr<::Desert::Core::Scene>            m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline>      m_Pipeline;
         std::unique_ptr<Graphic::MaterialCubemapSphere> m_Material;
-        std::function<const Graphic::ImageCube*()>      m_ResolveCube;
+        std::function<Graphic::SampledCube()>           m_ResolveCube;
         float                                           m_Radius = 50.0f;
     };
 } // namespace Desert::Editor::Render
