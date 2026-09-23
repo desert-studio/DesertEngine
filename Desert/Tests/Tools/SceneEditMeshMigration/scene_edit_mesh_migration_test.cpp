@@ -260,3 +260,9 @@ TEST( SceneEditMeshMigration, AV21SceneIsRaisedToV22ThroughTheWholeChain )
     EXPECT_EQ( Desert::Core::kSceneVersion, 22 );
     EXPECT_TRUE( LoadedEditMesh( scene.Entities[0] ).has_value() );
 }
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}

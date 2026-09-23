@@ -98,7 +98,7 @@
 
 namespace Desert::Assets::Serialization
 {
-    /// The container's own version sequence, and nothing else's. It is not `kSceneVersion` (21), not
+    /// The container's own version sequence, and nothing else's. It is not `kSceneVersion` (22), not
     /// `kMeshBinaryVersion` (1) and not `kAnimationVersion` (3): a `.desce` names a texture by path and
     /// carries none of its bytes, so a scene written yesterday opens a texture cooked today without
     /// either file knowing about the other's number.

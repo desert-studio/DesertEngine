@@ -71,8 +71,10 @@ namespace
             const auto&     tri = mesh.GetTriangle( t );
             const glm::vec3 n   = glm::normalize( glm::cross( mesh.GetPosition( tri[1] ) - mesh.GetPosition( tri[0] ),
                                                               mesh.GetPosition( tri[2] ) - mesh.GetPosition( tri[0] ) ) );
-            const int       en  = attr.Normals()->AppendElement( n );
-            EXPECT_EQ( attr.Normals()->SetTriangle( mesh, t, { en, en, en } ), EditResult::Ok );
+            // An element belongs to ONE vertex, so a hard face normal is three elements of one value.
+            const std::array<int, 3> en{ attr.Normals()->AppendElement( n ), attr.Normals()->AppendElement( n ),
+                                         attr.Normals()->AppendElement( n ) };
+            EXPECT_EQ( attr.Normals()->SetTriangle( mesh, t, en ), EditResult::Ok );
             EXPECT_EQ( attr.Tangents()->SetTriangle( mesh, t, { tangentOf[tri[0]], tangentOf[tri[1]], tangentOf[tri[2]] } ),
                        EditResult::Ok );
             EXPECT_EQ( attr.Colors()->SetTriangle( mesh, t, { colorOf[tri[0]], colorOf[tri[1]], colorOf[tri[2]] } ),
@@ -241,4 +243,10 @@ TEST( EditMeshSaved, ASavedFormNoWriterProducesIsRefusedByName )
     EditMeshSer shortGroups = good;
     shortGroups.PolyGroups.pop_back();
     EXPECT_NE( refusal( shortGroups ).find( "polygroups" ), std::string::npos ) << refusal( shortGroups );
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
