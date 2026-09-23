@@ -166,6 +166,10 @@ namespace Desert::Graphic
                             float noiseFrequency, int seed, const glm::vec3& layerModes = glm::vec3( 0.0f ),
                             Image2D* splatMap = nullptr, const MaterialOverrides& overrides = {} );
 
+        // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
+        // the Terrain pipeline on its heightmap path, reading the tile's R16 copy.
+        void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile );
+
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-PBR shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for
         // procedural textures with no TextureAsset handle (the text SDF atlas).

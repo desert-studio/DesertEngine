@@ -1331,6 +1331,12 @@ namespace Desert::Graphic
                          .Overrides      = overrides } );
     }
 
+    void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile )
+    {
+        UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+             ->Submit( { .Heightmap = heightmap, .Landscape = tile } );
+    }
+
     void SceneRenderer::SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,

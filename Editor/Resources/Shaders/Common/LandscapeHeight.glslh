@@ -1,0 +1,67 @@
+// A landscape tile's height decode and sampling — the ONE statement of it, compiled twice from this text:
+//   * as GLSL, by Programs/Terrain/Terrain.shader, which reads the tile's R16_UNORM copy;
+//   * as C++, by Engine/World/Landscape/LandscapeData.cpp, which answers every CPU height query
+//     (collision, raycast, brushes) from the tile's uint16 samples.
+// So the height the GPU draws and the height the CPU reports are one function, not two that agree until
+// the first edit on either side. The dialect is SkyMedium.glslh's: `f`-suffixed literals so C++ does not
+// widen to double, no swizzles, no `out`, no arrays, functions before use.
+//
+// ENCODING. UE's (LandscapeDataAccess.h): a sample s is a local height of (s - 32768) / 128, and the
+// landscape's vertical scale turns that into centimetres. Both factors are exact in float — the
+// difference is an integer below 2^16 and 1/128 is a power of two — so the only rounding step is the
+// multiply by the scale, correctly rounded on both sides.
+
+#ifndef LANDSCAPE_HEIGHT_GLSLH
+#define LANDSCAPE_HEIGHT_GLSLH
+
+const float LANDSCAPE_MID_SAMPLE     = 32768.0f;
+const float LANDSCAPE_LOCAL_PER_STEP = 0.0078125f; // 1/128, exactly
+const float LANDSCAPE_MAX_SAMPLE     = 65535.0f;
+
+// The integer sample back from an R16_UNORM texel. The sampler hands the shader s / 65535 as a float;
+// the nearest integer to its product with 65535 is s for every s, which is what makes the GPU's input the
+// CPU's input and not an approximation of it.
+float LandscapeSampleFromUnorm( float unorm )
+{
+    return floor( unorm * LANDSCAPE_MAX_SAMPLE + 0.5f );
+}
+
+float LandscapeLocalFromSample( float sampleValue )
+{
+    return ( sampleValue - LANDSCAPE_MID_SAMPLE ) * LANDSCAPE_LOCAL_PER_STEP;
+}
+
+float LandscapeHeightCmFromSample( float sampleValue, float zScale )
+{
+    return LandscapeLocalFromSample( sampleValue ) * zScale;
+}
+
+// A lerp that returns its endpoints EXACTLY: t = 0 gives a and t = 1 gives b, bit for bit, with or without
+// a fused multiply-add (a*0 + b*1 and a*1 + b*0 have one non-zero term each). The `a + (b - a) * t` form
+// does not — a + (b - a) need not round back to b — and a tile's last sample column is evaluated at
+// t = 1 on one side of a seam and at t = 0 on the other. This is the property the seam rests on.
+float LandscapeLerp( float a, float b, float t )
+{
+    return a * ( 1.0f - t ) + b * t;
+}
+
+float LandscapeBilinear( float h00, float h10, float h01, float h11, float fx, float fz )
+{
+    return LandscapeLerp( LandscapeLerp( h00, h10, fx ), LandscapeLerp( h01, h11, fx ), fz );
+}
+
+// The cell a local sample coordinate g (0 <= g <= samples - 1) falls in: its floor, except that the last
+// sample belongs to the last cell (fraction 1) rather than to a cell that does not exist.
+float LandscapeCellOf( float g, float samples )
+{
+    return min( floor( g ), samples - 2.0f );
+}
+
+// dh/d(axis) in cm per cm from the two samples either side, `steps` samples apart (2 inside the tile, 1 on
+// its border, where the missing neighbour lives in another tile).
+float LandscapeGradient( float hLow, float hHigh, float steps, float spacingCm )
+{
+    return ( hHigh - hLow ) / ( steps * spacingCm );
+}
+
+#endif // LANDSCAPE_HEIGHT_GLSLH

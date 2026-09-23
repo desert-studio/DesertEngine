@@ -1,6 +1,7 @@
 #include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <Common/Core/Core.hpp>
+#include <Common/Core/GlslAsCpp.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 #include <Engine/Assets/ContainerBytes.hpp>
 
@@ -13,6 +14,29 @@
 
 namespace Desert::World::Landscape
 {
+    namespace
+    {
+        // Shaders/Common/LandscapeHeight.glslh COMPILED AS C++ — the same text Terrain.shader decodes a
+        // tile's R16 copy with, so the CPU's heights and the drawn heights are one function. The shader
+        // root is on the include path of every project that compiles this file.
+        using glm::floor;
+        using glm::min;
+
+        DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
+#include <Common/LandscapeHeight.glslh>
+             DESERT_GLSL_AS_CPP_END
+    } // namespace
+
+    float LandscapeLocalHeight( uint16_t sample )
+    {
+        return LandscapeLocalFromSample( static_cast<float>( sample ) );
+    }
+
+    float LandscapeHeightCm( uint16_t sample, float zScale )
+    {
+        return LandscapeHeightCmFromSample( static_cast<float>( sample ), zScale );
+    }
+
     uint16_t LandscapeSampleFromLocal( float localHeight )
     {
         const float scaled = localHeight * kLandscapeStepsPerLocal + static_cast<float>( kLandscapeMidSample );
@@ -222,19 +246,19 @@ namespace Desert::World::Landscape
             // Written as !(inside) so NaN lands outside rather than on sample 0.
             if ( !( gx >= 0.0f && gx <= lastX && gz >= 0.0f && gz <= lastZ ) )
                 return std::nullopt;
-            GridPoint p;
-            p.CellX = std::min( static_cast<uint32_t>( gx ), tile.SamplesX() - 2u );
-            p.CellZ = std::min( static_cast<uint32_t>( gz ), tile.SamplesZ() - 2u );
-            p.Fx    = gx - static_cast<float>( p.CellX );
-            p.Fz    = gz - static_cast<float>( p.CellZ );
+            const float cellX = LandscapeCellOf( gx, static_cast<float>( tile.SamplesX() ) );
+            const float cellZ = LandscapeCellOf( gz, static_cast<float>( tile.SamplesZ() ) );
+            GridPoint   p;
+            p.CellX = static_cast<uint32_t>( cellX );
+            p.CellZ = static_cast<uint32_t>( cellZ );
+            p.Fx    = gx - cellX;
+            p.Fz    = gz - cellZ;
             return p;
         }
 
         float Bilinear( float h00, float h10, float h01, float h11, float fx, float fz )
         {
-            const float bottom = h00 + ( h10 - h00 ) * fx;
-            const float top    = h01 + ( h11 - h01 ) * fx;
-            return bottom + ( top - bottom ) * fz;
+            return LandscapeBilinear( h00, h10, h01, h11, fx, fz );
         }
 
         float HeightAt( const LandscapeTileData& tile, const LandscapeFrame& frame, uint32_t x, uint32_t z )
@@ -251,10 +275,10 @@ namespace Desert::World::Landscape
             const uint32_t xb = x + 1u < tile.SamplesX() ? x + 1u : x;
             const uint32_t za = z > 0u ? z - 1u : z;
             const uint32_t zb = z + 1u < tile.SamplesZ() ? z + 1u : z;
-            const float    dx = ( HeightAt( tile, frame, xb, z ) - HeightAt( tile, frame, xa, z ) ) /
-                             ( static_cast<float>( xb - xa ) * frame.SpacingCm );
-            const float dz = ( HeightAt( tile, frame, x, zb ) - HeightAt( tile, frame, x, za ) ) /
-                             ( static_cast<float>( zb - za ) * frame.SpacingCm );
+            const float    dx = LandscapeGradient( HeightAt( tile, frame, xa, z ), HeightAt( tile, frame, xb, z ),
+                                                   static_cast<float>( xb - xa ), frame.SpacingCm );
+            const float    dz = LandscapeGradient( HeightAt( tile, frame, x, za ), HeightAt( tile, frame, x, zb ),
+                                                   static_cast<float>( zb - za ), frame.SpacingCm );
             return { dx, dz };
         }
     } // namespace

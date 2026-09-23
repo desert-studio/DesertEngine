@@ -79,6 +79,17 @@ TEST( ImageFormatBytesPerPixel, EveryEnumeratorHasItsRealSize )
     EXPECT_EQ( GetBytesPerPixel( ImageFormat::BGRA8F ), 4u );
     EXPECT_EQ( GetBytesPerPixel( ImageFormat::DEPTH24STENCIL8 ), 4u );
     EXPECT_EQ( GetBytesPerPixel( ImageFormat::DEPTH32F ), 4u );
+    EXPECT_EQ( GetBytesPerPixel( ImageFormat::R16_UNORM ), 2u ) << "a landscape tile's upload is sized by this";
+}
+
+// The landscape heightmap is one 16-bit channel, sampled as colour: an aspect or channel count of anything
+// else would make its barrier or its staging size wrong.
+TEST( ImageFormatBytesPerPixel, R16IsOneColourChannelOfTwoBytes )
+{
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::R16_UNORM ), 1u );
+    EXPECT_EQ( GetImageAspect( ImageFormat::R16_UNORM ), Formats::ImageAspect_Colour );
+    EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::R16_UNORM ) );
+    EXPECT_EQ( CalculateImageSize( 65, 65, ImageFormat::R16_UNORM ), 65u * 65u * 2u );
 }
 
 // The property the deleted `return 0U;` used to violate: no declared format answers zero. A zero here

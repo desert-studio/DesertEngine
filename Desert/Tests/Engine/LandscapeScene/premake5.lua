@@ -24,6 +24,8 @@ project(test_name)
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
+        -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
+        "%{wks.location}/Editor/Resources/Shaders",
     }
     externalincludedirs {
         "%{wks.location}/ThirdParty/entt/include/",       -- the component headers are ECS headers

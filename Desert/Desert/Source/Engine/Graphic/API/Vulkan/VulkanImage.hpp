@@ -54,6 +54,8 @@ namespace Desert::Graphic::API::Vulkan
                     return VK_FORMAT_B8G8R8A8_UNORM;
                 case Core::Formats::ImageFormat::DEPTH32F:
                     return VK_FORMAT_D32_SFLOAT;
+                case Core::Formats::ImageFormat::R16_UNORM:
+                    return VK_FORMAT_R16_UNORM;
                 case Core::Formats::ImageFormat::DEPTH24STENCIL8:
                     return deviceDepthFormat;
                 // The four block formats. `textureCompressionBC` is read off the physical device and

@@ -450,11 +450,14 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   and +2 Unique with SP1 (878 -> 880 after WP6 and M1): the start-up splash, owned by `Sandbox::m_Splash`
     //   from before the renderer exists until the editor layer takes it (`EditorLayer::m_Splash`). One object
     //   handed over once -- a move, never a second owner -- so Unique is the honest form and neither owes a row.
-    EXPECT_EQ( CountOf( Form::Raw ), 388 );
-    EXPECT_EQ( CountOf( Form::Shared ), 331 );
+    //   LS-4 (2026-09-24) added three: the landscape tile's heightmap as it travels to the terrain pass,
+    //   DrawLandscapeTileCommand::Heightmap and TerrainDrawData::Heightmap (raw, frame-scoped, each with a
+    //   row), and its owner, LandscapeECSSystem::TileGpu::Heightmap (shared). Raw 388+2, Shared 331+1.
+    EXPECT_EQ( CountOf( Form::Raw ), 390 );
+    EXPECT_EQ( CountOf( Form::Shared ), 332 );
     EXPECT_EQ( CountOf( Form::Unique ), 123 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 880 )
+    EXPECT_EQ( (int)Members().size(), 883 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -693,7 +696,9 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // material variant. Shared because MaterialInstancePtr is the engine's one spelling of an instance
     // handle and every other holder of one is a shared_ptr too; what makes it safe is not the count but
     // the stamp check that empties the map when MaterialService retires the materials they point at.
-    EXPECT_EQ( CountOf( Form::Shared ), 331 );
+    // 331 -> 332 with LS-4: LandscapeECSSystem::TileGpu::Heightmap, a GPU image — the case this test's
+    // opening paragraph describes (the cache, the descriptor sets and the deletion queue all hold it).
+    EXPECT_EQ( CountOf( Form::Shared ), 332 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 
