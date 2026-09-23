@@ -109,7 +109,7 @@ namespace Desert::Geometry
             class Iterator
             {
             public:
-                Iterator( const std::vector<uint8_t>* alive, int id ) : m_Alive( alive ), m_Id( id )
+                Iterator( std::span<const uint8_t> alive, int id ) : m_Alive( alive ), m_Id( id )
                 {
                     SkipDead();
                 }
@@ -135,14 +135,14 @@ namespace Desert::Geometry
             private:
                 void SkipDead()
                 {
-                    while ( m_Id < static_cast<int>( m_Alive->size() ) && ( *m_Alive )[m_Id] == 0 )
+                    while ( m_Id < static_cast<int>( m_Alive.size() ) && m_Alive[m_Id] == 0 )
                         ++m_Id;
                 }
-                const std::vector<uint8_t>* m_Alive;
-                int                         m_Id;
+                std::span<const uint8_t> m_Alive;
+                int                      m_Id;
             };
 
-            explicit IdRange( const std::vector<uint8_t>& alive ) : m_Alive( &alive )
+            explicit IdRange( std::span<const uint8_t> alive ) : m_Alive( alive )
             {
             }
             [[nodiscard]] Iterator begin() const
@@ -151,11 +151,11 @@ namespace Desert::Geometry
             }
             [[nodiscard]] Iterator end() const
             {
-                return Iterator( m_Alive, static_cast<int>( m_Alive->size() ) );
+                return Iterator( m_Alive, static_cast<int>( m_Alive.size() ) );
             }
 
         private:
-            const std::vector<uint8_t>* m_Alive;
+            std::span<const uint8_t> m_Alive;
         };
 
         // ── construction ─────────────────────────────────────────────────────────────────────────────
