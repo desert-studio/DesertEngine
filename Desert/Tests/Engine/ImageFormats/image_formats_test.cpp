@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <vector>
 
 namespace Formats = Desert::Core::Formats;
 
@@ -24,12 +25,49 @@ using Formats::ImageFormat;
 
 namespace
 {
-    // Every enumerator of ImageFormat, once. If a format is added, this list is where the test is
-    // extended — but the BUILD breaks first, in GetBytesPerPixel itself, which is the point.
-    constexpr ImageFormat kAllFormats[] = { ImageFormat::RGBA8F,          ImageFormat::RGBA16F,
-                                            ImageFormat::RGBA32F,         ImageFormat::BGRA8F,
-                                            ImageFormat::DEPTH24STENCIL8, ImageFormat::DEPTH32F };
+    // EVERY ENUMERATOR THAT HAS A BYTES-PER-PIXEL AT ALL, derived from the format table rather than
+    // written down. It used to be a hand-written list of six with a comment calling it "every
+    // enumerator of ImageFormat", and the day the two BC formats arrived that comment became false
+    // while every test below went on passing — the list simply did not mention them. A list that
+    // claims to be a census has to BE one.
+    //
+    // A BLOCK FORMAT IS EXCLUDED, AND THAT IS THE POINT RATHER THAN AN OMISSION: `GetBytesPerPixel`
+    // refuses one by design (a 4x4 block in sixteen bytes is not a bytes-per-pixel), so asking it here
+    // would be asking for the abort. What every enumerator DOES have is a block, and
+    // `BlockCompression`'s suite walks all of them for it.
+    /// Every enumerator, block formats included. Used by the checks that hold for both kinds.
+    std::vector<ImageFormat> AllFormats()
+    {
+        std::vector<ImageFormat> formats;
+        for ( uint32_t i = 0; i < Formats::kImageFormatCount; ++i )
+            formats.push_back( static_cast<ImageFormat>( i ) );
+        return formats;
+    }
+
+    std::vector<ImageFormat> UncompressedFormats()
+    {
+        std::vector<ImageFormat> formats;
+        for ( uint32_t i = 0; i < Formats::kImageFormatCount; ++i )
+        {
+            const auto format = static_cast<ImageFormat>( i );
+            if ( !Formats::IsBlockCompressed( format ) )
+                formats.push_back( format );
+        }
+        return formats;
+    }
 } // namespace
+
+// The list above is derived; this is what makes it a census rather than a filter nobody checks. Six
+// uncompressed formats and at least one block format have to exist, or the split it is built on is not
+// being exercised by this tree at all.
+TEST( ImageFormatBytesPerPixel, TheDerivedListStillSplitsTheEnum )
+{
+    const std::size_t uncompressed = UncompressedFormats().size();
+    EXPECT_GT( uncompressed, 0u );
+    EXPECT_LT( uncompressed, Formats::kImageFormatCount )
+         << "no format in the table is block-compressed any more; either one was removed, or "
+            "IsBlockCompressed stopped answering";
+}
 
 // ── Bytes per pixel: the exact size of every enumerator (CLD-96e) ─────────────────────────────────
 
@@ -47,7 +85,7 @@ TEST( ImageFormatBytesPerPixel, EveryEnumeratorHasItsRealSize )
 // is not a wrong number, it is an allocation of nothing for an image that exists.
 TEST( ImageFormatBytesPerPixel, NoEnumeratorAnswersZero )
 {
-    for ( const ImageFormat format : kAllFormats )
+    for ( const ImageFormat format : UncompressedFormats() )
         EXPECT_GT( GetBytesPerPixel( format ), 0u ) << "format index " << static_cast<uint32_t>( format );
 }
 
@@ -90,7 +128,7 @@ TEST( ImageFormatSize, VolumeSizesAreExact )
 // A volume with depth 1 is the same number of bytes as the 2D image of the same face.
 TEST( ImageFormatSize, DepthOneAgreesWithTheTwoDimensionalOverload )
 {
-    for ( const ImageFormat format : kAllFormats )
+    for ( const ImageFormat format : AllFormats() )
         EXPECT_EQ( CalculateImageSize( 128u, 64u, 1u, format ), CalculateImageSize( 128u, 64u, format ) )
              << "format index " << static_cast<uint32_t>( format );
 }
@@ -137,7 +175,7 @@ TEST( ImageFormatAspect, DepthOnlyFormatDoesNotClaimAStencil )
 // barrier Vulkan rejects.
 TEST( ImageFormatAspect, EveryEnumeratorNamesExactlyOneFamily )
 {
-    for ( const ImageFormat format : kAllFormats )
+    for ( const ImageFormat format : AllFormats() )
     {
         const uint32_t aspect = GetImageAspect( format );
         EXPECT_NE( aspect, 0u ) << "format index " << static_cast<uint32_t>( format );

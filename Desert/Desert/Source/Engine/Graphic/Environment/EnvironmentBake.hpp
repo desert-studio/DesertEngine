@@ -65,9 +65,16 @@ namespace Desert::Graphic
     };
 
     /// Bumped when anything about the BAKE changes that the numbers below cannot see — a shader edit, a
-    /// different convolution. It is part of `EncoderHash`, so bumping it re-bakes every environment
-    /// without anybody deleting a directory.
-    inline constexpr uint32_t kEnvironmentBakeVersion = 1;
+    /// different convolution, a different STORAGE FORMAT. It is part of `EncoderHash`, so bumping it
+    /// re-bakes every environment without anybody deleting a directory.
+    ///
+    ///   1  RGBA32F levels, six faces, written by T3.1's container.
+    ///   2  the levels are encoded to BC6H on the way out (`kStoredCubeFormat`). A v1 file is still
+    ///      LOADED — the load accepts either format and an uncompressed cube is a correct cube — but it
+    ///      is no longer FOUND, because the signature it was filed under has moved. That is the right
+    ///      shape here and not a waste: the v1 file costs sixteen times its successor in resident
+    ///      memory, and going on using it is the defect this version exists to prevent.
+    inline constexpr uint32_t kEnvironmentBakeVersion = 2;
 
     /// Everything except the source file that the baked pixels depend on. See the header note.
     [[nodiscard]] uint64_t EnvironmentBakeSignature( const SkyLook& look, BakedEnvironmentCube which,

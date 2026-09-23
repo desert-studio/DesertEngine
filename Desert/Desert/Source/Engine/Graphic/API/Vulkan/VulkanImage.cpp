@@ -305,6 +305,26 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_Specification.Samples > 1 )
             info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
 
+        // A BLOCK FORMAT IS SAMPLED AND TRANSFERRED, AND NOTHING ELSE. `vkGetPhysicalDeviceFormatProperties`
+        // reports `sampledImage` and `transferSrc/Dst` for BC7 and BC6H and reports neither
+        // `storageImage` nor `colorAttachment` — a shader cannot write a compressed block, and neither
+        // can a render pass. Multisampling is out for the same reason a mip blit is (`blitDst = 0`): the
+        // resolve would have to write one.
+        //
+        // NAMED HERE RATHER THAN LEFT TO THE DRIVER, because the driver's answer is the problem: on this
+        // machine a BC image is created and used with no validation message even when the feature that
+        // makes it legal is switched off (measured — see the TextureCompressionBC suite), so an illegal
+        // usage bit is exactly the kind of mistake that works here and fails on the target.
+        if ( Core::Formats::IsBlockCompressed( m_Specification.Format ) &&
+             ( m_Specification.Usage == Core::Formats::Image2DUsage::Attachment ||
+               ( m_Specification.Properties & Core::Formats::Storage ) != 0 || m_Specification.Samples > 1 ) )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "Image2D '{}' asks for format {} as an attachment, a storage image or a {}x multisampled "
+                 "image. A block-compressed format can only be sampled and transferred.",
+                 m_Specification.Tag, static_cast<uint32_t>( m_Specification.Format ), m_Specification.Samples );
+        }
+
         if ( m_Specification.Usage == Core::Formats::Image2DUsage::Attachment )
             info.usage |= Graphic::Utils::IsDepthFormat( m_Specification.Format ) ?
                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -701,6 +721,19 @@ namespace Desert::Graphic::API::Vulkan
              .usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
              .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
+
+        // SAME RULE AS THE 2D PATH, AND THE CASE IT WAS WRITTEN FOR. A baked environment cube is created
+        // with `Storage | Sample` because the three compute passes WRITE it; a cube read back off the
+        // cache is BC6H and is only ever sampled, so `EnvironmentBake.cpp` drops the storage bit for it.
+        // This is the line that says what happens if it ever stops doing so.
+        if ( Core::Formats::IsBlockCompressed( m_Specification.Format ) &&
+             ( m_Specification.Properties & Core::Formats::Storage ) != 0 )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "ImageCube '{}' asks for format {} as a storage image. A block-compressed format can only "
+                 "be sampled and transferred: a shader cannot write a compressed block.",
+                 m_Specification.Tag, static_cast<uint32_t>( m_Specification.Format ) );
+        }
 
         if ( m_Specification.Properties & Core::Formats::Storage ) info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
 
