@@ -20,8 +20,8 @@ namespace Desert::Tests::SkyPanoramaRef
         using vec2 = glm::vec2;
         using vec3 = glm::vec3;
 
-        using glm::atan;
         using glm::acos;
+        using glm::atan;
         using glm::clamp;
 
         DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics

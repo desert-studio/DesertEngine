@@ -280,8 +280,7 @@ namespace Desert::Editor
                          if ( !environment.RadianceMap.IsValid() )
                              return nullptr;
                          return static_cast<Graphic::ImageCube*>(
-                              Runtime::ResourceRegistry::GetImageService()->Resolve(
-                                   environment.RadianceMap ) );
+                              Runtime::ResourceRegistry::GetImageService()->Resolve( environment.RadianceMap ) );
                      } );
             }
             else

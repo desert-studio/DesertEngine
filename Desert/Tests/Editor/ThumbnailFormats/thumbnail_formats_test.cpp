@@ -361,9 +361,8 @@ TEST( ThumbnailFormats, EveryRowsProducerIsTheDrawFunctionTheBrowserActuallyCall
              << format.What << "\" reaches no pixel and the file shows its type icon.";
 
         EXPECT_TRUE( drawn->second.count( wanted ) != 0 )
-             << '.' << format.Extension << " is FileType::" << type->second << ", whose row promises "
-             << wanted << ", but the browser routes that type to "
-             << *drawn->second.begin() << " instead.";
+             << '.' << format.Extension << " is FileType::" << type->second << ", whose row promises " << wanted
+             << ", but the browser routes that type to " << *drawn->second.begin() << " instead.";
     }
 }
 

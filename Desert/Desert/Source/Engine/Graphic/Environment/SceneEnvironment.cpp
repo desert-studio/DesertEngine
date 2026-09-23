@@ -12,7 +12,7 @@
 namespace Desert::Graphic
 {
     Environment EnvironmentManager::Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset,
-                                            const SkyLook&                             look )
+                                            const SkyLook&                              look )
     {
         // The panorama, the three cubes and the transient compute pipelines the bake creates are all the
         // ENVIRONMENT's, not the skybox asset's: the recipe that rebuilds them is the sky settings plus a

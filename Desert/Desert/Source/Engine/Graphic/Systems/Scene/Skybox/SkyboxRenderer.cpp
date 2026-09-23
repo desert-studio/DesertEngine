@@ -610,8 +610,8 @@ namespace Desert::Graphic::System
                                           kSkyRebakeSettleSeconds, kSkyRebakeMaxDeferSeconds ) )
             return;
 
-        const auto started = std::chrono::steady_clock::now();
-        const bool rebaked = material->EnsureBaked( m_SkyboxLook );
+        const auto started     = std::chrono::steady_clock::now();
+        const bool rebaked     = material->EnsureBaked( m_SkyboxLook );
         m_SecondsSinceHdrStale = 0.0f;
 
         if ( !rebaked )

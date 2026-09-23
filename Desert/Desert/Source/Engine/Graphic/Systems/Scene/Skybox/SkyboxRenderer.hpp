@@ -164,10 +164,10 @@ namespace Desert::Graphic::System
         // The look this scene asks its HDR sky for. Held rather than applied on the spot: PrepareMaterial
         // can run before the camera exists, and the rebake it may imply idles the device, so the work
         // belongs in the pre-graph slot (EnsureHdrEnvironment) and not in a command's Execute.
-        SkyLook                           m_SkyboxLook{};
+        SkyLook m_SkyboxLook{};
         // The look seen LAST FRAME, and how long it has held still — the settle half of the rebake gate.
-        SkyLook                           m_LastSeenLook{};
-        float                             m_SecondsSinceLookChanged = 0.0f;
+        SkyLook m_LastSeenLook{};
+        float   m_SecondsSinceLookChanged = 0.0f;
         // How long the cubes have been known stale. The deferral half: a look that never stops changing
         // must still refresh, or an animated tint would freeze the sky at the value it opened on.
         float                             m_SecondsSinceHdrStale = 0.0f;

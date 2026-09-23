@@ -46,9 +46,12 @@ namespace
     const std::vector<glm::vec3>& Directions()
     {
         static const std::vector<glm::vec3> all = {
-             glm::normalize( glm::vec3( 1, 0, 0 ) ),      glm::normalize( glm::vec3( -1, 0, 0 ) ),
-             glm::normalize( glm::vec3( 0, 0, 1 ) ),      glm::normalize( glm::vec3( 0, 0, -1 ) ),
-             glm::normalize( glm::vec3( 1, 1, 1 ) ),      glm::normalize( glm::vec3( -0.3f, 0.8f, 0.5f ) ),
+             glm::normalize( glm::vec3( 1, 0, 0 ) ),
+             glm::normalize( glm::vec3( -1, 0, 0 ) ),
+             glm::normalize( glm::vec3( 0, 0, 1 ) ),
+             glm::normalize( glm::vec3( 0, 0, -1 ) ),
+             glm::normalize( glm::vec3( 1, 1, 1 ) ),
+             glm::normalize( glm::vec3( -0.3f, 0.8f, 0.5f ) ),
              glm::normalize( glm::vec3( 0.6f, -0.4f, -0.7f ) ),
         };
         return all;
@@ -143,8 +146,7 @@ TEST( SkyPanoramaLookup, YawTouchesTheAZIMUTHONLY )
     for ( const float yaw : { 37.0f, 123.0f, 300.0f } )
     {
         for ( const glm::vec3& d : Directions() )
-            EXPECT_NEAR( PanoramaSampleUV( d, CosSin( yaw ) ).y, PanoramaSampleUV( d, CosSin( 0.0f ) ).y,
-                         1e-6f )
+            EXPECT_NEAR( PanoramaSampleUV( d, CosSin( yaw ) ).y, PanoramaSampleUV( d, CosSin( 0.0f ) ).y, 1e-6f )
                  << "yaw " << yaw;
     }
 }

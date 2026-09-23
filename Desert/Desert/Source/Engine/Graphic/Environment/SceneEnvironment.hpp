@@ -37,8 +37,7 @@ namespace Desert::Graphic
         // prefiltered cubes descend from the same panorama, so no consumer can be shown a sky the others
         // do not agree with. See Engine/Graphic/Environment/SkyLook.hpp for why it is not applied at the
         // sample sites instead.
-        static Environment Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset,
-                                   const SkyLook&                             look );
+        static Environment Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset, const SkyLook& look );
 
         // Builds an IBL environment from the engine-generated procedural atmosphere (no HDR asset): the sky
         // is baked into an equirect panorama of @p panoramaWidth x @p panoramaHeight, then run through the
@@ -67,7 +66,7 @@ namespace Desert::Graphic
         // an internal unwrap of the source pixels, and carrying it in the name is how call sites came to
         // reason in cross widths instead of faces.
         static std::shared_ptr<ImageCube> ConvertPanoramaToRadianceCube( const Runtime::ImageHandle& panorama,
-                                                                         const SkyLook& look );
+                                                                         const SkyLook&              look );
 
         static std::shared_ptr<ImageCube> CreateDiffuseIrradiance( const Runtime::ImageHandle& panorama,
                                                                    const SkyLook&              look );
