@@ -10,6 +10,7 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
+#include <optional>
 #include <regex>
 #include <string>
 #include <string_view>
@@ -42,8 +43,11 @@ namespace Desert::Editor
     // is about a cooked FILE and not about JSON, and a cooked mesh is now a binary container. Splitting
     // is what keeps the hole described above closed in ONE place for both payload kinds rather than
     // reopening it in a second copy, which is the mistake the Д35 note is about.
-    [[nodiscard]] inline Common::BoolResultStr WriteCookedBytes( const std::string&           bytes,
-                                                                 const std::filesystem::path& path )
+    // @p bounds is the box the written file occupies, for the kinds that have one (a cooked mesh); it
+    // goes into the file's registry row beside the size, so the row is complete the moment the file is.
+    [[nodiscard]] inline Common::BoolResultStr
+    WriteCookedBytes( const std::string& bytes, const std::filesystem::path& path,
+                      const std::optional<Common::Math::AABB>& bounds = std::nullopt )
     {
         static const std::regex illegal( R"([<>:"/\\|?*])" );
 
@@ -71,6 +75,8 @@ namespace Desert::Editor
         // AFTER the write and only on success: a row naming a file that was not written would send the
         // loader to a path it cannot read, once per boot, for ever.
         Assets::ContentRegistry::NoteFile( fixedPath );
+        if ( bounds.has_value() )
+            Assets::ContentRegistry::NoteBounds( fixedPath, bounds );
 
         return BOOLSUCCESS;
     }

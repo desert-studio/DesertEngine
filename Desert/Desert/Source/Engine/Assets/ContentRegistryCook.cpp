@@ -2,6 +2,8 @@
 
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/Mesh/MeshAsset.hpp>
+#include <Engine/Geometry/MeshBounds.hpp>
 
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -22,7 +24,8 @@ namespace Desert::Assets::ContentRegistry
     {
         return std::to_string( Rows ) + " row(s) in the content registry: " + std::to_string( Added ) +
                " added, " + std::to_string( Removed ) + " removed, " + std::to_string( Edges ) +
-               " dependency edge(s) recorded; " + ( Written ? "written" : "unchanged, not written" );
+               " dependency edge(s) recorded, " + std::to_string( Bounded ) + " row(s) with bounds; " +
+               ( Written ? "written" : "unchanged, not written" );
     }
 
     Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager )
@@ -128,6 +131,37 @@ namespace Desert::Assets::ContentRegistry
                     state.Dirty = true;
                 }
             }
+
+            // ── BOUNDS: every loaded mesh's box ─────────────────────────────────────────────────────
+            //
+            // The box the draw side uses (Geometry::LocalBounds over the submeshes), so the partitioner and
+            // the renderer cannot disagree about how big a mesh is. The mesh cook states the same box when
+            // it writes the file (ContentRegistry::NoteBounds); this is the safety net for a mesh that came
+            // from a `git pull` rather than this machine's import. A mesh not loaded this session keeps
+            // whatever its row says — the convergence rule the edges follow: learned once, carried after.
+            for ( const auto& [metadata, asset] : manager.RegisteredAssets() )
+            {
+                if ( !asset || !asset->IsReadyForUse() || metadata.AssetType != AssetTypeID::Mesh )
+                    continue;
+                const auto*                              mesh = dynamic_cast<const MeshAsset*>( asset.get() );
+                const Common::Utils::AssetRegistryEntry* row =
+                     state.Registry.FindByHandle( static_cast<uint64_t>( metadata.Handle ) );
+                if ( mesh == nullptr || row == nullptr )
+                    continue;
+
+                std::optional<Common::Math::AABB> box = Geometry::LocalBounds( mesh->GetSubmeshes() );
+                if ( Geometry::IsEmpty( *box ) )
+                    box.reset();
+                if ( !Common::Utils::SameBounds( row->Bounds, box ) )
+                {
+                    const std::string key = row->Key;
+                    state.Registry.SetBounds( key, box );
+                    state.Dirty = true;
+                }
+            }
+
+            for ( const Common::Utils::AssetRegistryEntry& row : state.Registry.Entries() )
+                outcome.Bounded += row.Bounds.has_value() ? 1 : 0;
 
             outcome.Rows = state.Registry.Count();
         }

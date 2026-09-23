@@ -439,8 +439,9 @@ namespace Desert::Editor
         {
             ECS::Entity& entity       = const_cast<ECS::Entity&>( selectedEntity );
             const bool   alwaysLoaded = entity.HasComponent<ECS::AlwaysLoadedComponent>();
-            ImGui::PushStyleColor( ImGuiCol_Text, alwaysLoaded ? ThemeManager::GetIconColor()
-                                                               : ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
+            ImGui::PushStyleColor( ImGuiCol_Text, alwaysLoaded
+                                                       ? ThemeManager::GetIconColor()
+                                                       : ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
             ImGui::TextUnformatted( alwaysLoaded ? ICON_MDI_PIN : ICON_MDI_PIN_OUTLINE );
             ImGui::PopStyleColor();
             if ( ImGui::IsItemClicked() )
@@ -451,11 +452,11 @@ namespace Desert::Editor
                     entity.AddComponent<ECS::AlwaysLoadedComponent>();
             }
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( alwaysLoaded
-                                        ? "Always loaded: in a partitioned world this entity and everything it "
-                                          "is attached to stay loaded everywhere. Click to let its position decide."
-                                        : "Click to keep this entity loaded everywhere in a partitioned world. "
-                                          "Worlds without a WorldPartition block load everything anyway." );
+                ImGui::SetTooltip(
+                     alwaysLoaded ? "Always loaded: in a partitioned world this entity and everything it "
+                                    "is attached to stay loaded everywhere. Click to let its position decide."
+                                  : "Click to keep this entity loaded everywhere in a partitioned world. "
+                                    "Worlds without a WorldPartition block load everything anyway." );
             ImGui::SameLine();
         }
 

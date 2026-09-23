@@ -27,6 +27,7 @@
 #include <glm/geometric.hpp>
 #include <gtest/gtest.h>
 
+#include <algorithm> // std::max - MSVC does not get it transitively (scripts/CI/StandardIncludes.py)
 #include <cmath>
 #include <cstring>
 #include <limits>

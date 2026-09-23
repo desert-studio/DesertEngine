@@ -370,13 +370,6 @@ namespace Desert::Editor
         // fresh.)
         m_StartupStages.push_back(
              { "Cooking textures...", [this] { (void)m_ImportManager->CookLooseTextures(); } } );
-        // THE SPLASH'S OWN PICTURE, for the NEXT start. This start's splash has already read it — or has
-        // said in the log that it is not there yet and drawn on its plain background, which is what the
-        // first start on a fresh clone looks like. Not one of `LooseTextureRoots()`, because it is the
-        // editor's branding and not project content: a game package must never carry it. Freshness is
-        // the importer's own (one CRC-32C over the JPEG), so every start after the first cooks nothing.
-        m_StartupStages.push_back( { "Cooking the splash picture...",
-                                     [this] { (void)m_ImportManager->ImportTexture( Splash::kSplashSource ); } } );
         m_StartupStages.push_back( { "Preloading meshes, textures and materials...",
                                      [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } } );
         m_StartupStages.push_back(
@@ -6781,18 +6774,12 @@ namespace Desert::Editor
 
     bool EditorLayer::SaveSceneTo( const std::string& path )
     {
-        std::error_code ec;
-        std::filesystem::create_directories( std::filesystem::path( path ).parent_path(), ec );
-        if ( ec )
-        {
-            LOG_ERROR( "[Scene] Could not create the directory for '{}': {}", path, ec.message() );
-            return false;
-        }
-
+        // THROUGH SaveToFile AND NOT A SECOND COPY OF IT. This function used to create the directory and
+        // write SerializeToJson() itself, which was the same save spelled twice — and the moment the save
+        // grew a step (a landscape writes its tile files beside the scene before the scene names them),
+        // this copy would have written a .desce naming tile files that were never written.
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
-        if ( const auto written =
-                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, serializer.SerializeToJson() );
-             !written )
+        if ( const auto written = serializer.SaveToFile( Common::Filepath( path ) ); !written )
         {
             LOG_ERROR( "[Scene] Could not write '{}': {}", path, written.GetError() );
             return false;

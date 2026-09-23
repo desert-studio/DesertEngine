@@ -222,10 +222,11 @@ namespace Desert::WorldGen
                     // `Rotation` - which the engine reads in RADIANS (TransformComponent::GetTransform takes
                     // glm::quat of it), so every building but a quarter of them stood at 116, 233 or 350
                     // degrees, overhung its slot, and 1015 of 49152 crossed their tile edge in the `world`
-                    // preset (29 of them across an axis, so always-loaded under World Partition). Swapping the edges keeps every number an integer centimetre (header, second
-                    // bullet) and keeps the building inside its slot, because the room below is taken from
-                    // the edges it actually has on the ground.
-                    const bool turned = Range( d5, 0, 3 ) % 2 == 1;
+                    // preset (29 of them across an axis, so always-loaded under World Partition). Swapping the
+                    // edges keeps every number an integer centimetre (header, second bullet) and keeps the
+                    // building inside its slot, because the room below is taken from the edges it actually has on
+                    // the ground.
+                    const bool turned  = Range( d5, 0, 3 ) % 2 == 1;
                     const int  footXCm = turned ? depthCm : widthCm;
                     const int  footZCm = turned ? widthCm : depthCm;
 
@@ -240,11 +241,10 @@ namespace Desert::WorldGen
                     char tag[48];
                     std::snprintf( tag, sizeof( tag ), "%s_B%02d", cellTag, i );
 
-                    auto building =
-                         MakeEntity( nextId++, tag,
-                                     { static_cast<float>( x ), static_cast<float>( heightCm ) / 2.0f,
-                                       static_cast<float>( z ) },
-                                     { 0.0f, 0.0f, 0.0f }, BoxScale( footXCm, heightCm, footZCm ) );
+                    auto building = MakeEntity( nextId++, tag,
+                                                { static_cast<float>( x ), static_cast<float>( heightCm ) / 2.0f,
+                                                  static_cast<float>( z ) },
+                                                { 0.0f, 0.0f, 0.0f }, BoxScale( footXCm, heightCm, footZCm ) );
 
                     Assets::StaticMeshComponentSer mesh;
                     const auto&                    material = buildingMaterials[static_cast<size_t>(

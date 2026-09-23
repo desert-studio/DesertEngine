@@ -6,14 +6,19 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <charconv>
+#include <cmath>
 
 namespace Common::Utils
 {
     namespace
     {
         constexpr std::string_view kMagic         = "DesertAssetRegistry";
-        constexpr int              kFormatVersion = 1;
+        constexpr int              kFormatVersion = 2;
+        // The version before the bounds column. Read, never written — see the header's note on the form.
+        constexpr int kBoundlessVersion = 1;
         // The file's name under the Cooked tree. One spelling, here, because both the producer (the
         // editor's cook) and the consumer (both hosts' boot) have to name the same file and a second
         // literal is how they would come to name two.
@@ -38,6 +43,80 @@ namespace Common::Utils
                 value >>= 4;
             }
             return out;
+        }
+
+        std::string HexU32( uint32_t value )
+        {
+            static constexpr char kDigits[] = "0123456789abcdef";
+            std::string           out( 8, '0' );
+            for ( int i = 7; i >= 0; --i )
+            {
+                out[static_cast<std::size_t>( i )] = kDigits[value & 0xFu];
+                value >>= 4;
+            }
+            return out;
+        }
+
+        // The six floats of a box, min then max, in the order the column states them.
+        std::array<float, 6> BoxFloats( const Common::Math::AABB& box )
+        {
+            return { box.Min.x, box.Min.y, box.Min.z, box.Max.x, box.Max.y, box.Max.z };
+        }
+
+        std::string BoundsText( const Common::Math::AABB& box )
+        {
+            std::string out;
+            out.reserve( 6 * 9 );
+            const std::array<float, 6> values = BoxFloats( box );
+            for ( std::size_t i = 0; i < values.size(); ++i )
+            {
+                if ( i != 0 )
+                    out += ',';
+                out += HexU32( std::bit_cast<uint32_t>( values[i] ) );
+            }
+            return out;
+        }
+
+        bool ParseHexU32( std::string_view text, uint32_t& out )
+        {
+            if ( text.size() != 8 )
+                return false;
+            uint32_t value = 0;
+            for ( const char c : text )
+            {
+                value <<= 4;
+                if ( c >= '0' && c <= '9' )
+                    value |= static_cast<uint32_t>( c - '0' );
+                else if ( c >= 'a' && c <= 'f' )
+                    value |= static_cast<uint32_t>( c - 'a' + 10 );
+                else
+                    return false;
+            }
+            out = value;
+            return true;
+        }
+
+        // Exactly six 8-hex fields; a NaN or an inverted box is refused, because a box no point is inside
+        // would place a record nowhere and look like data while doing it.
+        bool ParseBounds( std::string_view text, Common::Math::AABB& out )
+        {
+            std::array<float, 6> values{};
+            for ( std::size_t i = 0; i < values.size(); ++i )
+            {
+                const std::size_t comma = text.find( ',' );
+                if ( ( i + 1 < values.size() ) == ( comma == std::string_view::npos ) )
+                    return false;
+                uint32_t bits = 0;
+                if ( !ParseHexU32( text.substr( 0, comma ), bits ) )
+                    return false;
+                values[i] = std::bit_cast<float>( bits );
+                if ( !std::isfinite( values[i] ) )
+                    return false;
+                text = comma == std::string_view::npos ? std::string_view() : text.substr( comma + 1 );
+            }
+            out.Min = glm::vec3( values[0], values[1], values[2] );
+            out.Max = glm::vec3( values[3], values[4], values[5] );
+            return out.Min.x <= out.Max.x && out.Min.y <= out.Max.y && out.Min.z <= out.Max.z;
         }
 
         bool ParseHexU64( std::string_view text, uint64_t& out )
@@ -169,6 +248,18 @@ namespace Common::Utils
         return true;
     }
 
+    bool AssetRegistry::SetBounds( std::string_view key, std::optional<Common::Math::AABB> bounds )
+    {
+        const auto at = std::lower_bound( m_Entries.begin(), m_Entries.end(), key,
+                                          []( const AssetRegistryEntry& row, std::string_view wanted )
+                                          { return std::string_view( row.Key ) < wanted; } );
+        if ( at == m_Entries.end() || at->Key != key )
+            return false;
+
+        at->Bounds = bounds;
+        return true;
+    }
+
     const std::vector<AssetRegistryEntry>& AssetRegistry::Entries() const
     {
         return m_Entries;
@@ -190,6 +281,18 @@ namespace Common::Utils
             return nullptr;
         const auto it = m_KeyByHandle.find( handle );
         return it == m_KeyByHandle.end() ? nullptr : FindByKey( it->second );
+    }
+
+    const AssetRegistryEntry* AssetRegistry::FindByReference( uint64_t handle, std::string_view path ) const
+    {
+        if ( handle != 0 )
+        {
+            if ( const AssetRegistryEntry* row = FindByHandle( handle ) )
+                return row;
+        }
+        if ( path.empty() )
+            return nullptr;
+        return FindByKey( AssetHandle::StableKeyForPath( std::filesystem::path( path ) ) );
     }
 
     const AssetRegistryEntry* AssetRegistry::FindByKey( std::string_view key ) const
@@ -276,6 +379,8 @@ namespace Common::Utils
                 }
             }
             out += ' ';
+            out += entry.Bounds.has_value() ? BoundsText( *entry.Bounds ) : std::string( kNone );
+            out += ' ';
             out += entry.Key;
             out += '\n';
         }
@@ -304,8 +409,10 @@ namespace Common::Utils
         if ( !nextLine( header ) )
             return MakeError<AssetRegistry>( "the asset registry is empty — its header line is missing" );
 
-        const std::string expected = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
-        if ( header != expected )
+        const std::string expected  = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
+        const std::string boundless = std::string( kMagic ) + " " + std::to_string( kBoundlessVersion );
+        const bool        hasBounds = header == expected;
+        if ( !hasBounds && header != boundless )
             return MakeFormattedError<AssetRegistry>(
                  R"(not a Desert asset registry: line 1 is "{}", expected "{}")", std::string( header ),
                  expected );
@@ -322,12 +429,14 @@ namespace Common::Utils
             std::string_view kindText;
             std::string_view identityText;
             std::string_view depsText;
+            std::string_view boundsText = kNone;
             if ( !NextColumn( rest, sizeText ) || !NextColumn( rest, kindText ) ||
-                 !NextColumn( rest, identityText ) || !NextColumn( rest, depsText ) || rest.empty() )
+                 !NextColumn( rest, identityText ) || !NextColumn( rest, depsText ) ||
+                 ( hasBounds && !NextColumn( rest, boundsText ) ) || rest.empty() )
             {
                 return MakeFormattedError<AssetRegistry>(
-                     "line {} is not a registry row — expected \"<size> <kind> <identity> <deps> <key>\"",
-                     lineNo );
+                     "line {} is not a registry row — expected \"<size> <kind> <identity> <deps>{} <key>\"",
+                     lineNo, hasBounds ? " <bounds>" : "" );
             }
 
             AssetRegistryEntry entry;
@@ -362,6 +471,17 @@ namespace Common::Utils
                         break;
                     deps = deps.substr( comma + 1 );
                 }
+            }
+
+            if ( boundsText != kNone )
+            {
+                Common::Math::AABB box;
+                if ( !ParseBounds( boundsText, box ) )
+                    return MakeFormattedError<AssetRegistry>(
+                         "line {}: '{}' is neither '-' nor six comma-separated 8-digit hex floats making a "
+                         "finite box with min <= max",
+                         lineNo, std::string( boundsText ) );
+                entry.Bounds = box;
             }
 
             if ( const auto inserted = registry.Insert( std::move( entry ) ); !inserted )

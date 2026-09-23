@@ -8,20 +8,13 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- Header-only rules (Engine/Core/Serialize/WorldPartitionRules.hpp): the partitioner and the entity
-    -- reference register, WITHOUT the Scene the loader normally hangs them off. SceneSerializer.cpp
-    -- reaches the renderer through Scene.hpp and no test project can compile it, which is why the rules
-    -- live in a header of their own. Nothing to link but Common, and that is the proof they are pure.
+    -- Header-only rules (Engine/Core/Serialize/WorldPartitionStreamingRules.hpp over WorldPartitionRules.hpp):
+    -- the streaming query is a pure function of a plan, the grid and the sources, so nothing but Common is
+    -- linked, and that is the proof it is pure. The planner is compiled too, because one case holds the
+    -- query to the planner's own output rather than a hand-built plan. The planner places a landscape tile
+    -- by its root's frame, so the two pure landscape files it calls are compiled with it.
     files {
         test_files,
-        -- The document merge, because the round trip of a partitioned world currently GOES THROUGH IT:
-        -- SerializeToJson builds a fresh SceneSerialized from the live Scene, which has no partition
-        -- member yet, so the block survives a save only because a top-level key the writer does not
-        -- state is preserved. That is a claim about this file, so this file is compiled and asserted
-        -- rather than described. It is pure -- its only includes are its own header and <utility>.
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
-        -- A landscape tile is placed by its root's frame, and the partitioner computes the rectangle with
-        -- the same functions the loader uses. Both files are pure and link only Common.
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
@@ -60,11 +53,6 @@ project(test_name)
 
     filter "system:not windows"
         links { "ReflectCpp" }
-    -- The corpus census reads the committed asset registry (Common/Utilities/AssetRegistry.cpp), whose
-    -- file reads go through Common's FileSystem, and on macOS that object carries the Cocoa file dialogs.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

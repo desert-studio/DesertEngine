@@ -61,19 +61,25 @@
 // A scene record carries no extent of its own: a mesh's bounds live in the mesh asset and a prefab's are
 // not stored anywhere (see UnplacedPrefabInstances). So a footprint is the XZ rectangle around a set of
 // world-space POINTS, and `Detail::AppendFootprint` is the one place that decides which points a record
-// contributes. Today it knows four things, each stated where it is read:
+// contributes. It knows five things, each stated where it is read, and a sixth is handled beside it
+// because it needs another record (a LANDSCAPE TILE: the rectangle its root's frame gives it, see
+// kLandscapeTileComponent — the tile's own position is read by nothing and is not a point):
 //
 //   * the record's own world position — every record;
-//   * the eight corners of the primitive CUBE, when the record draws one: that cube is 100 cm a side and
-//     centred (Engine/Geometry/PrimitiveMeshFactory.cpp, CreateCube), so its corners through the world
-//     matrix are exact, and 2351 of the corpus' 2432 primitive draws are cubes, as is every WorldGen record;
+//   * the eight corners of the box a PRIMITIVE draws — Cube, Sphere, Plane — through the world matrix.
+//     The box is `Geometry::PrimitiveBounds`, the same statement the factory stamps on the submesh. A
+//     primitive the factory builds NOTHING for (Pyramid, Cylinder, Capsule: `Create` returns nullptr)
+//     draws nothing, so its position is its whole extent — true, and a defect of the factory, not here;
 //   * the four corners of a Terrain's square, `Size` wide and centred (TerrainMeshFactory.hpp);
 //   * every instance of an InstancedStaticMesh, whose matrices are WORLD-space (MeshECSSystem.hpp submits
-//     the snapshot without the entity's transform) — a kilometre of grass is one record.
+//     the snapshot without the entity's transform) — a kilometre of grass is one record;
+//   * the eight corners of a mesh ASSET's stored bounds (StaticMesh or SkinnedMesh naming a file) — the
+//     one fact that comes from outside this file. It is asked of an `AssetBoundsSource`, which the loader
+//     fills from the cooked asset registry's Bounds column: UE's Actor-Descriptor pattern, an extent read
+//     without loading the thing it describes. The function stays pure — the registry is handed in, not
+//     reached for — and a suite hands in a table.
 //
-// A mesh ASSET's bounds are not here: they need the asset, and this function is pure over one file.
-// WP15 stores them in the registry; that is the day `AppendFootprint` gains a fifth source, and the only
-// function that changes. Until then such a record is its position, and `PointOnlyRecords` counts them.
+// A record nobody can state an extent for is its position, and `PointOnlyRecords` counts them.
 //
 // ── WHAT COUNTS AS CONTAINMENT IS DERIVED, AND AN UNKNOWN REFERENCE IS RED ────────────────────────
 //
@@ -97,9 +103,16 @@
 // renderer through `Scene.hpp`, so anything left inside it cannot be reached by any suite in this
 // repository. Desert/Tests/Engine/WorldPartition is what reaches this.
 
+#include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Geometry/PrimitiveType.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
+
+// A primitive's name on disk is reflect-cpp's spelling of the enumerator (the StaticMesh block is written
+// through it), so it is read back through the same function rather than through a hand-typed name list.
+#include <rflcpp/rfl/enums.hpp>
 
 // The transform composition below, and NOT Engine/ECS/Components.hpp for it. TransformComponent's
 // GetTransform() is the three lines this file needs, but that header carries entt, the reflection
@@ -112,9 +125,11 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm> // std::max — MSVC does not get it transitively (scripts/CI/StandardIncludes.py)
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <map>
 #include <optional>
@@ -205,6 +220,12 @@ namespace Desert::Core::Rules
          // Who fired the bullet, kept so a projectile can skip self-hits. The bullet is not part of
          // the shooter; a null owner costs one redundant hit test.
          { "Projectile", "Owner", ReferenceKind::Observation },
+         // A landscape tile names its root, and it is OBSERVATION ON PURPOSE (landscape analysis A1). As
+         // containment every tile of a landscape would be one composite, and the whole terrain would be
+         // placed as one footprint — the opposite of why a landscape is cut into tiles. The reader handles
+         // null the way observation requires: a tile whose root is not loaded has no frame and is placed
+         // nowhere (WorldPartitionPlan::UnplacedLandscapeTiles); it does not drag the root in.
+         { "LandscapeTile", "Landscape", ReferenceKind::Observation },
     };
 
     // REFERENCES THAT NAME THEIR TARGET BY A NAME INSTEAD OF AN ID — the BLIND SPOT of the discovery
@@ -305,7 +326,7 @@ namespace Desert::Core::Rules
     // sits exactly on the edges, and a closed interval would push every tile of a generated world up a
     // level. A zero-width footprint (one point) is in the cell of its minimum.
     [[nodiscard]] inline std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint,
-                                                                      double            levelCellSize )
+                                                                     double            levelCellSize )
     {
         // The last cell the footprint touches: the one before its maximum's cell when the maximum lies
         // exactly on an edge, never before its first cell.
@@ -383,9 +404,15 @@ namespace Desert::Core::Rules
         // and are listed here, which is what makes it a stated limitation instead of a wrong answer.
         std::vector<std::size_t> UnplacedPrefabInstances;
 
-        // Records whose footprint is their position alone — a mesh asset, a light, a script: what WP15's
-        // stored bounds will turn into rectangles. A number, so the size of that gap is visible.
+        // Records whose footprint is their position alone — a light, a script, a mesh whose bounds the
+        // source could not state. A number, so the size of that gap is visible.
         std::size_t PointOnlyRecords = 0;
+
+        // LANDSCAPE TILES THAT HAVE NO PLACE, for the same reason and treated the same way as unplaced prefab
+        // instances: a tile is placed by its ROOT's frame (World/Landscape/LandscapeLayout.hpp), and a tile
+        // whose root this file does not contain — or whose root cannot be tiled — has no rectangle. Its own
+        // entity position is not a stand-in: nothing reads it. Listed, and contributing no point.
+        std::vector<std::size_t> UnplacedLandscapeTiles;
 
         // How many levels the grid has for THIS world: level LevelCount-1 is the first whose cell reaches
         // the footprint furthest from the origin. At least 1 when there is a grid; 0 when there is none.
@@ -450,6 +477,9 @@ namespace Desert::Core::Rules
          // A hero cloud stands kilometres up and is seen from tens of kilometres away; no ground loading
          // range is that wide, so it would vanish while in plain view.
          { "HeroCloud", ComponentLoading::Global },
+         // A landscape root owns the FRAME every tile is placed by, not a place of its own; UE loads
+         // ALandscape the same way (not spatially loaded) and streams the proxies.
+         { "Landscape", ComponentLoading::Global },
          // The author's override, and the only authored input to partitioning besides the grid.
          { "AlwaysLoaded", ComponentLoading::Global },
          // ── By field ──
@@ -482,7 +512,8 @@ namespace Desert::Core::Rules
          { "SocketAttachment", ComponentLoading::Spatial },
          { "SpotLight", ComponentLoading::Spatial },
          { "StaticMesh", ComponentLoading::Spatial },
-         { "Terrain", ComponentLoading::Spatial }, // its square is its footprint
+         { "LandscapeTile", ComponentLoading::Spatial }, // its rectangle is its footprint
+         { "Terrain", ComponentLoading::Spatial },       // its square is its footprint
          { "Text", ComponentLoading::Spatial },
          { "TwoBoneIK", ComponentLoading::Spatial },
          { "Visibility", ComponentLoading::Spatial },
@@ -500,14 +531,14 @@ namespace Desert::Core::Rules
          { "UILayout", ComponentLoading::Spatial },
          { "UILayoutGroup", ComponentLoading::Spatial },
          { "UIListView", ComponentLoading::Spatial },
-         { "UIOverlay", ComponentLoading::Spatial },        // lives on a canvas entity
+         { "UIOverlay", ComponentLoading::Spatial }, // lives on a canvas entity
          { "UIOverlayTrigger", ComponentLoading::Spatial },
          { "UIPanel", ComponentLoading::Spatial },
          { "UIPointerEvents", ComponentLoading::Spatial },
          { "UIProgressBar", ComponentLoading::Spatial },
          { "UIRenderTexture", ComponentLoading::Spatial },
          { "UIScreen", ComponentLoading::Spatial },
-         { "UIScreenStack", ComponentLoading::Spatial },    // lives on a canvas entity
+         { "UIScreenStack", ComponentLoading::Spatial }, // lives on a canvas entity
          { "UIScrollView", ComponentLoading::Spatial },
          { "UISlider", ComponentLoading::Spatial },
          { "UIStyle", ComponentLoading::Spatial },
@@ -526,13 +557,29 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kInstancePointsField     = "InstanceTransforms";
     inline constexpr std::string_view kPrimitiveComponent      = "StaticMesh";
     inline constexpr std::string_view kPrimitiveField          = "Primitive";
-    inline constexpr std::string_view kCubePrimitive           = "Cube";
-    // The primitive cube's half edge in world units: a unit cube scaled to one metre (PrimitiveMeshFactory).
-    inline constexpr float            kCubeHalfEdge            = 50.0f;
     inline constexpr std::string_view kTerrainComponent        = "Terrain";
     inline constexpr std::string_view kTerrainSizeField        = "Size";
+    // A landscape tile's footprint is a RECTANGLE computed from its coordinate and its root's frame. The
+    // root is not a part of the tile (see the register row): it is read, never joined.
+    inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
+    inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
     // TerrainData::Size's default, for a block that omits it (same restatement as AbsentIsGlobal above).
     inline constexpr float kTerrainDefaultSize = 5000.0f;
+
+    // THE MESH BLOCKS THAT NAME A MESH ASSET, and the two fields a reference is written as
+    // (StaticMeshComponentSer / SkinnedMeshComponentSer in PrefabData.hpp): the handle, and the path beside it.
+    inline constexpr std::array<std::string_view, 2> kMeshAssetComponents = { "StaticMesh", "SkinnedMesh" };
+    inline constexpr std::string_view                kMeshHandleField     = "MeshGuid";
+    inline constexpr std::string_view                kMeshPathField       = "MeshPath";
+
+    // WHAT THE PARTITIONER MAY KNOW FROM OUTSIDE THE FILE: a mesh asset's box around its own origin, asked
+    // by the handle its block holds (0 when it holds none) and the path beside it.
+    //
+    // AN EMPTY SOURCE IS A STATED CONDITION, not a fallback: every mesh-asset record is then its position
+    // and is counted in `PointOnlyRecords`, which is what a caller with no registry — a suite over one
+    // file, a tool run outside a project — is actually able to say.
+    using AssetBoundsSource =
+         std::function<std::optional<Common::Math::AABB>( std::uint64_t handle, std::string_view path )>;
 
     namespace Detail
     {
@@ -645,7 +692,8 @@ namespace Desert::Core::Rules
 
         // A scalar field of a component block as a number: a bool reads as 1/0, an enum is written as its
         // integer. False when the field is absent or is not a scalar.
-        [[nodiscard]] inline bool ReadScalar( const rfl::Generic::Object& block, std::string_view field, double& out )
+        [[nodiscard]] inline bool ReadScalar( const rfl::Generic::Object& block, std::string_view field,
+                                              double& out )
         {
             const auto value = block.get( std::string( field ) );
             if ( !value.has_value() )
@@ -717,12 +765,31 @@ namespace Desert::Core::Rules
             }
         }
 
+        // Appends the XZ of a local-space AABB's eight corners, through @p world.
+        inline void AppendBoundsCorners( const glm::mat4& world, const Common::Math::AABB& box,
+                                         std::vector<glm::vec2>& out )
+        {
+            const glm::vec3 centre = ( box.Min + box.Max ) * 0.5f;
+            const glm::vec3 half   = ( box.Max - box.Min ) * 0.5f;
+            AppendBoxCorners( world * glm::translate( glm::mat4( 1.0f ), centre ), half, out );
+        }
+
+        // The handle a mesh block names. StaticMeshComponentSer writes it as a JSON integer (a uint64 above
+        // 2^63 reads back as the same bits through int64), so it is read as one and NEVER through a
+        // double: 53 bits of mantissa would name a different asset.
+        [[nodiscard]] inline std::uint64_t ReadHandle( const rfl::Generic::Object& block, std::string_view field )
+        {
+            const auto value = block.get( std::string( field ) );
+            if ( !value.has_value() )
+                return 0;
+            const auto whole = value.value().to_int64();
+            return whole.has_value() ? static_cast<std::uint64_t>( whole.value() ) : 0;
+        }
+
         // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
         // the top of this file. Returns false when the record contributed its position and nothing more.
-        //
-        // WP15 adds a mesh asset's stored bounds here, and nowhere else.
         inline bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
-                                     std::vector<glm::vec2>& out )
+                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out )
         {
             out.emplace_back( world[3].x, world[3].z );
             const std::size_t before = out.size();
@@ -730,8 +797,30 @@ namespace Desert::Core::Rules
             if ( const auto mesh = BlockOf( record, kPrimitiveComponent ); mesh.has_value() )
             {
                 const auto primitive = mesh.value().get( std::string( kPrimitiveField ) );
-                if ( primitive.has_value() && primitive.value().to_string().value_or( "" ) == kCubePrimitive )
-                    AppendBoxCorners( world, glm::vec3( kCubeHalfEdge ), out );
+                const auto shape     = rfl::string_to_enum<Geometry::PrimitiveType>(
+                     primitive.has_value() ? primitive.value().to_string().value_or( "" ) : std::string() );
+                if ( shape.has_value() )
+                {
+                    if ( const auto box = Geometry::PrimitiveBounds( shape.value() ); box.has_value() )
+                        AppendBoundsCorners( world, box.value(), out );
+                }
+            }
+
+            if ( bounds )
+            {
+                for ( const std::string_view key : kMeshAssetComponents )
+                {
+                    const auto mesh = BlockOf( record, key );
+                    if ( !mesh.has_value() )
+                        continue;
+                    const std::uint64_t handle = ReadHandle( mesh.value(), kMeshHandleField );
+                    const auto          path   = mesh.value().get( std::string( kMeshPathField ) );
+                    const std::string   text   = path.has_value() ? path.value().to_string().value_or( "" ) : "";
+                    if ( handle == 0 && text.empty() )
+                        continue;
+                    if ( const auto box = bounds( handle, text ); box.has_value() )
+                        AppendBoundsCorners( world, box.value(), out );
+                }
             }
 
             if ( const auto terrain = BlockOf( record, kTerrainComponent ); terrain.has_value() )
@@ -746,6 +835,66 @@ namespace Desert::Core::Rules
 
             AppendInstancePoints( record, out );
             return out.size() > before;
+        }
+
+        // A whole number inside a component payload; absent leaves @p out alone, as the loader does.
+        template <class T>
+        inline bool ReadWhole( const rfl::Generic::Object& block, std::string_view field, T& out )
+        {
+            const auto value = block.get( std::string( field ) );
+            if ( !value.has_value() )
+                return true;
+            const auto whole = value.value().to_int64();
+            if ( !whole.has_value() )
+                return false;
+            out = static_cast<T>( whole.value() );
+            return true;
+        }
+
+        // THE GROUND RECTANGLE OF A LANDSCAPE TILE RECORD, or nullopt when it has none. The root's fields are
+        // read with the loader's rule — an absent field is the component's default, which is LandscapeRoot's
+        // default because both are spelled from the same constants — and the root is refused by the same
+        // ValidateLandscapeRoot the loader applies, so the partition never places a tile the loader refuses.
+        //
+        // @p world holds the composed world matrices: the root's translation is the frame's origin, as
+        // Entity::GetWorldTransform is for the loaded root.
+        inline std::optional<World::Landscape::LandscapeTileRect>
+        LandscapeTileRectOf( const Assets::EntityData& tile, const std::vector<glm::mat4>& world,
+                             std::span<const Assets::EntityData>                  records,
+                             const std::unordered_map<Common::UUID, std::size_t>& byId )
+        {
+            const auto tileBlock = BlockOf( tile, kLandscapeTileComponent );
+            if ( !tileBlock.has_value() )
+                return std::nullopt;
+
+            Common::UUID rootId;
+            if ( !ReadReference( *tileBlock, "Landscape", rootId ) || rootId.IsNull() )
+                return std::nullopt;
+            const auto found = byId.find( rootId );
+            if ( found == byId.end() )
+                return std::nullopt;
+            const auto rootBlock = BlockOf( records[found->second], kLandscapeRootComponent );
+            if ( !rootBlock.has_value() )
+                return std::nullopt;
+
+            World::Landscape::LandscapeRoot root;
+            root.Origin = glm::vec3( world[found->second][3] );
+            if ( !ReadWhole( *rootBlock, "QuadsPerTile", root.QuadsPerTile ) )
+                return std::nullopt;
+            if ( const auto spacing = rootBlock->get( "SpacingCm" ); spacing.has_value() )
+                if ( !ReadNumber( spacing.value(), root.SpacingCm ) )
+                    return std::nullopt;
+            if ( const auto zScale = rootBlock->get( "ZScale" ); zScale.has_value() )
+                if ( !ReadNumber( zScale.value(), root.ZScale ) )
+                    return std::nullopt;
+            if ( !World::Landscape::ValidateLandscapeRoot( root ) )
+                return std::nullopt;
+
+            std::int32_t tileX = 0;
+            std::int32_t tileZ = 0;
+            if ( !ReadWhole( *tileBlock, "TileX", tileX ) || !ReadWhole( *tileBlock, "TileZ", tileZ ) )
+                return std::nullopt;
+            return World::Landscape::LandscapeTileBounds( root, tileX, tileZ );
         }
     } // namespace Detail
 
@@ -849,10 +998,14 @@ namespace Desert::Core::Rules
     //   4. THE LEVEL COUNT, from the furthest footprint of a composite that still has to be placed.
     //
     //   5. PLACEMENT: the lowest level with one cell holding the footprint, else always-loaded (NoFit).
+    //
+    // `bounds` answers for the one extent that lives in other files, a mesh asset's (AssetBoundsSource);
+    // left empty, every mesh-asset record is its position and is counted as such.
     [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const Assets::EntityData> records,
-                                                                const WorldPartitionSerialized&     settings )
+                                                                const WorldPartitionSerialized&     settings,
+                                                                const AssetBoundsSource&            bounds = {} )
     {
-        WorldPartitionPlan plan;
+        WorldPartitionPlan                            plan;
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
@@ -901,6 +1054,18 @@ namespace Desert::Core::Rules
                 world[slot]            = above;
                 resolved[slot]         = true;
             }
+        }
+
+        // A landscape tile's footprint is its rectangle, from its root — after step 1, because the root's
+        // origin is the root's WORLD position.
+        std::vector<std::optional<World::Landscape::LandscapeTileRect>> tileRect( records.size() );
+        for ( std::size_t record = 0; record < records.size(); ++record )
+        {
+            if ( !records[record].Components.get( std::string( kLandscapeTileComponent ) ).has_value() )
+                continue;
+            tileRect[record] = Detail::LandscapeTileRectOf( records[record], world, records, byId );
+            if ( !tileRect[record].has_value() )
+                plan.UnplacedLandscapeTiles.push_back( record );
         }
 
         // ── 2. Containment edges, then composites ─────────────────────────────────────────────────
@@ -1008,12 +1173,13 @@ namespace Desert::Core::Rules
                     break;
                 }
             }
-
         }
 
         // ── 3. Footprint and always-loaded, per composite ─────────────────────────────────────────
         std::vector<bool> unplaced( records.size(), false );
         for ( const std::size_t record : plan.UnplacedPrefabInstances )
+            unplaced[record] = true;
+        for ( const std::size_t record : plan.UnplacedLandscapeTiles )
             unplaced[record] = true;
 
         std::vector<glm::vec2> points;
@@ -1035,7 +1201,15 @@ namespace Desert::Core::Rules
                     continue;
 
                 points.clear();
-                if ( !Detail::AppendFootprint( records[member], world[member], points ) )
+                if ( const auto& rect = tileRect[member]; rect.has_value() )
+                {
+                    // The four corners and NOT the entity's own position: nothing reads a tile's transform.
+                    points.emplace_back( rect->MinX, rect->MinZ );
+                    points.emplace_back( rect->MaxX, rect->MinZ );
+                    points.emplace_back( rect->MinX, rect->MaxZ );
+                    points.emplace_back( rect->MaxX, rect->MaxZ );
+                }
+                else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points ) )
                     ++plan.PointOnlyRecords;
                 for ( const glm::vec2& point : points )
                 {
@@ -1055,7 +1229,7 @@ namespace Desert::Core::Rules
         // NO USABLE GRID IS NOT REPAIRED INTO A PLAUSIBLE ONE. A partitioned world with no `Grids` entry,
         // or with a cell size that is not positive, has nothing to stream by: every composite is
         // always-loaded and says NoGrid, which is what "this world has no grid" looks like from outside.
-        plan.UnusedGrids = settings.Grids.size() > 1 ? settings.Grids.size() - 1 : 0;
+        plan.UnusedGrids     = settings.Grids.size() > 1 ? settings.Grids.size() - 1 : 0;
         const float cellSize = settings.Grids.empty() ? 0.0f : settings.Grids.front().CellSize;
         if ( !( cellSize > 0.0f ) )
         {
@@ -1175,16 +1349,18 @@ namespace Desert::Core::Rules
     {
         const auto units = []( float value ) { return std::to_string( std::llround( value ) ); };
 
-        std::string line = std::to_string( plan.Composites.size() ) + " composite(s): " +
-                           std::to_string( plan.Cells.size() ) + " cell(s) over " +
+        std::string line = std::to_string( plan.Composites.size() ) +
+                           " composite(s): " + std::to_string( plan.Cells.size() ) + " cell(s) over " +
                            std::to_string( plan.LevelCount ) + " level(s) [";
         const auto perLevel = CellsPerLevel( plan );
         for ( std::size_t level = 0; level < perLevel.size(); ++level )
-            line += ( level == 0 ? "L" : ", L" ) + std::to_string( level ) + ": " + std::to_string( perLevel[level] );
+            line +=
+                 ( level == 0 ? "L" : ", L" ) + std::to_string( level ) + ": " + std::to_string( perLevel[level] );
 
         const auto byReason = AlwaysLoadedByReason( plan );
         line += "], " + std::to_string( plan.AlwaysLoaded.size() ) + " always-loaded (author " +
-                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Author )] ) + ", component " +
+                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Author )] ) +
+                ", component " +
                 std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Component )] ) +
                 ", no fit " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoFit )] ) +
                 ", no grid " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoGrid )] ) +

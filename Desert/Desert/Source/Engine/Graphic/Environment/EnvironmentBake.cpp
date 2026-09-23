@@ -139,11 +139,15 @@ namespace Desert::Graphic
                               const uint32_t faceSize, const uint32_t mips, const uint64_t sourceSignature,
                               const uint64_t bakeSignature )
     {
-        const auto raw = Common::Utils::FileSystem::ReadFileContent( path );
+        // A MISS IS THE NORMAL FIRST RUN, NOT AN ERROR: the caller logs one line naming why it bakes.
+        const auto raw = Common::Utils::FileSystem::ReadFileContentIfExists( path );
         if ( !raw.IsSuccess() )
             return Common::MakeError<std::shared_ptr<ImageCube>>( raw.GetError() );
+        if ( !raw.GetValue().has_value() )
+            return Common::MakeFormattedError<std::shared_ptr<ImageCube>>( "not in the cache yet: {}",
+                                                                           path.string() );
 
-        auto decoded = Ser::DecodeTextureBinary( raw.GetValue(), path.string() );
+        auto decoded = Ser::DecodeTextureBinary( raw.GetValue().value(), path.string() );
         if ( !decoded.IsSuccess() )
             return Common::MakeError<std::shared_ptr<ImageCube>>( decoded.GetError() );
 

@@ -18,6 +18,12 @@ namespace Desert::Editor::Splash
     // The editor's splash SOURCE, relative to the engine's working directory (the directory holding
     // `Resources/`). One spelling, read by the cook stage, by the splash and by nothing else.
     inline const std::filesystem::path kSplashSource = "Resources/Splash/Splash.jpg";
+    // THE PICTURE THE SPLASH SHOWS IS COMMITTED, NOT COOKED AT START (owner, 2026-09-23: "it must have its
+    // picture at once — just keep it in the assets"). The splash reads it before the editor can cook
+    // anything, so a cook-on-start meant a grey first start on every fresh clone. It is an ENGINE resource
+    // beside its source, like the fonts; regenerate it with Tools/TextureCook when Splash.jpg changes
+    // (Tools/SplashBake/README.md). Relative to the working directory, as every engine resource is.
+    inline const std::filesystem::path kSplashTexture = "Resources/Splash/Splash.tex";
 
     struct SplashPixels
     {

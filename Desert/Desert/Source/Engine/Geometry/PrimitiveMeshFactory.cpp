@@ -18,12 +18,13 @@ namespace Desert::Geometry
         // sits naturally next to a 100 cm CubeGrid block. See Common/Core/Units.hpp.
         constexpr float kPrimitiveSize = Common::Units::UnitsPerMetre;
 
-        void ScaleToWorld( std::vector<Vertex>& vertices, Common::Math::AABB& aabb )
+        // Scales the unit vertices to world size and returns the shape's box. The box is NOT derived
+        // here: it is PrimitiveBounds, the one statement the world partitioner reads as well.
+        Common::Math::AABB ScaleToWorld( std::vector<Vertex>& vertices, PrimitiveType type )
         {
             for ( Vertex& v : vertices )
                 v.Position *= kPrimitiveSize;
-            aabb.Min *= kPrimitiveSize;
-            aabb.Max *= kPrimitiveSize;
+            return PrimitiveBounds( type ).value_or( Common::Math::AABB{} );
         }
     } // namespace
     std::shared_ptr<DynamicMesh> PrimitiveMeshFactory::Create( PrimitiveType type )
@@ -110,11 +111,7 @@ namespace Desert::Geometry
             { 20, 21, 22 }, { 22, 23, 20 }
         };
 
-        Common::Math::AABB cubeAABB;
-        cubeAABB.Min = glm::vec3( -0.5f, -0.5f, -0.5f );
-        cubeAABB.Max = glm::vec3(  0.5f,  0.5f,  0.5f );
-
-        ScaleToWorld( vertices, cubeAABB );
+        const Common::Math::AABB cubeAABB  = ScaleToWorld( vertices, PrimitiveType::Cube );
         std::vector<Submesh> submeshes = {
             { "Cube", 0, (uint32_t)vertices.size(), 0, (uint32_t)indices.size() * 3, glm::mat4(1.0f), cubeAABB }
         };
@@ -172,11 +169,7 @@ namespace Desert::Geometry
             }
         }
 
-        Common::Math::AABB aabb;
-        aabb.Min = glm::vec3( -radius );
-        aabb.Max = glm::vec3( radius );
-
-        ScaleToWorld( vertices, aabb );
+        const Common::Math::AABB aabb = ScaleToWorld( vertices, PrimitiveType::Sphere );
 
         std::vector<Submesh> submeshes = {
             { "Sphere", 0, (uint32_t)vertices.size(), 0, (uint32_t)indices.size() * 3, glm::mat4( 1.0f ), aabb }
@@ -203,11 +196,7 @@ namespace Desert::Geometry
         // CCW when viewed from +Z (front face), matching the other primitives' winding.
         const std::vector<Index> indices = { { 0, 1, 2 }, { 0, 2, 3 } };
 
-        Common::Math::AABB aabb;
-        aabb.Min = glm::vec3( -0.5f, -0.5f, 0.0f );
-        aabb.Max = glm::vec3( 0.5f, 0.5f, 0.0f );
-
-        ScaleToWorld( vertices, aabb );
+        const Common::Math::AABB aabb = ScaleToWorld( vertices, PrimitiveType::Plane );
 
         std::vector<Submesh> submeshes = {
             { "Plane", 0, (uint32_t)vertices.size(), 0, (uint32_t)indices.size() * 3, glm::mat4( 1.0f ), aabb }

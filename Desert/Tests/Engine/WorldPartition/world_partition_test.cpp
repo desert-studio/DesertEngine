@@ -32,6 +32,9 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <Common/Utilities/AssetRegistry.hpp>
+
+#include <glm/gtc/constants.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -62,6 +65,7 @@ using Desert::Core::Rules::kEntityReferences;
 using Desert::Core::Rules::kEntityReferencesByName;
 using Desert::Core::Rules::kInstancePointsComponent;
 using Desert::Core::Rules::kInstancePointsField;
+using Desert::Core::Rules::kLandscapeTileComponent;
 using Desert::Core::Rules::kNoRecord;
 using Desert::Core::Rules::LevelCellSize;
 using Desert::Core::Rules::PlannedCell;
@@ -199,17 +203,19 @@ namespace
     // `Register(` calls, so a third spelling nobody taught this reader shows up as a mismatch.
     std::set<std::string> RegisteredComponentKeys( std::size_t& registrations, std::size_t& keysRead )
     {
-        std::string source = ReadAll( RepoRoot() + "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp" );
-        source             = std::regex_replace( source, std::regex( "//[^\n]*" ), "" );
+        std::string source =
+             ReadAll( RepoRoot() + "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp" );
+        source = std::regex_replace( source, std::regex( "//[^\n]*" ), "" );
 
         std::set<std::string> keys;
         keysRead = 0;
-        const std::regex maker( "\\bMake(?:Reflected|ReflectedSelf|Marker|Flag|Authored)\\s*<[^>]*>\\s*\\(\\s*\"(\\w+)\"" );
+        const std::regex maker(
+             "\\bMake(?:Reflected|ReflectedSelf|Marker|Flag|Authored)\\s*<[^>]*>\\s*\\(\\s*\"(\\w+)\"" );
         const std::regex manual( "\\bs\\.Key\\s*=\\s*\"(\\w+)\"" );
         for ( const std::regex& pattern : { maker, manual } )
         {
-            for ( auto it = std::sregex_iterator( source.begin(), source.end(), pattern ); it != std::sregex_iterator();
-                  ++it )
+            for ( auto it = std::sregex_iterator( source.begin(), source.end(), pattern );
+                  it != std::sregex_iterator(); ++it )
             {
                 keys.insert( ( *it )[1].str() );
                 ++keysRead;
@@ -420,7 +426,7 @@ TEST( WorldPartitionCells, RotationOfAParentMovesWhereItsChildLands )
     EXPECT_EQ( held.Cell, ( CellCoord{ 0, 0 } ) );
 
     // Unrotated, the arm is at X 20000: X 5000..20000 and Z 25000 fit one level-1 cell, (0, 1).
-    records[0].Rotation = glm::vec3( 0.0f );
+    records[0].Rotation               = glm::vec3( 0.0f );
     const WorldPartitionPlan straight = PlanWorldPartition( records, Cells( 10000.0f ) );
     EXPECT_EQ( straight.Composites[0].Level, 1 );
     EXPECT_EQ( straight.Composites[0].Cell, ( CellCoord{ 0, 1 } ) );
@@ -580,6 +586,78 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
     EXPECT_EQ( scenes, 2u );
 }
 
+// THE CORPUS, BEFORE AND AFTER: how many records are placed by their position alone, with no registry and
+// with the committed one. The numbers are the task's acceptance (WP15), derived from the files:
+//
+//   * 2543 before WP15 - only the Cube, the Terrain and instanced meshes had an extent;
+//   * 2462 with no registry - the 81 Spheres now have the factory's box (Geometry::PrimitiveBounds);
+//   * with the committed registry, every mesh-asset record whose row carries Bounds leaves as well.
+//
+// The mesh references are resolved as the loader resolves them - handle, else path - and a path is
+// relative to the editor's working directory, so the walk runs from there.
+namespace
+{
+    // How many mesh-asset records (StaticMesh or SkinnedMesh naming a file) the corpus has, and how many
+    // records stay point-only once the committed registry answers for them.
+    constexpr std::size_t kCorpusMeshReferences        = 32;
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2430;
+} // namespace
+
+TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheCommittedRegistry )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const auto registry =
+         Common::Utils::AssetRegistry::Parse( ReadAll( root + "Editor/Cooked/AssetRegistry.dreg" ) );
+    ASSERT_TRUE( registry ) << registry.GetError();
+
+    const std::vector<std::filesystem::path> scenes = RepositoryScenes();
+    ASSERT_FALSE( scenes.empty() );
+
+    struct WorkingDirectory
+    {
+        std::filesystem::path Saved = std::filesystem::current_path();
+        ~WorkingDirectory()
+        {
+            std::error_code ec;
+            std::filesystem::current_path( Saved, ec );
+        }
+    } restore;
+    std::vector<std::filesystem::path> absolute;
+    for ( const auto& scene : scenes )
+        absolute.push_back( std::filesystem::absolute( scene ) );
+    std::filesystem::current_path( std::filesystem::absolute( root + "Editor" ) );
+
+    const Common::Utils::AssetRegistry&          rows    = registry.GetValue();
+    std::size_t                                  asked   = 0;
+    std::size_t                                  answers = 0;
+    const Desert::Core::Rules::AssetBoundsSource source =
+         [&]( std::uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
+    {
+        ++asked;
+        const Common::Utils::AssetRegistryEntry* row = rows.FindByReference( handle, path );
+        if ( row == nullptr || !row->Bounds.has_value() )
+            return std::nullopt;
+        ++answers;
+        return row->Bounds;
+    };
+
+    std::size_t blind = 0;
+    std::size_t seen  = 0;
+    for ( const auto& path : absolute )
+    {
+        const auto parsed = rfl::json::read<SceneSerialized>( ReadAll( path ) );
+        ASSERT_TRUE( parsed.has_value() ) << path.string();
+        blind += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ) ).PointOnlyRecords;
+        seen += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ), source ).PointOnlyRecords;
+    }
+
+    EXPECT_EQ( blind, 2462u );
+    EXPECT_EQ( asked, kCorpusMeshReferences ) << "every mesh-asset record of the corpus is asked once";
+    EXPECT_EQ( seen, blind - answers ) << "each answered mesh must take exactly one record off the count";
+    EXPECT_EQ( seen, kCorpusPointOnlyWithRegistry );
+}
+
 // ── 5. LEVELS (owner decision O1, 2026-09-23) ──────────────────────────────────────────────────────
 
 // A KILOMETRE-WIDE COMPOSITE GOES TO THE LEVEL WHOSE CELL HOLDS A KILOMETRE. Cell 12800 (128 m); the
@@ -661,8 +739,8 @@ TEST( WorldPartitionLevels, ACompositeAcrossTheOriginFitsNoLevelAndIsAlwaysLoade
     Under( records[1], 1 );
     records.push_back( Record( 3, "Rock", { 500.0f, 0.0f, 500.0f } ) );
 
-    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 12800.0f ) );
-    const PlannedComposite& signpost = HeldBy( plan, 0 );
+    const WorldPartitionPlan plan     = PlanWorldPartition( records, Cells( 12800.0f ) );
+    const PlannedComposite&  signpost = HeldBy( plan, 0 );
     EXPECT_EQ( signpost.Reason, AlwaysLoadedReason::NoFit );
     EXPECT_EQ( signpost.Because, kNoRecord ) << "no member caused it; the footprint did";
     ASSERT_EQ( plan.AlwaysLoaded.size(), 1u );
@@ -727,8 +805,8 @@ TEST( WorldPartitionLevels, AnInstancedMeshIsAsWideAsItsInstancesNotItsEntity )
 }
 
 // THE PRIMITIVE CUBE HAS A FOOTPRINT, and it is the corners through the world matrix. The same record
-// drawing a Sphere is a point (no stated extent for it yet) - so the pair shows the footprint moving the
-// answer, not an instrument that cannot tell the two apart.
+// naming a Cylinder is a point, because the factory builds NOTHING for a Cylinder (Create returns nullptr)
+// - so the pair shows the footprint moving the answer, not an instrument that cannot tell the two apart.
 TEST( WorldPartitionLevels, APrimitiveCubeIsItsCornersAndAnotherPrimitiveIsItsPosition )
 {
     std::vector<EntityData> records;
@@ -744,10 +822,140 @@ TEST( WorldPartitionLevels, APrimitiveCubeIsItsCornersAndAnotherPrimitiveIsItsPo
     EXPECT_EQ( cube.Composites[0].Level, 1 );
     EXPECT_EQ( cube.PointOnlyRecords, 0u );
 
+    With( records[0], "StaticMesh", R"({"Primitive":"Cylinder"})" );
+    const WorldPartitionPlan cylinder = PlanWorldPartition( records, Cells( 10000.0f ) );
+    EXPECT_EQ( cylinder.Composites[0].Level, 0 );
+    EXPECT_EQ( cylinder.PointOnlyRecords, 1u );
+}
+
+// EVERY PRIMITIVE THE FACTORY DRAWS HAS THE BOX THE FACTORY STAMPS - Geometry::PrimitiveBounds, one
+// statement read by both. The Sphere is as wide as the Cube (radius 50); the Plane is a card in XY with no
+// depth, so its footprint is 100 in X and a line in Z.
+TEST( WorldPartitionLevels, ASphereAndAPlaneHaveTheBoxesTheFactoryStamps )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Ball", { 9960.0f, 0.0f, 500.0f } ) );
     With( records[0], "StaticMesh", R"({"Primitive":"Sphere"})" );
-    const WorldPartitionPlan sphere = PlanWorldPartition( records, Cells( 10000.0f ) );
-    EXPECT_EQ( sphere.Composites[0].Level, 0 );
-    EXPECT_EQ( sphere.PointOnlyRecords, 1u );
+    const WorldPartitionPlan ball = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_TRUE( ball.Composites[0].Footprint.has_value() );
+    EXPECT_NEAR( ball.Composites[0].Footprint->MaxX, 10010.0f, 0.01f );
+    EXPECT_EQ( ball.Composites[0].Level, 1 ) << "the ball crosses the 10000 edge";
+    EXPECT_EQ( ball.PointOnlyRecords, 0u );
+
+    With( records[0], "StaticMesh", R"({"Primitive":"Plane"})" );
+    const WorldPartitionPlan card = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_TRUE( card.Composites[0].Footprint.has_value() );
+    EXPECT_NEAR( card.Composites[0].Footprint->MinX, 9910.0f, 0.01f );
+    EXPECT_NEAR( card.Composites[0].Footprint->MaxX, 10010.0f, 0.01f );
+    EXPECT_NEAR( card.Composites[0].Footprint->MinZ, 500.0f, 0.01f );
+    EXPECT_NEAR( card.Composites[0].Footprint->MaxZ, 500.0f, 0.01f );
+    EXPECT_EQ( card.PointOnlyRecords, 0u );
+
+    // The unknown spelling is not a shape, and is its position.
+    With( records[0], "StaticMesh", R"({"Primitive":"Dodecahedron"})" );
+    EXPECT_EQ( PlanWorldPartition( records, Cells( 10000.0f ) ).PointOnlyRecords, 1u );
+}
+
+// ── MESH ASSETS: THE EXTENT THAT LIVES IN ANOTHER FILE (WP15) ─────────────────────────────────────────
+
+namespace
+{
+    // A registry of one mesh, the way the loader's source answers: by handle, else by path.
+    Desert::Core::Rules::AssetBoundsSource OneMesh( std::uint64_t handle, std::string path,
+                                                    Common::Math::AABB box )
+    {
+        return [=]( std::uint64_t asked, std::string_view named ) -> std::optional<Common::Math::AABB>
+        {
+            if ( ( asked != 0 && asked == handle ) || ( !named.empty() && named == path ) )
+                return box;
+            return std::nullopt;
+        };
+    }
+} // namespace
+
+// THE ACCEPTANCE CASE: A KILOMETRE BRIDGE AS ONE MODEL. Its entity sits at (1000, 0, 1000); the mesh runs
+// 100000 units along its local X. Without the registry it is a point and goes to level 0 - the wrong
+// answer the task exists to remove. With it, it is the level whose cell holds a kilometre (level 3 for a
+// 12800 cell, as the two-record bridge above), and it is no longer counted as point-only.
+TEST( WorldPartitionMeshAssets, AKilometreBridgeModelGoesToTheLevelThatHoldsIt )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Bridge", { 1000.0f, 0.0f, 1000.0f } ) );
+    With( records[0], "StaticMesh", R"({"MeshGuid":4242,"MeshPath":"Cooked/Meshes/Bridge.stmesh"})" );
+    records.push_back( Record( 2, "FarRock", { 900000.0f, 0.0f, 900000.0f } ) );
+
+    const WorldPartitionPlan blind = PlanWorldPartition( records, Cells( 12800.0f ) );
+    EXPECT_EQ( HeldBy( blind, 0 ).Level, 0 );
+    EXPECT_EQ( blind.PointOnlyRecords, 2u );
+
+    const auto source = OneMesh(
+         4242, "",
+         Common::Math::AABB{ glm::vec3( 0.0f, -500.0f, -300.0f ), glm::vec3( 100000.0f, 800.0f, 300.0f ) } );
+    const WorldPartitionPlan seen   = PlanWorldPartition( records, Cells( 12800.0f ), source );
+    const PlannedComposite&  bridge = HeldBy( seen, 0 );
+    ASSERT_TRUE( bridge.Footprint.has_value() );
+    EXPECT_NEAR( bridge.Footprint->MaxX, 101000.0f, 0.5f );
+    EXPECT_NEAR( bridge.Footprint->MinZ, 700.0f, 0.5f );
+    EXPECT_EQ( bridge.Level, 3 );
+    EXPECT_EQ( seen.PointOnlyRecords, 1u ) << "only the rock, which names no mesh, is still a point";
+}
+
+// THE BOX GOES THROUGH THE WHOLE WORLD MATRIX: a parent's quarter turn swings a mesh that runs along local
+// X onto world Z, and a scale of 2 doubles it. A footprint that only translated the box would leave it on X.
+TEST( WorldPartitionMeshAssets, TheBoxIsCarriedByTheWorldMatrixNotJustThePosition )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Pivot", { 0.0f, 0.0f, 0.0f } ) );
+    records[0].Rotation = glm::vec3( 0.0f, glm::half_pi<float>(), 0.0f );
+    records.push_back( Record( 2, "Beam", { 500.0f, 0.0f, 500.0f } ) );
+    records[1].Scale = glm::vec3( 2.0f );
+    Under( records[1], 1 );
+    With( records[1], "StaticMesh", R"({"MeshPath":"Cooked/Meshes/Beam.stmesh"})" );
+
+    const auto source =
+         OneMesh( 0, "Cooked/Meshes/Beam.stmesh",
+                  Common::Math::AABB{ glm::vec3( 0.0f, 0.0f, -10.0f ), glm::vec3( 1000.0f, 10.0f, 10.0f ) } );
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
+    const PlannedComposite&  held = HeldBy( plan, 1 );
+    ASSERT_TRUE( held.Footprint.has_value() );
+    // Pivot turns +X onto -Z. Beam at local (500, 0, 500) -> world (500, 0, -500); its box runs 2000 along
+    // local X -> world -Z, from -500 to -2500, and is 40 wide in X around 500. The pivot's own position,
+    // the origin, is the composite's other corner.
+    EXPECT_NEAR( held.Footprint->MinZ, -2500.0f, 0.5f );
+    EXPECT_NEAR( held.Footprint->MaxZ, 0.0f, 0.5f );
+    EXPECT_NEAR( held.Footprint->MaxX, 520.0f, 0.5f );
+    EXPECT_NEAR( held.Footprint->MinX, 0.0f, 0.5f );
+    EXPECT_EQ( plan.PointOnlyRecords, 1u ) << "the pivot names nothing and stays a point";
+}
+
+// A SKINNED MESH IS ASKED THE SAME WAY, AND A HANDLE ABOVE 2^53 IS NOT ROUNDED. The corpus writes
+// MeshGuid as a JSON integer; read through a double it would name a neighbouring handle and miss.
+TEST( WorldPartitionMeshAssets, ASkinnedMeshIsAskedByItsExactHandle )
+{
+    constexpr std::uint64_t kHandle = 5756835276253557057ull; // a real skinned handle from the corpus
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Rig", { 0.0f, 0.0f, 0.0f } ) );
+    With( records[0], "SkinnedMesh", R"({"MeshGuid":5756835276253557057})" );
+
+    const auto source =
+         OneMesh( kHandle, "", Common::Math::AABB{ glm::vec3( -30.0f, 0.0f, -20000.0f ), glm::vec3( 30.0f ) } );
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
+    ASSERT_TRUE( plan.Composites[0].Footprint.has_value() );
+    EXPECT_NEAR( plan.Composites[0].Footprint->MinZ, -20000.0f, 0.5f );
+    EXPECT_EQ( plan.PointOnlyRecords, 0u ) << "the exact handle was not found - read through a double?";
+}
+
+// A SOURCE THAT DOES NOT KNOW THE MESH LEAVES IT A POINT AND COUNTED - never a guessed box.
+TEST( WorldPartitionMeshAssets, AnUnknownMeshIsItsPositionAndIsCounted )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Prop", { 20.0f, 0.0f, 20.0f } ) );
+    With( records[0], "StaticMesh", R"({"MeshGuid":77})" );
+
+    const auto source = OneMesh( 78, "", Common::Math::AABB{ glm::vec3( -1.0e6f ), glm::vec3( 1.0e6f ) } );
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
+    EXPECT_EQ( plan.PointOnlyRecords, 1u );
+    EXPECT_EQ( plan.Composites[0].Level, 0 );
 }
 
 // A TERRAIN IS ITS SQUARE: `Size` wide, centred on its entity (TerrainMeshFactory). 10000 wide at
@@ -901,6 +1109,160 @@ TEST( WorldPartitionAlwaysLoaded, TheSummaryStatesCellsPerLevelAndAlwaysLoadedBy
     EXPECT_NE( summary.find( "cell 10000, loading range 30000" ), std::string::npos ) << summary;
 }
 
+// ── 6a. A LANDSCAPE IS PARTITIONED BY TILE ─────────────────────────────────────────────────────────
+//
+// A root and a 2 x 2 grid of tiles, 63 quads of one metre each — 6300 cm a tile — on a grid of 6300 cm, so
+// every tile is exactly one level-0 cell. What must hold: every tile is its own composite, at level 0, in
+// the cell its rectangle covers — a tile does not drag its neighbours or its root up a level. The root owns
+// the frame and is always-loaded (as UE loads ALandscape). The tile ENTITIES are placed far away on purpose:
+// a tile's own transform is read by nothing, and a partitioner that used it would put all four elsewhere.
+namespace
+{
+    constexpr std::uint64_t kLandscapeRootId = 9000;
+    constexpr float         kTileCm          = 63.0f * 100.0f;
+
+    EntityData LandscapeRootRecord( glm::vec3 origin, std::int64_t quads = 63 )
+    {
+        EntityData           root = Record( kLandscapeRootId, "Landscape", origin );
+        rfl::Generic::Object block;
+        block["QuadsPerTile"]        = rfl::Generic( quads );
+        block["SpacingCm"]           = rfl::Generic( 100.0 );
+        block["ZScale"]              = rfl::Generic( 100.0 );
+        root.Components["Landscape"] = rfl::Generic( block );
+        return root;
+    }
+
+    EntityData LandscapeTileRecord( std::uint64_t id, std::int64_t x, std::int64_t z,
+                                    std::uint64_t root = kLandscapeRootId )
+    {
+        EntityData           tile = Record( id, "LandscapeTile", { 987654.0f, 0.0f, -987654.0f } );
+        rfl::Generic::Object block;
+        block["Landscape"]               = rfl::Generic( std::to_string( root ) );
+        block["TileX"]                   = rfl::Generic( x );
+        block["TileZ"]                   = rfl::Generic( z );
+        block["HeightFile"]              = rfl::Generic( "Scenes/L_Landscape/" + std::to_string( id ) + ".dlht" );
+        tile.Components["LandscapeTile"] = rfl::Generic( block );
+        return tile;
+    }
+
+    std::vector<EntityData> TwoByTwoLandscape()
+    {
+        std::vector<EntityData> records;
+        records.push_back( LandscapeRootRecord( glm::vec3( 0.0f ) ) );
+        records.push_back( LandscapeTileRecord( 9001, 0, 0 ) );
+        records.push_back( LandscapeTileRecord( 9002, 1, 0 ) );
+        records.push_back( LandscapeTileRecord( 9003, 0, 1 ) );
+        records.push_back( LandscapeTileRecord( 9004, 1, 1 ) );
+        return records;
+    }
+} // namespace
+
+TEST( WorldPartitionLandscape, EveryTileIsItsOwnCompositeAtLevelZeroInItsOwnCell )
+{
+    const auto               records = TwoByTwoLandscape();
+    const WorldPartitionPlan plan    = PlanWorldPartition( records, Cells( kTileCm ) );
+
+    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    ASSERT_EQ( plan.Composites.size(), 5u ) << "the root and four tiles, none joined to another";
+    for ( std::size_t record = 0; record < records.size(); ++record )
+        EXPECT_EQ( HeldBy( plan, record ).Members.size(), 1u ) << records[record].Tag.value_or( "" );
+
+    EXPECT_EQ( HeldBy( plan, 0 ).Reason, AlwaysLoadedReason::Component ) << "the root owns the frame";
+
+    const struct
+    {
+        std::size_t  Record;
+        std::int32_t X, Z;
+    } expected[] = { { 1, 0, 0 }, { 2, 1, 0 }, { 3, 0, 1 }, { 4, 1, 1 } };
+    for ( const auto& tile : expected )
+    {
+        const PlannedComposite& held = HeldBy( plan, tile.Record );
+        EXPECT_EQ( held.Reason, AlwaysLoadedReason::None ) << "tile record " << tile.Record;
+        EXPECT_EQ( held.Level, 0 ) << "tile record " << tile.Record;
+        EXPECT_EQ( held.Cell.X, tile.X ) << "tile record " << tile.Record;
+        EXPECT_EQ( held.Cell.Z, tile.Z ) << "tile record " << tile.Record;
+        // The tile's footprint IS its rectangle: all four corners, nothing of its far-away entity position.
+        ASSERT_TRUE( held.Footprint.has_value() );
+        EXPECT_FLOAT_EQ( held.Footprint->MinX, tile.X * kTileCm );
+        EXPECT_FLOAT_EQ( held.Footprint->MaxX, ( tile.X + 1 ) * kTileCm );
+        EXPECT_FLOAT_EQ( held.Footprint->MinZ, tile.Z * kTileCm );
+        EXPECT_FLOAT_EQ( held.Footprint->MaxZ, ( tile.Z + 1 ) * kTileCm );
+    }
+
+    EXPECT_EQ( plan.Cells.size(), 4u );
+    EXPECT_EQ( plan.MaxLevel, 0 ) << "no tile pulls a neighbour or its root up a level";
+    EXPECT_TRUE( FindUnregisteredEntityReferences( records ).empty() );
+}
+
+// THE NEGATIVE CONTROL for the test above, in the two shapes the refused relation takes. Tiles made CHILDREN
+// of the root are one composite with it, and since the root owns the frame that composite is ALWAYS-LOADED —
+// the whole terrain resident everywhere. Tiles made children of one another (no root in the union) are one
+// composite too, and it goes UP A LEVEL to find a cell wide enough. Either is what the Observation row
+// prevents; were the row Containment, the test above would read like one of these.
+TEST( WorldPartitionLandscape, TilesJoinedByHierarchyBecomeOneCompositeThatIsResidentOrPromoted )
+{
+    auto underRoot = TwoByTwoLandscape();
+    for ( std::size_t record = 1; record < underRoot.size(); ++record )
+    {
+        Under( underRoot[record], kLandscapeRootId );
+        underRoot[record].Translation = glm::vec3( 0.0f );
+    }
+    const WorldPartitionPlan resident = PlanWorldPartition( underRoot, Cells( kTileCm ) );
+    ASSERT_EQ( resident.Composites.size(), 1u );
+    EXPECT_EQ( resident.Composites[0].Reason, AlwaysLoadedReason::Component );
+    EXPECT_TRUE( resident.Cells.empty() );
+
+    auto underTile = TwoByTwoLandscape();
+    for ( std::size_t record = 2; record < underTile.size(); ++record )
+    {
+        Under( underTile[record], 9001 );
+        underTile[record].Translation = glm::vec3( 0.0f );
+    }
+    const WorldPartitionPlan promoted = PlanWorldPartition( underTile, Cells( kTileCm ) );
+    ASSERT_EQ( promoted.Composites.size(), 2u ) << "the root, and the four tiles as one";
+    EXPECT_EQ( HeldBy( promoted, 1 ).Members.size(), 4u );
+    EXPECT_GT( HeldBy( promoted, 1 ).Level, 0 );
+    EXPECT_GT( promoted.MaxLevel, 0 );
+}
+
+// The rectangle follows the root's WORLD position: a moved root moves every tile, negative tile coordinates
+// lie on the other side of it, and a root under a moved parent is composed like any other record.
+TEST( WorldPartitionLandscape, TilesArePlacedByTheirRootsWorldFrame )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 8000, "World", { -2.0f * kTileCm, 0.0f, 0.0f } ) );
+    records.push_back( LandscapeRootRecord( { kTileCm, 500.0f, 0.0f } ) );
+    Under( records[1], 8000 );                               // root at world (-6300, 500, 0)
+    records.push_back( LandscapeTileRecord( 9001, -1, 0 ) ); // [-12600, -6300] x [0, 6300]
+    records.push_back( LandscapeTileRecord( 9002, 0, -1 ) ); // [-6300, 0] x [-6300, 0]
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( kTileCm ) );
+    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    EXPECT_EQ( HeldBy( plan, 2 ).Level, 0 );
+    EXPECT_EQ( HeldBy( plan, 2 ).Cell.X, -2 );
+    EXPECT_EQ( HeldBy( plan, 2 ).Cell.Z, 0 );
+    EXPECT_EQ( HeldBy( plan, 3 ).Level, 0 );
+    EXPECT_EQ( HeldBy( plan, 3 ).Cell.X, -1 );
+    EXPECT_EQ( HeldBy( plan, 3 ).Cell.Z, -1 );
+}
+
+// A tile with no place is LISTED and contributes no footprint: its root is not in the file, or its root
+// cannot be tiled (64 quads is not a section size UE offers — the loader refuses the same root).
+TEST( WorldPartitionLandscape, ATileWithoutAPlaceableRootIsListedAndHasNoFootprint )
+{
+    std::vector<EntityData> records;
+    records.push_back( LandscapeRootRecord( glm::vec3( 0.0f ), 64 ) );
+    records.push_back( LandscapeTileRecord( 9001, 0, 0 ) );            // root cannot be tiled
+    records.push_back( LandscapeTileRecord( 9002, 1, 0, 123456789 ) ); // root not in this file
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( kTileCm ) );
+    ASSERT_EQ( plan.UnplacedLandscapeTiles.size(), 2u );
+    EXPECT_EQ( plan.UnplacedLandscapeTiles[0], 1u );
+    EXPECT_EQ( plan.UnplacedLandscapeTiles[1], 2u );
+    EXPECT_FALSE( HeldBy( plan, 1 ).Footprint.has_value() );
+    EXPECT_FALSE( HeldBy( plan, 2 ).Footprint.has_value() );
+}
+
 // ── 7. THE CENSUS: EVERY SERIALISED COMPONENT IS CLASSIFIED ────────────────────────────────────────
 
 // The key list comes from ComponentRegistry.cpp's source, and the reader is checked against the number of
@@ -912,7 +1274,8 @@ TEST( WorldPartitionCensus, EveryComponentTheRegistrySerialisesHasExactlyOneLoad
     std::size_t                 registrations = 0;
     std::size_t                 keysRead      = 0;
     const std::set<std::string> registered    = RegisteredComponentKeys( registrations, keysRead );
-    ASSERT_GE( registered.size(), 50u ) << "the registry reader found almost nothing - it is reading the wrong file";
+    ASSERT_GE( registered.size(), 50u )
+         << "the registry reader found almost nothing - it is reading the wrong file";
     EXPECT_EQ( keysRead, registrations )
          << "ComponentRegistry.cpp has " << registrations << " Register( calls but " << keysRead
          << " keys were read: a registration is spelled in a way RegisteredComponentKeys does not know";
@@ -920,16 +1283,17 @@ TEST( WorldPartitionCensus, EveryComponentTheRegistrySerialisesHasExactlyOneLoad
 
     std::set<std::string> rows;
     for ( const auto& row : kComponentLoading )
-        EXPECT_TRUE( rows.insert( std::string( row.ComponentKey ) ).second ) << "two rows for " << row.ComponentKey;
+        EXPECT_TRUE( rows.insert( std::string( row.ComponentKey ) ).second )
+             << "two rows for " << row.ComponentKey;
 
     for ( const auto& key : registered )
         EXPECT_TRUE( rows.count( key ) ) << "'" << key
-                                          << "' is serialised by ComponentRegistry.cpp and has no row in "
-                                             "kComponentLoading (WorldPartitionRules.hpp). Decide whether it "
-                                             "keeps its entity loaded everywhere: Spatial, Global or ByField.";
+                                         << "' is serialised by ComponentRegistry.cpp and has no row in "
+                                            "kComponentLoading (WorldPartitionRules.hpp). Decide whether it "
+                                            "keeps its entity loaded everywhere: Spatial, Global or ByField.";
     for ( const auto& row : rows )
-        EXPECT_TRUE( registered.count( row ) ) << "kComponentLoading classifies '" << row
-                                               << "', which ComponentRegistry.cpp does not serialise";
+        EXPECT_TRUE( registered.count( row ) )
+             << "kComponentLoading classifies '" << row << "', which ComponentRegistry.cpp does not serialise";
 }
 
 // The rows that decide what a world keeps loaded, pinned by name: the brief's sun, sky and camera, and
@@ -944,12 +1308,13 @@ TEST( WorldPartitionCensus, TheGlobalRowsAreTheOnesTheWorldNeedsEverywhere )
         return ComponentLoading::Spatial;
     };
     for ( const char* key : { "Camera", "DirectionLight", "Skybox", "SkyAtmosphere", "ExponentialHeightFog",
-                              "VolumetricCloud", "HeroCloud", "AlwaysLoaded" } )
+                              "VolumetricCloud", "HeroCloud", "AlwaysLoaded", "Landscape" } )
         EXPECT_EQ( loadingOf( key ), ComponentLoading::Global ) << key;
     EXPECT_EQ( loadingOf( "UICanvas" ), ComponentLoading::ByField );
     EXPECT_EQ( loadingOf( "AudioSource" ), ComponentLoading::ByField );
     EXPECT_EQ( loadingOf( "StaticMesh" ), ComponentLoading::Spatial );
     EXPECT_EQ( loadingOf( "PointLight" ), ComponentLoading::Spatial );
+    EXPECT_EQ( loadingOf( "LandscapeTile" ), ComponentLoading::Spatial );
 }
 
 // ── 8. DANGLING AND CYCLIC CONTAINMENT; THE REGISTER OF ENTITY REFERENCES; THE CORPUS ─────────────
@@ -1007,6 +1372,19 @@ TEST( WorldPartitionReferences, TheRegisterNamesTheReferencesItClassifies )
     }
     EXPECT_TRUE( socket );
     EXPECT_TRUE( projectile );
+
+    // The landscape tile's root. OBSERVATION, and WorldPartitionLandscape goes red if it is ever made
+    // containment: every tile would join its root's composite and the whole terrain would be one footprint.
+    bool landscape = false;
+    for ( const auto& row : kEntityReferences )
+    {
+        if ( row.ComponentKey == "LandscapeTile" && row.Field == "Landscape" )
+        {
+            landscape = true;
+            EXPECT_EQ( row.Kind, ReferenceKind::Observation );
+        }
+    }
+    EXPECT_TRUE( landscape );
 }
 
 // THE BLIND SPOT, PINNED. Two references in this engine address their target by a NAME, so the
@@ -1141,7 +1519,8 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
                          << path.string() << ": composite " << held << " overhangs its level-" << cell.Level
                          << " cell";
                     if ( cell.Level > 0 )
-                        EXPECT_FALSE( SingleCellHolding( box, LevelCellSize( cellSize, cell.Level - 1 ) ).has_value() )
+                        EXPECT_FALSE(
+                             SingleCellHolding( box, LevelCellSize( cellSize, cell.Level - 1 ) ).has_value() )
                              << path.string() << ": composite " << held << " fits level " << cell.Level - 1
                              << " but was put on level " << cell.Level;
                 }
@@ -1166,10 +1545,14 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
                      << path.string() << ": record " << record << " at (" << x << ", " << z << ")";
             };
 
-            // Root records: no parent, so the stated translation IS the world position.
+            // Root records: no parent, so the stated translation IS the world position. A landscape tile is
+            // the exception the planner states: its own translation is read by nothing, and its place is the
+            // rectangle checked below.
             for ( std::size_t record = 0; record < records.size(); ++record )
             {
                 if ( records[record].parent.has_value() && !records[record].parent->IsNull() )
+                    continue;
+                if ( records[record].Components.get( std::string( kLandscapeTileComponent ) ).has_value() )
                     continue;
                 if ( records[record].Translation.has_value() )
                     Inside( record, records[record].Translation->x, records[record].Translation->z );
@@ -1207,6 +1590,37 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
                     Inside( record, Number( m[12] ), Number( m[14] ) );
                     ++instancesSeen;
                 }
+            }
+
+            // Landscape tiles, their rectangle worked out here by hand — tile coordinate times quads times
+            // spacing, from the root's stated translation — and not through LandscapeTileBounds, which is the
+            // planner's own reader. Only tiles under an unparented root with every field stated: that is
+            // the case this arithmetic covers exactly, and the planner's composition is pinned elsewhere.
+            for ( std::size_t record = 0; record < list.size(); ++record )
+            {
+                const auto tile = list[record].to_object().value().get( std::string( kLandscapeTileComponent ) );
+                if ( !tile.has_value() )
+                    continue;
+                const auto  block  = tile->to_object().value();
+                const auto  rootId = block.get( "Landscape" )->to_string().value();
+                std::size_t root   = kNoRecord;
+                for ( std::size_t other = 0; other < records.size(); ++other )
+                    if ( records[other].id.has_value() &&
+                         std::to_string( static_cast<std::uint64_t>( *records[other].id ) ) == rootId )
+                        root = other;
+                if ( root == kNoRecord || ( records[root].parent.has_value() && !records[root].parent->IsNull() ) )
+                    continue;
+                const auto      rootBlock = list[root].to_object().value().get( "Landscape" )->to_object().value();
+                const auto      quads = static_cast<float>( rootBlock.get( "QuadsPerTile" )->to_int64().value() );
+                const auto      spacing = static_cast<float>( rootBlock.get( "SpacingCm" )->to_double().value() );
+                const auto      tileX   = static_cast<float>( block.get( "TileX" )->to_int64().value() );
+                const auto      tileZ   = static_cast<float>( block.get( "TileZ" )->to_int64().value() );
+                const glm::vec3 origin  = records[root].Translation.value_or( glm::vec3( 0.0f ) );
+                const float     minX    = origin.x + tileX * quads * spacing;
+                const float     minZ    = origin.z + tileZ * quads * spacing;
+                for ( const float x : { minX, minX + quads * spacing } )
+                    for ( const float z : { minZ, minZ + quads * spacing } )
+                        Inside( record, x, z );
             }
         }
     }

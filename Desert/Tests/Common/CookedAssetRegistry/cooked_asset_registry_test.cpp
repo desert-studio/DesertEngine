@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <initializer_list>
 #include <map>
 #include <string>
@@ -191,19 +192,145 @@ TEST( CookedAssetRegistry, AMalformedFileIsARefusalAndNotAnEmptyProject )
     EXPECT_FALSE( AssetRegistry::Parse( "" ) );
     EXPECT_FALSE( AssetRegistry::Parse( "DesertContentManifest 1\n" ) ) << "another Desert text format "
                                                                            "was accepted as a registry";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 2\n" ) ) << "a future version was read as "
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 3\n" ) ) << "a future version was read as "
                                                                          "though it were this one";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 1\n512 Material -\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 2\n512 Material - -\n" ) )
          << "a row missing its key column was accepted";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 1\nbig Material - - assets:M.demat\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 2\nbig Material - - - assets:M.demat\n" ) )
          << "a size that is not a number was accepted";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 1\n5 Material zz - assets:M.demat\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 2\n5 Material zz - - assets:M.demat\n" ) )
          << "an identity that is neither '-' nor a 16-digit hex handle was accepted";
 
     // And the header alone, with no rows, IS a valid registry — an empty project is a real state.
-    const auto empty = AssetRegistry::Parse( "DesertAssetRegistry 1\n" );
+    const auto empty = AssetRegistry::Parse( "DesertAssetRegistry 2\n" );
     ASSERT_TRUE( empty ) << empty.GetError();
     EXPECT_TRUE( empty.GetValue().Empty() );
+}
+
+// ── THE BOUNDS COLUMN (version 2) ───────────────────────────────────────────────────────────────────
+
+namespace
+{
+    Common::Math::AABB Box( glm::vec3 min, glm::vec3 max )
+    {
+        return Common::Math::AABB{ min, max };
+    }
+} // namespace
+
+// EXACT, NOT CLOSE. The column is bits, so a value no decimal spelling of six digits could carry — a
+// third, a denormal-adjacent tiny, a negative zero — comes back as the same float, and a row that
+// round-trips is byte-identical on the next write.
+TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
+{
+    AssetRegistry            written;
+    AssetRegistryEntry       mesh = Row( "cooked:Meshes/Bridge.stmesh", "StaticMesh", 100 );
+    const Common::Math::AABB box =
+         Box( glm::vec3( -50000.0f, -0.0f, 1.0f / 3.0f ), glm::vec3( 50000.0f, 1.0e-30f, 12345.678f ) );
+    mesh.Bounds = box;
+    ASSERT_TRUE( written.Insert( mesh ) );
+    ASSERT_TRUE( written.Insert( Row( "assets:Materials/M.demat", "Material", 5 ) ) );
+
+    const std::string text   = written.Serialize();
+    const auto        parsed = AssetRegistry::Parse( text );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+
+    const AssetRegistryEntry* back = parsed.GetValue().FindByKey( "cooked:Meshes/Bridge.stmesh" );
+    ASSERT_NE( back, nullptr );
+    ASSERT_TRUE( back->Bounds.has_value() );
+    EXPECT_TRUE( Common::Utils::SameBounds( back->Bounds, box ) );
+    EXPECT_TRUE( std::signbit( back->Bounds->Min.y ) ) << "negative zero lost its sign";
+
+    const AssetRegistryEntry* none = parsed.GetValue().FindByKey( "assets:Materials/M.demat" );
+    ASSERT_NE( none, nullptr );
+    EXPECT_FALSE( none->Bounds.has_value() ) << "a row with no extent came back with one";
+
+    EXPECT_EQ( parsed.GetValue().Serialize(), text ) << "a second write of what was read is a different file";
+    EXPECT_EQ( text.rfind( "DesertAssetRegistry 2\n", 0 ), 0u );
+}
+
+// VERSION 1 IS READ, AS ROWS WITH NO BOUNDS, AND WRITTEN BACK AS 2 — the migration is Parse itself. Every
+// other column must survive it: a migration that dropped the identities would be the middle link that
+// loses a property.
+TEST( CookedAssetRegistry, AVersionOneFileMigratesToRowsWithNoBoundsAndKeepsEveryOtherColumn )
+{
+    const auto parsed =
+         AssetRegistry::Parse( "DesertAssetRegistry 1\n"
+                               "3536 StaticMesh - - cooked:Meshes/StaticProbe.stmesh\n"
+                               "229 Material a3c34fd7f85f1d7b 0000000000000007 assets:Materials/M A.demat\n" );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    const AssetRegistry& read = parsed.GetValue();
+    ASSERT_EQ( read.Count(), 2u );
+
+    const AssetRegistryEntry* material = read.FindByKey( "assets:Materials/M A.demat" );
+    ASSERT_NE( material, nullptr ) << "a version-1 key with a space was read as a bounds column";
+    EXPECT_EQ( material->Identity, 0xa3c34fd7f85f1d7bull );
+    EXPECT_EQ( material->Dependencies, ( std::vector<uint64_t>{ 7 } ) );
+    EXPECT_FALSE( material->Bounds.has_value() );
+
+    EXPECT_EQ( read.Serialize(), "DesertAssetRegistry 2\n"
+                                 "229 Material a3c34fd7f85f1d7b 0000000000000007 - assets:Materials/M A.demat\n"
+                                 "3536 StaticMesh - - - cooked:Meshes/StaticProbe.stmesh\n" );
+}
+
+// A BOX NO POINT IS INSIDE IS NOT DATA. Five fields, a NaN, an inverted box and a decimal spelling are
+// all refusals with the line number, never a row whose record would be placed nowhere.
+TEST( CookedAssetRegistry, AMalformedBoundsColumnIsRefused )
+{
+    const std::string zero = "00000000";
+    const std::string one  = "3f800000";
+    const std::string nan  = "7fc00000";
+    const auto        row  = []( const std::string& bounds )
+    { return "DesertAssetRegistry 2\n9 StaticMesh - - " + bounds + " cooked:Meshes/M.stmesh\n"; };
+
+    ASSERT_TRUE(
+         AssetRegistry::Parse( row( zero + "," + zero + "," + zero + "," + one + "," + one + "," + one ) ) );
+    EXPECT_FALSE( AssetRegistry::Parse( row( zero + "," + zero + "," + zero + "," + one + "," + one ) ) );
+    EXPECT_FALSE( AssetRegistry::Parse(
+         row( zero + "," + zero + "," + zero + "," + one + "," + one + "," + one + "," + one ) ) );
+    EXPECT_FALSE(
+         AssetRegistry::Parse( row( nan + "," + zero + "," + zero + "," + one + "," + one + "," + one ) ) );
+    EXPECT_FALSE(
+         AssetRegistry::Parse( row( one + "," + zero + "," + zero + "," + zero + "," + one + "," + one ) ) )
+         << "an inverted box (min x above max x) was accepted";
+    EXPECT_FALSE( AssetRegistry::Parse( row( "0,0,0,1,1,1" ) ) ) << "a decimal spelling was accepted";
+}
+
+// SetBounds FOLLOWS SetIdentity: it refuses a key that is not a row instead of inserting one, and it can
+// take a box away again.
+TEST( CookedAssetRegistry, SetBoundsTouchesOnlyAnExistingRow )
+{
+    AssetRegistry registry;
+    ASSERT_TRUE( registry.Insert( Row( "cooked:Meshes/M.stmesh", "StaticMesh", 9 ) ) );
+
+    EXPECT_FALSE(
+         registry.SetBounds( "cooked:Meshes/Other.stmesh", Box( glm::vec3( 0.0f ), glm::vec3( 1.0f ) ) ) );
+    EXPECT_EQ( registry.Count(), 1u );
+
+    ASSERT_TRUE( registry.SetBounds( "cooked:Meshes/M.stmesh", Box( glm::vec3( -1.0f ), glm::vec3( 2.0f ) ) ) );
+    EXPECT_TRUE( registry.FindByKey( "cooked:Meshes/M.stmesh" )->Bounds.has_value() );
+    ASSERT_TRUE( registry.SetBounds( "cooked:Meshes/M.stmesh", std::nullopt ) );
+    EXPECT_FALSE( registry.FindByKey( "cooked:Meshes/M.stmesh" )->Bounds.has_value() );
+}
+
+// A SCENE REFERENCE IS A HANDLE, OR FAILING THAT A PATH. Both must find the row, and a declared identity
+// must too, because a scene holds whichever number the engine knew the asset by.
+TEST( CookedAssetRegistry, AReferenceFindsItsRowByHandleOrByPath )
+{
+    AssetRegistry      registry;
+    AssetRegistryEntry mesh = Row( "cooked:Meshes/M.stmesh", "StaticMesh", 9 );
+    mesh.Identity           = 0x1111222233334444ull;
+    ASSERT_TRUE( registry.Insert( mesh ) );
+    const AssetRegistryEntry* row = registry.FindByKey( "cooked:Meshes/M.stmesh" );
+
+    EXPECT_EQ( registry.FindByReference( row->PathHandle(), "" ), row );
+    EXPECT_EQ( registry.FindByReference( 0x1111222233334444ull, "" ), row );
+    EXPECT_EQ( registry.FindByReference( 0, "" ), nullptr );
+    EXPECT_EQ( registry.FindByReference( 0x9999ull, "" ), nullptr ) << "an unknown handle named a row";
+
+    // By path: the stable key of the cooked mesh root plus the file name — the spelling a `.desce` writes.
+    const std::string path = ( Common::Constants::Path::MESH_PATH_COOKED / "M.stmesh" ).generic_string();
+    EXPECT_EQ( registry.FindByReference( 0, path ), row ) << path;
+    EXPECT_EQ( registry.FindByReference( 0x9999ull, path ), row ) << "a stale handle must not hide the path";
 }
 
 // ── WHAT THE BOOT ACTUALLY USES IT FOR ──────────────────────────────────────────────────────────────
