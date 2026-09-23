@@ -6781,18 +6781,12 @@ namespace Desert::Editor
 
     bool EditorLayer::SaveSceneTo( const std::string& path )
     {
-        std::error_code ec;
-        std::filesystem::create_directories( std::filesystem::path( path ).parent_path(), ec );
-        if ( ec )
-        {
-            LOG_ERROR( "[Scene] Could not create the directory for '{}': {}", path, ec.message() );
-            return false;
-        }
-
+        // THROUGH SaveToFile AND NOT A SECOND COPY OF IT. This function used to create the directory and
+        // write SerializeToJson() itself, which was the same save spelled twice — and the moment the save
+        // grew a step (a landscape writes its tile files beside the scene before the scene names them),
+        // this copy would have written a .desce naming tile files that were never written.
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
-        if ( const auto written =
-                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, serializer.SerializeToJson() );
-             !written )
+        if ( const auto written = serializer.SaveToFile( Common::Filepath( path ) ); !written )
         {
             LOG_ERROR( "[Scene] Could not write '{}': {}", path, written.GetError() );
             return false;

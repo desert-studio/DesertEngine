@@ -1,3 +1,6 @@
+-- A landscape's root, its 2 x 2 tiles and the tile files beside the scene: saved, loaded and saved again
+-- to the same bytes. Engine headers are compiled for the component blocks (AuthoredComponentIO.hpp), which
+-- is why entt is on the include path; nothing of the renderer is linked.
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
 
@@ -8,22 +11,14 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- Header-only rules (Engine/Core/Serialize/WorldPartitionRules.hpp): the partitioner and the entity
-    -- reference register, WITHOUT the Scene the loader normally hangs them off. SceneSerializer.cpp
-    -- reaches the renderer through Scene.hpp and no test project can compile it, which is why the rules
-    -- live in a header of their own. Nothing to link but Common, and that is the proof they are pure.
     files {
         test_files,
-        -- The document merge, because the round trip of a partitioned world currently GOES THROUGH IT:
-        -- SerializeToJson builds a fresh SceneSerialized from the live Scene, which has no partition
-        -- member yet, so the block survives a save only because a top-level key the writer does not
-        -- state is preserved. That is a claim about this file, so this file is compiled and asserted
-        -- rather than described. It is pure -- its only includes are its own header and <utility>.
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
-        -- A landscape tile is placed by its root's frame, and the partitioner computes the rectangle with
-        -- the same functions the loader uses. Both files are pure and link only Common.
+        -- The tile's heights and the tiling: both pure, linking only Common. SceneSerializer.cpp, which
+        -- calls them on a real save, reaches the renderer through Scene.hpp and no suite compiles it —
+        -- so the trip is asserted on the pieces it is made of, through the text and bytes on disk.
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeTileFiles.cpp",
     }
 
     includedirs {
@@ -31,7 +26,8 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the record's component payloads are rfl::Generic
+        "%{wks.location}/ThirdParty/entt/include/",       -- the component headers are ECS headers
+        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the block is written and read as JSON text
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -46,7 +42,10 @@ project(test_name)
         defines { define }
     end
 
-    -- PrefabData.hpp reaches engine headers that use DESERT_DEBUG_BREAK, which needs to know the platform.
+    -- Common: a UUID is Common::UUID and the IO header logs its refusals through Common's logger.
+    -- Optick: Common's JobSystem registers its worker threads with the profiler.
+    links { "Common", "Optick" }
+
     filter "system:windows"
         defines { "DESERT_PLATFORM_WINDOWS" }
     filter "system:macosx"
@@ -55,8 +54,9 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
-    -- Common: UUID and AssetHandle. Optick: Common's JobSystem registers its worker threads with it.
-    links { "Common", "Optick" }
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
 
     filter "system:not windows"
         links { "ReflectCpp" }

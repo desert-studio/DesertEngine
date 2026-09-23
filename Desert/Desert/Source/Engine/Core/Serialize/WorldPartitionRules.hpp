@@ -49,7 +49,9 @@
 //
 // A scene record carries no extent of its own: a mesh's bounds live in the mesh asset, a prefab's are
 // not stored anywhere (see UnplacedPrefabInstances), so what this file can see is a POSITION per record.
-// There is exactly one exception, and it is taken because it is the case that grows a cell the most:
+// There are exactly two exceptions. A LANDSCAPE TILE is a rectangle derived from its root's frame (see
+// kLandscapeTileComponent) — the one record whose extent the file states in full. The other is taken
+// because it is the case that grows a cell the most:
 // an InstancedStaticMesh record carries the WORLD-space matrix of every instance it draws
 // (MeshECSSystem.hpp submits the snapshot without the entity's transform), so its contents are that set
 // of points, not the entity's own position. A foliage field spanning a kilometre is one record; treating
@@ -80,6 +82,7 @@
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
 
 // The transform composition below, and NOT Engine/ECS/Components.hpp for it. TransformComponent's
 // GetTransform() is the three lines this file needs, but that header carries entt, the reflection
@@ -180,6 +183,12 @@ namespace Desert::Core::Rules
          // Who fired the bullet, kept so a projectile can skip self-hits. The bullet is not part of
          // the shooter; a null owner costs one redundant hit test.
          { "Projectile", "Owner", ReferenceKind::Observation },
+         // A landscape tile names its root, and it is OBSERVATION ON PURPOSE (landscape analysis A1). As
+         // containment every tile of a landscape would be one composite, and one cell would grow to hold
+         // the whole terrain — the opposite of why a landscape is cut into tiles. The reader handles
+         // null the way observation requires: a tile whose root is not loaded has no frame and is placed
+         // nowhere (WorldPartitionPlan::UnplacedLandscapeTiles), it does not drag the root in.
+         { "LandscapeTile", "Landscape", ReferenceKind::Observation },
     };
 
     // REFERENCES THAT NAME THEIR TARGET BY A NAME INSTEAD OF AN ID — the BLIND SPOT of the discovery
@@ -322,6 +331,12 @@ namespace Desert::Core::Rules
         // is not there would state a number that is simply false.
         std::vector<std::size_t> UnplacedPrefabInstances;
 
+        // LANDSCAPE TILES THAT HAVE NO PLACE, for the same reason and treated the same way: a tile is placed
+        // by its ROOT's frame (World/Landscape/LandscapeLayout.hpp), and a tile whose root this file does not
+        // contain — or whose root cannot be tiled — has no rectangle. Its own entity position is not a
+        // stand-in: nothing reads it. Listed, planned at that position, and growing no cell.
+        std::vector<std::size_t> UnplacedLandscapeTiles;
+
         // Every cell that holds at least one composite, ordered by X then Z so the plan does not depend
         // on the iteration order of a hash map. A cell nothing is assigned to is not listed.
         std::vector<PlannedCell> Cells;
@@ -337,6 +352,12 @@ namespace Desert::Core::Rules
     // named, so a suite can pin it: see "WHAT A CELL'S BOUNDS ARE MADE OF" at the top of this file.
     inline constexpr std::string_view kInstancePointsComponent = "InstancedStaticMesh";
     inline constexpr std::string_view kInstancePointsField     = "InstanceTransforms";
+
+    // THE SECOND SUCH KIND: a landscape tile. Its contents are a RECTANGLE computed from its coordinate
+    // and its root's frame — not its own position, which nothing reads — so the partitioner asks the root.
+    // The root is not a part of the tile (see the register row above): it is read, never joined.
+    inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
+    inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
 
     namespace Detail
     {
@@ -445,6 +466,78 @@ namespace Desert::Core::Rules
                 if ( ReadNumber( elements.value()[12], x ) && ReadNumber( elements.value()[14], z ) )
                     out.emplace_back( x, z );
             }
+        }
+
+        // A whole number inside a component payload; absent leaves @p out alone, as the loader does.
+        template <class T>
+        inline bool ReadWhole( const rfl::Generic::Object& block, std::string_view field, T& out )
+        {
+            const auto value = block.get( std::string( field ) );
+            if ( !value.has_value() )
+                return true;
+            const auto whole = value.value().to_int64();
+            if ( !whole.has_value() )
+                return false;
+            out = static_cast<T>( whole.value() );
+            return true;
+        }
+
+        inline std::optional<rfl::Generic::Object> BlockOf( const Assets::EntityData& record,
+                                                            std::string_view          key )
+        {
+            const auto payload = record.Components.get( std::string( key ) );
+            if ( !payload.has_value() )
+                return std::nullopt;
+            const auto block = payload.value().to_object();
+            if ( !block.has_value() )
+                return std::nullopt;
+            return block.value();
+        }
+
+        // THE GROUND RECTANGLE OF A LANDSCAPE TILE RECORD, or nullopt when it has none. The root's fields are
+        // read with the loader's rule — an absent field is the component's default, which is LandscapeRoot's
+        // default because both are spelled from the same constants — and the root is refused by the same
+        // ValidateLandscapeRoot the loader applies, so the partition never places a tile the loader refuses.
+        //
+        // @p rootWorld is the root record's composed world matrix: its translation is the frame's origin, as
+        // Entity::GetWorldTransform is for the loaded root.
+        inline std::optional<World::Landscape::LandscapeTileRect>
+        LandscapeTileRectOf( const Assets::EntityData& tile, const std::vector<glm::mat4>& world,
+                             std::span<const Assets::EntityData>                  records,
+                             const std::unordered_map<Common::UUID, std::size_t>& byId )
+        {
+            const auto tileBlock = BlockOf( tile, kLandscapeTileComponent );
+            if ( !tileBlock.has_value() )
+                return std::nullopt;
+
+            Common::UUID rootId;
+            if ( !ReadReference( *tileBlock, "Landscape", rootId ) || rootId.IsNull() )
+                return std::nullopt;
+            const auto found = byId.find( rootId );
+            if ( found == byId.end() )
+                return std::nullopt;
+            const auto rootBlock = BlockOf( records[found->second], kLandscapeRootComponent );
+            if ( !rootBlock.has_value() )
+                return std::nullopt;
+
+            World::Landscape::LandscapeRoot root;
+            root.Origin = glm::vec3( world[found->second][3] );
+            if ( !ReadWhole( *rootBlock, "QuadsPerTile", root.QuadsPerTile ) )
+                return std::nullopt;
+            if ( const auto spacing = rootBlock->get( "SpacingCm" ); spacing.has_value() )
+                if ( !ReadNumber( spacing.value(), root.SpacingCm ) )
+                    return std::nullopt;
+            if ( const auto zScale = rootBlock->get( "ZScale" ); zScale.has_value() )
+                if ( !ReadNumber( zScale.value(), root.ZScale ) )
+                    return std::nullopt;
+            if ( !World::Landscape::ValidateLandscapeRoot( root ) )
+                return std::nullopt;
+
+            std::int32_t tileX = 0;
+            std::int32_t tileZ = 0;
+            if ( !ReadWhole( *tileBlock, "TileX", tileX ) || !ReadWhole( *tileBlock, "TileZ", tileZ ) )
+                return std::nullopt;
+            return World::Landscape::LandscapeTileBounds( root, tileX, tileZ );
         }
     } // namespace Detail
 
@@ -607,6 +700,18 @@ namespace Desert::Core::Rules
             }
         }
 
+        // A landscape tile's place is its rectangle, from its root — after step 1, because the root's origin
+        // is the root's WORLD position.
+        std::vector<std::optional<World::Landscape::LandscapeTileRect>> tileRect( records.size() );
+        for ( std::size_t record = 0; record < records.size(); ++record )
+        {
+            if ( !records[record].Components.get( std::string( kLandscapeTileComponent ) ).has_value() )
+                continue;
+            tileRect[record] = Detail::LandscapeTileRectOf( records[record], world, records, byId );
+            if ( !tileRect[record].has_value() )
+                plan.UnplacedLandscapeTiles.push_back( record );
+        }
+
         // ── 2. Containment edges, then composites ─────────────────────────────────────────────────
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
@@ -721,6 +826,14 @@ namespace Desert::Core::Rules
             if ( cellSize <= 0.0f )
                 continue;
 
+            // A tile anchors on the CENTRE of its rectangle: its corners lie on the grid lines of a
+            // landscape cut to the grid, and a corner would put it in whichever cell the floor picks.
+            if ( const auto& rect = tileRect[group.Anchor]; rect.has_value() )
+            {
+                group.Cell =
+                     CellOf( 0.5f * ( rect->MinX + rect->MaxX ), 0.5f * ( rect->MinZ + rect->MaxZ ), cellSize );
+                continue;
+            }
             const glm::mat4& anchorWorld = world[group.Anchor];
             group.Cell                   = CellOf( anchorWorld[3].x, anchorWorld[3].z, cellSize );
         }
@@ -732,6 +845,8 @@ namespace Desert::Core::Rules
         // held whole, and what holding it cost is the Growth computed here.
         std::vector<bool> unplaced( records.size(), false );
         for ( const std::size_t record : plan.UnplacedPrefabInstances )
+            unplaced[record] = true;
+        for ( const std::size_t record : plan.UnplacedLandscapeTiles )
             unplaced[record] = true;
 
         // Ordered by X then Z, so the plan does not depend on a hash map's iteration order.
@@ -776,8 +891,19 @@ namespace Desert::Core::Rules
                     continue;
 
                 points.clear();
-                points.emplace_back( world[member][3].x, world[member][3].z );
-                Detail::AppendInstancePoints( records[member], points );
+                if ( const auto& rect = tileRect[member]; rect.has_value() )
+                {
+                    // The four corners and NOT the entity's own position: nothing reads a tile's transform.
+                    points.emplace_back( rect->MinX, rect->MinZ );
+                    points.emplace_back( rect->MaxX, rect->MinZ );
+                    points.emplace_back( rect->MinX, rect->MaxZ );
+                    points.emplace_back( rect->MaxX, rect->MaxZ );
+                }
+                else
+                {
+                    points.emplace_back( world[member][3].x, world[member][3].z );
+                    Detail::AppendInstancePoints( records[member], points );
+                }
 
                 for ( const glm::vec2& point : points )
                 {

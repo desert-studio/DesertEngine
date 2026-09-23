@@ -34,6 +34,7 @@
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
 
 namespace Desert
 {
@@ -304,6 +305,51 @@ namespace Desert::ECS
         std::shared_ptr<Graphic::Image2D> SplatMap;
         std::vector<unsigned char>        SplatPixels; // size = SplatResolution^2 * 4, lazily allocated
         bool                              SplatDirty = false;
+    };
+
+    // THE LANDSCAPE ROOT (UE: ALandscape). Owns the frame every tile is placed by: the entity's own world
+    // position is sample (0, 0) of tile (0, 0), and these three say how far apart samples are, how tall a
+    // sample step is and how many quads a tile has. It owns NO heights and NO tile list — the tiles are the
+    // entities whose LandscapeTileComponent names this entity, and a count here would be a second answer
+    // (World/Landscape/LandscapeLayout.hpp says what is deliberately not stored).
+    //
+    // Rotation and scale of the root entity are not part of the frame: LandscapeFrame has no rotation, as
+    // the TES sampling it feeds has none. That is stated here rather than hidden behind a transform the
+    // tiles would silently ignore; a landscape that must turn is a new frame field, not a gizmo.
+    struct LandscapeComponent
+    {
+        uint32_t QuadsPerTile = World::Landscape::kLandscapeDefaultTileQuads; // UE section size, 7..255
+        float    SpacingCm    = World::Landscape::kLandscapeDefaultSpacingCm; // cm between neighbouring samples
+        float    ZScale       = World::Landscape::kLandscapeDefaultZScale;    // cm per local height unit
+    };
+
+    // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
+    //
+    // `Landscape` names the root BY ID AND NOT AS A PARENT, and that is the whole reason this is a field:
+    // a parent link is containment, and WorldPartition keeps a composite whole in one cell — every tile of
+    // a landscape would be one composite and one cell would grow to hold the entire terrain. As an
+    // OBSERVATION (WorldPartitionRules.hpp, kEntityReferences) each tile is its own composite, placed by its
+    // own rectangle; a tile whose root is not loaded simply has no frame yet.
+    //
+    // `HeightFile` is where the heights live — a DLHT blob beside the scene, never inside the .desce: a
+    // 64x64 tile is 8 KiB of samples and JSON would carry it as text, eleven times over. The path is
+    // written as the scene file spells its other files (relative to the working directory), and it is
+    // RE-DERIVED on every save from the destination (LandscapeTileFiles.hpp, LandscapeTileBlobPath), so "Save As"
+    // never writes one scene's heights into another's files.
+    //
+    // `Heights` is the loaded tile — the single source of truth for this tile's terrain (landscape
+    // analysis A2). Runtime state: it is not in the scene block, it is what the block's file decodes to.
+    // HELD BY VALUE, because the component is its one owner (PointerOwnership's Q1): a pointer here would
+    // answer a sharing question nobody has asked yet. A consumer that must keep the tile across frames
+    // (the GPU copy, LS-4) cannot keep an address into an entt pool anyway, and decides its own form then.
+    struct LandscapeTileComponent
+    {
+        Common::UUID Landscape = Common::UUID::Null(); // the root entity; null = no frame
+        int32_t      TileX     = 0;                    // which tile of the root's grid, either side of it
+        int32_t      TileZ     = 0;
+        std::string  HeightFile;
+
+        std::optional<World::Landscape::LandscapeTileData> Heights;
     };
 
     // One overridden material parameter (keyed by the shader's #pragma param name). vec4 stores any
