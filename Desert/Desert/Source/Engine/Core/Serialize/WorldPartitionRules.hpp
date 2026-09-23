@@ -553,7 +553,7 @@ namespace Desert::Core::Rules
     // root is not a part of the tile (see the register row): it is read, never joined.
     inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
     inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
-    inline constexpr std::string_view kTerrainSizeField = "Size";
+    inline constexpr std::string_view kTerrainSizeField       = "Size";
     // TerrainData::Size's default, for a block that omits it (same restatement as AbsentIsGlobal above).
     inline constexpr float kTerrainDefaultSize = 5000.0f;
 

@@ -1027,7 +1027,7 @@ TEST( WorldPartitionLandscape, TilesArePlacedByTheirRootsWorldFrame )
     std::vector<EntityData> records;
     records.push_back( Record( 8000, "World", { -2.0f * kTileCm, 0.0f, 0.0f } ) );
     records.push_back( LandscapeRootRecord( { kTileCm, 500.0f, 0.0f } ) );
-    Under( records[1], 8000 );                                // root at world (-6300, 500, 0)
+    Under( records[1], 8000 );                               // root at world (-6300, 500, 0)
     records.push_back( LandscapeTileRecord( 9001, -1, 0 ) ); // [-12600, -6300] x [0, 6300]
     records.push_back( LandscapeTileRecord( 9002, 0, -1 ) ); // [-6300, 0] x [-6300, 0]
 
@@ -1047,7 +1047,7 @@ TEST( WorldPartitionLandscape, ATileWithoutAPlaceableRootIsListedAndHasNoFootpri
 {
     std::vector<EntityData> records;
     records.push_back( LandscapeRootRecord( glm::vec3( 0.0f ), 64 ) );
-    records.push_back( LandscapeTileRecord( 9001, 0, 0 ) );             // root cannot be tiled
+    records.push_back( LandscapeTileRecord( 9001, 0, 0 ) );            // root cannot be tiled
     records.push_back( LandscapeTileRecord( 9002, 1, 0, 123456789 ) ); // root not in this file
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( kTileCm ) );
@@ -1405,14 +1405,14 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
                         root = other;
                 if ( root == kNoRecord || ( records[root].parent.has_value() && !records[root].parent->IsNull() ) )
                     continue;
-                const auto rootBlock = list[root].to_object().value().get( "Landscape" )->to_object().value();
-                const auto quads     = static_cast<float>( rootBlock.get( "QuadsPerTile" )->to_int64().value() );
-                const auto spacing   = static_cast<float>( rootBlock.get( "SpacingCm" )->to_double().value() );
-                const auto tileX     = static_cast<float>( block.get( "TileX" )->to_int64().value() );
-                const auto tileZ     = static_cast<float>( block.get( "TileZ" )->to_int64().value() );
-                const glm::vec3 origin = records[root].Translation.value_or( glm::vec3( 0.0f ) );
-                const float     minX   = origin.x + tileX * quads * spacing;
-                const float     minZ   = origin.z + tileZ * quads * spacing;
+                const auto      rootBlock = list[root].to_object().value().get( "Landscape" )->to_object().value();
+                const auto      quads = static_cast<float>( rootBlock.get( "QuadsPerTile" )->to_int64().value() );
+                const auto      spacing = static_cast<float>( rootBlock.get( "SpacingCm" )->to_double().value() );
+                const auto      tileX   = static_cast<float>( block.get( "TileX" )->to_int64().value() );
+                const auto      tileZ   = static_cast<float>( block.get( "TileZ" )->to_int64().value() );
+                const glm::vec3 origin  = records[root].Translation.value_or( glm::vec3( 0.0f ) );
+                const float     minX    = origin.x + tileX * quads * spacing;
+                const float     minZ    = origin.z + tileZ * quads * spacing;
                 for ( const float x : { minX, minX + quads * spacing } )
                     for ( const float z : { minZ, minZ + quads * spacing } )
                         Inside( record, x, z );

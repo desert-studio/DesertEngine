@@ -246,9 +246,12 @@ namespace Desert::Core::Serialize
         //
         // A failure is REPORTED, by file and reason, and the tile is left without heights; it does not take
         // the entity or the scene with it.
-        ComponentSerializer MakeLandscapeTile( std::string key )
+        //
+        // The key is spelled inside, in the MakeAuthored call, because that is the form the WorldPartition
+        // census reads the registry's keys by.
+        ComponentSerializer MakeLandscapeTile()
         {
-            ComponentSerializer s = MakeAuthored<ECS::LandscapeTileComponent>( std::move( key ) );
+            ComponentSerializer s = MakeAuthored<ECS::LandscapeTileComponent>( "LandscapeTile" );
             s.Deserialize = [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& )
             {
                 const auto object = g.to_object();
@@ -1609,7 +1612,7 @@ namespace Desert::Core::Serialize
         // The root is its frame and nothing else; the tile loads its heights from the file it names
         // (MakeLandscapeTile above). No version bump: two new block keys, and no scene carried them before.
         Register( MakeAuthored<ECS::LandscapeComponent>( "Landscape" ) );
-        Register( MakeLandscapeTile( "LandscapeTile" ) );
+        Register( MakeLandscapeTile() );
 
         // ---- Skybox (now FULLY REFLECTED via RA3) ----
         // No more hand-written SkyboxComponentSer / field mapping: the whole component reflects, and its
