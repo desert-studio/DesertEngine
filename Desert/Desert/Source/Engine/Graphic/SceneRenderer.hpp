@@ -194,7 +194,7 @@ namespace Desert::Graphic
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool                                                 castShadows );
 
-        void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, float intensity = 1.0f );
+        void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 
         // Selection-outline (Jump Flood) appearance. Editor-only: pushed each frame from EditorPreferences
         // (the outline is a viewport visualization, not a scene property, so it does not live in SceneSettings).

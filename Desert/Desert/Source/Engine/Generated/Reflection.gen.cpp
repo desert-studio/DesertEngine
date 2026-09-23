@@ -626,6 +626,8 @@ namespace
                 TypeBuilder( "SkyboxComponent", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "SkyboxHandle", .Type = FieldType::AssetHandle, .Offset = offsetof( T, SkyboxHandle ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SkyboxHandle )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Skybox", .Category = "Skybox", .IsAsset = true, .AssetType = "SkyboxAsset", .Hidden = true, } } )
                     .Field( FieldInfo{ .Name = "Intensity", .Type = FieldType::Float, .Offset = offsetof( T, Intensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Intensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Intensity", .Category = "Skybox", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10.0f, } } )
+                    .Field( FieldInfo{ .Name = "Rotation", .Type = FieldType::Float, .Offset = offsetof( T, Rotation ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Rotation )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Rotation", .Category = "Skybox", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 360.0f, } } )
+                    .Field( FieldInfo{ .Name = "Tint", .Type = FieldType::Vec3, .Offset = offsetof( T, Tint ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Tint )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Tint", .Category = "Skybox", .IsColor = true, } } )
                     .WithDefault<T>()
                     .Register();
             }

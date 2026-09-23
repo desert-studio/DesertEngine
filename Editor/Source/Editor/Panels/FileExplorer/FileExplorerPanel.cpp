@@ -2226,12 +2226,14 @@ namespace Desert::Editor
             // thumbnail/icon IS the hoverable/selectable/draggable item.
             const bool drewThumb =
                  entry->IsFile &&
-                 ( ( entry->Type == FileType::Texture && DrawTextureThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
+                 ( ( ( entry->Type == FileType::Texture || entry->Type == FileType::Cubemap ) &&
+                     DrawTextureThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
                    ( entry->Type == FileType::Material &&
                      DrawRenderedMaterialThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
                    ( entry->Type == FileType::Model &&
                      DrawRenderedMeshThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
-                   ( entry->Type == FileType::Cloud && DrawPaintedThumbnail( entry, ImVec2( thumb, thumb ) ) ) );
+                   ( ( entry->Type == FileType::Cloud || entry->Type == FileType::UITheme ) &&
+                     DrawPaintedThumbnail( entry, ImVec2( thumb, thumb ) ) ) );
             if ( !drewThumb )
             {
                 const ImVec4 col = entry->IsFile ? entry->FileTypeColour : ImVec4( 0.95f, 0.82f, 0.42f, 1.0f );
@@ -2466,13 +2468,13 @@ namespace Desert::Editor
         const ImVec2 thumbSize( 140.0f, 140.0f );
         ImGui::BeginGroup();
         bool drewThumb = false;
-        if ( entry->Type == FileType::Texture )
+        if ( entry->Type == FileType::Texture || entry->Type == FileType::Cubemap )
             drewThumb = DrawTextureThumbnail( entry, thumbSize );
         else if ( entry->Type == FileType::Material )
             drewThumb = DrawRenderedMaterialThumbnail( entry, thumbSize );
         else if ( entry->Type == FileType::Model )
             drewThumb = DrawRenderedMeshThumbnail( entry, thumbSize );
-        else if ( entry->Type == FileType::Cloud )
+        else if ( entry->Type == FileType::Cloud || entry->Type == FileType::UITheme )
             drewThumb = DrawPaintedThumbnail( entry, thumbSize );
         if ( !drewThumb )
         {

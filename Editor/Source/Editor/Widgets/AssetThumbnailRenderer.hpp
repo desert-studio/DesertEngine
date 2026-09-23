@@ -114,8 +114,16 @@ namespace Desert::Editor
         Assets::AssetHandle m_PendingHandle{ static_cast<uint64_t>( 0 ) };
         Assets::AssetHandle m_PendingMaterial{ static_cast<uint64_t>( 0 ) }; // mesh's linked material (0 = default)
         std::string         m_PendingPng;
-        bool                m_PendingIsMesh = false; // false = material preview, true = mesh
-        // How a MATERIAL capture is drawn. Meaningless while m_PendingIsMesh.
+        // WHAT IS BEING PHOTOGRAPHED. A named question rather than the bool this replaced: "not a mesh"
+        // is not the same statement as "a material", and the branch that reads it should not have to know
+        // that they coincide.
+        enum class Subject
+        {
+            Material,
+            Mesh
+        };
+        Subject m_PendingSubject = Subject::Material;
+        // How a MATERIAL capture is drawn. Meaningless unless m_PendingSubject is Material.
         ThumbnailSubject::Preview m_PendingPreview = ThumbnailSubject::Preview::Sphere;
         int                 m_Phase = 0; // 0 = idle, else = remaining render frames (capture on the last)
 

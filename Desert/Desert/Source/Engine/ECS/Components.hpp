@@ -2335,8 +2335,29 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Skybox" ), Category( "Skybox" ), Asset<SkyboxAsset>, Hidden )
         Assets::AssetHandle SkyboxHandle;
 
+        // ── THE AUTHORED LOOK ─────────────────────────────────────────────────────────────────────────
+        //
+        // All three reach the frame through ONE route: they are baked into the environment cubes
+        // (Graphic::SkyLook -> EnvironmentManager::Create), which is what the backdrop is drawn from AND
+        // what every lit surface reads its ambient and reflections out of. Intensity used to be applied
+        // to the sky pass alone and therefore lit nothing; that spelling is gone rather than kept beside
+        // the new one.
+        //
+        // THE PRICE IS A REBAKE, not a frame — SkyboxRenderer waits for the value to settle and then
+        // spends the same ~0.7 s the procedural sky spends when its sun moves. That is why none of these
+        // is a per-frame knob and why none of them is animated.
+
         PROPERTY( DisplayName( "Intensity" ), Category( "Skybox" ), Range( 0.0f, 10.0f ) )
         float Intensity = 1.0f;
+
+        // Degrees about the world's up axis. Answers the one thing an author cannot do to a panorama
+        // from outside: line the sun that is baked into the image up with the scene's directional light.
+        PROPERTY( DisplayName( "Rotation" ), Category( "Skybox" ), Range( 0.0f, 360.0f ) )
+        float Rotation = 0.0f;
+
+        // Linear grade over the whole sky. White is the file as authored.
+        PROPERTY( DisplayName( "Tint" ), Category( "Skybox" ), Color )
+        glm::vec3 Tint = glm::vec3( 1.0f );
     };
 
     // Scene-outliner grouping node: an otherwise-empty entity that acts as a FOLDER for organizing the

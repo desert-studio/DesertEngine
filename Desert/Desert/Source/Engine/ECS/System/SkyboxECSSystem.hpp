@@ -111,7 +111,10 @@ namespace Desert::ECS
             // previous LEVEL's sky behind the new world. Same rule, same reason, as the "no sky" command
             // above and as VolumetricCloudECSSystem's `present = false`.
             std::shared_ptr<Graphic::MaterialSkybox> cubemap;
-            float                                    cubemapIntensity = 1.0f;
+            // The authored look travels WITH the cubemap, as one value. Three loose floats is three
+            // chances for the next knob to reach the backdrop and miss the lighting — which is exactly
+            // what happened to the brightness this replaces (Graphic::SkyLook).
+            Graphic::SkyLook look{};
 
             if ( Graphic::ResolveSkyMode( atmosphereEnabled, /*hasHdrSkybox=*/true ) ==
                  Graphic::SkyMode::HdrCubemap )
@@ -128,12 +131,14 @@ namespace Desert::ECS
 
                     const auto& skybox = registry.get<ECS::SkyboxComponent>( skyboxEntity );
                     cubemap            = Runtime::ResourceRegistry::GetSkyboxService()->Get( skybox.SkyboxHandle );
-                    cubemapIntensity   = skybox.Intensity;
+                    look.Intensity       = skybox.Intensity;
+                    look.RotationDegrees = skybox.Rotation;
+                    look.Tint            = skybox.Tint;
                     break;
                 }
             }
 
-            renderCommandBuffer.Emplace<Graphic::Render::SkyboxCommand>( cubemap, cubemapIntensity );
+            renderCommandBuffer.Emplace<Graphic::Render::SkyboxCommand>( cubemap, look );
         }
 
     private:
