@@ -17,6 +17,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm> // std::clamp -- libc++ pulls it in transitively, MSVC does not (Windows Debug, 2026-09-23)
 #include <cmath>
 #include <fstream>
 #include <sstream>
