@@ -228,20 +228,43 @@ namespace Desert::Assets
 
     void AssetPreloader::PreloadSkyboxes()
     {
+        // SCANNED, NOT BAKED — and this is the same argument the three cloud stages below make, on the
+        // stage that turned out to be paying the most for it.
+        //
+        // The loop that stood here called `SkyboxService::Register` on every `.hdr` in the project,
+        // referenced or not. `Register` constructs a `MaterialSkybox`, whose constructor runs
+        // `EnvironmentManager::Create`: a panorama read, three compute chains and a GGX mip convolution,
+        // submitted and waited on. Its comment named the benefit it bought — "selecting an HDR skybox in
+        // the editor is instant (no per-select compute stall)" — and that benefit was real. What it did
+        // not say is what the eagerness cost when nobody selects anything: measured on this machine the
+        // stage was **320.0 ms of a 352.4 ms staged boot**, 90.8 % of it, for ONE 32 KB `.hdr`, and it
+        // held **109 391 360 B (104.3 MiB)** of device memory for the rest of the session. Without the
+        // loop the stage is 0.1 ms and the staged boot is 45.7 ms. A second, unreferenced `.hdr` of
+        // 8 MiB added 1119 ms and another 104 MiB on top, so the cost is per FILE and grows with the
+        // content browser rather than with what the project draws.
+        //
+        // WHAT IT COSTS BACK, named rather than waved away: the work does not disappear, it moves to the
+        // moment somebody asks for that skybox. Measured on SKY_HdrOrientation, whose scene DOES name
+        // the file, the bake now runs inside the scene load and takes **234 ms** there — the same work,
+        // paid once, by the scene that wanted it. Selecting an HDR skybox in the Details panel pays the
+        // same 234 ms the first time that asset is chosen in a session and nothing afterwards.
+        //
+        // NO NEW MECHANISM WAS NEEDED TO MAKE THIS SAFE, which is the difference from the cloud stages
+        // and the reason this is a deletion rather than a programme. Every site that binds a skybox
+        // handle already builds the environment itself if the service has not got one — the scene
+        // deserialiser (`ComponentRegistry.cpp`, `FromPath` for "SkyboxAsset"), the component's own
+        // picker and the material editor's cubemap slot, each with its own `WaitDeviceIdle` before the
+        // bake. So the work now happens once, for the asset somebody actually asked for, in the frame
+        // they asked in; the Skybox component's panel already draws "Preview starting — the cubemap is
+        // baking" for exactly that moment. The relation is pinned by
+        // `Desert/Tests/Editor/AssetPreloadCensus` so that removing one of those three on-demand
+        // registrations cannot quietly restore the old defect.
+        //
+        // THE SCAN ITSELF STAYS and is not vestigial: it mints every `.hdr`'s handle, which is what lets
+        // the picker's dropdown offer the project's skyboxes (it lists `FindAllByType<SkyboxAsset>()`
+        // from the asset manager, not the service) and what a scene's stored reference resolves against.
         ProcessAssetKind<SkyboxAsset>( Common::Content::ContentKind::Skybox, m_AssetManager,
                                        AssetPriority::Medium );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            for ( const auto& [handle, skyboxAsset] : manager->FindAllByType<Assets::SkyboxAsset>() )
-            {
-                // Eagerly build + cache each skybox's IBL (radiance / irradiance / prefilter compute) at
-                // load — Register() constructs the MaterialSkybox which runs the compute once and caches
-                // it. Then selecting an HDR skybox in the editor is instant (no per-select compute stall).
-                // Runs after PreloadShaders (the compute shaders must be registered first).
-                Runtime::ResourceRegistry::GetSkyboxService()->Register( skyboxAsset );
-            }
-        }
     }
 
     void AssetPreloader::PreloadCloudNoiseVolumes()
