@@ -186,14 +186,17 @@ TEST( CameraGizmoShape, DepthHasAFloorAtZeroDistance )
 
 // ── ORIENTATION ─────────────────────────────────────────────────────────────────────────────────
 
-// Roll is invisible without the up marker: a camera rotated 180 degrees about its own forward axis
-// has the same position, the same aim and the same rectangle, and only the marker separates the two.
-// The apex and the rectangle's centre are asserted UNCHANGED in the same test — otherwise a build
-// that simply rotated the whole shape would pass the marker half.
-TEST( CameraGizmoShape, UpMarkerFollowsRoll )
+// Roll is read off the FRAME, not off a marker. The rectangle carries the viewport's aspect, so it is
+// not square, and a 90-degree roll about the camera's own forward axis turns its long edge from
+// horizontal to vertical while the apex and the rectangle's centre stay put. The centre and apex are
+// asserted UNCHANGED in the same test, otherwise a build that moved the whole shape would pass. There
+// used to be an "up marker" triangle above the top edge; it was removed (the owner read it as a stray
+// shape inside the camera's line of sight, and UE draws none), and with it the ability to tell a
+// 180-degree roll from none — a trade UE makes too.
+TEST( CameraGizmoShape, RollTurnsTheFrame )
 {
     const glm::mat4 upright = CameraAt( glm::vec3( 0.0f ) );
-    const glm::mat4 rolled  = glm::rotate( upright, glm::pi<float>(), glm::vec3( 0.0f, 0.0f, 1.0f ) );
+    const glm::mat4 rolled  = glm::rotate( upright, glm::half_pi<float>(), glm::vec3( 0.0f, 0.0f, 1.0f ) );
     const glm::vec3 viewer( 0.0f, 0.0f, 900.0f );
 
     const auto a = BuildCameraFrustumGizmo( upright, kAspect, TanHalf( 45.0f ), kNearPlane, kFarPlane, viewer );
@@ -202,11 +205,13 @@ TEST( CameraGizmoShape, UpMarkerFollowsRoll )
     EXPECT_NEAR( glm::length( a.Apex - b.Apex ), 0.0f, 1.0e-3f );
     EXPECT_NEAR( glm::length( FarCentre( a ) - FarCentre( b ) ), 0.0f, 1.0e-2f );
 
-    // The marker's tip is above the rectangle's centre before the roll and below it after.
-    EXPECT_GT( a.UpMarker[2].y - FarCentre( a ).y, 0.0f );
-    EXPECT_LT( b.UpMarker[2].y - FarCentre( b ).y, 0.0f );
-    // And it clears the top edge, so it cannot be mistaken for a corner.
-    EXPECT_GT( a.UpMarker[2].y - a.FarCorners[3].y, 0.0f );
+    // The long (bottom) edge: along world X before the roll, along world Y after it.
+    const glm::vec3 edgeA = a.FarCorners[1] - a.FarCorners[0];
+    const glm::vec3 edgeB = b.FarCorners[1] - b.FarCorners[0];
+    EXPECT_GT( std::abs( edgeA.x ), 10.0f * std::abs( edgeA.y ) );
+    EXPECT_GT( std::abs( edgeB.y ), 10.0f * std::abs( edgeB.x ) );
+    // The frame is not square, which is the only reason the turn is visible at all.
+    EXPECT_GT( FarHalfWidth( a ), 1.5f * FarHalfHeight( a ) );
 }
 
 // The shipped scenes author cameras at scale 100 (Desert_Sandbox.desce). Scale is not one of a

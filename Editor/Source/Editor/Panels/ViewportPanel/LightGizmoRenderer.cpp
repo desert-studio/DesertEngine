@@ -903,8 +903,6 @@ namespace Desert::Editor
                 line( frustum.Apex, frustum.FarCorners[i] ); // the edges, FROM the camera itself
                 line( frustum.FarCorners[i], frustum.FarCorners[( i + 1 ) % 4] ); // the rectangle
             }
-            for ( int i = 0; i < 3; ++i )
-                line( frustum.UpMarker[i], frustum.UpMarker[( i + 1 ) % 3] ); // which way is up
 
             // Billboard icon at the camera position.
             glm::vec2 screenPos;
