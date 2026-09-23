@@ -105,10 +105,8 @@ namespace Desert::Graphic::Render2D
             const unsigned char           whitePixel[4] = { 255, 255, 255, 255 };
             Core::Formats::ImagePixelData data          = std::vector<unsigned char>( whitePixel, whitePixel + 4 );
 
-            TextureSpecification texSpec;
-            texSpec.GenerateMips = false;
-            auto texResult       = Texture2D::Create( texSpec, "Render2D_White", 1, 1,
-                                                      Core::Formats::ImageFormat::RGBA8F, std::move( data ) );
+            auto texResult = Texture2D::Create( "Render2D_White", 1, 1, Core::Formats::ImageFormat::RGBA8F,
+                                                std::move( data ) );
             if ( !texResult )
                 return Common::MakeError( "Render2D::Init: failed to create white texture" );
             m_WhiteTexture = texResult.ExtractValue();

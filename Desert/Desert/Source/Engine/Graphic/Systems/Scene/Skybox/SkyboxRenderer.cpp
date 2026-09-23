@@ -191,7 +191,7 @@ namespace Desert::Graphic::System
              .Usage      = Core::Formats::Image2DUsage::Image2D,
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
         };
-        m_TransmittanceLut = Image2D::Create( transmittanceSpec, nullptr );
+        m_TransmittanceLut = Image2D::Create( transmittanceSpec );
 
         const Core::Formats::Image2DSpecification multiScatterSpec{
              .Tag        = "SkyMultiScatterLut",
@@ -202,7 +202,7 @@ namespace Desert::Graphic::System
              .Usage      = Core::Formats::Image2DUsage::Image2D,
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
         };
-        m_MultiScatterLut = Image2D::Create( multiScatterSpec, nullptr );
+        m_MultiScatterLut = Image2D::Create( multiScatterSpec );
 
         if ( !m_TransmittanceLut || !m_MultiScatterLut )
         {
@@ -287,7 +287,7 @@ namespace Desert::Graphic::System
              .Usage      = Core::Formats::Image2DUsage::Image2D,
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
         };
-        m_SkyViewLut = Image2D::Create( skyViewSpec, nullptr );
+        m_SkyViewLut = Image2D::Create( skyViewSpec );
 
         if ( !m_SkyViewLut )
         {
@@ -406,7 +406,7 @@ namespace Desert::Graphic::System
              .Usage      = Core::Formats::Image2DUsage::Image2D,
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
         };
-        m_DistantLight = Image2D::Create( distantSpec, nullptr );
+        m_DistantLight = Image2D::Create( distantSpec );
 
         if ( !m_DistantLight )
         {

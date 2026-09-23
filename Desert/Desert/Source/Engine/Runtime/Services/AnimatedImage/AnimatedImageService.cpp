@@ -41,15 +41,12 @@ namespace Desert::Runtime
                 anim.Frames.reserve( gif.FrameCount );
                 anim.CumEndMs.reserve( gif.FrameCount );
 
-                Graphic::TextureSpecification spec;
-                spec.GenerateMips = false; // per-frame textures: single level, uploaded once
-
                 for ( uint32_t i = 0; i < gif.FrameCount; ++i )
                 {
                     std::vector<unsigned char> pixels( gif.Data.begin() + i * frameBytes,
                                                        gif.Data.begin() + ( i + 1 ) * frameBytes );
                     auto                       texResult =
-                         Graphic::Texture2D::Create( spec, "GIF frame", gif.Width, gif.Height,
+                         Graphic::Texture2D::Create( "GIF frame", gif.Width, gif.Height,
                                                      Core::Formats::ImageFormat::RGBA8F, std::move( pixels ) );
                     // A BARE `continue` STOOD HERE, AND IT WAS NOT A SKIP — IT WAS A DIFFERENT
                     // ANIMATION. The two arrays below are the animation's timeline: dropping a frame

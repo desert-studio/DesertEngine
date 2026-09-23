@@ -108,7 +108,7 @@ namespace Desert::Graphic::System
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::ImageProperties::Sample,
             };
-            m_AreaTex = Image2D::Create( spec, nullptr );
+            m_AreaTex = Image2D::Create( spec );
         }
 
         // SearchTex: R8 -> RGBA8 (value in .r).
@@ -129,7 +129,7 @@ namespace Desert::Graphic::System
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::ImageProperties::Sample,
             };
-            m_SearchTex = Image2D::Create( spec, nullptr );
+            m_SearchTex = Image2D::Create( spec );
         }
     }
 

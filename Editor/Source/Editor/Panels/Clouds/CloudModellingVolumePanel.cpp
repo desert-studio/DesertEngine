@@ -643,7 +643,7 @@ namespace Desert::Editor
              .Properties = Core::Formats::Sample,
         };
 
-        m_SliceImage       = Graphic::Image2D::Create( spec, nullptr );
+        m_SliceImage       = Graphic::Image2D::Create( spec );
         m_SliceImageWidth  = slice.Width;
         m_SliceImageHeight = slice.Height;
 

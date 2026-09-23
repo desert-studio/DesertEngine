@@ -764,7 +764,7 @@ namespace Desert::Editor
              .Properties = Core::Formats::Sample,
         };
 
-        m_CanvasImage = Graphic::Image2D::Create( spec, nullptr );
+        m_CanvasImage = Graphic::Image2D::Create( spec );
         if ( !m_CanvasImage )
         {
             m_Status        = "The canvas image could not be created on the device.";
@@ -1367,7 +1367,7 @@ namespace Desert::Editor
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Sample,
             };
-            m_PaintingImage = Graphic::Image2D::Create( spec, nullptr );
+            m_PaintingImage = Graphic::Image2D::Create( spec );
         }
 
         // ---- the sky pane ------------------------------------------------------------------------
@@ -1409,7 +1409,7 @@ namespace Desert::Editor
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Sample,
             };
-            m_SkyImage = Graphic::Image2D::Create( spec, nullptr );
+            m_SkyImage = Graphic::Image2D::Create( spec );
         }
 
         if ( !m_PaintingImage || !m_SkyImage )

@@ -219,7 +219,7 @@ namespace Desert::Runtime
                                                      .Usage      = Core::Formats::Image2DUsage::Image2D,
                                                      .Properties = Core::Formats::Sample };
 
-        auto atlas = Graphic::Image2D::Create( spec, nullptr );
+        auto atlas = Graphic::Image2D::Create( spec );
         if ( !atlas )
         {
             LOG_ERROR( "[IconService] GPU upload failed for the {}x{} icon atlas", dim, dim );

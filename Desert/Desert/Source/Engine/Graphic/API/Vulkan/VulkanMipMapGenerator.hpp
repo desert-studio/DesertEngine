@@ -8,12 +8,6 @@ namespace Desert::Graphic::API::Vulkan
 {
     // Compute shader
 
-    class VulkanMipMap2DGeneratorCS : public MipMap2DGenerator
-    {
-    public:
-        virtual Common::BoolResultStr GenerateMips( const std::shared_ptr<Image2D>& image ) const override;
-    };
-
     class VulkanMipMapCubeGeneratorCS : public MipMapCubeGenerator
     {
     public:
@@ -21,12 +15,6 @@ namespace Desert::Graphic::API::Vulkan
     };
 
     // Transfer ops
-
-    class VulkanMipMap2DGeneratorTO : public MipMap2DGenerator
-    {
-    public:
-        virtual Common::BoolResultStr GenerateMips( const std::shared_ptr<Image2D>& image ) const override;
-    };
 
     class VulkanMipMapCubeGeneratorTO : public MipMapCubeGenerator
     {

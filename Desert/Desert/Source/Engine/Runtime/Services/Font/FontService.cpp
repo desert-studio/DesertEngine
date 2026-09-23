@@ -91,7 +91,7 @@ namespace Desert::Runtime
              .Usage      = Core::Formats::Image2DUsage::Image2D,
              .Properties = Core::Formats::Sample };
 
-        auto atlas = Graphic::Image2D::Create( spec, nullptr );
+        auto atlas = Graphic::Image2D::Create( spec );
         if ( !atlas )
         {
             LOG_ERROR( "[FontService] GPU atlas upload failed for '{}'", ttfPath );

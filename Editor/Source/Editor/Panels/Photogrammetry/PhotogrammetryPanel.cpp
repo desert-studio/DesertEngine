@@ -329,7 +329,7 @@ namespace Desert::Editor
                      .Usage      = Core::Formats::Image2DUsage::Image2D,
                      .Properties = Core::Formats::Sample,
                 };
-                m_CameraImage = Graphic::Image2D::Create( spec, nullptr );
+                m_CameraImage = Graphic::Image2D::Create( spec );
 
                 // Real face-landmark tracking (dlib) on the same throttled cadence, if a model is loaded.
                 if ( m_FaceTracker && m_FaceTracker->Ready() )

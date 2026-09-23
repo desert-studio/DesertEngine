@@ -75,7 +75,7 @@ namespace Desert::Graphic
              .Usage      = Core::Formats::Image2DUsage::Image2D,
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
         };
-        auto output = Image2D::Create( outputInfo, nullptr );
+        auto output = Image2D::Create( outputInfo );
         if ( !output )
             return nullptr;
 

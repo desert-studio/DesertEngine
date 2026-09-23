@@ -68,15 +68,12 @@ namespace Desert::Graphic
             // there is no file to reload it from. See Engine/Graphic/ResourceLedger.hpp.
             const ResourceAttributionScope owned( ResourceOwner::Device );
 
-            Graphic::TextureSpecification spec;
-            spec.GenerateMips = false;
-
             constexpr uint32_t kLutSize    = 256;
             constexpr uint32_t kLutSamples = 512;
             // A failed LUT used to become a null texture here and travel on: IBL specular then sampled
             // nothing for the whole session, which is the same silent degradation the comment above
             // describes for the old on-disk BRDF_LUT.tga. Init can say so — it returns a result.
-            auto lut = Texture2D::Create( spec, "BRDF_LUT (generated)", kLutSize, kLutSize,
+            auto lut = Texture2D::Create( "BRDF_LUT (generated)", kLutSize, kLutSize,
                                           Core::Formats::ImageFormat::RGBA32F,
                                           GenerateBRDFLutRGBA32F( kLutSize, kLutSamples ) );
             if ( !lut )

@@ -337,14 +337,12 @@ namespace Desert::Editor
             if ( TextureSourceFormatRank( ext ) == kTextureSourceExtensionCount )
                 continue;
 
-            // AN EXTENDED-RANGE SOURCE IS A PANORAMA HERE, NOT A TEXTURE. `Assets/Textures/HDR/` holds
-            // skybox sources, which the environment path reads as floats and bakes; this cook forces
-            // RGBA8, so it would write a clamped copy of a file whose whole point is its range. The
-            // question is asked of TextureSourceFormats.hpp rather than answered with two literals --
-            // two copies of that list have already drifted once, and the census test exists for it.
-            if ( IsExtendedRangeSource( ext ) )
-                continue;
-
+            // AN EXTENDED-RANGE SOURCE IS COOKED LIKE EVERY OTHER, and it used to be skipped here on the
+            // claim that "this cook forces RGBA8". It does not: `TextureImporter` reads an `.hdr` with
+            // `stbi_loadf` and writes RGBA32F, and it never offers a float source a block format. The
+            // skip is what kept the sky panorama's decoder in the RUNTIME — the environment read the
+            // `.hdr` itself because nothing else had ever turned it into a `.tex`. It reads the cooked
+            // panorama now, so this pass is the panorama's producer and must not step over it.
             (void)m_TextureImporter->Import( entry.path() );
         }
     }

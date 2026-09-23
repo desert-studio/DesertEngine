@@ -71,7 +71,7 @@ namespace Desert::Graphic
         // them. See Engine/Graphic/ResourceLedger.hpp.
         const ResourceAttributionScope owned( ResourceOwner::Device );
 
-        auto image = Image2D::Create( spec, nullptr );
+        auto image = Image2D::Create( spec );
         if ( !image )
         {
             // DC §1.4: the caller gets nullptr and the log says which name failed. Handing back another

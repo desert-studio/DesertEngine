@@ -500,10 +500,10 @@ namespace Desert::Editor
         //
         // ONLY AN 8-BIT COLOUR SOURCE IS OFFERED A BLOCK FORMAT AT ALL, and the guard is written against
         // the SOURCE FORMAT rather than against "the cook found some block format for it". HDR 2D
-        // sources are rare here (the one in the tree is a skybox, which does not come through this
-        // importer), and BC6H's measured win is the baked environment cube, where it is applied —
-        // `EnvironmentBake.cpp`. A second BC6H call site here would be an encode with no rendered frame
-        // to weigh it against, and `MeasureLdrChain` would grade it by walking two float buffers as
+        // sources are rare here (the one in the tree is the sky panorama, which the environment only
+        // ever reads at level 0 as the INPUT of its bake), and BC6H's measured win is the baked environment cube,
+        // where it is applied — `EnvironmentBake.cpp`. A second BC6H call site here would be an encode with no
+        // rendered frame to weigh it against, and `MeasureLdrChain` would grade it by walking two float buffers as
         // bytes, which is not a measurement of anything. `BlockPolicyForIntent` refuses an
         // extended-range source by name as well; that is the braces to this belt, and both are here
         // because the authored field made the old spelling of this guard (`blockFormat == BC7_UNORM`)

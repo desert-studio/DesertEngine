@@ -159,7 +159,7 @@ namespace Desert::Graphic::System
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
             };
 
-            m_Image = Image2D::Create( spec, nullptr );
+            m_Image = Image2D::Create( spec );
             return m_Image != nullptr;
         }
 

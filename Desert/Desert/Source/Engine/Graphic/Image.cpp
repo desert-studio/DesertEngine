@@ -7,8 +7,7 @@
 namespace Desert::Graphic
 {
 
-    std::shared_ptr<Image2D> Image2D::Create( const Core::Formats::Image2DSpecification& spec,
-                                              const std::unique_ptr<MipMap2DGenerator>&  mipGenerator )
+    std::shared_ptr<Image2D> Image2D::Create( const Core::Formats::Image2DSpecification& spec )
     {
         switch ( RendererAPI::GetAPIType() )
         {
@@ -29,11 +28,6 @@ namespace Desert::Graphic
                     LOG_ERROR( "Image2D::Create: image {}x{} failed: {}", spec.Width, spec.Height,
                                result.GetError() );
                     return nullptr;
-                }
-
-                if ( spec.Mips > 1 && mipGenerator )
-                {
-                    mipGenerator->GenerateMips( image );
                 }
 
                 // THE SIZE IS RECORDED BY THE BACKEND'S ALLOCATION, NOT HERE. It used to be computed from

@@ -5,6 +5,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Constants.hpp>
 
+#include <Engine/Assets/CookedTexturePath.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 
@@ -94,12 +95,46 @@ namespace Desert::Graphic
                fmt::format( "{:016x}.tex", Fnv1a( parts, sizeof( parts ) ) );
     }
 
-    uint64_t EnvironmentSourceSignature( const std::filesystem::path& hdr )
+    Common::ResultStr<CookedPanorama> FindCookedPanorama( const std::filesystem::path& hdr )
     {
-        const auto bytes = Common::Utils::FileSystem::ReadFileContent( hdr );
-        if ( !bytes.IsSuccess() )
-            return 0;
-        return Ser::SourceSignature( bytes.GetValue().data(), bytes.GetValue().size() );
+        CookedPanorama panorama;
+        panorama.Path = Assets::CookedTexturePath( hdr, ".tex" );
+
+        auto prefix =
+             Common::Utils::FileSystem::ReadFileContentPrefix( panorama.Path, Ser::kTextureBinaryPrefixBytes );
+        if ( !prefix.IsSuccess() )
+        {
+            return Common::MakeFormattedError<CookedPanorama>(
+                 "'{}' has no cooked panorama at '{}' ({}). The source is cooked by the editor's texture "
+                 "pass; the runtime reads only the cooked form.",
+                 hdr.string(), panorama.Path.string(), prefix.GetError() );
+        }
+
+        // THE ONE-READ COMMON CASE, AND THE SECOND READ WHEN IT IS NOT. A metadata block longer than the
+        // prefix window (a very long source key) is legal; the header says how long it is.
+        const uint64_t needed = Ser::TextureBinaryMetadataBytes( prefix.GetValue() );
+        if ( needed > prefix.GetValue().size() )
+        {
+            prefix = Common::Utils::FileSystem::ReadFileContentPrefix( panorama.Path,
+                                                                       static_cast<std::size_t>( needed ) );
+            if ( !prefix.IsSuccess() )
+                return Common::MakeError<CookedPanorama>( prefix.GetError() );
+        }
+
+        const auto header = Ser::DecodeTextureHeader( prefix.GetValue(), panorama.Path.string() );
+        if ( !header.IsSuccess() )
+            return Common::MakeError<CookedPanorama>( header.GetError() );
+
+        // A ZERO SIGNATURE IS NOT A SIGNATURE. It is what the cache key would be built from, and a key
+        // built from "unknown" would let every panorama that lacks one share a single cache entry.
+        if ( header.GetValue().SourceContentHash == 0 )
+        {
+            return Common::MakeFormattedError<CookedPanorama>(
+                 "the cooked panorama '{}' records no source signature, so its bake cannot be keyed.",
+                 panorama.Path.string() );
+        }
+        panorama.SourceSignature = header.GetValue().SourceContentHash;
+        return Common::MakeSuccess( std::move( panorama ) );
     }
 
     Common::ResultStr<std::shared_ptr<ImageCube>>

@@ -23,27 +23,8 @@ namespace Desert::Graphic
         // than five claims — see Engine/Graphic/ResourceLedger.hpp on ResourceAttributionScope.
         const ResourceAttributionScope owned( ResourceOwner::Environment );
 
-        if ( Common::Utils::FileSystem::GetFileExtension( skyboxAsset->GetMetadata().Filepath ) ==
-             ".hdr" ) // TODO: move the logic to the SkyboxAsset and raw data
+        if ( Common::Utils::FileSystem::GetFileExtension( skyboxAsset->GetMetadata().Filepath ) == ".hdr" )
         {
-            // The asset's metadata carries the FULL path (registration owns path composition) — the
-            // engine draw layer never glues directory prefixes onto asset paths.
-            // A PANORAMA THAT DID NOT LOAD USED TO BE DEREFERENCED ON THE NEXT LINE. `ExtractValue()`
-            // on a failed Create handed back a null shared_ptr in silence, and
-            // `imagePanorama->GetImageHandle()` below is an unconditional dereference — so a skybox
-            // whose .hdr was missing, unreadable or malformed took the process down rather than
-            // leaving the scene without an environment. An empty Environment is a shape this function
-            // already produces (the non-.hdr return below), so the caller needs nothing new.
-            auto panorama = Texture2D::Create( { true }, skyboxAsset->GetMetadata().Filepath );
-            if ( !panorama )
-            {
-                LOG_ERROR( "[SceneEnvironment] the skybox panorama '{}' did not load, so this scene gets "
-                           "NO environment (no radiance, no irradiance, no prefiltered specular): {}",
-                           skyboxAsset->GetMetadata().Filepath.string(), panorama.GetError() );
-                return {};
-            }
-            std::shared_ptr<Texture2D> imagePanorama = panorama.ExtractValue();
-
             auto* imageService = Runtime::ResourceRegistry::GetImageService();
 
             // ── THE BAKED FORM, IF THERE IS ONE ──────────────────────────────────────────────────
@@ -60,11 +41,31 @@ namespace Desert::Graphic
             // THE ONE NUMBER THIS WHOLE CHANGE IS ABOUT, PRINTED BY THE CODE THAT PAYS IT. A whole-frame
             // delta cannot see it — the bake is synchronous inside a scene load — and a figure quoted
             // from a document is a figure that was true on a different tree.
-            const auto     startedAt       = std::chrono::steady_clock::now();
-            const auto&    meta            = skyboxAsset->GetMetadata();
-            const uint64_t sourceSignature = EnvironmentSourceSignature( meta.Filepath );
-            const uint64_t radianceBake    = EnvironmentBakeSignature( look, BakedEnvironmentCube::Radiance,
-                                                                       kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
+            const auto  startedAt = std::chrono::steady_clock::now();
+            const auto& meta      = skyboxAsset->GetMetadata();
+
+            // THE PANORAMA IS A COOKED TEXTURE, AND IT IS ASKED FOR BEFORE ANYTHING IS DECODED. This used
+            // to begin with `Texture2D::Create( {true}, <the .hdr> )`, which decoded the SOURCE through
+            // stb ahead of the cache check below: on a hit that decode was thrown away unread, and on a
+            // miss it was the runtime holding an image decoder. The cook (`TextureImporter`, run over
+            // `Assets/Textures/` at every editor start) writes the panorama's `.tex` and records the
+            // source signature in its header, so the key below needs one prefix read and no source.
+            //
+            // A MISSING COOK IS AN EMPTY ENVIRONMENT, LOUDLY — the same shape a panorama that did not
+            // load has always produced here, so the caller needs nothing new.
+            auto cooked = FindCookedPanorama( meta.Filepath );
+            if ( !cooked )
+            {
+                LOG_ERROR( "[SceneEnvironment] the skybox '{}' gets NO environment (no radiance, no irradiance, "
+                           "no prefiltered specular): {}",
+                           meta.Filepath.string(), cooked.GetError() );
+                return {};
+            }
+            const std::filesystem::path panoramaPath    = cooked.GetValue().Path;
+            const uint64_t              sourceSignature = cooked.GetValue().SourceSignature;
+
+            const uint64_t radianceBake = EnvironmentBakeSignature( look, BakedEnvironmentCube::Radiance,
+                                                                    kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
             const uint64_t irradianceBake =
                  EnvironmentBakeSignature( look, BakedEnvironmentCube::Irradiance, kSkyEnvIrradianceFaceSize, 1u );
             const uint64_t prefilterBake = EnvironmentBakeSignature(
@@ -77,7 +78,6 @@ namespace Desert::Graphic
             // ALL THREE OR NONE. Two cubes off the disk and one recomputed is a legal-looking
             // environment whose halves came from different bakes; the cheapest way to make that
             // impossible is to treat the trio as the unit it is.
-            if ( sourceSignature != 0 )
             {
                 auto cachedRadiance =
                      LoadBakedEnvironmentCube( radiancePath, "EnvRadiance", kSkyEnvCubeFaceSize,
@@ -93,7 +93,7 @@ namespace Desert::Graphic
                 {
                     LOG_INFO(
                          "[SceneEnvironment] '{}' was loaded from its baked IBL chain in {:.1f} ms; the "
-                         "three compute passes did not run.",
+                         "panorama was not read and the three compute passes did not run.",
                          meta.Filepath.string(),
                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt )
                               .count() );
@@ -113,6 +113,20 @@ namespace Desert::Graphic
                           cachedPrefilter.IsSuccess() ? std::string( "prefilter ready" )
                                                       : cachedPrefilter.GetError() );
             }
+
+            // ONLY A MISS READS THE PIXELS, and it reads them out of the container as they are. The bake
+            // samples level 0 alone (`PanoramaToCubemap` in a compute stage, `DiffuseIrradiance` with an
+            // explicit LOD 0), so the chain the cook built on the CPU and the one the old path blitted on
+            // the GPU cannot disagree anywhere the bake looks.
+            auto panorama = Texture2D::CreateFromCooked( panoramaPath );
+            if ( !panorama )
+            {
+                LOG_ERROR( "[SceneEnvironment] the cooked panorama '{}' of skybox '{}' did not load, so this "
+                           "scene gets NO environment: {}",
+                           panoramaPath.string(), meta.Filepath.string(), panorama.GetError() );
+                return {};
+            }
+            std::shared_ptr<Texture2D> imagePanorama = panorama.ExtractValue();
 
             // 1) Radiance cube (sharp environment) — also the source the prefilter convolves.
             auto        radianceCube   = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle(), look );
@@ -135,7 +149,6 @@ namespace Desert::Graphic
             // is cached is exactly what this run computed rather than a second computation of it. A
             // failure here costs the cache and nothing else: the environment in hand is complete, and
             // the next load simply bakes again with the reason in the log.
-            if ( sourceSignature != 0 )
             {
                 const std::string sourceKey = Common::AssetHandle::StableKeyForPath( meta.Filepath );
                 const struct

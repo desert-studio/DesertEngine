@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Constants.hpp>
+#include <Engine/Assets/CookedTexturePath.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -43,26 +44,12 @@ namespace Desert::Editor::CookPaths
         return result;
     }
 
-    // Source texture -> Cooked/Textures/<rel>.<ext>. Textures under Resources/Assets/Textures keep their
-    // layout (relative to that dir, so handles/paths are stable); textures ANYWHERE ELSE under Resources/
-    // (e.g. a pack's Assets/Collections/<pack>/textures/) map relative to Resources/ instead — otherwise the
-    // relative path escapes Cooked/Textures with "../" and the cook silently fails.
+    // Source texture -> Cooked/Textures/<rel>.<ext>. THE FORMULA IS THE ENGINE'S
+    // (`Engine/Assets/CookedTexturePath.hpp`): the runtime has to find a cooked sky panorama from the
+    // `.hdr` name a SkyboxAsset holds, and two copies of this ladder are the drift this file exists to end.
     inline std::filesystem::path CookedTexture( const std::filesystem::path& source, const std::string& ext )
     {
-        namespace fs = std::filesystem;
-
-        fs::path   rel      = fs::relative( source, Common::Constants::Path::TEXTUREDIR_PATH );
-        const bool underTex = !rel.empty() && rel.begin()->string() != "..";
-        if ( !underTex )
-        {
-            const fs::path relRes = fs::relative( source, Common::Constants::Path::RESOURCE_PATH );
-            if ( !relRes.empty() && relRes.begin()->string() != ".." )
-                rel = relRes;
-        }
-
-        fs::path result = Common::Constants::Path::TEXTURE_PATH_COOKED / rel;
-        result.replace_extension( ext );
-        return result;
+        return ::Desert::Assets::CookedTexturePath( source, ext );
     }
 
     // A MESH'S IDENTITY, WITH ITS DIRECTORY IN IT: the cooked path relative to Cooked/Meshes, extension
