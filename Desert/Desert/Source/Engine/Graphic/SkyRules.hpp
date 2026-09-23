@@ -229,7 +229,12 @@ namespace Desert::Graphic
     inline constexpr uint32_t kSkyEnvPrefilterMips = Core::Formats::MipChainLength( kSkyEnvPrefilterFaceSize );
     static_assert( kSkyEnvRadianceMips <= Core::Formats::MipChainLength( kSkyEnvCubeFaceSize ),
                    "radiance mip count exceeds what its own face supports" );
-    inline constexpr uint32_t kSkyEnvBytesPerPixel = 16; // RGBA32F — Image::GetBytesPerPixel
+    // The format every one of the three cubes is created at — `ComputeImages::ProccessForImageCube` and
+    // `ProccessForImageCubeMips` both ask for RGBA32F. It is the FORMAT that is written down here, not
+    // its size: `kSkyEnvBytesPerPixel = 16` used to sit on this line, a hand-typed copy of
+    // `GetBytesPerPixel( RGBA32F )` that nothing made agree with it and that would have gone on
+    // answering 16 on the day the cubes moved to RGBA16F.
+    inline constexpr Core::Formats::ImageFormat kSkyEnvCubeFormat = Core::Formats::ImageFormat::RGBA32F;
 
     struct SkyEnvironmentSize
     {
@@ -268,15 +273,13 @@ namespace Desert::Graphic
     }
 
     // Bytes a cube of @p faceSize with @p mips levels occupies (6 faces, halved per mip, RGBA32F).
+    // THE SIX AND THE SIXTEEN ARE BOTH GONE FROM THIS FUNCTION. It used to open-code both, which made it
+    // the only place in the engine that knew what a cube costs and the only place that could be wrong
+    // about it on its own. Both now come from `Core/Formats/ImageFormat.hpp`, beside the format table
+    // that has to answer for them.
     inline uint64_t SkyEnvironmentCubeBytes( uint32_t faceSize, uint32_t mips )
     {
-        uint64_t bytes = 0;
-        for ( uint32_t mip = 0; mip < mips; ++mip )
-        {
-            const uint64_t side = std::max( 1u, faceSize >> mip );
-            bytes += 6ull * side * side * kSkyEnvBytesPerPixel;
-        }
-        return bytes;
+        return Core::Formats::CalculateCubeImageSize( faceSize, mips, kSkyEnvCubeFormat );
     }
 
     struct SkyEnvironmentCost
@@ -299,7 +302,7 @@ namespace Desert::Graphic
         const SkyEnvironmentSize size = EnvironmentPanoramaSize( resolution );
 
         SkyEnvironmentCost cost;
-        cost.PanoramaBytes = static_cast<uint64_t>( size.Width ) * size.Height * kSkyEnvBytesPerPixel;
+        cost.PanoramaBytes = Core::Formats::CalculateImageSize( size.Width, size.Height, kSkyEnvCubeFormat );
         cost.CubeBytes     = SkyEnvironmentCubeBytes( kSkyEnvCubeFaceSize, kSkyEnvRadianceMips ) +
                          SkyEnvironmentCubeBytes( kSkyEnvIrradianceFaceSize, 1u ) +
                          SkyEnvironmentCubeBytes( kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );

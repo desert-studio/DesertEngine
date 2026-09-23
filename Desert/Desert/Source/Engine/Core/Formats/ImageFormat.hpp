@@ -180,6 +180,44 @@ namespace Desert::Core::Formats
         return static_cast<uint64_t>( width ) * height * depth * GetBytesPerPixel( format );
     }
 
+    // ── THE SECOND MULTIPLIER, AND WHY IT IS A SEPARATE NAME ───────────────────────────────────────
+    //
+    // `CalculateImageSize` answers for ONE image. Everything above assumed that was the only kind there
+    // is, because until the cooked container grew a layer count it was: a cube existed on the device
+    // (six `arrayLayers`, `VulkanImage.cpp`) and nowhere else, and the ONE place that charged for its
+    // bytes open-coded the six and its own bytes-per-pixel — `SkyRules.hpp` carried
+    // `kSkyEnvBytesPerPixel = 16` beside `6ull * side * side`, a hand-written duplicate of
+    // `GetBytesPerPixel( RGBA32F )` that nothing made agree with it.
+    //
+    // A LAYER IS NOT A DEPTH SLICE, so this is not the 3D overload wearing a different name. A volume
+    // is one image a shader samples with three coordinates and it has ONE mip chain over all three
+    // extents; layers are separate images that share a chain over two. Giving them one function would
+    // make `CalculateImageSize(w, h, 6, fmt)` mean both, and the day a 3D format pads its slices
+    // differently from its layers the two answers separate with nothing to separate them by.
+    constexpr uint64_t CalculateLayeredImageSize( uint32_t width, uint32_t height, uint32_t layers,
+                                                  ImageFormat format )
+    {
+        return static_cast<uint64_t>( width ) * height * layers * GetBytesPerPixel( format );
+    }
+
+    // Bytes of a whole cube: six square faces, @p mips levels, each level half the last (min 1).
+    // DERIVED FROM THE FACE, like everything else about a cube in this engine — see
+    // `ImageCubeSpecification::FaceSize` for the three defects the cross-unwrap arithmetic produced.
+    // How many array layers a cube has. Six, and the number is written down ONCE so that the places
+    // which loop over faces, size a cube and build its copy regions cannot each carry their own.
+    inline constexpr uint32_t kImageCubeLayerCount = 6;
+
+    constexpr uint64_t CalculateCubeImageSize( uint32_t faceSize, uint32_t mips, ImageFormat format )
+    {
+        uint64_t bytes = 0;
+        for ( uint32_t mip = 0; mip < mips; ++mip )
+        {
+            const uint32_t side = faceSize >> mip > 1u ? faceSize >> mip : 1u;
+            bytes += CalculateLayeredImageSize( side, side, kImageCubeLayerCount, format );
+        }
+        return bytes;
+    }
+
     using ImagePixelData =
          std::variant<std::monostate, std::vector<float>, std::vector<unsigned char>, std::byte*>;
     using EmptyPixelData = std::monostate;
@@ -304,6 +342,21 @@ namespace Desert::Core::Formats
         const uint32_t        Mips = 1;
         ImagePixelData        Data;
         const ImageProperties Properties;
+
+        // THE CHAIN THE CALLER ALREADY HAS, indexed by `level * 6 + face`. Same contract as
+        // `Image2DSpecification::MipLevels` and the same reason for existing, with one difference that
+        // is the whole point of it: a cube's level is SIX images, so a table of one span per level could
+        // not address them and a `Data` blob without a table could not be split into them.
+        //
+        // IT IS WHAT MADE `Data` MEAN ANYTHING ON A CUBE AT ALL. Before this the backend's `UploadData`
+        // for cubes was an empty function body: every caller that put pixels in `Data` — `TextureCube`,
+        // the fallback cube — had them silently dropped, and the fallback had to be filled by a separate
+        // `RT_ClearToColor` to say anything at all. Both ends looked right; the link between them threw
+        // the pixels away.
+        //
+        // Empty means "no pixels, the image is for a compute pass to fill", which is what every cube in
+        // this engine was until a baked environment could be read off disk.
+        std::vector<MipLevelSpan> Levels;
     };
 
     // A volume texture — the shape/detail noise the volumetric passes sample, and any other

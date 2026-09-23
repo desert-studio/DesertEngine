@@ -12,11 +12,17 @@
 //
 // ── THE FORMAT ───────────────────────────────────────────────────────────────────────────────────
 //
-//   [Header, 128 B][LevelRow, LevelCount * 24 B][source key bytes][pad][levels, SMALLEST FIRST]
+//   [Header, 128 B][LevelRow, LevelCount * LayerCount * 24 B][source key bytes][pad][levels, SMALLEST FIRST]
 //
 // The layout is `Docs/Textures/T3_FORMAT_PLAN.md` §5c, which is binding, and two of its decisions are
 // not cosmetic:
 //
+//  * A LEVEL IS A LEVEL OF EVERY LAYER (v3). The table has one row per (mip level, array layer), and a
+//    cube is six layers of a square face. The row index is `level * LayerCount + layer` and nothing in
+//    the file is addressed any other way. Faces are stored TOGETHER, inside their level, so the two
+//    bullets below keep meaning what they said: the resident tail of a cube is still one short read,
+//    and "read only mip 4" still means one seek for each of the six faces that make it up, next to
+//    each other. See `TextureKind` for why the layer count alone is not allowed to say "cube".
 //  * THE LEVELS ARE STORED SMALLEST FIRST. The resident tail — the levels at 16x16 and below that a
 //    streaming build keeps in memory for every texture, so that "an object on screen with no texture"
 //    stops being a possible state — is then a CONTIGUOUS PREFIX of the file, together with the header
@@ -105,6 +111,10 @@ namespace Desert::Assets::Serialization
     ///   v2  + per-level `StoredSize` and `Codec` (a 24-byte row), and a header column for the stored
     ///       payload total. A v1 file is REFUSED BY VERSION, with the remedy, exactly as the paragraph
     ///       above says: there is no migration path and there must not be one.
+    ///   v3  + `LayerCount` and `Kind`, so the container can say how many images a level is made of and
+    ///       what they mean together. Before this the header read `Width; Height; Format; LevelCount`
+    ///       and that was ALL: a cube was not merely unsupported, it was INEXPRESSIBLE, and every size
+    ///       in the reader was `width * height * bytes-per-pixel` for exactly one image.
     ///
     /// WHY THE BUMP COULD NOT BE AVOIDED, since a version that can be dodged should be. The level row
     /// is a fixed-width record read by `memcpy` at a computed stride, so a v1 file read with a v2 row
@@ -112,11 +122,16 @@ namespace Desert::Assets::Serialization
     /// mode this whole container was written to make impossible. A `Flags` bit would only move the
     /// question, because the row's SIZE is what changes.
     ///
-    /// AND IT IS THE ONLY BUMP THIS PROGRAMME NEEDS. The block-compressed formats that come next
-    /// (`Docs/World/PROGRAMME.md` §5) add `ImageFormat` enumerators and change how a level's size and
-    /// row pitch are DERIVED from its extent — the decoder's arithmetic, not the file's shape. They
-    /// ride on v2; nothing about a BCn level needs a column this row does not already have.
-    inline constexpr uint32_t kTextureBinaryVersion = 2;
+    /// WHY v3 COULD NOT BE A FLAG EITHER, and v2's own note is why: the level row is read by `memcpy`
+    /// at a computed stride, and the number of ROWS is now `LevelCount * LayerCount`. A v2 reader
+    /// handed a cube would read six times too few rows and then chain every offset from the wrong
+    /// place; a v3 reader handed a v2 file would read `LayerCount` out of a reserved word. The reserve
+    /// is zero in every v2 file ever written, so that second direction would decode as a texture with
+    /// ZERO layers rather than fail — which is precisely the silent shape the version gate exists for.
+    ///
+    /// v2 IS REFUSED BY VERSION, WITH ITS REMEDY, exactly like v1. Fourteen sources and one committed
+    /// `.tex` is the whole cost of re-cooking, and it was paid when this landed.
+    inline constexpr uint32_t kTextureBinaryVersion = 3;
 
     /// "DESTTEXT". Eight ASCII bytes, so the sequence on disk is the same whatever the host's word
     /// order — a magic written as an integer would itself need a byte-order rule in order to be read.
@@ -134,11 +149,37 @@ namespace Desert::Assets::Serialization
     inline constexpr std::size_t kTextureBinaryHeaderSize = 128;
 
     /// The window a loader reads first. Big enough that one read covers the header, the level table of
-    /// any texture this engine can create (a 16384-texel chain is 15 rows of 24 bytes) and a source key
-    /// of ordinary length — so the common case is ONE read, not two. It is not a limit: a file whose
-    /// metadata does not fit is read again at the exact size `TextureBinaryMetadataBytes` reports, and
-    /// the suite drives that branch with a deliberately long key rather than leaving it to a user.
+    /// any texture this engine can create and a source key of ordinary length — so the common case is
+    /// ONE read, not two. The biggest table the engine can produce is a 16384-texel CUBE: 15 levels of
+    /// 6 layers, 90 rows of 24 bytes = 2160, which with the 128-byte header leaves 1808 for the key.
+    /// It is not a limit: a file whose metadata does not fit is read again at the exact size
+    /// `TextureBinaryMetadataBytes` reports, and the suite drives that branch with a deliberately long
+    /// key rather than leaving it to a user.
     inline constexpr std::size_t kTextureBinaryPrefixBytes = 4096;
+
+    /// WHAT THE LAYERS OF ONE LEVEL MEAN TOGETHER. `LayerCount` alone cannot say this and must not be
+    /// asked to: six layers are a cube to a sampler and six unrelated images to an array, and the two
+    /// are different `VkImageViewType`s, different descriptors and different shader declarations. A
+    /// reader that inferred "6 == cube" would be one six-slice array away from binding a `samplerCube`
+    /// to something that is not one — a middle link dropping a property, in the file itself.
+    enum class TextureKind : uint32_t
+    {
+        Texture2D = 0, /// one layer, one image
+        Cube      = 1, /// exactly six layers, square, in the Vulkan face order (+X -X +Y -Y +Z -Z)
+    };
+
+    /// The face order every cube in this container is written and read in. It is `VkImageCreateInfo`'s
+    /// array-layer order, which is what `vkCmdCopyBufferToImage`'s `baseArrayLayer` indexes and what a
+    /// `samplerCube` addresses — so the container stores what the GPU consumes and nobody permutes.
+    inline constexpr uint32_t kTextureCubeLayerCount = 6;
+
+    /// Where (level, layer) sits in a level table whose layer count is @p layerCount. THE ONE INDEXING
+    /// RULE, so no caller writes `level * 6 + face` and no caller writes `layer * levels + level`.
+    [[nodiscard]] constexpr std::size_t TextureLevelIndex( const uint32_t level, const uint32_t layer,
+                                                           const uint32_t layerCount )
+    {
+        return static_cast<std::size_t>( level ) * layerCount + layer;
+    }
 
     /// How many bytes from the start of the file a header decode needs, answered from the first
     /// `kTextureBinaryHeaderSize` bytes alone. 0 when @p headerBytes is shorter than that, or does not
@@ -171,8 +212,9 @@ namespace Desert::Assets::Serialization
         TextureLevelCodec Codec      = TextureLevelCodec::Store;
     };
 
-    /// One level of the chain, INDEXED BY MIP LEVEL — `Levels[0]` is always the full-size image, whatever
-    /// order the bytes sit in on disk. Only the physical order is reversed; the table is not.
+    /// One image of the chain — one (mip level, array layer) pair. The table is INDEXED BY
+    /// `TextureLevelIndex(level, layer, LayerCount)`, so row 0 is always layer 0's full-size image,
+    /// whatever order the bytes sit in on disk. Only the physical order is reversed; the table is not.
     ///
     /// `ByteOffset` here is measured from the START OF THE PAYLOAD RUN, while the file's own row measures
     /// it from the start of the FILE. That is deliberate and it is the one place this format converts a
@@ -214,11 +256,39 @@ namespace Desert::Assets::Serialization
         /// not the decoded pixels, and `SourceSignature` below for why both halves.
         uint64_t SourceContentHash = 0;
 
+        /// The extent of LEVEL 0 OF ONE LAYER. For a cube both are the face edge and they are equal;
+        /// the file refuses a cube whose two extents differ rather than picking one of them.
         uint32_t                   Width  = 0;
         uint32_t                   Height = 0;
         Core::Formats::ImageFormat Format = Core::Formats::ImageFormat::RGBA8F;
 
+        /// How many images ONE LEVEL is made of. 1 for an ordinary texture, `kTextureCubeLayerCount`
+        /// for a cube. It is never inferred from `Kind` and `Kind` is never inferred from it: both are
+        /// written, and the decoder refuses a pair that disagrees.
+        uint32_t    LayerCount = 1;
+        TextureKind Kind       = TextureKind::Texture2D;
+
+        /// THE SETTINGS THAT PRODUCED THESE PIXELS, or 0 for "none were recorded". It is not how the
+        /// bytes are packed — that is the per-level `Codec` — and it is not which file they came from
+        /// — that is `SourceContentHash`. It answers the third question a derived asset has: WAS THIS
+        /// MADE THE WAY I AM ASKING FOR IT NOW.
+        ///
+        /// An image importer records nothing here: a PNG's pixels are its pixels. A BAKE records
+        /// everything its output depends on that is not the source file, and the reader that has an
+        /// expectation compares it and re-bakes on a mismatch. v1 and v2 refused a non-zero value
+        /// outright; see the long note at the check in `TextureBinary.cpp` for why v3 does not.
+        uint64_t EncoderHash = 0;
+
+        /// Indexed by `TextureLevelIndex(level, layer, LayerCount)`, so `size() == levels * LayerCount`.
+        /// `Levels[TextureLevelIndex(0, layer, LayerCount)]` is always layer @p layer's full-size image.
         std::vector<TextureLevel> Levels;
+
+        /// How many mip levels the table describes. DERIVED, never stored twice: a count beside a table
+        /// is a second thing to keep in step, and the pair would disagree the first time one moved.
+        [[nodiscard]] uint32_t LevelCount() const
+        {
+            return LayerCount == 0 ? 0u : static_cast<uint32_t>( Levels.size() / LayerCount );
+        }
 
         /// `unsigned char` AND NOT `std::byte`, because this vector is handed to the GPU upload as-is.
         /// `Core::Formats::ImagePixelData` carries a `std::vector<unsigned char>` alternative, so this
@@ -235,10 +305,13 @@ namespace Desert::Assets::Serialization
         Common::UUID               Handle;
         std::string                SourcePath;
         uint64_t                   SourceContentHash = 0;
+        uint64_t                   EncoderHash       = 0;
         uint32_t                   Width             = 0;
         uint32_t                   Height            = 0;
         Core::Formats::ImageFormat Format            = Core::Formats::ImageFormat::RGBA8F;
         uint32_t                   LevelCount        = 0;
+        uint32_t                   LayerCount        = 1;
+        TextureKind                Kind              = TextureKind::Texture2D;
         /// Sum of the DECODED level sizes — how big the staging buffer has to be. Padding excluded.
         uint64_t PayloadBytes = 0;
         /// Sum of the STORED level sizes — how many bytes of this file are pixels. Equal to
@@ -246,10 +319,10 @@ namespace Desert::Assets::Serialization
         uint64_t StoredPayloadBytes = 0;
         uint64_t FileSize           = 0;
 
-        /// Where every level lies, indexed by mip level, read out of the table the header decode already
-        /// had to parse and validate. This is what makes "read only mip 4" a thing a caller can DO
-        /// rather than a property the format merely claims: one `kTextureBinaryPrefixBytes` read gets
-        /// the header and this table, and each row then names a seek, a length and a codec.
+        /// Where every level lies, indexed by `TextureLevelIndex(level, layer, LayerCount)`, read out of
+        /// the table the header decode already had to parse and validate. This is what makes "read only mip 4" a
+        /// thing a caller can DO rather than a property the format merely claims: one `kTextureBinaryPrefixBytes`
+        /// read gets the header and this table, and each row then names a seek, a length and a codec.
         std::vector<TextureLevelLocation> Levels;
     };
 
@@ -267,6 +340,29 @@ namespace Desert::Assets::Serialization
     /// Does @p bytes begin with the container magic? The one question either reader will answer about a
     /// payload it has not parsed, and the one that separates a cooked texture from the retired manifest.
     [[nodiscard]] bool LooksLikeTextureBinary( std::string_view bytes );
+
+    /// LAY OUT A CHAIN SOMETHING ELSE ALREADY BUILT, which is the only shape a cube can arrive in: the
+    /// mip levels of a prefiltered environment are a GGX convolution at a per-mip roughness, not a box
+    /// filter of the level above, so there is nothing here to compute and everything here to place.
+    ///
+    /// @p images is TIGHTLY PACKED IN TABLE ORDER — level 0's layers first, then level 1's — which is
+    /// the order a `vkCmdCopyImageToBuffer` over an image's subresources produces. What comes back is
+    /// the file's own order (smallest level first, layers together inside a level) with the padding in
+    /// place, and a table whose every row has been checked against the extent the level must have.
+    ///
+    /// It is a SEPARATE function from `BuildMipChain` rather than a flag on it, because the two answer
+    /// different questions: that one GENERATES levels and may refuse a format it cannot filter, this
+    /// one PLACES levels and does not care what made them.
+    [[nodiscard]] Common::ResultStr<std::vector<TextureLevel>>
+    BuildLevelTable( uint32_t width, uint32_t height, uint32_t levelCount, uint32_t layerCount,
+                     Core::Formats::ImageFormat format, const std::vector<unsigned char>& images,
+                     std::vector<unsigned char>& chainOut );
+
+    /// How many bytes `BuildLevelTable` demands in @p images for this shape: every level of every layer,
+    /// tightly packed. Exposed because a caller that reads a GPU image back has to SIZE the readback
+    /// before it has anything to hand in, and a second spelling of this sum is how the two would drift.
+    [[nodiscard]] uint64_t TightlyPackedChainBytes( uint32_t width, uint32_t height, uint32_t levelCount,
+                                                    uint32_t layerCount, Core::Formats::ImageFormat format );
 
     /// The complete mip chain for one image, level 0 first, built by a 2x2 box filter — the same
     /// operation the `vkCmdBlitImage` chain it replaces performed with `VK_FILTER_LINEAR` at exactly

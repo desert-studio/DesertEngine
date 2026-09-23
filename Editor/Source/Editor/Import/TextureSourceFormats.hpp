@@ -40,6 +40,29 @@ namespace Desert::Editor
     inline constexpr std::size_t kTextureSourceExtensionCount =
          sizeof( kTextureSourceExtensions ) / sizeof( kTextureSourceExtensions[0] );
 
+    // Where group 3 of the comment above begins. DERIVED FROM THE LIST, never typed: the extended-range
+    // group is the tail of it, so this is the first index of that tail and the group is everything from
+    // here on. A hand-written index would be a second statement of the order the list already makes.
+    inline constexpr std::size_t kFirstExtendedRangeSource = kTextureSourceExtensionCount - 2;
+
+    // Is this source EXTENDED-RANGE DATA rather than an LDR image? Group 3 of the list -- `.exr` and
+    // `.hdr` -- and it is a question with a consumer: the bulk texture cook forces RGBA8, so cooking one
+    // of these would write a clamped copy of a file whose whole point is its range. The panorama path
+    // reads them as floats instead (`Core::IO::ImageReader::ReadHDR`).
+    //
+    // IT IS A PREDICATE AND NOT TWO LITERALS AT THE CALL SITE, because two literals at the call site is
+    // exactly the second copy of this list that the header note is about -- and the census test caught
+    // it being written.
+    constexpr bool IsExtendedRangeSource( std::string_view extLower )
+    {
+        for ( std::size_t i = kFirstExtendedRangeSource; i < kTextureSourceExtensionCount; ++i )
+        {
+            if ( extLower == kTextureSourceExtensions[i] )
+                return true;
+        }
+        return false;
+    }
+
     // Rank of an extension in the priority order: 0 is the most preferred; kTextureSourceExtensionCount
     // means "not an image source we use". `extLower` must already be lower-case and dot-prefixed.
     constexpr std::size_t TextureSourceFormatRank( std::string_view extLower )

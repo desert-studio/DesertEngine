@@ -737,14 +737,190 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<bool>( "VulkanImageCube::CreateResource: no command buffer: {}",
                                                      cmdAlloc.GetError() );
         const VkCommandBuffer cmd = cmdAlloc.GetValue();
+
+        // ── THE PIXELS, IF THE CALLER BROUGHT ANY ────────────────────────────────────────────────
+        //
+        // A CUBE USED TO DROP THEM HERE, SILENTLY. `UploadData` was an empty body and nothing called it,
+        // so `ImageCubeSpecification::Data` was a field the backend read and discarded — both ends of the
+        // chain looked right and the link between them lost everything. The census that exists because of
+        // it is the `Levels` table: a cube's level is six images, and the ONLY legal way to name them is
+        // a span each.
+        const bool hasPixels = Core::Formats::HasData( m_Specification.Data ) && !m_Specification.Levels.empty();
+        if ( Core::Formats::HasData( m_Specification.Data ) && m_Specification.Levels.empty() )
+        {
+            // NAMED, NOT IGNORED. This is the exact shape that used to be legal and silent.
+            CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+            return Common::MakeFormattedError<bool>(
+                 "ImageCube '{}' was given {} bytes of pixel data and no level table. A cube's level is six "
+                 "images and there is no order to assume: fill ImageCubeSpecification::Levels, indexed "
+                 "level * 6 + face.",
+                 m_Specification.Tag, Core::Formats::GetPixelDataSize( m_Specification.Data ) );
+        }
+
+        VkBuffer      staging      = VK_NULL_HANDLE;
+        VmaAllocation stagingAlloc = nullptr;
+        if ( hasPixels )
+        {
+            const size_t expected =
+                 static_cast<size_t>( m_Resource.MipLevels ) * Core::Formats::kImageCubeLayerCount;
+            if ( m_Specification.Levels.size() != expected )
+            {
+                CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                return Common::MakeFormattedError<bool>(
+                     "ImageCube '{}': {} mips x {} faces is {} spans and the table has {}.", m_Specification.Tag,
+                     m_Resource.MipLevels, Core::Formats::kImageCubeLayerCount, expected,
+                     m_Specification.Levels.size() );
+            }
+
+            const uint64_t     size  = Core::Formats::GetPixelDataSize( m_Specification.Data );
+            VkBufferCreateInfo bInfo = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                         .size  = size,
+                                         .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
+            const auto         stagingResult =
+                 allocator->RT_AllocateBuffer( "CubeStaging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
+            if ( !stagingResult.IsSuccess() )
+            {
+                CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                return Common::MakeFormattedError<bool>( "ImageCube '{}': {} byte staging buffer failed: {}",
+                                                         m_Specification.Tag, size, stagingResult.GetError() );
+            }
+            stagingAlloc = stagingResult.GetValue();
+            {
+                MappedMemory staged = allocator->MapMemory( stagingAlloc );
+                const auto   wrote =
+                     staged.Write( Utils::GetPixelDataPtr( m_Specification.Data ), static_cast<size_t>( size ) );
+                if ( !wrote.IsSuccess() )
+                {
+                    allocator->RT_DestroyBuffer( staging, stagingAlloc );
+                    CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                    return Common::MakeFormattedError<bool>( "ImageCube '{}': {}", m_Specification.Tag,
+                                                             wrote.GetError() );
+                }
+            }
+
+            TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+            UploadData( cmd, staging );
+        }
+
         TransitionLayout( cmd, finalDefaultLayout );
         CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+        if ( staging != VK_NULL_HANDLE )
+            allocator->RT_DestroyBuffer( staging, stagingAlloc );
 
         return Common::MakeSuccess( true );
     }
 
-    void VulkanImageCube::UploadData( VkCommandBuffer /*cmd*/, VkBuffer /*staging*/ )
+    void VulkanImageCube::UploadData( VkCommandBuffer cmd, VkBuffer stagingBuffer )
     {
+        // ONE REGION PER (LEVEL, FACE), ALL OUT OF ONE BUFFER — the same shape `VulkanImage2D` uses for a
+        // supplied chain, with the array layer as the second axis. `baseArrayLayer` indexes the face in
+        // the order `VkImageCreateInfo` defines it (+X -X +Y -Y +Z -Z), which is the order the container
+        // stores and therefore the order nobody permutes on the way through.
+        std::vector<VkBufferImageCopy> regions;
+        regions.reserve( m_Specification.Levels.size() );
+
+        uint32_t side = m_Specification.FaceSize;
+        for ( uint32_t level = 0; level < m_Resource.MipLevels; ++level )
+        {
+            for ( uint32_t face = 0; face < Core::Formats::kImageCubeLayerCount; ++face )
+            {
+                const size_t row = static_cast<size_t>( level ) * Core::Formats::kImageCubeLayerCount + face;
+                regions.push_back(
+                     VkBufferImageCopy{ .bufferOffset     = m_Specification.Levels[row].ByteOffset,
+                                        .imageSubresource = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                              .mipLevel       = level,
+                                                              .baseArrayLayer = face,
+                                                              .layerCount     = 1 },
+                                        .imageExtent      = { side, side, 1 } } );
+            }
+            side = side > 1u ? side / 2u : 1u;
+        }
+
+        vkCmdCopyBufferToImage( cmd, stagingBuffer, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                static_cast<uint32_t>( regions.size() ), regions.data() );
+    }
+
+    Common::ResultStr<std::vector<unsigned char>> VulkanImageCube::RT_ReadAllLevels()
+    {
+        // THE OTHER DIRECTION, AND THE ONE THE BAKE NEEDS. `Image2D::ReadPixelsRGBA8` is deliberately the
+        // only readback in the engine and it CONVERTS to RGBA8 for a thumbnail; that is the wrong answer
+        // for an environment cube, whose whole content is radiance outside [0,1]. This one converts
+        // nothing: it hands back the image's own bytes, in the image's own format, laid out TIGHTLY and
+        // in TABLE ORDER — level 0's six faces, then level 1's — which is exactly what
+        // `Serialization::BuildLevelTable` takes.
+        if ( m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<std::vector<unsigned char>>(
+                 "ImageCube '{}': RT_ReadAllLevels before the image exists", m_Specification.Tag );
+
+        auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                              ->GetVulkanAllocator()
+                              .get();
+
+        std::vector<VkBufferImageCopy> regions;
+        regions.reserve( static_cast<size_t>( m_Resource.MipLevels ) * Core::Formats::kImageCubeLayerCount );
+
+        uint64_t at   = 0;
+        uint32_t side = m_Specification.FaceSize;
+        for ( uint32_t level = 0; level < m_Resource.MipLevels; ++level )
+        {
+            const uint64_t one = Core::Formats::CalculateImageSize( side, side, m_Specification.Format );
+            for ( uint32_t face = 0; face < Core::Formats::kImageCubeLayerCount; ++face )
+            {
+                regions.push_back(
+                     VkBufferImageCopy{ .bufferOffset     = at,
+                                        .imageSubresource = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                              .mipLevel       = level,
+                                                              .baseArrayLayer = face,
+                                                              .layerCount     = 1 },
+                                        .imageExtent      = { side, side, 1 } } );
+                at += one;
+            }
+            side = side > 1u ? side / 2u : 1u;
+        }
+
+        VkBuffer           staging = VK_NULL_HANDLE;
+        VkBufferCreateInfo bInfo   = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                       .size  = at,
+                                       .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT };
+        const auto         allocRes =
+             allocator->RT_AllocateBuffer( "CubeReadback", bInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, staging );
+        if ( !allocRes.IsSuccess() )
+            return Common::MakeFormattedError<std::vector<unsigned char>>(
+                 "ImageCube '{}': {} byte readback buffer failed: {}", m_Specification.Tag, at,
+                 allocRes.GetError() );
+        const VmaAllocation stagingAlloc = allocRes.GetValue();
+
+        const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
+        if ( !cmdAlloc.IsSuccess() )
+        {
+            allocator->RT_DestroyBuffer( staging, stagingAlloc );
+            return Common::MakeFormattedError<std::vector<unsigned char>>(
+                 "ImageCube '{}': RT_ReadAllLevels has no command buffer: {}", m_Specification.Tag,
+                 cmdAlloc.GetError() );
+        }
+        const VkCommandBuffer cmd     = cmdAlloc.GetValue();
+        const VkImageLayout   restore = m_Resource.Layout;
+        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
+        vkCmdCopyImageToBuffer( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging,
+                                static_cast<uint32_t>( regions.size() ), regions.data() );
+        TransitionLayout( cmd, restore );
+        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+
+        std::vector<unsigned char> out( static_cast<size_t>( at ) );
+        {
+            MappedMemory mapped = allocator->MapMemory( stagingAlloc );
+            const auto   read   = mapped.ReadInto( out.data(), out.size() );
+            if ( !read.IsSuccess() )
+            {
+                const std::string reason = read.GetError();
+                mapped.Unmap();
+                allocator->RT_DestroyBuffer( staging, stagingAlloc );
+                return Common::MakeFormattedError<std::vector<unsigned char>>( "ImageCube '{}': {}",
+                                                                               m_Specification.Tag, reason );
+            }
+        }
+        allocator->RT_DestroyBuffer( staging, stagingAlloc );
+        return Common::MakeSuccess( std::move( out ) );
     }
 
     Common::BoolResultStr VulkanImageCube::RT_ClearToColor( float r, float g, float b, float a )

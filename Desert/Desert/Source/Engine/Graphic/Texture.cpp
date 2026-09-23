@@ -113,6 +113,19 @@ namespace Desert::Graphic
         // below is the whole handover.
         auto data = decoded.ExtractValue();
 
+        // A CUBE IS NOT A 2D TEXTURE, AND THE CONTAINER CAN NOW SAY SO. Before v3 this was not a check
+        // anybody could write: the file had no way to carry a face count, so every `.tex` was one layer
+        // by construction. It does now, and the spans below are built from a table indexed by
+        // (level, layer) -- handing them to an `Image2DSpecification` would upload face 0 of each level
+        // and call the result a texture. Named here rather than surviving into a sampler.
+        if ( data.Kind != Assets::Serialization::TextureKind::Texture2D || data.LayerCount != 1 )
+        {
+            return Common::MakeFormattedError<std::shared_ptr<Texture2D>>(
+                 "cooked texture '{}' is kind {} with {} array layers, and Texture2D loads one-layer 2D "
+                 "images only. A cube is loaded through its own path.",
+                 cookedPath.string(), static_cast<uint32_t>( data.Kind ), data.LayerCount );
+        }
+
         std::vector<Core::Formats::MipLevelSpan> spans;
         spans.reserve( data.Levels.size() );
         for ( const Assets::Serialization::TextureLevel& level : data.Levels )
@@ -178,24 +191,31 @@ namespace Desert::Graphic
 
     Common::BoolResultStr TextureCube::Invalidate()
     {
-        const ImageBaseSpec imageBaseSpec = LoadTexture( m_TexturePath, true, false, m_Specification );
-
-        // The loaded file is a 4x3 cross unwrap, so the face is a quarter of the image's width. This is
-        // the ONE place that arithmetic belongs — at the boundary where source-pixel layout meets the
-        // cube — not inside every consumer of the spec.
-        const Core::Formats::ImageCubeSpecification imageSpec = { .Tag        = imageBaseSpec.Tag,
-                                                                  .FaceSize   = imageBaseSpec.Width / 4u,
-                                                                  .Format     = imageBaseSpec.Format,
-                                                                  .Mips       = 1u,
-                                                                  .Data       = imageBaseSpec.Data,
-                                                                  .Properties = imageBaseSpec.Properties };
-
-        const auto mipGenerator =
-             m_Specification.GenerateMips ? MipMapCubeGenerator::Create( MipGenStrategy::TransferOps ) : nullptr;
-        m_Handle = Runtime::ResourceRegistry::GetImageService()->Register(
-             ImageCube::Create( imageSpec, mipGenerator ), Runtime::ImageHandle::Type::ImageCube );
-        return Common::MakeSuccess( true ); // TODO
-        // return std::static_pointer_cast<Graphic::API::Vulkan::VulkanImage2D>( m_Image2D )->RT_Invalidate();
+        // ── WHAT THIS CLASS ACTUALLY DOES, WHICH IS NOT WHAT IT LOOKS LIKE ───────────────────────
+        //
+        // IT HAS NO CALLERS, AND IT HAS NEVER UPLOADED A PIXEL. `TextureCube::Create` is called from
+        // nowhere in this repository; the IBL path builds its cubes through `ComputeImages` and never
+        // through here. And until the container grew faces, the pixels this function put into
+        // `ImageCubeSpecification::Data` were DISCARDED: `VulkanImageCube::UploadData` was an empty
+        // function body that nothing called. Both ends looked right and the link between them threw
+        // the image away, which is why a cube's content could only ever be a clear colour.
+        //
+        // THE UPLOAD EXISTS NOW AND THIS LAYOUT STILL CANNOT USE IT. `LoadTexture` returns a 4x3 CROSS
+        // unwrap: the six faces are sub-rectangles of one image, each row of a face separated from the
+        // next by the cross's full width. A `VkBufferImageCopy` names a contiguous run per face, so a
+        // cross has to be REPACKED into six face-major blocks before any of it can be copied — and
+        // `bufferRowLength` cannot express it either, because the faces also differ in their starting
+        // row. That repack is real work with no consumer asking for it.
+        //
+        // SO IT REFUSES, LOUDLY, instead of building an empty cube and returning success — which is
+        // what it used to do, on a line that said `return Common::MakeSuccess( true ); // TODO`. A
+        // caller that appears gets a sentence naming what is missing rather than a black cubemap.
+        return Common::MakeFormattedError<bool>(
+             "TextureCube cannot load '{}': the file is a 4x3 cross unwrap and the cube upload path "
+             "copies six contiguous faces. Repacking the cross into face-major blocks is unwritten work "
+             "with no caller — the engine's cubes are built by ComputeImages, and a BAKED cube is loaded "
+             "from its cooked container (Engine/Graphic/Environment/EnvironmentBake.hpp).",
+             m_TexturePath.string() );
     }
 
     Common::ResultStr<std::shared_ptr<TextureCube>> TextureCube::Create( const TextureSpecification& specification,
