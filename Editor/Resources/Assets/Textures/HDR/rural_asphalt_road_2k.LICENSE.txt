@@ -1,0 +1,9 @@
+rural_asphalt_road_2k.hdr
+Source:  https://polyhaven.com/a/rural_asphalt_road (2k .hdr, downloaded 2026-09-23 from dl.polyhaven.org)
+Author:  Alexander Scholten
+License: CC0 1.0 Universal (public domain dedication) -- https://polyhaven.com/license
+SHA-256 prefix: e135ecfe1852e716
+
+Why it is here: the first real, unclipped HDR panorama in the repository. The sun peaks at
+131072 in one channel (9 pixels above the RGBA16F ceiling of 65504), which is exactly the
+content the radiance-mip / prefilter refusals were waiting for.

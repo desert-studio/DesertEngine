@@ -434,6 +434,9 @@ namespace
          { "Settings", Owner::Level },        // the block censused below
          { "UnitVersion", Owner::FileMeta },  // world-unit generation
          { "SceneVersion", Owner::FileMeta }, // schema generation
+         // The cell size, and its presence is the switch: a partitioned world is a property of the
+         // world, not of whoever opens it (WP1, the owner's 2026-09-18 decision).
+         { "WorldPartition", Owner::Level },
     };
 
     // ------------------------------------------------------------------------------------------------
