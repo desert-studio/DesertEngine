@@ -17,11 +17,6 @@ namespace Desert::Editor::Core
             CubeGrid,
             PolyEdit
         };
-        enum class Output // where a committed blockout goes
-        {
-            StaticMesh = 0,
-            DynamicMesh
-        };
 
         static ModelingState& Get()
         {
@@ -36,16 +31,14 @@ namespace Desert::Editor::Core
         static constexpr int   MaxGridPower  = 6;
 
         // Panel -> tool
-        Tool   ActiveTool = Tool::None;
-        Output OutputType = Output::DynamicMesh;
+        // No Output Type here on purpose: Accept has exactly one output today (a StaticMeshComponent carrying
+        // the live mesh inline), so a Static/Dynamic choice would be a knob nothing reads. It comes back
+        // with the reader that makes it mean something, defaulting to Static Mesh (owner's decision).
+        Tool ActiveTool = Tool::None;
         // CubeGrid block size (Resize Grid) in world units — one unit is one centimetre, so the default
         // 100 is a one-metre block, the same default as UE.
         float CellSize = 100.0f;
-        // (legacy paint-brush fields, retained for compatibility; unused by the marquee CubeGrid)
-        float  BrushW        = 1.0f;
-        float  BrushD        = 1.0f;
-        float  Height        = 1.0f;
-        int    BlocksPerStep = 1;      // cells extruded/removed per Push/Pull (UE "Blocks Per Step")
+        int   BlocksPerStep = 1; // cells extruded/removed per Push/Pull (UE "Blocks Per Step")
 
         // --- Grid frame (UE "Grid Reinitialization" / "Options") ---
         // World position of grid cell (0,0,0). Moving it re-aligns the lattice to an object's corner so

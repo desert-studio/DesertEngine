@@ -445,11 +445,13 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //     WP6 (2026-09-23) added three raw members -- PhysicsBodyLifetime::m_World and ::m_Registry, and
     //     AttachmentSystem::m_HookedRegistry, each with a row -- and one unique_ptr,
     //     PhysicsECSSystem::m_Lifetime. Raw 387+3, Unique 120+1.
-    EXPECT_EQ( CountOf( Form::Raw ), 390 );
+    //     M1 (2026-09-23) removed two: ModelingPanel's ToolBtn table (Icon, Name) went with the five
+    //     placeholder Create buttons it described. Raw 390-2.
+    EXPECT_EQ( CountOf( Form::Raw ), 388 );
     EXPECT_EQ( CountOf( Form::Shared ), 331 );
     EXPECT_EQ( CountOf( Form::Unique ), 121 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 880 )
+    EXPECT_EQ( (int)Members().size(), 878 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

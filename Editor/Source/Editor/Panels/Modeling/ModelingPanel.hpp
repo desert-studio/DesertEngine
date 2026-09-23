@@ -36,6 +36,6 @@ namespace Desert::Editor
 
     private:
         std::shared_ptr<Desert::Core::Scene> m_Scene;
-        int                                  m_Category = 0; // 0 = Create (only populated one)
+        int                                  m_Category = 0; // index into the rail: 0 = Create, 1 = Model
     };
 } // namespace Desert::Editor
