@@ -1525,6 +1525,10 @@ namespace Desert::Core::Serialize
         // The authoring lock. Serialized for the reason Components.hpp gives: a lock that does not
         // survive a reload protects nothing. No version bump — an added key is what ForeignKeys is for.
         Register( MakeMarker<ECS::LockComponent>( "Lock" ) );
+        // World Partition's author override (Components.hpp, AlwaysLoadedComponent). Serialized because its
+        // whole effect is on the file: the partitioner reads the key, not the ECS. No version bump - an
+        // added key is what ForeignKeys is for.
+        Register( MakeMarker<ECS::AlwaysLoadedComponent>( "AlwaysLoaded" ) );
 
         // ---- Single-flag components ----
         // The outliner's eye, for the same reason the lock beside it is here: a hidden object that comes
