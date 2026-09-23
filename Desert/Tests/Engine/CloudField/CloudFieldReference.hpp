@@ -49,6 +49,7 @@
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <vector>
 #include <Common/Core/GlslAsCpp.hpp>
 
@@ -208,9 +209,16 @@ namespace Desert::Tests::CloudFieldRef
         // and the next read comes from the new bake — the same thing the renderer does when the artist
         // drops a different `.decloudtype` into a slot, and from the same single source
         // (Assets::BakeCloudProceduralVolume).
+        /// The bytes of one bake, shared by every binding that asked for the same sky.
+        using ModellingVoxels = std::shared_ptr<const std::vector<unsigned char>>;
+
         struct ModellingVolumeState
         {
-            std::vector<unsigned char>                 Voxels;
+            /// NULL UNTIL A TEST BINDS A SPECIES, which is the state the empty vector used to carry, and
+            /// the state CloudSampleModellingTexture still answers with a zeroed fetch. Shared rather than
+            /// owned so that binding a sky this suite has already baked costs a refcount and not eight
+            /// megabytes — see CloudModellingBake.
+            ModellingVoxels                            Voxels;
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
         };
@@ -219,6 +227,105 @@ namespace Desert::Tests::CloudFieldRef
         {
             static ModellingVolumeState state;
             return state;
+        }
+
+        // ------------------------------------------------------------------------------------------
+        // ONE BAKE PER DISTINCT SKY, AND NOT ONE PER BINDING
+        // ------------------------------------------------------------------------------------------
+        //
+        // THE NUMBER THAT MADE THIS WORTH WRITING. Baking the modelling volume is 91 % of this suite's
+        // run time — measured with `sample` against the ASan+UBSan Debug binary CI builds, where the
+        // main thread and all nine JobSystem workers sit inside BakeCloudProceduralVolume's parallel
+        // range for the whole window, in CloudModellingBlobDistanceKm and the glm vector arithmetic
+        // under it. The sampling this suite does on top of the volume is the other 9 %.
+        //
+        // AND IT WAS BAKED FORTY-EIGHT TIMES FOR NINETEEN DISTINCT SKIES, because every call to
+        // CloudBindSpecies re-baked unconditionally. The worst of it is visible in the two coverage
+        // sweeps: CloudFieldCoverage walks Coverage 0.0 to 1.0 in eleven steps, and
+        // CloudSunTransmittance then walks THE SAME ELEVEN, re-baking two million voxels apiece for
+        // volumes that had just been produced and thrown away.
+        //
+        // THE ENGINE ALREADY KNOWS WHICH TWO REQUESTS ARE THE SAME REQUEST. Assets::
+        // CloudProceduralParamsEqual is the editor's own answer to "must this be re-baked", written so
+        // that a preview does not stall on a slider that provably changed nothing; this suite is the
+        // one caller that was not asking. Using it here rather than comparing the arguments the test
+        // passes is deliberate: the parameters ARE the bake's input, so a field added to them cannot
+        // go uncompared by a key that was written to mirror them.
+        //
+        // NOTHING MEASURED CHANGES. The bake is a pure function of (parameters, region origin) — the
+        // seed is fixed and the join is order-independent — so a hit hands back the bytes the call
+        // would have produced, and every assertion is made against the volume it was made against
+        // before. What changes is only how many times those bytes are computed.
+        //
+        // THE CACHE IS BOUNDED, and the bound is enforced rather than asserted in a comment: past
+        // kMaxBakedVolumes the oldest entry is dropped, which costs a later miss and never a wrong
+        // answer. Eight megabytes a volume (256 x 32 x 256 x 4 bytes), so the ceiling is 256 MiB.
+        constexpr size_t kMaxBakedVolumes = 32;
+
+        struct BakedVolume
+        {
+            Desert::Assets::CloudProceduralFieldParams Params;
+            glm::vec2                                  OriginKm{ 0.0f };
+            ModellingVoxels                            Voxels;
+        };
+
+        std::vector<BakedVolume>& BakedVolumeCache()
+        {
+            static std::vector<BakedVolume> cache;
+            return cache;
+        }
+
+        /// How many bakes were RUN and how many were SERVED, counted rather than claimed.
+        ///
+        /// IT IS REPORTED IN THE SUITE'S OUTPUT, and that is the point of it. Wall clock on this suite is
+        /// bimodal on the machine it was measured on — two clean runs of the same binary came back at
+        /// 834.29 s and 834.43 s and a third at 630.90 s, a 32 % spread with no change in between — so a
+        /// timing is not, by itself, evidence that work was removed. These two counters are: they are the
+        /// same integers on any machine, and `Run + Served` is exactly the number of bakes the code
+        /// before this cache performed.
+        struct BakeTally
+        {
+            int Run    = 0;
+            int Served = 0;
+        };
+
+        BakeTally& BakeCounts()
+        {
+            static BakeTally tally;
+            return tally;
+        }
+
+        /// Bake @p params over @p originKm, or hand back the bytes an identical request already made.
+        ModellingVoxels CloudModellingBake( const Desert::Assets::CloudProceduralFieldParams& params,
+                                            const glm::vec2&                                  originKm )
+        {
+            std::vector<BakedVolume>& cache = BakedVolumeCache();
+
+            for ( const BakedVolume& entry : cache )
+            {
+                if ( entry.OriginKm == originKm &&
+                     Desert::Assets::CloudProceduralParamsEqual( entry.Params, params ) )
+                {
+                    ++BakeCounts().Served;
+                    return entry.Voxels;
+                }
+            }
+
+            ++BakeCounts().Run;
+
+            const auto baked = Desert::Assets::BakeCloudProceduralVolume( params, originKm );
+
+            // A FAILED BAKE IS CACHED TOO, and on purpose: it is a pure function of the same inputs, so
+            // re-running it would spend the same minutes to arrive at the same empty answer, and the
+            // tests read an empty volume as a sky with no cloud in it either way.
+            ModellingVoxels voxels = std::make_shared<const std::vector<unsigned char>>(
+                 baked ? baked.GetValue() : std::vector<unsigned char>{} );
+
+            if ( cache.size() >= kMaxBakedVolumes )
+                cache.erase( cache.begin() );
+
+            cache.push_back( BakedVolume{ params, originKm, voxels } );
+            return voxels;
         }
 
         /// The parameters this suite bakes with: one region, centred on the origin, at the component's
@@ -266,9 +373,7 @@ namespace Desert::Tests::CloudFieldRef
 
             state.Params   = CloudModellingParams( shapes, count, coverage, contrast, windDirection );
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
-
-            const auto baked = Desert::Assets::BakeCloudProceduralVolume( state.Params, state.OriginKm );
-            state.Voxels     = baked ? baked.GetValue() : std::vector<unsigned char>{};
+            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm );
         }
 
         /// The same bake over a layer WIDER than the species' own band, which is what makes the vertical
@@ -290,9 +395,7 @@ namespace Desert::Tests::CloudFieldRef
             state.Params.LayerThicknessKm = thicknessKm;
 
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
-
-            const auto baked = Desert::Assets::BakeCloudProceduralVolume( state.Params, state.OriginKm );
-            state.Voxels     = baked ? baked.GetValue() : std::vector<unsigned char>{};
+            state.Voxels   = CloudModellingBake( state.Params, state.OriginKm );
         }
 
         // A TRILINEAR, REPEAT-wrapped fetch — the filter and the address mode VulkanImage3D creates for
@@ -300,9 +403,11 @@ namespace Desert::Tests::CloudFieldRef
         // is exactly the half-texel error the relation test exists to catch.
         vec4 CloudSampleModellingTexture( vec3 uvw )
         {
-            const std::vector<unsigned char>& voxels = ModellingVolume().Voxels;
-            if ( voxels.empty() )
+            const ModellingVoxels& bytes = ModellingVolume().Voxels;
+            if ( !bytes || bytes->empty() )
                 return vec4( 0.0f );
+
+            const std::vector<unsigned char>& voxels = *bytes;
 
             constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
             constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
