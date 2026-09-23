@@ -3956,6 +3956,14 @@ namespace Desert::Editor
                                           return PaletteCommandDone();
                                       } } );
 
+                // Pilot, the Outliner's and the Details panel's third door: the one an unattended run can
+                // open, so "the viewport shows what the camera sees" can be photographed at all.
+                if ( entity.HasComponent<ECS::CameraComponent>() )
+                {
+                    commands.push_back(
+                         { "Camera", "Pilot " + name, [uuid] { return Editor::PilotCameraEntity( uuid ); } } );
+                }
+
                 // LOCKING ONE IS TOO, and by the paragraph directly above it has to be here. The padlock
                 // in the Outliner's gutter and the row's context menu are both a MOUSE, and the lock's
                 // whole subject is what the viewport will and will not let you touch — so a channel that
@@ -4275,6 +4283,8 @@ namespace Desert::Editor
                                   EditorPreferences::Save();
                                   return PaletteCommandDone();
                               } } );
+
+        commands.push_back( { "Camera", "Eject (stop piloting)", [] { return Editor::EjectPilot(); } } );
 
         // THE TWO ENDS OF К10's SCENARIO, UNDER NAMES, for the reason К6 named the snap steps and the item
         // above: a scenario whose steps can only be reached by clicking is a scenario no unattended run can

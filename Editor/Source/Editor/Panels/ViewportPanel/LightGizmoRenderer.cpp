@@ -873,6 +873,11 @@ namespace Desert::Editor
             const glm::vec3 worldPos = glm::vec3( worldXf[3] );
             const bool      selected = IsSelected( entity );
 
+            // The viewer is standing inside this camera — a viewport piloting it. Every edge would pass
+            // through the eye and the icon would cover the whole view, so there is nothing to draw.
+            if ( glm::length( worldPos - camera->GetPosition() ) < 1.0f )
+                continue;
+
             // ── THE WIREFRAME ───────────────────────────────────────────────────────────────────────
             //
             // Built by Tools/CameraGizmoMath.hpp, which is where the whole account of what was wrong

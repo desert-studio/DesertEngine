@@ -1,5 +1,6 @@
 #include "SceneHierarchyPanel.hpp"
 #include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -414,6 +415,21 @@ namespace Desert::Editor
                 m_RenamingEntity     = UUID;
                 m_RenameBuffer       = name;
                 m_RenameFocusPending = true;
+            }
+            // Pilot / Eject, as UE's outliner offers it on a camera actor (CameraPilot.hpp).
+            if ( entity.HasComponent<ECS::CameraComponent>() )
+            {
+                if ( IsPiloted( UUID ) )
+                {
+                    if ( ImGui::Selectable( ICON_MDI_EJECT " Eject" ) )
+                        if ( const auto ejected = EjectPilot(); !ejected )
+                            LOG_WARN( "[Outliner] eject refused: {}", ejected.GetError() );
+                }
+                else if ( ImGui::Selectable( ( ICON_MDI_EYE " Pilot '" + name + "'" ).c_str() ) )
+                {
+                    if ( const auto piloted = PilotCameraEntity( UUID ); !piloted )
+                        LOG_WARN( "[Outliner] pilot of '{}' refused: {}", name, piloted.GetError() );
+                }
             }
             // An operation on a MULTI-selected entity applies to the whole selection (UE behavior).
             auto targetSet = [&]() -> std::vector<Common::UUID>

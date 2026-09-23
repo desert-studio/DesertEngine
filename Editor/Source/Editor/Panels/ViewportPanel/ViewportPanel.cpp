@@ -573,6 +573,88 @@ namespace Desert::Editor
         return Common::MakeSuccess<bool>( true );
     }
 
+    void ViewportPanel::DrawPilotOverlay()
+    {
+        m_PilotOverlayHovered = false;
+        if ( !m_Pilot.IsActive() )
+            return;
+
+        // Where the preset caption normally sits, because it answers the same question — what is this
+        // viewport looking through — and because the two must never be on screen together.
+        const std::string caption = "Piloting: " + m_Pilot.EntityName();
+        ImDrawList*       dl      = ::ImGui::GetWindowDrawList();
+        const ImVec2      at( m_ViewportData.ViewportPos.x + 10.0f, m_ViewportData.ViewportPos.y + 8.0f );
+        dl->AddText( ImVec2( at.x + 1.0f, at.y + 1.0f ), IM_COL32( 0, 0, 0, 200 ), caption.c_str() );
+        dl->AddText( at, IM_COL32( 255, 196, 64, 255 ), caption.c_str() );
+
+        const ImVec2 textSize     = ::ImGui::CalcTextSize( caption.c_str() );
+        const ImVec2 cursorBefore = ::ImGui::GetCursorScreenPos();
+        ::ImGui::SetCursorScreenPos( ImVec2( at.x + textSize.x + 10.0f, at.y - 3.0f ) );
+        if ( ::ImGui::SmallButton( ICON_MDI_EJECT " Eject" ) )
+        {
+            const auto camera = ViewCamera();
+            m_Pilot.Eject( dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) );
+        }
+        m_PilotOverlayHovered = ::ImGui::IsItemHovered();
+        if ( m_PilotOverlayHovered )
+            ::ImGui::SetTooltip( "Stop piloting: the viewport returns to where it was." );
+        ::ImGui::SetCursorScreenPos( cursorBefore );
+    }
+
+    Common::BoolResultStr ViewportPanel::RequestPilot( const Common::UUID& entity )
+    {
+        ViewportPanel* target = ActiveViewport();
+        if ( !target )
+            return Common::MakeError<bool>( "there is no viewport to pilot with." );
+        const auto camera    = target->ViewCamera();
+        auto*      editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
+        if ( !editorCam || !target->m_Scene )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "'{}' has no editor camera to pilot with (the view was closed, or the scene is playing).",
+                 target->GetName() );
+        }
+        return target->m_Pilot.Begin( *target->m_Scene, entity, *editorCam );
+    }
+
+    Common::BoolResultStr ViewportPanel::RequestEject()
+    {
+        bool any = false;
+        for ( ViewportPanel* panel : s_Live )
+        {
+            if ( !panel->m_Pilot.IsActive() )
+                continue;
+            const auto camera = panel->ViewCamera();
+            panel->m_Pilot.Eject( dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) );
+            any = true;
+        }
+        return any ? Common::MakeSuccess<bool>( true )
+                   : Common::MakeError<bool>( "no viewport is piloting a camera." );
+    }
+
+    bool ViewportPanel::IsPilotingAnywhere( const Common::UUID& entity )
+    {
+        for ( const ViewportPanel* panel : s_Live )
+            if ( panel->m_Pilot.Entity() && *panel->m_Pilot.Entity() == entity )
+                return true;
+        return false;
+    }
+
+    Common::BoolResultStr PilotCameraEntity( const Common::UUID& entity )
+    {
+        return ViewportPanel::RequestPilot( entity );
+    }
+
+    Common::BoolResultStr EjectPilot()
+    {
+        return ViewportPanel::RequestEject();
+    }
+
+    bool IsPiloted( const Common::UUID& entity )
+    {
+        return ViewportPanel::IsPilotingAnywhere( entity );
+    }
+
     Common::BoolResultStr ViewportPanel::RequestCameraPreset( ViewportCameraPreset preset )
     {
         ViewportPanel* target = ActiveViewport();
@@ -1294,6 +1376,10 @@ namespace Desert::Editor
             editorCam->SetKeyboardRequiresLook( Core::ViewportMode::Get() == Core::EditorMode::Modeling &&
                                                 Core::ModelingState::Get().ActiveTool !=
                                                      Core::ModelingState::Tool::None );
+
+            // After the scene has ticked the camera with this frame's input: a pilot turns that motion
+            // into the camera entity's transform and puts the entity's view back on the camera.
+            m_Pilot.Update( *m_Scene, *editorCam );
         }
 
         // Render scene
@@ -1542,7 +1628,8 @@ namespace Desert::Editor
         {
             if ( const auto camera = ViewCamera() )
             {
-                if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) )
+                auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
+                if ( editorCam && !m_Pilot.IsActive() )
                 {
                     const char* label = ViewportCameraPresetLabel( *editorCam );
                     const ImVec2 at( m_ViewportData.ViewportPos.x + 10.0f,
@@ -1555,6 +1642,8 @@ namespace Desert::Editor
                 }
             }
         }
+
+        DrawPilotOverlay();
 
         // Corner XYZ orientation triad — a 3D aid, so hide it in 2D UI mode (like Unity's 2D scene view).
         // THE MODEL THE GRID NOW FOLLOWS: the mode decides what it draws at the moment it draws it and
@@ -2108,7 +2197,7 @@ namespace Desert::Editor
         // both consume LMB in OnUIRender instead).
         // A click on the corner view-axis gizmo snaps the camera (handled in DrawViewAxisGizmo) — don't also
         // pick the object behind it.
-        if ( m_ViewAxisGizmoHovered )
+        if ( m_ViewAxisGizmoHovered || m_PilotOverlayHovered )
             return false;
 
         // The pick must fire ONLY over the rendered scene image — not the toolbar/overlay widgets that sit

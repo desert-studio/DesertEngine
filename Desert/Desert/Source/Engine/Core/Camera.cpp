@@ -157,6 +157,14 @@ namespace Desert::Core
 
     void EditorCamera::UpdateProjectionMatrix( const uint32_t width, const uint32_t height )
     {
+        if ( m_ExactLens )
+        {
+            // A piloted camera entity: the lens is the component's, so the projection is the one a
+            // GameplayCamera builds and FOV is not rescaled by the viewport's height.
+            Camera::UpdateProjectionMatrix( width, height );
+            return;
+        }
+
         m_ViewportWidth  = width;
         m_ViewportHeight = height;
 
@@ -306,8 +314,13 @@ namespace Desert::Core
         // THE ORBIT, SPELLED EXACTLY AS IT WAS. The up vector is world up flipped by the sign of the
         // orbit's own up — which is what `glm::lookAt` was handed before this function existed, and the
         // reason the clamp is needed: at ±90° that vector is parallel to the forward direction.
-        const float YAWsign = OrbitUp( m_Yaw, m_Pitch ).y > 0 ? 1.0f : -1.0f;
-        return ViewBasis{ glm::normalize( OrbitForward( m_Yaw, m_Pitch ) ), glm::vec3{ 0.f, YAWsign, 0.f } };
+        const float     YAWsign = OrbitUp( m_Yaw, m_Pitch ).y > 0 ? 1.0f : -1.0f;
+        const glm::vec3 forward = glm::normalize( OrbitForward( m_Yaw, m_Pitch ) );
+        // A piloted, rolled camera keeps its roll while it orbits. Zero roll takes the old spelling
+        // exactly, so every viewport that never pilots is untouched to the bit.
+        if ( m_Roll != 0.0f )
+            return ViewBasis{ forward, UpWithRoll( forward, m_Roll ) };
+        return ViewBasis{ forward, glm::vec3{ 0.f, YAWsign, 0.f } };
     }
 
     void EditorCamera::LeaveAxisView()
@@ -333,6 +346,7 @@ namespace Desert::Core
         // like a drag that ended there — including the clamp. An EXACT axis view is a different request
         // with a different entry point (SnapToAxisView).
         m_AxisView.reset();
+        m_Roll = 0.0f; // a named direction is an upright one
         OrbitAnglesFor( f, m_Yaw, m_Pitch );
         m_YawDelta   = 0.0f;
         m_PitchDelta = 0.0f;
@@ -349,6 +363,7 @@ namespace Desert::Core
             return;
 
         m_AxisView   = ViewBasis{ glm::normalize( basis.Forward ), glm::normalize( basis.Up ) };
+        m_Roll       = 0.0f; // the axis view names its own up; leaving it returns to an upright orbit
         m_YawDelta   = 0.0f;
         m_PitchDelta = 0.0f;
 
@@ -369,6 +384,70 @@ namespace Desert::Core
         UpdateCameraView();
     }
 
+    void EditorCamera::PlaceAt( const glm::vec3& position, const ViewBasis& basis )
+    {
+        if ( glm::length( basis.Forward ) < 1e-5f || glm::length( basis.Up ) < 1e-5f )
+            return;
+
+        const glm::vec3 f = glm::normalize( basis.Forward );
+        const glm::vec3 u = glm::normalize( basis.Up - f * glm::dot( basis.Up, f ) );
+        m_AxisView        = ViewBasis{ f, u };
+        m_Roll            = RollOf( *m_AxisView );
+
+        // Keep the framing distance so F-focus and the orbit pivot behave as they did before piloting.
+        const float dist = glm::max( m_Distance, 1.0f );
+        m_Position       = position;
+        m_FocalPoint     = position + f * dist;
+        UpdateCameraView();
+    }
+
+    void EditorCamera::SetExactLens( bool exact )
+    {
+        m_ExactLens = exact;
+        if ( m_ViewportWidth > 0 )
+            UpdateProjectionMatrix( m_ViewportWidth, m_ViewportHeight );
+    }
+
+    EditorCamera::Pose EditorCamera::CapturePose() const
+    {
+        Pose pose;
+        pose.Position   = m_Position;
+        pose.FocalPoint = m_FocalPoint;
+        pose.Distance   = m_Distance;
+        pose.Yaw        = m_Yaw;
+        pose.Pitch      = m_Pitch;
+        pose.Roll       = m_Roll;
+        pose.AxisView   = m_AxisView;
+        pose.FOV        = m_FOV;
+        pose.NearPlane  = m_NearPlane;
+        pose.FarPlane   = m_FarPlane;
+        pose.Projection = m_ProjectionType;
+        pose.ExactLens  = m_ExactLens;
+        return pose;
+    }
+
+    void EditorCamera::RestorePose( const Pose& pose )
+    {
+        m_Position       = pose.Position;
+        m_FocalPoint     = pose.FocalPoint;
+        m_Distance       = pose.Distance;
+        m_Yaw            = pose.Yaw;
+        m_Pitch          = pose.Pitch;
+        m_Roll           = pose.Roll;
+        m_AxisView       = pose.AxisView;
+        m_FOV            = pose.FOV;
+        m_NearPlane      = pose.NearPlane;
+        m_FarPlane       = pose.FarPlane;
+        m_ProjectionType = pose.Projection;
+        m_ExactLens      = pose.ExactLens;
+        m_YawDelta       = 0.0f;
+        m_PitchDelta     = 0.0f;
+        m_LocationDelta  = glm::vec3( 0.0f );
+        if ( m_ViewportWidth > 0 )
+            UpdateProjectionMatrix( m_ViewportWidth, m_ViewportHeight );
+        UpdateCameraView();
+    }
+
     void EditorCamera::UpdateCameraView()
     {
         const ViewBasis basis         = CurrentBasis();
@@ -386,20 +465,22 @@ namespace Desert::Core
     }
 
     // ─── GameplayCamera (driven by a CameraComponent) ───────────────────────────
+    void GameplayCamera::SetView( const CameraEntityView& view, uint32_t width, uint32_t height )
+    {
+        m_Position   = view.Position;
+        m_FOV        = view.FovYDegrees;
+        m_NearPlane  = view.Near;
+        m_FarPlane   = view.Far;
+        m_ViewMatrix = ViewMatrixOf( view );
+        UpdateProjectionMatrix( width, height );
+    }
+
     void GameplayCamera::SetFromTransform( const glm::vec3& position, const glm::vec3& eulerRotation,
                                            float fovDegrees, float nearPlane, float farPlane, uint32_t width,
                                            uint32_t height )
     {
-        m_Position  = position;
-        m_FOV       = fovDegrees;
-        m_NearPlane = nearPlane;
-        m_FarPlane  = farPlane;
-
-        const glm::quat orientation = glm::quat( eulerRotation );
-        const glm::vec3 forward     = glm::rotate( orientation, glm::vec3( 0.0f, 0.0f, -1.0f ) );
-        const glm::vec3 up          = glm::rotate( orientation, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-        m_ViewMatrix                = glm::lookAt( position, position + forward, up );
-
-        UpdateProjectionMatrix( width, height );
+        const glm::mat4 world =
+             glm::translate( glm::mat4( 1.0f ), position ) * glm::toMat4( glm::quat( eulerRotation ) );
+        SetView( CameraEntityViewOf( world, fovDegrees, nearPlane, farPlane ), width, height );
     }
 } // namespace Desert::Core
