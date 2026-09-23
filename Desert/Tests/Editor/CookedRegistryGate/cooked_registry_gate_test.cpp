@@ -66,9 +66,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <set>
+#include <sstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -243,10 +246,47 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
     for ( const auto& [key, file] : *tracked )
         kindsTracked.insert( std::string( Common::Content::KindName( file.Kind ) ) );
 
+    // KINDS THAT ARE PRODUCED, NEVER COMMITTED — one named row each, with the suite that reaches the row
+    // instead. A kind listed here that the repository DOES track again is red: the exemption would then be
+    // hiding the ordinary check, and the row has to go.
+    //
+    // `Texture` used to be reached by `Editor/Cooked/Textures/T_Checker.tex`, committed only because no
+    // automatic path cooked a loose image. PK1 made the packager and the editor cook it, and a committed
+    // cook is a second copy of a derived artifact, so it left. What it certified here — that the census's
+    // Texture root and `.tex` extension are right — is certified by the packaged-content suite: its rows
+    // come from `ContentRegistry::NoteFile`, which classifies through this same census, and the packaged
+    // runtime finds the cooked textures ONLY through those rows. A wrong root or extension leaves it none.
+    struct CookOnlyKind
+    {
+        const char* Kind;
+        const char* Suite; // repository-relative source file of the suite that reaches the row
+        const char* Test;  // the test in it that goes red when the row is wrong
+    };
+    constexpr CookOnlyKind kCookOnlyKinds[] = {
+         { "Texture", "Desert/Tests/Editor/PackagedContent/packaged_content_test.cpp",
+           "TheTexturesAPackageCarriesAreCookedInsideIt" },
+    };
+
     for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
     {
         const auto        kind = static_cast<Common::Content::ContentKind>( i );
         const std::string name( Common::Content::KindName( kind ) );
+
+        const auto cookOnly = std::find_if( std::begin( kCookOnlyKinds ), std::end( kCookOnlyKinds ),
+                                            [&name]( const CookOnlyKind& row ) { return name == row.Kind; } );
+        if ( cookOnly != std::end( kCookOnlyKinds ) )
+        {
+            EXPECT_EQ( kindsTracked.find( name ), kindsTracked.end() )
+                 << "'" << name << "' is registered as produced-never-committed, and the repository tracks a "
+                 << "file of it again: delete its row in kCookOnlyKinds so the ordinary check applies";
+            std::ifstream     suite( root / cookOnly->Suite );
+            std::stringstream text;
+            text << suite.rdbuf();
+            EXPECT_NE( text.str().find( std::string( ", " ) + cookOnly->Test + " )" ), std::string::npos )
+                 << "'" << name << "' is exempted on the strength of " << cookOnly->Suite << " / "
+                 << cookOnly->Test << ", which no longer exists - the census row is reached by nothing";
+            continue;
+        }
 
         EXPECT_NE( kindsTracked.find( name ), kindsTracked.end() )
              << "this repository ships no '" << name

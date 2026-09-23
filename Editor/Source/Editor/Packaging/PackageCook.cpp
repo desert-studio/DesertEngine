@@ -9,6 +9,10 @@
 #include <Engine/Text/FontCache.hpp>
 #include <Engine/Vector/IconBake.hpp>
 
+#include <Engine/Assets/ContentRegistry.hpp>
+
+#include <Editor/Import/TextureImporter.hpp>
+
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -230,6 +234,36 @@ namespace Desert::Editor
                 }
             }
         }
+        void CookTextures( CookStats& stats )
+        {
+            // THE EDITOR'S IMPORTER, NOT A SECOND COOK. Decode, mip chain, the BC7 gates, the intent
+            // file, the freshness key and the path formula all live in TextureImporter; a packager copy
+            // of any of them would be a second opinion on what a shipped texture is. Each failure was
+            // logged where it happened, with the file's name.
+            TextureImporter             importer;
+            const LooseTextureCookStats textures = importer.CookLooseTextures();
+            stats.TexturesCooked += textures.Cooked;
+            stats.TexturesCached += textures.Fresh;
+            stats.Failures += textures.Failed;
+            stats.StoreFailures += textures.Unwritten;
+
+            // THE ROWS GO WHERE THE RUNTIME READS THEM. The texture cook entered every `.tex` into the
+            // content registry as it went (WriteCookedBytes on a write, NoteFile on a fresh one), and the
+            // player's preload asks the registry for textures rather than listing a directory — so a row
+            // that stays in this process's memory is a texture the package carries and the game never
+            // loads. A registry that could not be written is counted as an unwritten artifact for the
+            // same reason a SPIR-V blob is.
+            if ( Assets::ContentRegistry::Dirty() )
+            {
+                if ( const auto saved = Assets::ContentRegistry::Save(); !saved )
+                {
+                    LOG_ERROR( "[PackageCook] the cooked textures' registry rows were not written: {} — the "
+                               "package would carry textures its runtime cannot find",
+                               saved.GetError() );
+                    ++stats.StoreFailures;
+                }
+            }
+        }
     } // namespace
 
     CookStats CookContentCaches( bool spirvDebugInfo )
@@ -238,11 +272,13 @@ namespace Desert::Editor
         CookShaders( spirvDebugInfo, stats );
         CookFonts( stats );
         CookIcons( stats );
+        CookTextures( stats );
 
         LOG_INFO( "[PackageCook] shaders {} compiled / {} cached, fonts {} baked / {} cached, icons {} "
-                  "baked / {} cached, {} failure(s), {} unwritten",
+                  "baked / {} cached, textures {} cooked / {} cached, {} failure(s), {} unwritten",
                   stats.ShadersCompiled, stats.ShadersCached, stats.FontsBaked, stats.FontsCached,
-                  stats.IconsBaked, stats.IconsCached, stats.Failures, stats.StoreFailures );
+                  stats.IconsBaked, stats.IconsCached, stats.TexturesCooked, stats.TexturesCached, stats.Failures,
+                  stats.StoreFailures );
         if ( stats.StoreFailures > 0 )
         {
             // Loud on its own line: this one is never normal, and a package built over it ships a

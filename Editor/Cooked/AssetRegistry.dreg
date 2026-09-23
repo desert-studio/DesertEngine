@@ -60,6 +60,9 @@ DesertAssetRegistry 1
 236 Material 0dfe7a18f6435771 3facba2f99300a42 assets:Materials/M_G3_TerrainChecker.demat
 176 Material 0dfe7a18f6435772 - assets:Materials/M_G3_TerrainPlain.demat
 267 Material b901dafc396fe32d c52af1456735652b assets:Materials/M_Graph_Batch_Stress__1024_cubes__one_graph_material__Clouds.demat
+230 Material - - assets:Materials/M_HDR_Chrome.demat
+225 Material - - assets:Materials/M_HDR_Matte.demat
+229 Material - - assets:Materials/M_HDR_Satin.demat
 267 Material d74641b8dc505d6a c52af1456735652b assets:Materials/M_Instanced_Cascade_Seam_Clouds.demat
 665 Material - - assets:Materials/M_NormalWitness.demat
 602 Material - - assets:Materials/M_NormalWitness_Flat.demat
@@ -145,6 +148,7 @@ DesertAssetRegistry 1
 1393 ControlRig - - assets:Rigs/IKProbe_Arm.derig
 3549 ControlRig - - assets:Rigs/IKProbe_ArmGraph.derig
 32816 Skybox - - assets:Textures/HDR/PreviewCheck.hdr
+5750581 Skybox - - assets:Textures/HDR/rural_asphalt_road_2k.hdr
 12388 UITheme - - assets:UI/Themes/Desert_Dark.detheme
 11081 UITheme - - assets:UI/Themes/Desert_Light.detheme
 877 Animation - - cooked:Meshes/A6Curve_Cubic.anim
@@ -164,7 +168,6 @@ DesertAssetRegistry 1
 4936 SkinnedMesh - - cooked:Meshes/TwoBoneProbe.skmesh
 11950 Animation - - cooked:Meshes/TwoBoneProbe_Twist.anim
 11205 Animation - - cooked:Meshes/TwoBoneProbe_Wave.anim
-8090 Texture 3facba2f99300a42 - cooked:Textures/T_Checker.tex
 2898 Shader - - engine:Shaders/Programs/AutoExposure/AEAverage.shader
 2379 Shader - - engine:Shaders/Programs/AutoExposure/AEHistogram.shader
 470 Shader - - engine:Shaders/Programs/AutoExposure/AEHistogramClear.shader

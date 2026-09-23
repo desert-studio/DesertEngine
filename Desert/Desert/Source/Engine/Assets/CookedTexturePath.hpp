@@ -20,20 +20,40 @@
 namespace Desert::Assets
 {
     // Source texture -> Cooked/Textures/<rel>.<ext>. Textures under Resources/Assets/Textures keep their
-    // layout (relative to that dir, so handles/paths are stable); textures ANYWHERE ELSE under Resources/
-    // (e.g. a pack's Assets/Collections/<pack>/textures/) map relative to Resources/ instead — otherwise the
-    // relative path escapes Cooked/Textures with "../" and the cook silently fails.
+    // layout (relative to that dir, so handles/paths are stable); textures ANYWHERE ELSE in the project's
+    // assets root (images beside a mesh, a pack's Assets/Collections/<pack>/textures/) map under
+    // `Assets/`, relative to that root; engine-resource images under Resources/ map relative to Resources/.
+    // Otherwise the relative path escapes Cooked/Textures with "../" and the cook silently fails.
+    //
+    // WHY `Assets/` IS SPELLED HERE AND NOT READ OFF THE ROOT'S NAME. Until PK1 the middle case was "relative
+    // to Resources/", which gave `Assets/Meshes/x.tex` in the sandbox only because its assets root happens to
+    // be `Resources/Assets`. A project's root is not under Resources/ at all (`GameAssets/` beside the
+    // `.deproj`), and neither is a package's (`Assets/` beside the archive), so an image beside a mesh
+    // cooked to `Cooked/Textures/../Meshes/x.tex` — outside the tree the registry scans and the packager
+    // packs. Measured by Desert/Tests/Editor/PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt,
+    // the first run that cooked a mesh-side texture in a project. The fixed prefix keeps every sandbox cook
+    // exactly where it was and gives every other layout the same answer.
+    inline constexpr const char* kCookedAssetsSubdir = "Assets";
+
     inline std::filesystem::path CookedTexturePath( const std::filesystem::path& source, const std::string& ext )
     {
         namespace fs = std::filesystem;
 
-        fs::path   rel      = fs::relative( source, Common::Constants::Path::TEXTUREDIR_PATH );
-        const bool underTex = !rel.empty() && rel.begin()->string() != "..";
-        if ( !underTex )
+        const auto inside = []( const fs::path& rel ) { return !rel.empty() && rel.begin()->string() != ".."; };
+
+        fs::path rel = fs::relative( source, Common::Constants::Path::TEXTUREDIR_PATH );
+        if ( !inside( rel ) )
         {
-            const fs::path relRes = fs::relative( source, Common::Constants::Path::RESOURCE_PATH );
-            if ( !relRes.empty() && relRes.begin()->string() != ".." )
+            if ( const fs::path relAssets = fs::relative( source, Common::Constants::Path::ASSETS_PATH );
+                 inside( relAssets ) )
+            {
+                rel = fs::path( kCookedAssetsSubdir ) / relAssets;
+            }
+            else if ( const fs::path relRes = fs::relative( source, Common::Constants::Path::RESOURCE_PATH );
+                      inside( relRes ) )
+            {
                 rel = relRes;
+            }
         }
 
         fs::path result = Common::Constants::Path::TEXTURE_PATH_COOKED / rel;

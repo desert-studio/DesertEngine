@@ -39,9 +39,10 @@
  *    (owner decision 2026-09-22, the same call `MeshBinary` records). A stale cook must not read like
  *    a corrupt file: the refusal names the remedy.
  *
- * 5. THE COMMITTED CORPUS IS CONVERTED. `Editor/Cooked/Textures/T_Checker.tex` is the one cooked
- *    texture this repository tracks — eleven scenes draw their floor with it and nothing re-cooks it
- *    on a fresh clone. It is parsed here through the reader the engine uses.
+ * 5. THE COMMITTED CORPUS WAS CONVERTED, AND THEN RETIRED. `Editor/Cooked/Textures/T_Checker.tex` was
+ *    the one cooked texture this repository tracked, and it was parsed here through the reader the
+ *    engine uses. Since PK1 nothing cooked is committed: the packager cooks what it ships, and the
+ *    shipped-format assertions moved to Desert/Tests/Editor/PackagedContent (see section 9).
  */
 
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
@@ -68,7 +69,8 @@ namespace
     std::filesystem::path RepositoryRoot()
     {
         std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Cooked" / "Textures" ); ++up )
+        for ( int up = 0;
+              up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Assets" / "Textures" ); ++up )
             here = here.parent_path();
         return here;
     }
@@ -575,36 +577,15 @@ TEST( TextureBinaryFormat, HdrSourcesKeepTheirRange )
     EXPECT_FLOAT_EQ( mip1[3], 1.0f );
 }
 
-// ── 9. THE COMMITTED CORPUS IS CONVERTED ───────────────────────────────────────────────────────────
-
-TEST( TextureBinaryFormat, TheTrackedCheckerTextureIsAContainer )
-{
-    const auto        path  = RepositoryRoot() / "Editor" / "Cooked" / "Textures" / "T_Checker.tex";
-    const std::string bytes = ReadFile( path );
-    ASSERT_FALSE( bytes.empty() ) << path.string();
-
-    ASSERT_TRUE( LooksLikeTextureBinary( bytes ) )
-         << "the one cooked texture this repository tracks is still the retired manifest; nothing "
-            "re-cooks it on a fresh clone, so eleven scenes would draw an untextured floor";
-
-    const auto read = DecodeTextureBinary( bytes, path.string() );
-    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-    EXPECT_EQ( read.GetValue().Width, 1024u );
-    EXPECT_EQ( read.GetValue().Height, 1024u );
-    // BC7 SINCE T3.4, AND THE FILE IS WHERE THAT IS TRUE OR NOT. The cook encodes an LDR texture to
-    // BC7 when it can show the result holds up, and this texture clears both of its gates -- measured
-    // over the whole chain at cook time, 54.02 dB with a worst texel off by 4. A format assertion here
-    // is what stops "the encoder exists" from being mistaken for "the shipped content uses it": the
-    // one cooked texture this repository tracks is the whole shipped corpus.
-    EXPECT_EQ( read.GetValue().Format, ImageFormat::BC7_UNORM );
-    EXPECT_TRUE( Desert::Core::Formats::IsBlockCompressed( read.GetValue().Format ) );
-    EXPECT_EQ( read.GetValue().Levels.size(), 11u ); // floor(log2(1024)) + 1
-    EXPECT_EQ( read.GetValue().SourcePath, "assets:Textures/T_Checker.png" );
-
-    // The handle eleven scenes resolve their floor material through. It is derived from the SOURCE
-    // image's project-relative key, so this number is the same on every machine.
-    EXPECT_EQ( static_cast<uint64_t>( read.GetValue().Handle ), 4588246833979984450ull );
-}
+// ── 9. THE SHIPPED CORPUS IS COOKED, NOT COMMITTED ─────────────────────────────────────────────────
+//
+// Two tests used to stand here, asserting that `Editor/Cooked/Textures/T_Checker.tex` -- the one cooked
+// texture the repository tracked -- was a BC7 container with LZ4 levels. The file is gone (PK1): the
+// packager cooks every texture it ships through the editor's importer, and a committed cook was a second
+// copy of a derived artifact. What those tests protected -- "the shipped content uses the format, not
+// merely the encoder exists" -- is asserted where the shipped content is now PRODUCED:
+// Desert/Tests/Editor/PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt, which cooks the real
+// T_Checker.png through the real packager and reads the result back out of the archive.
 
 // ── 10. THE LEVELS ARE STORED SMALLEST FIRST, AND THAT IS WHAT THE NEXT STEP BUYS ─────────────────
 
@@ -862,45 +843,6 @@ TEST( TextureBinaryFormat, ACompressedLevelThatDoesNotDecodeIsAFailedReadAndNotA
     EXPECT_NE( read.GetError().find( "did not decode" ), std::string::npos ) << read.GetError();
 }
 
-TEST( TextureBinaryFormat, TheTrackedCheckerTextureCarriesItsLevelsCompressed )
-{
-    // THE COMMITTED FILE IS THE CLAIM. A format that can compress and a cook that never does are the
-    // same thing on disk, and the disk is what ships.
-    const auto        path  = RepositoryRoot() / "Editor" / "Cooked" / "Textures" / "T_Checker.tex";
-    const std::string bytes = ReadFile( path );
-    ASSERT_FALSE( bytes.empty() ) << path.string();
-
-    const auto header = DecodeTextureHeader( bytes, path.string() );
-    ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
-
-    size_t compressed = 0;
-    for ( const TextureLevelLocation& level : header.GetValue().Levels )
-        if ( level.Codec == TextureLevelCodec::LZ4 )
-            ++compressed;
-    EXPECT_GT( compressed, 0u ) << "the tracked texture was cooked with every level stored; the cook is "
-                                   "no longer compressing what it ships";
-
-    EXPECT_LT( header.GetValue().StoredPayloadBytes, header.GetValue().PayloadBytes );
-    EXPECT_EQ( header.GetValue().FileSize, bytes.size() );
-
-    // The declared decoded total, derived here rather than remembered: eleven levels of a 1024x1024
-    // chain, PADDING EXCLUDED — which is why it is not the size of the pixel buffer.
-    //
-    // IN BLOCKS, AND THE SUM IS NOT A QUARTER OF THE OLD ONE. A 1x1 BC7 level is a WHOLE 16-byte block
-    // and so are 2x2 and 4x4, so the smallest five levels of this chain occupy the same bytes as one
-    // 4x4 level each. Writing `w * h * 4 / 4` here would be short by 60 bytes and would still look
-    // right; the derivation has to be the format table's, which is what `CalculateImageSize` is.
-    const ImageFormat format = header.GetValue().Format;
-    uint64_t          chain  = 0;
-    for ( uint32_t w = 1024, h = 1024;; w = w > 1 ? w / 2 : 1, h = h > 1 ? h / 2 : 1 )
-    {
-        chain += Desert::Core::Formats::CalculateImageSize( w, h, format );
-        if ( w == 1 && h == 1 )
-            break;
-    }
-    EXPECT_EQ( header.GetValue().PayloadBytes, chain );
-}
-
 TEST( TextureBinaryFormat, AFlagThisVersionCannotHonourIsRefused )
 {
     // `Flags` is written as zero by every version so far and it is a guard rather than dead space: a
@@ -985,18 +927,6 @@ TEST( TextureBinaryFormat, AnUnauthoredFileIsBYTEForBYTEWhatItWasBeforeTheIntent
              << "byte " << at
              << " of the header is not zero; an unauthored cook must be indistinguishable "
                 "from one written before the intent field existed";
-    }
-
-    // And the one committed cooked texture in this repository still decodes, with no intent, through the
-    // reader that now knows about the field. If this fails the field was NOT free and every `.tex` in
-    // the tree needs re-cooking.
-    const std::filesystem::path tracked = RepositoryRoot() / "Editor" / "Cooked" / "Textures" / "T_Checker.tex";
-    if ( std::filesystem::exists( tracked ) )
-    {
-        const auto committed = DecodeTextureHeader( ReadFile( tracked ), tracked.string() );
-        ASSERT_TRUE( committed.IsSuccess() ) << committed.GetError();
-        EXPECT_EQ( committed.GetValue().Intent, Desert::Core::Formats::TextureIntent::Unspecified )
-             << "the committed cook predates the field and must read back as 'nobody said'";
     }
 }
 

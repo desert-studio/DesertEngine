@@ -1,6 +1,5 @@
 #include "ImportManager.hpp"
 
-#include <Editor/Import/TextureSourceFormats.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include "Assimp/AssimpImporter.hpp"
@@ -305,46 +304,15 @@ namespace Desert::Editor
         return m_TextureImporter->Import( path );
     }
 
-    void ImportManager::ImportAllTexturesFromDirectory( const std::filesystem::path& root )
+    LooseTextureCookStats ImportManager::CookLooseTextures()
     {
-        namespace fs = std::filesystem;
-
         // WHY THIS IS NOT `ImportAllFromDirectory`. That one walks `m_Importers`, which holds MESH
         // importers, and a texture has never been in it: a loose `.png` reached its cooked form only as
-        // a mesh's material dependency or through a drag-and-drop. So `Assets/Textures/` — the directory
-        // the one committed `.tex` in this repository comes from — had NO automatic producer at all, and
-        // a stale cook there (a container version moved, a source re-exported) stayed stale until
-        // somebody dragged the file back into the editor. Found when v3 landed and the menu entry whose
-        // whole job is "make the cooked form again" could not make this one.
-        //
-        // THERE IS NO `force` PARAMETER, and there must not be one. `TextureImporter::Import` decides
-        // freshness from the SOURCE'S BYTES (CRC-32C at 8.17 GB/s) and re-cooks exactly when they, the
-        // handle or the stable key disagree — so "force" would mean "re-cook things that are already
-        // correct", which is the mtime behaviour this pipeline deliberately left behind.
-        std::error_code ec;
-        if ( !fs::exists( root, ec ) )
-            return;
-
-        for ( const auto& entry : fs::recursive_directory_iterator( root, ec ) )
-        {
-            if ( !entry.is_regular_file() )
-                continue;
-
-            std::string ext = entry.path().extension().string();
-            std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-            // THE ONE ORDERED LIST, asked rather than re-spelled -- see TextureSourceFormats.hpp for the
-            // two hand-written copies that had already drifted before it existed.
-            if ( TextureSourceFormatRank( ext ) == kTextureSourceExtensionCount )
-                continue;
-
-            // AN EXTENDED-RANGE SOURCE IS COOKED LIKE EVERY OTHER, and it used to be skipped here on the
-            // claim that "this cook forces RGBA8". It does not: `TextureImporter` reads an `.hdr` with
-            // `stbi_loadf` and writes RGBA32F, and it never offers a float source a block format. The
-            // skip is what kept the sky panorama's decoder in the RUNTIME — the environment read the
-            // `.hdr` itself because nothing else had ever turned it into a `.tex`. It reads the cooked
-            // panorama now, so this pass is the panorama's producer and must not step over it.
-            (void)m_TextureImporter->Import( entry.path() );
-        }
+        // a mesh's material dependency or through a drag-and-drop. So `Assets/Textures/` had NO automatic
+        // producer at all, and a stale cook there (a container version moved, a source re-exported) stayed
+        // stale until somebody dragged the file back into the editor. The walk itself lives in
+        // `TextureImporter::CookLooseTextures` now, because the packager runs the same one.
+        return m_TextureImporter->CookLooseTextures();
     }
 
     Assets::AssetHandle ImportManager::ImportAndRegisterTexture( Assets::AssetManager&         mgr,

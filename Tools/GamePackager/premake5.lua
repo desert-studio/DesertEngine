@@ -33,6 +33,13 @@ project "GamePackager"
         "%{wks.location}/Desert/Desert/Source/Engine/Vector/VectorImage.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Vector/IconBake.cpp",
         "%{wks.location}/ThirdParty/stb/stb_truetype.cpp",
+        -- THE TEXTURE COOK (PK1): the editor's importer itself, the container it writes, the BC7 gates it
+        -- measures its own output against, and stb_image as the one decoder in the closure. The same
+        -- four files Tests/Editor/TextureImport compiles, so nothing here is a second texture cook.
+        "%{wks.location}/Editor/Source/Editor/Import/TextureImporter.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",
+        "%{wks.location}/ThirdParty/stb/stb_image.cpp",
     }
 
     includedirs {
@@ -40,6 +47,10 @@ project "GamePackager"
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
         "%{wks.location}/Editor/Source",
+    }
+
+    externalincludedirs {
+        "%{wks.location}/ThirdParty/stb/include", -- <stb_image/stb_image.h>, for the texture cook
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
