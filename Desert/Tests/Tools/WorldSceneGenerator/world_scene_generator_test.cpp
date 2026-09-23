@@ -624,6 +624,35 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
          << reported.str();
 }
 
+// EVERY BUILDING FITS ITS OWN TILE, AS THE ENGINE READS IT - checked through the partition plan, which
+// composes the transform the way the loader does (radians) and takes the primitive cube's corners. The
+// defect this pins: yaw was written as 0/90/180/270 into a field read in radians, so three buildings in
+// four stood at 116, 233 or 350 degrees and 1015 of the `world` preset's 49152 crossed a tile edge. On an
+// 8 x 8 world every composite but the three fixtures must sit on level 0, and no rotation is written.
+TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
+{
+    const auto               out = Scratch() / "fits.desce";
+    std::vector<std::string> args{ "--out", out.string(), "--assets", AssetsRoot(), "--cells", "8", "--partition" };
+    std::ostringstream       reported;
+    std::ostringstream       refused;
+    ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
+
+    const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
+    ASSERT_TRUE( scene.has_value() && scene->WorldPartition.has_value() );
+    for ( const auto& entity : scene->Entities )
+    {
+        if ( entity.Rotation.has_value() )
+            EXPECT_EQ( *entity.Rotation, glm::vec3( 0.0f ) ) << entity.Tag.value_or( "" );
+    }
+
+    namespace Rules = Desert::Core::Rules;
+    const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    EXPECT_EQ( plan.MaxLevel, 0 ) << reported.str();
+    EXPECT_EQ( plan.AlwaysLoaded.size(), 3u ) << reported.str();
+    EXPECT_EQ( plan.Cells.size(), 64u );
+    EXPECT_EQ( plan.PointOnlyRecords, 3u ) << "only the fixtures have no primitive footprint";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
