@@ -25,10 +25,15 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",        -- The partitioner places a landscape tile by its root's frame (LS-3), and those two functions live
+        -- in pure translation units that link only Common.
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
 
     includedirs {
+        -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
+        "%{wks.location}/Editor/Resources/Shaders",
         "%{wks.location}/Tools/WorldGen/Source",
         "%{wks.location}/Tools/SceneMigrator/Source",
         "%{wks.location}/Desert/Common/Source",
