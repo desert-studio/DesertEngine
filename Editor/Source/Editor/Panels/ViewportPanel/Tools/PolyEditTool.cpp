@@ -2,12 +2,16 @@
 
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
-#include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
+#include <Engine/Geometry/EditMesh.hpp>
+#include <Engine/Geometry/EditMeshNormals.hpp>
+
+#include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -15,7 +19,8 @@
 #include <array>
 #include <cfloat>
 #include <cmath>
-#include <unordered_map>
+#include <memory>
+#include <optional>
 #include <unordered_set>
 
 namespace Desert::Editor::Tools
@@ -43,38 +48,33 @@ namespace Desert::Editor::Tools
             return t > 1e-4f;
         }
 
-        // Weld a local position into an integer key (0.01-unit tolerance) so coincident verts share an index.
-        uint64_t WeldKey( const glm::vec3& p )
+        struct EditTarget
         {
-            auto q = []( float v )
-            { return static_cast<uint64_t>( std::llround( v * 100.0 ) + ( 1 << 20 ) ) & 0x1FFFFF; };
-            return q( p.x ) | ( q( p.y ) << 21 ) | ( q( p.z ) << 42 );
-        }
-        uint64_t EdgeKey( int a, int b )
-        {
-            if ( a > b )
-                std::swap( a, b );
-            return ( static_cast<uint64_t>( static_cast<uint32_t>( a ) ) << 32 ) | static_cast<uint32_t>( b );
-        }
+            ECS::StaticMeshComponent* Component = nullptr;
+            glm::mat4                 World{ 1.0f };
+        };
 
-        // Resolve the selected entity's editable mesh (RuntimeMesh) + its world transform. null on miss.
-        DynamicMesh* GetMesh( ::Desert::Core::Scene& scene, const Common::UUID& id, glm::mat4& world )
+        // The selected entity's EDITABLE mesh (StaticMeshComponent::EditableMesh) + its world transform; an
+        // entity drawn from an asset or a primitive has none, and the tool does nothing to it.
+        std::optional<EditTarget> GetTarget( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             if ( static_cast<uint64_t>( id ) == 0 )
-                return nullptr;
+                return std::nullopt;
             auto ref = scene.FindEntityByID( id );
             if ( !ref )
-                return nullptr;
+                return std::nullopt;
             ECS::Entity e = ref->get();
             if ( !e.HasComponent<ECS::StaticMeshComponent>() )
-                return nullptr;
+                return std::nullopt;
             auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
-            if ( !smc.RuntimeMesh )
-                return nullptr;
-            world = e.HasComponent<ECS::TransformComponent>()
-                         ? e.GetComponent<ECS::TransformComponent>().GetTransform()
-                         : glm::mat4( 1.0f );
-            return smc.RuntimeMesh.get();
+            if ( !smc.EditableMesh )
+                return std::nullopt;
+            EditTarget target;
+            target.Component = &smc;
+            target.World     = e.HasComponent<ECS::TransformComponent>()
+                                    ? e.GetComponent<ECS::TransformComponent>().GetTransform()
+                                    : glm::mat4( 1.0f );
+            return target;
         }
     } // namespace
 
@@ -92,114 +92,84 @@ namespace Desert::Editor::Tools
 
     void PolyEditTool::ClearSelection()
     {
+        FinishDrag();
         m_SelVerts.clear();
         m_SelTris.clear();
-        m_HasSel   = false;
+        m_HasSel = false;
+    }
+
+    void PolyEditTool::FinishDrag()
+    {
+        // A drag that ends any way at all - release, a changed selection, the tool switched off - is ONE
+        // undo step, from the mesh the drag started on to whatever the component holds now.
+        if ( m_Dragging )
+            Commands::RecordEditMeshChange( m_DragEntity, "Push/Pull Face", std::move( m_DragBefore ) );
+        m_DragBefore.reset();
         m_Dragging = false;
     }
 
     bool PolyEditTool::PickFace( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray )
     {
-        glm::mat4    world;
-        DynamicMesh* mesh = GetMesh( scene, m_Entity, world );
-        if ( !mesh )
+        const auto target = GetTarget( scene, m_Entity );
+        if ( !target )
             return false;
-
-        const auto& verts = mesh->GetVertices();
-        const auto& inds  = mesh->GetIndices();
-        const int   T     = static_cast<int>( inds.size() );
-        if ( T == 0 )
-            return false;
+        const Geometry::EditMesh& mesh  = *target->Component->EditableMesh;
+        const glm::mat4&          world = target->World;
 
         // Nearest triangle under the ray (world space).
-        int   hit   = -1;
+        int   hit   = Geometry::InvalidId;
         float bestT = FLT_MAX;
-        for ( int i = 0; i < T; ++i )
+        for ( const int t : mesh.TriangleIds() )
         {
-            const glm::vec3 a = glm::vec3( world * glm::vec4( verts[inds[i].V1].Position, 1.0f ) );
-            const glm::vec3 b = glm::vec3( world * glm::vec4( verts[inds[i].V2].Position, 1.0f ) );
-            const glm::vec3 c = glm::vec3( world * glm::vec4( verts[inds[i].V3].Position, 1.0f ) );
-            float           t;
-            if ( RayTri( ray.Origin, ray.Direction, a, b, c, t ) && t < bestT )
+            const auto&     tri = mesh.GetTriangle( t );
+            const glm::vec3 a   = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[0] ), 1.0f ) );
+            const glm::vec3 b   = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[1] ), 1.0f ) );
+            const glm::vec3 c   = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[2] ), 1.0f ) );
+            float           hitT;
+            if ( RayTri( ray.Origin, ray.Direction, a, b, c, hitT ) && hitT < bestT )
             {
-                bestT = t;
-                hit   = i;
+                bestT = hitT;
+                hit   = t;
             }
         }
-        if ( hit < 0 )
+        if ( hit == Geometry::InvalidId )
         {
             ClearSelection();
             return false;
         }
 
-        // Weld + per-triangle geometric (local) normal + edge -> triangles adjacency.
-        std::vector<int> weldOf( verts.size() );
-        {
-            std::unordered_map<uint64_t, int> wm;
-            for ( size_t i = 0; i < verts.size(); ++i )
-            {
-                const uint64_t k  = WeldKey( verts[i].Position );
-                auto           it = wm.find( k );
-                weldOf[i]         = it != wm.end() ? it->second : ( wm[k] = static_cast<int>( wm.size() ) );
-            }
-        }
-        std::vector<std::array<int, 3>>                triW( T );
-        std::vector<glm::vec3>                         triN( T );
-        std::unordered_map<uint64_t, std::vector<int>> edgeTris;
-        for ( int i = 0; i < T; ++i )
-        {
-            triW[i]           = { weldOf[inds[i].V1], weldOf[inds[i].V2], weldOf[inds[i].V3] };
-            const glm::vec3 a = verts[inds[i].V1].Position, b = verts[inds[i].V2].Position,
-                            c = verts[inds[i].V3].Position;
-            triN[i]           = glm::normalize( glm::cross( b - a, c - a ) );
-            edgeTris[EdgeKey( triW[i][0], triW[i][1] )].push_back( i );
-            edgeTris[EdgeKey( triW[i][1], triW[i][2] )].push_back( i );
-            edgeTris[EdgeKey( triW[i][2], triW[i][0] )].push_back( i );
-        }
-
-        // Flood-fill the coplanar polygroup from the hit triangle (shared edge + near-equal normal).
-        const glm::vec3   hN = triN[hit];
+        // Flood the coplanar face from the hit triangle across the mesh's own edges (shared edge + near-equal
+        // normal). The EditMesh knows its topology, so this no longer re-welds render vertices by a quantised
+        // position key on every click, which is what the tool had to do while it edited the render buffer.
+        const glm::vec3   hN = Geometry::TriangleNormal( mesh, hit );
         std::vector<int>  face{ hit };
-        std::vector<char> seen( T, 0 );
+        std::vector<char> seen( static_cast<size_t>( mesh.MaxTriangleId() ), 0 );
         seen[hit] = 1;
-        std::unordered_set<int> faceWeld;
         for ( size_t f = 0; f < face.size(); ++f )
-        {
-            const int i = face[f];
-            faceWeld.insert( triW[i][0] );
-            faceWeld.insert( triW[i][1] );
-            faceWeld.insert( triW[i][2] );
-            const uint64_t edges[3] = { EdgeKey( triW[i][0], triW[i][1] ), EdgeKey( triW[i][1], triW[i][2] ),
-                                        EdgeKey( triW[i][2], triW[i][0] ) };
-            for ( uint64_t ek : edges )
-                for ( int nb : edgeTris[ek] )
-                    if ( !seen[nb] && glm::dot( triN[nb], hN ) > 0.99f )
+            for ( const int e : mesh.GetTriangleEdges( face[f] ) )
+                for ( const int nb : mesh.GetEdgeTriangles( e ) )
+                    if ( nb != Geometry::InvalidId && !seen[nb] &&
+                         glm::dot( Geometry::TriangleNormal( mesh, nb ), hN ) > 0.99f )
                     {
                         seen[nb] = 1;
                         face.push_back( nb );
                     }
-        }
 
-        // Selection = every ORIGINAL vertex whose welded index is in the face (so shared corners move too).
+        // Selection = the face's vertices: shared corners are ONE vertex in an EditMesh, so the neighbours
+        // follow the drag by construction.
+        std::unordered_set<int> verts;
+        for ( const int t : face )
+            for ( const int v : mesh.GetTriangle( t ) )
+                verts.insert( v );
         m_SelTris = face;
-        m_SelVerts.clear();
+        m_SelVerts.assign( verts.begin(), verts.end() );
+        std::sort( m_SelVerts.begin(), m_SelVerts.end() );
+
         glm::vec3 centroidLocal( 0.0f );
-        for ( size_t i = 0; i < verts.size(); ++i )
-            if ( faceWeld.count( weldOf[i] ) )
-                m_SelVerts.push_back( static_cast<int>( i ) );
-        // Centroid from unique weld positions (average the face triangles' vertices).
-        {
-            std::unordered_set<int> done;
-            int                     n = 0;
-            for ( int i : m_SelVerts )
-                if ( done.insert( weldOf[i] ).second )
-                {
-                    centroidLocal += verts[i].Position;
-                    ++n;
-                }
-            if ( n > 0 )
-                centroidLocal /= static_cast<float>( n );
-        }
+        for ( const int v : m_SelVerts )
+            centroidLocal += mesh.GetPosition( v );
+        centroidLocal /= static_cast<float>( m_SelVerts.size() );
+
         m_FaceNormalLocal = hN;
         m_CentroidWorld   = glm::vec3( world * glm::vec4( centroidLocal, 1.0f ) );
         m_HasSel          = !m_SelVerts.empty();
@@ -225,15 +195,15 @@ namespace Desert::Editor::Tools
             ClearSelection();
         }
 
-        glm::mat4    world;
-        DynamicMesh* mesh = GetMesh( scene, m_Entity, world );
+        const auto target = GetTarget( scene, m_Entity );
 
         ImDrawList* dl = ::ImGui::GetWindowDrawList();
-        if ( !mesh )
+        if ( !target )
         {
             ClearSelection();
             return;
         }
+        const glm::mat4& world = target->World;
 
         const bool interact = interactive && !::ImGui::IsAnyItemActive();
 
@@ -253,47 +223,65 @@ namespace Desert::Editor::Tools
 
             if ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
             {
-                m_Dragging = true;
-                m_DragS    = s;
+                m_Dragging   = true;
+                m_DragS      = s;
+                m_DragEntity = m_Entity;
+                m_DragBefore = target->Component->EditableMesh;
             }
             if ( m_Dragging && ::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
             {
                 const float ds = s - m_DragS;
                 if ( std::abs( ds ) > 1e-4f )
                 {
+                    // The component's mesh is immutable (EditableMesh.hpp): each step of the drag is a new
+                    // mesh, so the one the drag started from stays intact for the undo record.
+                    auto            next       = std::make_shared<Geometry::EditMesh>( *target->Component->EditableMesh );
                     const glm::vec3 deltaLocal = glm::vec3( glm::inverse( glm::mat3( world ) ) * ( ds * wN ) );
-                    auto&           verts      = mesh->GetVertices();
-                    for ( int i : m_SelVerts )
-                        verts[i].Position += deltaLocal;
-                    m_CentroidWorld += ds * wN;
-                    m_DragS = s;
+                    for ( const int vtx : m_SelVerts )
+                        next->SetPosition( vtx, next->GetPosition( vtx ) + deltaLocal );
 
-                    // Recompute flat normals so lighting follows the deform, then re-upload.
-                    auto& inds = mesh->GetIndices();
-                    for ( const auto& tri : inds )
+                    // Lighting follows the deform: every triangle touching a moved vertex gives its normal
+                    // elements its new face normal, the rule the tool applied to render vertices before. A
+                    // seam stays a seam - only element VALUES change, never which triangles share one.
+                    if ( auto* normals = next->Attributes().Normals() )
                     {
-                        const glm::vec3 n =
-                             glm::normalize( glm::cross( verts[tri.V2].Position - verts[tri.V1].Position,
-                                                         verts[tri.V3].Position - verts[tri.V1].Position ) );
-                        verts[tri.V1].Normal = verts[tri.V2].Normal = verts[tri.V3].Normal = n;
+                        std::unordered_set<int> touched;
+                        for ( const int vtx : m_SelVerts )
+                            for ( const int t : next->GetVertexTriangles( vtx ) )
+                                touched.insert( t );
+                        for ( const int t : touched )
+                            if ( normals->IsSetTriangle( t ) )
+                            {
+                                const glm::vec3 n = Geometry::TriangleNormal( *next, t );
+                                for ( const int el : normals->GetTriangle( t ) )
+                                    normals->SetElement( el, n );
+                            }
                     }
-                    mesh->Update( verts, inds );
+                    if ( auto set = ECS::SetEditableMesh( *target->Component, std::move( next ) ); set.IsSuccess() )
+                    {
+                        m_CentroidWorld += ds * wN;
+                        m_DragS = s;
+                    }
+                    else
+                    {
+                        LOG_ERROR( "[PolyEdit] the pushed face could not be built: {0}", set.GetError() );
+                    }
                 }
             }
             if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
-                m_Dragging = false;
+                FinishDrag();
 
             // Highlight the selected face (translucent green + outline).
-            const auto& verts = mesh->GetVertices();
-            const auto& inds  = mesh->GetIndices();
-            for ( int ti : m_SelTris )
+            const Geometry::EditMesh& mesh = *target->Component->EditableMesh;
+            for ( const int ti : m_SelTris )
             {
-                if ( ti < 0 || ti >= static_cast<int>( inds.size() ) )
+                if ( !mesh.IsTriangle( ti ) )
                     continue;
+                const auto&     tri = mesh.GetTriangle( ti );
                 glm::vec2       s0, s1, s2;
-                const glm::vec3 a  = glm::vec3( world * glm::vec4( verts[inds[ti].V1].Position, 1.0f ) );
-                const glm::vec3 bb = glm::vec3( world * glm::vec4( verts[inds[ti].V2].Position, 1.0f ) );
-                const glm::vec3 c  = glm::vec3( world * glm::vec4( verts[inds[ti].V3].Position, 1.0f ) );
+                const glm::vec3 a  = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[0] ), 1.0f ) );
+                const glm::vec3 bb = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[1] ), 1.0f ) );
+                const glm::vec3 c  = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[2] ), 1.0f ) );
                 if ( WorldToScreen( a, viewProj, viewportPos, viewportSize, s0 ) &&
                      WorldToScreen( bb, viewProj, viewportPos, viewportSize, s1 ) &&
                      WorldToScreen( c, viewProj, viewportPos, viewportSize, s2 ) )

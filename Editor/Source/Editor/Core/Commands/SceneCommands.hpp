@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,10 @@ namespace Desert::Core
 namespace Desert::Assets
 {
     class AssetManager;
+}
+namespace Desert::Geometry
+{
+    class EditMesh;
 }
 
 namespace Desert::Editor::Commands
@@ -56,6 +61,12 @@ namespace Desert::Editor::Commands
 
     // Rename the entity's tag undoably. No-ops on empty/unchanged names.
     void Rename( const Common::UUID& uuid, const std::string& newName );
+
+    // Record a finished edit of the entity's EditMesh (a PolyEdit drag): @p before is the mesh the component
+    // held when the edit began; the component's CURRENT EditableMesh is the "after". One undo step; no-op when
+    // the two are the same object. The meshes are immutable, so both are kept by reference.
+    void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
+                               std::shared_ptr<const Geometry::EditMesh> before );
 
     // Record a finished transform edit (gizmo drag): oldT/R/S = values before the drag; the entity's
     // CURRENT transform is captured as the "new" state. No-ops if nothing actually changed.

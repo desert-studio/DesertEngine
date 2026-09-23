@@ -235,11 +235,21 @@ namespace Desert::Migration
     //                   this project has named nine times; this step is what made that one true again.
     inline constexpr int kSceneVersionAnimGraphAsset = 21;
 
+    //  22             - A MESH BUILT IN THE EDITOR IS SAVED AS ITS EditMesh. `StaticMesh.CustomVertices` +
+    //                   `CustomIndices` - the render buffer, and only Position/Normal/TexCoord of it - become
+    //                   `StaticMesh.EditMesh` (Engine/Geometry/EditMeshSerialization.hpp): topology, polygroups,
+    //                   material IDs and every attribute layer. The v21 form lost the tangent frame (it came
+    //                   back uninitialised) and folded every submesh into one; the render mesh is now derived
+    //                   from the saved source on load (M4). The tracked corpus had ZERO such blocks when this
+    //                   step was written (measured 2026-09-23), so it exists for autosaves and scenes outside
+    //                   the repository.
+    inline constexpr int kSceneVersionEditMesh = 22;
+
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionAnimGraphAsset == kSceneVersion,
+    static_assert( kSceneVersionEditMesh == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1216,6 +1226,36 @@ namespace Desert::Migration
         std::string Json;         // the graph's own serialization, ready to write verbatim
     };
 
+    // What MigrateEditMeshV21ToV22 did to one file.
+    struct EditMeshMigrationReport
+    {
+        int Entities = 0; // StaticMesh blocks whose render arrays became an EditMesh
+        int Rejected = 0; // blocks whose arrays could not be read or welded - left EXACTLY as they were
+
+        // Per converted entity, "Tag: <render verts> render vertices -> <verts> vertices / <tris> triangles",
+        // plus what the weld had to drop, so a person reading the log can see the conversion was a weld and
+        // not a copy (the v21 file stated no topology; FromRenderMesh decides it by distance).
+        std::vector<std::string> ConvertedNames;
+        std::vector<std::string> RejectedNames;
+    };
+
+    // Raises StaticMesh blocks from schema v21 to v22: `CustomVertices` (Position, Normal, TexCoord per render
+    // vertex) + `CustomIndices` (3 per triangle) become `EditMesh`, the saved form of the EditMesh the render
+    // mesh is now derived from.
+    //
+    // THE WELD IS Geometry::FromRenderMesh WITH ITS DEFAULTS, the one the editor itself uses to lift render
+    // data, so a converted scene holds the same EditMesh the editor would build from that buffer. One submesh
+    // over everything, MaterialID 0 - the v21 loader drew exactly that. NO TANGENT LAYER: v21 never stored a
+    // tangent, and the loader left the field uninitialised, so there is no value to carry; "no layer" is the
+    // honest statement of that, and ToRenderMesh then emits the zero frame the mesh actually has.
+    //
+    // A block stating only one of the two arrays, arrays that are not what v21 wrote, or indices FromRenderMesh
+    // refuses is NAMED and left untouched rather than dropped - the scene loader then ignores the two unknown
+    // keys and the entity draws no edited mesh, which is visible, instead of the migration deciding for it.
+    //
+    // PURE - no GPU, no filesystem, no global state. Idempotent: a block with no CustomVertices is untouched.
+    EditMeshMigrationReport MigrateEditMeshV21ToV22( std::vector<Assets::EntityData>& entities );
+
     // What MigrateAnimGraphV20ToV21 did, returned rather than logged, like every report above.
     struct AnimGraphMigrationReport
     {
@@ -1323,6 +1363,8 @@ namespace Desert::Migration
         bool                     AnimGraphRaised = false;
         AnimGraphMigrationReport AnimGraph;
         // the schema was below kSceneVersionRetiredKeys
+        bool                    EditMeshRaised = false; // the schema was below kSceneVersionEditMesh
+        EditMeshMigrationReport EditMesh;
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
 
@@ -1332,7 +1374,7 @@ namespace Desert::Migration
                    CloudTypeRaised || CloudSetRaised || TerrainMaterialRaised || MaterialPathRaised ||
                    GravityUnitsRaised || UIVisibilityRaised || SSRUnitsRaised || CloudMaterialRaised ||
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
-                   TextKeySigilRaised || AnimGraphRaised || RetiredKeysRaised;
+                   TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || RetiredKeysRaised;
         }
     };
 

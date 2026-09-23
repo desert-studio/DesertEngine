@@ -29,7 +29,9 @@
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
-#include <Engine/Geometry/DynamicMesh.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
+#include <Engine/Geometry/EditMesh.hpp>
+#include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
@@ -906,28 +908,9 @@ namespace Desert::Core::Serialize
                 if ( smc.HiddenSubmeshes != 0 )
                     meshSer.HiddenSubmeshes = smc.HiddenSubmeshes;
 
-                if ( smc.RuntimeMesh )
-                {
-                    const auto& vertices = smc.RuntimeMesh->GetVertices();
-                    const auto& indices  = smc.RuntimeMesh->GetIndices();
-
-                    std::vector<Assets::VertexSer> customVertices;
-                    for ( const auto& v : vertices )
-                    {
-                        customVertices.push_back(
-                             { .Position = v.Position, .Normal = v.Normal, .TexCoord = v.TexCoord } );
-                    }
-                    meshSer.CustomVertices = customVertices;
-
-                    std::vector<uint32_t> flattenedIndices;
-                    for ( const auto& i : indices )
-                    {
-                        flattenedIndices.push_back( i.V1 );
-                        flattenedIndices.push_back( i.V2 );
-                        flattenedIndices.push_back( i.V3 );
-                    }
-                    meshSer.CustomIndices = flattenedIndices;
-                }
+                // The SOURCE is saved, never the render mesh derived from it (see EditableMesh.hpp).
+                if ( smc.EditableMesh )
+                    meshSer.EditMesh = Geometry::ToSerialized( *smc.EditableMesh );
 
                 return WriteBlock( meshSer, key );
             };
@@ -977,48 +960,27 @@ namespace Desert::Core::Serialize
                 smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
                 smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.HiddenSubmeshes );
 
-                if ( meshData.CustomVertices && meshData.CustomIndices )
+                if ( meshData.EditMesh )
                 {
-                    std::vector<Vertex> vertices;
-                    for ( const auto& vs : *meshData.CustomVertices )
+                    // A refusal DROPS the geometry, and says so with the entity's name: the component still
+                    // loads (asset handle, materials, flags), so the entity falls back to what it names
+                    // besides the edited mesh rather than the whole scene failing to open.
+                    const std::string tag = entity.HasComponent<ECS::TagComponent>()
+                                                 ? entity.GetComponent<ECS::TagComponent>().Tag
+                                                 : std::string( "Entity" );
+                    auto              loaded = Geometry::FromSerialized( *meshData.EditMesh );
+                    if ( !loaded.IsSuccess() )
                     {
-                        Vertex v;
-                        v.Position = vs.Position;
-                        v.Normal   = vs.Normal;
-                        v.TexCoord = vs.TexCoord;
-                        vertices.push_back( v );
+                        LOG_ERROR( "[Scene] entity '{0}': its edited mesh could not be read and was DROPPED: {1}", tag,
+                                   loaded.GetError() );
                     }
-
-                    std::vector<Index> indices;
-                    const auto&        rawIndices = *meshData.CustomIndices;
-                    for ( size_t i = 0; i + 2 < rawIndices.size(); i += 3 )
+                    else if ( auto set = ECS::SetEditableMesh(
+                                   smc, std::make_shared<const Geometry::EditMesh>( loaded.ExtractValue() ) );
+                              !set.IsSuccess() )
                     {
-                        indices.push_back( { rawIndices[i], rawIndices[i + 1], rawIndices[i + 2] } );
+                        LOG_ERROR( "[Scene] entity '{0}': its edited mesh was read but not built, and was DROPPED: {1}",
+                                   tag, set.GetError() );
                     }
-
-                    // One full-range submesh — without it the renderer (which draws per-submesh) draws
-                    // nothing. Compute the AABB from the verts. (The old code passed an empty submesh
-                    // list, so reconstructed/edited meshes were invisible on load.)
-                    Common::Math::AABB aabb;
-                    aabb.Min = glm::vec3( std::numeric_limits<float>::max() );
-                    aabb.Max = glm::vec3( std::numeric_limits<float>::lowest() );
-                    for ( const auto& v : vertices )
-                    {
-                        aabb.Min = glm::min( aabb.Min, v.Position );
-                        aabb.Max = glm::max( aabb.Max, v.Position );
-                    }
-                    if ( vertices.empty() )
-                    {
-                        aabb.Min = glm::vec3( 0.0f );
-                        aabb.Max = glm::vec3( 0.0f );
-                    }
-
-                    std::vector<Submesh> submeshes = { { "Mesh", 0, static_cast<uint32_t>( vertices.size() ), 0,
-                                                         static_cast<uint32_t>( indices.size() ) * 3,
-                                                         glm::mat4( 1.0f ), aabb } };
-
-                    smc.RuntimeMesh = std::make_shared<DynamicMesh>( vertices, indices, submeshes );
-                    smc.RuntimeMesh->Invalidate();
                 }
             };
 

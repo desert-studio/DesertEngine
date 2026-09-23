@@ -451,6 +451,22 @@ namespace
                 out << "; LEFT IN PLACE, not moved: " << name;
             out << ")";
         }
+        if ( report.EditMeshRaised )
+        {
+            out << " scene v" << Desert::Migration::kSceneVersionAnimGraphAsset << "->v"
+                << Desert::Migration::kSceneVersionEditMesh << " (";
+            if ( report.EditMesh.Entities > 0 )
+                out << report.EditMesh.Entities << " edited mesh(es) now saved as an EditMesh:";
+            else
+                out << "stamp only - no StaticMesh payload in this file states CustomVertices";
+            // Named, not counted: the conversion is a WELD by distance, and the operator has to be able to
+            // see what it made of each mesh; a rejected one is still in the file, under its v21 keys.
+            for ( const auto& name : report.EditMesh.ConvertedNames )
+                out << " " << name << ";";
+            for ( const auto& name : report.EditMesh.RejectedNames )
+                out << "; LEFT IN PLACE, not converted: " << name;
+            out << ")";
+        }
         if ( report.DebugViewRaised )
         {
             out << " scene v" << Desert::Migration::kSceneVersionCloudMaterial << "->v"

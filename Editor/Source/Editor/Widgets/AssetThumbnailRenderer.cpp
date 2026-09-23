@@ -3,6 +3,7 @@
 #include <Editor/Widgets/ThumbnailFraming.hpp>
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
 #include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
@@ -364,7 +365,7 @@ namespace Desert::Editor
             smc.Primitive.reset();
             smc.MaterialSlots.clear();
             smc.RuntimeMaterialInstances.clear();
-            smc.RuntimeMesh.reset();
+            ECS::ClearEditableMesh( smc );
 
             if ( !m_CloudLayer )
             {
@@ -423,7 +424,7 @@ namespace Desert::Editor
         {
             // Asset mesh, auto-framed by its bounds. Apply the mesh's linked (sidecar) material to every slot
             // if one was provided, so the preview shows the real look instead of a flat default gray.
-            smc.RuntimeMesh.reset();
+            ECS::ClearEditableMesh( smc );
             smc.Primitive.reset();
             smc.RuntimeMaterialInstances.clear();
             smc.MeshHandle = m_PendingHandle;
@@ -463,7 +464,7 @@ namespace Desert::Editor
             smc.Primitive     = flat ? Geometry::PrimitiveType::Plane : Geometry::PrimitiveType::Sphere;
             smc.MaterialSlots = { m_PendingHandle };
             smc.RuntimeMaterialInstances.clear();
-            smc.RuntimeMesh.reset(); // drop any previously-built primitive so the type change rebuilds
+            ECS::ClearEditableMesh( smc ); // drop any previously-built primitive so the type change rebuilds
 
             // MEASURED from the very mesh MeshECSSystem will draw for this component (the process-wide
             // shared primitive), never assumed. The assumption this replaces — the literal `worldSize = 1.0`

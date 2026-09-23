@@ -35,6 +35,11 @@
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 
+namespace Desert::Geometry
+{
+    class EditMesh;
+}
+
 namespace Desert
 {
     class Mesh;
@@ -121,8 +126,15 @@ namespace Desert::ECS
         // executing it, so both the vector and the instances in it could be gone by the time the renderer
         // read them. See Graphic::MaterialSlotBinding for the full account (A8-3).
         Graphic::MaterialSlotBindingPtr        RuntimeSlots;
-        std::optional<Geometry::PrimitiveType> Primitive;   // Optional primitive type for dynamic generation
-        std::shared_ptr<DynamicMesh>           RuntimeMesh; // Unique mesh instance for modifications
+        std::optional<Geometry::PrimitiveType> Primitive; // Optional primitive type for dynamic generation
+        // A MESH BUILT IN THE EDITOR (CubeGrid, PolyEdit, later the Create/Model tools): the SOURCE OF TRUTH
+        // for this entity's geometry, saved as-is (StaticMeshComponentSer::EditMesh). Immutable once set -
+        // an edit builds a new EditMesh and hands it to ECS::SetEditableMesh (Engine/ECS/EditableMesh.hpp), so
+        // an undo record can keep the old one by reference and a snapshot never aliases a live edit.
+        std::shared_ptr<const Geometry::EditMesh> EditableMesh;
+        // DERIVED from EditableMesh by ECS::SetEditableMesh (Geometry::ToRenderMesh), and only by it: null
+        // exactly when EditableMesh is. What the render path, picking and the Details panel read.
+        std::shared_ptr<DynamicMesh> RuntimeMesh;
         bool                                   OutlineDraw = false;
         int                                    ForcedLOD   = -1; // -1 = auto (by distance); 0..N pins a LOD
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
@@ -289,13 +301,12 @@ namespace Desert::ECS
         TerrainLayerMode SnowMode = TerrainLayerMode::Auto;
     };
 
-    // TerrainECSSystem generates a grid mesh from Data into the entity's StaticMeshComponent.RuntimeMesh (so
-    // the normal mesh render path draws it). Regenerated when any param changes (tracked via BuiltHash).
+    // TerrainECSSystem draws Data through its own DrawTerrainCommand every frame (TerrainRenderer builds the
+    // grid on the GPU side). It never touches a StaticMeshComponent: this comment used to say it generated
+    // into StaticMeshComponent.RuntimeMesh, tracked by a `BuiltHash` field that nothing wrote or read (M4).
     struct TerrainComponent
     {
         TerrainData Data;
-        // Transient: hash of the params the current RuntimeMesh was built from; a mismatch -> regenerate.
-        std::size_t BuiltHash = 0;
 
         // --- Splat painting (Stage 3b, runtime only; not yet serialized) ---
         // RGBA8 splat map: R=grass, G=rock, B=snow weights. Manual-mode layers sample this. The CPU mirror

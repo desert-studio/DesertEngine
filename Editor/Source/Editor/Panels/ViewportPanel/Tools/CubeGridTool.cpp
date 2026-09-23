@@ -3,15 +3,19 @@
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
+#include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/GreedyMesher.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
 
 #include <Editor/Core/ThemeManager.hpp>
@@ -1166,6 +1170,11 @@ namespace Desert::Editor::Tools
                     }
                 }
 
+                // ONE undo step for the whole blockout session, with the collider it just got: undo removes
+                // the entity (snapshotting it, EditMesh included, through the scene serializer), redo brings
+                // it back under the same UUID. The per-edit regenerations before Accept are the tool's own
+                // working state, like a gizmo drag before the mouse is released.
+                Commands::NotifyCreated( { m_Entity } );
                 Core::SelectionManager::SetSelected( m_Entity );
                 m_Entity = Common::UUID::Null();
                 m_Cells.clear();
@@ -1193,7 +1202,6 @@ namespace Desert::Editor::Tools
 
         std::vector<Vertex> verts;
         std::vector<Index>  inds;
-        glm::vec3           mn( FLT_MAX ), mx( -FLT_MAX );
 
         // One quad -> 4 vertices + 2 triangles, with world-aligned UVs and a tangent frame that matches
         // them (so a normal map on a merged quad lines up with the texture it is paired with).
@@ -1209,8 +1217,6 @@ namespace Desert::Editor::Tools
                 v.Bitangent = uv.B;
                 v.TexCoord  = { glm::dot( p[k], uv.T ) * kUvPerUnit, glm::dot( p[k], uv.B ) * kUvPerUnit };
                 verts.push_back( v );
-                mn = glm::min( mn, v.Position );
-                mx = glm::max( mx, v.Position );
             }
             inds.push_back( { base + 0, base + 1, base + 2 } );
             inds.push_back( { base + 2, base + 3, base + 0 } );
@@ -1299,13 +1305,24 @@ namespace Desert::Editor::Tools
                                   ? entity.GetComponent<ECS::StaticMeshComponent>()
                                   : entity.AddComponent<ECS::StaticMeshComponent>();
 
-        Common::Math::AABB aabb;
-        aabb.Min                  = mn;
-        aabb.Max                  = mx;
-        std::vector<Submesh> subs = { { "Blockout", 0, static_cast<uint32_t>( verts.size() ), 0,
-                                        static_cast<uint32_t>( inds.size() ) * 3, glm::mat4( 1.0f ), aabb } };
-        smc.RuntimeMesh           = std::make_shared<DynamicMesh>( verts, inds, subs );
-        smc.RuntimeMesh->Invalidate();
+        // The quads become an EditMesh - the entity's source of truth, the thing the scene saves - and the
+        // render mesh is derived from it (EditableMesh.hpp). The weld joins each quad's corners with its
+        // neighbours' into shared topology; the normal, tangent and UV each become a seam exactly where two
+        // quads disagree, so a flat face renders the vertices it did before. On a Corner Mode ramp the
+        // bitangent is the one thing that changes: the render side derives it as cross(N, T) * sign
+        // (EditMeshConversion.hpp), in the ramp's plane, where the old buffer kept the world UV axis.
+        Geometry::RenderMeshData quads;
+        quads.Vertices = std::move( verts );
+        quads.Indices  = std::move( inds );
+        auto imported  = Geometry::FromRenderMesh( quads );
+        if ( !imported.IsSuccess() )
+        {
+            LOG_ERROR( "[CubeGrid] the blockout could not become an editable mesh: {0}", imported.GetError() );
+            return;
+        }
+        auto mesh = std::make_shared<const Geometry::EditMesh>( std::move( imported.ExtractValue().Mesh ) );
+        if ( auto set = ECS::SetEditableMesh( smc, std::move( mesh ) ); !set.IsSuccess() )
+            LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );
     }
 
     void CubeGridTool::Cancel( ::Desert::Core::Scene& scene )
