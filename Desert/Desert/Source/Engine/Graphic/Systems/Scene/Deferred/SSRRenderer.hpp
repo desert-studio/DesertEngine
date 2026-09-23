@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
@@ -134,6 +135,11 @@ namespace Desert::Graphic::System
 
             // --- Pass 1: jittered trace into the trace buffer (cleared to 0 = "no reflection"). ---
             {
+                // Each of the three passes is timed on its own because EnableSSR's default is a budget
+                // decision (SceneSettings.hpp), and the whole-pass line cannot say which part to cut. The
+                // trace early-outs on rough pixels; the resolve and composite below do not - they are
+                // full-screen RGBA32F passes whatever fraction of the screen actually reflects.
+                DESERT_PROFILE_PASS( "SSR: Trace" );
                 RenderPassSpecification rp;
                 rp.TargetFramebuffer = m_TraceBuffer;
                 rp.DebugName         = "SSRTracePass";
@@ -154,6 +160,7 @@ namespace Desert::Graphic::System
             const uint32_t  prv = 1u - m_AccumIndex;
             const glm::vec2 texel( 1.0f / static_cast<float>( w ), 1.0f / static_cast<float>( h ) );
             {
+                DESERT_PROFILE_PASS( "SSR: Resolve" );
                 RenderPassSpecification rp;
                 rp.TargetFramebuffer = m_AccumFB[cur];
                 rp.DebugName         = "SSRResolvePass";
@@ -171,6 +178,7 @@ namespace Desert::Graphic::System
 
             // --- Pass 3: roughness-scaled blur of the RESOLVED buffer, blended over the scene. ---
             {
+                DESERT_PROFILE_PASS( "SSR: Composite" );
                 m_CompositeMaterial->BindInputs( m_AccumFB[cur]->GetColorAttachmentImage( 0 ),
                                                  gbuffer->GetColorAttachmentImage( 1 ), texel );
 

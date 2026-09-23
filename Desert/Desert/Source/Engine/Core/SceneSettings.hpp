@@ -152,9 +152,26 @@ namespace Desert::Core
         PROPERTY( DisplayName( "GI Intensity" ), Category( "Rendering" ), Range( 0.0f, 20.0f ) )
         float GIIntensity = 2.0f;
 
-        // Screen-space reflections: mirrors/metal/polished floors reflect what is on screen. Traced at
-        // quarter cost then temporally denoised; still bound by the usual SSR limit (off-screen and
-        // occluded geometry cannot reflect).
+        // Screen-space reflections: mirrors/metal/polished floors reflect what is on screen. One jittered
+        // ray per pixel at FULL resolution, then a temporal resolve and a composite; still bound by the
+        // usual SSR limit (off-screen and occluded geometry cannot reflect).
+        //
+        // WHY THE DEFAULT IS OFF, measured (SS1, 2026-09-23, Apple M1 Pro / MoltenVK, 715x784 = 0.56 Mpx
+        // headless capture, GPU timestamps). It is the one thing that puts the floor into the lower half
+        // of a chrome sphere - below the horizon the sky IBL can only return the ground colour - so the
+        // look argues for ON. The price argues against, and it does not depend on what is on screen:
+        //   "Deferred: SSR" pass line  1.6 - 3.1 ms  (Desert_Sandbox, Clouds_Protocol + 3 spheres)
+        //   of which Trace 0.4 - 1.4, Resolve 0.3 - 0.9, Composite 0.3 - 0.7, 0.4 - 1.0 outside the three marks
+        //   whole GPU frame, interleaved A/B  +1.6 ms on Desert_Sandbox, +2.2 ms with a mirror floor
+        // Desert_Sandbox reflects on 0.45 % of its pixels and still pays ~2 ms: the trace early-outs on
+        // rough pixels, but the resolve and composite are full-screen RGBA32F passes that run everywhere.
+        // Scaled by pixel count to 1080p (x3.7, an estimate, not a measurement) that is 6 - 8 ms against
+        // a ~1 ms budget.
+        // RETURN CONDITION: the "Deferred: SSR" line on Desert_Sandbox (--camera 0,250,700 --look
+        // 0,-0.3,-1, the same capture) at or under 0.3 ms. The levers are the cost that ignores content:
+        // RGBA16F instead of RGBA32F, and resolve/composite restricted to pixels the trace can write.
+        // Scenes then need a schema step: every file states `false`, and none ever stated `true`
+        // (git log -G), so the value is inherited everywhere - except where a frame comparison pins it.
         PROPERTY( DisplayName( "Enable SSR" ), Category( "Rendering" ) )
         bool EnableSSR = false;
         PROPERTY( DisplayName( "SSR Intensity" ), Category( "Rendering" ), Range( 0.0f, 1.0f ) )
