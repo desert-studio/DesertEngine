@@ -56,6 +56,10 @@ project(test_name)
 
     filter "system:not windows"
         links { "ReflectCpp" }
+    -- The corpus census reads the committed asset registry (Common/Utilities/AssetRegistry.cpp), whose
+    -- file reads go through Common's FileSystem, and on macOS that object carries the Cocoa file dialogs.
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

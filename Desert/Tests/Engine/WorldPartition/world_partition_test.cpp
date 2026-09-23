@@ -32,6 +32,9 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <Common/Utilities/AssetRegistry.hpp>
+
+#include <glm/gtc/constants.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -580,6 +583,78 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
     EXPECT_EQ( scenes, 2u );
 }
 
+// THE CORPUS, BEFORE AND AFTER: how many records are placed by their position alone, with no registry and
+// with the committed one. The numbers are the task's acceptance (WP15), derived from the files:
+//
+//   * 2543 before WP15 - only the Cube, the Terrain and instanced meshes had an extent;
+//   * 2462 with no registry - the 81 Spheres now have the factory's box (Geometry::PrimitiveBounds);
+//   * with the committed registry, every mesh-asset record whose row carries Bounds leaves as well.
+//
+// The mesh references are resolved as the loader resolves them - handle, else path - and a path is
+// relative to the editor's working directory, so the walk runs from there.
+namespace
+{
+    // How many mesh-asset records (StaticMesh or SkinnedMesh naming a file) the corpus has, and how many
+    // records stay point-only once the committed registry answers for them.
+    constexpr std::size_t kCorpusMeshReferences        = 32;
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2430;
+} // namespace
+
+TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheCommittedRegistry )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const auto registry =
+         Common::Utils::AssetRegistry::Parse( ReadAll( root + "Editor/Cooked/AssetRegistry.dreg" ) );
+    ASSERT_TRUE( registry ) << registry.GetError();
+
+    const std::vector<std::filesystem::path> scenes = RepositoryScenes();
+    ASSERT_FALSE( scenes.empty() );
+
+    struct WorkingDirectory
+    {
+        std::filesystem::path Saved = std::filesystem::current_path();
+        ~WorkingDirectory()
+        {
+            std::error_code ec;
+            std::filesystem::current_path( Saved, ec );
+        }
+    } restore;
+    std::vector<std::filesystem::path> absolute;
+    for ( const auto& scene : scenes )
+        absolute.push_back( std::filesystem::absolute( scene ) );
+    std::filesystem::current_path( std::filesystem::absolute( root + "Editor" ) );
+
+    const Common::Utils::AssetRegistry&          rows    = registry.GetValue();
+    std::size_t                                  asked   = 0;
+    std::size_t                                  answers = 0;
+    const Desert::Core::Rules::AssetBoundsSource source =
+         [&]( std::uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
+    {
+        ++asked;
+        const Common::Utils::AssetRegistryEntry* row = rows.FindByReference( handle, path );
+        if ( row == nullptr || !row->Bounds.has_value() )
+            return std::nullopt;
+        ++answers;
+        return row->Bounds;
+    };
+
+    std::size_t blind = 0;
+    std::size_t seen  = 0;
+    for ( const auto& path : absolute )
+    {
+        const auto parsed = rfl::json::read<SceneSerialized>( ReadAll( path ) );
+        ASSERT_TRUE( parsed.has_value() ) << path.string();
+        blind += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ) ).PointOnlyRecords;
+        seen += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ), source ).PointOnlyRecords;
+    }
+
+    EXPECT_EQ( blind, 2462u );
+    EXPECT_EQ( asked, kCorpusMeshReferences ) << "every mesh-asset record of the corpus is asked once";
+    EXPECT_EQ( seen, blind - answers ) << "each answered mesh must take exactly one record off the count";
+    EXPECT_EQ( seen, kCorpusPointOnlyWithRegistry );
+}
+
 // ── 5. LEVELS (owner decision O1, 2026-09-23) ──────────────────────────────────────────────────────
 
 // A KILOMETRE-WIDE COMPOSITE GOES TO THE LEVEL WHOSE CELL HOLDS A KILOMETRE. Cell 12800 (128 m); the
@@ -727,8 +802,8 @@ TEST( WorldPartitionLevels, AnInstancedMeshIsAsWideAsItsInstancesNotItsEntity )
 }
 
 // THE PRIMITIVE CUBE HAS A FOOTPRINT, and it is the corners through the world matrix. The same record
-// drawing a Sphere is a point (no stated extent for it yet) - so the pair shows the footprint moving the
-// answer, not an instrument that cannot tell the two apart.
+// naming a Cylinder is a point, because the factory builds NOTHING for a Cylinder (Create returns nullptr)
+// - so the pair shows the footprint moving the answer, not an instrument that cannot tell the two apart.
 TEST( WorldPartitionLevels, APrimitiveCubeIsItsCornersAndAnotherPrimitiveIsItsPosition )
 {
     std::vector<EntityData> records;
@@ -744,10 +819,140 @@ TEST( WorldPartitionLevels, APrimitiveCubeIsItsCornersAndAnotherPrimitiveIsItsPo
     EXPECT_EQ( cube.Composites[0].Level, 1 );
     EXPECT_EQ( cube.PointOnlyRecords, 0u );
 
+    With( records[0], "StaticMesh", R"({"Primitive":"Cylinder"})" );
+    const WorldPartitionPlan cylinder = PlanWorldPartition( records, Cells( 10000.0f ) );
+    EXPECT_EQ( cylinder.Composites[0].Level, 0 );
+    EXPECT_EQ( cylinder.PointOnlyRecords, 1u );
+}
+
+// EVERY PRIMITIVE THE FACTORY DRAWS HAS THE BOX THE FACTORY STAMPS - Geometry::PrimitiveBounds, one
+// statement read by both. The Sphere is as wide as the Cube (radius 50); the Plane is a card in XY with no
+// depth, so its footprint is 100 in X and a line in Z.
+TEST( WorldPartitionLevels, ASphereAndAPlaneHaveTheBoxesTheFactoryStamps )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Ball", { 9960.0f, 0.0f, 500.0f } ) );
     With( records[0], "StaticMesh", R"({"Primitive":"Sphere"})" );
-    const WorldPartitionPlan sphere = PlanWorldPartition( records, Cells( 10000.0f ) );
-    EXPECT_EQ( sphere.Composites[0].Level, 0 );
-    EXPECT_EQ( sphere.PointOnlyRecords, 1u );
+    const WorldPartitionPlan ball = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_TRUE( ball.Composites[0].Footprint.has_value() );
+    EXPECT_NEAR( ball.Composites[0].Footprint->MaxX, 10010.0f, 0.01f );
+    EXPECT_EQ( ball.Composites[0].Level, 1 ) << "the ball crosses the 10000 edge";
+    EXPECT_EQ( ball.PointOnlyRecords, 0u );
+
+    With( records[0], "StaticMesh", R"({"Primitive":"Plane"})" );
+    const WorldPartitionPlan card = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_TRUE( card.Composites[0].Footprint.has_value() );
+    EXPECT_NEAR( card.Composites[0].Footprint->MinX, 9910.0f, 0.01f );
+    EXPECT_NEAR( card.Composites[0].Footprint->MaxX, 10010.0f, 0.01f );
+    EXPECT_NEAR( card.Composites[0].Footprint->MinZ, 500.0f, 0.01f );
+    EXPECT_NEAR( card.Composites[0].Footprint->MaxZ, 500.0f, 0.01f );
+    EXPECT_EQ( card.PointOnlyRecords, 0u );
+
+    // The unknown spelling is not a shape, and is its position.
+    With( records[0], "StaticMesh", R"({"Primitive":"Dodecahedron"})" );
+    EXPECT_EQ( PlanWorldPartition( records, Cells( 10000.0f ) ).PointOnlyRecords, 1u );
+}
+
+// ── MESH ASSETS: THE EXTENT THAT LIVES IN ANOTHER FILE (WP15) ─────────────────────────────────────────
+
+namespace
+{
+    // A registry of one mesh, the way the loader's source answers: by handle, else by path.
+    Desert::Core::Rules::AssetBoundsSource OneMesh( std::uint64_t handle, std::string path,
+                                                    Common::Math::AABB box )
+    {
+        return [=]( std::uint64_t asked, std::string_view named ) -> std::optional<Common::Math::AABB>
+        {
+            if ( ( asked != 0 && asked == handle ) || ( !named.empty() && named == path ) )
+                return box;
+            return std::nullopt;
+        };
+    }
+} // namespace
+
+// THE ACCEPTANCE CASE: A KILOMETRE BRIDGE AS ONE MODEL. Its entity sits at (1000, 0, 1000); the mesh runs
+// 100000 units along its local X. Without the registry it is a point and goes to level 0 - the wrong
+// answer the task exists to remove. With it, it is the level whose cell holds a kilometre (level 3 for a
+// 12800 cell, as the two-record bridge above), and it is no longer counted as point-only.
+TEST( WorldPartitionMeshAssets, AKilometreBridgeModelGoesToTheLevelThatHoldsIt )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Bridge", { 1000.0f, 0.0f, 1000.0f } ) );
+    With( records[0], "StaticMesh", R"({"MeshGuid":4242,"MeshPath":"Cooked/Meshes/Bridge.stmesh"})" );
+    records.push_back( Record( 2, "FarRock", { 900000.0f, 0.0f, 900000.0f } ) );
+
+    const WorldPartitionPlan blind = PlanWorldPartition( records, Cells( 12800.0f ) );
+    EXPECT_EQ( HeldBy( blind, 0 ).Level, 0 );
+    EXPECT_EQ( blind.PointOnlyRecords, 2u );
+
+    const auto source = OneMesh(
+         4242, "",
+         Common::Math::AABB{ glm::vec3( 0.0f, -500.0f, -300.0f ), glm::vec3( 100000.0f, 800.0f, 300.0f ) } );
+    const WorldPartitionPlan seen   = PlanWorldPartition( records, Cells( 12800.0f ), source );
+    const PlannedComposite&  bridge = HeldBy( seen, 0 );
+    ASSERT_TRUE( bridge.Footprint.has_value() );
+    EXPECT_NEAR( bridge.Footprint->MaxX, 101000.0f, 0.5f );
+    EXPECT_NEAR( bridge.Footprint->MinZ, 700.0f, 0.5f );
+    EXPECT_EQ( bridge.Level, 3 );
+    EXPECT_EQ( seen.PointOnlyRecords, 1u ) << "only the rock, which names no mesh, is still a point";
+}
+
+// THE BOX GOES THROUGH THE WHOLE WORLD MATRIX: a parent's quarter turn swings a mesh that runs along local
+// X onto world Z, and a scale of 2 doubles it. A footprint that only translated the box would leave it on X.
+TEST( WorldPartitionMeshAssets, TheBoxIsCarriedByTheWorldMatrixNotJustThePosition )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Pivot", { 0.0f, 0.0f, 0.0f } ) );
+    records[0].Rotation = glm::vec3( 0.0f, glm::half_pi<float>(), 0.0f );
+    records.push_back( Record( 2, "Beam", { 500.0f, 0.0f, 500.0f } ) );
+    records[1].Scale = glm::vec3( 2.0f );
+    Under( records[1], 1 );
+    With( records[1], "StaticMesh", R"({"MeshPath":"Cooked/Meshes/Beam.stmesh"})" );
+
+    const auto source =
+         OneMesh( 0, "Cooked/Meshes/Beam.stmesh",
+                  Common::Math::AABB{ glm::vec3( 0.0f, 0.0f, -10.0f ), glm::vec3( 1000.0f, 10.0f, 10.0f ) } );
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
+    const PlannedComposite&  held = HeldBy( plan, 1 );
+    ASSERT_TRUE( held.Footprint.has_value() );
+    // Pivot turns +X onto -Z. Beam at local (500, 0, 500) -> world (500, 0, -500); its box runs 2000 along
+    // local X -> world -Z, from -500 to -2500, and is 40 wide in X around 500. The pivot's own position,
+    // the origin, is the composite's other corner.
+    EXPECT_NEAR( held.Footprint->MinZ, -2500.0f, 0.5f );
+    EXPECT_NEAR( held.Footprint->MaxZ, 0.0f, 0.5f );
+    EXPECT_NEAR( held.Footprint->MaxX, 520.0f, 0.5f );
+    EXPECT_NEAR( held.Footprint->MinX, 0.0f, 0.5f );
+    EXPECT_EQ( plan.PointOnlyRecords, 1u ) << "the pivot names nothing and stays a point";
+}
+
+// A SKINNED MESH IS ASKED THE SAME WAY, AND A HANDLE ABOVE 2^53 IS NOT ROUNDED. The corpus writes
+// MeshGuid as a JSON integer; read through a double it would name a neighbouring handle and miss.
+TEST( WorldPartitionMeshAssets, ASkinnedMeshIsAskedByItsExactHandle )
+{
+    constexpr std::uint64_t kHandle = 5756835276253557057ull; // a real skinned handle from the corpus
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Rig", { 0.0f, 0.0f, 0.0f } ) );
+    With( records[0], "SkinnedMesh", R"({"MeshGuid":5756835276253557057})" );
+
+    const auto source =
+         OneMesh( kHandle, "", Common::Math::AABB{ glm::vec3( -30.0f, 0.0f, -20000.0f ), glm::vec3( 30.0f ) } );
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
+    ASSERT_TRUE( plan.Composites[0].Footprint.has_value() );
+    EXPECT_NEAR( plan.Composites[0].Footprint->MinZ, -20000.0f, 0.5f );
+    EXPECT_EQ( plan.PointOnlyRecords, 0u ) << "the exact handle was not found - read through a double?";
+}
+
+// A SOURCE THAT DOES NOT KNOW THE MESH LEAVES IT A POINT AND COUNTED - never a guessed box.
+TEST( WorldPartitionMeshAssets, AnUnknownMeshIsItsPositionAndIsCounted )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Prop", { 20.0f, 0.0f, 20.0f } ) );
+    With( records[0], "StaticMesh", R"({"MeshGuid":77})" );
+
+    const auto source = OneMesh( 78, "", Common::Math::AABB{ glm::vec3( -1.0e6f ), glm::vec3( 1.0e6f ) } );
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
+    EXPECT_EQ( plan.PointOnlyRecords, 1u );
+    EXPECT_EQ( plan.Composites[0].Level, 0 );
 }
 
 // A TERRAIN IS ITS SQUARE: `Size` wide, centred on its entity (TerrainMeshFactory). 10000 wide at

@@ -77,4 +77,21 @@ namespace Desert::Assets::Serialization
         // are read with rfl::DefaultIfMissing so they simply come back with an empty list.
         std::vector<MorphTargetData>   MorphTargets;
     };
+
+    // THE MESH'S BOX AROUND ITS OWN ORIGIN, as the cook knows it: the union of the submesh boxes the file
+    // stores. The loaded asset copies those same boxes onto its submeshes and Geometry::LocalBounds unions
+    // them, so a box stated here at cook time and one read back from a loaded mesh are the same numbers.
+    // Nullopt for a mesh with no submeshes, which draws nothing and has no extent.
+    [[nodiscard]] inline std::optional<Common::Math::AABB> MeshDataBounds( const MeshAssetData& data )
+    {
+        if ( data.Submeshes.empty() )
+            return std::nullopt;
+        Common::Math::AABB box = data.Submeshes.front().BoundingBox;
+        for ( const SubmeshData& submesh : data.Submeshes )
+        {
+            box.Min = glm::min( box.Min, submesh.BoundingBox.Min );
+            box.Max = glm::max( box.Max, submesh.BoundingBox.Max );
+        }
+        return box;
+    }
 } // namespace Desert::Assets::Serialization

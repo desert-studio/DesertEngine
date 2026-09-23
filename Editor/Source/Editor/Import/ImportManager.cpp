@@ -252,7 +252,8 @@ namespace Desert::Editor
         // than JSON. The sibling cooked kinds beside this one (.skeleton, .anim, .demat, .tex metadata)
         // are unchanged: they are kilobytes of structure, not megabytes of floats, and the argument
         // that moved this one does not reach them.
-        return WriteCookedBytes( Desert::Assets::Serialization::EncodeMeshBinary( data ), cookedPath );
+        return WriteCookedBytes( Desert::Assets::Serialization::EncodeMeshBinary( data ), cookedPath,
+                                 Desert::Assets::Serialization::MeshDataBounds( data ) );
     }
 
     Common::BoolResultStr

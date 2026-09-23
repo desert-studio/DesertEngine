@@ -151,6 +151,7 @@ namespace Desert::Assets
             std::size_t               Added   = 0;
             std::size_t               Removed = 0;
             std::size_t               Edges   = 0;
+            std::size_t               Bounded = 0; // rows that carry a box after this refresh
             bool                      Written = false;
             [[nodiscard]] std::string Describe() const;
         };
@@ -442,6 +443,24 @@ namespace Desert::Assets
             state.Dirty = true;
         }
 
+        // Records the box `file` occupies around its own origin — the mesh cook's statement at the moment
+        // it writes a `.stmesh` / `.skmesh`, which is the one time the cook holds the geometry. Called after
+        // `NoteFile`, which is what gives the file its row; a file with no row is not content and gets no box.
+        inline void NoteBounds( const std::filesystem::path&             file,
+                                const std::optional<Common::Math::AABB>& bounds )
+        {
+            const std::string key = Common::AssetHandle::StableKeyForPath( file );
+
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByKey( key );
+            if ( row == nullptr || Common::Utils::SameBounds( row->Bounds, bounds ) )
+                return;
+            state.Registry.SetBounds( key, bounds );
+            state.Dirty = true;
+        }
+
         inline Common::BoolResultStr Save()
         {
             // WRITES THE COOK REGISTRY AND NOTHING ELSE. The committed project registry is READ-ONLY to
@@ -468,7 +487,8 @@ namespace Desert::Assets
                 {
                     const Common::Utils::AssetRegistryEntry* carried = state.Project.FindByKey( row.Key );
                     if ( carried != nullptr && carried->Kind == row.Kind && carried->Size == row.Size &&
-                         carried->Identity == row.Identity && carried->Dependencies == row.Dependencies )
+                         carried->Identity == row.Identity && carried->Dependencies == row.Dependencies &&
+                         Common::Utils::SameBounds( carried->Bounds, row.Bounds ) )
                     {
                         continue;
                     }
