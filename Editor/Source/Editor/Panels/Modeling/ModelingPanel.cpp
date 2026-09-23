@@ -37,16 +37,16 @@ namespace Desert::Editor
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 6.0f ) );
 
-        // --- Left category rail (icon buttons; only Create is populated) ---
+        // --- Left category rail: only categories that have a working tool are listed ---
+        // UE's rail also has Select / XForm / Deform / Mesh / Voxel / Bake. They are absent, not greyed
+        // out, until each has a tool behind it: a category that opens onto "not implemented" is a
+        // button that does nothing (owner's decision: hide empty tabs until their tools exist).
         struct Cat
         {
             const char* Icon;
             const char* Name;
         };
-        const Cat cats[] = { { ICON_MDI_SHAPE_PLUS, "Create" },   { ICON_MDI_CURSOR_DEFAULT, "Select" },
-                             { ICON_MDI_AXIS_ARROW, "XForm" },    { ICON_MDI_GESTURE, "Deform" },
-                             { ICON_MDI_VECTOR_SQUARE, "Model" }, { ICON_MDI_CUBE_SCAN, "Mesh" },
-                             { ICON_MDI_CUBE_OUTLINE, "Voxel" },  { ICON_MDI_PALETTE, "Bake" } };
+        const Cat cats[] = { { ICON_MDI_SHAPE_PLUS, "Create" }, { ICON_MDI_VECTOR_SQUARE, "Model" } };
 
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 6.0f, 8.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 8.0f ) );
@@ -71,8 +71,8 @@ namespace Desert::Editor
         // --- Right content: tool grid + tool properties ---
         ImGui::BeginChild( "##modeling_content", ImVec2( 0.0f, 0.0f ), false );
 
-        // Model category (index 4): PolyEdit — face select + push/pull on the selected mesh.
-        if ( m_Category == 4 )
+        // Model category: PolyEdit — face select + push/pull on the selected mesh.
+        if ( m_Category == 1 )
         {
             const bool active = ms.ActiveTool == MS::Tool::PolyEdit;
             if ( active )
@@ -93,8 +93,6 @@ namespace Desert::Editor
                 ImGui::TextDisabled( "in Select mode first, then:" );
                 ImGui::TextDisabled( "LMB a face -> highlights green" );
                 ImGui::TextDisabled( "LMB-drag the face -> push / pull" );
-                ImGui::Spacing();
-                ImGui::TextDisabled( "Extrude / Bevel / Inset: coming next." );
             }
             else
             {
@@ -105,53 +103,20 @@ namespace Desert::Editor
             return;
         }
 
-        if ( m_Category != 0 )
+        // Create category: its one working tool. Box / Sphere / Cylinder / Cone / Stairs are not listed
+        // as disabled placeholders — they are being rebuilt on EditMesh and appear when they work.
         {
-            ImGui::TextDisabled( "This category is not implemented yet." );
-            ImGui::EndChild();
-            ImGui::PopStyleVar( 2 );
-            return;
-        }
-
-        // Create-category tool grid (2 columns). Only CubeGrid is wired; the rest are placeholders.
-        struct ToolBtn
-        {
-            const char* Icon;
-            const char* Name;
-            bool        Impl;
-            MS::Tool    Tool;
-        };
-        const ToolBtn tools[] = {
-             { ICON_MDI_CUBE, "Box", false, MS::Tool::None },
-             { ICON_MDI_SPHERE, "Sphere", false, MS::Tool::None },
-             { ICON_MDI_CYLINDER, "Cylinder", false, MS::Tool::None },
-             { ICON_MDI_CONE, "Cone", false, MS::Tool::None },
-             { ICON_MDI_STAIRS, "Stairs", false, MS::Tool::None },
-             { ICON_MDI_GRID, "CubeGrid", true, MS::Tool::CubeGrid },
-        };
-
-        ImGui::Columns( 2, nullptr, false );
-        for ( const ToolBtn& t : tools )
-        {
-            const bool active = t.Impl && ms.ActiveTool == t.Tool;
+            const bool active = ms.ActiveTool == MS::Tool::CubeGrid;
             if ( active )
                 ImGui::PushStyleColor( ImGuiCol_Button, sel );
-            if ( !t.Impl )
-                ImGui::BeginDisabled();
-            char label[64];
-            std::snprintf( label, sizeof( label ), "%s  %s", t.Icon, t.Name );
-            if ( ImGui::Button( label, ImVec2( -1.0f, 30.0f ) ) && t.Impl )
+            if ( ImGui::Button( ICON_MDI_GRID "  CubeGrid", ImVec2( -1.0f, 30.0f ) ) )
             {
-                ms.ActiveTool = t.Tool;
+                ms.ActiveTool = MS::Tool::CubeGrid;
                 Core::ViewportMode::Set( Core::EditorMode::Modeling ); // selecting a tool enters Modeling mode
             }
-            if ( !t.Impl )
-                ImGui::EndDisabled();
             if ( active )
                 ImGui::PopStyleColor();
-            ImGui::NextColumn();
         }
-        ImGui::Columns( 1 );
         ImGui::Separator();
 
         // --- Tool Properties (CubeGrid) ---
@@ -226,14 +191,10 @@ namespace Desert::Editor
                     ImGui::SetTooltip( "Target other objects in the scene too, so you can start a grid on\n"
                                        "top of an existing mesh (bounding-box level)." );
             }
-            if ( Utils::ImGuiUtilities::SectionHeader( "Output Type" ) )
+            // UE titles this section "Output Type"; ours has no type choice yet (Accept makes one kind of
+            // mesh), so the section is named for what it does hold.
+            if ( Utils::ImGuiUtilities::SectionHeader( "Collision" ) )
             {
-                int               o      = static_cast<int>( ms.OutputType );
-                const char* const outs[] = { "Static Mesh", "Dynamic Mesh" };
-                ImGui::SetNextItemWidth( -1.0f );
-                if ( ImGui::Combo( "##out", &o, outs, IM_ARRAYSIZE( outs ) ) )
-                    ms.OutputType = static_cast<MS::Output>( o );
-
                 ImGui::Checkbox( "Generate Collision", &ms.GenerateCollision );
                 if ( ImGui::IsItemHovered() )
                     ImGui::SetTooltip( "Accept also adds a BOX collider around the piece and a static body,\n"

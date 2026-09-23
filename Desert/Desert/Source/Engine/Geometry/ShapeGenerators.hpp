@@ -15,6 +15,8 @@ namespace Desert::Geometry
     // Parametric shape generators for the Modeling mode's Create palette (UE's Box / Sphere / Cylinder /
     // Cone / Stairs). Pure CPU: vertices + triangles in, nothing GPU, nothing ECS — so they are unit
     // testable and reusable by anything that needs a primitive (thumbnails, colliders, tests).
+    // Today the only caller is the MeshLOD suite: the first Create tool never compiled and was deleted,
+    // and the palette is being rebuilt on EditMesh.
     //
     // Conventions, shared by every generator here:
     //   * world units are CENTIMETRES (see docs/UNITS.md) and sizes are FULL extents, not radii-from-centre;
@@ -294,8 +296,12 @@ namespace Desert::Geometry
         const float sh = std::max( stepHeight, Detail::kMinExtent );
         steps          = std::max( steps, 1 );
 
-        // Each step is a solid box from the ground up: stacking solids (rather than emitting only the
-        // visible L-shape) keeps the shape watertight, which is what collision and a later boolean want.
+        // Each step is a separate closed box from the ground up. Every box is watertight on its own, but
+        // the FLIGHT is not one manifold: neighbouring steps each emit their own face on the wall they
+        // share, so the lower part of that wall is two overlapping, opposite-facing quads and the union
+        // has interior faces and T-junctions.
+        // Fine for rendering and for a per-box collider; a boolean or a manifold-only consumer needs the
+        // single-shell flight, which does not exist yet.
         for ( int i = 0; i < steps; ++i )
         {
             const float z0 = static_cast<float>( i ) * sd;
