@@ -87,6 +87,7 @@ namespace Desert::Graphic::API::Vulkan
             m_Capabilities.SupportsAnisotropy     = deviceFeatures.samplerAnisotropy == VK_TRUE;
             m_Capabilities.MaxAnisotropy          = deviceProperties.limits.maxSamplerAnisotropy;
             m_Capabilities.SupportsNonSolidFill   = deviceFeatures.fillModeNonSolid == VK_TRUE;
+            m_Capabilities.SupportsTextureCompressionBC = deviceFeatures.textureCompressionBC == VK_TRUE;
 
             // --- Identity ---
             m_Capabilities.Name = deviceProperties.deviceName;
@@ -171,6 +172,9 @@ namespace Desert::Graphic::API::Vulkan
                       m_Capabilities.MaxMSAASamples(), m_Capabilities.MaxTexture2DSize,
                       m_Capabilities.MaxColorAttachments, m_Capabilities.SupportsFloatRenderTargets ? "yes" : "NO",
                       m_Capabilities.SupportsTimestampQueries ? "yes" : "no", m_Capabilities.TimestampPeriodNs );
+            LOG_INFO( "[Vulkan] Caps: textureCompressionBC (BC1-BC7) {}",
+                      m_Capabilities.SupportsTextureCompressionBC ? "supported -> enabled on the device"
+                                                                  : "NOT supported -- no BC textures" );
         }
 
         // Publish anisotropy support to the low-level sampler-creation path (0 = unsupported -> no aniso).
@@ -449,6 +453,25 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_PhysicalDevice->m_Capabilities.SupportsAnisotropy )
         {
             deviceFeatures.samplerAnisotropy = VK_TRUE;
+        }
+        // textureCompressionBC -- THE BC1..BC7 FORMATS, AND THE ONE LINE THAT MAKES THEM LEGAL.
+        //
+        // Every BC image the texture pipeline is about to create needs this asked for HERE. The spec is
+        // explicit that a BC format may only be used when the feature is enabled on the device; asking
+        // for format properties instead answers a different question (see Device.hpp on
+        // SupportsTextureCompressionBC), because vkGetPhysicalDeviceFormatProperties describes the
+        // PHYSICAL device and knows nothing about which features this logical device asked for.
+        //
+        // AND THE ABSENCE OF THIS LINE WAS NOT DETECTABLE ON THIS MACHINE. Measured 2026-09-23 with a
+        // probe that creates an 8x8 BC7_UNORM_BLOCK image, uploads four hand-built mode-6 blocks through
+        // a staging buffer, and texelFetches all 64 texels from a compute shader: on MoltenVK 1.1.357 /
+        // Apple M1 Pro the chain returns every texel BIT-EXACT whether the feature is enabled or not,
+        // with zero messages from validation layer 1.4.350.1 (which was proved live in the same run by
+        // a deliberate anisotropy error it did catch). So macOS cannot fail this, cannot warn about it,
+        // and is not evidence for Windows -- where the primary target's drivers are free to enforce it.
+        if ( m_PhysicalDevice->m_Capabilities.SupportsTextureCompressionBC )
+        {
+            deviceFeatures.textureCompressionBC = VK_TRUE;
         }
         createInfo.sType                 = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         createInfo.pQueueCreateInfos     = m_PhysicalDevice->m_QueueCreateInfos.data();
