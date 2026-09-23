@@ -43,11 +43,11 @@ namespace Desert::Assets::Serialization
             uint32_t Height;
             uint32_t Format; // an ImageFormat enumerator, travelling at a width the file fixes
             uint32_t LevelCount;
-            uint32_t Flags; // v1 defines none; a non-zero value is REFUSED, see below
+            uint32_t Flags; // no version defines one; a non-zero value is REFUSED, see below
             uint32_t SourceKeyLength;
             uint32_t SourceKeyOffset; // from file start
             uint64_t SourceContentHash;
-            uint64_t EncoderHash;  // v1 has no encoder; a non-zero value is REFUSED, see below
+            uint64_t EncoderHash;  // v3: the settings that produced these pixels; 0 = none recorded
             uint64_t PayloadBytes; // declared sum of the level sizes, padding excluded
             uint64_t FileSize;     // declared; compared against the bytes actually in hand
             uint64_t Handle;

@@ -114,7 +114,10 @@ namespace Desert::Assets::Serialization
     ///   v3  + `LayerCount` and `Kind`, so the container can say how many images a level is made of and
     ///       what they mean together. Before this the header read `Width; Height; Format; LevelCount`
     ///       and that was ALL: a cube was not merely unsupported, it was INEXPRESSIBLE, and every size
-    ///       in the reader was `width * height * bytes-per-pixel` for exactly one image.
+    ///       in the reader was `width * height * bytes-per-pixel` for exactly one image. It also gives
+    ///       `EncoderHash` a meaning (the settings a derived asset was made with) instead of refusing
+    ///       it, and makes the full-chain requirement a rule about 2D textures rather than about every
+    ///       file — a baked cube's level count is a measured choice, not an obligation.
     ///
     /// WHY THE BUMP COULD NOT BE AVOIDED, since a version that can be dodged should be. The level row
     /// is a fixed-width record read by `memcpy` at a computed stride, so a v1 file read with a v2 row
