@@ -568,6 +568,10 @@ jobs:
     # today; it does not make the build faster, and the growth is real (the vertex-path split added
     # shaders and is the likeliest cause of the first cancellation). Cutting the build time is its own
     # task; until it lands, this number must stay well clear of the measured duration.
+    #
+    # IT LANDED (task WR1, the ccache block below): Windows Release 121.8 -> 80.2 min, Debug 93 -> 57,
+    # Shipping 50 -> 29 in run 35863890019. The ceiling is left where it is on purpose -- lowering it
+    # is a separate call, after more than one run has shown where the new durations settle.
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -664,9 +668,99 @@ jobs:
         shell: cmd
         run: scripts\Windows\Setup.bat
 
+      # ── THE COMPILER CACHE, WITHIN ONE BUILD ────────────────────────────────────────────────────
+      #
+      # WHERE THIS JOB'S TIME WAS. Run 35840757086 (dc3e7487): Windows Release 115.8 min, of which
+      # Build 111.5, Run tests 1.4, everything else 2.9. Inside the build, by the time each project
+      # finished: Common 11.3 min, Desert 78.2, the last test suite 95.2, Editor 111.5 -- the last 16
+      # minutes are Editor compiling on ONE core while three sit idle, and Windows Shipping, which has
+      # no suites, still spends 21 of its 49 build minutes on Desert and 20 on Editor for the same
+      # reason. So there are two costs, and the wiring below addresses both:
+      #   1. the SAME (source, flags) compiled again by another suite -- 505 of 1940 compiles, 30.8 %
+      #      of compile CPU, measured on macOS by B2 over the same premake scripts;
+      #   2. no parallelism INSIDE a project (no /MP, see BuildScripts/Workspace.lua).
+      # The MultiToolTask that ccache needs anyway (one source per cl.exe) is also the answer to 2 --
+      # see Directory.Build.props for each property and Directory.Build.targets for /Zi -> /Z7.
+      #
+      # MEASURED, first green run 35863890019 (9feaa1ee) against the eleven complete Release builds
+      # before it (111.5-119.9 min, median 115.8): Build Release 74.7, Debug 36.0 (was 67.6-75.1),
+      # Shipping 26.2 (was 31.6-49.4). ccache: 493 / 1971 hits in Release, 494 / 1971 in Debug, and
+      # 0 / 873 in Shipping -- which has no suites and therefore nothing to repeat, so ITS 22 minutes
+      # are the MultiToolTask alone, the negative control for the cache.
+      #
+      # NOTHING IS RESTORED OR SAVED. Every hit here is a compile an EARLIER PROJECT OF THIS SAME BUILD
+      # did; the cache starts empty in a job-scoped directory. Persisting it across runs is a separate
+      # decision with a price (the repository's shared 10 GB, see the note on the sanitizers job).
+      #
+      # PINNED BY VERSION AND BY HASH: the binary sits in front of every compile of the three legs, and
+      # a release changing under us would change the build without a commit saying so.
+      - name: Install ccache (as cl.exe)
+        shell: pwsh
+        run: |
+          $ver = "4.14"
+          $sha = "2568347a697e103ca1b073981c704ad76fb2507d066c38dba038dd73399d968f"
+          $zip = "$env:RUNNER_TEMP\ccache.zip"
+          Invoke-WebRequest -Uri "https://github.com/ccache/ccache/releases/download/v$ver/ccache-$ver-windows-x86_64.zip" -OutFile $zip
+          $got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $sha) { throw "ccache $ver zip hash is $got, expected $sha" }
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\ccache-dist"
+          $exe = "$env:RUNNER_TEMP\ccache-dist\ccache-$ver-windows-x86_64\ccache.exe"
+          # The masquerade directory: ccache.exe under the name cl.exe, and nothing else in it.
+          $masq = "$env:RUNNER_TEMP\ccache-cl"
+          New-Item -ItemType Directory -Force $masq | Out-Null
+          Copy-Item $exe "$masq\cl.exe"
+          @(
+            "DESERT_MSVC_CCACHE=$masq"
+            "CCACHE_EXE=$exe"
+            "CCACHE_DIR=$env:RUNNER_TEMP\ccache"
+            # Room for the whole build: an LRU cache that fills mid-build evicts the very objects a
+            # later suite would have hit, and that looks like a low hit rate rather than a full cache.
+            "CCACHE_MAXSIZE=20G"
+            # The same four entries, with the same census behind them, as scripts/MacOS/BuildMacOS.sh.
+            "CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime"
+            # premake writes IntDir as $(ProjectDir)build\...\<Project>\ -- absolute and different for
+            # every project -- and ccache hashes an MSVC object's directory by default, which would
+            # make a suite's copy of an engine source miss against the identical compile before it.
+            # What that hash guards is the object's own path inside its /Z7 debug records, which
+            # nothing here reads; the source path that also lands in the object is still hashed.
+            "CCACHE_NOHASHDIR=1"
+            # On a miss, learn the includes from the real compile's /showIncludes instead of running
+            # the preprocessor first -- otherwise every miss is paid for twice.
+            "CCACHE_DEPEND=1"
+          ) | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $exe --version | Select-Object -First 1
+
       - name: Build ${{ matrix.config }}
         shell: cmd
-        run: msbuild Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal
+        run: |
+          "%CCACHE_EXE%" --zero-stats || exit /b 1
+          msbuild Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal
+
+      # Every outcome prints: a cache that saw nothing must not look like a build that needed nothing.
+      # The disk and the largest archives are here because /Z7 moves debug information INTO the objects
+      # and libraries -- a static library over 4 GB is a hard linker error (LNK1248), and the runner's
+      # disk is finite -- so the margin on both is printed on every run, green ones included.
+      #
+      # AND THE ONE MARGIN THAT IS ALREADY THIN IS ANNOTATED. First measured run (35863890019):
+      # Desert.lib is 2.92 GB in Debug, 1.23 GB in Release, 0.41 GB in Shipping -- Debug is at 73 % of
+      # the limit, and the engine grows. Above 3 GB the run carries a warning on its summary page, so
+      # the crossing is announced by green runs before a red one reports it as LNK1248. The step itself
+      # never fails the job: it is a reading, not a gate.
+      - name: ccache statistics and build footprint
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          & $env:CCACHE_EXE --show-stats -v
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}}, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+          if (Test-Path build) {
+            "build\ total: {0:N1} GB" -f ((Get-ChildItem build -Recurse -File | Measure-Object Length -Sum).Sum / 1GB)
+            $libs = @(Get-ChildItem build -Recurse -Filter *.lib | Sort-Object Length -Descending | Select-Object -First 5)
+            $libs | ForEach-Object { "{0,8:N0} MB  {1}" -f ($_.Length / 1MB), $_.FullName }
+            if ($libs.Count -gt 0 -and $libs[0].Length -gt 3GB) {
+              "::warning::{0} is {1:N2} GB, {2:N0} % of the 4 GB a static library may hold (LNK1248)" -f $libs[0].Name, ($libs[0].Length / 1GB), (100 * $libs[0].Length / 4GB)
+            }
+          }
 
       # run_tests.bat is generated by premake (Desert/Tests/premake5.lua); tests are enabled because
       # GitHub always sets CI, which Desert/premake5.lua checks.
