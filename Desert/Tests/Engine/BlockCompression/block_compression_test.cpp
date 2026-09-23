@@ -471,12 +471,19 @@ namespace
 
     struct Fidelity
     {
-        double   Psnr             = 0.0;
-        uint32_t MaxAbsoluteDelta = 0;
-        bool     Read             = false;
+        double      Psnr             = 0.0;
+        uint32_t    MaxAbsoluteDelta = 0;
+        bool        Read             = false;
+        std::size_t SourceBytes      = 0;
+        std::size_t CompressedBytes  = 0;
     };
 
-    Fidelity MeasureFile( const std::string& path )
+    /// @p blockFormat defaults to BC7 — the format the MEASUREMENT alone reaches for — and is passed
+    /// explicitly by the authored register below, which asks about the format an intent requests.
+    /// The comparison is over `PreservedChannelCount` channels, the same promise the cook grades by:
+    /// over four, a perfect BC4 encode scores nothing, because the three channels it was never asked
+    /// to keep come back as the zeros a sampler returns.
+    Fidelity MeasureFile( const std::string& path, Fmt::ImageFormat blockFormat = Fmt::ImageFormat::BC7_UNORM )
     {
         int      width = 0, height = 0, channels = 0;
         stbi_uc* pixels = stbi_load( path.c_str(), &width, &height, &channels, 4 );
@@ -486,28 +493,40 @@ namespace
         const std::vector<unsigned char> source( pixels, pixels + static_cast<std::size_t>( width ) * height * 4 );
         stbi_image_free( pixels );
 
-        const auto blocks = Fmt::BlockCompressImage( static_cast<uint32_t>( width ),
-                                                     static_cast<uint32_t>( height ), Fmt::ImageFormat::RGBA8F,
-                                                     Fmt::ImageFormat::BC7_UNORM, source.data(), source.size() );
+        const auto blocks =
+             Fmt::BlockCompressImage( static_cast<uint32_t>( width ), static_cast<uint32_t>( height ),
+                                      Fmt::ImageFormat::RGBA8F, blockFormat, source.data(), source.size() );
         if ( !blocks.IsSuccess() )
             return {};
         const auto back = Fmt::BlockDecompressImage(
-             static_cast<uint32_t>( width ), static_cast<uint32_t>( height ), Fmt::ImageFormat::BC7_UNORM,
+             static_cast<uint32_t>( width ), static_cast<uint32_t>( height ), blockFormat,
              Fmt::ImageFormat::RGBA8F, blocks.GetValue().data(), blocks.GetValue().size() );
         if ( !back.IsSuccess() )
             return {};
 
         Fidelity fidelity;
-        fidelity.Read     = true;
-        double squaredSum = 0.0;
-        for ( std::size_t i = 0; i < source.size(); ++i )
+        fidelity.Read            = true;
+        fidelity.SourceBytes     = source.size();
+        fidelity.CompressedBytes = blocks.GetValue().size();
+        double squaredSum        = 0.0;
+        // `keptChannels` AND NOT `channels`: `MeasureFile` already has a `channels` from stb_image, which
+        // is how many the FILE has, and the two are different questions. The shadowing was a compile
+        // error here and would have been a silent wrong comparison in a language that allowed it.
+        const std::size_t keptChannels = Fmt::PreservedChannelCount( blockFormat );
+        std::size_t       compared     = 0;
+        for ( std::size_t texel = 0; texel * 4 < source.size(); ++texel )
         {
-            const int delta = static_cast<int>( source[i] ) - static_cast<int>( back.GetValue()[i] );
-            squaredSum += static_cast<double>( delta ) * delta;
-            fidelity.MaxAbsoluteDelta =
-                 std::max( fidelity.MaxAbsoluteDelta, static_cast<uint32_t>( std::abs( delta ) ) );
+            for ( std::size_t c = 0; c < keptChannels; ++c )
+            {
+                const std::size_t at    = texel * 4 + c;
+                const int         delta = static_cast<int>( source[at] ) - static_cast<int>( back.GetValue()[at] );
+                squaredSum += static_cast<double>( delta ) * delta;
+                fidelity.MaxAbsoluteDelta =
+                     std::max( fidelity.MaxAbsoluteDelta, static_cast<uint32_t>( std::abs( delta ) ) );
+                ++compared;
+            }
         }
-        const double meanSquared = squaredSum / static_cast<double>( source.size() );
+        const double meanSquared = squaredSum / static_cast<double>( compared );
         fidelity.Psnr            = meanSquared <= 0.0 ? 1000.0 : 10.0 * std::log10( 65025.0 / meanSquared );
         return fidelity;
     }
@@ -563,6 +582,162 @@ TEST( BlockCompression, TheCorpusRegisterDescribesFilesThatStillExist )
 // These two formats exist because `TextureIntent` does. Both halves are tested here: the ENCODERS,
 // against the same specification-written decoder the other two are measured with, and the POLICY, which
 // is a pure function and needs no importer to ask.
+
+// ── 6. THE AUTHORED REGISTER ──────────────────────────────────────────────────────────────────────
+//
+// The register above asks what the MEASUREMENT alone concludes. This one asks what the AUTHORED intent
+// beside each source turns that into — the other half of the cook, and the half where T1's three rules
+// actually take effect.
+//
+// IT IS A REGISTER OF `.detex` FILES THAT EXIST ON DISK, not a table of intents typed here. Each row
+// names the source and the word its `.detex` carries, and the test reads the file: a row that disagrees
+// with the authored file is a row about a texture nobody is cooking that way.
+//
+// EVERY NUMBER BELOW IS A BASE-LEVEL NUMBER, like the register above it and unlike the cook's own. The
+// cook grades the WHOLE CHAIN and reaches figures that are close but not equal (this editor run, 2026-09-23:
+// texture_normal 52.02 dB / 15 against 53.08 / 14 here; texture_roughness 45.64 / 18 against 47.98 / 18).
+// Saying which measurement a number is from is not pedantry -- the importer's own threshold table was
+// labelled "over the base level" while carrying whole-chain figures, and that is how a gate gets
+// re-justified against numbers it was never fitted to.
+
+namespace
+{
+    struct AuthoredRow
+    {
+        const char* Path;
+        const char* Intent; /// what the `.detex` beside @p Path must say
+        Verdict     Expected;
+        const char* Why;
+    };
+
+    // clang-format off
+    const std::vector<AuthoredRow>& AuthoredCorpus()
+    {
+        static const std::vector<AuthoredRow> rows = {
+        { "Editor/Resources/Assets/Meshes/texture_normal.png", "NormalMap", Verdict::Compressed,
+          "T1'S RULE, AND THE WHOLE POINT OF THE FIELD. The measured register above REFUSES this file "
+          "(46.35 dB, worst texel 130) because BC7 is the wrong format for it, and BC5 reaches 53.08 / "
+          "14 on the same pixels -- against T1's 52.51 / 14 for a reference encoder, which is as close "
+          "as two different encoders get. Without the authored word it is stored uncompressed; with it, "
+          "at a quarter" },
+        { "Editor/Resources/Assets/Meshes/texture_metallic.png", "Mask", Verdict::Compressed,
+          "one channel replicated across RGB. BC4 reaches 56.49 / 8 -- T1's reference encoder reached "
+          "56.49 / 8, the SAME numbers, which is what a format with no encoder freedom looks like -- and "
+          "costs an EIGHTH of the source instead of BC7's quarter" },
+        { "Editor/Resources/Assets/Meshes/texture_roughness.png", "Mask", Verdict::Compressed,
+          "the same shape; 47.98 / 18 here and 47.98 / 18 in T1. It is the narrowest margin in this "
+          "register and the row to watch if the encoder moves -- over the WHOLE chain, which is what the "
+          "cook grades, it comes to 45.64 dB against a floor of 45" },
+        { "Editor/Resources/Assets/Meshes/texture_diffuse.png", "Colour", Verdict::Compressed,
+          "albedo: the author and the measurement agree, and the authored word costs nothing -- the cook "
+          "measures the format it was going to reach for anyway" },
+        { "Editor/Resources/Assets/Meshes/shaded.png", "Colour", Verdict::Compressed,
+          "baked shading, smooth gradients; agreement again" },
+        { "Editor/Resources/Assets/Meshes/texture_pbr.png", "Data", Verdict::RefusedForQuality,
+          "a PACKED map. The author refuses a block format outright and the measurement agrees (47.97 "
+          "dB with a worst texel off by 84), so this row is where the two sources CONFIRM each other" },
+        { "Editor/Resources/Assets/Textures/1k_Dissolve_Noise_Texture.png", "Data", Verdict::RefusedForQuality,
+          "NOISE, and T1's third rule. Both sources refuse it, for different reasons -- the author "
+          "because noise has no shared endpoint line and the measurement because 37.55 dB is below the "
+          "floor" },
+        };
+        return rows;
+    }
+    // clang-format on
+} // namespace
+
+TEST( BlockCompression, EveryAuthoredSourceReachesTheVerdictItsRowRecordsInTheFormatItsIntentAsks )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    int encoded = 0, refusedByIntent = 0;
+    for ( const AuthoredRow& row : AuthoredCorpus() )
+    {
+        // THE `.detex` ON DISK IS THE AUTHORITY, read here rather than assumed. A row whose word has
+        // drifted from the file describes a cook nobody is performing.
+        std::string       detex = root + row.Path;
+        const std::size_t dot   = detex.rfind( '.' );
+        ASSERT_NE( dot, std::string::npos ) << row.Path;
+        detex.replace( dot, std::string::npos, ".detex" );
+
+        std::ifstream      in( detex, std::ios::binary );
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        const std::string authored = buffer.str();
+        ASSERT_FALSE( authored.empty() ) << detex << " does not exist; the row names an intent nobody "
+                                         << "authored";
+        EXPECT_NE( authored.find( std::string( "\"" ) + row.Intent + "\"" ), std::string::npos )
+             << detex << " does not say " << row.Intent << "; it says:\n  " << authored;
+
+        const Fmt::TextureIntent intent = Fmt::TextureIntentFromName( row.Intent );
+        ASSERT_NE( intent, Fmt::TextureIntent::Count ) << row.Intent;
+        const Fmt::BlockPolicy policy = Fmt::BlockPolicyForIntent( intent, Fmt::ImageFormat::RGBA8F );
+
+        if ( policy.Verdict != Fmt::BlockPolicyVerdict::Encode )
+        {
+            EXPECT_EQ( row.Expected, Verdict::RefusedForQuality )
+                 << row.Path << " is authored as " << row.Intent << ", which forbids a block format, and "
+                 << "its row expects one\n  the row says: " << row.Why;
+            ++refusedByIntent;
+            std::cout << "[ AUTHORED ] " << row.Intent << "  refused by intent  " << row.Path << "\n";
+            continue;
+        }
+
+        const Fidelity fidelity = MeasureFile( root + row.Path, policy.Format );
+        ASSERT_TRUE( fidelity.Read ) << row.Path << " could not be read or encoded as format "
+                                     << static_cast<uint32_t>( policy.Format );
+
+        const bool    keeps   = fidelity.Psnr >= kPsnrFloorDb && fidelity.MaxAbsoluteDelta <= kMaxDeltaCeiling;
+        const Verdict reached = keeps ? Verdict::Compressed : Verdict::RefusedForQuality;
+        EXPECT_EQ( reached, row.Expected )
+             << "\n  " << row.Path << " as " << row.Intent << " -> format "
+             << static_cast<uint32_t>( policy.Format ) << "\n  " << fidelity.Psnr << " dB, worst texel off by "
+             << fidelity.MaxAbsoluteDelta << " (floor " << kPsnrFloorDb << " dB, ceiling " << kMaxDeltaCeiling
+             << ")\n  the row says: " << row.Why;
+        ++encoded;
+
+        std::cout << "[ AUTHORED ] " << row.Intent << "  " << fidelity.Psnr << " dB  max|d| "
+                  << fidelity.MaxAbsoluteDelta << "  " << fidelity.SourceBytes << " -> "
+                  << fidelity.CompressedBytes << " bytes  " << row.Path << "\n";
+    }
+
+    // DERIVED FROM THE ROWS, and both outcomes have to occur: a register where every row encodes is not
+    // exercising the refusal, and one where every row refuses is not exercising the encoders.
+    EXPECT_EQ( encoded + refusedByIntent, static_cast<int>( AuthoredCorpus().size() ) );
+    EXPECT_GT( encoded, 0 );
+    EXPECT_GT( refusedByIntent, 0 );
+}
+
+TEST( BlockCompression, TheAuthoredWordChangesTheOutcomeForAtLeastOneSourceInThisRepository )
+{
+    // THE FIELD HAS TO EARN ITS PLACE ON REAL CONTENT, not only on a synthetic 8x8. This asserts the
+    // RELATION between the two registers: there is a file the MEASUREMENT alone stores uncompressed and
+    // the AUTHORED word stores compressed, which is the entire argument for having two sources.
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string normal = root + "Editor/Resources/Assets/Meshes/texture_normal.png";
+
+    const Fidelity measured = MeasureFile( normal, Fmt::ImageFormat::BC7_UNORM );
+    ASSERT_TRUE( measured.Read );
+    const bool measuredKeeps = measured.Psnr >= kPsnrFloorDb && measured.MaxAbsoluteDelta <= kMaxDeltaCeiling;
+    EXPECT_FALSE( measuredKeeps ) << "BC7 on this normal map now clears both gates, so the measurement "
+                                     "alone would store it -- and the case this test is about is gone";
+
+    const Fidelity authored = MeasureFile( normal, Fmt::ImageFormat::BC5_UNORM );
+    ASSERT_TRUE( authored.Read );
+    EXPECT_GE( authored.Psnr, kPsnrFloorDb );
+    EXPECT_LE( authored.MaxAbsoluteDelta, kMaxDeltaCeiling );
+
+    // And it is BETTER on both gates at once, which is T1's finding restated against our own encoders.
+    EXPECT_GT( authored.Psnr, measured.Psnr );
+    EXPECT_LT( authored.MaxAbsoluteDelta, measured.MaxAbsoluteDelta );
+
+    std::cout << "[ AUTHORED ] texture_normal.png: BC7 " << measured.Psnr << " dB / " << measured.MaxAbsoluteDelta
+              << " (refused) against BC5 " << authored.Psnr << " dB / " << authored.MaxAbsoluteDelta << " (kept), "
+              << measured.SourceBytes << " -> " << authored.CompressedBytes << " bytes\n";
+}
 
 TEST( BlockCompression, ASingleChannelBlockSurvivesExactlyWhereverItCan )
 {
