@@ -23,6 +23,9 @@
 //     of its bytes with its length in the high half). An artist who edits the panorama gets a re-bake
 //     because the BYTES changed, which is the same question `TextureImporter` asks about a `.png` and
 //     for the same reason — git sets mtimes to checkout time, so a timestamp answers "fresh" for ever.
+//     IT IS READ OUT OF THE COOKED PANORAMA'S HEADER, NOT COMPUTED FROM THE `.hdr`: the cook recorded
+//     exactly this number when it read those bytes, so the runtime needs neither the source file nor a
+//     decoder for it — see `FindCookedPanorama` below.
 //   * `EncoderHash` — everything else the output depends on: the authored `SkyLook` (rotation, tint,
 //     intensity), the three face sizes, the two mip counts, and this file's own version. It is the
 //     container's v3 provenance column, and the reason that column stopped being refused: only the
@@ -84,9 +87,23 @@ namespace Desert::Graphic
     /// inputs name the same file on every machine, which is what lets a cooked environment be committed.
     [[nodiscard]] std::filesystem::path EnvironmentBakePath( uint64_t sourceSignature, uint64_t bakeSignature );
 
-    /// The `.hdr`'s own signature, or 0 when the file could not be read — in which case there is nothing
-    /// to bake against and the caller must compute rather than cache.
-    [[nodiscard]] uint64_t EnvironmentSourceSignature( const std::filesystem::path& hdr );
+    /// An `.hdr` skybox as the RUNTIME knows it: the cooked panorama `TextureImporter` wrote for it, and
+    /// the source signature that cook recorded.
+    struct CookedPanorama
+    {
+        std::filesystem::path Path;
+        uint64_t              SourceSignature = 0;
+    };
+
+    /// THE PANORAMA IS A COOKED TEXTURE, AND THE RUNTIME DOES NOT DECODE ITS SOURCE. This used to be two
+    /// things: `EnvironmentSourceSignature` hashed the `.hdr`'s bytes, and `EnvironmentManager::Create`
+    /// decoded the same file through stb into a `Texture2D` — BEFORE asking the cache, so a hit paid the
+    /// decode for nothing and a miss kept an image decoder in the draw layer. Both answers are in the
+    /// cooked panorama's header, which is one prefix read.
+    ///
+    /// A refusal is a sentence naming the path it looked at: "no cooked panorama" means the editor's
+    /// texture pass has not run over this source, and that is the remedy the log has to be able to say.
+    [[nodiscard]] Common::ResultStr<CookedPanorama> FindCookedPanorama( const std::filesystem::path& hdr );
 
     /// A baked cube off the disk, or a REFUSAL NAMING WHY. Every reason is a sentence: no file, a file
     /// from another source, a file from another look, a cube of the wrong shape. The caller's answer to

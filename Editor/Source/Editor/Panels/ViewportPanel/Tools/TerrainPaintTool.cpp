@@ -204,7 +204,7 @@ namespace Desert::Editor::Tools
                      .Usage      = ::Desert::Core::Formats::Image2DUsage::Image2D,
                      .Properties = ::Desert::Core::Formats::ImageProperties::Sample,
                 };
-                c.SplatMap = Graphic::Image2D::Create( spec, nullptr );
+                c.SplatMap = Graphic::Image2D::Create( spec );
             }
             else
             {

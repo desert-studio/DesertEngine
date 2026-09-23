@@ -27,8 +27,16 @@
 #include <Engine/Text/FontCache.hpp>
 #include <Engine/Vector/IconBake.hpp>
 
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/CookedTexturePath.hpp>
+#include <Engine/Assets/Serialization/TextureBinary.hpp>
+
+#include <Editor/Import/TextureImporter.hpp>
+#include <Editor/Import/TextureSourceFormats.hpp>
+
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Content/ContentScan.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -47,6 +55,8 @@
 #include <format>
 #include <cctype>
 #include <fstream>
+#include <map>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -1529,4 +1539,255 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ---- THE TEXTURES A PACKAGE CARRIES ARE COOKED INSIDE IT (PK1) ------------------------------------------
+//
+// The runtime holds no image decoder (T3.3 removed the last one, the sky panorama's), so a texture reaches
+// a player ONLY as a `.tex` inside the archive, found through the registry the archive carries. Until PK1
+// the packager cooked shaders, fonts and icons and not one texture: a package held whichever `.tex` files
+// an editor session had left on the packaging machine, and in CI that was the single committed
+// `T_Checker.tex` — every `SKY_*` scene packaged without its panorama, every mesh without its images.
+//
+// Two tests, because the claim has two halves and each can fail alone:
+//   1. END TO END, over a fixture: every source under the cook's roots comes out of a mounted archive as a
+//      decodable `.tex`, listed by the registry the player reads, and a second pass cooks nothing.
+//   2. OVER THE REAL CONTENT: every texture the shipped scenes, prefabs and materials name is one the cook
+//      enumerates — so (1) covers what the sandbox actually ships, not merely what the fixture holds.
+
+namespace
+{
+    namespace TexSer = Desert::Assets::Serialization;
+
+    // What the packaged runtime can see of one cooked texture: its bytes, through the VFS, at the path the
+    // registry it mounted lists for it.
+    std::map<std::string, TexSer::TextureAssetData> PackagedTexturesBySourceKey()
+    {
+        std::map<std::string, TexSer::TextureAssetData> out;
+        for ( const fs::path& file :
+              Desert::Assets::ContentRegistry::FilesOfKind( Common::Content::ContentKind::Texture ) )
+        {
+            const auto bytes = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( !bytes )
+            {
+                ADD_FAILURE() << "the packaged registry lists " << file.string()
+                              << " and the archive does not serve it: " << bytes.GetError();
+                continue;
+            }
+            auto decoded = TexSer::DecodeTextureBinary( bytes.GetValue(), file.string() );
+            if ( !decoded )
+            {
+                ADD_FAILURE() << file.string() << " is in the archive and does not decode: " << decoded.GetError();
+                continue;
+            }
+            out.emplace( decoded.GetValue().SourcePath, decoded.GetValue() );
+        }
+        return out;
+    }
+} // namespace
+
+TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
+{
+    EnvironmentGuard guard;
+
+    const fs::path repo = fs::absolute( RepoRoot() );
+    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
+    const fs::path shipped = repo / "Editor" / "Resources" / "Assets";
+
+    const fs::path base = fs::temp_directory_path() / "desert_pkg_textures";
+    fs::remove_all( base );
+    const fs::path proj = base / "proj";
+    const fs::path pkg  = base / "pkg";
+
+    // THE REAL SOURCES, one per case the cook has: an LDR texture the BC7 gates accept (the checker floor,
+    // at the same project-relative key the sandbox has, so it derives the same handle eleven scenes name),
+    // an extended-range sky panorama, and an image beside a mesh — the directory whose textures were cooked
+    // only when the mesh itself was re-imported.
+    fs::create_directories( proj / "GameAssets" / "Textures" / "HDR" );
+    fs::create_directories( proj / "GameAssets" / "Meshes" );
+    fs::copy_file( shipped / "Textures" / "T_Checker.png", proj / "GameAssets" / "Textures" / "T_Checker.png" );
+    fs::copy_file( shipped / "Textures" / "HDR" / "PreviewCheck.hdr",
+                   proj / "GameAssets" / "Textures" / "HDR" / "PreviewCheck.hdr" );
+    fs::copy_file( shipped / "Textures" / "T_NormalWitness.png", proj / "GameAssets" / "Meshes" / "beside.png" );
+    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+
+    SetEnv( "HOME", base.string() );
+    fs::current_path( proj );
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+
+    // THE PROJECT'S OWN REGISTRY, as `AssetRegistryTool cook --disk` writes it for a project that is not a
+    // git checkout: one row per content file, which here is the panorama (an `.hdr` is Skybox content in
+    // its own right). The PNGs are no census kind — their `.tex` is, and the cook writes those rows.
+    {
+        Common::Utils::AssetRegistry projectRegistry;
+        for ( const auto& [key, file] : Common::Content::ScanContentRoots() )
+        {
+            Common::Utils::AssetRegistryEntry entry;
+            entry.Key  = key;
+            entry.Kind = std::string( Common::Content::KindName( file.Kind ) );
+            entry.Size = file.Size;
+            ASSERT_TRUE( projectRegistry.Insert( std::move( entry ) ).IsSuccess() );
+        }
+        ASSERT_EQ( projectRegistry.Count(), 1u ) << "the fixture's content census moved; re-derive this case";
+        WriteFile( Common::Utils::AssetRegistry::DefaultPath(), projectRegistry.Serialize() );
+    }
+    // THIS project's registry, not whatever an earlier case left in the process-wide one.
+    ASSERT_TRUE( Desert::Assets::ContentRegistry::Load().IsSuccess() );
+
+    const auto result = Desert::Editor::BuildContentPak();
+    ASSERT_TRUE( result.Success ) << result.Message;
+    EXPECT_TRUE( result.Complete() ) << result.Message;
+
+    // ── THE PLAYER'S SIDE: an archive in a bare directory, and nothing loose ──
+    fs::create_directories( pkg );
+    fs::copy_file( proj / "Content.dpak", pkg / "Content.dpak" );
+    fs::current_path( pkg );
+    const auto mounted = Common::Utils::VFS::MountPak( pkg / "Content.dpak" );
+    ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
+    ASSERT_TRUE(
+         Desert::Project::ProjectContext::Open( ( pkg / Desert::Project::kPackagedDescriptorName ).string() ) );
+    ASSERT_TRUE( Desert::Assets::ContentRegistry::Load().IsSuccess() );
+
+    const auto textures = PackagedTexturesBySourceKey();
+    for ( const char* key :
+          { "assets:Textures/T_Checker.png", "assets:Textures/HDR/PreviewCheck.hdr", "assets:Meshes/beside.png" } )
+    {
+        EXPECT_TRUE( textures.contains( key ) )
+             << key
+             << " is a texture the packaged project carries, and the packaged runtime's registry lists "
+                "no cooked form of it — the player has no decoder, so it would draw without it";
+    }
+
+    // THE FORMAT THE SHIPPED CONTENT USES, not the one the encoder can produce. These assertions stood in
+    // TextureBinaryFormat against a committed `.tex` while one existed; the claim is about what ships, so
+    // it is made about the package.
+    if ( const auto checker = textures.find( "assets:Textures/T_Checker.png" ); checker != textures.end() )
+    {
+        EXPECT_EQ( checker->second.Format, Desert::Core::Formats::ImageFormat::BC7_UNORM );
+        EXPECT_EQ( checker->second.Width, 1024u );
+        EXPECT_EQ( checker->second.LevelCount(), 11u ); // floor(log2(1024)) + 1
+        // The number M_CheckerFloor.demat names: derived from the source's key, so a package cooked on any
+        // machine agrees with the material without a committed `.tex` to carry it.
+        EXPECT_EQ( static_cast<uint64_t>( checker->second.Handle ), 4588246833979984450ull );
+    }
+    if ( const auto sky = textures.find( "assets:Textures/HDR/PreviewCheck.hdr" ); sky != textures.end() )
+    {
+        EXPECT_EQ( sky->second.Format, Desert::Core::Formats::ImageFormat::RGBA32F )
+             << "the panorama lost its range in the package";
+    }
+
+    // THE PANORAMA IS ALSO FOUND BY PATH — the runtime derives it from the `.hdr` the SkyboxAsset names
+    // (Engine/Assets/CookedTexturePath.hpp), not through the registry — so that path must be served too.
+    const fs::path panorama = Desert::Assets::CookedTexturePath(
+         Common::Constants::Path::TEXTUREDIR_PATH / "HDR" / "PreviewCheck.hdr", ".tex" );
+    EXPECT_TRUE( Common::Utils::FileSystem::ReadFileContent( panorama ).IsSuccess() )
+         << panorama.string() << " — where the runtime looks for the panorama — is not in the archive";
+
+    // A `.tex` IS STORED WHOLE IN THE ARCHIVE, so one level stays readable on its own; its levels carry
+    // their own LZ4. Measured on the real cooked checker in the real package (Tests/Common/Pak holds the
+    // rule by name; this is the shipped bytes).
+    {
+        Common::Utils::PakReader reader( pkg / "Content.dpak" );
+        ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
+        EXPECT_EQ( reader.EntryCodec( "Cooked/Textures/T_Checker.tex" ), Common::Utils::PakCodec::Store );
+        const std::optional<std::string> entry = reader.Read( "Cooked/Textures/T_Checker.tex" );
+        ASSERT_TRUE( entry.has_value() ) << "the cooked checker texture is not an entry of the archive";
+        const auto header = TexSer::DecodeTextureHeader( *entry, "T_Checker.tex" );
+        ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
+        EXPECT_LT( header.GetValue().StoredPayloadBytes, header.GetValue().PayloadBytes )
+             << "the cook is no longer compressing the levels of what it ships";
+    }
+
+    // ── INCREMENTAL: a second pass over unchanged sources cooks nothing ──
+    Common::Utils::VFS::Unmount();
+    fs::current_path( proj );
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Desert::Assets::ContentRegistry::Load().IsSuccess() );
+    const auto again = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
+    EXPECT_EQ( again.TexturesCooked, 0u ) << "an unchanged source was cooked again";
+    EXPECT_EQ( again.TexturesCached, 3u );
+}
+
+// The real sandbox: every texture its shipped content names must be one the packager's cook reaches. A
+// scene names a texture as a string key (`assets:Textures/HDR/PreviewCheck.hdr` for a sky,
+// `cooked:Textures/T_Checker.tex` for a UI sprite); a material names it by NUMBER, the handle derived from
+// the source's key, so numbers are resolved against every texture source in the tree — a number that is
+// no texture's (a cloud type, a layout) is Tests/Engine/AssetReferenceCensus's business, not this one's.
+TEST( PackagedContent, EveryTextureTheShippedContentNamesIsOneThePackageCooks )
+{
+    EnvironmentGuard guard;
+
+    const fs::path repo = fs::absolute( RepoRoot() );
+    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
+    fs::current_path( repo / "Editor" );
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( repo / "Editor" / "Desert.deproj" ).string() ) );
+    const fs::path assets = Common::Constants::Path::ASSETS_PATH;
+
+    // What the cook reaches, spelled the three ways content can name it.
+    std::set<std::string> cookedKeys;
+    std::set<uint64_t>    cookedHandles;
+    for ( const fs::path& source : Desert::Editor::LooseTextureSources() )
+    {
+        cookedKeys.insert( Common::AssetHandle::StableKeyForPath( source ) );
+        cookedKeys.insert(
+             Common::AssetHandle::StableKeyForPath( Desert::Assets::CookedTexturePath( source, ".tex" ) ) );
+        cookedHandles.insert( static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( source ) ) );
+    }
+    ASSERT_FALSE( cookedKeys.empty() ) << "the cook reaches no texture in " << assets.string();
+
+    // Every texture SOURCE in the tree, wherever it lives — the universe a material's number can name.
+    std::map<uint64_t, std::string> anyTextureByHandle;
+    for ( const auto& entry : fs::recursive_directory_iterator( assets ) )
+    {
+        std::string ext = entry.path().extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
+        if ( entry.is_regular_file() &&
+             Desert::Editor::TextureSourceFormatRank( ext ) != Desert::Editor::kTextureSourceExtensionCount )
+        {
+            anyTextureByHandle[static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( entry.path() ) )] =
+                 Common::AssetHandle::StableKeyForPath( entry.path() );
+        }
+    }
+
+    const std::regex keyRef( R"re("((?:assets|cooked):[^"]+\.(?:png|jpg|jpeg|tga|bmp|exr|hdr|tex))")re",
+                             std::regex::icase );
+    const std::regex handleRef( R"re("TextureHandle"\s*:\s*([0-9]+))re" );
+
+    std::size_t named = 0;
+    for ( const auto& entry : fs::recursive_directory_iterator( assets ) )
+    {
+        if ( !entry.is_regular_file() )
+            continue;
+        // Every TEXT format that can name an asset. Not the sources and not the baked volumes: a texture
+        // cannot name a texture.
+        static const std::set<std::string> kReferrers = { ".desce",   ".deprefab",   ".demat", ".dgraph",
+                                                          ".detheme", ".danimgraph", ".json",  ".lua" };
+        if ( !kReferrers.contains( entry.path().extension().string() ) )
+            continue;
+        const auto text = Common::Utils::FileSystem::ReadFileContent( entry.path() );
+        ASSERT_TRUE( text.IsSuccess() ) << text.GetError();
+        const std::string& body = text.GetValue();
+
+        for ( std::sregex_iterator it( body.begin(), body.end(), keyRef ), end; it != end; ++it )
+        {
+            ++named;
+            EXPECT_TRUE( cookedKeys.contains( ( *it )[1].str() ) )
+                 << entry.path().filename().string() << " names the texture " << ( *it )[1].str()
+                 << ", and the packager's cook does not reach it — a package would carry no cooked form of it";
+        }
+        for ( std::sregex_iterator it( body.begin(), body.end(), handleRef ), end; it != end; ++it )
+        {
+            const uint64_t handle  = std::stoull( ( *it )[1].str() );
+            const auto     texture = anyTextureByHandle.find( handle );
+            if ( texture == anyTextureByHandle.end() )
+                continue;
+            ++named;
+            EXPECT_TRUE( cookedHandles.contains( handle ) )
+                 << entry.path().filename().string() << " names the texture " << texture->second
+                 << " by handle, and the packager's cook does not reach it";
+        }
+    }
+    // A census that finds nothing proves nothing: the sandbox's checker floor and its sky scenes name
+    // textures, so zero here means the patterns above stopped matching the content.
+    EXPECT_GE( named, 10u ) << "the census found almost no texture references — its patterns no longer match";
 }

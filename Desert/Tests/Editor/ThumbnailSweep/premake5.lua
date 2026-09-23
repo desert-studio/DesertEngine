@@ -23,6 +23,9 @@ project(test_name)
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
+        -- CookPaths.hpp takes the cooked-texture path formula from Engine/Assets/CookedTexturePath.hpp
+        -- (header-only: Common + std), so the engine's source root is on the path too.
+        "%{wks.location}/Desert/Desert/Source",
         "%{wks.location}/Editor/Source",
     }
 

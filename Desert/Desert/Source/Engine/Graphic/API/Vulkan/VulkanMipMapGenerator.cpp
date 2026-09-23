@@ -81,39 +81,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     Common::BoolResultStr
-    VulkanMipMap2DGeneratorCS::GenerateMips( const std::shared_ptr<Image2D>& /*image*/ ) const
-    {
-        return Common::MakeError( "Not impl" );
-    }
-
-    Common::BoolResultStr
     VulkanMipMapCubeGeneratorCS::GenerateMips( const std::shared_ptr<ImageCube>& /*imageCube*/ ) const
     {
         return Common::MakeError( "Not impl" );
-    }
-
-    Common::BoolResultStr VulkanMipMap2DGeneratorTO::GenerateMips( const std::shared_ptr<Image2D>& image ) const
-    {
-        const auto& vulkanImage    = SP_CAST( VulkanImage2D, image );
-        const auto& res            = vulkanImage->GetResource();
-
-        const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
-        if ( !cmdAlloc ) return Common::MakeError( cmdAlloc.GetError() );
-
-        VkCommandBuffer commandBuffer = cmdAlloc.GetValue();
-
-        VkImageSubresourceRange baseMipRange = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 };
-
-        Utils::InsertImageMemoryBarrier( commandBuffer, res.Image, 0, VK_ACCESS_TRANSFER_READ_BIT, res.Layout,
-                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                         VK_PIPELINE_STAGE_TRANSFER_BIT, baseMipRange );
-
-        GenerateMipmapsTO( commandBuffer, res.Image, res.Format, image->GetWidth(), image->GetHeight(),
-                           image->GetMipmapLevels() );
-
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( commandBuffer );
-
-        return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr

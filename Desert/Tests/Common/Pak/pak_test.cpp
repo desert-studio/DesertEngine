@@ -738,15 +738,17 @@ TEST( Pak, CookedTexturesAreStoredWholeSoOneLevelStaysReadableOnItsOwn )
     const fs::path dir = MakeTempDir();
     const fs::path pak = dir / "textures.dpak";
 
-    // THE REAL FILE WHEN IT IS THERE, and it is: `Editor/Cooked/Textures/T_Checker.tex` is the one
-    // cooked texture this repository tracks. A synthetic payload would be testing a decision about
-    // shipped content against bytes nothing ships.
-    const fs::path root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
-    const fs::path source = root / "Editor/Cooked/Textures/T_Checker.tex";
-    ASSERT_TRUE( fs::exists( source ) ) << source.string() << " is tracked by this repository and is missing";
-    const std::string payload = Slurp( source );
-    ASSERT_GT( payload.size(), 1024u );
+    // A PAYLOAD THAT COMPRESSES, AND THE REGISTER'S DECISION IS BY NAME. This used to read the committed
+    // `Editor/Cooked/Textures/T_Checker.tex`, on the argument that a synthetic payload tests a decision
+    // about shipped content against bytes nothing ships. That file is no longer committed (PK1: the
+    // packager cooks what it ships), and the argument is now honoured where the shipped bytes are made:
+    // Desert/Tests/Editor/PackagedContent reads the codec of the REAL cooked checker texture inside the
+    // REAL package. What is left here is the rule itself, and the rule reads the key, not the bytes --
+    // so all it needs from the payload is that it clears the compression threshold, which the control
+    // below asserts rather than assumes.
+    std::string payload( 64 * 1024, '\0' );
+    for ( std::size_t i = 0; i < payload.size(); ++i )
+        payload[i] = static_cast<char>( ( i / 64 ) % 7 ); // long runs: LZ4 takes it far below the threshold
 
     {
         Common::Utils::PakWriter writer( pak );

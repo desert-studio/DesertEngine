@@ -398,12 +398,35 @@ namespace Desert::Assets
 
             const std::lock_guard<std::mutex> lock( state.Mutex );
 
-            // A KNOWN ROW IS LEFT EXACTLY AS IT IS, identity included. A re-cook rewrites the bytes of a
-            // file whose identity the running session already learned by parsing it; clearing that here
-            // would make the row forget the number every scene reference holds, and it would do it on the
-            // one path where the file is most likely to be re-read a moment later.
-            if ( state.Registry.FindByKey( key ) != nullptr )
+            // A KNOWN ROW KEEPS ITS IDENTITY AND ITS EDGES, AND TAKES THE NEW SIZE. A re-cook rewrites the
+            // bytes of a file whose identity the running session already learned by parsing it; clearing
+            // that here would make the row forget the number every scene reference holds, and it would do
+            // it on the one path where the file is most likely to be re-read a moment later.
+            //
+            // THE SIZE IS DIFFERENT: it is a fact about the bytes this call was told were just written,
+            // and nothing else in the engine ever corrects it. Leaving it made every re-cook a registry
+            // the packager refuses — measured on this tree, where four mesh-side `.tex` rows still said
+            // 22 369 984 bytes (their size before BC7) against files of 2-3 MB, and `PackageGame` named
+            // all four as "the registry predates an edit". Remove + Insert rather than a setter, because
+            // the row's identity index lives inside `AssetRegistry` and a copy carries it back unchanged.
+            if ( const Common::Utils::AssetRegistryEntry* known = state.Registry.FindByKey( key );
+                 known != nullptr )
+            {
+                const auto size = Common::Utils::FileSystem::GetFileSize( file );
+                if ( known->Size == size )
+                    return;
+                Common::Utils::AssetRegistryEntry updated = *known;
+                updated.Size                              = size;
+                state.Registry.Remove( key );
+                if ( const auto inserted = state.Registry.Insert( std::move( updated ) ); !inserted )
+                {
+                    LOG_ERROR( "[ContentRegistry] the cook rewrote '{}' and its row could not be updated: {}", key,
+                               inserted.GetError() );
+                    return;
+                }
+                state.Dirty = true;
                 return;
+            }
 
             Common::Utils::AssetRegistryEntry entry;
             entry.Key  = key;

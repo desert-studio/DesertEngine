@@ -151,6 +151,10 @@ namespace
          { "Editor/Source/Editor/Import/ImportManager.cpp", Verdict::NotContent,
            "source art (.fbx and friends) awaiting cook. A packaged game imports nothing.", "" },
          { "Editor/Source/Editor/Import/MeshDnD.cpp", Verdict::NotContent, "same: source art, pre-cook.", "" },
+         { "Editor/Source/Editor/Import/TextureImporter.cpp", Verdict::NotContent,
+           "source IMAGES awaiting cook (LooseTextureSources) - the editor's startup cook and the packager's. "
+           "A packaged game decodes no image; it reads the .tex this walk produces through the registry.",
+           "" },
          { "Editor/Source/Editor/Import/MeshMaterial.cpp", Verdict::NotContent,
            "same: textures beside a source mesh, resolved during import.", "" },
          { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", Verdict::NotContent,

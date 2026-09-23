@@ -10,6 +10,7 @@
 
 namespace Desert::Graphic
 {
+    class Image2D;
     class Image3D;
 
     using ImageCubeRef = std::shared_ptr<ImageCube>;
@@ -135,8 +136,10 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "Image2D::SetData not supported by this backend" );
         }
 
-        static std::shared_ptr<Image2D> Create( const Core::Formats::Image2DSpecification& spec,
-                                                const std::unique_ptr<MipMap2DGenerator>&  mipGenerator );
+        // NO MIP GENERATOR PARAMETER. Its last non-null argument was `Texture2D`'s source-file path, which
+        // blitted a chain on the GPU after decoding a PNG/HDR. A 2D image's levels come from the cooked
+        // container now (`Image2DSpecification::MipLevels`) or it has one level; see Texture.hpp.
+        static std::shared_ptr<Image2D> Create( const Core::Formats::Image2DSpecification& spec );
     };
 
     class ImageCube : public Image, public DynamicResources

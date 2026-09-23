@@ -8,6 +8,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include "TextureIntentFile.hpp"
+#include <Editor/Import/TextureSourceFormats.hpp>
 
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
@@ -21,7 +22,11 @@
 
 #include <stb_image/stb_image.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
+
+#include <Common/Core/Constants.hpp>
 
 namespace Desert::Editor
 {
@@ -273,7 +278,7 @@ namespace Desert::Editor
         return BuildCookedPath( source, ".tex" );
     }
 
-    Common::UUID TextureImporter::Import( const std::filesystem::path& path )
+    TextureCookResult TextureImporter::Cook( const std::filesystem::path& path )
     {
         // Bulk cooking runs mesh imports in PARALLEL; two meshes often share textures, and two threads
         // writing the same cooked .tex would corrupt it. Texture cooking is cheap next to the Assimp
@@ -285,7 +290,7 @@ namespace Desert::Editor
 
         if ( m_Cache.contains( abs ) )
         {
-            return m_Cache[abs];
+            return { m_Cache[abs], TextureCookOutcome::Fresh };
         }
 
         const auto meta = BuildCookedPath( path, ".tex" );
@@ -329,7 +334,7 @@ namespace Desert::Editor
             LOG_ERROR( "[TextureImporter] '{0}' could not be read ({1}); no cooked texture was written and "
                        "the null handle is returned.",
                        abs, sourceBytes.GetError() );
-            return Common::AssetHandle::Null();
+            return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
         }
         const uint64_t sourceHash = Assets::Serialization::SourceSignature( sourceBytes.GetValue().data(),
                                                                             sourceBytes.GetValue().size() );
@@ -379,7 +384,13 @@ namespace Desert::Editor
                  stored.GetValue().SourcePath == sourceKey )
             {
                 m_Cache[abs] = handle; // up to date AND consistent — keep the cooked container as it is
-                return handle;
+                // A FRESH `.tex` IS STILL CONTENT, and the registry is the only way the boot finds it. The
+                // write path enters its row (WriteCookedBytes); this path writes nothing, so a container
+                // an earlier session cooked — or one whose row was lost with a deleted cook registry —
+                // would be on the disk, correct, and invisible to every preload. The packager is the case
+                // that made it matter: it ships the registry this pass leaves behind.
+                Assets::ContentRegistry::NoteFile( meta );
+                return { handle, TextureCookOutcome::Fresh };
             }
 
             if ( !stored.IsSuccess() )
@@ -427,7 +438,7 @@ namespace Desert::Editor
                 LOG_ERROR( "[TextureImporter] stbi_loadf failed for '{0}' ({1}); no cooked texture was "
                            "written and the null handle is returned.",
                            abs, reason ? reason : "no reason reported" );
-                return Common::AssetHandle::Null();
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
             }
             format = Desert::Core::Formats::ImageFormat::RGBA32F;
             base.resize( static_cast<size_t>( w ) * h * 4u * sizeof( float ) );
@@ -449,7 +460,7 @@ namespace Desert::Editor
                 LOG_ERROR( "[TextureImporter] stbi_load failed for '{0}' ({1}); no cooked texture was "
                            "written and the null handle is returned.",
                            abs, reason ? reason : "no reason reported" );
-                return Common::AssetHandle::Null();
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
             }
             base.resize( static_cast<size_t>( w ) * h * 4u );
             std::memcpy( base.data(), pixels, base.size() );
@@ -486,7 +497,7 @@ namespace Desert::Editor
             LOG_ERROR( "[TextureImporter] '{0}' was decoded but its mip chain could not be built: {1}. "
                        "The null handle is returned and nothing is cached.",
                        abs, chain.GetError() );
-            return Common::AssetHandle::Null();
+            return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
         }
         data.Levels      = chain.ExtractValue();
         data.Intent      = authored.Intent;
@@ -500,10 +511,10 @@ namespace Desert::Editor
         //
         // ONLY AN 8-BIT COLOUR SOURCE IS OFFERED A BLOCK FORMAT AT ALL, and the guard is written against
         // the SOURCE FORMAT rather than against "the cook found some block format for it". HDR 2D
-        // sources are rare here (the one in the tree is a skybox, which does not come through this
-        // importer), and BC6H's measured win is the baked environment cube, where it is applied —
-        // `EnvironmentBake.cpp`. A second BC6H call site here would be an encode with no rendered frame
-        // to weigh it against, and `MeasureLdrChain` would grade it by walking two float buffers as
+        // sources are rare here (the one in the tree is the sky panorama, which the environment only
+        // ever reads at level 0 as the INPUT of its bake), and BC6H's measured win is the baked environment cube,
+        // where it is applied — `EnvironmentBake.cpp`. A second BC6H call site here would be an encode with no
+        // rendered frame to weigh it against, and `MeasureLdrChain` would grade it by walking two float buffers as
         // bytes, which is not a measurement of anything. `BlockPolicyForIntent` refuses an
         // extended-range source by name as well; that is the braces to this belt, and both are here
         // because the authored field made the old spelling of this guard (`blockFormat == BC7_UNORM`)
@@ -655,12 +666,83 @@ namespace Desert::Editor
                        "The null handle is returned and nothing is cached, so importing again after fixing "
                        "the cause works without restarting the editor.",
                        abs, written.GetError() );
-            return Common::AssetHandle::Null();
+            return { Common::AssetHandle::Null(), TextureCookOutcome::Unwritten };
         }
 
         m_Cache[abs] = handle;
 
-        return handle;
+        return { handle, TextureCookOutcome::Cooked };
+    }
+
+    Common::UUID TextureImporter::Import( const std::filesystem::path& path )
+    {
+        return Cook( path ).Handle;
+    }
+
+    std::array<const std::filesystem::path*, 2> LooseTextureRoots()
+    {
+        return { &Common::Constants::Path::TEXTUREDIR_PATH, &Common::Constants::Path::MESH_PATH };
+    }
+
+    std::vector<std::filesystem::path> LooseTextureSources()
+    {
+        namespace fs = std::filesystem;
+
+        std::vector<fs::path> sources;
+        for ( const fs::path* root : LooseTextureRoots() )
+        {
+            std::error_code ec;
+            if ( !fs::exists( *root, ec ) )
+                continue;
+
+            for ( const auto& entry : fs::recursive_directory_iterator( *root, ec ) )
+            {
+                if ( !entry.is_regular_file() )
+                    continue;
+
+                std::string ext = entry.path().extension().string();
+                std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
+                // THE ONE ORDERED LIST, asked rather than re-spelled -- see TextureSourceFormats.hpp for the
+                // two hand-written copies that had already drifted before it existed.
+                if ( TextureSourceFormatRank( ext ) == kTextureSourceExtensionCount )
+                    continue;
+
+                sources.push_back( entry.path() );
+            }
+        }
+        // Sorted, so two runs over the same tree cook — and log — in the same order on every platform.
+        std::sort( sources.begin(), sources.end() );
+        return sources;
+    }
+
+    LooseTextureCookStats TextureImporter::CookLooseTextures()
+    {
+        LooseTextureCookStats stats;
+        for ( const std::filesystem::path& source : LooseTextureSources() )
+        {
+            // AN EXTENDED-RANGE SOURCE IS COOKED LIKE EVERY OTHER, and it used to be skipped on the claim
+            // that "this cook forces RGBA8". It does not: `Cook` reads an `.hdr` with `stbi_loadf` and
+            // writes RGBA32F, and never offers a float source a block format. The skip is what kept the
+            // sky panorama's decoder in the RUNTIME — the environment read the `.hdr` itself because
+            // nothing else had ever turned it into a `.tex`. It reads the cooked panorama now, so this
+            // pass is the panorama's producer and must not step over it.
+            switch ( Cook( source ).Outcome )
+            {
+                case TextureCookOutcome::Cooked:
+                    ++stats.Cooked;
+                    break;
+                case TextureCookOutcome::Fresh:
+                    ++stats.Fresh;
+                    break;
+                case TextureCookOutcome::Failed:
+                    ++stats.Failed;
+                    break;
+                case TextureCookOutcome::Unwritten:
+                    ++stats.Unwritten;
+                    break;
+            }
+        }
+        return stats;
     }
 
 } // namespace Desert::Editor

@@ -71,7 +71,7 @@ namespace Desert::Graphic::System
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
         };
 
-        m_BloomImage = Image2D::Create( spec, nullptr );
+        m_BloomImage = Image2D::Create( spec );
         return m_BloomImage != nullptr;
     }
 

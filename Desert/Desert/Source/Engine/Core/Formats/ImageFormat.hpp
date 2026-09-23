@@ -507,9 +507,10 @@ namespace Desert::Core::Formats
         // IT REPLACED A `bool GenerateMips` THAT WAS NEVER TRUE. That flag asked the backend to blit
         // mip 0 down the chain, and every one of its five call sites set it to false — the mips that
         // reached the screen came from `MipMap2DGenerator`, a second mechanism passed to
-        // `Image2D::Create`. A setting whose only branch is never taken is the dead knob §3 forbids,
-        // and it would have become a lie the day a block-compressed format arrived: `blitDst=0` for
-        // BC1/BC4/BC5/BC7 on this device, so there is no blit chain to ask for.
+        // `Image2D::Create` (itself deleted by T3.3, when its last user — the source-file `Texture2D`
+        // path — went: every 2D chain now comes from this table). A setting whose only branch is never taken is
+        // the dead knob §3 forbids, and it would have become a lie the day a block-compressed format arrived:
+        // `blitDst=0` for BC1/BC4/BC5/BC7 on this device, so there is no blit chain to ask for.
         std::vector<MipLevelSpan> MipLevels;
     };
 
@@ -561,8 +562,8 @@ namespace Desert::Core::Formats
     // A volume texture — the shape/detail noise the volumetric passes sample, and any other
     // compute-generated 3D field.
     //
-    // There is deliberately NO `Mips` field. The engine has no 3D mip generator (MipMap2DGenerator and
-    // MipMapCubeGenerator have no 3D counterpart, and blitting a volume chain is a separate piece of
+    // There is deliberately NO `Mips` field. The engine has no 3D mip generator (MipMapCubeGenerator has no
+    // 3D counterpart, and blitting a volume chain is a separate piece of
     // work), so a mip count above 1 could be requested but never filled — a setting that does nothing.
     // Volumes are therefore single-level, and shaders sample them without an explicit LOD.
     struct Image3DSpecification

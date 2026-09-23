@@ -386,7 +386,7 @@ namespace Desert::Editor
              .Properties = Core::Formats::Sample,
         };
 
-        m_SliceImage = Graphic::Image2D::Create( spec, nullptr );
+        m_SliceImage = Graphic::Image2D::Create( spec );
         if ( !m_SliceImage )
         {
             m_Status        = "The slice preview image could not be created on the device.";

@@ -151,7 +151,7 @@ namespace Desert::Graphic::System
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
         };
 
-        m_FogImage = Image2D::Create( spec, nullptr );
+        m_FogImage = Image2D::Create( spec );
         if ( !m_FogImage )
         {
             LOG_ERROR( "[HeightFog] The {}x{} RGBA16F fog target ({:.2f} MiB) could not be created; the "

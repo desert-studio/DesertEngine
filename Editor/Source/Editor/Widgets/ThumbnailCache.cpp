@@ -132,7 +132,7 @@ namespace Desert::Editor
             // cost a capture to rebuild, not a load. Mis-filing it here would hand eviction a lever it
             // must not have.
             const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::EditorTool );
-            result = Graphic::Image2D::Create( spec, nullptr );
+            result = Graphic::Image2D::Create( spec );
 
             const auto ms = []( auto from, auto to )
             { return std::chrono::duration<double, std::milli>( to - from ).count(); };

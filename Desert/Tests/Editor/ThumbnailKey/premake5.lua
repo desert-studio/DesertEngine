@@ -23,6 +23,7 @@ project(test_name)
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Editor/Source", -- <Editor/Widgets/ThumbnailKey.hpp>
+        "%{wks.location}/Desert/Desert/Source", -- CookPaths forwards to <Engine/Assets/CookedTexturePath.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

@@ -61,40 +61,21 @@ Desert/Common/Source/Common/Core/Version.gen.hpp
 # Cooked artifacts (mesh/texture cooks, SPIR-V shader cache) — machine-local, content-addressed
 Cooked/
 
-# ...with two deliberate exceptions, both of which are SOURCE that merely lives under a cooked path
-# because that is the only directory the preloader scans for its kind.
+# ...with deliberate exceptions, each of which is SOURCE that merely lives under a cooked path because
+# that is the only directory the preloader scans for its kind.
 #
-# THE FIRST. A texture only becomes referenceable by a .demat once a .tex exists under Cooked/Textures/
-# carrying its handle — and NOTHING IN THE EDITOR COOKS LOOSE TEXTURES. The startup cook walks
-# Resources/Assets/Meshes/ and Resources/Assets/Collections/ only (EditorLayer's two ImportAllFromDirectory
-# stages), so a .tex under Cooked/Textures/ exists for an image beside a mesh, or for one an artist dragged
-# into the Content Browser by hand, and for nothing else. T_Checker.png is neither: it sits in
-# Resources/Assets/Textures/ and is named by M_CheckerFloor.demat, which eleven shipped scenes use. On a
-# fresh clone without this one file the checkerboard floor draws untextured and no cook ever repairs it.
-# So it is committed because it is UNREPRODUCIBLE HERE, not because it is source.
-#
-# IT IS 5.3 MB SINCE B17, AND THAT IS NOT 5.3 MB OF REPOSITORY. A `.tex` carries its pixels and its
-# whole mip chain now, so this file went from 133 bytes to 5 592 752. What git stores is the deflated
-# blob, and a checkerboard deflates to 14 163 bytes — the pack grows by fourteen kilobytes against the
-# 8 783-byte PNG it is cooked from. Measured, because the objection is obvious and the answer is not.
-#
-# THE REASON THIS PARAGRAPH USED TO GIVE — "the drag-drop importer mints that handle from the texture's
-# ABSOLUTE path", so a shipped .tex would need a frozen handle — HAS NOT BEEN TRUE SINCE FromCookedPath
-# became project-relative. The handle is AssetHandle::FromCookedPath of the SOURCE image's place inside
-# the project, identical on every machine, and TextureImporter re-derives and re-stamps it on every cook
-# (it does NOT "preserve the handle of an existing .tex" either — that branch was deleted for freezing
-# random-era ids). T_Checker.tex's stored handle equals its own derivation today, and TextureAsset::Load
-# now says so loudly when a .tex's does not.
-#
-# WHICH IS WHY THE OTHER .tex FILES STAY IGNORED. They are pure cooks: every field is a function of the
-# source image, the cook is deterministic and cheap, and committing one would put a second copy of a
-# derived number in the repository — the exact thing that broke here. Four .tex files written before the
-# derivation changed carried stale handles, and the two .demat naming them pointed at nothing on any
-# machine that cooked from scratch. Desert/Tests/Engine/AssetReferenceCensus pins every material's
-# references against the derivation instead, which needs no cooked file at all and so holds in CI.
+# THE FIRST WAS `Editor/Cooked/Textures/T_Checker.tex`, AND IT IS GONE (PK1, 2026-09-23). It was committed
+# because nothing reproduced it: no automatic path cooked a loose texture, so a fresh clone had a checker
+# floor with no checkerboard, and a package built in CI carried that one file as its ENTIRE cooked
+# texture corpus. Both halves of that reason are false now. The editor's "Cooking textures..." stage and
+# the packager (`Editor/Packaging/PackageCook.cpp`) cook every source under `LooseTextureRoots()` through
+# the same `TextureImporter`, and the file's handle is derived from its SOURCE's place in the project, so
+# every machine's cook stamps the same number. A committed cook was a second copy of a derived artifact —
+# the shape that had already put stale handles into this repository once. It left with the change that
+# made it reproducible; `Desert/Tests/Editor/PackagedContent` now pins the relation it stood in for.
 #
 # Re-included one directory level at a time, and the intermediate `/*` lines are load-bearing: git will
-# not look inside a directory it has already excluded, so `!.../T_Checker.tex` alone matches nothing.
+# not look inside a directory it has already excluded, so a deeper `!...` line alone matches nothing.
 # Each level is re-ignored immediately after being opened, which is what keeps the other ~660 cooked
 # files (shader cache, pipeline cache, mesh cooks) ignored.
 !Editor/Cooked/
@@ -106,9 +87,6 @@ Editor/Cooked/*
 # of sorted text, one line per asset, so it diffs and merges like source. `AssetRegistryTool check`
 # fails the build when it disagrees with the tree.
 !Editor/Cooked/AssetRegistry.dreg
-!Editor/Cooked/Textures/
-Editor/Cooked/Textures/*
-!Editor/Cooked/Textures/T_Checker.tex
 
 # THE SECOND: the skinned probe. Until 2026-09-04 this repository contained NOT ONE skinned mesh in any
 # scene, which is why the skinned rendering path accumulated three independent defects that nothing could

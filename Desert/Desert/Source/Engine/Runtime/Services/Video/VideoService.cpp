@@ -79,11 +79,9 @@ namespace Desert::Runtime
 
         // A STABLE texture we re-upload into every frame (its Image2D* never changes, so Render2D's
         // per-texture executor and the UI walk keep sampling the same handle).
-        Graphic::TextureSpecification spec;
-        spec.GenerateMips = false;
-        auto texResult    = Graphic::Texture2D::Create(
-             spec, "video", static_cast<uint32_t>( w ), static_cast<uint32_t>( h ),
-             Core::Formats::ImageFormat::RGBA8F, Core::Formats::ImagePixelData( vp.Rgba ) );
+        auto texResult = Graphic::Texture2D::Create(
+             "video", static_cast<uint32_t>( w ), static_cast<uint32_t>( h ), Core::Formats::ImageFormat::RGBA8F,
+             Core::Formats::ImagePixelData( vp.Rgba ) );
         if ( !texResult.IsSuccess() )
         {
             plm_destroy( plm );

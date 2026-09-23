@@ -1,3 +1,8 @@
+-- "The runtime reads cooked textures only; source image decoders live in the editor and the tools" (T3),
+-- as a property of the SOURCE TEXT. Compiles and links nothing of the engine: the subject is what the tree
+-- says, so the verdict is the same in every configuration and on every platform.
+local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
+
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
 
@@ -8,23 +13,13 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- CookPaths.hpp IS the subject and it is header-only, so the test compiles the importer's real
-    -- formula rather than a restatement of it. Nothing else from the importer is pulled in: the assimp
-    -- side of AssimpImporter.cpp would drag the whole parser into a unit test for a string.
     files {
         test_files,
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source",  -- <Editor/Import/CookPaths.hpp>
-        "%{wks.location}/Desert/Desert/Source", -- CookPaths forwards to <Engine/Assets/CookedTexturePath.hpp>
-        "%{wks.location}/Editor/Source/Editor/Import",
     }
-
-    for name, path in pairs(deps.Common.IncludeDir) do
-        externalincludedirs { path }
-    end
 
     for name, path in pairs(deps.TestSpecific.IncludeDir) do
         externalincludedirs { path }
@@ -40,15 +35,6 @@ project(test_name)
         defines { "DESERT_PLATFORM_MACOS" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
-    filter {}
-
-    -- Common: the content-root constants CookPaths reads, and AssetHandle::FromKey, which is what turns
-    -- the key this suite is about into the id a .demat carries. Optick: Common's JobSystem registers its
-    -- worker threads with the profiler.
-    links { "Common", "Optick" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
     filter {}
 
     filter "configurations:Debug"

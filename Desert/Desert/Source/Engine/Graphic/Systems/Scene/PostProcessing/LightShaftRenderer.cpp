@@ -75,7 +75,7 @@ namespace Desert::Graphic::System
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
             };
-            return Image2D::Create( spec, nullptr );
+            return Image2D::Create( spec );
         };
 
         m_PingImage  = make( "LightShaftPing" );

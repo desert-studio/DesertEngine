@@ -241,6 +241,18 @@ namespace Desert::Editor
         if ( !ProjectContext::HasProject() )
             return { false, "No project is open.", "" };
 
+        // THE COOK FIRST, because it is a PRODUCER OF THE REGISTRY the check below reads. Cook BEFORE
+        // packing: every deterministic startup cost — shader SPIR-V, font atlases, icon SDFs, and the
+        // textures the runtime has no decoder for — is paid here, once, into the project's Cooked/
+        // tree, so the census below ships the artifacts and the player's first launch reads instead
+        // of rebuilding. The texture cook enters or updates a registry row per `.tex`; checking the
+        // registry against the disk BEFORE it would compare against a Cooked/Textures/ the cook is
+        // about to change, and refuse a project the cook would have made consistent. It writes only
+        // into the project's own cache, never into the output directory, so the rule below still holds.
+        // Cooked for the TARGET runtime's profile (options.Config), not this editor's: a Debug editor
+        // packaging a Release game must produce Release cache keys or the shipped cache never hits.
+        const CookStats cook = CookContentCaches( Core::SpirvDebugInfoForConfigName( options.Config ) );
+
         // BEFORE ANYTHING IS WRITTEN. A refusal after the output directory exists leaves half a
         // package behind, and half a package is the thing somebody ships by accident.
         if ( const std::string stale = ContentRegistryDisagreement(); !stale.empty() )
@@ -318,12 +330,7 @@ namespace Desert::Editor
         makeExecutable( gameDir / binName );
         ++stats.Files;
 
-        // 3) Cook BEFORE packing: every deterministic startup cost — shader SPIR-V, font atlases,
-        // icon SDFs — is paid here, once, into the project's Cooked/ tree, so the census below ships
-        // the artifacts and the player's first launch reads instead of rebuilding. Cooked for the
-        // TARGET runtime's profile (options.Config), not this editor's: a Debug editor packaging a
-        // Release game must produce Release cache keys or the shipped cache never hits.
-        const CookStats cook = CookContentCaches( Core::SpirvDebugInfoForConfigName( options.Config ) );
+        // 3) The cook ran first, above the registry check — see there.
 
         // 4) ALL content AND the descriptor go into the archive SET — a base plus one archive per
         // chunk (UE .pak model), tree by tree out of the shared census (PackagedContentTrees.hpp) —
@@ -599,6 +606,13 @@ namespace Desert::Editor
         if ( !ProjectContext::HasProject() )
             return { false, "No project is open.", "" };
 
+        // Same cook as PackageGame, for THIS build's profile: the dev pak serves the runtime the
+        // developer launches next to this editor, which is built in the same configuration. (A
+        // cross-config dev runtime misses and self-heals into loose Cooked/ — dev machines are
+        // writable; only the shipped package must never rely on that.) FIRST, for PackageGame's
+        // reason: the texture cook writes registry rows the check below reads.
+        const CookStats cook = CookContentCaches( Core::SpirvDebugInfoThisBuild() );
+
         // The same refusal PackageGame makes, for the same reason: this archive is what a developer's
         // Runtime mounts, so a stale registry here is a dev build that silently lacks content.
         if ( const std::string stale = ContentRegistryDisagreement(); !stale.empty() )
@@ -609,12 +623,6 @@ namespace Desert::Editor
 
         CopyStats   stats;
         std::string error;
-
-        // Same cook as PackageGame, for THIS build's profile: the dev pak serves the runtime the
-        // developer launches next to this editor, which is built in the same configuration. (A
-        // cross-config dev runtime misses and self-heals into loose Cooked/ — dev machines are
-        // writable; only the shipped package must never rely on that.)
-        const CookStats cook = CookContentCaches( Core::SpirvDebugInfoThisBuild() );
 
         // The same census PackageGame packs — one list, two entry points (see PackagedContentTrees.hpp).
         std::vector<std::pair<std::string, fs::path>>    contentFiles;

@@ -14,6 +14,8 @@ namespace Desert::Editor
         size_t FontsCached     = 0;
         size_t IconsBaked      = 0;
         size_t IconsCached     = 0;
+        size_t TexturesCooked  = 0; // `.tex` containers written this pass
+        size_t TexturesCached  = 0; // already cooked from the same source bytes by the same rules
         size_t Failures        = 0; // parse/compile/bake failures (each logged where it happened)
         // Artifacts that were produced and then did NOT reach the disk. Counted apart from Failures
         // because they mean something different: a compile failure is content that is already broken
@@ -31,7 +33,18 @@ namespace Desert::Editor
     // reads back (ShaderSpirvCache, Text/FontCache, Vector/IconBake). The census tree
     // { COOKED_PATH, "Cooked" } then carries the artifacts into Content.dpak.
     //
-    // Incremental by construction: an artifact already present under its key is not rebuilt.
+    // AND IT COOKS THE TEXTURES — every source under `LooseTextureRoots()`, through the editor's own
+    // `TextureImporter` (not a copy of it), into Cooked/Textures/. A texture is the one asset the runtime
+    // CANNOT produce for itself: it holds no image decoder (T3.3 removed the last one, the sky
+    // panorama's), so a package without the `.tex` is a floor with no checkerboard and a sky with no
+    // panorama, with nothing on the player's machine able to repair it. Before this, a package carried
+    // whichever `.tex` files an editor session had happened to leave on the packaging machine — in CI,
+    // one committed file. The rows the texture cook enters are then written to the cook's registry
+    // (`AssetRegistry.cooked.dreg`), which ships in the same tree: the runtime finds textures through
+    // the registry and not by walking a directory.
+    //
+    // Incremental by construction: an artifact already present under its key is not rebuilt (a
+    // texture's key is its source's bytes plus the cook's rules, see TextureImporter::Cook).
     //
     // `spirvDebugInfo` is the TARGET runtime's profile (Core::SpirvDebugInfoForConfigName), not this
     // editor's: a Debug editor packaging a Release game must cook Release keys, or the shipped cache

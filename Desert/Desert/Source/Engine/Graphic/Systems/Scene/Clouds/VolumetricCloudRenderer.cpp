@@ -918,7 +918,7 @@ namespace Desert::Graphic::System
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
         };
 
-        m_ShadowMapImage = Image2D::Create( spec, nullptr );
+        m_ShadowMapImage = Image2D::Create( spec );
         if ( !m_ShadowMapImage )
         {
             LOG_ERROR( "[Clouds] The {}x{} RGBA32F cloud shadow map could not be created on the device; "
@@ -1570,7 +1570,7 @@ namespace Desert::Graphic::System
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
             };
-            return Image2D::Create( spec, nullptr );
+            return Image2D::Create( spec );
         };
 
         // The march's pair, at a QUARTER of the view. RGBA16F for the scatter because radiance is
