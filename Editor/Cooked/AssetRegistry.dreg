@@ -182,7 +182,7 @@ DesertAssetRegistry 1
 9232 Shader - - engine:Shaders/Programs/Composite/SceneComposite.shader
 839 Shader - - engine:Shaders/Programs/Composite/SwapchainBlit.shader
 32023 Shader - - engine:Shaders/Programs/Compute/BakeProceduralSky.shader
-5658 Shader - - engine:Shaders/Programs/Compute/DiffuseIrradiance.shader
+7465 Shader - - engine:Shaders/Programs/Compute/DiffuseIrradiance.shader
 942 Shader - - engine:Shaders/Programs/Compute/GenerateMipMap_2D.shader
 2727 Shader - - engine:Shaders/Programs/Compute/PanoramaToCubemap.shader
 7549 Shader - - engine:Shaders/Programs/Compute/PrefilterEnvMap.shader
