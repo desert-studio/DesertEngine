@@ -2,6 +2,8 @@
 
 #include <Common/Core/AssetHandle.hpp>
 
+#include <memory>
+
 namespace Desert::Assets
 {
     using AssetHandle = Common::AssetHandle;

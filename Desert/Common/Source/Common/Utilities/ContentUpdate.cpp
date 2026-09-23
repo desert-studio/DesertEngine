@@ -3,6 +3,7 @@
 #include "FileSystem.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <system_error>
 
 namespace Common::Utils

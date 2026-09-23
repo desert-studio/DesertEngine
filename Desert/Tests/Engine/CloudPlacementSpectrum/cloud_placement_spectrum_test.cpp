@@ -30,6 +30,7 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <string>
 #include <vector>
 
 using namespace Desert::Assets;

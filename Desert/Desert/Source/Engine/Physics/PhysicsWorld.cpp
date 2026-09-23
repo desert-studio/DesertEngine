@@ -20,6 +20,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <thread>
+#include <vector>
 
 JPH_SUPPRESS_WARNINGS
 

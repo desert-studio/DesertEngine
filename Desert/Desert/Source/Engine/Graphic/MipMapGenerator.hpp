@@ -2,6 +2,9 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <cstdint>
+#include <memory>
+
 namespace Desert::Graphic
 {
     class Image2D;

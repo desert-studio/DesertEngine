@@ -13,6 +13,7 @@
 // failed unwrap says anything.
 #include <Common/Core/ResultStr.hpp>
 
+#include <algorithm>
 #include <utility>
 
 namespace Common

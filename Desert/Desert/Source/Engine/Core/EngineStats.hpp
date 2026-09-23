@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Common/Core/Timestep.hpp>
+#include <algorithm>
+#include <cstdint>
 #include <string>
 
 namespace Desert::Engine

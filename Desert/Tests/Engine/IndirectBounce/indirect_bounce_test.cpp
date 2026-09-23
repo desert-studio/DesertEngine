@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string>
 
 using namespace Desert::Tests::IndirectBounceRef;
 

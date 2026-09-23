@@ -4,6 +4,9 @@
 
 #include <stb_image/stb_image.h>
 
+#include <cstdint>
+#include <cstring>
+
 namespace Desert::Core::IO
 {
     // All three entry points read the FILE BYTES through Common::Utils::FileSystem (disk first, then a

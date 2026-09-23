@@ -18,9 +18,12 @@
 #endif
 #endif // DESERT_PLATFORM_WINDOWS
 
+#include <cstdint>
 #include <functional>
 #include <filesystem>
 #include <span>
+#include <string>
+#include <vector>
 
 #include <Common/Core/ResultStr.hpp>
 

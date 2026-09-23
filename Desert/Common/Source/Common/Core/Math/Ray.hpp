@@ -2,6 +2,8 @@
 
 #include "AABB.hpp"
 
+#include <cstdint>
+
 namespace Common::Math
 {
     /**

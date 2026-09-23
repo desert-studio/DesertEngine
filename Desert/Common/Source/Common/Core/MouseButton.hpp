@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace Common
 {
 	typedef enum class MouseButton : uint16_t

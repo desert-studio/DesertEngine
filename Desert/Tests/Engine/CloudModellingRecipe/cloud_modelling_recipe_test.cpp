@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <string>
 #include <vector>
 
 using namespace Desert;

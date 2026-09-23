@@ -3,6 +3,11 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <variant>
+
 namespace Desert::Graphic
 {
     enum class MaterialPropertyType

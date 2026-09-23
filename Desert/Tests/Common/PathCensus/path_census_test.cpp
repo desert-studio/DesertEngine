@@ -16,6 +16,7 @@
 #include <array>
 #include <filesystem>
 #include <optional>
+#include <string>
 
 namespace Path = Common::Constants::Path;
 namespace fs   = std::filesystem;

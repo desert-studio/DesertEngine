@@ -4,6 +4,7 @@
 #include <Common/Core/Math/AABB.hpp>
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 

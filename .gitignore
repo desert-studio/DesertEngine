@@ -308,3 +308,8 @@ scripts/Probes/bc7/bc7upload
 scripts/Probes/bc7/bc7upload.exe
 scripts/Probes/bc7/bc7fetch.spv
 scripts/Probes/bc7/*.obj
+
+# Python bytecode. scripts/CI/StandardIncludes.py is importable, so a debug `import` of it drops a
+# __pycache__ next to the gate; one was staged by accident before this line existed.
+__pycache__/
+*.pyc

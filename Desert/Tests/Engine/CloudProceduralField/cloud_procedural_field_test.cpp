@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <numeric>
 #include <random>
+#include <string>
 #include <vector>
 
 using Desert::Assets::BakeCloudProceduralVolume;

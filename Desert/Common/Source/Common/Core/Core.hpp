@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <type_traits>
 #include <utility>
 #include "Logger.hpp"
 #include "Constants.hpp"

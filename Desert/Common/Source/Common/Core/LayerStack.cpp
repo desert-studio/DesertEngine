@@ -2,6 +2,8 @@
 
 #include <Core/Logger.hpp>
 
+#include <memory>
+
 namespace Common
 {
     Layer* LayerStack::PushLayer( std::unique_ptr<Layer> layer )

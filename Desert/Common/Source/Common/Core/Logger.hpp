@@ -7,6 +7,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <memory>
 #include <utility>
 
 namespace Common::Logger

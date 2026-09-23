@@ -1,5 +1,9 @@
 #pragma once
 
+#include <functional>
+#include <unordered_map>
+#include <vector>
+
 namespace Desert::Assets
 {
     class AssetsEventSystem

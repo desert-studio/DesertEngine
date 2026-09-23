@@ -2,6 +2,8 @@
 
 #include <glm/glm.hpp>
 
+#include <string>
+
 namespace Desert::Graphic::ShaderProtocols
 {
     struct Camera

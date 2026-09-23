@@ -2,6 +2,9 @@
 
 #include <glm/glm.hpp>
 
+#include <cstdint>
+#include <string>
+
 namespace Desert::Graphic::ShaderProtocols
 {
     struct LightsMetadata

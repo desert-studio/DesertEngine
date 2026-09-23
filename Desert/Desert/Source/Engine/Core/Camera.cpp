@@ -9,6 +9,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+#include <cmath>
+
 namespace Desert::Core
 {
     // ─── Camera (base) ──────────────────────────────────────────────────────────

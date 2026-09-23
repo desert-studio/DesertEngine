@@ -1,5 +1,6 @@
 #include <Common/Core/UUID.hpp>
 
+#include <cstdint>
 #include <random>
 
 namespace Common

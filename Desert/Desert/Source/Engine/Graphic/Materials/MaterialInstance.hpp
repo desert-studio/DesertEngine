@@ -2,6 +2,7 @@
 
 #include "MaterialProperty.hpp"
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace Desert::Graphic

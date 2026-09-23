@@ -6,6 +6,7 @@
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
 #include <algorithm>
+#include <cstdint>
 #include <format>
 
 namespace Desert::Editor::Utils
