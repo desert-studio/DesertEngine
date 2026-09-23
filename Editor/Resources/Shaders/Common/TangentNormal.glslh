@@ -23,12 +23,19 @@
 // rounding. For a map whose normals are NOT unit length — a deliberately flattened or exaggerated one —
 // the reconstruction renormalises it, which is what `normalize` two lines later did anyway.
 //
-// NO COMMITTED SCENE IN THIS REPOSITORY BINDS A NORMAL MAP (2026-09-23: one material,
-// `Materials/base_basic_pbr/model.demat`, names `u_NormalTexture`, and no `.desce` references it), so
-// this change moves ZERO pixels in every scene we have — and, by the same token, no frame here can
-// witness it either. That is stated rather than glossed: the arithmetic below is pinned by the census in
-// `Desert/Tests/Engine/ShippedShaderPasses`, and the first scene that draws a normal-mapped surface is
-// what will confirm it.
+// A FRAME CONFIRMS THIS NOW, AND IT DID NOT WHEN THE LINE WAS WRITTEN. On 2026-09-23 no committed scene
+// bound a normal map at all — one material, `Materials/base_basic_pbr/model.demat`, named
+// `u_NormalTexture` and no `.desce` referenced it — so the change moved zero pixels and nothing here
+// could witness it. `Scenes/NRM_Witness.desce` is the scene that closed that condition: the SAME scene
+// with the normal slot emptied differs over 47 % of its pixels, the pre-reconstruction `.rgb` line
+// restored on purpose moves 59 % (99.99 % looking straight down, where the surface is lit from behind
+// itself), and the same texture cooked uncompressed instead of BC5 differs by an RMSE of 1.1 against
+// the 14.5 the normal map itself is worth — close, and not identical, which is what a lossy encode in a
+// path that works looks like. `NRM_WitnessDeferred` and `NRM_WitnessInstanced` carry the G-buffer and
+// the two instanced readings, so four of the six shaders that include this file are now drawn by a
+// committed scene. StaticMeshGlass and SkinnedMeshPBR are NOT — one needs a transmissive material and
+// the other a rigged mesh — and both are still held only by the census in
+// `Desert/Tests/Engine/ShippedShaderPasses`, which also fails if no scene draws a bound normal map.
 
 // The tangent-space normal a normal map holds at @p uv, ready for the TBN multiply.
 //

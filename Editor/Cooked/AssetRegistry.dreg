@@ -61,6 +61,8 @@ DesertAssetRegistry 1
 176 Material 0dfe7a18f6435772 - assets:Materials/M_G3_TerrainPlain.demat
 267 Material b901dafc396fe32d c52af1456735652b assets:Materials/M_Graph_Batch_Stress__1024_cubes__one_graph_material__Clouds.demat
 267 Material d74641b8dc505d6a c52af1456735652b assets:Materials/M_Instanced_Cascade_Seam_Clouds.demat
+665 Material - - assets:Materials/M_NormalWitness.demat
+602 Material - - assets:Materials/M_NormalWitness_Flat.demat
 1819 Material 7ba8cd222a5275d4 c52af1456735652b assets:Materials/M_O4_Base_Clouds.demat
 1967 Material 02583817f039487e 5ea2c37f611538f1,67aea52253b9c474,c52af1456735652b assets:Materials/M_O4_Both_Clouds.demat
 1878 Material b57ffe8a06b97adc 5ea2c37f611538f1,c52af1456735652b assets:Materials/M_O4_MaskAddRemove_Clouds.demat
