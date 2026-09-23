@@ -16,12 +16,17 @@
 
 #include <gtest/gtest.h>
 
+#include <Common/Core/AssetHandle.hpp>
+
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <algorithm>
+#include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -403,6 +408,47 @@ namespace
         }();
         return files;
     }
+
+    // `Editor/Resources/Assets`, found the same way the two walks above find the shader root: by probing
+    // upwards from the test's working directory (build/Bin/Tests/<config>). Empty if it is not there,
+    // which the caller turns into a failure rather than an empty pass.
+    std::filesystem::path ShippedAssetsRoot()
+    {
+        std::filesystem::path here = std::filesystem::current_path();
+        for ( int up = 0; up < 8; ++up )
+        {
+            const std::filesystem::path candidate = here / "Editor" / "Resources" / "Assets";
+            if ( std::filesystem::exists( candidate / "Scenes" ) )
+                return candidate;
+            here = here.parent_path();
+        }
+        return {};
+    }
+
+    // The number in a `.demat`'s normal slot, or 0 for "no slot" and for "the slot is empty" alike --
+    // which are the same fact to every consumer: MaterialFactory binds the shader's 1x1 fallback for
+    // both, and the fragment stage's `textureSize(...) > 1` guard then skips the TBN multiply.
+    uint64_t NormalTextureHandleOf( const std::string& demat )
+    {
+        static const std::regex slot( R"("Name"\s*:\s*"u_NormalTexture"\s*,\s*"TextureHandle"\s*:\s*([0-9]+))" );
+
+        std::smatch match;
+        if ( !std::regex_search( demat, match, slot ) )
+            return 0;
+        return std::strtoull( match[1].str().c_str(), nullptr, 10 );
+    }
+
+    // Every `Materials/....demat` a scene spells, from whichever component spelled it -- StaticMesh,
+    // InstancedStaticMesh and the terrain slot all write the same string into the same JSON.
+    std::set<std::string> MaterialPathsNamedBy( const std::string& scene )
+    {
+        static const std::regex named( R"RX("(Materials/[^"]*\.demat)")RX" );
+
+        std::set<std::string> out;
+        for ( std::sregex_iterator it( scene.begin(), scene.end(), named ), end; it != end; ++it )
+            out.insert( ( *it )[1].str() );
+        return out;
+    }
 } // namespace
 
 // ── A NORMAL MAP IS READ IN EXACTLY ONE WAY ───────────────────────────────────────────────────────
@@ -417,10 +463,13 @@ namespace
 // realistic mistake, because the old line is what every reference on the internet says and it is right
 // for every format except the one the cook now produces.
 //
-// IT IS A CENSUS AND NOT A FRAME, and the reason is worth writing down: no `.desce` in this repository
-// binds a normal map at all (one material names `u_NormalTexture` and no scene references it), so there
-// is no shot that would go red if this were wrong. The first scene that draws a normal-mapped surface is
-// what will confirm the arithmetic; until then this holds the SHAPE.
+// IT IS A CENSUS AND NOT A FRAME, AND IT IS NO LONGER THE ONLY THING. When this was written no `.desce`
+// in the repository bound a normal map, so nothing could go red if the arithmetic were wrong and the
+// census was all there was. `Scenes/NRM_Witness.desce` is the scene that closed that: the same texture
+// rendered with and without its normal map differs over 47 % of the frame, and the pre-reconstruction
+// line restored on purpose moves 59 %. The census still earns its place — a frame cannot say "and
+// nowhere else", and TWO of the six readings are still unreachable from any scene: StaticMeshGlass
+// needs a transmissive material and SkinnedMeshPBR a rigged one, neither of which any witness has.
 TEST( ShippedShaderPasses, EveryShaderThatReadsANormalMapGoesThroughTheSharedReconstruction )
 {
     ASSERT_FALSE( ShippedShaders().empty() );
@@ -454,6 +503,99 @@ TEST( ShippedShaderPasses, EveryShaderThatReadsANormalMapGoesThroughTheSharedRec
                                "renamed, or this census is looking at the wrong tree";
     std::cout << "[  CENSUS  ] " << readers << " shipped shader(s) read a normal map, all through "
               << "Common/TangentNormal.glslh\n";
+}
+
+// ── AND SOMETHING IN THE REPOSITORY DRAWS ONE ─────────────────────────────────────────────────────
+//
+// THE CENSUS ABOVE IS SATISFIED BY A SHADER NOTHING RUNS. That is not a hypothetical: it was the state
+// of this tree on 2026-09-23. Six shipped shaders had just been changed to reconstruct Z, every one of
+// them agreed with `TangentNormal.glslh`, and the change moved ZERO pixels in every scene we had —
+// because exactly one material bound `u_NormalTexture` and no `.desce` referenced that material. A
+// defect in the arithmetic would have been as invisible as the correction was.
+//
+// So this asserts the OTHER half, and it is the half a census cannot hold: that the path from a scene
+// to a bound normal map is unbroken. It is the same relation the BC6H story paid for — an encoder whose
+// round-trip tests all passed against a block no GPU would decode, caught only by a rendered frame.
+//
+// WHY IT ASSERTS THE CHAIN AND NOT A FILENAME. Naming `NRM_Witness.desce` here would pass the day
+// somebody emptied its normal slot, renamed the texture, or pointed the entity at a different material:
+// each end would still look right and the middle link would be gone, which is this repository's most
+// repeated defect shape. What is asserted instead is the whole edge — a tracked `.desce` names a
+// `.demat` that is on disk, whose `u_NormalTexture` is non-zero, and whose handle is the derivation of
+// a source image that exists. Delete the witness scene and this goes red with a sentence saying what
+// was lost, which is exactly what "the first scene that draws a normal-mapped surface" was worth.
+//
+// PLAIN TEXT AND NOT THE ASSET CLASSES, deliberately: this suite links no engine, and the two formats
+// are read here the way `AssetReferenceCensus` reads them — by the one field that carries the meaning.
+TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
+{
+    const std::filesystem::path assets = ShippedAssetsRoot();
+    ASSERT_FALSE( assets.empty() ) << "the content root was not located from the test's working directory";
+
+    // Every material whose normal slot is FILLED, by the number it is filled with. A slot present and
+    // zero is an empty slot -- all five materials that spell the seven-slot list carry one.
+    std::map<std::string, uint64_t> boundNormals; // "Materials/X.demat" -> texture handle
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( assets / "Materials" ) )
+    {
+        if ( !entry.is_regular_file() || entry.path().extension() != ".demat" )
+            continue;
+
+        const uint64_t handle = NormalTextureHandleOf( ReadFile( entry.path() ) );
+        if ( handle == 0 )
+            continue;
+
+        boundNormals.emplace( std::filesystem::relative( entry.path(), assets ).generic_string(), handle );
+    }
+
+    ASSERT_FALSE( boundNormals.empty() )
+         << "not one shipped material binds u_NormalTexture, so the reconstruction census above is "
+            "asserting the shape of a code path nothing in this repository can execute";
+
+    // The handle a `.demat` carries is FNV-1a of the SOURCE image's place inside the project behind its
+    // root tag -- the same derivation AssetReferenceCensus asserts, spelled from the file rather than
+    // from a project root this suite never opens.
+    std::map<uint64_t, std::string> sourceByHandle;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( assets ) )
+    {
+        if ( !entry.is_regular_file() )
+            continue;
+        const std::string key = "assets:" + std::filesystem::relative( entry.path(), assets ).generic_string();
+        sourceByHandle.emplace( static_cast<uint64_t>( Common::AssetHandle::FromKey( key ) ), key );
+    }
+
+    // Every material path any scene names, whatever component named it.
+    std::set<std::string> namedByAScene;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( assets / "Scenes" ) )
+    {
+        if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
+            continue;
+        for ( const std::string& material : MaterialPathsNamedBy( ReadFile( entry.path() ) ) )
+            namedByAScene.insert( material );
+    }
+
+    std::vector<std::string> drawn;
+    for ( const auto& [material, handle] : boundNormals )
+    {
+        if ( !namedByAScene.count( material ) )
+            continue;
+        const auto source = sourceByHandle.find( handle );
+        EXPECT_NE( source, sourceByHandle.end() )
+             << material << " is drawn by a scene and binds normal texture handle " << handle
+             << ", which is the derivation of no file in this project -- the surface draws with the "
+                "shader's 1x1 fallback and no error names anything";
+        if ( source != sourceByHandle.end() )
+            drawn.push_back( material + " -> " + source->second );
+    }
+
+    ASSERT_FALSE( drawn.empty() )
+         << "no shipped scene draws a material with a bound normal map. " << boundNormals.size()
+         << " material(s) bind one and none of them is reachable from a `.desce`, so nothing in this "
+            "repository can witness Common/TangentNormal.glslh: a wrong Z would move no pixel in any "
+            "frame we have. Restore a witness scene (Scenes/NRM_Witness.desce was the first) rather "
+            "than deleting this test.";
+
+    for ( const std::string& row : drawn )
+        std::cout << "[  CENSUS  ] a shipped scene draws " << row << "\n";
 }
 
 TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )
