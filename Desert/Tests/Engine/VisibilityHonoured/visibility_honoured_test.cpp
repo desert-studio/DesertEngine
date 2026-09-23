@@ -85,7 +85,7 @@ TEST( EntityVisibility, NullAndDestroyedEntitiesAreNotHidden )
     entt::registry registry;
     EXPECT_FALSE( IsHidden( registry, entt::null ) );
 
-    const auto entity = registry.create();
+    const auto entity                                       = registry.create();
     registry.emplace<VisibilityComponent>( entity ).Visible = false;
     registry.destroy( entity );
     EXPECT_FALSE( IsHidden( registry, entity ) ) << "a destroyed entity is nothing, not a hidden thing";
@@ -186,10 +186,8 @@ namespace
          Site{ "MeshECSSystem.hpp", "skinned meshes", "SkinnedMeshComponent& mesh," },
          Site{ "TerrainECSSystem.hpp", "terrain tiles", "view<TerrainComponent, TransformComponent>" },
          Site{ "TextECSSystem.hpp", "world text", "view<TextComponent, TransformComponent>" },
-         Site{ "HeightFogECSSystem.hpp", "the fog volume election",
-               "view<ECS::ExponentialHeightFogComponent>" },
-         Site{ "VolumetricCloudECSSystem.hpp", "the cloud layer election",
-               "view<ECS::VolumetricCloudComponent>" },
+         Site{ "HeightFogECSSystem.hpp", "the fog volume election", "view<ECS::ExponentialHeightFogComponent>" },
+         Site{ "VolumetricCloudECSSystem.hpp", "the cloud layer election", "view<ECS::VolumetricCloudComponent>" },
          Site{ "VolumetricCloudECSSystem.hpp", "sculpted hero bodies",
                "view<ECS::HeroCloudComponent, ECS::TransformComponent>" },
          Site{ "SkyboxECSSystem.hpp", "the Sky Atmosphere election", "view<ECS::SkyAtmosphereComponent>" },
@@ -229,7 +227,7 @@ namespace
 
     std::string ReadFile( const std::string& path )
     {
-        std::ifstream in( path );
+        std::ifstream      in( path );
         std::ostringstream text;
         text << in.rdbuf();
         return text.str();
@@ -359,8 +357,7 @@ TEST( VisibilityCensus, EveryWalkThatMustHonourAsksTheOnePredicate )
 
         const size_t anchor = code.find( site.Anchor );
         ASSERT_NE( anchor, std::string::npos )
-             << site.File << ": the walk over " << site.Name
-             << " can no longer be found (anchor '" << site.Anchor
+             << site.File << ": the walk over " << site.Name << " can no longer be found (anchor '" << site.Anchor
              << "'). A census that cannot find its subject must go RED, not quiet — re-anchor this row "
                 "on the code that replaced it.";
 
@@ -399,11 +396,9 @@ TEST( VisibilityCensus, EveryHonoursVerdictIsBackedByAtLeastOneSite )
 
     for ( const Site& site : kHonourSites )
     {
-        const bool declared = std::any_of( kSystems.begin(), kSystems.end(), [&]( const Row& row )
-                                           {
-                                               return std::string( row.File ) == site.File &&
-                                                      row.Result == Verdict::Honours;
-                                           } );
+        const bool declared =
+             std::any_of( kSystems.begin(), kSystems.end(), [&]( const Row& row )
+                          { return std::string( row.File ) == site.File && row.Result == Verdict::Honours; } );
         EXPECT_TRUE( declared ) << site.File << " has a site row for " << site.Name
                                 << " but is not recorded as a system that honours visibility.";
     }

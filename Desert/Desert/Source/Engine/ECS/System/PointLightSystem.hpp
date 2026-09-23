@@ -42,7 +42,8 @@ namespace Desert::ECS
                      while ( registry.has<RelationshipComponent>( current ) )
                      {
                          const auto& rel = registry.get<RelationshipComponent>( current );
-                         if ( rel.Parent == entt::null ) break;
+                         if ( rel.Parent == entt::null )
+                             break;
 
                          current = rel.Parent;
                          if ( registry.has<TransformComponent>( current ) )
