@@ -1,4 +1,4 @@
-// THE PARTITIONER, AND THE TWO THINGS IT IS ALLOWED TO DO TO A WORLD.
+// THE PARTITIONER: WHICH CELL HOLDS EACH WHOLE, AND HOW FAR THAT CELL HAD TO GROW.
 //
 // WHAT IS ASSERTED, in the order the sections appear:
 //
@@ -16,13 +16,15 @@
 //      directly puts every child of a rotated or moved parent in the wrong cell.
 //   5. THE COMPOSITE IS THE UNIT. A parent and child that fall either side of a boundary land in ONE
 //      cell, and a socket attachment fuses two hierarchies into one composite.
-//   6. THE REFUSAL. A composite that reaches further than one cell from its anchor is refused, the
-//      refusal names both entities and the relation, and the SAME records at a larger cell size are
-//      not refused - which is the instrument being shown red and green over one input.
-//   7. A DANGLING containment reference is reported and is NOT a refusal, and a cyclic one terminates.
+//   6. THE CELL GROWS (owner decision 2026-09-18). A composite wider than a cell is held whole in ONE
+//      cell whose bounds reach its far member, on either side and either axis, with no limit; the
+//      overhang is a number per cell and the world's worst; an instanced mesh is as wide as its
+//      instances. The SAME records at a larger cell size do not grow - zero and non-zero over one input.
+//   7. A DANGLING containment reference is reported and changes nothing else, and a cyclic one terminates.
 //   8. THE REGISTER OF ENTITY REFERENCES IS COMPLETE. Every entity-to-entity reference in every scene
 //      the repository ships has a classified row; a synthetic reference that has no row is FOUND, which
-//      is the same function being shown red.
+//      is the same function being shown red. And the whole corpus, partitioned, keeps the growth
+//      relation: every point it can read independently lies inside the grown bounds of its cell.
 //
 // No Scene, no renderer, no asset manager: the rules are a pure function of parsed records.
 
@@ -46,13 +48,17 @@
 using Desert::Assets::EntityData;
 using Desert::Core::SceneSerialized;
 using Desert::Core::WorldPartitionSerialized;
+using Desert::Core::Rules::CellBounds;
 using Desert::Core::Rules::CellOf;
 using Desert::Core::Rules::Containment;
-using Desert::Core::Rules::DescribeRefusal;
 using Desert::Core::Rules::FindUnregisteredEntityReferences;
+using Desert::Core::Rules::GridSquareOf;
 using Desert::Core::Rules::kEntityReferences;
 using Desert::Core::Rules::kEntityReferencesByName;
+using Desert::Core::Rules::kInstancePointsComponent;
+using Desert::Core::Rules::kInstancePointsField;
 using Desert::Core::Rules::kNoRecord;
+using Desert::Core::Rules::PlannedCell;
 using Desert::Core::Rules::PlanWorldPartition;
 using Desert::Core::Rules::ReferenceKind;
 using Desert::Core::Rules::WorldPartitionPlan;
@@ -298,11 +304,14 @@ TEST( WorldPartitionCells, AChildIsPartitionedByItsWorldPositionNotItsLocalOne )
     // Both are one composite, anchored on the parent, so the cell is the parent's: 30100 / 10000 = 3.
     EXPECT_EQ( plan.Composites[0].Anchor, 0u );
     EXPECT_EQ( plan.Composites[0].Cell.X, 3 );
-    EXPECT_FALSE( plan.Refused() );
+    // Both stand inside cell 3's square, so nothing grew.
+    EXPECT_FLOAT_EQ( plan.MaxGrowth, 0.0f );
 }
 
-// Rotation and scale compose too. A child stated 100 units along +X under a parent yawed 90 degrees is
-// not 100 units along +X of the world, and a partitioner that ignored rotation would say it was.
+// Rotation composes too. A child stated 15000 units along +X under a parent yawed +90 degrees stands at
+// world -Z, and the grown bounds are where that shows: they must reach DOWN on Z and not out on X. (The
+// refusal test this replaces asserted only |reach| = 15000, which an unrotated arm also satisfies - it
+// could not see rotation at all.)
 TEST( WorldPartitionCells, RotationOfAParentMovesWhereItsChildLands )
 {
     std::vector<EntityData> records;
@@ -311,16 +320,36 @@ TEST( WorldPartitionCells, RotationOfAParentMovesWhereItsChildLands )
     records.push_back( Record( 2, "Arm", { 15000.0f, 0.0f, 0.0f } ) );
     Under( records[1], 1 );
 
-    // Cell size large enough that nothing is refused; what is asserted is WHERE the arm went.
-    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 1000000.0f ) );
-    ASSERT_EQ( plan.Composites.size(), 1u );
-    ASSERT_TRUE( plan.Refusals.empty() );
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_EQ( plan.Cells.size(), 1u );
+    ASSERT_TRUE( plan.Cells[0].Content.has_value() );
+    EXPECT_NEAR( plan.Cells[0].Content->MinZ, -15000.0f, 1.0f );
+    EXPECT_NEAR( plan.Cells[0].Content->MaxX, 0.0f, 1.0f );
+    EXPECT_NEAR( plan.Cells[0].Growth, 15000.0f, 1.0f );
+}
 
-    // A yaw of +90 degrees takes local +X onto world -Z. Refuse at a cell size that only a correctly
-    // rotated arm crosses on Z, and the refusal's reach is the evidence.
-    const WorldPartitionPlan tight = PlanWorldPartition( records, Cells( 10000.0f ) );
-    ASSERT_EQ( tight.Refusals.size(), 1u );
-    EXPECT_NEAR( tight.Refusals[0].Reach, 15000.0f, 1.0f );
+// THE COMPOSITION, PINNED AGAINST NUMBERS WORKED BY HAND, because ComposeLocal must equal
+// TransformComponent::GetTransform (translate * rotate * scale) and this suite cannot include that
+// header. Parent at (1000, 0, 2000), yawed +90 degrees, scaled 2; child stated at (300, 0, 0):
+// scale gives (600, 0, 0), the yaw takes +X to -Z giving (0, 0, -600), the offset gives (1000, 0, 1400).
+// Scale applied AFTER rotation, or not at all, or the rotation's sign flipped, all land elsewhere.
+TEST( WorldPartitionCells, ARotatedScaledOffsetParentPlacesItsChildWhereTheLoaderWould )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Parent", { 1000.0f, 0.0f, 2000.0f } ) );
+    records[0].Rotation = glm::vec3( 0.0f, glm::radians( 90.0f ), 0.0f );
+    records[0].Scale    = glm::vec3( 2.0f );
+    records.push_back( Record( 2, "Child", { 300.0f, 0.0f, 0.0f } ) );
+    Under( records[1], 1 );
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 1000000.0f ) );
+    ASSERT_EQ( plan.Cells.size(), 1u );
+    ASSERT_TRUE( plan.Cells[0].Content.has_value() );
+    const CellBounds& content = *plan.Cells[0].Content;
+    EXPECT_NEAR( content.MinX, 1000.0f, 0.5f );
+    EXPECT_NEAR( content.MaxX, 1000.0f, 0.5f );
+    EXPECT_NEAR( content.MinZ, 1400.0f, 0.5f );
+    EXPECT_NEAR( content.MaxZ, 2000.0f, 0.5f );
 }
 
 // ── 5. THE COMPOSITE IS THE UNIT ───────────────────────────────────────────────────────────────────
@@ -343,7 +372,10 @@ TEST( WorldPartitionComposites, AParentAndChildEitherSideOfABoundaryShareOneCell
     ASSERT_EQ( plan.Composites.size(), 1u );
     EXPECT_EQ( plan.Composites[0].Members.size(), 2u );
     EXPECT_EQ( plan.Composites[0].Cell.X, 0 );
-    EXPECT_FALSE( plan.Refused() );
+
+    // And the wheel's side of the boundary is paid for by cell 0 growing 100 units, not by cell 1.
+    ASSERT_EQ( plan.Cells.size(), 1u );
+    EXPECT_FLOAT_EQ( plan.Cells[0].Growth, 100.0f );
 }
 
 // A socket attachment is containment, so it FUSES two hierarchies that are otherwise unrelated: the
@@ -363,8 +395,7 @@ TEST( WorldPartitionComposites, ASocketAttachmentFusesTwoHierarchiesIntoOneCompo
     ASSERT_EQ( plan.Composites.size(), 1u );
     EXPECT_EQ( plan.Composites[0].Members.size(), 4u );
 
-    // And the socket edge is recorded as SOCKET attachment, not as hierarchy - the refusal's sentence
-    // depends on telling the two apart.
+    // And the socket edge is recorded as SOCKET attachment, not as hierarchy.
     bool sawSocket = false;
     for ( const auto& edge : plan.Containment )
     {
@@ -389,7 +420,8 @@ TEST( WorldPartitionComposites, UnrelatedEntitiesAreSeparateCompositesInSeparate
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
     ASSERT_EQ( plan.Composites.size(), 2u );
     EXPECT_NE( plan.Composites[CompositeOf( plan, 0 )].Cell, plan.Composites[CompositeOf( plan, 1 )].Cell );
-    EXPECT_FALSE( plan.Refused() );
+    EXPECT_EQ( plan.Cells.size(), 2u );
+    EXPECT_FLOAT_EQ( plan.MaxGrowth, 0.0f );
 }
 
 // A PREFAB INSTANCE HAS NO TRANSFORM IN A .desce AT ALL - SceneSerializer strips it into overrides
@@ -414,6 +446,26 @@ TEST( WorldPartitionComposites, APrefabInstanceWithNoTransformIsListedAsUnplaced
     EXPECT_TRUE( PlanWorldPartition( records, Cells( 10000.0f ) ).UnplacedPrefabInstances.empty() );
 }
 
+// AN UNPLACED INSTANCE GROWS NOTHING. Its "origin" is the absence of a position, not a position, so a cell
+// it sits in must not report bounds that reach for it. Here the instance is the only thing in cell (0,0),
+// so that cell has no Content at all and is exactly its square.
+TEST( WorldPartitionComposites, AnUnplacedPrefabInstanceContributesNoPointToItsCell )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Ground", { 35000.0f, 0.0f, 0.0f } ) );
+    EntityData instance;
+    instance.id         = Common::UUID( 2 );
+    instance.PrefabPath = "Prefabs/Lamp.deprefab";
+    records.push_back( instance );
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_EQ( plan.Cells.size(), 2u );
+    const PlannedCell& origin = plan.Cells[0];
+    ASSERT_EQ( origin.Cell, CellOf( 0.0f, 0.0f, 10000.0f ) );
+    EXPECT_FALSE( origin.Content.has_value() );
+    EXPECT_FLOAT_EQ( origin.Growth, 0.0f );
+}
+
 // THE CORPUS: exactly the four prefab instance records this repository ships, in two scenes, are
 // unplaceable - a named number derived from the files rather than a claim that none exist.
 TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreCounted )
@@ -436,9 +488,15 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
     EXPECT_EQ( scenes, 2u );
 }
 
-// ── 6. THE REFUSAL ─────────────────────────────────────────────────────────────────────────────────
+// ── 6. THE CELL GROWS ──────────────────────────────────────────────────────────────────────────────
+//
+// Owner decision 2026-09-18: a composite wider than a cell is held whole and its cell GROWS. These
+// replace the refusal tests of 6a122bae one for one: each input that used to be refused is now asserted
+// to be held in ONE cell whose bounds reach the far member, with the overhang stated as a number.
 
-TEST( WorldPartitionRefusal, AHierarchyThatReachesFurtherThanOneCellIsRefusedByName )
+// The bridge that used to be refused. One composite, one listed cell, and that cell's bounds reach the
+// far end: the grid square is [0, 10000] and the far end stands at 15000, so the growth is 5000.
+TEST( WorldPartitionGrowth, AHierarchyWiderThanACellIsHeldWholeAndItsCellGrowsToReachIt )
 {
     std::vector<EntityData> records;
     records.push_back( Record( 1001, "Bridge", { 0.0f, 0.0f, 0.0f } ) );
@@ -446,88 +504,158 @@ TEST( WorldPartitionRefusal, AHierarchyThatReachesFurtherThanOneCellIsRefusedByN
     Under( records[1], 1001 );
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
-    ASSERT_TRUE( plan.Refused() );
-    ASSERT_EQ( plan.Refusals.size(), 1u );
-    EXPECT_EQ( plan.Refusals[0].Anchor, 0u );
-    EXPECT_EQ( plan.Refusals[0].Member, 1u );
-    EXPECT_EQ( plan.Refusals[0].MemberHolder, 0u );
-    EXPECT_EQ( plan.Refusals[0].Relation, Containment::Hierarchy );
-    EXPECT_NEAR( plan.Refusals[0].Reach, 15000.0f, 0.5f );
+    ASSERT_EQ( plan.Composites.size(), 1u );
+    ASSERT_EQ( plan.Cells.size(), 1u ) << "the far end's own square (1,0) must NOT become a cell of its own";
 
-    // BOTH ENTITIES AND THE RELATION, in the sentence a human reads. A refusal nobody can read is a
-    // refusal nobody will fix.
-    const std::string said = DescribeRefusal( records, plan.Refusals[0] );
-    EXPECT_NE( said.find( "Bridge'" ), std::string::npos ) << said;
-    EXPECT_NE( said.find( "BridgeFarEnd" ), std::string::npos ) << said;
-    EXPECT_NE( said.find( "1001" ), std::string::npos ) << said;
-    EXPECT_NE( said.find( "1002" ), std::string::npos ) << said;
-    EXPECT_NE( said.find( "hierarchy" ), std::string::npos ) << said;
+    const PlannedCell& cell = plan.Cells[0];
+    EXPECT_EQ( cell.Cell, CellOf( 0.0f, 0.0f, 10000.0f ) );
+    EXPECT_FLOAT_EQ( cell.Bounds.MinX, 0.0f );
+    EXPECT_FLOAT_EQ( cell.Bounds.MaxX, 15000.0f );
+    EXPECT_FLOAT_EQ( cell.Bounds.MinZ, 0.0f );
+    EXPECT_FLOAT_EQ( cell.Bounds.MaxZ, 10000.0f );
+    ASSERT_TRUE( cell.Content.has_value() );
+    EXPECT_FLOAT_EQ( cell.Content->MaxX, 15000.0f );
+    EXPECT_FLOAT_EQ( cell.Growth, 5000.0f );
+    EXPECT_EQ( cell.Furthest, 1u ) << "the record that grew the cell is the far end";
+
+    EXPECT_FLOAT_EQ( plan.MaxGrowth, 5000.0f );
+    EXPECT_EQ( plan.MaxGrowthCell, 0u );
 }
 
-// The same shape through the other containment relation, and the sentence says which one it was.
-TEST( WorldPartitionRefusal, ASocketReachingFurtherThanOneCellIsRefusedAndNamesTheSocket )
+// The same through the other containment relation, on the other axis.
+TEST( WorldPartitionGrowth, ASocketWiderThanACellGrowsItsCellOnZ )
 {
     std::vector<EntityData> records;
     records.push_back( Record( 2001, "Gunner", { 0.0f, 0.0f, 0.0f } ) );
-    records.push_back( Record( 2002, "OrphanedRifle", { 0.0f, 0.0f, 40000.0f } ) );
+    records.push_back( Record( 2002, "FarRifle", { 0.0f, 0.0f, 40000.0f } ) );
     SocketedTo( records[1], 2001 );
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
-    ASSERT_EQ( plan.Refusals.size(), 1u );
-    EXPECT_EQ( plan.Refusals[0].Relation, Containment::SocketAttachment );
-
-    const std::string said = DescribeRefusal( records, plan.Refusals[0] );
-    EXPECT_NE( said.find( "socket attachment" ), std::string::npos ) << said;
-    EXPECT_NE( said.find( "OrphanedRifle" ), std::string::npos ) << said;
+    ASSERT_EQ( plan.Cells.size(), 1u );
+    EXPECT_FLOAT_EQ( plan.Cells[0].Bounds.MaxZ, 40000.0f );
+    EXPECT_FLOAT_EQ( plan.Cells[0].Bounds.MaxX, 10000.0f ) << "growth on Z must not move X";
+    EXPECT_FLOAT_EQ( plan.Cells[0].Growth, 30000.0f );
+    EXPECT_EQ( plan.Cells[0].Furthest, 1u );
 }
 
-// THE SAME RECORDS, NOT REFUSED. An instrument that only ever says no proves nothing about the input:
-// the one thing that changes here is the world's own cell size, which is exactly one of the three
-// answers the refusal tells the author about.
-TEST( WorldPartitionRefusal, TheSameCompositeIsAcceptedWhenTheCellIsBigEnoughToHoldIt )
+// GROWTH IS THE OVERHANG PAST THE SQUARE, NOT THE DISTANCE FROM THE ANCHOR. The same records at a larger
+// cell size do not grow at all - which is also the instrument shown at zero and non-zero over one input.
+TEST( WorldPartitionGrowth, TheSameCompositeDoesNotGrowACellBigEnoughToHoldIt )
 {
     std::vector<EntityData> records;
     records.push_back( Record( 1001, "Bridge", { 0.0f, 0.0f, 0.0f } ) );
     records.push_back( Record( 1002, "BridgeFarEnd", { 15000.0f, 0.0f, 0.0f } ) );
     Under( records[1], 1001 );
 
-    EXPECT_TRUE( PlanWorldPartition( records, Cells( 10000.0f ) ).Refused() );
-    EXPECT_FALSE( PlanWorldPartition( records, Cells( 20000.0f ) ).Refused() );
+    EXPECT_FLOAT_EQ( PlanWorldPartition( records, Cells( 10000.0f ) ).MaxGrowth, 5000.0f );
+
+    const WorldPartitionPlan wide = PlanWorldPartition( records, Cells( 20000.0f ) );
+    EXPECT_FLOAT_EQ( wide.MaxGrowth, 0.0f );
+    ASSERT_EQ( wide.Cells.size(), 1u );
+    EXPECT_EQ( wide.Cells[0].Furthest, kNoRecord );
+    EXPECT_FLOAT_EQ( wide.Cells[0].Bounds.MaxX, 20000.0f ) << "an ungrown cell is exactly its square";
 }
 
-// THE BOUND IS EXACTLY ONE CELL, and the edge of it is accepted. This is the number the promise in
-// WorldPartitionRules.hpp rests on - "a cell's contents lie inside its bounds expanded by at most one
-// cell size" - so it is pinned rather than left to whichever comparison somebody typed.
-TEST( WorldPartitionRefusal, ReachOfExactlyOneCellIsAcceptedAndAnythingBeyondIsNot )
+// THERE IS NO LIMIT. A composite a hundred cells long is still one composite in one cell - the case the
+// refusal existed for - and the number says what it costs.
+TEST( WorldPartitionGrowth, ACompositeAHundredCellsLongIsStillOneCellAndTheNumberSaysSo )
 {
     std::vector<EntityData> records;
-    records.push_back( Record( 1, "Anchor", { 0.0f, 0.0f, 0.0f } ) );
-    records.push_back( Record( 2, "Reach", { 10000.0f, 0.0f, 0.0f } ) );
+    records.push_back( Record( 1, "Pipeline", { 5000.0f, 0.0f, 5000.0f } ) );
+    records.push_back( Record( 2, "PipelineEnd", { 1000000.0f, 0.0f, 0.0f } ) );
     Under( records[1], 1 );
-    EXPECT_FALSE( PlanWorldPartition( records, Cells( 10000.0f ) ).Refused() );
 
-    records[1].Translation = glm::vec3( 10001.0f, 0.0f, 0.0f );
-    EXPECT_TRUE( PlanWorldPartition( records, Cells( 10000.0f ) ).Refused() );
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_EQ( plan.Cells.size(), 1u );
+    // The end stands at 1005000; the anchor's square ends at 10000.
+    EXPECT_FLOAT_EQ( plan.Cells[0].Growth, 995000.0f );
+    EXPECT_FLOAT_EQ( plan.MaxGrowth / 10000.0f, 99.5f );
 }
 
-// HEIGHT DOES NOT PARTITION. The grid is two-dimensional, so a composite stacked vertically is not
-// refused however tall it is - which is the difference between the pattern and the letter of UE's grid.
-TEST( WorldPartitionRefusal, VerticalReachIsNotARefusalBecauseTheGridIsTwoDimensional )
+// THE NEGATIVE SIDE GROWS TOO. A member behind the anchor's square pulls the MIN edge out - the one side a
+// `max`-only fold would never notice.
+TEST( WorldPartitionGrowth, AMemberBehindTheSquarePullsTheMinimumEdgeOut )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Anchor", { 100.0f, 0.0f, 100.0f } ) );
+    records.push_back( Record( 2, "Behind", { -700.0f, 0.0f, -300.0f } ) );
+    Under( records[1], 1 );
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_EQ( plan.Cells.size(), 1u );
+    // Child world = (100 - 700, 100 - 300) = (-600, -200).
+    EXPECT_FLOAT_EQ( plan.Cells[0].Bounds.MinX, -600.0f );
+    EXPECT_FLOAT_EQ( plan.Cells[0].Bounds.MinZ, -200.0f );
+    EXPECT_FLOAT_EQ( plan.Cells[0].Growth, 600.0f ) << "the worse of the two axes";
+}
+
+// THE WORLD'S NUMBER IS THE WORST CELL, and it names which cell.
+TEST( WorldPartitionGrowth, TheWorldsGrowthIsItsWorstCellAndNamesIt )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Small", { 500.0f, 0.0f, 500.0f } ) );
+    records.push_back( Record( 2, "SmallArm", { 9600.0f, 0.0f, 0.0f } ) ); // world 10100: grows by 100
+    Under( records[1], 1 );
+    records.push_back( Record( 3, "Big", { 50500.0f, 0.0f, 500.0f } ) );
+    records.push_back( Record( 4, "BigArm", { 0.0f, 0.0f, 10200.0f } ) ); // world z 10700: grows by 700
+    Under( records[3], 3 );
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_EQ( plan.Cells.size(), 2u );
+    EXPECT_FLOAT_EQ( plan.MaxGrowth, 700.0f );
+    ASSERT_NE( plan.MaxGrowthCell, kNoRecord );
+    EXPECT_EQ( plan.Cells[plan.MaxGrowthCell].Cell.X, 5 );
+    EXPECT_EQ( plan.Cells[plan.MaxGrowthCell].Furthest, 3u );
+
+    // And the cells are listed in X order, not in hash-map order.
+    EXPECT_EQ( plan.Cells[0].Cell.X, 0 );
+    EXPECT_FLOAT_EQ( plan.Cells[0].Growth, 100.0f );
+}
+
+// HEIGHT DOES NOT PARTITION. The grid is two-dimensional, so a composite stacked vertically does not grow
+// its cell however tall it is - which is the difference between the pattern and the letter of UE's grid.
+TEST( WorldPartitionGrowth, VerticalReachDoesNotGrowACellBecauseTheGridIsTwoDimensional )
 {
     std::vector<EntityData> records;
     records.push_back( Record( 1, "Tower", { 0.0f, 0.0f, 0.0f } ) );
     records.push_back( Record( 2, "TowerTop", { 0.0f, 500000.0f, 0.0f } ) );
     Under( records[1], 1 );
 
-    EXPECT_FALSE( PlanWorldPartition( records, Cells( 10000.0f ) ).Refused() );
+    EXPECT_FLOAT_EQ( PlanWorldPartition( records, Cells( 10000.0f ) ).MaxGrowth, 0.0f );
+}
+
+// AN INSTANCED STATIC MESH IS AS WIDE AS ITS INSTANCES, NOT AS ITS ENTITY. The instances are WORLD-space
+// (MeshECSSystem submits them without the entity's transform), so a foliage field authored on an entity
+// at the origin covers wherever its instances are, and the cell must grow to them. The numbers are written
+// as JSON integers on purpose: rfl reads "50000" as an integer, and a reader that only asked for doubles
+// would drop exactly these instances and report zero growth.
+TEST( WorldPartitionGrowth, AnInstancedMeshGrowsItsCellToItsInstancesNotToItsEntity )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Foliage", { 0.0f, 0.0f, 0.0f } ) );
+
+    const auto block =
+         rfl::json::read<rfl::Generic>( R"({"Primitive":"Cube","InstanceTransforms":[)"
+                                        R"([1,0,0,0, 0,1,0,0, 0,0,1,0, 50000,0,-30000,1],)"
+                                        R"([1.0,0,0,0, 0,1.0,0,0, 0,0,1.0,0, 200.5,0.0,300.5,1.0]]})" );
+    ASSERT_TRUE( block.has_value() );
+    records[0].Components[std::string( kInstancePointsComponent )] = block.value();
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_EQ( plan.Cells.size(), 1u );
+    ASSERT_TRUE( plan.Cells[0].Content.has_value() );
+    EXPECT_FLOAT_EQ( plan.Cells[0].Content->MaxX, 50000.0f );
+    EXPECT_FLOAT_EQ( plan.Cells[0].Content->MinZ, -30000.0f );
+    EXPECT_FLOAT_EQ( plan.Cells[0].Growth, 40000.0f );
+    EXPECT_EQ( plan.Cells[0].Furthest, 0u );
 }
 
 // ── 7. DANGLING AND CYCLIC CONTAINMENT ─────────────────────────────────────────────────────────────
 
-// A containment reference naming an entity this file does not contain is REPORTED, not refused: it is
-// a defect that already has an owner (the loader counts unresolved parents; AttachmentSystem skips a
-// target it cannot find), and refusing to partition a world over one would be this task punishing it.
-TEST( WorldPartitionComposites, ADanglingContainmentReferenceIsReportedAndIsNotARefusal )
+// A containment reference naming an entity this file does not contain is REPORTED and nothing more: it
+// is a defect that already has an owner (the loader counts unresolved parents; AttachmentSystem skips a
+// target it cannot find).
+TEST( WorldPartitionComposites, ADanglingContainmentReferenceIsReportedAndJoinsNothing )
 {
     std::vector<EntityData> records;
     records.push_back( Record( 1, "Lonely", { 0.0f, 0.0f, 0.0f } ) );
@@ -537,8 +665,8 @@ TEST( WorldPartitionComposites, ADanglingContainmentReferenceIsReportedAndIsNotA
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
     ASSERT_EQ( plan.Dangling.size(), 2u );
-    EXPECT_FALSE( plan.Refused() );
     EXPECT_TRUE( plan.Containment.empty() );
+    EXPECT_EQ( plan.Composites.size(), 2u );
 }
 
 // A hand-merged file can name a cycle. It must terminate and produce an answer rather than hang; the
@@ -665,26 +793,120 @@ TEST( WorldPartitionReferences, NoSceneInTheRepositoryHoldsAnUnclassifiedEntityR
     }
 }
 
-// THE CORPUS, PARTITIONED, BOTH WAYS. At a cell big enough to hold any world we ship, nothing is
-// refused; at a cell of one metre, the scenes that actually contain composites ARE refused. Same files,
-// same function, opposite verdicts - so the green above is a fact about the corpus and not a function
-// that cannot say no.
-TEST( WorldPartitionReferences, TheCorpusPartitionsCleanlyAtWorldScaleAndIsRefusedAtOneMetre )
+// THE CORPUS, PARTITIONED, AND CHECKED AS A RELATION RATHER THAN AGAINST ITSELF.
+//
+// For every scene the repository ships, at a cell of one metre (where composites do cross squares) and at
+// the format's default: every composite is in exactly the cell it names; every cell's bounds contain its
+// square and its content; its Growth is exactly how far the bounds overhang the square; and - the part
+// computed WITHOUT the planner - every root record's own translation, and every instance of every
+// InstancedStaticMesh read straight from the file's JSON, lies inside the bounds of its cell.
+//
+// And the instrument is shown non-zero: at one metre some scene must grow a cell, or this sweep proves
+// nothing about growth at all.
+TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheGrownBoundsOfItsCell )
 {
-    std::size_t refusedAtOneMetre = 0;
+    std::size_t grownAtOneMetre = 0;
+    std::size_t instancesSeen   = 0;
     for ( const auto& path : RepositoryScenes() )
     {
-        const auto parsed = rfl::json::read<SceneSerialized>( ReadAll( path ) );
+        const std::string text   = ReadAll( path );
+        const auto        parsed = rfl::json::read<SceneSerialized>( text );
         ASSERT_TRUE( parsed.has_value() ) << path.string();
+        const auto& records = parsed->Entities;
 
-        const WorldPartitionPlan wide = PlanWorldPartition( parsed->Entities, Cells( 1.0e7f ) );
-        EXPECT_FALSE( wide.Refused() ) << path.string();
+        for ( const float cellSize : { 100.0f, 12800.0f } )
+        {
+            const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( cellSize ) );
+            if ( cellSize == 100.0f && plan.MaxGrowth > 0.0f )
+                ++grownAtOneMetre;
 
-        if ( PlanWorldPartition( parsed->Entities, Cells( 100.0f ) ).Refused() )
-            ++refusedAtOneMetre;
+            std::vector<std::size_t> cellOfComposite( plan.Composites.size(), kNoRecord );
+            float                    worst = 0.0f;
+            for ( std::size_t index = 0; index < plan.Cells.size(); ++index )
+            {
+                const PlannedCell& cell   = plan.Cells[index];
+                const CellBounds   square = GridSquareOf( cell.Cell, cellSize );
+                EXPECT_LE( cell.Bounds.MinX, square.MinX ) << path.string();
+                EXPECT_LE( cell.Bounds.MinZ, square.MinZ ) << path.string();
+                EXPECT_GE( cell.Bounds.MaxX, square.MaxX ) << path.string();
+                EXPECT_GE( cell.Bounds.MaxZ, square.MaxZ ) << path.string();
+                if ( cell.Content.has_value() )
+                {
+                    EXPECT_LE( cell.Bounds.MinX, cell.Content->MinX ) << path.string();
+                    EXPECT_GE( cell.Bounds.MaxX, cell.Content->MaxX ) << path.string();
+                }
+                const float overhang =
+                     std::max( { square.MinX - cell.Bounds.MinX, cell.Bounds.MaxX - square.MaxX,
+                                 square.MinZ - cell.Bounds.MinZ, cell.Bounds.MaxZ - square.MaxZ } );
+                EXPECT_FLOAT_EQ( cell.Growth, overhang ) << path.string();
+                worst = std::max( worst, cell.Growth );
+
+                for ( const std::size_t held : cell.Composites )
+                {
+                    EXPECT_EQ( cellOfComposite[held], kNoRecord ) << "a composite in two cells: " << path.string();
+                    cellOfComposite[held] = index;
+                    EXPECT_EQ( plan.Composites[held].Cell, cell.Cell ) << path.string();
+                }
+            }
+            EXPECT_FLOAT_EQ( plan.MaxGrowth, worst ) << path.string();
+            for ( const std::size_t held : cellOfComposite )
+                EXPECT_NE( held, kNoRecord ) << "a composite in no cell: " << path.string();
+
+            const auto Inside = [&]( std::size_t record, float x, float z )
+            {
+                const PlannedCell& cell = plan.Cells[cellOfComposite[CompositeOf( plan, record )]];
+                EXPECT_TRUE( x >= cell.Bounds.MinX && x <= cell.Bounds.MaxX && z >= cell.Bounds.MinZ &&
+                             z <= cell.Bounds.MaxZ )
+                     << path.string() << ": record " << record << " at (" << x << ", " << z << ")";
+            };
+
+            // Root records: no parent, so the stated translation IS the world position.
+            for ( std::size_t record = 0; record < records.size(); ++record )
+            {
+                if ( records[record].parent.has_value() && !records[record].parent->IsNull() )
+                    continue;
+                if ( records[record].Translation.has_value() )
+                    Inside( record, records[record].Translation->x, records[record].Translation->z );
+            }
+
+            // Instances, read from the raw JSON and not through the planner's own reader.
+            const auto document = rfl::json::read<rfl::Generic>( text );
+            ASSERT_TRUE( document.has_value() );
+            const auto entities = document->to_object().value().get( "Entities" );
+            ASSERT_TRUE( entities.has_value() );
+            const auto list = entities->to_array().value();
+            ASSERT_EQ( list.size(), records.size() ) << path.string();
+            for ( std::size_t record = 0; record < list.size(); ++record )
+            {
+                const auto ism = list[record].to_object().value().get( std::string( kInstancePointsComponent ) );
+                if ( !ism.has_value() )
+                    continue;
+                const auto matrices = ism->to_object().value().get( std::string( kInstancePointsField ) );
+                if ( !matrices.has_value() )
+                    continue;
+                // Held by name: `to_array()` returns a temporary, and a range-for over `.value()` of it
+                // iterates a destroyed array - which read as "no instances" rather than crashing.
+                const auto array = matrices->to_array();
+                ASSERT_TRUE( array.has_value() ) << path.string();
+                for ( const auto& matrix : array.value() )
+                {
+                    const auto m = matrix.to_array().value();
+                    ASSERT_EQ( m.size(), 16u );
+                    const auto Number = []( const rfl::Generic& value )
+                    {
+                        const auto real = value.to_double();
+                        return real.has_value() ? static_cast<float>( real.value() )
+                                                : static_cast<float>( value.to_int64().value() );
+                    };
+                    Inside( record, Number( m[12] ), Number( m[14] ) );
+                    ++instancesSeen;
+                }
+            }
+        }
     }
-    EXPECT_GT( refusedAtOneMetre, 0u )
-         << "no scene in the corpus holds a composite wider than a metre, so this sweep proves nothing";
+    EXPECT_GT( grownAtOneMetre, 0u )
+         << "no scene in the corpus grows a one-metre cell, so this sweep proves nothing about growth";
+    EXPECT_GT( instancesSeen, 0u ) << "no InstancedStaticMesh instance was checked, so the ISM half is vacuous";
 }
 
 int main( int argc, char** argv )

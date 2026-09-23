@@ -319,30 +319,22 @@ namespace Desert::Core
                       scene.SceneName, plan.Shadowed, plan.UnresolvedParents, plan.Minted );
         }
 
-        // IF THIS WORLD SAYS IT IS PARTITIONED, SAY WHETHER IT ACTUALLY PARTITIONS.
+        // IF THIS WORLD SAYS IT IS PARTITIONED, SAY WHAT THE PARTITION IS AND WHAT IT COST.
         //
-        // AND LOAD IT EITHER WAY. A refusal here is NOT a refusal to load: the invariant belongs to
-        // partition time, nothing streams yet, and the scene in front of the user is not the thing that
-        // is wrong — a world with one oversized composite is a world with one thing to fix in it. The
-        // version gate above refuses because an old file cannot be READ; this cannot make that claim.
-        //
-        // It runs at load rather than only in a tool because that is where somebody who has just moved
-        // an entity will see it. The work is one walk of the records the loader has already parsed, and
-        // an unpartitioned world (every `.desce` in the repository today) does none of it.
+        // Nothing here can stop a load: a composite wider than a cell is held whole and its cell grows
+        // (owner decision 2026-09-18), so the only fact worth a line is HOW MUCH the cells grew — the
+        // number a streamer will one day pay in residency. It is stated at load because that is where
+        // somebody who has just moved an entity will see it. The work is one walk of the records the
+        // loader has already parsed, and an unpartitioned world (every `.desce` in the repository today)
+        // does none of it.
         if ( scene.WorldPartition.has_value() )
         {
             const Rules::WorldPartitionPlan partition =
                  Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition );
 
-            for ( const Rules::OversizedComposite& refusal : partition.Refusals )
-            {
-                LOG_ERROR( "[WorldPartition] '{0}': {1}", scene.SceneName,
-                           Rules::DescribeRefusal( scene.Entities, refusal ) );
-            }
-
             if ( !partition.Dangling.empty() )
             {
-                // NOT a refusal, and said separately because it is a different fact: a composite that is
+                // Said separately because it is a different fact: a composite that is
                 // smaller than its author thinks, because one of its parts names an entity this file
                 // does not contain.
                 LOG_WARN( "[WorldPartition] '{0}': {1} containment reference(s) name an entity this file "
@@ -355,19 +347,33 @@ namespace Desert::Core
             {
                 // A THIRD, DIFFERENT FACT, and it is a limitation rather than a defect in the world: a
                 // prefab instance's transform is not in this file at all, so the partitioner put it at
-                // the origin. Said out loud because "in cell (0,0)" is otherwise indistinguishable from
-                // a correct answer.
+                // the origin (and let it grow no cell's bounds). Said out loud because "in cell (0,0)" is
+                // otherwise indistinguishable from a correct answer.
                 LOG_WARN( "[WorldPartition] '{0}': {1} prefab instance(s) state no transform of their "
                           "own in this file, so they are partitioned AT THE ORIGIN. Placing them needs "
                           "the prefab's own bounds, which are not stored in the asset yet.",
                           scene.SceneName, partition.UnplacedPrefabInstances.size() );
             }
 
-            if ( !partition.Refused() )
+            // The worst cell by name, because "grew by 30000" is only actionable next to WHAT grew it.
+            const float cellSize = scene.WorldPartition->CellSize;
+            if ( partition.MaxGrowthCell != Rules::kNoRecord && partition.MaxGrowth > 0.0f )
             {
-                LOG_INFO( "[WorldPartition] '{0}': partitions into {1} composite(s) at a cell size of "
-                          "{2} world units.",
-                          scene.SceneName, partition.Composites.size(), scene.WorldPartition->CellSize );
+                const Rules::PlannedCell& worst = partition.Cells[partition.MaxGrowthCell];
+                const auto&               grown = scene.Entities[worst.Furthest];
+                LOG_INFO( "[WorldPartition] '{0}': {1} composite(s) in {2} cell(s) of {3} world units; the "
+                          "cells grew to hold them whole by up to {4} world units ({5} cell sizes), in cell "
+                          "({6}, {7}), furthest out: '{8}' (id {9}).",
+                          scene.SceneName, partition.Composites.size(), partition.Cells.size(), cellSize,
+                          partition.MaxGrowth, partition.MaxGrowth / cellSize, worst.Cell.X, worst.Cell.Z,
+                          grown.Tag.value_or( "Entity" ),
+                          grown.id.has_value() ? static_cast<std::uint64_t>( *grown.id ) : 0u );
+            }
+            else
+            {
+                LOG_INFO( "[WorldPartition] '{0}': {1} composite(s) in {2} cell(s) of {3} world units; no "
+                          "cell grew past its grid square.",
+                          scene.SceneName, partition.Composites.size(), partition.Cells.size(), cellSize );
             }
         }
 

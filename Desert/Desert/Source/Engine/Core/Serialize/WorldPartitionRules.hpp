@@ -1,60 +1,59 @@
 #pragma once
 
-// WHICH CELL EACH THING IN A PARTITIONED WORLD BELONGS TO, AND THE ONE CUT THAT IS REFUSED.
+// WHICH CELL EACH THING IN A PARTITIONED WORLD BELONGS TO, AND HOW FAR EACH CELL HAD TO GROW TO HOLD IT.
 //
 // ── WHAT THIS IS NOT ──────────────────────────────────────────────────────────────────────────────
 //
 // It is not streaming. There is no residency here, no coarse layer, no root set that moves with the
 // camera, and no spatial index: `PROGRAMME.md` §8 names those as three separate absences and this file
 // is the first of them only — making the scene FORMAT able to express a partition, and making the
-// partitioner refuse the cut that would make a partition incoherent whatever the runtime later does.
-// A cell is a set of records here and nothing more.
+// partitioner assign every whole to exactly one cell and say what that cost. A cell is a set of records
+// and a rectangle here, nothing more.
 //
-// ── THE UNIT IS THE COMPOSITE, NOT THE ENTITY (owner decision, 2026-09-23) ────────────────────────
+// ── THE UNIT IS THE COMPOSITE, NOT THE ENTITY ─────────────────────────────────────────────────────
 //
-// The question "what happens to a reference that crosses a cell boundary" was posed as a choice
-// between UE (the cell GROWS to contain the referent) and Unity ECS (the reference NULLS). Both
-// answers were rejected as the question, because the thing that decides is not what the reference
-// does, it is WHAT KIND OF RELATION it is:
+// What a reference across a cell boundary does depends on WHAT KIND OF RELATION it is:
 //
 //   * CONTAINMENT — a parent and its child, a weapon in a hand, a player inside a vehicle. These are
-//     parts of ONE WHOLE. A whole that is half-loaded is incoherent no matter what the reference does:
-//     nulling it drops the weapon through the floor, growing the cell loads the weapon and calls the
-//     result a cell. So the composite — not the entity — is what a cell holds, and a composite is
-//     never divided.
+//     parts of ONE WHOLE, and a whole that is half-loaded is incoherent: nulling the link drops the
+//     weapon through the floor. So the composite — not the entity — is what a cell holds, and a
+//     composite is never divided. This is also what UE does with a cluster of actors that reference
+//     each other: the cluster goes into one cell whole.
 //
 //   * OBSERVATION — "that building over there". It nulls, and the reader handles null. This is not a
 //     new rule: `AttachmentSystem` already takes exactly that path for a target it cannot find, and
 //     `SocketAttachmentComponent::Target` is a `UUID` with a `Null()` for the purpose.
 //
-// ── WHY IT IS AN INVARIANT AND NOT A CELL THAT GROWS ──────────────────────────────────────────────
+// ── THE CELL GROWS (owner decision, 2026-09-18, Docs/World/PROGRAMME.md) ──────────────────────────
 //
-// UE's answer costs something specific and it is worth naming, because it is the reason we did not
-// take it: when a cell grows to swallow whatever its contents point at, the set of bytes resident at
-// a given camera position stops being a function of the grid and becomes a function of the content
-// graph. Residency becomes DERIVED and UNPREDICTABLE — you cannot look at a world and say what it
-// costs to stand there — and the very next decision in this programme ("a budget that can be exceeded
-// is not a budget") needs exactly that predictability.
+// The owner chose UE's approach to partitioning on 2026-09-18, and with it UE's answer to the one
+// question the composite rule leaves open — a composite wider than a cell. The answer is that THE CELL
+// GROWS: its bounds become the union of its own grid square and everything assigned to it, so a
+// composite of any size is held whole and nothing is refused. (Commit 6a122bae on this branch refused
+// such a composite instead and called that an owner decision of 2026-09-23; it was not one, and the
+// refusal is gone.)
 //
-// So the composite is assigned WHOLE, to the cell its anchor sits in, and the cost of that is bounded
-// on purpose:
+// What UE's answer costs is named rather than hidden: with a grown cell, what is resident at a camera
+// position is no longer a function of the grid alone but of the content. So the growth is not left to be
+// discovered — it is a NUMBER the plan states for every cell, and for the world as a whole:
 //
-//   > A CELL'S CONTENTS LIE INSIDE THAT CELL'S BOUNDS EXPANDED BY AT MOST ONE CELL SIZE.
+//   > EVERY CELL CARRIES ITS GRID SQUARE, THE BOUNDS OF WHAT IT HOLDS, AND HOW FAR THE LATTER
+//   > OVERHANGS THE FORMER. `WorldPartitionPlan::MaxGrowth` IS THE WORST OF THEM.
 //
-// That statement is the whole design, and `PlanWorldPartition` below is what makes it true rather than
-// hoped for. It holds because assignment is by composite (so nothing is ever divided) AND because a
-// composite whose members reach further than one cell size from its anchor is REFUSED (so the overhang
-// has a number). Take either half away and the sentence is false.
+// It is a number and not a gate. A threshold that refuses or warns would be a policy, and the policy
+// belongs with the thing that pays for growth — streaming — which does not exist yet. UE's own answer
+// for a very large cluster is to lift it into a coarser level of the grid; that is deliberately not
+// here either, because a coarser level is a streaming concept and has nothing to be resident in yet.
 //
-// ── THE REFUSAL ───────────────────────────────────────────────────────────────────────────────────
+// ── WHAT A CELL'S BOUNDS ARE MADE OF: POINTS, AND WHERE THEY COME FROM ────────────────────────────
 //
-// It names both entities — the composite's anchor and the member that reaches too far — the entity the
-// member hangs off, WHICH RELATION it hangs by, how far it reaches and what the cell size is. A
-// refusal nobody can read is a refusal nobody will fix; `DescribeRefusal` is the sentence.
-//
-// The author has three real answers to it and all three are edits to the world, not to this file:
-// raise `CellSize`, break the composite up (if the relation was observation wearing containment's
-// clothes, say so by deleting the parent link), or move the piece closer.
+// A scene record carries no extent of its own: a mesh's bounds live in the mesh asset, a prefab's are
+// not stored anywhere (see UnplacedPrefabInstances), so what this file can see is a POSITION per record.
+// There is exactly one exception, and it is taken because it is the case that grows a cell the most:
+// an InstancedStaticMesh record carries the WORLD-space matrix of every instance it draws
+// (MeshECSSystem.hpp submits the snapshot without the entity's transform), so its contents are that set
+// of points, not the entity's own position. A foliage field spanning a kilometre is one record; treating
+// it as one point would report a cell of zero growth that loads a kilometre of grass.
 //
 // ── WHAT COUNTS AS CONTAINMENT IS DERIVED, AND AN UNKNOWN REFERENCE IS RED ────────────────────────
 //
@@ -86,7 +85,7 @@
 // GetTransform() is the three lines this file needs, but that header carries entt, the reflection
 // macros and ninety-odd component definitions — including it here would make this file exactly as
 // unreachable by a test as SceneSerializer.cpp is, which is the thing the split exists to prevent.
-// ComposeLocal below states the same composition and the suite pins the two against each other.
+// ComposeLocal below states the same composition; the suite pins it against hand-worked numbers.
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -96,11 +95,13 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <optional>
 #include <span>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Desert::Core::Rules
@@ -136,11 +137,11 @@ namespace Desert::Core::Rules
         return cell;
     }
 
-    // WHAT ONE ENTITY REFERENCE MEANS. The only two answers, and the decision the owner took on
-    // 2026-09-23 is which of the two a given reference is — not what the partitioner does about it.
+    // WHAT ONE ENTITY REFERENCE MEANS. The only two answers; which of the two a given reference is, is
+    // what the register below records.
     enum class ReferenceKind
     {
-        // Parts of one whole. The partitioner keeps them in one cell, whole, or refuses.
+        // Parts of one whole. The partitioner keeps them in one cell, whole, and grows the cell.
         Containment,
         // "That thing over there". Nulls across a boundary; the reader handles null, as
         // AttachmentSystem already does for a target it cannot find.
@@ -222,11 +223,6 @@ namespace Desert::Core::Rules
         SocketAttachment, // SocketAttachmentComponent::Target
     };
 
-    [[nodiscard]] inline const char* NameOf( Containment relation )
-    {
-        return relation == Containment::Hierarchy ? "hierarchy (parent)" : "socket attachment";
-    }
-
     // One containment edge of the file, as record indices.
     struct ContainmentEdge
     {
@@ -238,11 +234,10 @@ namespace Desert::Core::Rules
 
     // A containment reference naming an id no record in this file claims.
     //
-    // NOT A REFUSAL. A dangling parent is already a counted warning at load (`StitchPlan::
+    // REPORTED, NOT ACTED ON. A dangling parent is already a counted warning at load (`StitchPlan::
     // UnresolvedParents`) and a dangling socket target is already a silent `continue` in
-    // `AttachmentSystem` — neither is a cut this partitioner is making, so refusing to partition a
-    // world over one would be this task punishing a defect that belongs to somebody else. It is
-    // reported so that "the composite is smaller than you think" is visible rather than inferred.
+    // `AttachmentSystem` — neither is a cut this partitioner is making. It is reported so that "the
+    // composite is smaller than you think" is visible rather than inferred.
     struct DanglingContainment
     {
         std::size_t  Member   = kNoRecord;
@@ -259,16 +254,47 @@ namespace Desert::Core::Rules
         std::vector<std::size_t> Members;
     };
 
-    // THE REFUSAL: a composite that does not fit in a cell, so there is no cell that can hold it whole
-    // and no promise left about how far its contents overhang.
-    struct OversizedComposite
+    // A RECTANGLE ON THE GROUND, in world units (centimetres). X and Z only, for the same reason the
+    // grid is two-dimensional: height does not partition.
+    struct CellBounds
     {
-        std::size_t Anchor       = kNoRecord; // the composite's anchor record
-        std::size_t Member       = kNoRecord; // the member that reaches too far
-        std::size_t MemberHolder = kNoRecord; // what that member hangs off (kNoRecord if it is dangling)
-        Containment Relation     = Containment::Hierarchy; // by which relation it hangs
-        float       Reach        = 0.0f;                   // furthest of |dx| and |dz| from the anchor
-        float       CellSize     = 0.0f;
+        float MinX = 0.0f;
+        float MinZ = 0.0f;
+        float MaxX = 0.0f;
+        float MaxZ = 0.0f;
+    };
+
+    // The square the grid gives a cell before anything is put in it.
+    [[nodiscard]] inline CellBounds GridSquareOf( const CellCoord& cell, float cellSize )
+    {
+        CellBounds square;
+        square.MinX = static_cast<float>( cell.X ) * cellSize;
+        square.MinZ = static_cast<float>( cell.Z ) * cellSize;
+        square.MaxX = square.MinX + cellSize;
+        square.MaxZ = square.MinZ + cellSize;
+        return square;
+    }
+
+    // ONE CELL THAT HOLDS SOMETHING, AND WHAT HOLDING IT COST.
+    //
+    // `Bounds` is the cell's grid square GROWN to contain every point of every composite assigned to it
+    // (owner decision 2026-09-18: the cell grows). `Content` is those points alone — it can be smaller
+    // than the square, and it is what a later coarse layer or a residency test would want to know.
+    // `Growth` is how far `Bounds` overhangs the square, the worst of its four sides, in world units: zero
+    // means the cell is exactly its square, one cell size means a streamer must treat it as three
+    // squares wide along that axis.
+    //
+    // `Furthest` is the record whose point sets `Growth` — the thing to look at when the number is large.
+    // kNoRecord when nothing overhangs.
+    struct PlannedCell
+    {
+        CellCoord Cell;
+        // nullopt when nothing in the cell has a known position — only unplaced prefab instances.
+        std::optional<CellBounds> Content;
+        CellBounds                Bounds;
+        float                     Growth   = 0.0f;
+        std::size_t               Furthest = kNoRecord;
+        std::vector<std::size_t>  Composites; // indices into WorldPartitionPlan::Composites
     };
 
     struct WorldPartitionPlan
@@ -290,18 +316,27 @@ namespace Desert::Core::Rules
         // Closing it is not this task: `PROGRAMME.md` already names the same gap from the other end -
         // a prefab has no bounds of its own, they have to be computed at import and stored in the
         // asset - and until that exists, placing an instance means opening its file.
+        //
+        // AND THEY DO NOT GROW A CELL. Their origin is not a position, it is the absence of one, so it
+        // contributes no point to any cell's Content: a cell grown to reach the origin by a record that
+        // is not there would state a number that is simply false.
         std::vector<std::size_t> UnplacedPrefabInstances;
 
-        // Empty means the world partitions. Non-empty means it does NOT, and each entry is a sentence
-        // DescribeRefusal can write out. The plan's Composites are still filled in either case, so a
-        // caller can show the author what the partition WOULD have been beside what stopped it.
-        std::vector<OversizedComposite> Refusals;
+        // Every cell that holds at least one composite, ordered by X then Z so the plan does not depend
+        // on the iteration order of a hash map. A cell nothing is assigned to is not listed.
+        std::vector<PlannedCell> Cells;
 
-        [[nodiscard]] bool Refused() const
-        {
-            return !Refusals.empty();
-        }
+        // THE WORLD'S ONE NUMBER FOR "HOW MUCH DID HOLDING WHOLES COST": the largest Growth of any cell,
+        // and which cell it is (an index into Cells, kNoRecord for a world with no cells). Zero means
+        // every cell is exactly its grid square.
+        float       MaxGrowth     = 0.0f;
+        std::size_t MaxGrowthCell = kNoRecord;
     };
+
+    // THE ONE RECORD KIND WHOSE CONTENTS ARE NOT AT ITS OWN POSITION, by its names on disk. One row,
+    // named, so a suite can pin it: see "WHAT A CELL'S BOUNDS ARE MADE OF" at the top of this file.
+    inline constexpr std::string_view kInstancePointsComponent = "InstancedStaticMesh";
+    inline constexpr std::string_view kInstancePointsField     = "InstanceTransforms";
 
     namespace Detail
     {
@@ -341,8 +376,10 @@ namespace Desert::Core::Rules
 
         // ONE RECORD'S LOCAL MATRIX, and it must stay identical to ECS::TransformComponent::
         // GetTransform() (Engine/ECS/Components.hpp:645-649) — translate * toMat4(quat(euler)) *
-        // scale — because that is what the loader builds out of these same three fields. The suite
-        // asserts the agreement on a rotated, scaled, offset case rather than trusting this comment.
+        // scale — because that is what the loader builds out of these same three fields. The suite cannot
+        // include Components.hpp either, so it pins the composition on a rotated, scaled, offset parent
+        // against numbers worked out by hand (WorldPartitionCells.ARotatedScaledParent...), which is what
+        // goes red if either side changes convention.
         //
         // An absent field is its default, exactly as the loader treats it: EntitySerializer only
         // writes a transform field the entity has, and an entity created without one sits at zero
@@ -354,6 +391,60 @@ namespace Desert::Core::Rules
             const glm::vec3 scale       = record.Scale.value_or( glm::vec3( 1.0f ) );
             return glm::translate( glm::mat4( 1.0f ), translation ) * glm::toMat4( glm::quat( rotation ) ) *
                    glm::scale( glm::mat4( 1.0f ), scale );
+        }
+
+        // A number inside a component payload. JSON does not keep "0" and "0.0" apart and neither does
+        // rfl::Generic: an integral literal reads as an integer and `to_double` refuses it, so both are
+        // asked for. Not asking for both would silently drop every instance on an integral coordinate.
+        [[nodiscard]] inline bool ReadNumber( const rfl::Generic& value, float& out )
+        {
+            if ( const auto real = value.to_double(); real.has_value() )
+            {
+                out = static_cast<float>( real.value() );
+                return true;
+            }
+            if ( const auto whole = value.to_int64(); whole.has_value() )
+            {
+                out = static_cast<float>( whole.value() );
+                return true;
+            }
+            return false;
+        }
+
+        // THE WORLD-SPACE GROUND POSITION OF EVERY INSTANCE AN InstancedStaticMesh RECORD DRAWS.
+        //
+        // WORLD and not local, and the line that decides it is not the member's comment but the submit in
+        // MeshECSSystem.hpp, which hands the snapshot of InstanceTransforms to the renderer without the
+        // entity's own transform. Each matrix is written by ComponentRegistry as the 16 floats of a
+        // column-major glm::mat4 (a memcpy), so the translation is elements 12, 13 and 14.
+        //
+        // A matrix that is not 16 numbers is skipped rather than guessed at; the loader would reject the
+        // same block, so it cannot be drawn either.
+        inline void AppendInstancePoints( const Assets::EntityData& record, std::vector<glm::vec2>& out )
+        {
+            const auto payload = record.Components.get( std::string( kInstancePointsComponent ) );
+            if ( !payload.has_value() )
+                return;
+            const auto block = payload.value().to_object();
+            if ( !block.has_value() )
+                return;
+            const auto field = block.value().get( std::string( kInstancePointsField ) );
+            if ( !field.has_value() )
+                return;
+            const auto matrices = field.value().to_array();
+            if ( !matrices.has_value() )
+                return;
+
+            for ( const rfl::Generic& matrix : matrices.value() )
+            {
+                const auto elements = matrix.to_array();
+                if ( !elements.has_value() || elements.value().size() != 16 )
+                    continue;
+                float x = 0.0f;
+                float z = 0.0f;
+                if ( ReadNumber( elements.value()[12], x ) && ReadNumber( elements.value()[14], z ) )
+                    out.emplace_back( x, z );
+            }
         }
     } // namespace Detail
 
@@ -426,7 +517,7 @@ namespace Desert::Core::Rules
 
     // THE PARTITION, as a pure function of the parsed records and the world's one authored number.
     //
-    // THE THREE STEPS, and why in this order:
+    // THE FOUR STEPS, and why in this order:
     //
     //   1. WORLD POSITIONS, composed down the hierarchy. A record's `Translation` is LOCAL — the
     //      loader hands it straight to `TransformComponent`, which `Entity::GetWorldTransform`
@@ -440,7 +531,8 @@ namespace Desert::Core::Rules
     //      and whatever it held when the file was saved is what is in the file. It is used as-is —
     //      there is no skeleton at partition time and inventing one would be worse — and it is
     //      harmless precisely BECAUSE the relation is containment: the entity is in the hand of a
-    //      target that is in the same composite, so it is near the anchor whatever the sample was.
+    //      target that is in the same composite, so whatever the sample was, the cell holding the
+    //      target holds it too — at worst it grows that cell by the length of an arm.
     //
     //   2. COMPOSITES, as the connected components of the containment relations. Both relations, one
     //      union: an entity can have a hierarchy parent AND a socket target (a weapon parented under
@@ -452,9 +544,14 @@ namespace Desert::Core::Rules
     //      hash map. A composite that is nothing but a cycle (a corrupt file) has no such member and
     //      anchors on its first member instead, which is a definition rather than a crash.
     //
+    //   4. THE GROWTH, last, because it needs all three: every point of every composite is folded into
+    //      the bounds of the cell its anchor chose, and how far that overhangs the grid square is
+    //      recorded per cell and as the world's maximum. Nothing is refused.
+    //
     // @p settings is the world's own block. `CellSize` <= 0 is not sanitised into something plausible:
     //    every composite lands in cell (0,0) and the world is one cell, which is what "no grid" means
-    //    and is visibly wrong rather than quietly approximate.
+    //    and is visibly wrong rather than quietly approximate. That cell's Bounds are its Content and its
+    //    Growth is zero: there is no square for it to outgrow.
     [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const Assets::EntityData> records,
                                                                 const WorldPartitionSerialized&     settings )
     {
@@ -585,20 +682,6 @@ namespace Desert::Core::Rules
                 forest[member] = holder;
         }
 
-        // What each member hangs off, for the refusal's sentence. First edge wins; an entity with both
-        // a hierarchy parent and a socket target is named by its hierarchy parent, which is the one a
-        // reader of the file can see without opening a component block.
-        std::vector<std::size_t> holderOf( records.size(), kNoRecord );
-        std::vector<Containment> relationOf( records.size(), Containment::Hierarchy );
-        for ( const ContainmentEdge& edge : plan.Containment )
-        {
-            if ( holderOf[edge.Member] == kNoRecord )
-            {
-                holderOf[edge.Member]   = edge.Holder;
-                relationOf[edge.Member] = edge.Relation;
-            }
-        }
-
         // ── 3. One cell per composite ─────────────────────────────────────────────────────────────
         std::unordered_map<std::size_t, std::size_t> composite; // root of the set -> index in Composites
         for ( std::size_t record = 0; record < records.size(); ++record )
@@ -613,90 +696,137 @@ namespace Desert::Core::Rules
             plan.Composites[found->second].Members.push_back( record );
         }
 
+        // What hangs off something. The anchor is the first member in file order that does not.
+        std::vector<bool> hangs( records.size(), false );
+        for ( const ContainmentEdge& edge : plan.Containment )
+            hangs[edge.Member] = true;
+
         const float cellSize = settings.CellSize;
         for ( PlannedComposite& group : plan.Composites )
         {
             group.Anchor = group.Members.front();
             for ( const std::size_t member : group.Members )
             {
-                if ( holderOf[member] == kNoRecord )
+                if ( !hangs[member] )
                 {
                     group.Anchor = member;
                     break;
                 }
             }
 
-            // A NON-POSITIVE CELL SIZE IS ONE CELL, and there is nothing to refuse in a world that has
-            // one cell. It is not repaired into something plausible and it is not a second kind of
-            // refusal: every composite reports cell (0,0), which is what "this world has no grid"
-            // looks like from the outside. Nothing in the editor can produce it — the format's default
-            // is 12800 — so the only way to get here is by hand-editing the file.
+            // A NON-POSITIVE CELL SIZE IS ONE CELL. It is not repaired into something plausible: every
+            // composite reports cell (0,0), which is what "this world has no grid" looks like from the
+            // outside. Nothing in the editor can produce it — the format's default is 12800 — so the only
+            // way to get here is by hand-editing the file.
             if ( cellSize <= 0.0f )
                 continue;
 
             const glm::mat4& anchorWorld = world[group.Anchor];
             group.Cell                   = CellOf( anchorWorld[3].x, anchorWorld[3].z, cellSize );
+        }
 
-            // THE REFUSAL. Chebyshev and not Euclidean on purpose: the promise being kept is about
-            // CELL BOUNDS, which are axis-aligned, so the distance that decides is the larger of the
-            // two axis distances and a diagonal neighbour is no worse than a side one.
-            for ( const std::size_t member : group.Members )
+        // ── 4. THE CELL GROWS to hold what was assigned to it ─────────────────────────────────────
+        //
+        // Every point of every composite in a cell is folded into that cell's Content, and Bounds is the
+        // grid square grown to contain it. No point is tested against a limit: a composite of any size is
+        // held whole, and what holding it cost is the Growth computed here.
+        std::vector<bool> unplaced( records.size(), false );
+        for ( const std::size_t record : plan.UnplacedPrefabInstances )
+            unplaced[record] = true;
+
+        // Ordered by X then Z, so the plan does not depend on a hash map's iteration order.
+        std::map<std::pair<std::int32_t, std::int32_t>, std::size_t> cellIndex;
+        for ( const PlannedComposite& group : plan.Composites )
+            cellIndex.emplace( std::make_pair( group.Cell.X, group.Cell.Z ), kNoRecord );
+        for ( auto& [coord, index] : cellIndex )
+        {
+            index = plan.Cells.size();
+            PlannedCell cell;
+            cell.Cell.X = coord.first;
+            cell.Cell.Z = coord.second;
+            // No grid, no square: the one cell is exactly what it holds and has nothing to outgrow.
+            if ( cellSize > 0.0f )
+                cell.Bounds = GridSquareOf( cell.Cell, cellSize );
+            plan.Cells.push_back( cell );
+        }
+
+        // How far a point lies outside a square on the worse of the two axes; zero inside. Chebyshev and
+        // not Euclidean: the bounds are axis-aligned, so a streamer asking "is the camera inside this
+        // cell's bounds" is asking per axis.
+        struct Overhang
+        {
+            static float Of( const CellBounds& square, const glm::vec2& point )
             {
-                if ( member == group.Anchor )
+                const float x = std::max( square.MinX - point.x, point.x - square.MaxX );
+                const float z = std::max( square.MinZ - point.y, point.y - square.MaxZ );
+                return std::max( 0.0f, std::max( x, z ) );
+            }
+        };
+
+        std::vector<glm::vec2> points;
+        for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
+        {
+            const PlannedComposite& held = plan.Composites[group];
+            PlannedCell&            cell = plan.Cells[cellIndex.at( std::make_pair( held.Cell.X, held.Cell.Z ) )];
+            cell.Composites.push_back( group );
+
+            for ( const std::size_t member : held.Members )
+            {
+                if ( unplaced[member] )
                     continue;
 
-                const float dx    = world[member][3].x - anchorWorld[3].x;
-                const float dz    = world[member][3].z - anchorWorld[3].z;
-                const float reach = std::max( std::fabs( dx ), std::fabs( dz ) );
-                if ( reach <= cellSize )
-                    continue;
+                points.clear();
+                points.emplace_back( world[member][3].x, world[member][3].z );
+                Detail::AppendInstancePoints( records[member], points );
 
-                plan.Refusals.push_back( OversizedComposite{ group.Anchor, member, holderOf[member],
-                                                             relationOf[member], reach, cellSize } );
+                for ( const glm::vec2& point : points )
+                {
+                    if ( !cell.Content.has_value() )
+                        cell.Content = CellBounds{ point.x, point.y, point.x, point.y };
+                    CellBounds& content = *cell.Content;
+                    content.MinX        = std::min( content.MinX, point.x );
+                    content.MinZ        = std::min( content.MinZ, point.y );
+                    content.MaxX        = std::max( content.MaxX, point.x );
+                    content.MaxZ        = std::max( content.MaxZ, point.y );
+
+                    if ( cellSize <= 0.0f )
+                        continue;
+                    const float overhang = Overhang::Of( GridSquareOf( cell.Cell, cellSize ), point );
+                    if ( overhang > cell.Growth )
+                    {
+                        cell.Growth   = overhang;
+                        cell.Furthest = member;
+                    }
+                }
+            }
+        }
+
+        for ( std::size_t index = 0; index < plan.Cells.size(); ++index )
+        {
+            PlannedCell& cell = plan.Cells[index];
+            if ( cell.Content.has_value() )
+            {
+                if ( cellSize > 0.0f )
+                {
+                    cell.Bounds.MinX = std::min( cell.Bounds.MinX, cell.Content->MinX );
+                    cell.Bounds.MinZ = std::min( cell.Bounds.MinZ, cell.Content->MinZ );
+                    cell.Bounds.MaxX = std::max( cell.Bounds.MaxX, cell.Content->MaxX );
+                    cell.Bounds.MaxZ = std::max( cell.Bounds.MaxZ, cell.Content->MaxZ );
+                }
+                else
+                {
+                    cell.Bounds = *cell.Content;
+                }
+            }
+
+            if ( plan.MaxGrowthCell == kNoRecord || cell.Growth > plan.MaxGrowth )
+            {
+                plan.MaxGrowth     = cell.Growth;
+                plan.MaxGrowthCell = index;
             }
         }
 
         return plan;
-    }
-
-    // THE SENTENCE A HUMAN READS. Names both entities by tag and id, the entity the member hangs off,
-    // the relation, the two numbers and what to do about it.
-    //
-    // Tags, because an id is not something anyone recognises in a viewport, and ids as well, because a
-    // tag is not unique and is frequently "Entity".
-    [[nodiscard]] inline std::string DescribeRefusal( std::span<const Assets::EntityData> records,
-                                                      const OversizedComposite&           refusal )
-    {
-        struct Named
-        {
-            static std::string Of( std::span<const Assets::EntityData> records, std::size_t record )
-            {
-                if ( record == kNoRecord || record >= records.size() )
-                    return "<no record>";
-                const Assets::EntityData& data = records[record];
-                std::ostringstream        text;
-                text << '\'' << data.Tag.value_or( "Entity" ) << "' (id "
-                     << ( data.id.has_value() ? std::to_string( static_cast<std::uint64_t>( *data.id ) )
-                                              : std::string( "none" ) )
-                     << ')';
-                return text.str();
-            }
-        };
-
-        std::ostringstream text;
-        text << "world partition REFUSED: " << Named::Of( records, refusal.Member ) << " is " << refusal.Reach
-             << " world units from " << Named::Of( records, refusal.Anchor )
-             << ", the anchor of the composite it belongs to, which is more than one cell (" << refusal.CellSize
-             << "). It hangs off " << Named::Of( records, refusal.MemberHolder ) << " by "
-             << NameOf( refusal.Relation )
-             << ", and that is CONTAINMENT: the two are parts of one whole, so the partitioner will not "
-                "put them in different cells and no single cell holds them both. Raise the world's cell "
-                "size above "
-             << refusal.Reach
-             << ", move the piece closer, or — if this relation is really 'that thing over there' rather "
-                "than 'part of this' — remove it, and the reference becomes an observation that nulls "
-                "across the boundary.";
-        return text.str();
     }
 
 } // namespace Desert::Core::Rules
