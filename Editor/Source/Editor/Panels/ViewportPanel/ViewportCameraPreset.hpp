@@ -32,6 +32,7 @@
 // is how `Tests/Editor/ViewportCameraPreset` can assert it. The camera-facing entry points below are
 // still declared here and still defined in the .cpp, where the full camera is available.
 #include <Engine/Core/CameraPitchLimit.hpp>
+#include <Engine/Core/EditorCameraBasis.hpp>
 
 #include <glm/glm.hpp>
 
@@ -99,32 +100,66 @@ namespace Desert::Editor
         return kViewportCameraPresets[static_cast<size_t>( p )];
     }
 
-    // Point @p camera at @p preset: snap the orbit onto the named direction and switch the projection.
-    // The framing distance and focal point are untouched — a preset changes the ANGLE, never where the
-    // user was looking, which is what makes flipping between Top and Front useful rather than
-    // disorienting.
+    // ── WHAT A PRESET ASKS THE CAMERA FOR, AS A VALUE ─────────────────────────────────────────────
+    //
+    // The aim is separated from the aiming so that the DECISION is reachable: ViewportCameraPreset.cpp
+    // needs the whole camera and therefore the whole engine, while this is three fields a suite can
+    // compare. The relation it exists to pin is `EveryAxisPresetIsHeldExactly` — every orthographic row
+    // yields an `Axis` basis, so no axis view can reach the orbit's ±89° clamp by accident.
+    struct ViewportCameraAim
+    {
+        bool Orthographic = false;
+        // Set for EVERY orthographic row and for no other. The exact basis, forward and up both named —
+        // the orbit's yaw/pitch pair cannot express straight down without degenerating, which is the
+        // defect this whole seam exists to close.
+        std::optional<::Desert::Core::ViewBasis> Axis;
+        // Where an ORBITING camera is pointed instead. Read only when `Axis` is empty, which today means
+        // the Perspective row alone.
+        glm::vec3 OrbitForward{ 0.0f, 0.0f, -1.0f };
+    };
+
+    [[nodiscard]] inline ViewportCameraAim ViewportCameraAimOf( ViewportCameraPreset preset )
+    {
+        const ViewportCameraPresetRow& row     = ViewportCameraPresetRowOf( preset );
+        const glm::vec3                forward = glm::vec3( row.ForwardX, row.ForwardY, row.ForwardZ );
+
+        ViewportCameraAim aim;
+        aim.Orthographic = row.Orthographic;
+        aim.OrbitForward = forward;
+        // AN AXIS VIEW FOR THE PARALLEL ROWS AND ONLY THOSE. A perspective viewport orbits by definition
+        // — it is the one preset that constrains no direction — so pinning its basis would take the
+        // user's freedom to drag, which is the opposite of what it means.
+        if ( row.Orthographic )
+            aim.Axis = ::Desert::Core::AxisViewBasisOf( forward );
+        return aim;
+    }
+
+    // Point @p camera at @p preset: put it on the named basis (or, for Perspective, on the named orbit
+    // direction) and switch the projection. The framing distance and focal point are untouched — a preset
+    // changes the ANGLE, never where the user was looking, which is what makes flipping between Top and
+    // Front useful rather than disorienting.
     void ApplyViewportCameraPreset( ::Desert::Core::EditorCamera& camera, ViewportCameraPreset preset );
 
     // WHICH PRESET THIS CAMERA IS ON RIGHT NOW, or nullopt if it is on none (an orthographic camera the
     // user has since orbited off-axis). A perspective camera is always Perspective: that is what UE's
     // perspective viewport means, and it is the one preset that constrains no direction.
     //
-    // HOW FAR OFF-AXIS STILL COUNTS, and the number is NOT a taste — it is DERIVED from the camera,
-    // which cannot hold Top or Bottom at all. `EditorCamera::OnUpdate` clamps pitch to ±89° on every
-    // frame (Engine/Core/CameraPitchLimit.hpp) because glm::lookAt degenerates when the forward
-    // direction is parallel to the up vector, so a camera that has just been put on Top settles ONE FULL
-    // DEGREE off straight-down and stays there.
+    // HOW FAR OFF-AXIS STILL COUNTS, AND THE NUMBER'S JOB IS NOW THE OPPOSITE OF WHAT IT WAS.
     //
-    // A hand-written 0.5° stood here, and it meant the two views a four-up grid exists for were the only
-    // two that could never name themselves: both said "Ortho" from the moment the grid opened, which is
-    // precisely the failure the header of this file claims to be avoiding. The margin is the clamp's own
-    // miss plus half a degree of slack, spelled as an expression over the clamp so widening one moves the
-    // other — a second literal agreeing with the first is what produced the defect.
+    // It used to have to ADMIT an error. `EditorCamera::OnUpdate` clamps pitch to ±89° on every frame
+    // (Engine/Core/CameraPitchLimit.hpp) because glm::lookAt degenerates when the forward direction is
+    // parallel to the up vector, so a camera put on Top settled one full degree off straight down — and a
+    // tolerance that did not reach that far made the two views a four-up grid exists for the only two that
+    // could never name themselves. The margin was therefore sized as the clamp's miss plus slack.
     //
-    // THE RESIDUAL TILT IS REAL AND IS NOT FIXED HERE. A plan view one degree off is still not a plan;
-    // making the camera hold ±90° means giving UpdateCameraView a second up vector at the poles, which
-    // changes orbiting in every viewport in the editor and is not this panel's call to make.
-    inline constexpr float kPresetToleranceDegrees = ::Desert::Core::kCameraPitchClampMissDegrees + 0.5f;
+    // THE TILT IS GONE AT THE SOURCE NOW. An axis preset is held as a BASIS and never passes through the
+    // orbit clamp at all (`ViewportCameraAimOf` above, `EditorCamera::SnapToAxisView`), so Top means
+    // exactly (0,-1,0). What is left for this number to do is REFUSE the old answer: sized at HALF the
+    // clamp's own miss, so a camera that reached an axis through the orbit path cannot be named after it
+    // and the caption says "Ortho" — which is true of a plan view that is one degree off, and is the
+    // signal that the preset went the wrong way. Still an expression over the clamp and not a literal:
+    // two numbers that agree today are what produced the original defect.
+    inline constexpr float kPresetToleranceDegrees = ::Desert::Core::kCameraPitchClampMissDegrees * 0.5f;
 
     // THE RULE ITSELF, over a direction rather than a camera, so it can be asked a question without a
     // window, a device or an Input singleton. @p orthographic is the camera's projection: a perspective
