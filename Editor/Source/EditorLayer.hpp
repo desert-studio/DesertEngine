@@ -689,7 +689,11 @@ namespace Desert::Editor
         // Called at every presented frame; the first one presented after the start is over shows the
         // hidden main window and closes the splash. Until then the splash is the only window.
         void RevealWhenReady();
+        // KEPT after it is closed, until the layer goes: Close() only starts the crossfade, and the
+        // object's destructor is what waits for its window and thread — at teardown, not on the frame
+        // the editor has just appeared on.
         std::unique_ptr<Splash::SplashScreen> m_Splash;
+        bool                                  m_Revealed = false;
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
         // WHERE THE ELAPSED TOTAL LIVES NOW. It used to be a `long long` accumulated here with the

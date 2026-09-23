@@ -110,6 +110,42 @@ TEST( SplashLayout, TheDesignShrinksToFitASmallScreenAndNeverGrows )
     EXPECT_EQ( Splash::FitScale( 0.0f, 0.0f ), 1.0f );
 }
 
+// --- The motion -------------------------------------------------------------------------------------
+
+TEST( SplashLayout, ThePushInGoesFromOneToTwoPercentAndHolds )
+{
+    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( 0.0f ), 1.0f );
+    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( Splash::kKenBurnsSeconds ), 1.02f );
+    // A start longer than the push-in holds the last frame; it does not keep zooming or spring back.
+    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( Splash::kKenBurnsSeconds * 3.0f ), 1.02f );
+    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( -1.0f ), 1.0f );
+}
+
+TEST( SplashLayout, ThePushInIsEasedOutAndNeverGoesBackwards )
+{
+    // Ease-out: more than half the travel is done by half the time.
+    const float half = Splash::KenBurnsScale( Splash::kKenBurnsSeconds * 0.5f );
+    EXPECT_GT( half - 1.0f, 0.5f * ( Splash::kKenBurnsZoom - 1.0f ) );
+    float previous = 1.0f;
+    for ( int i = 1; i <= 100; ++i )
+    {
+        const float scale = Splash::KenBurnsScale( Splash::kKenBurnsSeconds * static_cast<float>( i ) / 100.0f );
+        EXPECT_GE( scale, previous );
+        previous = scale;
+    }
+}
+
+TEST( SplashLayout, TheFadesTakeAtMostTwoHundredMilliseconds )
+{
+    EXPECT_LE( Splash::kFadeInSeconds, 0.2f );
+    EXPECT_LE( Splash::kFadeOutSeconds, 0.2f );
+    EXPECT_EQ( Splash::SplashOpacity( 0.0f, false ), 0.0f );
+    EXPECT_EQ( Splash::SplashOpacity( Splash::kFadeInSeconds, false ), 1.0f );
+    EXPECT_EQ( Splash::SplashOpacity( 0.0f, true ), 1.0f );
+    EXPECT_EQ( Splash::SplashOpacity( Splash::kFadeOutSeconds, true ), 0.0f );
+    EXPECT_FLOAT_EQ( Splash::SplashOpacity( Splash::kFadeInSeconds * 0.5f, false ), 0.5f );
+}
+
 // --- The picture ------------------------------------------------------------------------------------
 
 namespace
@@ -141,7 +177,8 @@ namespace
         stdfs::create_directories( dir );
         const stdfs::path file  = dir / name;
         const std::string bytes = Ser::EncodeTextureBinary( data );
-        std::ofstream( file, std::ios::binary ).write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+        std::ofstream( file, std::ios::binary )
+             .write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
         return file;
     }
 
@@ -180,9 +217,10 @@ TEST( SplashLayout, TheLoaderDecodesTheCooksBC7ToTheSameTexelsTheReferenceDecode
 {
     const Ser::TextureAssetData cooked = Cooked( Fmt::ImageFormat::BC7_UNORM );
     ASSERT_FALSE( cooked.Levels.empty() );
-    const auto expected = Fmt::BlockDecompressImage( kSide, kSide, Fmt::ImageFormat::BC7_UNORM, Fmt::ImageFormat::RGBA8F,
-                                                     cooked.Pixels.data() + cooked.Levels[0].ByteOffset,
-                                                     static_cast<std::size_t>( cooked.Levels[0].ByteSize ) );
+    const auto expected =
+         Fmt::BlockDecompressImage( kSide, kSide, Fmt::ImageFormat::BC7_UNORM, Fmt::ImageFormat::RGBA8F,
+                                    cooked.Pixels.data() + cooked.Levels[0].ByteOffset,
+                                    static_cast<std::size_t>( cooked.Levels[0].ByteSize ) );
     ASSERT_TRUE( expected.IsSuccess() );
 
     const auto file   = WriteTex( "bc7.tex", cooked );

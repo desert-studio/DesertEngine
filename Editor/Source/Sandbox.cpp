@@ -4,7 +4,8 @@
 namespace Desert
 {
 
-    Sandbox::Sandbox( const Engine::ApplicationInfo& appinfo, std::unique_ptr<Editor::Splash::SplashScreen> splash )
+    Sandbox::Sandbox( const Engine::ApplicationInfo&                appinfo,
+                      std::unique_ptr<Editor::Splash::SplashScreen> splash )
          : Engine::Application( appinfo ), m_Splash( std::move( splash ) )
     {
     }

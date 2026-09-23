@@ -5467,15 +5467,16 @@ namespace Desert::Editor
     // SHOWN AFTER THE FIRST REAL FRAME IS PRESENTED, NOT BEFORE IT IS DRAWN. The window has been presented
     // loading frames the whole time it was hidden, and a window shown ahead of the first real present would
     // put the last of those — an empty frame — on screen for as long as that frame takes. Shown here, the
-    // surface it reveals already holds the editor, and the splash is closed in the same instant.
+    // surface it reveals already holds the editor, and the splash crossfades into it from this instant.
     void EditorLayer::RevealWhenReady()
     {
-        if ( !m_Splash || !m_RealFrameDrawn )
+        if ( m_Revealed || !m_Splash || !m_RealFrameDrawn )
             return;
+        m_Revealed = true;
         if ( const auto& window = m_Application->GetWindow() )
             window->Show();
+        // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
-        m_Splash.reset();
         LOG_INFO( "[Startup] the editor is on screen and the splash is closed" );
     }
 

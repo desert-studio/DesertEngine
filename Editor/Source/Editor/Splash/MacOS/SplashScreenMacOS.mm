@@ -84,8 +84,8 @@ namespace Desert::Editor::Splash
             // background app, and its first window is ordered in behind the terminal.
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 
-            NSScreen*    screen  = [NSScreen mainScreen];
-            const NSRect visible = screen ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );
+            NSScreen*     screen  = [NSScreen mainScreen];
+            const NSRect  visible = screen ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );
             const CGFloat backing = screen ? screen.backingScaleFactor : 2.0;
             const CGFloat fit     = FitScale( (float)visible.size.width, (float)visible.size.height );
             const CGFloat w       = kWidth * fit;
@@ -93,7 +93,7 @@ namespace Desert::Editor::Splash
             const NSRect  frame   = NSMakeRect( visible.origin.x + ( visible.size.width - w ) * 0.5,
                                                 visible.origin.y + ( visible.size.height - h ) * 0.5, w, h );
 
-            m_Window = [[NSWindow alloc] initWithContentRect:frame
+            m_Window                    = [[NSWindow alloc] initWithContentRect:frame
                                                    styleMask:NSWindowStyleMaskBorderless
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
@@ -106,7 +106,7 @@ namespace Desert::Editor::Splash
             m_Window.level = NSFloatingWindowLevel;
             m_Window.title = @"Desert Engine";
 
-            NSView* view   = m_Window.contentView;
+            NSView* view    = m_Window.contentView;
             view.wantsLayer = YES;
 
             [CATransaction begin];
@@ -123,8 +123,8 @@ namespace Desert::Editor::Splash
             m_Root.cornerRadius    = 10.0;
             // The plain dark background is what shows when there is no cooked picture yet (first run on a
             // fresh clone), and under the picture's first frame while it decodes.
-            CGColorRef dark           = MakeColour( 0.08, 0.075, 0.07, 1 );
-            m_Root.backgroundColor    = dark;
+            CGColorRef dark        = MakeColour( 0.08, 0.075, 0.07, 1 );
+            m_Root.backgroundColor = dark;
             CGColorRelease( dark );
             [view.layer addSublayer:m_Root];
 
@@ -134,15 +134,18 @@ namespace Desert::Editor::Splash
             [m_Root addSublayer:m_Image];
 
             const CGFloat scale = backing * fit;
-            m_Project = MakeTextLayer( m_Root, [NSFont systemFontOfSize:kProjectFontSize weight:NSFontWeightSemibold],
-                                       1.0, kCAAlignmentLeft, scale );
-            m_Version = MakeTextLayer( m_Root, [NSFont systemFontOfSize:kVersionFontSize weight:NSFontWeightRegular],
-                                       kStageAlpha, kCAAlignmentRight, scale );
+            m_Project =
+                 MakeTextLayer( m_Root, [NSFont systemFontOfSize:kProjectFontSize weight:NSFontWeightSemibold],
+                                1.0, kCAAlignmentLeft, scale );
+            m_Version =
+                 MakeTextLayer( m_Root, [NSFont systemFontOfSize:kVersionFontSize weight:NSFontWeightRegular],
+                                kStageAlpha, kCAAlignmentRight, scale );
             m_Stage   = MakeTextLayer( m_Root, [NSFont systemFontOfSize:kStageFontSize weight:NSFontWeightRegular],
                                        kStageAlpha, kCAAlignmentLeft, scale );
-            m_Counter = MakeTextLayer(
-                 m_Root, [NSFont monospacedDigitSystemFontOfSize:kCounterFontSize weight:NSFontWeightRegular],
-                 kStageAlpha, kCAAlignmentRight, scale );
+            m_Counter = MakeTextLayer( m_Root,
+                                       [NSFont monospacedDigitSystemFontOfSize:kCounterFontSize
+                                                                        weight:NSFontWeightRegular],
+                                       kStageAlpha, kCAAlignmentRight, scale );
 
             m_Track                 = [[CALayer alloc] init];
             CGColorRef track        = MakeColour( 1, 1, 1, kBarTrackAlpha );
@@ -160,6 +163,25 @@ namespace Desert::Editor::Splash
             m_Version.string = ToNS( content.Version );
             ApplyStatus( Status{} );
 
+            // THE MOTION, handed to Core Animation whole. An explicit animation committed once is run by
+            // the render server frame by frame on its own clock, so nothing in this process — neither the
+            // main thread nor the splash thread — has to wake up for the picture to keep moving. The
+            // model values are the END values, so a removed animation would leave the picture where the
+            // motion ends rather than snapping back.
+            CABasicAnimation* push = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
+            push.fromValue         = @1.0;
+            push.toValue           = @( kKenBurnsZoom );
+            push.duration          = kKenBurnsSeconds;
+            push.timingFunction    = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+            m_Image.transform      = CATransform3DMakeScale( kKenBurnsZoom, kKenBurnsZoom, 1.0 );
+            [m_Image addAnimation:push forKey:@"push-in"];
+
+            CABasicAnimation* fadeIn = [CABasicAnimation animationWithKeyPath:@"opacity"];
+            fadeIn.fromValue         = @0.0;
+            fadeIn.toValue           = @1.0;
+            fadeIn.duration          = kFadeInSeconds;
+            [m_Root addAnimation:fadeIn forKey:@"fade-in"];
+
             [CATransaction commit];
 
             [m_Window orderFrontRegardless];
@@ -167,15 +189,18 @@ namespace Desert::Editor::Splash
 
             // HOW EARLY, measured from the kernel's own record of when this process began — the one clock
             // that includes the loader and the static initialisers, which no timer started in main() sees.
-            kinfo_proc     info {};
-            size_t         size  = sizeof( info );
-            int            mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
-            struct timeval now {};
+            kinfo_proc info{};
+            size_t     size  = sizeof( info );
+            int        mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
+            struct timeval now
+            {
+            };
             gettimeofday( &now, nullptr );
             if ( sysctl( mib, 4, &info, &size, nullptr, 0 ) == 0 )
             {
                 const struct timeval start = info.kp_proc.p_starttime;
-                const double         ms    = ( now.tv_sec - start.tv_sec ) * 1000.0 + ( now.tv_usec - start.tv_usec ) / 1000.0;
+                const double         ms =
+                     ( now.tv_sec - start.tv_sec ) * 1000.0 + ( now.tv_usec - start.tv_usec ) / 1000.0;
                 LOG_INFO( "[Splash] on screen {:.0f} ms after the process started", ms );
             }
 
@@ -210,8 +235,21 @@ namespace Desert::Editor::Splash
             if ( m_Thread.joinable() )
                 m_Thread.join();
 
-            [m_Window orderOut:nil];
-            [m_Window close];
+            // THE CROSSFADE: the editor's window is already shown underneath, so fading the splash's layers
+            // out reveals it. The window itself is ordered out once the fade is over, by the main run loop
+            // that the editor pumps every frame (glfwPollEvents) — not by sleeping here, which would
+            // freeze the editor that just appeared for the length of the fade.
+            [CATransaction begin];
+            CABasicAnimation* fadeOut = [CABasicAnimation animationWithKeyPath:@"opacity"];
+            fadeOut.fromValue         = @1.0;
+            fadeOut.toValue           = @0.0;
+            fadeOut.duration          = kFadeOutSeconds;
+            m_Root.opacity            = 0.0f;
+            [m_Root addAnimation:fadeOut forKey:@"fade-out"];
+            [CATransaction commit];
+            [CATransaction flush];
+            // The delayed perform retains the window until it has run, so the release below is safe.
+            [m_Window performSelector:@selector( orderOut: ) withObject:nil afterDelay:kFadeOutSeconds];
 
             for ( CALayer* layer : { (CALayer*)m_Project, (CALayer*)m_Version, (CALayer*)m_Stage,
                                      (CALayer*)m_Counter, m_Track, m_Fill, m_Image, m_Root } )

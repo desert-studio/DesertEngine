@@ -118,6 +118,39 @@ namespace Desert::Editor::Splash
         return fit < 1.0f ? fit : 1.0f;
     }
 
+    // ===== The only motion on the splash =====
+    //
+    // A SLOW PUSH-IN ON THE PICTURE (Ken Burns), a fade in at the start and a crossfade into the editor at
+    // the end. The push-in is not decoration only: it runs on the splash's side (Core Animation's render
+    // server on macOS, the splash thread's timer on Windows), never on the main thread, so a picture that
+    // keeps moving while the start is inside one long call is visible proof the splash is alive.
+    inline constexpr float kKenBurnsZoom    = 1.02f; // +2 % over the push-in
+    inline constexpr float kKenBurnsSeconds = 10.0f; // about as long as a Debug start; then it holds
+    inline constexpr float kFadeInSeconds   = 0.2f;
+    inline constexpr float kFadeOutSeconds  = 0.2f;
+
+    [[nodiscard]] constexpr float Clamp01( const float v )
+    {
+        return v < 0.0f ? 0.0f : ( v > 1.0f ? 1.0f : v );
+    }
+
+    /// The picture's scale @p seconds after the splash appeared: 1 at the start, kKenBurnsZoom at
+    /// kKenBurnsSeconds and after, eased OUT (cubic) so the motion is fastest when it begins and settles
+    /// rather than stopping abruptly. About the centre of the picture.
+    [[nodiscard]] constexpr float KenBurnsScale( const float seconds )
+    {
+        const float u    = Clamp01( seconds / kKenBurnsSeconds );
+        const float rest = 1.0f - u;
+        return 1.0f + ( kKenBurnsZoom - 1.0f ) * ( 1.0f - rest * rest * rest );
+    }
+
+    /// Opacity of the whole splash @p seconds after it appeared (fade in), or @p seconds after it was
+    /// asked to close when @p closing (fade out).
+    [[nodiscard]] constexpr float SplashOpacity( const float seconds, const bool closing )
+    {
+        return closing ? 1.0f - Clamp01( seconds / kFadeOutSeconds ) : Clamp01( seconds / kFadeInSeconds );
+    }
+
     /// The same rectangle measured from the TOP, for a platform whose origin is there (GDI).
     [[nodiscard]] constexpr Rect FlipY( const Rect& rect )
     {

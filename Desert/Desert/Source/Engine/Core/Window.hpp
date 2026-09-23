@@ -40,7 +40,7 @@ namespace Desert
         // a full-size window that is blank and not answering for the seconds its start takes is what its
         // own splash exists to replace (Editor/Splash/SplashScreen.hpp), and the swapchain renders into a
         // hidden window exactly as into a visible one. The packaged Runtime leaves it true.
-        bool        Visible                = true;
+        bool Visible = true;
     };
 
     class Window : public Common::EventHandler

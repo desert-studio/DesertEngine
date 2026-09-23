@@ -52,7 +52,10 @@ namespace Desert::Editor::Splash
         /// `total == 0` means the plan is not known yet and draws no counter (SplashLayout.hpp).
         virtual void SetStatus( const std::string& label, std::size_t index, std::size_t total ) = 0;
 
-        /// Takes the window down and joins the splash's thread. Main thread only (AppKit). Idempotent.
+        /// Starts taking the window down — a kFadeOutSeconds crossfade into whatever is under it, the
+        /// editor's window by then — and RETURNS AT ONCE: the editor is on screen and must not freeze for
+        /// the length of a fade. The destructor waits for whatever is left of it. Main thread only
+        /// (AppKit). Idempotent.
         virtual void Close() = 0;
 
         /// The platform's splash, already on screen when this returns. Main thread only.

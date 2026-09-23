@@ -61,8 +61,8 @@ namespace Desert::Editor::Splash
                      "Colour (Splash.detex)",
                      whatFor, static_cast<uint32_t>( data.Format ) );
 
-            auto rgba = Fmt::BlockDecompressImage( level.Width, level.Height, data.Format, Fmt::ImageFormat::RGBA8F,
-                                                   source, size );
+            auto rgba = Fmt::BlockDecompressImage( level.Width, level.Height, data.Format,
+                                                   Fmt::ImageFormat::RGBA8F, source, size );
             if ( !rgba.IsSuccess() )
                 return Common::MakeFormattedError<SplashPixels>( "'{}' could not be decoded: {}", whatFor,
                                                                  rgba.GetError() );
@@ -70,9 +70,8 @@ namespace Desert::Editor::Splash
         }
 
         if ( pixels.Rgba.size() != static_cast<std::size_t>( pixels.Width ) * pixels.Height * 4u )
-            return Common::MakeFormattedError<SplashPixels>( "'{}' decoded to {} bytes for a {}x{} image",
-                                                             whatFor, pixels.Rgba.size(), pixels.Width,
-                                                             pixels.Height );
+            return Common::MakeFormattedError<SplashPixels>( "'{}' decoded to {} bytes for a {}x{} image", whatFor,
+                                                             pixels.Rgba.size(), pixels.Width, pixels.Height );
 
         pixels.DecodeMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count();

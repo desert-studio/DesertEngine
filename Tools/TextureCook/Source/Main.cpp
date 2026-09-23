@@ -28,8 +28,9 @@ namespace
 {
     int Usage()
     {
-        std::fprintf( stderr, "usage: TextureCook <project.deproj> <source> [<source> ...]\n"
-                              "  <source> is relative to the project's folder, e.g. Resources/Splash/Splash.jpg\n" );
+        std::fprintf( stderr,
+                      "usage: TextureCook <project.deproj> <source> [<source> ...]\n"
+                      "  <source> is relative to the project's folder, e.g. Resources/Splash/Splash.jpg\n" );
         return 2;
     }
 
@@ -63,7 +64,8 @@ int main( int argc, char** argv )
              const fs::path  deproj = fs::absolute( args[1], ec );
              if ( ec || !fs::is_regular_file( deproj, ec ) )
              {
-                 std::fprintf( stderr, "TextureCook: '%s' is not a .deproj file this process can read\n", args[1] );
+                 std::fprintf( stderr, "TextureCook: '%s' is not a .deproj file this process can read\n",
+                               args[1] );
                  return 2;
              }
 

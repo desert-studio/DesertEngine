@@ -6,6 +6,10 @@
 // creates the window, runs its message loop, and is the only thing that ever touches it; `SetStatus` and
 // `Close` only post messages to it. This is the arrangement UE's FWindowsPlatformSplash uses.
 //
+// THE MOTION (SplashLayout.hpp: push-in, fade in, crossfade out) is driven by a timer on the same
+// thread, so it keeps moving however long the main thread is away. The fades are the layered window's
+// own alpha; the push-in is a centred source rectangle that shrinks as the scale grows.
+//
 // Drawn with plain GDI into a memory bitmap and blitted in one piece, so a repaint never flickers. GDI
 // has no alpha for text, so "white at 62 %" is the grey that white at 62 % over black gives, and the soft
 // shadow under the small text is the same text in near-black one pixel down.
@@ -18,6 +22,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <optional>
@@ -26,10 +31,10 @@
 #include <vector>
 
 #ifndef NOMINMAX
-    #define NOMINMAX
+#define NOMINMAX
 #endif
 #ifndef WIN32_LEAN_AND_MEAN
-    #define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 
@@ -38,21 +43,24 @@ namespace Desert::Editor::Splash
     namespace
     {
         constexpr UINT     kStatusMessage = WM_APP + 1;
+        constexpr UINT_PTR kFrameTimer    = 1;
+        constexpr UINT     kFrameMs       = 33;
         constexpr wchar_t  kClassName[]   = L"DesertEngineSplash";
         constexpr COLORREF kBackground    = RGB( 20, 19, 18 );
         constexpr COLORREF kWhite         = RGB( 255, 255, 255 );
         constexpr COLORREF kDim           = RGB( 158, 158, 158 ); // white at kStageAlpha over black
         constexpr COLORREF kShadow        = RGB( 8, 8, 8 );
         constexpr COLORREF kTrack         = RGB( 46, 46, 46 ); // white at kBarTrackAlpha over black
-        constexpr COLORREF kSand          = RGB( static_cast<int>( kBarFillRed * 255.0f ),
-                                                 static_cast<int>( kBarFillGreen * 255.0f ),
-                                                 static_cast<int>( kBarFillBlue * 255.0f ) );
+        constexpr COLORREF kSand =
+             RGB( static_cast<int>( kBarFillRed * 255.0f ), static_cast<int>( kBarFillGreen * 255.0f ),
+                  static_cast<int>( kBarFillBlue * 255.0f ) );
 
         std::wstring Widen( const std::string& text )
         {
             if ( text.empty() )
                 return {};
-            const int length = MultiByteToWideChar( CP_UTF8, 0, text.data(), static_cast<int>( text.size() ), nullptr, 0 );
+            const int length =
+                 MultiByteToWideChar( CP_UTF8, 0, text.data(), static_cast<int>( text.size() ), nullptr, 0 );
             std::wstring wide( static_cast<std::size_t>( length ), L'\0' );
             MultiByteToWideChar( CP_UTF8, 0, text.data(), static_cast<int>( text.size() ), wide.data(), length );
             return wide;
@@ -73,6 +81,8 @@ namespace Desert::Editor::Splash
         ~SplashScreenWindows() override
         {
             Close();
+            if ( m_Thread.joinable() )
+                m_Thread.join();
         }
 
         void SetStatus( const std::string& label, const std::size_t index, const std::size_t total ) override
@@ -98,10 +108,10 @@ namespace Desert::Editor::Splash
                 std::lock_guard<std::mutex> lock( m_Mutex );
                 window = m_Window;
             }
+            // Starts the fade out and returns: the splash thread destroys the window when the fade is
+            // over, and the destructor joins it.
             if ( window )
                 PostMessageW( window, WM_CLOSE, 0, 0 );
-            if ( m_Thread.joinable() )
-                m_Thread.join();
         }
 
     private:
@@ -126,8 +136,17 @@ namespace Desert::Editor::Splash
                     if ( self )
                         self->Paint( window );
                     return 0;
+                case WM_TIMER:
+                    if ( self )
+                        self->Tick( window );
+                    return 0;
                 case WM_CLOSE:
-                    DestroyWindow( window );
+                    // Not destroyed here: the fade out runs first, and Tick destroys it at the end.
+                    if ( self && !self->m_Closing )
+                    {
+                        self->m_Closing   = true;
+                        self->m_ClosingAt = std::chrono::steady_clock::now();
+                    }
                     return 0;
                 case WM_DESTROY:
                     PostQuitMessage( 0 );
@@ -159,11 +178,16 @@ namespace Desert::Editor::Splash
             const int x       = work.left + ( static_cast<int>( workW ) - w ) / 2;
             const int y       = work.top + ( static_cast<int>( workH ) - h ) / 2;
 
-            HWND window = CreateWindowExW( WS_EX_TOOLWINDOW | WS_EX_TOPMOST, kClassName, L"Desert Engine", WS_POPUP,
-                                           x, y, w, h, nullptr, nullptr, instance, nullptr );
+            HWND window =
+                 CreateWindowExW( WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED, kClassName, L"Desert Engine",
+                                  WS_POPUP, x, y, w, h, nullptr, nullptr, instance, nullptr );
             if ( window )
             {
                 SetWindowLongPtrW( window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>( this ) );
+                // Fully transparent at first: the fade in is the first thing the timer does.
+                SetLayeredWindowAttributes( window, 0, 0, LWA_ALPHA );
+                m_ShownAt = std::chrono::steady_clock::now();
+                SetTimer( window, kFrameTimer, kFrameMs, nullptr );
                 ShowWindow( window, SW_SHOWNOACTIVATE );
                 UpdateWindow( window );
 
@@ -194,27 +218,32 @@ namespace Desert::Editor::Splash
             if ( !window )
                 return;
 
-            // THE PICTURE, after the window is already up with its live text on the dark background.
-            auto pixels = LoadSplashPixels( m_Content.CookedImage );
-            if ( pixels.IsSuccess() )
-            {
-                SplashPixels image = pixels.ExtractValue();
-                // GDI wants BGRA.
-                for ( std::size_t i = 0; i + 3 < image.Rgba.size(); i += 4 )
-                    std::swap( image.Rgba[i], image.Rgba[i + 2] );
-                LOG_INFO( "[Splash] {}x{} picture decoded from '{}' in {:.1f} ms (BC7 on the CPU, off the main "
+            // THE PICTURE, after the window is already up with its live text on the dark background — and
+            // on a thread of its own, because this one has to keep pumping: the fade in and the push-in are
+            // timer messages, and a decode run here (1.2 s in Debug) would hold the window invisible.
+            std::thread decoder(
+                 [this, window]
+                 {
+                     auto pixels = LoadSplashPixels( m_Content.CookedImage );
+                     if ( !pixels.IsSuccess() )
+                     {
+                         LOG_WARN( "[Splash] no picture, drawing on the plain background: {}", pixels.GetError() );
+                         return;
+                     }
+                     SplashPixels image = pixels.ExtractValue();
+                     // GDI wants BGRA.
+                     for ( std::size_t i = 0; i + 3 < image.Rgba.size(); i += 4 )
+                         std::swap( image.Rgba[i], image.Rgba[i + 2] );
+                     LOG_INFO(
+                          "[Splash] {}x{} picture decoded from '{}' in {:.1f} ms (BC7 on the CPU, off the main "
                           "thread)",
                           image.Width, image.Height, m_Content.CookedImage.string(), image.DecodeMs );
-                {
-                    std::lock_guard<std::mutex> lock( m_Mutex );
-                    m_Picture = std::move( image );
-                }
-                InvalidateRect( window, nullptr, FALSE );
-            }
-            else
-            {
-                LOG_WARN( "[Splash] no picture, drawing on the plain background: {}", pixels.GetError() );
-            }
+                     {
+                         std::lock_guard<std::mutex> lock( m_Mutex );
+                         m_Picture = std::move( image );
+                     }
+                     PostMessageW( window, kStatusMessage, 0, 0 ); // repaint; a no-op if the window is gone
+                 } );
 
             MSG message;
             while ( GetMessageW( &message, nullptr, 0, 0 ) > 0 )
@@ -227,7 +256,29 @@ namespace Desert::Editor::Splash
                 std::lock_guard<std::mutex> lock( m_Mutex );
                 m_Window = nullptr;
             }
+            decoder.join();
             UnregisterClassW( kClassName, instance );
+        }
+
+        static float SecondsSince( const std::chrono::steady_clock::time_point then )
+        {
+            return std::chrono::duration<float>( std::chrono::steady_clock::now() - then ).count();
+        }
+
+        void Tick( HWND window )
+        {
+            const float opacity = m_Closing ? SplashOpacity( SecondsSince( m_ClosingAt ), true )
+                                            : SplashOpacity( SecondsSince( m_ShownAt ), false );
+            SetLayeredWindowAttributes( window, 0, static_cast<BYTE>( opacity * 255.0f + 0.5f ), LWA_ALPHA );
+            if ( m_Closing && opacity <= 0.0f )
+            {
+                KillTimer( window, kFrameTimer );
+                DestroyWindow( window );
+                return;
+            }
+            // The push-in needs a repaint only while it is still moving.
+            if ( SecondsSince( m_ShownAt ) <= kKenBurnsSeconds + 0.1f )
+                InvalidateRect( window, nullptr, FALSE );
         }
 
         RECT Scaled( const Rect& designFromBottom ) const
@@ -244,12 +295,13 @@ namespace Desert::Editor::Splash
             return r;
         }
 
-        void Text( HDC dc, HFONT font, const std::wstring& text, const Rect& box, COLORREF colour, UINT align ) const
+        void Text( HDC dc, HFONT font, const std::wstring& text, const Rect& box, COLORREF colour,
+                   UINT align ) const
         {
             if ( text.empty() )
                 return;
             SelectObject( dc, font );
-            const UINT flags = align | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX;
+            const UINT flags  = align | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX;
             RECT       shadow = Scaled( box );
             OffsetRect( &shadow, 0, 1 );
             SetTextColor( dc, kShadow );
@@ -285,10 +337,17 @@ namespace Desert::Editor::Splash
                     info.bmiHeader.biPlanes      = 1;
                     info.bmiHeader.biBitCount    = 32;
                     info.bmiHeader.biCompression = BI_RGB;
+                    // The push-in: a CENTRED source rectangle 1/scale of the picture. Centred on both axes,
+                    // so StretchDIBits' bottom-up reading of the source y cannot move it.
+                    const float scale = KenBurnsScale( SecondsSince( m_ShownAt ) );
+                    const int   srcW  = static_cast<int>( static_cast<float>( m_Picture->Width ) / scale );
+                    const int   srcH  = static_cast<int>( static_cast<float>( m_Picture->Height ) / scale );
+                    const int   srcX  = ( static_cast<int>( m_Picture->Width ) - srcW ) / 2;
+                    const int   srcY  = ( static_cast<int>( m_Picture->Height ) - srcH ) / 2;
                     SetStretchBltMode( dc, HALFTONE );
-                    StretchDIBits( dc, 0, 0, w, h, 0, 0, static_cast<int>( m_Picture->Width ),
-                                   static_cast<int>( m_Picture->Height ), m_Picture->Rgba.data(), &info, DIB_RGB_COLORS,
-                                   SRCCOPY );
+                    SetBrushOrgEx( dc, 0, 0, nullptr );
+                    StretchDIBits( dc, 0, 0, w, h, srcX, srcY, srcW, srcH, m_Picture->Rgba.data(), &info,
+                                   DIB_RGB_COLORS, SRCCOPY );
                 }
                 else
                 {
@@ -302,13 +361,13 @@ namespace Desert::Editor::Splash
 
             const auto makeFont = [this]( const float size, const int weight )
             {
-                return CreateFontW( -static_cast<int>( size * m_Scale * 96.0f / 72.0f + 0.5f ), 0, 0, 0, weight, FALSE,
-                                    FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                return CreateFontW( -static_cast<int>( size * m_Scale * 96.0f / 72.0f + 0.5f ), 0, 0, 0, weight,
+                                    FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                     CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI" );
             };
-            HFONT projectFont = makeFont( kProjectFontSize, FW_SEMIBOLD );
-            HFONT smallFont   = makeFont( kStageFontSize, FW_NORMAL );
-            HGDIOBJ oldFont   = SelectObject( dc, smallFont );
+            HFONT   projectFont = makeFont( kProjectFontSize, FW_SEMIBOLD );
+            HFONT   smallFont   = makeFont( kStageFontSize, FW_NORMAL );
+            HGDIOBJ oldFont     = SelectObject( dc, smallFont );
             SetBkMode( dc, TRANSPARENT );
 
             Text( dc, projectFont, Widen( m_Content.ProjectName ), layout.Project, kWhite, DT_LEFT );
@@ -318,7 +377,7 @@ namespace Desert::Editor::Splash
             Text( dc, smallFont, Widen( FormatProgress( status.Index, status.Total ) ), layout.Counter, kDim,
                   DT_RIGHT );
 
-            HBRUSH track = CreateSolidBrush( kTrack );
+            HBRUSH track     = CreateSolidBrush( kTrack );
             RECT   trackRect = Scaled( layout.BarTrack );
             FillRect( dc, &trackRect, track );
             DeleteObject( track );
@@ -344,14 +403,18 @@ namespace Desert::Editor::Splash
         SplashContent m_Content;
         float         m_Scale = 1.0f;
 
-        std::thread                 m_Thread;
-        mutable std::mutex          m_Mutex;
-        std::condition_variable     m_Wake;
-        HWND                        m_Window  = nullptr;
-        bool                        m_Started = false;
-        bool                        m_Closed  = false;
-        Status                      m_Status;
-        std::optional<SplashPixels> m_Picture;
+        std::thread             m_Thread;
+        mutable std::mutex      m_Mutex;
+        std::condition_variable m_Wake;
+        HWND                    m_Window  = nullptr;
+        bool                    m_Started = false;
+        bool                    m_Closed  = false;
+        // Splash thread only.
+        std::chrono::steady_clock::time_point m_ShownAt;
+        std::chrono::steady_clock::time_point m_ClosingAt;
+        bool                                  m_Closing = false;
+        Status                                m_Status;
+        std::optional<SplashPixels>           m_Picture;
     };
 
     std::unique_ptr<SplashScreen> SplashScreen::Show( const SplashContent& content )
