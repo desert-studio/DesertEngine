@@ -305,7 +305,7 @@ namespace Desert::Core::Rules
     // sits exactly on the edges, and a closed interval would push every tile of a generated world up a
     // level. A zero-width footprint (one point) is in the cell of its minimum.
     [[nodiscard]] inline std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint,
-                                                                      double            levelCellSize )
+                                                                     double            levelCellSize )
     {
         // The last cell the footprint touches: the one before its maximum's cell when the maximum lies
         // exactly on an edge, never before its first cell.
@@ -500,14 +500,14 @@ namespace Desert::Core::Rules
          { "UILayout", ComponentLoading::Spatial },
          { "UILayoutGroup", ComponentLoading::Spatial },
          { "UIListView", ComponentLoading::Spatial },
-         { "UIOverlay", ComponentLoading::Spatial },        // lives on a canvas entity
+         { "UIOverlay", ComponentLoading::Spatial }, // lives on a canvas entity
          { "UIOverlayTrigger", ComponentLoading::Spatial },
          { "UIPanel", ComponentLoading::Spatial },
          { "UIPointerEvents", ComponentLoading::Spatial },
          { "UIProgressBar", ComponentLoading::Spatial },
          { "UIRenderTexture", ComponentLoading::Spatial },
          { "UIScreen", ComponentLoading::Spatial },
-         { "UIScreenStack", ComponentLoading::Spatial },    // lives on a canvas entity
+         { "UIScreenStack", ComponentLoading::Spatial }, // lives on a canvas entity
          { "UIScrollView", ComponentLoading::Spatial },
          { "UISlider", ComponentLoading::Spatial },
          { "UIStyle", ComponentLoading::Spatial },
@@ -528,9 +528,9 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kPrimitiveField          = "Primitive";
     inline constexpr std::string_view kCubePrimitive           = "Cube";
     // The primitive cube's half edge in world units: a unit cube scaled to one metre (PrimitiveMeshFactory).
-    inline constexpr float            kCubeHalfEdge            = 50.0f;
-    inline constexpr std::string_view kTerrainComponent        = "Terrain";
-    inline constexpr std::string_view kTerrainSizeField        = "Size";
+    inline constexpr float            kCubeHalfEdge     = 50.0f;
+    inline constexpr std::string_view kTerrainComponent = "Terrain";
+    inline constexpr std::string_view kTerrainSizeField = "Size";
     // TerrainData::Size's default, for a block that omits it (same restatement as AbsentIsGlobal above).
     inline constexpr float kTerrainDefaultSize = 5000.0f;
 
@@ -645,7 +645,8 @@ namespace Desert::Core::Rules
 
         // A scalar field of a component block as a number: a bool reads as 1/0, an enum is written as its
         // integer. False when the field is absent or is not a scalar.
-        [[nodiscard]] inline bool ReadScalar( const rfl::Generic::Object& block, std::string_view field, double& out )
+        [[nodiscard]] inline bool ReadScalar( const rfl::Generic::Object& block, std::string_view field,
+                                              double& out )
         {
             const auto value = block.get( std::string( field ) );
             if ( !value.has_value() )
@@ -852,7 +853,7 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const Assets::EntityData> records,
                                                                 const WorldPartitionSerialized&     settings )
     {
-        WorldPartitionPlan plan;
+        WorldPartitionPlan                            plan;
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
@@ -1008,7 +1009,6 @@ namespace Desert::Core::Rules
                     break;
                 }
             }
-
         }
 
         // ── 3. Footprint and always-loaded, per composite ─────────────────────────────────────────
@@ -1055,7 +1055,7 @@ namespace Desert::Core::Rules
         // NO USABLE GRID IS NOT REPAIRED INTO A PLAUSIBLE ONE. A partitioned world with no `Grids` entry,
         // or with a cell size that is not positive, has nothing to stream by: every composite is
         // always-loaded and says NoGrid, which is what "this world has no grid" looks like from outside.
-        plan.UnusedGrids = settings.Grids.size() > 1 ? settings.Grids.size() - 1 : 0;
+        plan.UnusedGrids     = settings.Grids.size() > 1 ? settings.Grids.size() - 1 : 0;
         const float cellSize = settings.Grids.empty() ? 0.0f : settings.Grids.front().CellSize;
         if ( !( cellSize > 0.0f ) )
         {
@@ -1175,16 +1175,18 @@ namespace Desert::Core::Rules
     {
         const auto units = []( float value ) { return std::to_string( std::llround( value ) ); };
 
-        std::string line = std::to_string( plan.Composites.size() ) + " composite(s): " +
-                           std::to_string( plan.Cells.size() ) + " cell(s) over " +
+        std::string line = std::to_string( plan.Composites.size() ) +
+                           " composite(s): " + std::to_string( plan.Cells.size() ) + " cell(s) over " +
                            std::to_string( plan.LevelCount ) + " level(s) [";
         const auto perLevel = CellsPerLevel( plan );
         for ( std::size_t level = 0; level < perLevel.size(); ++level )
-            line += ( level == 0 ? "L" : ", L" ) + std::to_string( level ) + ": " + std::to_string( perLevel[level] );
+            line +=
+                 ( level == 0 ? "L" : ", L" ) + std::to_string( level ) + ": " + std::to_string( perLevel[level] );
 
         const auto byReason = AlwaysLoadedByReason( plan );
         line += "], " + std::to_string( plan.AlwaysLoaded.size() ) + " always-loaded (author " +
-                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Author )] ) + ", component " +
+                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Author )] ) +
+                ", component " +
                 std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Component )] ) +
                 ", no fit " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoFit )] ) +
                 ", no grid " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoGrid )] ) +

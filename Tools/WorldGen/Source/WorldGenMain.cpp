@@ -268,8 +268,8 @@ namespace Desert::WorldGen
             if ( partition )
             {
                 Core::WorldPartitionGridSerialized grid;
-                grid.CellSize     = static_cast<float>( spec.CellSizeCm );
-                grid.LoadingRange = 76800.0f;
+                grid.CellSize        = static_cast<float>( spec.CellSizeCm );
+                grid.LoadingRange    = 76800.0f;
                 scene.WorldPartition = Core::WorldPartitionSerialized{ { grid } };
             }
 
@@ -358,7 +358,8 @@ namespace Desert::WorldGen
             for ( std::size_t index = 0; index < plan.AlwaysLoaded.size() && index < kNamed; ++index )
             {
                 const auto& held = plan.Composites[plan.AlwaysLoaded[index]];
-                const auto& who  = scene.Entities[held.Because != Core::Rules::kNoRecord ? held.Because : held.Anchor];
+                const auto& who =
+                     scene.Entities[held.Because != Core::Rules::kNoRecord ? held.Because : held.Anchor];
                 out << "  always-loaded: '" << who.Tag.value_or( "Entity" ) << "' ("
                     << ( held.Reason == Core::Rules::AlwaysLoadedReason::Component ? "component"
                          : held.Reason == Core::Rules::AlwaysLoadedReason::Author  ? "author"

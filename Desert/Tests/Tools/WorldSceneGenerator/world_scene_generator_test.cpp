@@ -572,7 +572,8 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     EXPECT_FALSE( rfl::json::read<SceneSerialized>( plain )->WorldPartition.has_value() );
 
     const auto               out = Scratch() / "partitioned.desce";
-    std::vector<std::string> args{ "--out", out.string(), "--assets", AssetsRoot(), "--preset", "smoke", "--partition" };
+    std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),
+                                   "--preset", "smoke",      "--partition" };
     std::ostringstream       reported;
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
@@ -583,10 +584,10 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u );
     EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].CellSize, 25600.0f );
 
-    namespace Rules  = Desert::Core::Rules;
-    const auto plan  = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
-    const auto per   = Rules::CellsPerLevel( plan );
-    const auto why   = Rules::AlwaysLoadedByReason( plan );
+    namespace Rules          = Desert::Core::Rules;
+    const auto  plan         = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    const auto  per          = Rules::CellsPerLevel( plan );
+    const auto  why          = Rules::AlwaysLoadedByReason( plan );
     std::size_t sunSkyCamera = 0;
     for ( const std::size_t group : plan.AlwaysLoaded )
     {
@@ -619,8 +620,9 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     EXPECT_GE( per[0], 4u );
 
     // And the tool printed the same plan, in the same words the loader logs.
-    EXPECT_NE( reported.str().find( "partition    : " + Rules::SummarisePartition( plan, *scene->WorldPartition ) ),
-               std::string::npos )
+    EXPECT_NE(
+         reported.str().find( "partition    : " + Rules::SummarisePartition( plan, *scene->WorldPartition ) ),
+         std::string::npos )
          << reported.str();
 }
 
@@ -632,7 +634,8 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
 TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
 {
     const auto               out = Scratch() / "fits.desce";
-    std::vector<std::string> args{ "--out", out.string(), "--assets", AssetsRoot(), "--cells", "8", "--partition" };
+    std::vector<std::string> args{ "--out",   out.string(), "--assets",   AssetsRoot(),
+                                   "--cells", "8",          "--partition" };
     std::ostringstream       reported;
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
