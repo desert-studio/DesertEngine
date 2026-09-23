@@ -2482,8 +2482,7 @@ int main( int argc, char** argv )
     // it costs now and `Run + Served` is what it cost before, on any machine, which is the part a wall
     // clock on this suite cannot be trusted to say.
     std::printf( "[CloudField] modelling volume bakes: %d run, %d served from cache (%d requested)\n",
-                 Desert::Tests::CloudFieldRef::BakeCounts().Run,
-                 Desert::Tests::CloudFieldRef::BakeCounts().Served,
+                 Desert::Tests::CloudFieldRef::BakeCounts().Run, Desert::Tests::CloudFieldRef::BakeCounts().Served,
                  Desert::Tests::CloudFieldRef::BakeCounts().Run +
                       Desert::Tests::CloudFieldRef::BakeCounts().Served );
 
