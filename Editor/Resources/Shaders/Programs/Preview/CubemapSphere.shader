@@ -29,6 +29,14 @@ Shader "CubemapSphere"
         } u;
 
         Uniform(1) samplerCube u_CubeMap;
+        // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). The Details
+        // panel's ball beside the Rotation slider must turn with it.
+        Uniform(2) SkyLookUB
+        {
+            vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
+            vec4 Gain;      // rgb = tint * intensity
+        } skyLook;
+        #include <Common/SkyLook.glslh>
 
         In(0) vec3 v_Near;
         In(1) vec3 v_Far;
@@ -55,7 +63,9 @@ Shader "CubemapSphere"
 
             // The wrap itself: the cube by the sphere's outward direction. No lighting on purpose — a
             // cubemap is radiance, not a surface; the scene's post chain tonemaps it like any sky.
-            o_Color = vec4( texture( u_CubeMap, n ).rgb, 1.0 );
+            o_Color = vec4( ApplySkyGain( texture( u_CubeMap, SkyLookDirection( n, skyLook.YawCosSin.xy ) ).rgb,
+                                          skyLook.Gain.rgb ),
+                            1.0 );
 
             // Zero-to-one reversed-Z device depth, no remap (Core/Projection.hpp; same as Grid.shader).
             vec4 clip    = u.Projection * u.View * vec4( hit, 1.0 );

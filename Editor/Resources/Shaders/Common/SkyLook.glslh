@@ -1,0 +1,51 @@
+#ifndef SKY_LOOK_GLSLH
+#define SKY_LOOK_GLSLH
+
+// THE ONE PLACE AN HDR SKY'S AUTHORED LOOK IS APPLIED — at the SAMPLE, by every reader of the sky.
+//
+// The environment cubes of an `.hdr` skybox are baked ONCE, in the panorama's own orientation at unit
+// gain (EnvironmentManager::Create). The scene's rotation, intensity and tint turn and scale the LOOKUP
+// instead, which is what lets a slider drag cost a uniform write rather than a device-idling rebake per
+// value. It is exact, not an approximation: a rotation about the up axis commutes with both
+// convolutions (the irradiance at R*n of the unturned sky is the irradiance at n of the turned one, and
+// the GGX lobe is rotation-invariant in the same way), and the gain is linear.
+//
+// WHO MUST CALL THIS, and what keeps them honest. Every program that declares an environment cube —
+// the skybox pass, the deferred composite, the forward PBR variants, the glass, the shader-graph surface
+// and the editor's cubemap preview — declares `SkyLookUB` and reads through these two functions. The
+// bake used to apply the look precisely so that no consumer could miss it; the census in
+// Desert/Tests/Engine/SkyPanorama now makes missing it a red test instead.
+//
+// The includer declares the block itself, at a slot free in ITS layout (the layouts differ, and the
+// DShader parser's occupancy scan reads literal digits only, so a macro slot would be invisible to it):
+//
+//     Uniform(N) SkyLookUB
+//     {
+//         vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
+//         vec4 Gain;      // rgb = tint * intensity
+//     } skyLook;
+//
+// This text declares nothing, so it also compiles as C++ (Desert/Tests/Engine/SkyPanorama).
+
+// The cube direction a world direction reads, with the sky's authored yaw applied.
+//
+// THE ROTATION IS APPLIED TO THE LOOKUP, BY MINUS THE ANGLE, so the IMAGE turns by plus the angle: an
+// author who types 90 wants the sun that was in the east to end up in the north, not the camera to have
+// turned under a fixed sky. Written out rather than built as a mat3 because this text also compiles as
+// C++, where a mat3 literal's column/row order is one more thing to get wrong.
+vec3 SkyLookDirection(vec3 direction, vec2 yawCosSin)
+{
+    return vec3( yawCosSin.x * direction.x - yawCosSin.y * direction.z,
+                 direction.y,
+                 yawCosSin.x * direction.z + yawCosSin.y * direction.x );
+}
+
+// The authored brightness and colour of the sky, applied to radiance read out of an environment cube.
+// ONE LINE, AND A FUNCTION ON PURPOSE: a bare multiply is the kind of thing that gets added to some
+// readers and not others; a named call is something the source census can require of all of them.
+vec3 ApplySkyGain(vec3 radiance, vec3 gain)
+{
+    return radiance * gain;
+}
+
+#endif // SKY_LOOK_GLSLH

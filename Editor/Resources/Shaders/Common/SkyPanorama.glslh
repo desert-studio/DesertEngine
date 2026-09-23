@@ -1,44 +1,22 @@
 // #pragma once
 
-// THE ONE PLACE AN EQUIRECTANGULAR SKY IS READ, and the one place an HDR skybox's authored look is
-// applied.
+// THE ONE PLACE AN EQUIRECTANGULAR SKY IS READ.
 //
 // WHY THIS IS A SHARED TEXT AND NOT TWO COPIES. The HDR environment is built from ONE panorama by TWO
 // compute programs that must agree pixel for pixel about what that panorama says in a direction:
 // PanoramaToCubemap writes the radiance cube the background is drawn from and the GGX prefilter
 // convolves, and DiffuseIrradiance integrates the SAME panorama into the irradiance cube every lit
-// surface reads. Until this header existed both carried their own copy of the three-line
-// direction->UV mapping. Two copies of one mapping is how an authored rotation reaches the background
-// and misses the lighting — the middle-link-drops-a-property shape this engine has paid for repeatedly
-// — and the copies cannot be kept honest by review, because each one reads correct on its own.
+// surface reads. Two copies of one mapping is the middle-link-drops-a-property shape this engine has
+// paid for repeatedly, and the copies cannot be kept honest by review, because each reads correct alone.
 //
-// WHY THE LOOK IS APPLIED HERE AND NOT AT THE SAMPLE SITES IN THE PBR SHADERS. Rotating or tinting the
-// sky at sample time would mean threading a uniform through five programs that read the environment
-// (the deferred composite and four forward PBR variants), each with its own binding layout — five
-// chances for one of them to miss it, and every one of them a descriptor change. Applied at the bake,
-// the transform is in the single image that every consumer descends from, so a consumer CANNOT miss it.
-// The price is that a change costs a rebake rather than a frame; that is the same price this engine
-// already pays for moving the procedural sky's sun, and it is measured in SkyboxRenderer's bake log.
+// THE SKY'S AUTHORED LOOK IS NOT APPLIED HERE ANY MORE. It turned and scaled the panorama at the bake,
+// which made every rotation value a new bake; it is now applied where the cubes are sampled
+// (Common/SkyLook.glslh), and the cubes this text feeds are the file as authored.
 
-// The panorama texel a world DIRECTION reads, with the sky's authored yaw applied.
-//
-// @p yawCosSin is (cos yaw, sin yaw) — the angle is passed pre-evaluated because it is constant over
-// the whole dispatch and a transcendental per texel of a 1024-face cube is six million of them.
-//
-// THE ROTATION IS APPLIED TO THE LOOKUP, BY MINUS THE ANGLE, so the IMAGE turns by plus the angle: an
-// author who types 90 wants the sun that was in the east to end up in the north, not the camera to have
-// turned under a fixed sky. The relation is asserted rather than described —
-// Desert/Tests/Engine/SkyPanorama compiles this text as C++ and checks that rotating a direction by
-// +yaw and then looking it up returns the texel the unrotated direction used to read.
-vec2 PanoramaSampleUV(vec3 direction, vec2 yawCosSin)
+// The panorama texel a world DIRECTION reads.
+vec2 PanoramaSampleUV(vec3 d)
 {
     const float kPi = 3.14159265358979323846;
-
-    // Rotation about +Y (up) by -yaw. Written out rather than built as a mat3 because this text also
-    // compiles as C++, where a mat3 literal's column/row order is one more thing to get wrong.
-    vec3 d = vec3( yawCosSin.x * direction.x - yawCosSin.y * direction.z,
-                   direction.y,
-                   yawCosSin.x * direction.z + yawCosSin.y * direction.x );
 
     float phi   = atan( d.z, d.x );
     // CLAMPED: a direction that arrives a bit longer than unit (the cube-face vectors are normalized,
@@ -49,15 +27,4 @@ vec2 PanoramaSampleUV(vec3 direction, vec2 yawCosSin)
     float theta = acos( clamp( d.y, float( -1.0 ), float( 1.0 ) ) );
 
     return vec2( phi / ( 2.0 * kPi ) + 0.5, theta / kPi );
-}
-
-// The authored brightness and colour of the sky, applied to radiance read out of the panorama.
-//
-// ONE LINE, AND IT IS A FUNCTION ON PURPOSE. Both compute programs must apply it, and a bare multiply
-// is the kind of thing that gets added to one of them; a named call is something a source-text census
-// can require of both (Desert/Tests/Engine/SkyPanorama). `gain` is tint * intensity, combined by the
-// caller so the shader has one number and the component keeps two knobs.
-vec3 ApplySkyGain(vec3 radiance, vec3 gain)
-{
-    return radiance * gain;
 }

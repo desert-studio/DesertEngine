@@ -14,8 +14,7 @@
 
 namespace Desert::Graphic
 {
-    Environment EnvironmentManager::Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset,
-                                            const SkyLook&                              look )
+    Environment EnvironmentManager::Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset )
     {
         // The panorama, the three cubes and the transient compute pipelines the bake creates are all the
         // ENVIRONMENT's, not the skybox asset's: the recipe that rebuilds them is the sky settings plus a
@@ -30,10 +29,11 @@ namespace Desert::Graphic
             // ── THE BAKED FORM, IF THERE IS ONE ──────────────────────────────────────────────────
             //
             // WHAT THIS REPLACES, AND WHY ONLY HERE. The three dispatches below are a function of the
-            // panorama FILE and the authored look, and of nothing else — so on this path, and ONLY on
-            // this path, they are work that can be done once. `CreateProcedural` looks identical three
-            // lines at a time and must never grow this branch: its panorama is a function of the sun's
-            // direction, so a cache of it is a cache of one instant of the day.
+            // panorama FILE and of nothing else — the authored look is applied where the cubes are
+            // sampled — so on this path, and ONLY on this path, they are work that can be done once.
+            // `CreateProcedural` looks identical three lines at a time and must never grow this branch: its
+            // panorama is a function of the sun's direction, so a cache of it is a cache of one instant of the
+            // day.
             //
             // A MISS IS A SENTENCE, NOT A SILENCE. Every refusal below is logged with its reason,
             // because "the cache never hits" and "the cache is never written" are indistinguishable
@@ -64,12 +64,12 @@ namespace Desert::Graphic
             const std::filesystem::path panoramaPath    = cooked.GetValue().Path;
             const uint64_t              sourceSignature = cooked.GetValue().SourceSignature;
 
-            const uint64_t radianceBake = EnvironmentBakeSignature( look, BakedEnvironmentCube::Radiance,
+            const uint64_t radianceBake = EnvironmentBakeSignature( BakedEnvironmentCube::Radiance,
                                                                     kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
             const uint64_t irradianceBake =
-                 EnvironmentBakeSignature( look, BakedEnvironmentCube::Irradiance, kSkyEnvIrradianceFaceSize, 1u );
+                 EnvironmentBakeSignature( BakedEnvironmentCube::Irradiance, kSkyEnvIrradianceFaceSize, 1u );
             const uint64_t prefilterBake = EnvironmentBakeSignature(
-                 look, BakedEnvironmentCube::Prefiltered, kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
+                 BakedEnvironmentCube::Prefiltered, kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
 
             const std::filesystem::path radiancePath   = EnvironmentBakePath( sourceSignature, radianceBake );
             const std::filesystem::path irradiancePath = EnvironmentBakePath( sourceSignature, irradianceBake );
@@ -129,12 +129,12 @@ namespace Desert::Graphic
             const std::shared_ptr<Texture2D> imagePanorama = panorama.ExtractValue();
 
             // 1) Radiance cube (sharp environment) — also the source the prefilter convolves.
-            auto        radianceCube   = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle(), look );
+            auto        radianceCube   = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle() );
             const auto  radianceHandle = imageService->Register( std::move( radianceCube ),
                                                                  Runtime::ImageHandle::Type::ImageCube );
 
             // 2) Diffuse irradiance (from the panorama directly).
-            auto       diffuseIrradiance       = CreateDiffuseIrradiance( imagePanorama->GetImageHandle(), look );
+            auto       diffuseIrradiance       = CreateDiffuseIrradiance( imagePanorama->GetImageHandle() );
             const auto diffuseIrradianceHandle = imageService->Register(
                  std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
 
@@ -204,11 +204,10 @@ namespace Desert::Graphic
     }
 
     std::shared_ptr<Desert::Graphic::ImageCube>
-    EnvironmentManager::ConvertPanoramaToRadianceCube( const Runtime::ImageHandle& panorama, const SkyLook& look )
+    EnvironmentManager::ConvertPanoramaToRadianceCube( const Runtime::ImageHandle& panorama )
     {
         ComputeImagesSpecification processingInfo;
         processingInfo.InputHandle = panorama;
-        processingInfo.Look        = look;
         processingInfo.ShaderName  = "PanoramaToCubemap";
         // The tag becomes the image's own name AND the compute pipeline's Vulkan debug label
         // (ComputeImages.cpp:103 and :116). It is NOT a cache key — PipelineCache deliberately does not
@@ -227,14 +226,10 @@ namespace Desert::Graphic
     }
 
     std::shared_ptr<Desert::Graphic::ImageCube>
-    EnvironmentManager::CreateDiffuseIrradiance( const Runtime::ImageHandle& panorama, const SkyLook& look )
+    EnvironmentManager::CreateDiffuseIrradiance( const Runtime::ImageHandle& panorama )
     {
         ComputeImagesSpecification processingInfo;
         processingInfo.InputHandle = panorama;
-        // THE SECOND HALF OF THE SAME ANSWER. This cube is convolved from the panorama directly, not
-        // from the radiance cube, so it needs the look in its own right — and that is precisely the
-        // asymmetry that would have let an authored rotation reach the visible sky and miss the ambient.
-        processingInfo.Look        = look;
         processingInfo.ShaderName  = "DiffuseIrradiance";
         // Names the 301.8 ms stage of the bake — see the note in ConvertPanoramaToRadianceCube.
         processingInfo.Tag       = "EnvDiffuseIrradiance";
@@ -269,12 +264,12 @@ namespace Desert::Graphic
         // THE IDENTITY LOOK, EXPLICITLY. A procedural sky is generated from its own authored parameters;
         // there is no file to rotate or grade, so the panorama it bakes is already the sky as asked for.
         // Named rather than defaulted so the asymmetry with the .hdr path above is visible here.
-        auto       radianceCube   = ConvertPanoramaToRadianceCube( panoramaHandle, SkyLook{} );
+        auto       radianceCube   = ConvertPanoramaToRadianceCube( panoramaHandle );
         const auto radianceHandle = imageService->Register( std::move( radianceCube ),
                                                             Runtime::ImageHandle::Type::ImageCube );
 
         // 2) Diffuse irradiance (from the panorama directly).
-        auto       diffuseIrradiance       = CreateDiffuseIrradiance( panoramaHandle, SkyLook{} );
+        auto       diffuseIrradiance       = CreateDiffuseIrradiance( panoramaHandle );
         const auto diffuseIrradianceHandle = imageService->Register(
              std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
 

@@ -450,14 +450,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   and +2 Unique with SP1 (878 -> 880 after WP6 and M1): the start-up splash, owned by `Sandbox::m_Splash`
     //   from before the renderer exists until the editor layer takes it (`EditorLayer::m_Splash`). One object
     //   handed over once -- a move, never a second owner -- so Unique is the honest form and neither owes a row.
+    //     ENV1 (2026-09-24) added one raw member, SampledCube::Cube, with its row: the cubemap preview's
+    //     resolver now answers the cube AND the look it is read with. Raw 388+1.
     //   LS-4 (2026-09-24) added three: the landscape tile's heightmap as it travels to the terrain pass,
     //   DrawLandscapeTileCommand::Heightmap and TerrainDrawData::Heightmap (raw, frame-scoped, each with a
-    //   row), and its owner, LandscapeECSSystem::TileGpu::Heightmap (shared). Raw 388+2, Shared 331+1.
-    EXPECT_EQ( CountOf( Form::Raw ), 390 );
+    //   row), and its owner, LandscapeECSSystem::TileGpu::Heightmap (shared). Raw 389+2, Shared 331+1.
+    EXPECT_EQ( CountOf( Form::Raw ), 391 );
     EXPECT_EQ( CountOf( Form::Shared ), 332 );
     EXPECT_EQ( CountOf( Form::Unique ), 123 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 883 )
+    EXPECT_EQ( (int)Members().size(), 884 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

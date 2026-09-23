@@ -9,21 +9,27 @@ namespace Desert::Graphic
 {
     /**
      * @brief THE AUTHORED LOOK OF AN HDR SKY — the three knobs that turn one `.hdr` file into one
-     *        scene's sky, carried as ONE value from the component to the bake.
+     *        scene's sky, carried as ONE value from the component to every place the sky is sampled.
      *
-     * WHY A STRUCT RATHER THAN THREE ARGUMENTS. Every one of these has to reach four places that must
-     * agree — the visible background, the diffuse irradiance, the GGX-prefiltered specular, and the
-     * fingerprint that decides whether any of them needs rebuilding. Three loose floats is three chances
-     * for a new knob to be threaded into three of the four; a struct with a fingerprint on it means
-     * adding a field to the struct is the whole change, and a field that is not in Fingerprint() is a
-     * field whose edit does nothing — which is a mistake a reader can SEE here.
+     * WHY A STRUCT RATHER THAN THREE ARGUMENTS. Every one of these has to reach every reader of the
+     * environment — the visible background, the diffuse irradiance, the GGX-prefiltered specular — and
+     * those readers must agree. Three loose floats is three chances for a new knob to be threaded into
+     * some of them; a struct means adding a field here is the whole change on the CPU side.
      *
-     * NOT SEPARATELY APPLIED TO THE BACKGROUND. The obvious cheap spelling is to multiply the intensity
-     * into the skybox fragment shader and leave the cubes alone, and that is what this engine shipped:
-     * `SkyboxComponent::Intensity` reached the fullscreen sky pass and NOTHING else, so a sky authored
-     * at 5x lit every surface in the world at 1x. Applying the look once, where the panorama becomes a
-     * cube, is what makes that state unreachable — the background samples the radiance cube, so it
-     * cannot disagree with the irradiance cube built beside it.
+     * APPLIED WHERE THE CUBES ARE SAMPLED, NOT WHERE THEY ARE BUILT. The cubes are baked ONCE per `.hdr`,
+     * in the panorama's own orientation at unit gain, and the look turns and scales the LOOKUP
+     * (Shaders/Common/SkyLook.glslh). It used to be baked in, and every slider value was a new bake:
+     * the device idled for the whole convolution chain and a new cache file landed in
+     * Cooked/EnvironmentCache for each value the owner dragged through — the "каждый раз когда я кручу
+     * ротацию env оно сразу запекается" complaint. Rotation about the up axis commutes with both
+     * convolutions (irradiance(R n) of the unturned sky IS the irradiance at n of the turned one, and the
+     * same holds for the prefilter's lobe), and gain is linear, so sampling-time application gives the
+     * same picture for the price of one rotation per fetch.
+     *
+     * THE DEFECT THE BAKED FORM EXISTED TO PREVENT STAYS UNREACHABLE, by a different mechanism: the old
+     * `SkyboxComponent::Intensity` reached the backdrop and nothing else. Now every program that declares
+     * an environment cube must declare `SkyLookUB` and read through the shared text — a census over the
+     * shader sources (Desert/Tests/Engine/SkyPanorama) makes a consumer that forgets it a red test.
      */
     struct SkyLook
     {
@@ -38,8 +44,7 @@ namespace Desert::Graphic
         /// Linear colour the sky is graded through. White is the file as authored.
         glm::vec3 Tint = glm::vec3( 1.0f );
 
-        /// (cos, sin) of the rotation, evaluated once on the CPU: the shaders need it per texel and a
-        /// 1024-texel face is six million transcendentals per bake otherwise.
+        /// (cos, sin) of the rotation, evaluated once on the CPU rather than per fetch in every shader.
         [[nodiscard]] glm::vec2 YawCosSin() const
         {
             const float yaw = glm::radians( RotationDegrees );
@@ -54,9 +59,37 @@ namespace Desert::Graphic
             return Tint * Intensity;
         }
 
-        /// Is this the sky the cubes were baked from? Compared as an exact bit pattern rather than with
-        /// a tolerance: the question is "did an author change a value", not "are these skies similar",
-        /// and a tolerance here would make a small deliberate nudge do nothing at all.
         [[nodiscard]] bool operator==( const SkyLook& ) const = default;
+    };
+
+    /// `SkyLookUB` as every environment-sampling shader declares it (two vec4s: std140 and std430 agree).
+    /// Identity is (1, 0) and white — the value a procedural sky and "no sky" both bind, because a
+    /// declared-but-unwritten uniform is whatever the last writer left there.
+    struct SkyLookGPU
+    {
+        glm::vec4 YawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f }; // xy = (cos yaw, sin yaw)
+        glm::vec4 Gain{ 1.0f, 1.0f, 1.0f, 1.0f };      // rgb = tint * intensity
+    };
+    static_assert( sizeof( SkyLookGPU ) == 32, "SkyLookUB is two vec4s in every shader that declares it" );
+
+    [[nodiscard]] inline SkyLookGPU ToGPU( const SkyLook& look )
+    {
+        const glm::vec2 cs   = look.YawCosSin();
+        const glm::vec3 gain = look.Gain();
+        return SkyLookGPU{ glm::vec4( cs.x, cs.y, 0.0f, 0.0f ), glm::vec4( gain, 1.0f ) };
+    }
+
+    /// The block's name, shared by the binders and the shader census.
+    inline constexpr const char* kSkyLookBlockName = "SkyLookUB";
+
+    class ImageCube;
+
+    /// A cube AND how to read it, for a consumer that is handed one rather than resolving an
+    /// Environment itself (the editor's cubemap-on-a-ball preview). One value, so a resolver cannot
+    /// return the cube and forget the look the scene draws it with.
+    struct SampledCube
+    {
+        const ImageCube* Cube = nullptr;
+        SkyLook          Look{};
     };
 } // namespace Desert::Graphic
