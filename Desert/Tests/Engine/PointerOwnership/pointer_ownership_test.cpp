@@ -458,11 +458,14 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //     truth), PolyEditTool::m_DragBefore (the mesh a drag started from) and the EditMeshCommand's
     //     m_Before/m_After declaration. Shared 331+3. PolyEdit's picking target holds the ENTITY, not a
     //     StaticMeshComponent*, so Raw does not move: that pointer would have been into an entt pool.
-    EXPECT_EQ( CountOf( Form::Raw ), 389 );
-    EXPECT_EQ( CountOf( Form::Shared ), 334 );
+    //   LS-4 (2026-09-24) added three: the landscape tile's heightmap as it travels to the terrain pass,
+    //   DrawLandscapeTileCommand::Heightmap and TerrainDrawData::Heightmap (raw, frame-scoped, each with a
+    //   row), and its owner, LandscapeECSSystem::TileGpu::Heightmap (shared). Raw 389+2, Shared 331+1.
+    EXPECT_EQ( CountOf( Form::Raw ), 391 );
+    EXPECT_EQ( CountOf( Form::Shared ), 335 );
     EXPECT_EQ( CountOf( Form::Unique ), 123 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 884 )
+    EXPECT_EQ( (int)Members().size(), 887 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -705,7 +708,10 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // EditMeshCommand's m_Before/m_After. Shared BY DESIGN: the EditMesh is immutable once set on a
     // component, so the undo record keeping the old one by reference is the snapshot, with no copy and
     // nothing able to change it under the history. See TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 334 );
+    // 331 -> 332 with LS-4: LandscapeECSSystem::TileGpu::Heightmap, a GPU image — the case this test's
+    // opening paragraph describes (the cache, the descriptor sets and the deletion queue all hold it).
+    // 334 -> 335: M4's three and LS-4's one, merged 2026-09-24.
+    EXPECT_EQ( CountOf( Form::Shared ), 335 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

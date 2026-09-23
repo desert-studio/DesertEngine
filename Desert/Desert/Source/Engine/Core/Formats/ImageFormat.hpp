@@ -74,6 +74,14 @@ namespace Desert::Core::Formats
         /// it is what makes the format mean anything.
         BC5_UNORM,
 
+        /// `VK_FORMAT_R16_UNORM`. One 16-bit channel — a landscape tile's height samples, uploaded as the
+        /// CPU holds them (Engine/World/Landscape/LandscapeData.hpp). UNORM rather than UINT so the tile is
+        /// an ordinary sampled image through the material's combined-sampler bindings; the shader reads it
+        /// with texelFetch and recovers the exact integer sample, so no filtering ever touches it.
+        /// APPENDED, not grouped with the other uncompressed formats: a cooked texture stores its format
+        /// as this enumerator's number (TextureBinary.cpp), so an insertion would renumber every BC file.
+        R16_UNORM,
+
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
         // A hand-maintained constant was tried first, pinned to the last enumerator with
@@ -163,6 +171,8 @@ namespace Desert::Core::Formats
                 return { 1, 1, 4 }; // 24-bit depth + 8-bit stencil, packed into one 32-bit texel
             case ImageFormat::DEPTH32F:
                 return { 1, 1, 4 };
+            case ImageFormat::R16_UNORM:
+                return { 1, 1, 2 }; // one channel, 16 bits
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
             // number is a column of this table and not a constant beside it. The comment here used to
             // say "both BC formats in this engine are the same shape"; BC4 made that sentence false,
@@ -218,6 +228,8 @@ namespace Desert::Core::Formats
             // honest answer and the alternative is a zero that would multiply into an empty buffer.
             case ImageFormat::DEPTH24STENCIL8:
             case ImageFormat::DEPTH32F:
+                return 1;
+            case ImageFormat::R16_UNORM:
                 return 1;
             case ImageFormat::BC6H_UFLOAT:
                 return 3; // radiance; the format has no alpha at all
@@ -294,6 +306,7 @@ namespace Desert::Core::Formats
             case ImageFormat::RGBA16F:
             case ImageFormat::RGBA32F:
             case ImageFormat::BGRA8F:
+            case ImageFormat::R16_UNORM:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:
             case ImageFormat::BC4_UNORM:

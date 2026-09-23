@@ -66,11 +66,9 @@ namespace Desert::World::Landscape
     inline constexpr float kLandscapeDefaultSpacingCm = 100.0f;
 
     /// Height in the landscape's local space. UE:LandscapeDataAccess.h:29-32 (GetLocalHeight).
-    inline constexpr float LandscapeLocalHeight( uint16_t sample )
-    {
-        return ( static_cast<float>( sample ) - static_cast<float>( kLandscapeMidSample ) ) *
-               kLandscapeLocalPerStep;
-    }
+    /// Defined by Shaders/Common/LandscapeHeight.glslh — the text the terrain shader decodes its R16 copy
+    /// with — so it is not constexpr: the formula has one home, and it is the one the GPU compiles.
+    float LandscapeLocalHeight( uint16_t sample );
 
     /**
      * @brief The sample for a local height. UE:LandscapeDataAccess.h:34-37 (GetTexHeight).
@@ -83,10 +81,8 @@ namespace Desert::World::Landscape
     uint16_t LandscapeSampleFromLocal( float localHeight );
 
     /// World-space height offset in centimetres of a sample, for a landscape of vertical scale @p zScale.
-    inline constexpr float LandscapeHeightCm( uint16_t sample, float zScale )
-    {
-        return LandscapeLocalHeight( sample ) * zScale;
-    }
+    /// Same home as LandscapeLocalHeight.
+    float LandscapeHeightCm( uint16_t sample, float zScale );
 
     /// The sample for a height offset in centimetres. @p zScale must be positive; the caller that owns
     /// the scale (the landscape root) is the one that validates it, see ValidateLandscapeFrame.
