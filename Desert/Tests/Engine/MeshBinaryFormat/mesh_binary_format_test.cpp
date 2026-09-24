@@ -480,6 +480,24 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointStatesKindAndGuid )
     std::filesystem::remove_all( dir );
 }
 
+// A VERSION PAST THIS BUILD'S IS REFUSED BY NAME, not read as a v3 prefix: nothing says a later layout keeps
+// the GUID at byte 64, so claiming one from there would hand the registry an identity the file never stated.
+TEST( MeshBinaryFormat, TheHeaderEntryPointRefusesAVersionPastThisBuilds )
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "msh1_mesh_future";
+    std::filesystem::create_directories( dir );
+    std::string    future = Ser::EncodeMeshBinary( FullyPopulated() );
+    const uint32_t v99    = 99;
+    std::memcpy( future.data() + 12, &v99, 4 );
+    const std::filesystem::path out = dir / "future.stmesh";
+    std::ofstream( out, std::ios::binary ) << future;
+    const auto stated = Common::Content::ReadAssetHeaderIfStated( out, { {}, true } );
+    std::filesystem::remove_all( dir );
+    ASSERT_FALSE( stated.IsSuccess() ) << "a v99 mesh was read as a v3 prefix";
+    EXPECT_NE( stated.GetError().find( "version 99" ), std::string::npos ) << stated.GetError();
+    EXPECT_NE( stated.GetError().find( "future.stmesh" ), std::string::npos ) << stated.GetError();
+}
+
 TEST( MeshBinaryFormat, AVersionOneFileIsReadWithNoPolyGroups )
 {
     Ser::MeshAssetData source = FullyPopulated();
