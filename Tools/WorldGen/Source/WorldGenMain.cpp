@@ -57,7 +57,7 @@ namespace Desert::WorldGen
                 presets += std::string( presets.empty() ? "" : ", " ) + p.Key;
             return "usage: WorldGen --out <scene.desce> [--preset <" + presets +
                    ">] [--assets <dir>] [--cells N] [--per-cell N] [--cell-size CM] [--seed N] "
-                   "[--name <scene name>] [--partition] [--verify]";
+                   "[--name <scene name>] [--partition [--partition-cell CM] [--loading-range CM]] [--verify]";
         }
 
         // ONE FIELD OF A .demat, NAMED AS A TYPE. The generator needs a material's identity and nothing
@@ -137,6 +137,8 @@ namespace Desert::WorldGen
         std::optional<int> perCell;
         std::optional<int> cellSize;
         std::optional<int> seed;
+        std::optional<int> partitionCell;
+        std::optional<int> loadingRange;
         bool               verify    = false;
         bool               partition = false;
 
@@ -194,6 +196,16 @@ namespace Desert::WorldGen
                 }
                 cellSize = n;
             }
+            else if ( ( a == "--partition-cell" || a == "--loading-range" ) && value( v ) )
+            {
+                int n = 0;
+                if ( !ParseInt( v, n ) )
+                {
+                    err << "WorldGen: " << a << " '" << v << "' is not an integer\n";
+                    return 2;
+                }
+                ( a == "--partition-cell" ? partitionCell : loadingRange ) = n;
+            }
             else if ( a == "--seed" && value( v ) )
             {
                 int n = 0;
@@ -214,6 +226,19 @@ namespace Desert::WorldGen
         if ( outPath.empty() )
         {
             err << "WorldGen: --out is required\n" << Usage() << "\n";
+            return 2;
+        }
+
+        // A grid shape with no grid to shape would be a flag that does nothing, and say nothing about it.
+        if ( !partition && ( partitionCell.has_value() || loadingRange.has_value() ) )
+        {
+            err << "WorldGen: --partition-cell and --loading-range shape the WorldPartition block, which only "
+                   "--partition writes\n";
+            return 2;
+        }
+        if ( partitionCell.value_or( 1 ) <= 0 || loadingRange.value_or( 1 ) <= 0 )
+        {
+            err << "WorldGen: --partition-cell and --loading-range must be positive\n";
             return 2;
         }
 
@@ -261,15 +286,17 @@ namespace Desert::WorldGen
         {
             auto scene = BuildWorld( spec, palette, ground.GetValue(), stats );
 
-            // --partition: the world states a WorldPartition block whose level-0 cell IS the generator's
-            // tile, so every ground tile is exactly one cell and what the plan promotes is what really
-            // crosses a tile edge. The loading range is the 768 m radius the preset's own sizing argument
-            // is made against (see kPresets): about 29 of 1024 tiles resident.
+            // --partition: the world states a WorldPartition block. By default its level-0 cell IS the
+            // generator's tile, so every ground tile is exactly one cell and what the plan promotes is what
+            // really crosses a tile edge. --partition-cell makes the grid finer than the tile (the engine's
+            // own 128 m default under a 256 m tile puts every ground tile one level up, which is the WP3
+            // level ladder under load). The loading range defaults to the 768 m radius the preset's own
+            // sizing argument is made against (see kPresets): about 29 of 1024 tiles resident.
             if ( partition )
             {
                 Core::WorldPartitionGridSerialized grid;
-                grid.CellSize        = static_cast<float>( spec.CellSizeCm );
-                grid.LoadingRange    = 76800.0f;
+                grid.CellSize        = static_cast<float>( partitionCell.value_or( spec.CellSizeCm ) );
+                grid.LoadingRange    = static_cast<float>( loadingRange.value_or( 76800 ) );
                 scene.WorldPartition = Core::WorldPartitionSerialized{ { grid } };
             }
 

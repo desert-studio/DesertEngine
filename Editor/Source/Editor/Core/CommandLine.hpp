@@ -95,6 +95,12 @@ namespace Desert::Editor
          { "--play", false, nullptr },
          { "--ui-pointer", true, "640,360" },
          { "--ui-press", true, "right", "--ui-pointer 640,360" },
+         { "--flight", true, "line:0,200,0:1000,200,0",
+           "--play --flight-speed 1000 --flight-csv /tmp/flight.csv" },
+         { "--flight-speed", true, "1000",
+           "--play --flight line:0,200,0:1000,200,0 --flight-csv /tmp/flight.csv" },
+         { "--flight-csv", true, "/tmp/flight.csv",
+           "--play --flight line:0,200,0:1000,200,0 --flight-speed 1000" },
     };
 
     /// Everything the command line resolved to. Held by value and copied into the process-wide singletons
@@ -244,11 +250,22 @@ namespace Desert::Editor
      *   - a flag whose value is missing because the flag was written last;
      *   - a vector or an integer that does not parse, or parses only in part.
      */
+    /// Makes a flight whose route has its points the capture's camera path: the frame count follows from
+    /// the route's length and speed (Flight::FlightFrames), and the camera is placed from the route. Called
+    /// by the parser for `line:`/`circle:`, and by the process once it has read a `file:` route.
+    inline void ArmFlight( ShotOptions& shot )
+    {
+        shot.Frames    = Flight::FlightFrames( Flight::RouteLength( *shot.FlightRoute ), shot.FlightSpeed,
+                                               ShotOptions::PlayStepSeconds );
+        shot.HasCamera = true;
+    }
+
     inline Common::ResultStr<CommandLineOptions> ParseCommandLine( const std::vector<std::string>& args )
     {
         using namespace CommandLineDetail;
 
         CommandLineOptions options;
+        bool               shotFramesGiven = false;
 
         for ( std::size_t i = 0; i < args.size(); ++i )
         {
@@ -337,6 +354,7 @@ namespace Desert::Editor
                          "--shot-frames '{}' is not a frame count (a whole number, at least 1).", value );
                 }
                 options.Shot.Frames = frames;
+                shotFramesGiven     = true;
             }
             else if ( arg == "--shot-every" )
             {
@@ -401,6 +419,30 @@ namespace Desert::Editor
                 options.Shot.HasPositionTo = true;
                 options.Shot.HasCamera     = true;
             }
+            else if ( arg == "--flight" )
+            {
+                auto route = Flight::ParseRouteSpec( value );
+                if ( !route.IsSuccess() )
+                    return Common::MakeError<CommandLineOptions>( route.GetError() );
+                options.Shot.FlightRoute = route.ExtractValue();
+            }
+            else if ( arg == "--flight-speed" )
+            {
+                char*        end   = nullptr;
+                const double speed = std::strtod( value.c_str(), &end );
+                if ( value.empty() || end != value.c_str() + value.size() || !std::isfinite( speed ) ||
+                     speed <= 0.0 )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--flight-speed '{}' is not a speed (a positive number of centimetres per second).",
+                         value );
+                }
+                options.Shot.FlightSpeed = speed;
+            }
+            else if ( arg == "--flight-csv" )
+            {
+                options.Shot.FlightCsv = value;
+            }
             else if ( arg == "--look-to" )
             {
                 if ( !ParseVec3Strict( value, options.Shot.ForwardTo ) )
@@ -421,6 +463,39 @@ namespace Desert::Editor
             return Common::MakeError<CommandLineOptions>(
                  "--ui-press needs --ui-pointer: a button held at no position would press the top-left "
                  "corner of the frame." );
+        }
+
+        // A FLIGHT IS THREE FLAGS OR NONE, and it owns the camera. Each refusal is a run that would otherwise
+        // produce a CSV describing something other than what the command line says: no speed is no motion,
+        // no file is numbers nobody keeps, no Play is a frozen world in which nothing streams, and a
+        // --camera beside a route would be silently overridden by it.
+        const ShotOptions& shot    = options.Shot;
+        const bool         flying  = shot.FlightRoute.has_value();
+        const bool         partial = shot.FlightSpeed > 0.0 || !shot.FlightCsv.empty();
+        if ( !flying && partial )
+            return Common::MakeError<CommandLineOptions>( "--flight-speed and --flight-csv need --flight" );
+        if ( flying )
+        {
+            if ( shot.FlightSpeed <= 0.0 || shot.FlightCsv.empty() || !shot.Play )
+            {
+                return Common::MakeError<CommandLineOptions>(
+                     "--flight needs --flight-speed, --flight-csv and --play: a flight with no speed does not "
+                     "move, with no CSV keeps nothing, and without Play nothing streams" );
+            }
+            if ( shot.HasCamera )
+            {
+                return Common::MakeError<CommandLineOptions>(
+                     "--flight places the camera itself; --camera, --look, --camera-to and --look-to would be "
+                     "overridden by it" );
+            }
+            if ( shotFramesGiven )
+            {
+                return Common::MakeError<CommandLineOptions>(
+                     "--flight sets the frame count from the route's length and speed; --shot-frames would be "
+                     "overridden by it" );
+            }
+            if ( shot.FlightRoute->FilePath.empty() )
+                ArmFlight( options.Shot );
         }
 
         return Common::MakeSuccess( std::move( options ) );
