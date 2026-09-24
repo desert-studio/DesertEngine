@@ -228,6 +228,10 @@ Dependencies = {
         IncludeDir = {
             gtest = getGTestIncludeDir(),
             reflect_cpp = baseDir .. "/reflect-cpp/include",
+            -- Shader headers compiled as C++ (LandscapeHeight.glslh via LandscapeData.cpp, and the rest of
+            -- Shaders/Common). Every suite gets it because the partitioner reaches LandscapeData.cpp, and a
+            -- per-suite line was forgotten four times in one day (2026-09-24).
+            desert_shaders = "%{wks.location}/Editor/Resources/Shaders",
         },
         Libraries = {
             Debug = {
