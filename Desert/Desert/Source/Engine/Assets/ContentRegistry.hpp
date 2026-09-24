@@ -207,7 +207,9 @@ namespace Desert::Assets
         // content roots reading each file's header only (`Common::Content::GatherContentRegistry`), with this
         // machine's cache (`RegistryCachePath`, outside git) sparing the headers of unchanged files. No cache
         // is the ordinary first start, not a warning. The cache is written back when the gather read anything.
-        inline Common::ResultStr<std::size_t> Gather()
+        // `refused`, when given, receives the sentence of every file that could not enter (the packager
+        // refuses on them; the editor only reports them).
+        inline Common::ResultStr<std::size_t> Gather( std::vector<std::string>* refused = nullptr )
         {
             Common::Content::RegistryCache cache;
             const std::filesystem::path    cachePath = Common::Content::RegistryCachePath();
@@ -227,6 +229,8 @@ namespace Desert::Assets
             Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( cache );
             for ( const std::string& refusal : gathered.Refused )
                 LOG_ERROR( "[ContentRegistry] a content file could not enter the registry: {}", refusal );
+            if ( refused )
+                *refused = gathered.Refused;
             LOG_INFO( "[ContentRegistry] gathered {} row(s): {} from the local cache, {} header(s) read",
                       gathered.Registry.Count(), gathered.FromCache, gathered.Read );
 

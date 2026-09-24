@@ -1654,24 +1654,14 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
 
-    // THE PROJECT'S OWN REGISTRY, as `AssetRegistryTool cook --disk` writes it for a project that is not a
-    // git checkout: one row per content file, which here is the two texture ASSETS (`.detex`: the checker
-    // is Texture, the panorama under HDR/ is Skybox); the images they were imported from are no kind.
-    {
-        Common::Utils::AssetRegistry projectRegistry;
-        for ( const auto& [key, file] : Common::Content::ScanContentRoots() )
-        {
-            Common::Utils::AssetRegistryEntry entry;
-            entry.Key  = key;
-            entry.Kind = std::string( Common::Content::KindName( file.Kind ) );
-            entry.Size = file.Size;
-            ASSERT_TRUE( projectRegistry.Insert( std::move( entry ) ).IsSuccess() );
-        }
-        ASSERT_EQ( projectRegistry.Count(), 2u ) << "the fixture's content census moved; re-derive this case";
-        WriteFile( Common::Utils::AssetRegistry::DefaultPath(), projectRegistry.Serialize() );
-    }
-    // THIS project's registry, not whatever an earlier case left in the process-wide one.
-    ASSERT_TRUE( Desert::Assets::ContentRegistry::LoadCooked().IsSuccess() );
+    // THE PROJECT'S OWN REGISTRY, gathered from its content roots as the editor gathers at start: one row
+    // per content file, which here is the two texture ASSETS (`.detex`: the checker is Texture, the
+    // panorama under HDR/ is Skybox); the images they were imported from are no kind. Nothing is written
+    // to the project's Cooked/ tree — the packager writes the shipped registry into the archive itself.
+    const auto gathered = Desert::Assets::ContentRegistry::Gather();
+    ASSERT_TRUE( gathered.IsSuccess() ) << gathered.GetError();
+    ASSERT_EQ( Desert::Assets::ContentRegistry::Get().Count(), 2u )
+         << "the fixture's content census moved; re-derive this case";
 
     const auto result = Desert::Editor::BuildContentPak();
     ASSERT_TRUE( result.Success ) << result.Message;
@@ -1782,7 +1772,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     Common::Utils::VFS::Unmount();
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
-    ASSERT_TRUE( Desert::Assets::ContentRegistry::LoadCooked().IsSuccess() );
+    ASSERT_TRUE( Desert::Assets::ContentRegistry::Gather().IsSuccess() );
     const auto again = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
     EXPECT_EQ( again.TexturesCooked, 0u ) << "an unchanged source was cooked again";
     EXPECT_EQ( again.TexturesCached, 3u );
