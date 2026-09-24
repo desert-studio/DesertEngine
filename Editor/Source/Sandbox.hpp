@@ -145,7 +145,14 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             if ( !options.Project.empty() )
             {
                 std::error_code             absError;
-                const std::filesystem::path resolved = std::filesystem::absolute( options.Project, absError );
+                std::filesystem::path       resolved = std::filesystem::absolute( options.Project, absError );
+                // ...EXCEPT a binary started where it was built: an IDE passes the run scripts'
+                // `--project Desert.deproj` but starts in the solution root, where no such file is. The
+                // name then means the one in the checkout's Editor/, which is where the scripts start.
+                std::error_code existsError;
+                if ( resources.FromCheckout && std::filesystem::path( options.Project ).is_relative() &&
+                     !std::filesystem::exists( resolved, existsError ) )
+                    resolved = std::filesystem::path( resources.WorkingDirectory ) / options.Project;
                 if ( !absError )
                     options.Project = resolved.string();
             }
