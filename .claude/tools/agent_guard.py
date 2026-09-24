@@ -99,8 +99,8 @@ def editor_running():
     """One editor/runtime (GPU) at a time: concurrent MoltenVK editors hung WindowServer and the watchdog
     panicked the kernel on 2026-09-24 08:05."""
     try:
-        return subprocess.run(["pgrep", "-f", "Bin/(Debug|Release)/(Editor|Runtime)"],
-                              capture_output=True).returncode == 0
+        # -x on the process NAME: `pgrep -f <path>` also matched the waiting shell's own command line and spun
+        return any(subprocess.run(["pgrep", "-x", n], capture_output=True).returncode == 0 for n in ("Editor", "Runtime"))
     except OSError:
         return False
 
@@ -234,7 +234,7 @@ def main():
             save_state(state, path)
             deny("[agent_guard] Уже запущен редактор/рантайм (другой агент). Одновременно — только ОДИН процесс с GPU: "
                  "2026-09-24 несколько редакторов повесили WindowServer, ядро ушло в panic. Подожди в той же команде: "
-                 "for i in $(seq 27); do pgrep -f 'Bin/(Debug|Release)/(Editor|Runtime)' >/dev/null || break; "
+                 "for i in $(seq 27); do pgrep -x Editor >/dev/null || pgrep -x Runtime >/dev/null || break; "
                  "sleep 10; done; <запуск>", data, agent)
         if EDITOR_BUILD.search(cmd):
             if state.get("editor_builds", 0) >= MAX_EDITOR_BUILDS:
