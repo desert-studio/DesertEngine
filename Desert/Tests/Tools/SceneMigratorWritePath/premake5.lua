@@ -15,6 +15,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Tools/SceneMigrator/Source/MigratorMain.cpp",
+        "%{wks.location}/Tools/SceneMigrator/Source/LegacyMaterialIds.cpp", -- RunSceneMigrator reads and saves the legacy material-id register through it (AF7)
         -- A5 gave the tool a fourth file class (`.anim`), so the suite that compiles its main must link
         -- the conversion it now calls, and the tick model that conversion targets. Both are pure.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
