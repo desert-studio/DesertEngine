@@ -250,12 +250,7 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
     // instead. A kind listed here that the repository DOES track again is red: the exemption would then be
     // hiding the ordinary check, and the row has to go.
     //
-    // `Texture` used to be reached by `Editor/Cooked/Textures/T_Checker.tex`, committed only because no
-    // automatic path cooked a loose image. PK1 made the packager and the editor cook it, and a committed
-    // cook is a second copy of a derived artifact, so it left. What it certified here — that the census's
-    // Texture root and `.tex` extension are right — is certified by the packaged-content suite: its rows
-    // come from `ContentRegistry::NoteFile`, which classifies through this same census, and the packaged
-    // runtime finds the cooked textures ONLY through those rows. A wrong root or extension leaves it none.
+    // Texture left this list when AF3 committed `.detex` files again; every kind still here is cook output only.
     struct CookOnlyKind
     {
         const char* Kind;
@@ -263,8 +258,6 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
         const char* Test;  // the test in it that goes red when the row is wrong
     };
     constexpr CookOnlyKind kCookOnlyKinds[] = {
-         { "Texture", "Desert/Tests/Editor/PackagedContent/packaged_content_test.cpp",
-           "TheTexturesAPackageCarriesAreCookedInsideIt" },
          // A partitioned world's cells and index (AF2) exist only as cook output; the WorldCells suite holds
          // the census's extensions equal to the cook's file names and reads the kind back from a cooked header.
          { "WorldCell", "Desert/Tests/Engine/WorldCells/world_cells_test.cpp",
