@@ -482,6 +482,10 @@ namespace Desert::Editor
             if ( ImGui::RadioButton( Geometry::ToString( mode ), state.Mode() == mode ) )
                 report( state.SetMode( mode ) );
         }
+        // UE's TriEdit: Vertex / Edge picks every mesh vertex and edge instead of group corners and edges.
+        bool triangles = state.Level() == Geometry::TopologyLevel::Triangle;
+        if ( ImGui::Checkbox( "Triangle level (TriEdit)", &triangles ) )
+            state.SetLevel( triangles ? Geometry::TopologyLevel::Triangle : Geometry::TopologyLevel::Group );
         ImGui::Spacing();
         if ( !state.HasMesh() )
         {

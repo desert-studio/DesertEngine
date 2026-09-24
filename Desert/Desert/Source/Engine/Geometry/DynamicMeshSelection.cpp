@@ -190,14 +190,15 @@ namespace Desert::Geometry
             outSegPoint = a + s * ab;
         }
 
-        // DoCornerBasedSelection over FindNearestPointToRay: of the vertices within tolerance, the one NEAREST
-        // ALONG THE RAY; a miss when that one is occluded (no fallback to the next, as in UE).
-        ElementHit PickCorner( const FDynamicMeshElements& mesh, const PickView& view )
+        // DoCornerBasedSelection over FindNearestPointToRay: of the candidate vertices within tolerance, the one
+        // NEAREST ALONG THE RAY; a miss when that one is occluded (no fallback to the next, as in UE).
+        ElementHit PickNearestVertex( const FDynamicMeshElements& mesh, const PickView& view,
+                                      const std::vector<int>& candidates )
         {
             ElementHit best;
             glm::vec3  bestPoint{ 0.0f };
             float      bestT = kNoHit;
-            for ( const int v : mesh.VertexIds() )
+            for ( const int v : candidates )
             {
                 const glm::vec3 p = WorldPosition( mesh, view, v );
                 const float     t = glm::dot( p - view.RayOrigin, view.RayDirection );
@@ -215,15 +216,17 @@ namespace Desert::Geometry
             return best;
         }
 
-        // DoEdgeBasedSelection over FindNearestCurveToRay: of the edges within tolerance, the one whose
-        // |Area(RayOrigin, CurvePosition, RayPosition)| is least - closeness to the ray balanced against
-        // closeness to the eye; a miss when its nearest point is occluded.
-        ElementHit PickGroupEdge( const FDynamicMeshElements& mesh, const PickView& view )
+        // DoEdgeBasedSelection over FindNearestCurveToRay: of the candidate mesh edges within tolerance, the one
+        // whose |Area(RayOrigin, CurvePosition, RayPosition)| is least - closeness to the ray balanced against
+        // closeness to the eye; a miss when its nearest point is occluded. A polyline's nearest point is its
+        // nearest segment's, so scanning a group edge's segments is FindNearestCurveToRay over that curve.
+        ElementHit PickNearestEdge( const FDynamicMeshElements& mesh, const PickView& view,
+                                    const std::vector<int>& candidates )
         {
             ElementHit best;
             glm::vec3  bestPoint{ 0.0f };
             float      bestMetric = kNoHit;
-            for ( const int e : mesh.EdgeIds() )
+            for ( const int e : candidates )
             {
                 const auto ev = mesh.GetEdgeVertices( e );
                 float      rayT;
@@ -247,18 +250,54 @@ namespace Desert::Geometry
                 return {};
             return best;
         }
+
+        // GetGeometrySet's points: every corner's vertex (UE's FMeshTopologySelector picks corners, never the
+        // vertices inside a group edge or a group).
+        std::vector<int> CornerVertices( const FGroupTopology& topology )
+        {
+            std::vector<int> out;
+            for ( const auto& corner : topology.Corners )
+                out.push_back( corner.VertexID );
+            return out;
+        }
+
+        // GetGeometrySet's curves: the mesh edges of every group edge (GetGroupEdgeEdges). A diagonal inside a
+        // group belongs to no group edge, so it cannot be picked.
+        std::vector<int> GroupEdgeSegments( const FGroupTopology& topology )
+        {
+            std::vector<int> out;
+            for ( int g = 0; g < topology.Edges.Num(); ++g )
+                for ( const int e : topology.GetGroupEdgeEdges( g ) )
+                    out.push_back( e );
+            return out;
+        }
     } // namespace
 
+    const char* ToString( TopologyLevel level )
+    {
+        switch ( level )
+        {
+            case TopologyLevel::Group:
+                return "Group";
+            case TopologyLevel::Triangle:
+                return "Triangle";
+        }
+        return "?";
+    }
+
     ElementHit PickElement( const FDynamicMesh3& mesh, const FGroupTopology& topology, ElementMode mode,
-                            const PickView& view )
+                            const PickView& view, TopologyLevel level )
     {
         const FDynamicMeshElements elements( mesh, &topology );
+        const bool                 groups = level == TopologyLevel::Group;
         switch ( mode )
         {
             case ElementMode::Vertex:
-                return PickCorner( elements, view );
+                return PickNearestVertex( elements, view,
+                                          groups ? CornerVertices( topology ) : elements.VertexIds() );
             case ElementMode::Edge:
-                return PickGroupEdge( elements, view );
+                return PickNearestEdge( elements, view,
+                                        groups ? GroupEdgeSegments( topology ) : elements.EdgeIds() );
             case ElementMode::Triangle:
             case ElementMode::PolyGroup:
             {
@@ -270,6 +309,21 @@ namespace Desert::Geometry
             }
         }
         return {};
+    }
+
+    std::vector<int> HitElements( const FGroupTopology& topology, ElementMode mode, TopologyLevel level,
+                                  const ElementHit& hit )
+    {
+        if ( !hit.IsHit() )
+            return {};
+        if ( mode != ElementMode::Edge || level != TopologyLevel::Group )
+            return { hit.Id };
+        // GetGroupEdgeEdges( FindGroupEdgeID( segment ) ): the whole group edge the picked segment lies on.
+        // The segment came from GroupEdgeSegments, so it always has one.
+        std::vector<int> out;
+        for ( const int e : topology.GetGroupEdgeEdges( topology.FindGroupEdgeID( hit.Id ) ) )
+            out.push_back( e );
+        return out;
     }
 
     ElementSelection ConvertSelection( const FDynamicMesh3& mesh, const FGroupTopology& topology,

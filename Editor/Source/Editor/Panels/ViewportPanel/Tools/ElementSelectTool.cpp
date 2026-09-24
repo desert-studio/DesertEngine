@@ -216,14 +216,14 @@ namespace Desert::Editor::Tools
             view.Cursor                    = viewportPos + viewportSize * 0.5f;
             view.RayOrigin                 = centre.Origin;
             view.RayDirection              = centre.Direction;
-            hover                          = Geometry::PickElement( mesh, topology, state.Mode(), view );
+            hover                          = Geometry::PickElement( mesh, topology, state.Mode(), view, state.Level() );
         }
         else if ( hovered )
         {
             view.Cursor       = glm::vec2( mouse.x, mouse.y );
             view.RayOrigin    = ray.Origin;
             view.RayDirection = ray.Direction;
-            hover             = Geometry::PickElement( mesh, topology, state.Mode(), view );
+            hover             = Geometry::PickElement( mesh, topology, state.Mode(), view, state.Level() );
         }
 
         // THE KNIFE (Alt+K): the next two clicks draw the cut line instead of selecting, and the selected
@@ -279,19 +279,22 @@ namespace Desert::Editor::Tools
             const char* label = "Mesh Selection: Select";
             if ( hover.IsHit() )
             {
+                // A group edge is all of its mesh edges (HitElements), added or removed together.
+                const std::vector<int> picked = Geometry::HitElements( topology, state.Mode(), state.Level(), hover );
                 if ( !pickCentre && io.KeyCtrl )
                 {
-                    next.Remove( hover.Id );
+                    for ( const int id : picked )
+                        next.Remove( id );
                     label = "Mesh Selection: Deselect";
                 }
-                else if ( auto added = next.Add( mesh, hover.Id ); !added.IsSuccess() )
+                else
                 {
-                    // PickElement returned it from this very mesh; a refusal here is a defect worth seeing.
-                    LOG_ERROR( "[Mesh Selection] {0}", added.GetError() );
-                }
-                else if ( !pickCentre && io.KeyShift )
-                {
-                    label = "Mesh Selection: Add";
+                    for ( const int id : picked )
+                        if ( auto added = next.Add( mesh, id ); !added.IsSuccess() )
+                            // PickElement returned it from this very mesh; a refusal here is a defect worth seeing.
+                            LOG_ERROR( "[Mesh Selection] {0}", added.GetError() );
+                    if ( !pickCentre && io.KeyShift )
+                        label = "Mesh Selection: Add";
                 }
             }
             state.Commit( std::move( next ), label );
@@ -337,8 +340,9 @@ namespace Desert::Editor::Tools
         if ( hover.IsHit() && !pickCentre )
         {
             Geometry::ElementSelection one( state.Mode() );
-            if ( one.Add( mesh, hover.Id ).IsSuccess() )
-                DrawSelection( paint, one, 0, kHilightColour );
+            for ( const int id : Geometry::HitElements( topology, state.Mode(), state.Level(), hover ) )
+                (void)one.Add( mesh, id );
+            DrawSelection( paint, one, 0, kHilightColour );
         }
     }
 } // namespace Desert::Editor::Tools

@@ -51,6 +51,17 @@ namespace Desert::Editor::Core
         {
             return m_Selection.Mode();
         }
+        // What a Vertex / Edge pick lands on: group corners and group edges (UE PolyEdit, the default) or every
+        // mesh vertex and edge (UE TriEdit). The selection stores mesh IDs either way, so a change of level keeps
+        // it and is not an undo step - like switching between UE's two tools.
+        [[nodiscard]] Geometry::TopologyLevel Level() const
+        {
+            return m_Level;
+        }
+        void SetLevel( Geometry::TopologyLevel level )
+        {
+            m_Level = level;
+        }
         // What the last check against an edited mesh dropped, and the running total since the entity was
         // picked - the panel shows both, so an edit that emptied the selection says so.
         [[nodiscard]] const Geometry::PruneReport& LastDropped() const
@@ -111,6 +122,7 @@ namespace Desert::Editor::Core
         // topology was built from alive, so pointer identity cannot be reused under it.
         std::unique_ptr<const Geometry::FGroupTopology> m_Topology;
         Geometry::ElementSelection                m_Selection{ Geometry::ElementMode::PolyGroup };
+        Geometry::TopologyLevel                   m_Level = Geometry::TopologyLevel::Group;
         Geometry::PruneReport                     m_LastDropped;
         int                                       m_TotalDropped = 0;
     };
