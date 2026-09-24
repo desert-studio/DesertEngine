@@ -28,8 +28,8 @@ namespace Desert::Assets
     // numbers, so a file missing one was written by something older (every pre-Д28 build, in this case).
     [[nodiscard]] inline bool PrefabIsAtCurrentVersion( const PrefabData& prefab )
     {
-        return prefab.SceneVersion.value_or( 0 ) == Core::kSceneVersion &&
-               prefab.UnitVersion.value_or( 0 ) == Core::kUnitVersion;
+        return StatedVersion( prefab.Header, kSceneSchemaTag ) == Core::kSceneVersion &&
+               StatedVersion( prefab.Header, kUnitSchemaTag ) == Core::kUnitVersion;
     }
 
     // The refusal, as a string: which file, what it is, what this engine needs, and the exact command

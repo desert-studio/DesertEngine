@@ -69,6 +69,8 @@ namespace Common::Content
         StringTable,
         WorldCell,
         WorldIndex,
+        Scene,
+        Prefab,
         COUNT,
     };
 
@@ -128,6 +130,9 @@ namespace Common::Content
              // WorldCells suite holds equal to these.
              /* WorldCell            */ { "WorldCell", ".dwcell", &P::SCENE_PATH },
              /* WorldIndex           */ { "WorldIndex", ".dwindex", &P::SCENE_PATH },
+             // Scenes and prefabs are assets with an identity (AF6f): their text header names this kind.
+             /* Scene                */ { "Scene", E::SCENE_EXTENSION, &P::SCENE_PATH },
+             /* Prefab               */ { "Prefab", E::PREFAB_EXTENSION, &P::PREFAB_PATH },
         } };
     }
 

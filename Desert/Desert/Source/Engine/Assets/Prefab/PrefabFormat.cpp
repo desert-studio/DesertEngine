@@ -37,7 +37,8 @@ namespace Desert::Assets
 
     std::string RefusePrefabVersion( std::string_view source, const PrefabData& prefab )
     {
-        return RefusePrefabVersion( source, prefab.SceneVersion.value_or( 0 ), prefab.UnitVersion.value_or( 0 ) );
+        return RefusePrefabVersion( source, StatedVersion( prefab.Header, kSceneSchemaTag ),
+                                    StatedVersion( prefab.Header, kUnitSchemaTag ) );
     }
 
     Common::ResultStr<PrefabData> ParseLoadablePrefab( std::string_view source, const std::string& json )
@@ -53,13 +54,23 @@ namespace Desert::Assets
         if ( !PrefabIsAtCurrentVersion( parsed.value() ) )
             return Common::MakeError<PrefabData>( RefusePrefabVersion( source, parsed.value() ) );
 
+        const Common::Content::AssetHeaderReadContext context{ Core::SceneTextSubsystems() };
+        const auto header = Common::Content::TextHeaderToAssetHeader( *parsed.value().Header, context );
+        if ( !header )
+            return Common::MakeError<PrefabData>(
+                 fmt::format( "[PrefabAsset] '{0}': {1}. Nothing was loaded.", source, header.GetError() ) );
+        if ( header.GetValue().Kind != Common::Content::ContentKind::Prefab )
+            return Common::MakeError<PrefabData>(
+                 fmt::format( "[PrefabAsset] '{0}': the header says kind '{1}', not 'Prefab'. Nothing was loaded.",
+                              source, parsed.value().Header->Kind ) );
+
         return Common::MakeSuccess( std::move( parsed.value() ) );
     }
 
     Common::ResultStr<std::string> WritePrefabJson( PrefabData prefab )
     {
-        prefab.SceneVersion = Core::kSceneVersion;
-        prefab.UnitVersion  = Core::kUnitVersion;
+        prefab.Header =
+             StampTextHeader( prefab.Header, Common::Content::ContentKind::Prefab, Core::SceneTextSubsystems() );
         return Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( prefab ) );
     }
 

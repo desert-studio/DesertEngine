@@ -301,8 +301,7 @@ namespace Desert::Core::WorldCells
         WorldIndex& index       = cooked.Index;
         index.SceneName         = scene.SceneName;
         index.Settings          = scene.Settings;
-        index.SceneVersion      = scene.SceneVersion.value_or( 0 );
-        index.UnitVersion       = scene.UnitVersion.value_or( 0 );
+        index.Header            = scene.Header;
         index.WorldPartition    = *scene.WorldPartition;
         index.LevelCount        = plan.LevelCount;
         index.Records           = records.size();
@@ -537,8 +536,7 @@ namespace Desert::Core::WorldCells
             SceneSerialized scene;
             scene.SceneName      = index.SceneName;
             scene.Settings       = index.Settings;
-            scene.SceneVersion   = index.SceneVersion;
-            scene.UnitVersion    = index.UnitVersion;
+            scene.Header         = index.Header;
             scene.WorldPartition = index.WorldPartition;
 
             std::map<std::string, CellPayload> read;

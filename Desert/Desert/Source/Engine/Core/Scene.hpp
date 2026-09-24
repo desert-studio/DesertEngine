@@ -4,6 +4,7 @@
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Graphic/ExternalRenderPass.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Core.hpp>
 #include <Engine/Core/Camera.hpp>
 
@@ -213,6 +214,18 @@ namespace Desert::Core
             m_SceneName = name;
         }
 
+        // The .desce's text header as loaded (or as last stamped by a save): it carries the scene's GUID,
+        // which is the scene's identity and is kept from save to save - never re-derived.
+        [[nodiscard]] const std::optional<Common::Content::TextAssetHeaderSerialized>& GetAssetHeader() const
+        {
+            return m_AssetHeader;
+        }
+
+        void SetAssetHeader( std::optional<Common::Content::TextAssetHeaderSerialized> header )
+        {
+            m_AssetHeader = std::move( header );
+        }
+
         [[nodiscard]] std::optional<std::reference_wrapper<const ECS::Entity>>
         FindEntityByID( const Common::UUID& uuid ) const;
 
@@ -401,6 +414,7 @@ namespace Desert::Core
 
         SceneSettings m_Settings;
         std::string   m_SceneName;
+        std::optional<Common::Content::TextAssetHeaderSerialized> m_AssetHeader;
         // See GetLoadedDocument() — the parsed .desce, held only so the saver can keep the keys this
         // build cannot name.
         rfl::Generic::Object m_LoadedDocument;

@@ -65,7 +65,7 @@ namespace Desert::Core::WorldCells
     // index/cell payload shapes below. A reader refuses any other number by name, older included; a cooked
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
-    inline constexpr std::uint32_t kWorldFormatVersion = 1;
+    inline constexpr std::uint32_t kWorldFormatVersion = 2;
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -111,8 +111,8 @@ namespace Desert::Core::WorldCells
         // The scene-wide part of the source, so a world is whole without the .desce it came from.
         std::string                 SceneName;
         std::optional<rfl::Generic> Settings;
-        int                         SceneVersion = 0;
-        int                         UnitVersion  = 0;
+        // The .desce's text header, verbatim: the scene's GUID and its SCNE/UNIT generations (scene v26).
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         WorldPartitionSerialized    WorldPartition;
 
         int           LevelCount = 0;

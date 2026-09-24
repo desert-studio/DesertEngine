@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Content/TextAssetHeader.hpp>
+
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
@@ -248,21 +250,11 @@ namespace Desert::Assets
 
     struct PrefabData
     {
-        std::string             Name;
-        std::vector<EntityData> Entities;
-        Common::UUID            Root;
-
-        // THE SAME TWO GENERATION INTEGERS A .desce CARRIES, deliberately not a third numbering scheme: a
-        // prefab's payload is the scene's own EntityData, written by the same ComponentRegistry, so a
-        // schema step that moves Core::kSceneVersion moves this file's format with it whether anyone
-        // remembered prefabs or not. Before Д28 nothing here said which generation a .deprefab was — a
-        // format change broke prefabs silently and the user's load was where it surfaced (the crash Ф1
-        // fixed was this class of defect). The saver stamps both (WritePrefabJson), the loader requires
-        // both (ParseLoadablePrefab in PrefabFormat.hpp), and Tools/SceneMigrator converts anything else.
-        //
-        // Optional so an OLD file still PARSES - into a tree the gate then refuses BY NAME instead of a
-        // read error. Absent = version 0, not "current" (see PrefabIsAtCurrentVersion).
-        std::optional<int> SceneVersion;
-        std::optional<int> UnitVersion;
+        // First member: the header (Common/Content/TextAssetHeader.hpp) - the prefab's GUID and the two
+        // generations it states (SCNE, UNIT); since scene v26 nowhere else.
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::string                                               Name;
+        std::vector<EntityData>                                   Entities;
+        Common::UUID                                              Root;
     };
 } // namespace Desert::Assets

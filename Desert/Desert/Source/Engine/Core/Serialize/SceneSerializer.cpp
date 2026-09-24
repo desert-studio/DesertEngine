@@ -189,9 +189,12 @@ namespace Desert::Core
     std::string SceneSerializer::SerializeToJson() const
     {
         SceneSerialized scene;
-        scene.SceneName    = m_Scene->GetSceneName();
-        scene.UnitVersion  = kUnitVersion;
-        scene.SceneVersion = kSceneVersion;
+        // The GUID survives the save (StampTextHeader keeps the loaded one); a scene that never had one gets
+        // it minted here, and remembers it, so the next save states the same identity.
+        scene.Header = Assets::StampTextHeader( m_Scene->GetAssetHeader(), Common::Content::ContentKind::Scene,
+                                                SceneTextSubsystems() );
+        m_Scene->SetAssetHeader( scene.Header );
+        scene.SceneName = m_Scene->GetSceneName();
 
         // Helper to check if any ancestor has a PrefabComponent
         auto isPrefabChild = [&]( ECS::Entity entity ) -> bool
@@ -369,6 +372,7 @@ namespace Desert::Core
         }
 
         const SceneSerialized scene = loadable.ExtractValue();
+        m_Scene->SetAssetHeader( scene.Header );
         phases.Lap( "parse the file into typed records (version gate)", scene.Entities.size() );
 
         LOG_INFO( "Loading scene: {0}", scene.SceneName );
