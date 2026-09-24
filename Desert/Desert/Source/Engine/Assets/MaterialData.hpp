@@ -59,7 +59,7 @@ namespace Desert::Assets
 
         bool IsInstance() const
         {
-            return Parent.has_value() && !Parent->empty();
+            return ParentText() != nullptr;
         }
 
         /// This material's GUID, from its header; null when there is no header or its GUID is malformed.
@@ -76,10 +76,20 @@ namespace Desert::Assets
             return HandleOf( Guid() );
         }
 
+        /// `Parent`'s text when this is an instance, null otherwise. ONE call answers both halves, so a caller
+        /// never dereferences `Parent` on the word of a separate IsInstance().
+        [[nodiscard]] const std::string* ParentText() const
+        {
+            if ( !Parent.has_value() || Parent->empty() )
+                return nullptr;
+            return &*Parent;
+        }
+
         /// The GUID `Parent` names; null when this is not an instance or `Parent` is malformed.
         [[nodiscard]] Common::Content::AssetGuid ParentGuid() const
         {
-            return IsInstance() ? GuidFromText( *Parent ) : Common::Content::AssetGuid{};
+            const std::string* parent = ParentText();
+            return parent != nullptr ? GuidFromText( *parent ) : Common::Content::AssetGuid{};
         }
 
         /// Makes this an instance of `parent`, or a base material when `parent` is null.
