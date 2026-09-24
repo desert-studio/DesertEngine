@@ -195,6 +195,29 @@ namespace Desert::Core::Rules
         return records;
     }
 
+    // THE RECORDS OF ONE UNIT, AND THEIR ORDER: every composite the unit holds, in the plan's order, and each
+    // composite's members in file order. One statement of it, because three readers must agree on it to the
+    // record — the executor (which record indices a unit activates), the in-memory cell source (what it hands
+    // the streamer) and the world cook (what a cell FILE holds, in what order). A cell file whose order
+    // differed from the executor's would still load, and would hand record 3's entity record 4's id.
+    [[nodiscard]] inline std::vector<std::size_t> ResidencyUnitMembers( const WorldPartitionPlan& plan,
+                                                                        std::size_t               unit )
+    {
+        std::vector<std::size_t> members;
+        members.reserve( ResidencyUnitRecords( plan, unit ) );
+        const auto take = [&]( std::size_t composite )
+        {
+            const auto& held = plan.Composites.at( composite ).Members;
+            members.insert( members.end(), held.begin(), held.end() );
+        };
+        if ( unit < plan.AlwaysLoaded.size() )
+            take( plan.AlwaysLoaded[unit] );
+        else
+            for ( const std::size_t composite : plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Composites )
+                take( composite );
+        return members;
+    }
+
     [[nodiscard]] inline double ResidencyRetryDelay( const ResidencySettings& settings, std::uint32_t failures )
     {
         const double grown =
