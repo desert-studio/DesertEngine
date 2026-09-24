@@ -181,8 +181,13 @@ namespace Desert::World::Landscape
             for ( uint32_t z = piece.Samples.Z0; z < piece.Samples.Z1; ++z )
                 for ( uint32_t x = piece.Samples.X0; x < piece.Samples.X1; ++x )
                 {
+                    // UE's BrushValue is the falloff weight alone; ComputeLandscapeBrush folds the tool strength
+                    // into every weight, and PaintStrength multiplies it again below (as does the influence map),
+                    // so the weight is divided back out — as LandscapeSculpt's BrushValue does. paintStrength > 0
+                    // here, so brush.Strength > 0.
                     const float brushValue =
-                         LandscapeBrushTileWeight( m_Root, weights, piece.TileX, piece.TileZ, x, z );
+                         LandscapeBrushTileWeight( m_Root, weights, piece.TileX, piece.TileZ, x, z ) /
+                         brush.Strength;
                     const size_t tileIndex = static_cast<size_t>( z ) * tile.SamplesX() + x;
                     const size_t local     = static_cast<size_t>( z - piece.Samples.Z0 ) * piece.Samples.Width() +
                                          ( x - piece.Samples.X0 );

@@ -194,7 +194,14 @@ TEST( LandscapePaint, StrokeAcrossTwoTilesKeepsSumsAndEdgesAndUndoes )
     ASSERT_TRUE( weights.IsSuccess() );
     LandscapePaintSettings paint;
     paint.Layer = "Grass";
-    for ( int step = 0; step < 20; ++step )
+    // UE's first dab adds round(BrushValue · Strength · 255) = round(0.3 · 255) = 77 at full falloff weight: the
+    // strength is applied once, not once in the brush weights and again in PaintStrength (that gave 23).
+    ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, false ).IsSuccess() );
+    {
+        const LandscapeTileData& west = tiles.at( { 0, 0 } );
+        EXPECT_EQ( west.Weight( west.FindWeightLayer( "Grass" ).value(), 7, 3 ), 77 );
+    }
+    for ( int step = 1; step < 20; ++step )
         ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, false ).IsSuccess() );
 
     for ( auto& [key, tile] : tiles )
@@ -211,7 +218,10 @@ TEST( LandscapePaint, StrokeAcrossTwoTilesKeepsSumsAndEdgesAndUndoes )
     const LandscapeTileData& east = tiles.at( { 1, 0 } );
     const size_t             wg   = west.FindWeightLayer( "Grass" ).value();
     const size_t             eg   = east.FindWeightLayer( "Grass" ).value();
-    EXPECT_GT( west.Weight( wg, 7, 3 ), 0 ); // the brush centre took paint
+    // The startup slowdown lets the source reach the current value after 1 / 0.05 = 20 units of influence; by
+    // then the centre (full weight, 50 cm from the brush centre, inner radius 150 cm) is saturated. By hand with
+    // UE's loop: 77, 80, 85, 89, ... 232, 255 at the 17th dab.
+    EXPECT_EQ( west.Weight( wg, 7, 3 ), 255 );
     for ( uint32_t z = 0; z < 8; ++z )
         EXPECT_EQ( west.Weight( wg, 7, z ), east.Weight( eg, 0, z ) ) << "seam row " << z;
 
