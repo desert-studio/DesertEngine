@@ -18,6 +18,8 @@ project(test_name)
         test_files,
         "%{wks.location}/Tools/SceneMigrator/Source/SceneMigration.cpp",
         "%{wks.location}/Tools/SceneMigrator/Source/LegacyMaterialIds.cpp",
+        -- The mesh codec, so the v1/v2 -> v3 mesh raise is checked against the ENCODER's v3 bytes (AF7q).
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp", -- the root check the grid must pass
         "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",

@@ -3,12 +3,15 @@
 #include "SceneMigration.hpp"
 
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <regex>
 #include <sstream>
 #include <system_error>
@@ -273,5 +276,141 @@ namespace Desert::Migration
             report.DroppedId        = true;
         }
         return Common::MakeSuccess( std::move( out ) );
+    }
+    Common::ResultStr<std::string> UpgradeMeshBytesToV3( const std::string_view            source,
+                                                         const std::string_view            bytes,
+                                                         const Common::Content::AssetGuid& meshGuid,
+                                                         const LegacyMaterialIdMap&        map )
+    {
+        namespace Content = Common::Content;
+        // The pre-v3 layout this function is the only reader of: a 24-byte table row per section, sections
+        // 1..9 in v1 and 1..10 (PolyGroups appended) in v2, the submesh section (id 4) in 128-byte rows
+        // whose last 8 bytes are the material number. v3 moves only those bytes and the prefix.
+        constexpr std::size_t kRow = 24, kRowOld = 128, kRowNew = 136, kShared = 120;
+        constexpr uint32_t    kSubmeshId = 4, kPolyGroupsId = 10, kSectionsV3 = 10;
+        const auto            Fail = [&]( const std::string& why )
+        { return Common::MakeFormattedError<std::string>( "'{}' {}", std::string( source ), why ); };
+
+        Content::MeshBinaryFileHeader header{};
+        if ( bytes.size() < sizeof( header ) )
+            return Fail( "is " + std::to_string( bytes.size() ) + " bytes, shorter than a mesh header" );
+        std::memcpy( &header, bytes.data(), sizeof( header ) );
+        if ( std::memcmp( header.Magic, Content::kMeshBinaryMagic, sizeof( header.Magic ) ) != 0 ||
+             header.ByteOrder != Content::kMeshBinaryByteOrderTag )
+            return Fail( "is not a cooked mesh of this host's byte order" );
+        if ( header.Version != 1 && header.Version != 2 )
+            return Fail( "is mesh version " + std::to_string( header.Version ) + "; only 1 and 2 are raised" );
+        if ( header.FileSize != bytes.size() )
+            return Fail( "declares " + std::to_string( header.FileSize ) + " bytes and " +
+                         std::to_string( bytes.size() ) + " are present" );
+        const uint32_t sections = header.Version == 1 ? kSectionsV3 - 1 : kSectionsV3;
+        if ( header.SectionCount != sections )
+            return Fail( "declares " + std::to_string( header.SectionCount ) + " sections, version " +
+                         std::to_string( header.Version ) + " has " + std::to_string( sections ) );
+        if ( meshGuid.IsNull() )
+            return Fail( "cannot be given the null GUID" );
+        if ( bytes.size() < sizeof( header ) + sections * kRow )
+            return Fail( "is shorter than its own section table" );
+
+        struct Section
+        {
+            uint32_t    Id = 0, ElementSize = 0;
+            uint64_t    Count = 0;
+            std::string Bytes;
+        };
+        std::vector<Section> table;
+        for ( uint32_t i = 0; i < sections; ++i )
+        {
+            const char* row = bytes.data() + sizeof( header ) + i * kRow;
+            Section     section;
+            uint64_t    offset = 0;
+            std::memcpy( &section.Id, row, 4 );
+            std::memcpy( &section.ElementSize, row + 4, 4 );
+            std::memcpy( &offset, row + 8, 8 );
+            std::memcpy( &section.Count, row + 16, 8 );
+            if ( section.Id != i + 1 || section.ElementSize == 0 || offset > bytes.size() ||
+                 section.Count > ( bytes.size() - offset ) / section.ElementSize )
+                return Fail( "section table row " + std::to_string( i ) + " does not describe this file" );
+            section.Bytes.assign( bytes.data() + offset, section.Count * section.ElementSize );
+            if ( section.Id == kSubmeshId )
+            {
+                if ( section.ElementSize != kRowOld )
+                    return Fail( "has " + std::to_string( section.ElementSize ) + "-byte submesh rows, version " +
+                                 std::to_string( header.Version ) + " writes " + std::to_string( kRowOld ) );
+                std::string rows;
+                for ( uint64_t s = 0; s < section.Count; ++s )
+                {
+                    const char* old    = section.Bytes.data() + s * kRowOld;
+                    uint64_t    number = 0;
+                    std::memcpy( &number, old + kShared, 8 );
+                    Content::AssetGuid guid; // number 0 = no material = the null GUID
+                    if ( number != 0 )
+                    {
+                        const auto found = map.find( number );
+                        if ( found == map.end() )
+                            return Fail( "submesh " + std::to_string( s ) + " names material number " +
+                                         std::to_string( number ) +
+                                         ", which the legacy material register does not know" );
+                        guid = found->second;
+                    }
+                    rows.append( old, kShared );
+                    rows.append( reinterpret_cast<const char*>( &guid.Hi ), 8 );
+                    rows.append( reinterpret_cast<const char*>( &guid.Lo ), 8 );
+                }
+                section.Bytes       = std::move( rows );
+                section.ElementSize = kRowNew;
+            }
+            table.push_back( std::move( section ) );
+        }
+        if ( header.Version == 1 )
+            table.push_back( Section{ kPolyGroupsId, static_cast<uint32_t>( sizeof( int32_t ) ), 0, {} } );
+
+        // Laid out as EncodeMeshBinary lays out v3: the table after the 80-byte prefix, each section at the
+        // next 8-byte boundary, zero padding, the file ending on a boundary.
+        std::string tableBytes, body;
+        uint64_t    at = Content::kMeshBinaryPrefixV3 + kSectionsV3 * kRow;
+        for ( const Section& section : table )
+        {
+            uint64_t offset = at;
+            tableBytes.append( reinterpret_cast<const char*>( &section.Id ), 4 );
+            tableBytes.append( reinterpret_cast<const char*>( &section.ElementSize ), 4 );
+            tableBytes.append( reinterpret_cast<const char*>( &offset ), 8 );
+            tableBytes.append( reinterpret_cast<const char*>( &section.Count ), 8 );
+            body += section.Bytes;
+            at += section.Bytes.size();
+            const uint64_t aligned = ( at + 7u ) & ~static_cast<uint64_t>( 7u );
+            body.append( static_cast<std::size_t>( aligned - at ), '\0' );
+            at = aligned;
+        }
+        // A file cooked before the header box existed states none, and every v3 row the gather reads must
+        // state one: it is the union of the submesh boxes, which the rows carry at bytes 96..120.
+        if ( ( header.Flags & Content::kMeshFlagHasBounds ) == 0 )
+        {
+            const Section& submeshes = table[kSubmeshId - 1];
+            if ( submeshes.Count > 0 )
+            {
+                float lo[3], hi[3];
+                for ( uint64_t s = 0; s < submeshes.Count; ++s )
+                {
+                    float rowLo[3], rowHi[3];
+                    std::memcpy( rowLo, submeshes.Bytes.data() + s * kRowNew + 96, sizeof( rowLo ) );
+                    std::memcpy( rowHi, submeshes.Bytes.data() + s * kRowNew + 108, sizeof( rowHi ) );
+                    for ( int k = 0; k < 3; ++k )
+                    {
+                        lo[k] = s == 0 ? rowLo[k] : std::min( lo[k], rowLo[k] );
+                        hi[k] = s == 0 ? rowHi[k] : std::max( hi[k], rowHi[k] );
+                    }
+                }
+                Content::StateMeshBounds( header, Common::Math::AABB{ glm::vec3( lo[0], lo[1], lo[2] ),
+                                                                      glm::vec3( hi[0], hi[1], hi[2] ) } );
+            }
+        }
+        header.Version      = Content::kMeshBinaryVersion;
+        header.SectionCount = kSectionsV3;
+        header.FileSize     = at;
+        std::string out( reinterpret_cast<const char*>( &header ), sizeof( header ) );
+        out.append( reinterpret_cast<const char*>( &meshGuid.Hi ), 8 );
+        out.append( reinterpret_cast<const char*>( &meshGuid.Lo ), 8 );
+        return Common::MakeSuccess( out + tableBytes + body );
     }
 } // namespace Desert::Migration

@@ -75,4 +75,17 @@ namespace Desert::Migration
     Common::ResultStr<std::string> RaiseMaterialTextToV2( std::string_view source, const std::string& text,
                                                           const LegacyMaterialIdMap& map,
                                                           MaterialV2Report&          report );
+
+    // MESH v1/v2 -> v3 (AF7q), here because the one thing the raise cannot do by layout alone is translate a
+    // submesh's old material NUMBER, and that translation is this register. Byte-level on purpose: the engine's
+    // decoder refuses a non-zero number by design, so decode + encode cannot carry one across.
+    //
+    // `meshGuid` becomes the v3 prefix GUID; every 128-byte submesh row gains the material's 16-byte GUID in
+    // place of its 8-byte number (0 -> the null GUID, "no material"); a v1 table gains the empty PolyGroups
+    // row; the sections are laid out again as the encoder lays them out. Refuses a foreign or truncated file,
+    // a version other than 1 or 2 (a v3 file has nothing to raise - the pass skips it before calling), a
+    // null `meshGuid`, and a non-zero number `map` does not know - by name, with no fallback.
+    Common::ResultStr<std::string> UpgradeMeshBytesToV3( std::string_view source, std::string_view bytes,
+                                                         const Common::Content::AssetGuid& meshGuid,
+                                                         const LegacyMaterialIdMap&        map );
 } // namespace Desert::Migration

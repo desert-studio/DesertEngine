@@ -51,6 +51,8 @@
 #include "SettingsCanonical.hpp"
 
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -67,6 +69,8 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <cstring>
+#include <optional>
 #include <vector>
 
 namespace
@@ -110,9 +114,20 @@ namespace
                kLayoutOnlyExtensions.end();
     }
 
+    // COOKED MESHES ARE COLLECTED TOO, since AF7q: MeshBinary v3 states the mesh's GUID and names each
+    // submesh's material by GUID, and SCNE 28 reads that GUID from the mesh file - so the mesh pass runs
+    // BEFORE the scenes, whatever order the paths were given in.
+    bool IsCookedMesh( const std::filesystem::path& path )
+    {
+        const std::string ext = path.extension().string();
+        return ext == Common::Constants::Extensions::STATIC_MESH ||
+               ext == Common::Constants::Extensions::SKINNED_MESH;
+    }
+
     void Collect( const std::filesystem::path& root, std::vector<std::filesystem::path>& scenes,
                   std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
-                  std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts )
+                  std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
+                  std::vector<std::filesystem::path>& meshes )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -133,6 +148,8 @@ namespace
                 }
                 else if ( IsLayoutOnly( entry.path() ) )
                     texts.push_back( entry.path() );
+                else if ( IsCookedMesh( entry.path() ) )
+                    meshes.push_back( entry.path() );
             }
             return;
         }
@@ -147,6 +164,8 @@ namespace
         }
         else if ( IsLayoutOnly( root ) )
             texts.push_back( root );
+        else if ( IsCookedMesh( root ) )
+            meshes.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -790,7 +809,7 @@ namespace Desert::Migration
         if ( roots.empty() )
         {
             err << "usage: SceneMigrator [--check] <scene.desce | material.demat | prefab.deprefab | "
-                   "clip.anim | directory>...\n";
+                   "clip.anim | mesh.stmesh | mesh.skmesh | directory>...\n";
             return 2;
         }
 
@@ -799,13 +818,15 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> prefabs;
         std::vector<std::filesystem::path> clips;
         std::vector<std::filesystem::path> texts;
+        std::vector<std::filesystem::path> meshes;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs, clips, texts );
+            Collect( root, scenes, materials, prefabs, clips, texts, meshes );
 
-        if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() )
+        if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
+             meshes.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
-                << kPrefabExtension << ", " << kClipExtension << " or other text asset files found\n";
+                << kPrefabExtension << ", " << kClipExtension << ", cooked mesh or other text asset files found\n";
             return 2;
         }
 
@@ -852,6 +873,68 @@ namespace Desert::Migration
                 }
             return &legacyIds.emplace( root, std::move( loaded.GetValue() ) ).first->second;
         };
+        // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
+        // second run changes nothing. A mesh under <project>/Cooked/Meshes translates its material numbers
+        // through the register of <project>/Resources/Assets; one under an assets root's Meshes/ through
+        // that root's.
+        for ( const auto& path : meshes )
+        {
+            const std::string                     bytes = ReadAll( path );
+            Common::Content::MeshBinaryFileHeader header{};
+            if ( bytes.size() >= sizeof( header ) )
+                std::memcpy( &header, bytes.data(), sizeof( header ) );
+            if ( header.Version >= Common::Content::kMeshBinaryVersion )
+            {
+                out << "ok     " << path.string() << " — already at mesh v" << header.Version << "\n";
+                continue;
+            }
+            std::optional<std::filesystem::path> assetsRoot;
+            namespace Paths = Common::Constants::Path;
+            if ( auto cooked = Paths::RootForContentPath( Paths::ContentDir::MeshCooked, path ) )
+            {
+                if ( cooked->filename().empty() )
+                    cooked = cooked->parent_path();
+                assetsRoot = ( cooked->parent_path() / Paths::SANDBOX_ASSETS_ROOT ).lexically_normal();
+            }
+            else if ( const auto assets = Paths::RootForContentPath( Paths::ContentDir::Mesh, path ) )
+                assetsRoot = *assets;
+            if ( !assetsRoot )
+            {
+                err << "FAIL   " << path.string() << " — lies under neither a Cooked/Meshes nor an assets Meshes "
+                    << "folder, so no legacy material register applies to it\n";
+                ++failed;
+                continue;
+            }
+            const auto* meshIds = LegacyIdsFor( *assetsRoot );
+            if ( meshIds == nullptr )
+            {
+                ++failed;
+                continue;
+            }
+            const Common::Content::AssetGuid guid = Common::Content::AssetGuid::Generate();
+            const auto raised = Desert::Migration::UpgradeMeshBytesToV3( path.string(), bytes, guid, *meshIds );
+            if ( !raised )
+            {
+                err << "FAIL   " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — mesh v" << header.Version << " -> v"
+                << Common::Content::kMeshBinaryVersion << ", GUID " << Common::Content::AssetGuidToText( guid )
+                << "\n";
+            ++changed;
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+                --changed;
+            }
+        }
+
         for ( const auto& path : scenes )
         {
             const std::string source = ReadAll( path );
