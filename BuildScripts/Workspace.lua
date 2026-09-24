@@ -90,6 +90,21 @@ workspace "Desert"
         warnings "Default"
     filter {}
 
+    -- THE 64-BIT-HOSTED TOOLS, BECAUSE THE 32-BIT LINKER RAN OUT OF ADDRESS SPACE, NOT THE DISK.
+    -- Without this property MSBuild picks bin\HostX86\x64: a 32-bit link.exe and a 32-bit mspdbsrv,
+    -- one per build and shared by every concurrent link, capped at 4 GB of address space. Debug
+    -- objects carry their types inline (/Z7, BuildScripts/MSBuild/Ccache.targets) and every suite links
+    -- Desert.lib, so each test link merges gigabytes of type records through that one server.
+    -- Run 36032786406 (Windows Debug) is where it gave out: 321 suite links against 308 in the last
+    -- green run 35998147036, Desert.lib 3289 MB against 3131, the 32-bit linker "ran out of heap
+    -- space" three times, and eleven migrator suites died in LNK1201 ("check for insufficient disk
+    -- space") and LNK1318 ("Unexpected PDB error; OK (0)"). The disk was not it: drive D had 176.5 GB
+    -- free AFTER the failure and build\ held 40.3 GB. premake writes <PreferredToolArchitecture>x64,
+    -- which moves link.exe and mspdbsrv to bin\HostX64 on CI and in a developer's Visual Studio alike.
+    filter "system:windows"
+        preferredtoolarchitecture "x86_64"
+    filter {}
+
     -- Vendored code is not ours to fix, and its warnings would drown ours the moment they appeared.
     -- A path rule rather than `warnings "Off"` in each of the eleven ThirdParty project scripts,
     -- because the eleven do not cover it: `vk_mem_alloc.cpp`, `stb_image.cpp`, `stb_truetype.cpp`,
