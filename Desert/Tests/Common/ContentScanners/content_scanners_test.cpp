@@ -146,6 +146,10 @@ namespace
            "reads the source tree it is about to PACK. Reading it through a mount would be circular: the "
            "packager would pack the archive into itself.",
            "" },
+         { "Editor/Source/Editor/Packaging/PackageCook.cpp", Verdict::NotContent,
+           "walks the local DerivedDataCache buckets it stages into Saved/Cooked for the package - a "
+           "machine-local cache, never mounted content.",
+           "" },
          { "Editor/Source/Editor/Import/Blend/BlendImporter.hpp", Verdict::NotContent,
            "source art (.blend) that exists only in an authoring tree and is never shipped.", "" },
          { "Editor/Source/Editor/Import/ImportManager.cpp", Verdict::NotContent,

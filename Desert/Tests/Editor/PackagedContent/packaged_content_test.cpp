@@ -31,6 +31,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/CookedTexturePath.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
 #include <Editor/Import/TextureSourceFormats.hpp>
@@ -1615,10 +1616,21 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     // only when the mesh itself was re-imported.
     fs::create_directories( proj / "GameAssets" / "Textures" / "HDR" );
     fs::create_directories( proj / "GameAssets" / "Meshes" );
-    fs::copy_file( shipped / "Textures" / "T_Checker.png", proj / "GameAssets" / "Textures" / "T_Checker.png" );
-    fs::copy_file( shipped / "Textures" / "HDR" / "PreviewCheck.hdr",
-                   proj / "GameAssets" / "Textures" / "HDR" / "PreviewCheck.hdr" );
-    fs::copy_file( shipped / "Textures" / "T_NormalWitness.png", proj / "GameAssets" / "Meshes" / "beside.png" );
+    // The checker and the panorama are the shipped texture ASSETS (AF3: the source lives inside the
+    // `.detex`); the image beside a mesh is a RAW file, as a mesh import leaves it, so the packager's cook
+    // is also the one that imports it into its asset.
+    fs::copy_file( shipped / "Textures" / "T_Checker.detex",
+                   proj / "GameAssets" / "Textures" / "T_Checker.detex" );
+    fs::copy_file( shipped / "Textures" / "HDR" / "PreviewCheck.detex",
+                   proj / "GameAssets" / "Textures" / "HDR" / "PreviewCheck.detex" );
+    {
+        const auto witness =
+             Desert::Assets::ReadTextureSourceAssetFile( shipped / "Textures" / "T_NormalWitness.detex" );
+        ASSERT_TRUE( witness.IsSuccess() ) << witness.GetError();
+        const auto& raw = witness.GetValue().Source;
+        WriteFile( proj / "GameAssets" / "Meshes" / "beside.png",
+                   std::string( reinterpret_cast<const char*>( raw.data() ), raw.size() ) );
+    }
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
@@ -1627,7 +1639,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
 
     // THE PROJECT'S OWN REGISTRY, as `AssetRegistryTool cook --disk` writes it for a project that is not a
     // git checkout: one row per content file, which here is the panorama (an `.hdr` is Skybox content in
-    // its own right). The PNGs are no census kind — their `.tex` is, and the cook writes those rows.
+    // its own right). The LDR images are no census kind — their `.tex` is, and the cook writes those rows.
     {
         Common::Utils::AssetRegistry projectRegistry;
         for ( const auto& [key, file] : Common::Content::ScanContentRoots() )
@@ -1741,7 +1753,19 @@ TEST( PackagedContent, EveryTextureTheShippedContentNamesIsOneThePackageCooks )
         cookedKeys.insert( Common::AssetHandle::StableKeyForPath( source ) );
         cookedKeys.insert(
              Common::AssetHandle::StableKeyForPath( Desert::Assets::CookedTexturePath( source, ".tex" ) ) );
-        cookedHandles.insert( static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( source ) ) );
+        // A texture ASSET carries its handle (frozen at import) and the key of the image it came from; a
+        // raw image's handle is still derived from its place.
+        if ( Desert::Assets::IsTextureSourceAssetFile( source ) )
+        {
+            const auto asset = Desert::Assets::ReadTextureSourceAssetFile( source );
+            ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
+            cookedKeys.insert( asset.GetValue().Import.SourceFile );
+            cookedHandles.insert( static_cast<uint64_t>( asset.GetValue().Handle() ) );
+        }
+        else
+        {
+            cookedHandles.insert( static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( source ) ) );
+        }
     }
     ASSERT_FALSE( cookedKeys.empty() ) << "the cook reaches no texture in " << assets.string();
 
@@ -1751,15 +1775,22 @@ TEST( PackagedContent, EveryTextureTheShippedContentNamesIsOneThePackageCooks )
     {
         std::string ext = entry.path().extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-        if ( entry.is_regular_file() &&
-             Desert::Editor::TextureSourceFormatRank( ext ) != Desert::Editor::kTextureSourceExtensionCount )
+        if ( entry.is_regular_file() && Desert::Assets::IsTextureSourceAssetFile( entry.path() ) )
+        {
+            const auto asset = Desert::Assets::ReadTextureSourceAssetFile( entry.path() );
+            ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
+            anyTextureByHandle[static_cast<uint64_t>( asset.GetValue().Handle() )] =
+                 Common::AssetHandle::StableKeyForPath( entry.path() );
+        }
+        else if ( entry.is_regular_file() &&
+                  Desert::Editor::TextureSourceFormatRank( ext ) != Desert::Editor::kTextureSourceExtensionCount )
         {
             anyTextureByHandle[static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( entry.path() ) )] =
                  Common::AssetHandle::StableKeyForPath( entry.path() );
         }
     }
 
-    const std::regex keyRef( R"re("((?:assets|cooked):[^"]+\.(?:png|jpg|jpeg|tga|bmp|exr|hdr|tex))")re",
+    const std::regex keyRef( R"re("((?:assets|cooked):[^"]+\.(?:png|jpg|jpeg|tga|bmp|exr|hdr|detex|tex))")re",
                              std::regex::icase );
     const std::regex handleRef( R"re("TextureHandle"\s*:\s*([0-9]+))re" );
 
