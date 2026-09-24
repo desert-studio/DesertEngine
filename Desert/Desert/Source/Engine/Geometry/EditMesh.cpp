@@ -808,7 +808,7 @@ namespace Desert::Geometry
                 const int t = tris[side];
                 if ( t == InvalidId )
                     continue;
-                const auto* const slot = std::find( m_TriangleEdges[t].begin(), m_TriangleEdges[t].end(), e );
+                const auto slot = std::find( m_TriangleEdges[t].begin(), m_TriangleEdges[t].end(), e );
                 if ( slot == m_TriangleEdges[t].end() )
                     return MakeFormattedError<bool>( "edge {} lists triangle {} which does not use it", e, t );
                 const int corner = m_TriangleVertices[t][slot - m_TriangleEdges[t].begin()];
