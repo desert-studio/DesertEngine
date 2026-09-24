@@ -6,6 +6,8 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 
+#include <utility>
+
 namespace Desert::Graphic
 {
     class Image2D;
@@ -20,15 +22,18 @@ namespace Desert::Graphic::Render
     {
         Image2D*                  Heightmap = nullptr;
         System::LandscapeTileDraw Tile;
+        glm::vec3                 LayerModes;
+        MaterialOverrides         Overrides;
 
-        DrawLandscapeTileCommand( Image2D* heightmap, const System::LandscapeTileDraw& tile )
-             : Heightmap( heightmap ), Tile( tile )
+        DrawLandscapeTileCommand( Image2D* heightmap, const System::LandscapeTileDraw& tile, const glm::vec3& layerModes,
+                                  MaterialOverrides overrides )
+             : Heightmap( heightmap ), Tile( tile ), LayerModes( layerModes ), Overrides( std::move( overrides ) )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitLandscapeTile( Heightmap, Tile );
+            renderer.SubmitLandscapeTile( Heightmap, Tile, LayerModes, Overrides );
         }
     };
 } // namespace Desert::Graphic::Render

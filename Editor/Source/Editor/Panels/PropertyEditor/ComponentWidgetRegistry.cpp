@@ -63,7 +63,7 @@ namespace Desert::Editor
             // and the IBL bake), and it must not be swallowed by a "Sky" substring landing in Rendering.
             if ( has( "Atmosphere" ) || has( "Light" ) )
                 return "Lighting";
-            if ( has( "Mesh" ) || has( "Text" ) || has( "Particle" ) || has( "Skybox" ) || has( "Terrain" ) ||
+            if ( has( "Mesh" ) || has( "Text" ) || has( "Particle" ) || has( "Skybox" ) || has( "Landscape" ) ||
                  has( "Sprite" ) || has( "Decal" ) || has( "Foliage" ) || has( "Fog" ) || has( "Cloud" ) )
                 return "Rendering";
             if ( has( "Collider" ) || has( "Rigid" ) || has( "Character" ) || has( "Physics" ) ||

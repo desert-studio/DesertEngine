@@ -54,5 +54,8 @@ namespace Desert::ECS
         std::unordered_map<entt::entity, TileGpu> m_Tiles;
         // Said once per tile, not once per frame: a tile that cannot be drawn stays that way until edited.
         std::unordered_set<entt::entity> m_Warned;
+
+        // Material handles already reported as unresolvable, so the warning is said once and not once a frame.
+        std::unordered_set<uint64_t> m_WarnedMaterials;
     };
 } // namespace Desert::ECS

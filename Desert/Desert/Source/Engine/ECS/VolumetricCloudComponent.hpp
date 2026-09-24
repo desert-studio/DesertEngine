@@ -97,7 +97,7 @@ namespace Desert::ECS
         // ---- Materials ------------------------------------------------------------------------------
 
         // THE SEAM ITSELF — the one field O1 added while thirty-three left. Hidden from the reflected
-        // Details pass on the same terms as TerrainData::Material: the builder's asset slot is
+        // Details pass on the same terms as LandscapeMaterialData::Material: the builder's asset slot is
         // texture-oriented, and the cloud entry draws a material row with New/Edit/Clear that opens the
         // Material Editor window (ComponentEditorRegistrations.cpp), which after Stage 3 is the only
         // place a material is authored. Still serialized; Hidden is editor-only.

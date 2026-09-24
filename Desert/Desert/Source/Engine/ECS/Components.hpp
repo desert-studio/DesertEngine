@@ -247,75 +247,50 @@ namespace Desert::ECS
         bool  RandomYaw     = true; // random rotation about the up axis
     };
 
-    // Per-layer splat mode. Auto = weight from height/slope rules (in-shader); Manual = weight painted
-    // into the terrain splat map (brush, Stage 3b); Off = layer disabled. Reflected -> combo in editor.
-    enum class TerrainLayerMode
+    // A landscape surface layer's switch. Auto = weighted by the Terrain program's height/slope rules;
+    // Off = the layer is not drawn. Reflected -> combo in the editor. There is no painted mode: weight
+    // painting is the landscape's own layer work (LS-14), not a runtime-only splat nobody saves.
+    enum class LandscapeLayerMode
     {
         Auto,
-        Manual,
         Off
     };
 
-    // Procedural heightmap terrain params (reflected -> inspector + serialization).
-    struct TerrainData
+    // HOW A LANDSCAPE LOOKS (UE: ALandscape::LandscapeMaterial), on the root entity beside its
+    // LandscapeComponent. Apart from the frame because the frame is authored as raw numbers
+    // (MakeAuthored) and this is reflected: an asset handle and three combos the Details panel builds.
+    struct LandscapeMaterialData
     {
         REFLECT()
 
-        // The terrain's material, a `.demat` like every other material — the surface is drawn by ONE
-        // program of domain Terrain, and its three splat layers (u_GrassTex/u_RockTex/u_SnowTex) are
-        // TEXTURE PARAMETERS of that one program, blended in-shader by the layer modes below. So this is
-        // one handle and not a slot vector: a vector would promise a material per layer, and nothing
-        // downstream could consume one. Unset = the shader's own schema defaults.
+        // The landscape's material, a `.demat` of domain Terrain like every other material — the surface
+        // is drawn by ONE program, and its three layers (u_GrassTex/u_RockTex/u_SnowTex) are TEXTURE
+        // PARAMETERS of that one program, blended in-shader by the layer modes below. So this is one handle
+        // and not a slot vector: a vector would promise a material per layer, and nothing downstream could
+        // consume one. Unset = the shader's own schema defaults.
         //
-        // Read by Engine/ECS/System/TerrainECSSystem.hpp, which resolves it through
-        // Runtime::MaterialService::ResolveData and forwards the values as named overrides.
+        // Read by Engine/ECS/System/LandscapeECSSystem.cpp, which resolves it through
+        // Runtime::MaterialService and forwards the values as named overrides on every tile of the root.
         //
-        // Hidden from the auto-built Details on the same terms as SkyboxData::SkyboxHandle below: the
-        // builder's asset slot is texture-oriented, and the Terrain entry draws a material field with an
-        // Edit button that opens the Material Editor window — after Stage 3 that window is the only place
-        // a material is authored. Still serialized; Hidden is editor-only.
-        PROPERTY( DisplayName( "Material" ), Category( "Terrain" ), Asset<MaterialAsset>, Hidden )
+        // Hidden from the auto-built Details: the builder's asset slot is texture-oriented, and the
+        // Landscape Material entry draws a material field with an Edit button that opens the Material
+        // Editor window. Still serialized; Hidden is editor-only.
+        PROPERTY( DisplayName( "Material" ), Category( "Landscape" ), Asset<MaterialAsset>, Hidden )
         Assets::AssetHandle Material;
 
-        PROPERTY( DisplayName( "Size" ), Category( "Terrain" ), Range( 100.0f, 50000.0f ), Length )
-        float Size = 5000.0f;
+        PROPERTY( DisplayName( "Grass Layer" ), Category( "Landscape Layers" ) )
+        LandscapeLayerMode GrassMode = LandscapeLayerMode::Auto;
 
-        PROPERTY( DisplayName( "Resolution" ), Category( "Terrain" ), Range( 2.0f, 256.0f ) )
-        int Resolution = 64;
+        PROPERTY( DisplayName( "Rock Layer" ), Category( "Landscape Layers" ) )
+        LandscapeLayerMode RockMode = LandscapeLayerMode::Auto;
 
-        PROPERTY( DisplayName( "Height Scale" ), Category( "Terrain" ), Range( 0.0f, 5000.0f ), Length )
-        float HeightScale = 500.0f;
-
-        PROPERTY( DisplayName( "Noise Frequency" ), Category( "Terrain" ), Range( 0.001f, 1.0f ) )
-        float NoiseFrequency = 0.08f;
-
-        PROPERTY( DisplayName( "Seed" ), Category( "Terrain" ), Range( 0.0f, 9999.0f ) )
-        int Seed = 1337;
-
-        PROPERTY( DisplayName( "Grass Layer" ), Category( "Terrain Layers" ) )
-        TerrainLayerMode GrassMode = TerrainLayerMode::Auto;
-
-        PROPERTY( DisplayName( "Rock Layer" ), Category( "Terrain Layers" ) )
-        TerrainLayerMode RockMode = TerrainLayerMode::Auto;
-
-        PROPERTY( DisplayName( "Snow Layer" ), Category( "Terrain Layers" ) )
-        TerrainLayerMode SnowMode = TerrainLayerMode::Auto;
+        PROPERTY( DisplayName( "Snow Layer" ), Category( "Landscape Layers" ) )
+        LandscapeLayerMode SnowMode = LandscapeLayerMode::Auto;
     };
 
-    // TerrainECSSystem draws Data through its own DrawTerrainCommand every frame (TerrainRenderer builds the
-    // grid on the GPU side). It never touches a StaticMeshComponent: this comment used to say it generated
-    // into StaticMeshComponent.RuntimeMesh, tracked by a `BuiltHash` field that nothing wrote or read (M4).
-    struct TerrainComponent
+    struct LandscapeMaterialComponent
     {
-        TerrainData Data;
-
-        // --- Splat painting (Stage 3b, runtime only; not yet serialized) ---
-        // RGBA8 splat map: R=grass, G=rock, B=snow weights. Manual-mode layers sample this. The CPU mirror
-        // is the brush's edit target; SplatDirty triggers a safe GPU re-upload (ViewportPanel::OnPreUpdate).
-        static constexpr uint32_t         SplatResolution = 256;
-        std::shared_ptr<Graphic::Image2D> SplatMap;
-        std::vector<unsigned char>        SplatPixels; // size = SplatResolution^2 * 4, lazily allocated
-        bool                              SplatDirty = false;
+        LandscapeMaterialData Data;
     };
 
     // THE LANDSCAPE ROOT (UE: ALandscape). Owns the frame every tile is placed by: the entity's own world

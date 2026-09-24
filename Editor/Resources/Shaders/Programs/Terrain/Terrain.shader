@@ -1,7 +1,7 @@
 Shader "Terrain"
 {
     // Data-driven material metadata (consumed by the pipeline cache + generic material in later phases).
-    // Splat layers — drag textures onto these in Details; unassigned = white fallback (shows the base tint).
+    // Layer textures — drag textures onto these in Details; unassigned = white fallback (shows the base tint).
 
     Domain Terrain
 
@@ -29,7 +29,7 @@ Shader "Terrain"
     // ── The split every stage below repeats ─────────────────────────────────────────────────────────
     //
     // TerrainUB (binding 0) holds ONLY what every terrain of a frame shares: View, Projection and the
-    // sun. Everything per-terrain — Model, sizes, seed, layer modes — is a row of TerrainInstances[]
+    // sun. Everything per-tile — its frame, sizes, layer modes — is a row of TerrainInstances[]
     // (binding 8), named per draw by the SAME push-constant index that names the material param row.
     //
     // WHY: the terrain pass records every draw of a frame before the GPU executes any of them, and a

@@ -68,8 +68,8 @@ namespace
         const char* Dead  = nullptr;
 
         // THE OTHER END OF THE CHAIN, and the reason Г26 added it. `Where` proves that SOMEBODY reads
-        // the field; it cannot prove that the value reaches a frame. `TerrainData::RockMode` had a WIRED
-        // row that was true — TerrainECSSystem packs it into the draw command's LayerModes.y — and the
+        // the field; it cannot prove that the value reaches a frame. The procedural terrain's RockMode had a
+        // WIRED row that was true — its ECS system packed it into the draw command's LayerModes.y — and the
         // terrain shader never read LayerModes.y and never sampled the green splat channel, so the
         // `Rock (G)` brush the editor offers painted nothing anybody could see. The census was satisfied
         // one link before the frame. The same shape retired the three Wind fields above: BeginScene read
@@ -510,7 +510,7 @@ namespace
          // The three Wind rows are gone with their fields (Г26). They were WIRED to SceneRenderer, and
          // that row was TRUE and USELESS: BeginScene did read all three into a WindEnv, and nothing ever
          // read the WindEnv, so the census was satisfied one link before the frame. See the note on
-         // TerrainData's Frame anchors below, which is this suite's answer to that shape.
+         // LandscapeMaterialData's Frame anchors below, which is this suite's answer to that shape.
 
          // The shipping player's, and nothing else's.
          { "SplashSprite", kRuntimeLayer },
@@ -529,7 +529,7 @@ namespace
     // ------------------------------------------------------------------------------------------------
 
     constexpr const char* kScene      = "Desert/Desert/Source/Engine/Core/Scene.cpp";
-    constexpr const char* kTerrain    = "Desert/Desert/Source/Engine/ECS/System/TerrainECSSystem.hpp";
+    constexpr const char* kLandscape  = "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.cpp";
     constexpr const char* kPointLight = "Desert/Desert/Source/Engine/ECS/System/PointLightSystem.hpp";
     constexpr const char* kSpotLight  = "Desert/Desert/Source/Engine/ECS/System/SpotLightSystem.hpp";
     constexpr const char* kLightGizmo = "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp";
@@ -544,24 +544,19 @@ namespace
          { "Far", kScene },
     };
 
-    // The one surface text every terrain in this engine is shaded by — Terrain.shader (forward) and
-    // TerrainGBuffer.shader (deferred) both include it. A layer mode that TerrainECSSystem packs into the
+    // The one surface text every landscape in this engine is shaded by — Terrain.shader (forward) and
+    // TerrainGBuffer.shader (deferred) both include it. A layer mode that LandscapeECSSystem packs into the
     // draw command has to be READ here, or the mode is a combo box that moves nothing.
     constexpr const char* kTerrainShader = "Editor/Resources/Shaders/Programs/Terrain/TerrainSurface.glslh";
 
-    constexpr Row kTerrainRows[] = {
-         { "Material", kTerrain },
-         { "Size", kTerrain },
-         { "Resolution", kTerrain },
-         { "HeightScale", kTerrain },
-         { "NoiseFrequency", kTerrain },
-         { "Seed", kTerrain },
+    constexpr Row kLandscapeMaterialRows[] = {
+         { "Material", kLandscape },
          // The three layer modes state BOTH ends: the C++ that packs the enum, and the slot the shader
          // must read it out of. Two of the three have been dead in this exact way — GrassMode until Г25,
          // RockMode until Г26 — with this census green throughout.
-         { "GrassMode", kTerrain, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.x" },
-         { "RockMode", kTerrain, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.y" },
-         { "SnowMode", kTerrain, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.z" },
+         { "GrassMode", kLandscape, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.x" },
+         { "RockMode", kLandscape, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.y" },
+         { "SnowMode", kLandscape, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.z" },
     };
 
     constexpr Row kDirLightRows[] = {
@@ -940,7 +935,7 @@ namespace
          { "HeroCloudData", "HeroCloudComponent", nullptr, CENSUS_ROWS( kHeroCloudRows ) },
 
          { "CameraData", "CameraComponent", nullptr, CENSUS_ROWS( kCameraRows ) },
-         { "TerrainData", "TerrainComponent", nullptr, CENSUS_ROWS( kTerrainRows ) },
+         { "LandscapeMaterialData", "LandscapeMaterialComponent", nullptr, CENSUS_ROWS( kLandscapeMaterialRows ) },
          // NOT `DirectionalLightComponent`. The wrapper dropped the "al", and a census that guessed the
          // spelling would have found no receivers at all and called ten live fields dead.
          { "DirectionalLightData", "DirectionLightComponent", nullptr, CENSUS_ROWS( kDirLightRows ) },
@@ -1220,8 +1215,8 @@ TEST( SettingConsumers, EveryNamedConsumerActuallyReadsTheFieldItClaims )
 
 // THE GAP BETWEEN "SOMEBODY READ IT" AND "IT REACHED THE FRAME".
 //
-// Both halves of this are new in Г26 and both come from one measured defect. `TerrainData::RockMode` was
-// WIRED to TerrainECSSystem.hpp and the row was TRUE: the system does read the field and packs it into
+// Both halves of this are new in Г26 and both come from one measured defect. The procedural terrain's RockMode
+// (retired in v23) was WIRED to its ECS system and the row was TRUE: the system did read the field and packed it into
 // the draw command's LayerModes.y. Terrain.shader then read LayerModes.x and LayerModes.z and never .y,
 // and never sampled the green splat channel — so the editor's `Rock (G)` brush, whose own overlay tells
 // the user to "set the layer to 'Manual' in Details to see painted weights", painted a channel no pixel
@@ -1314,7 +1309,7 @@ TEST( SettingConsumers, EveryFrameAnchorIsActuallyReadWhereItSaysItIs )
 //
 // An opt-in anchor catches the rows somebody remembered; the next dead knob is the one nobody did. The
 // smallest rule that cannot be forgotten is stated over a TYPE rather than over a field name: every
-// reflected field whose type is `TerrainLayerMode` is, by construction, an authored choice that only a
+// reflected field whose type is `LandscapeLayerMode` is, by construction, an authored choice that only a
 // shader can honour, so every one of them must say which slot honours it. A fourth terrain layer added
 // tomorrow inherits the requirement without anybody reading this file.
 //
@@ -1328,7 +1323,7 @@ TEST( SettingConsumers, EveryLayerModeFieldStatesWhereItReachesTheFrame )
     {
         for ( const FieldInfo& field : Type( census.Type ).Fields )
         {
-            if ( std::string( field.TypeName ) != "TerrainLayerMode" )
+            if ( std::string( field.TypeName ) != "LandscapeLayerMode" )
             {
                 continue;
             }
@@ -1337,7 +1332,7 @@ TEST( SettingConsumers, EveryLayerModeFieldStatesWhereItReachesTheFrame )
         }
     }
 
-    EXPECT_EQ( found, 3 ) << "the terrain's layer modes are Grass, Rock and Snow; a fourth (or a missing "
+    EXPECT_EQ( found, 3 ) << "the landscape's layer modes are Grass, Rock and Snow; a fourth (or a missing "
                              "one) changes what Terrain.shader has to blend and is a reviewable edit";
 }
 

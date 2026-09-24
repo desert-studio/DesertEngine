@@ -9,13 +9,6 @@
 
 namespace Desert::World::Landscape
 {
-    std::filesystem::path LandscapeTileBlobPath( const std::filesystem::path& scenePath, uint64_t tileId )
-    {
-        const std::string directory = scenePath.stem().string() + "_Landscape";
-        const std::string file      = std::to_string( tileId ) + kLandscapeTileExtension;
-        return scenePath.parent_path() / directory / file;
-    }
-
     Common::BoolResultStr WriteLandscapeTileFile( const std::filesystem::path& path,
                                                   const LandscapeTileData&     tile )
     {

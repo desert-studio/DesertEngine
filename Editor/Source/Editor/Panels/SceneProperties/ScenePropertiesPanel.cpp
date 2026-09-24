@@ -53,8 +53,8 @@ namespace Desert::Editor
                 return "SkyAtmosphereComponent";
             if ( entity.HasComponent<ECS::SkyboxComponent>() )
                 return "SkyboxComponent";
-            if ( entity.HasComponent<ECS::TerrainComponent>() )
-                return "TerrainComponent";
+            if ( entity.HasComponent<ECS::LandscapeComponent>() )
+                return "LandscapeComponent";
             if ( entity.HasComponent<ECS::SkinnedMeshComponent>() )
                 return "SkinnedMeshComponent";
             if ( entity.HasComponent<ECS::StaticMeshComponent>() )
@@ -75,7 +75,7 @@ namespace Desert::Editor
                 return ICON_MDI_WEATHER_SUNSET;
             if ( entity.HasComponent<ECS::SkyboxComponent>() )
                 return ICON_MDI_EARTH;
-            if ( entity.HasComponent<ECS::TerrainComponent>() )
+            if ( entity.HasComponent<ECS::LandscapeComponent>() )
                 return ICON_MDI_TERRAIN;
             if ( entity.HasComponent<ECS::TextComponent>() )
                 return ICON_MDI_FORMAT_TEXT;

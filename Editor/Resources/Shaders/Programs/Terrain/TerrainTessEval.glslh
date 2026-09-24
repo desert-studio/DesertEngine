@@ -1,12 +1,9 @@
 // Terrain patch stage bodies, shared by the three Terrain programs (Terrain = forward, TerrainGBuffer =
 // deferred, TerrainShadow = cascade depth): ONE statement of where a terrain vertex is, so the surface a
 // cascade sees is the surface the camera sees — same patches, same tessellation, same displacement.
-        // Tessellation evaluation — bilinearly interpolates the tessellated grid vertex across the patch, then
-        // displaces it along Y by a procedural fBm height field (Stage 2). Normals are derived analytically from
-        // the same height function via central differences, so the lit relief needs no normal map.
-        //
-        // The height source is isolated in TerrainHeight(): Stage 5 (sculpting) swaps the fBm for a sampled,
-        // editable heightmap texture without touching the displacement/normal math below.
+        // Tessellation evaluation — places each tessellated vertex of a landscape tile at its global sample
+        // coordinate and displaces it by the tile's heights, bilinearly between samples, exactly as the CPU
+        // answers a height query (LandscapeHeight.glslh is the one statement of both).
 
         layout( quads, equal_spacing, cw ) in;
 
@@ -38,52 +35,6 @@
         Out(1) vec3 v_Normal;
         Out(2) float v_Height01; // normalized height [0..1] for slope/height tinting
 #endif
-
-        // --- Value-noise fBm -------------------------------------------------------------------------------
-
-        float Hash( vec2 p )
-        {
-            p = fract( p * vec2( 123.34, 456.21 ) );
-            p += dot( p, p + 45.32 );
-            return fract( p.x * p.y );
-        }
-
-        float ValueNoise( vec2 p )
-        {
-            vec2 i = floor( p );
-            vec2 f = fract( p );
-            vec2 u = f * f * ( 3.0 - 2.0 * f ); // smoothstep
-
-            float a = Hash( i + vec2( 0.0, 0.0 ) );
-            float b = Hash( i + vec2( 1.0, 0.0 ) );
-            float c = Hash( i + vec2( 0.0, 1.0 ) );
-            float d = Hash( i + vec2( 1.0, 1.0 ) );
-
-            return mix( mix( a, b, u.x ), mix( c, d, u.x ), u.y );
-        }
-
-        float FBm( vec2 p )
-        {
-            float sum = 0.0;
-            float amp = 0.5;
-            float freq = 1.0;
-            for ( int i = 0; i < 5; ++i )
-            {
-                sum += amp * ValueNoise( p * freq );
-                freq *= 2.0;
-                amp *= 0.5;
-            }
-            return sum; // ~[0..1]
-        }
-
-        // Returns terrain height (world units) at a world-space XZ position.
-        float TerrainHeight( vec2 worldXZ )
-        {
-            float freq = max( u_T.Params2.x, 0.0001 );
-            vec2  seed = vec2( u_T.Params2.y * 0.137, u_T.Params2.y * 0.911 );
-            float h    = FBm( worldXZ * freq + seed );
-            return ( h - 0.5 ) * 2.0 * u_T.Params.z; // center around 0, scale by heightScale
-        }
 
         // One sample of this tile in centimetres above the root's base, x and z in [-1, last + 1]. The
         // heightmap carries a one-sample ring from the four neighbouring tiles (LandscapeBorderedSamples in
@@ -118,12 +69,12 @@
                          LandscapeGradient( TileHeightCm( x, int( za ) ), TileHeightCm( x, int( zb ) ), zb - za, spacing ) );
         }
 
-        // The heightmap path. Everything that decides a vertex on a shared tile edge is exact: the corner
+        // Everything that decides a vertex on a shared tile edge is exact: the corner
         // indices are integers, LandscapeLerp returns its endpoints bit for bit, the tile-local index is
         // an integer difference, and the far column of one tile is evaluated at fraction 1 of its last
         // cell while the near column of the next is fraction 0 of its first — the same sample, decoded by
         // the same function. So both tiles place the vertex at the same bits, and no crack can open.
-        void LandscapeMain()
+        void main()
         {
             // The patch is an axis-aligned rectangle of samples, so X comes from the u edge alone and Z
             // from the v edge alone. NOT a bilerp of all four corners: that evaluates lerp(63, 63, t) for
@@ -161,44 +112,5 @@
 
             v_Normal   = normalize( vec3( -dx, 1.0, -dz ) ); // the surface y = h(x, z)
             v_Height01 = clamp( h / max( u_T.Params.z, 0.0001 ) * 0.5 + 0.5, 0.0, 1.0 );
-#endif
-        }
-
-        void main()
-        {
-            if ( u_T.Params2.z > 0.5 )
-            {
-                LandscapeMain();
-                return;
-            }
-
-            // Corners stored CCW: p0=(0,0) p1=(1,0) p2=(1,1) p3=(0,1). Bilerp over gl_TessCoord.
-            vec4 p0 = gl_in[0].gl_Position;
-            vec4 p1 = gl_in[1].gl_Position;
-            vec4 p2 = gl_in[2].gl_Position;
-            vec4 p3 = gl_in[3].gl_Position;
-
-            vec4 a   = mix( p0, p1, gl_TessCoord.x );
-            vec4 b   = mix( p3, p2, gl_TessCoord.x );
-            vec4 pos = mix( a, b, gl_TessCoord.y );
-
-            // Displace along Y by the height field (Stage 2).
-            pos.y = TerrainHeight( pos.xz );
-
-            vec4 worldPos = u_T.Model * vec4( pos.xyz, 1.0 ); // apply the terrain entity's transform
-            gl_Position   = m_PushConstants.Transform * worldPos;
-
-#ifndef TERRAIN_DEPTH_ONLY
-            v_WorldPos = worldPos.xyz;
-            // Analytic normal via central differences on the height field. Epsilon scales with the grid cell.
-            float eps = max( u_T.Params.x / max( u_T.Params.y, 1.0 ), 0.01 ) * 0.5;
-            float hL  = TerrainHeight( pos.xz - vec2( eps, 0.0 ) );
-            float hR  = TerrainHeight( pos.xz + vec2( eps, 0.0 ) );
-            float hD  = TerrainHeight( pos.xz - vec2( 0.0, eps ) );
-            float hU  = TerrainHeight( pos.xz + vec2( 0.0, eps ) );
-            vec3  n   = normalize( vec3( hL - hR, 2.0 * eps, hD - hU ) );
-
-            v_Normal   = normalize( mat3( u_T.Model ) * n );
-            v_Height01 = clamp( pos.y / max( u_T.Params.z, 0.0001 ) * 0.5 + 0.5, 0.0, 1.0 );
 #endif
         }

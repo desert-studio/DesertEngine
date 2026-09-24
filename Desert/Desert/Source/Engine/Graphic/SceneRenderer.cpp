@@ -1349,28 +1349,12 @@ namespace Desert::Graphic
                              .ReceiveShadows  = extra.ReceiveShadows } );
     }
 
-    void SceneRenderer::SubmitTerrain( const glm::mat4& transform, float size, int resolution, float heightScale,
-                                       float noiseFrequency, int seed, const glm::vec3& layerModes,
-                                       Image2D* splatMap, const MaterialOverrides& overrides )
+    void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
+                                             const glm::vec3& layerModes, const MaterialOverrides& overrides )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-             ->Submit( { .Transform      = transform,
-                         .Size           = size,
-                         .Resolution     = resolution,
-                         .HeightScale    = heightScale,
-                         .NoiseFrequency = noiseFrequency,
-                         .Seed           = seed,
-                         .LayerModes     = layerModes,
-                         .SplatMap       = splatMap,
-                         .Overrides      = overrides } );
-    }
-
-    void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile )
-    {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
-        UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-             ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Overrides = {} } );
+             ->Submit( { .Heightmap = heightmap, .Landscape = tile, .LayerModes = layerModes, .Overrides = overrides } );
     }
 
     void SceneRenderer::SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform,

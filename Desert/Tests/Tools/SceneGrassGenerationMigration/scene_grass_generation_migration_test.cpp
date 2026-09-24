@@ -26,12 +26,11 @@
 //   5. The shapes a hand-edited file has: EnableGrass of the wrong type, a Terrain payload that is not an
 //      object, entities with no Terrain at all.
 //   6. Idempotence — a second run over the same tree removes nothing and reports zero.
-//   7. THE RELATION: the integers this migration writes for Auto and Off are the reflection registry's own
-//      enumerators for TerrainLayerMode. Reorder the enum and this suite reddens instead of 86 scenes
-//      quietly changing meaning.
+//   7. The integers this migration writes for Auto and Off are the v18..v22 file's (Auto=0, Manual=1,
+//      Off=2). The live enum they were checked against left with the procedural terrain in v23; the
+//      relation now lives where those integers are READ, SceneProceduralTerrainMigration.
 //   8. The step is the head, and the head is what the engine requires.
-//   9. The corpus: no shipped scene carries a generator key, and TerrainData no longer declares one —
-//      the field and the file went together, which is the half of a removal that is usually forgotten.
+//   9. The corpus: no shipped scene carries a generator key.
 
 #include <SceneMigration.hpp>
 
@@ -115,21 +114,17 @@ namespace
         return mode.value().to_int64().value_or( -1 );
     }
 
-    // The enumerator value the reflection table states for one name of TerrainLayerMode, which is what a
-    // `.desce` stores (ReflectionSerializer writes FieldType::Enum as its integer).
-    std::optional<int64_t> ReflectedLayerMode( const char* enumerator )
+    // The layer-mode integers a v18..v22 file stores (the retired terrain enum: Auto, Manual, Off, in that
+    // order). Stated here as the file format, because the enum they were written from no longer exists.
+    std::optional<int64_t> FileLayerMode( const char* enumerator )
     {
-        const auto* type = Reflection::ReflectionRegistry::Get().Find( "TerrainData" );
-        if ( type == nullptr )
-            return std::nullopt;
-        for ( const auto& field : type->Fields )
-        {
-            if ( field.TypeName != "TerrainLayerMode" )
-                continue;
-            for ( const auto& value : field.EnumValues )
-                if ( value.Name == enumerator )
-                    return static_cast<int64_t>( value.Value );
-        }
+        const std::string name( enumerator );
+        if ( name == "Auto" )
+            return 0;
+        if ( name == "Manual" )
+            return 1;
+        if ( name == "Off" )
+            return 2;
         return std::nullopt;
     }
 
@@ -213,7 +208,7 @@ TEST( SceneGrassGenerationMigration, GrassOnBecomesTheAutoGroundLayer )
     ASSERT_TRUE( terrain.has_value() );
 
     ASSERT_TRUE( ModeOf( *terrain ).has_value() ) << "a terrain that had grass came back with no GrassMode";
-    EXPECT_EQ( *ModeOf( *terrain ), ReflectedLayerMode( "Auto" ).value_or( -1 ) );
+    EXPECT_EQ( *ModeOf( *terrain ), FileLayerMode( "Auto" ).value_or( -1 ) );
     ASSERT_EQ( report.CarriedNames.size(), 1u );
     EXPECT_EQ( report.CarriedNames[0], std::string( "Terrain.GrassMode=Auto (was EnableGrass=true)" ) );
 }
@@ -229,7 +224,7 @@ TEST( SceneGrassGenerationMigration, GrassOffBecomesTheOffGroundLayer )
     ASSERT_TRUE( terrain.has_value() );
 
     ASSERT_TRUE( ModeOf( *terrain ).has_value() );
-    EXPECT_EQ( *ModeOf( *terrain ), ReflectedLayerMode( "Off" ).value_or( -1 ) );
+    EXPECT_EQ( *ModeOf( *terrain ), FileLayerMode( "Off" ).value_or( -1 ) );
     ASSERT_EQ( report.CarriedNames.size(), 1u );
     EXPECT_EQ( report.CarriedNames[0], std::string( "Terrain.GrassMode=Off (was EnableGrass=false)" ) );
 }
@@ -238,14 +233,14 @@ TEST( SceneGrassGenerationMigration, AnAuthoredGrassModeWinsOverTheCarry )
 {
     // The authored value beats one derived from a switch that is going away.
     rfl::Generic::Object terrain = V17Terrain( true );
-    terrain["GrassMode"]         = ReflectedLayerMode( "Manual" ).value_or( 1 );
+    terrain["GrassMode"]         = FileLayerMode( "Manual" ).value_or( 1 );
 
     std::vector<Assets::EntityData> entities{ TerrainEntity( std::move( terrain ) ) };
     const auto                      report = Migration::MigrateGrassGenerationV17ToV18( entities );
 
     const auto out = TerrainOf( entities[0] );
     ASSERT_TRUE( out.has_value() );
-    EXPECT_EQ( *ModeOf( *out ), ReflectedLayerMode( "Manual" ).value_or( 1 ) );
+    EXPECT_EQ( *ModeOf( *out ), FileLayerMode( "Manual" ).value_or( 1 ) );
     EXPECT_TRUE( report.CarriedNames.empty() ) << "the migration overwrote a mode the file stated";
 }
 
@@ -282,7 +277,7 @@ TEST( SceneGrassGenerationMigration, AnEnableGrassOfTheWrongTypeReadsAsOff )
 
     EXPECT_FALSE( terrain->get( "EnableGrass" ).has_value() );
     ASSERT_TRUE( ModeOf( *terrain ).has_value() );
-    EXPECT_EQ( *ModeOf( *terrain ), ReflectedLayerMode( "Off" ).value_or( -1 ) );
+    EXPECT_EQ( *ModeOf( *terrain ), FileLayerMode( "Off" ).value_or( -1 ) );
     ASSERT_EQ( report.CarriedNames.size(), 1u );
     EXPECT_NE( report.CarriedNames[0].find( "Off" ), std::string::npos );
 }
@@ -337,24 +332,15 @@ TEST( SceneGrassGenerationMigration, ASecondRunChangesNothing )
 
 // ── The relation, and the version ──────────────────────────────────────────────────────────────────
 
-TEST( SceneGrassGenerationMigration, TheCarriedIntegersAreTheEnumsOwnValues )
+TEST( SceneGrassGenerationMigration, TheCarriedIntegersAreTheFileFormats )
 {
-    // The migration states Auto=0 and Off=2 as literals, because it is a pure function and may not reach
-    // for the reflection registry (a global). That is the right call and it is also exactly how a
-    // migration comes to mean something different from the enum it writes for. So the two are compared
-    // HERE: reorder TerrainLayerMode and this reddens, instead of 86 scenes changing meaning quietly.
-    ASSERT_TRUE( ReflectedLayerMode( "Auto" ).has_value() ) << "TerrainData no longer reflects a "
-                                                               "TerrainLayerMode field";
-    EXPECT_EQ( *ReflectedLayerMode( "Auto" ), 0 );
-    EXPECT_EQ( *ReflectedLayerMode( "Off" ), 2 );
-
     // And the round trip, through the function rather than through the constants.
     std::vector<Assets::EntityData> on{ TerrainEntity( V17Terrain( true ) ) };
     std::vector<Assets::EntityData> off{ TerrainEntity( V17Terrain( false ) ) };
     Migration::MigrateGrassGenerationV17ToV18( on );
     Migration::MigrateGrassGenerationV17ToV18( off );
-    EXPECT_EQ( ModeOf( *TerrainOf( on[0] ) ), ReflectedLayerMode( "Auto" ) );
-    EXPECT_EQ( ModeOf( *TerrainOf( off[0] ) ), ReflectedLayerMode( "Off" ) );
+    EXPECT_EQ( ModeOf( *TerrainOf( on[0] ) ), FileLayerMode( "Auto" ) );
+    EXPECT_EQ( ModeOf( *TerrainOf( off[0] ) ), FileLayerMode( "Off" ) );
 }
 
 // THE HEAD ASSERTION TRAVELS WITH THE NEWEST STEP, and it left here when Г26 added v19. It was
@@ -433,21 +419,6 @@ TEST( SceneGrassGenerationMigration, NoShippedSceneCarriesAGeneratorKey )
         }
     }
     EXPECT_GT( checked, 0 ) << "the sweep found no scenes at all, so it proved nothing";
-}
-
-TEST( SceneGrassGenerationMigration, TerrainDataNoLongerDeclaresAGeneratorField )
-{
-    // The half of a removal that is usually forgotten: the files were cleaned AND the struct was. If this
-    // passes while the one above fails, the corpus was not re-run; if it fails on its own, somebody put
-    // the generator back and the migration is now deleting a live field.
-    const auto* type = Reflection::ReflectionRegistry::Get().Find( "TerrainData" );
-    ASSERT_NE( type, nullptr );
-
-    for ( const auto& field : type->Fields )
-        for ( const char* key : kGeneratorKeys )
-            EXPECT_NE( field.Name, std::string( key ) )
-                 << "TerrainData still declares " << key << ", which the v17 -> v18 migration deletes from "
-                 << "every file — the field and the file must go together";
 }
 
 int main( int argc, char** argv )

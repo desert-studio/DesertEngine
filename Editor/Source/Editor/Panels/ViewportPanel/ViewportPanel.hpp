@@ -22,7 +22,6 @@
 #include "Tools/CreateShapeTool.hpp"
 #include "Tools/ElementSelectTool.hpp"
 #include "Tools/PolyEditTool.hpp"
-#include "Tools/TerrainPaintTool.hpp"
 #include "Tools/GizmoController.hpp"
 #include "Tools/PickingController.hpp"
 
@@ -348,7 +347,6 @@ namespace Desert::Editor
         Tools::PolyEditTool                   m_PolyEditTool; // face select + push/pull (Modeling mode)
         Tools::ElementSelectTool              m_ElementSelectTool; // mesh element selection (Modeling mode)
         Tools::CreateShapeTool                m_CreateShapeTool;   // Create -> shapes (Modeling mode)
-        Tools::TerrainPaintTool               m_TerrainTool;  // terrain splat-layer painting (extracted)
         Tools::GizmoController                m_Gizmo;       // object + bone transform gizmos (extracted)
         Tools::PickingController              m_Picking;     // ray-pick + select (extracted)
         std::unique_ptr<AsyncMeshLoader>      m_AsyncLoader; // background cook of dropped meshes (no hitch)

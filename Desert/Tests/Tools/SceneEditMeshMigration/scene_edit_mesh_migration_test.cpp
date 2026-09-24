@@ -263,17 +263,16 @@ TEST( SceneEditMeshMigration, AV21SceneIsRaisedToV22ThroughTheWholeChain )
     EXPECT_TRUE( report.EditMeshRaised );
     EXPECT_FALSE( report.AnimGraphRaised ) << "a v21 file must not go back through the v21 step";
     EXPECT_EQ( report.EditMesh.Entities, 1 );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), 22 );
-    EXPECT_EQ( Desert::Core::kSceneVersion, 22 );
+    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), Desert::Core::kSceneVersion );
     EXPECT_TRUE( LoadedEditMesh( scene.Entities[0] ).has_value() );
 }
 
-TEST( SceneEditMeshMigration, TheStepIsTheHeadAndTheHeadIsWhatTheEngineRequires )
+TEST( SceneEditMeshMigration, TheStepFollowsTheAnimGraphStep )
 {
-    // The relation SceneMigration.hpp asserts at compile time, restated where a reader of this suite sees it.
-    EXPECT_EQ( Desert::Migration::kSceneVersionEditMesh, Desert::Core::kSceneVersion );
+    // The head assertion travelled to SceneProceduralTerrainMigration with v23; what stays is the order.
     EXPECT_EQ( Desert::Migration::kSceneVersionEditMesh, Desert::Migration::kSceneVersionAnimGraphAsset + 1 )
          << "two steps share a number, or one was skipped - see kSceneVersionTextKeySigil's note";
+    EXPECT_LT( Desert::Migration::kSceneVersionEditMesh, Desert::Core::kSceneVersion );
 }
 
 int main( int argc, char** argv )

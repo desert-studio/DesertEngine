@@ -47,7 +47,7 @@
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 // rfl serialization environment (the same three the mesh slot editor pulls in for the same reason) — a
-// fresh terrain material is written to disk with its stable GUID before the asset is created + registered.
+// fresh landscape material is written to disk with its stable GUID before the asset is created + registered.
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <rflcpp/rfl/json.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -72,9 +72,9 @@
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PointLightComponent, Data, "PointLightData", "Point Light" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpotLightComponent, Data, "SpotLightData", "Spot Light" )
 // Camera is a CUSTOM entry: reflected fields + a focal-length readout and "look through". See MakeCameraEntry.
-// Terrain is a CUSTOM entry: reflected TerrainData UI + the terrain's MATERIAL ROW (an asset field and
-// an Edit button — the material itself is authored in the Material Editor window, like every other).
-// See MakeTerrainEntry below.
+// Landscape Material is a CUSTOM entry: reflected LandscapeMaterialData UI (the layer modes) + the
+// landscape's MATERIAL ROW (an asset field and an Edit button — the material itself is authored in the
+// Material Editor window, like every other). See MakeLandscapeMaterialEntry below.
 // Collider is registered as a CUSTOM component below (auto-fit to mesh bounds on add) instead of the
 // plain reflected one-liner — see MakeColliderEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "RigidBodyData", "Rigid Body" )
@@ -143,7 +143,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ExponentialHeightFogComponen
                                      "ExponentialHeightFogData", "Exponential Height Fog" )
 
 // Volumetric Cloud is a CUSTOM entry since O1: the reflected budget/routing fields PLUS the material
-// row — the same one-handle-with-Edit-button arrangement the terrain has, for the same Stage 3 reason.
+// row — the same one-handle-with-Edit-button arrangement the landscape has, for the same Stage 3 reason.
 // See MakeVolumetricCloudEntry below.
 
 // The seam's AUTHORED producer: one sculpted body, placed by this entity's transform. It is a per-entity
@@ -166,11 +166,11 @@ namespace Desert::Editor
     // picker offering it would be a control with a single entry; the material that draws a terrain is a
     // Terrain material or it is nothing, and pressing New is how you say so.
     //
-    // Filename is "M_<Entity>_Terrain" (sanitized), first free index — a LABEL only: the stable identity is
+    // Filename is "M_<Entity>_Landscape" (sanitized), first free index — a LABEL only: the stable identity is
     // the MaterialId inside the file, so renaming the entity or the file later breaks no reference. Same
     // rule, and the same write-then-load order, as the mesh slot editor's CreateAndRegisterMaterial.
-    static ::Desert::Assets::AssetHandle CreateTerrainMaterial( const std::string&              entityName,
-                                                                ::Desert::Assets::AssetManager* assetMgr )
+    static ::Desert::Assets::AssetHandle CreateLandscapeMaterial( const std::string&              entityName,
+                                                                  ::Desert::Assets::AssetManager* assetMgr )
     {
         if ( !assetMgr )
             return ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
@@ -179,7 +179,7 @@ namespace Desert::Editor
         base.reserve( entityName.size() + 8 );
         for ( const char c : entityName )
             base += ( std::isalnum( static_cast<unsigned char>( c ) ) || c == '_' || c == '-' ) ? c : '_';
-        base = "M_" + ( base.empty() ? std::string( "Terrain" ) : base ) + "_Terrain";
+        base = "M_" + ( base.empty() ? std::string( "Landscape" ) : base ) + "_Landscape";
 
         const std::string           ext( ::Common::Constants::Extensions::MATERIAL_EXTENSION );
         const std::filesystem::path dir = ::Common::Constants::Path::MATERIAL_PATH;
@@ -205,7 +205,7 @@ namespace Desert::Editor
                       path.generic_string(), rfl::json::write( data ) );
                  !written )
             {
-                LOG_ERROR( "[Terrain] could not write the terrain material '{}': {} — the terrain's "
+                LOG_ERROR( "[Landscape] could not write the landscape material '{}': {} — the landscape's "
                            "material slot is unchanged.",
                            path.generic_string(), written.GetError() );
                 return ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
@@ -216,13 +216,13 @@ namespace Desert::Editor
              ::Desert::Assets::AssetPriority::High, path.generic_string() );
         if ( !asset )
         {
-            LOG_ERROR( "[Terrain] could not create a terrain material at '{}' — the terrain's material slot "
-                       "is unchanged.",
+            LOG_ERROR( "[Landscape] could not create a landscape material at '{}' — the landscape's material "
+                       "slot is unchanged.",
                        path.generic_string() );
             return ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         }
 
-        // The SHELL only (RegisterAsset, not Register). A terrain material never becomes a runtime
+        // The SHELL only (RegisterAsset, not Register). A landscape material never becomes a runtime
         // Graphic::Material: TerrainRenderer owns one material of its own and takes this asset's values by
         // name. Registering eagerly would build a per-object material for a tessellated patch program that
         // nothing draws.
@@ -231,9 +231,9 @@ namespace Desert::Editor
         return asset->GetMetadata().Handle;
     }
 
-    // Opens the Material Editor window on the terrain's material — the same seam, and the same three
+    // Opens the Material Editor window on the landscape's material — the same seam, and the same three
     // outcomes, the mesh slot editor's Edit button uses. After M2 this is the only place a material's
-    // parameters and textures are edited, terrain included.
+    // parameters and textures are edited, the landscape's included.
     static void OpenMaterialEditorFor( const ::Desert::Assets::AssetHandle& handle,
                                        ::Desert::Assets::AssetManager* assetMgr, const char* tag )
     {
@@ -264,7 +264,7 @@ namespace Desert::Editor
         }
     }
 
-    // The terrain's MATERIAL row. What it is NOT, because it replaced exactly that: a shader combo and a
+    // The landscape's MATERIAL row. What it is NOT, because it replaced exactly that: a shader combo and a
     // schema-driven parameter table writing into the entity's ECS::MaterialComponent. That was the last
     // place in the editor that AUTHORED a material anywhere but in a `.demat`, and it meant the terrain had
     // its own way to edit a material while everything else had the Material Editor window
@@ -276,31 +276,32 @@ namespace Desert::Editor
     // downstream could consume one.
     //
     // The combo went with the schema table: there is exactly one Terrain-domain shader, so "which shader"
-    // was a control with one entry. A terrain material is created with that shader already chosen.
-    static void DrawTerrainMaterialRow( ::Desert::ECS::TerrainData& terrain, const std::string& entityName,
-                                        ::Desert::Assets::AssetManager* assetMgr )
+    // was a control with one entry. A landscape material is created with that shader already chosen.
+    static void DrawLandscapeMaterialRow( ::Desert::ECS::LandscapeMaterialData& landscape,
+                                          const std::string&                     entityName,
+                                          ::Desert::Assets::AssetManager*        assetMgr )
     {
         namespace ImGui = ::ImGui;
 
         const ::Desert::Assets::SurfaceMaterialAsset* asset = nullptr;
-        if ( assetMgr && static_cast<uint64_t>( terrain.Material ) != 0 )
+        if ( assetMgr && static_cast<uint64_t>( landscape.Material ) != 0 )
         {
             asset = assetMgr
                          ->FindByHandle<::Desert::Assets::SurfaceMaterialAsset>(
-                              ::Common::UUID( static_cast<uint64_t>( terrain.Material ) ) )
+                              ::Common::UUID( static_cast<uint64_t>( landscape.Material ) ) )
                          .get();
         }
 
         // A bound-but-unresolvable handle reads "(missing)" and never a raw number: the scene names a
         // material the asset database does not have, and that is a different problem from an empty slot.
         std::string display = "None";
-        if ( static_cast<uint64_t>( terrain.Material ) != 0 )
+        if ( static_cast<uint64_t>( landscape.Material ) != 0 )
         {
             display = asset ? std::filesystem::path( asset->GetMetadata().Filepath.string() ).stem().string()
                             : "(missing)";
         }
 
-        if ( !ImGui::BeginTable( "##terrain_mat", 2,
+        if ( !ImGui::BeginTable( "##landscape_mat", 2,
                                  ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings ) )
             return;
         ImGui::TableSetupColumn( "label", ImGuiTableColumnFlags_WidthStretch, 0.38f );
@@ -313,7 +314,7 @@ namespace Desert::Editor
         ImGui::TableNextColumn();
 
         ImGui::PushItemWidth( -FLT_MIN );
-        ImGui::Button( ( display + "##terrain_mat_slot" ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
+        ImGui::Button( ( display + "##landscape_mat_slot" ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
         ImGui::PopItemWidth();
         if ( ImGui::BeginDragDropTarget() )
         {
@@ -334,16 +335,16 @@ namespace Desert::Editor
                     }
                     if ( dropped )
                     {
-                        // The shell only: the terrain never asks for a runtime Graphic::Material, it asks
+                        // The shell only: the landscape never asks for a runtime Graphic::Material, it asks
                         // MaterialService for this material's VALUES (ResolveOverrides) and applies them to
                         // the one material the TerrainRenderer owns.
                         if ( auto* materialService = ::Desert::Runtime::ResourceRegistry::GetMaterialService() )
                             materialService->RegisterAsset( dropped );
-                        terrain.Material = dropped->GetMetadata().Handle;
+                        landscape.Material = dropped->GetMetadata().Handle;
                     }
                     else
                     {
-                        LOG_ERROR( "[Terrain] '{}' could not be opened as a material — the terrain's "
+                        LOG_ERROR( "[Landscape] '{}' could not be opened as a material — the landscape's "
                                    "material slot is unchanged.",
                                    path );
                     }
@@ -357,15 +358,15 @@ namespace Desert::Editor
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         ImGui::TableNextColumn();
-        if ( static_cast<uint64_t>( terrain.Material ) == 0 )
+        if ( static_cast<uint64_t>( landscape.Material ) == 0 )
         {
-            if ( ImGui::Button( "New Terrain Material", ImVec2( -FLT_MIN, 0.0f ) ) )
+            if ( ImGui::Button( "New Landscape Material", ImVec2( -FLT_MIN, 0.0f ) ) )
             {
-                const auto created = CreateTerrainMaterial( entityName, assetMgr );
+                const auto created = CreateLandscapeMaterial( entityName, assetMgr );
                 if ( static_cast<uint64_t>( created ) != 0 )
                 {
-                    terrain.Material = created;
-                    OpenMaterialEditorFor( created, assetMgr, "[Terrain]" );
+                    landscape.Material = created;
+                    OpenMaterialEditorFor( created, assetMgr, "[Landscape]" );
                 }
             }
         }
@@ -373,10 +374,10 @@ namespace Desert::Editor
         {
             const float half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
             if ( ImGui::Button( "Edit", ImVec2( half, 0.0f ) ) )
-                OpenMaterialEditorFor( terrain.Material, assetMgr, "[Terrain]" );
+                OpenMaterialEditorFor( landscape.Material, assetMgr, "[Landscape]" );
             ImGui::SameLine();
             if ( ImGui::Button( "Clear", ImVec2( half, 0.0f ) ) )
-                terrain.Material = ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+                landscape.Material = ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         }
         ImGui::EndTable();
     }
@@ -650,14 +651,8 @@ namespace Desert::Editor
         return e;
     }
 
-    // Terrain: the reflected TerrainData UI, plus the material ROW in the same section — one asset field,
-    // an Edit button that opens the Material Editor window, and nothing that edits a material here.
-    //
-    // The removal no longer takes a MaterialComponent with it. It used to, because the terrain's material
-    // WAS a MaterialComponent on this entity; it is now a `.demat` the TerrainData names by handle, and an
-    // asset outlives the entity that referenced it.
     // Creates a `.demat` already set to the Volume-domain cloud shader and registers its shell — the cloud
-    // twin of CreateTerrainMaterial above, on the same argument: there is exactly ONE program of domain
+    // twin of CreateLandscapeMaterial above, on the same argument: there is exactly ONE program of domain
     // Volume (CloudRaymarch, whose Properties block IS the cloud material schema), so a picker would be a
     // control with a single entry. Pressing New is how you say "a cloud material".
     static ::Desert::Assets::AssetHandle CreateCloudMaterial( const std::string&              entityName,
@@ -673,7 +668,7 @@ namespace Desert::Editor
         base = "M_" + ( base.empty() ? std::string( "Clouds" ) : base ) + "_Clouds";
 
         // Explicit construction, not assignment: the extensions became constexpr string_views (А5), and
-        // string_view -> string is deliberately not implicit. Spelled the same way as line 145's terrain
+        // string_view -> string is deliberately not implicit. Spelled the same way as the landscape
         // twin so the two read as one idiom.
         const std::string           ext( ::Common::Constants::Extensions::MATERIAL_EXTENSION );
         const std::filesystem::path dir = ::Common::Constants::Path::MATERIAL_PATH;
@@ -685,12 +680,12 @@ namespace Desert::Editor
             path = dir / ( base + "_" + std::to_string( n ) + ext );
 
         // Write the file FIRST (cloud shader + a freshly stamped MaterialId), then create-with-load — the
-        // same order CreateTerrainMaterial documents, and for the same handle-adoption reason.
+        // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
         {
             ::Desert::Assets::MaterialData data;
             data.ShaderName = ::Desert::Graphic::kCloudMaterialShaderName;
             data.MaterialId = ::Common::UUID::Generate();
-            // Checked for the same reason CreateTerrainMaterial checks it, one function above.
+            // Checked for the same reason CreateLandscapeMaterial checks it, one function above.
             if ( const auto written = ::Common::Utils::FileSystem::WriteContentToFileAtomic(
                       path.generic_string(), rfl::json::write( data ) );
                  !written )
@@ -712,7 +707,7 @@ namespace Desert::Editor
             return ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         }
 
-        // The SHELL only, exactly as the terrain registers: a cloud material never becomes a runtime
+        // The SHELL only, exactly as the landscape registers: a cloud material never becomes a runtime
         // Graphic::Material — VolumetricCloudRenderer asks MaterialService for its VALUES
         // (ResolveOverrides) and packs them itself.
         if ( auto* materialService = ::Desert::Runtime::ResourceRegistry::GetMaterialService() )
@@ -720,7 +715,7 @@ namespace Desert::Editor
         return asset->GetMetadata().Handle;
     }
 
-    // The cloud layer's MATERIAL row — the terrain row's twin (O1). One handle, drag a `.demat`, New
+    // The cloud layer's MATERIAL row — the landscape row's twin (O1). One handle, drag a `.demat`, New
     // authors one on the cloud shader, Edit opens the Material Editor window; nothing edits a material
     // here. An EMPTY slot is a working sky: the CloudRaymarch schema's own defaults.
     static void DrawCloudMaterialRow( ::Desert::ECS::VolumetricCloudData& cloud, const std::string& entityName,
@@ -844,7 +839,7 @@ namespace Desert::Editor
         ImGui::EndTable();
     }
 
-    // The cloud layer: reflected budget/routing fields, then the material row — the terrain arrangement.
+    // The cloud layer: reflected budget/routing fields, then the material row — the landscape arrangement.
     static ComponentEditorEntry MakeVolumetricCloudEntry()
     {
         ComponentEditorEntry e;
@@ -889,21 +884,27 @@ namespace Desert::Editor
         return e;
     }
 
-    static ComponentEditorEntry MakeTerrainEntry()
+    // Landscape Material: the reflected LandscapeMaterialData UI (the three layer-mode combos), plus the
+    // material ROW in the same section — one asset field, an Edit button that opens the Material Editor
+    // window, and nothing that edits a material here. The handle itself is `PROPERTY Hidden` in the
+    // reflection, because the builder's generic asset slot is texture-oriented; the row below is its UI.
+    static ComponentEditorEntry MakeLandscapeMaterialEntry()
     {
+        using ::Desert::ECS::LandscapeMaterialComponent;
         ComponentEditorEntry e;
-        e.Name      = "Terrain";
+        e.Name      = "Landscape Material";
         e.CanRemove = true;
-        e.Has    = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<::Desert::ECS::TerrainComponent>(); };
-        e.Add    = []( ::Desert::ECS::Entity& en ) { en.AddComponent<::Desert::ECS::TerrainComponent>(); };
-        e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<::Desert::ECS::TerrainComponent>(); };
+        e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<LandscapeMaterialComponent>(); };
+        e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<LandscapeMaterialComponent>(); };
+        e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<LandscapeMaterialComponent>(); };
         e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
         {
-            auto& c = en.GetComponent<::Desert::ECS::TerrainComponent>();
-            PropertyEditorBuilder::Draw( &c.Data, "TerrainData", ctx.AssetMgr(), ctx.UIHelper );
+            auto& c = en.GetComponent<LandscapeMaterialComponent>();
+            PropertyEditorBuilder::Draw( &c.Data, "LandscapeMaterialData", ctx.AssetMgr(), ctx.UIHelper );
 
             ::ImGui::Separator();
-            DrawTerrainMaterialRow( c.Data, en.GetComponent<::Desert::ECS::TagComponent>().Tag, ctx.AssetMgr() );
+            DrawLandscapeMaterialRow( c.Data, en.GetComponent<::Desert::ECS::TagComponent>().Tag,
+                                      ctx.AssetMgr() );
         };
         return e;
     }
@@ -1188,7 +1189,7 @@ namespace Desert::Editor
 
             // ── THE ELEMENT'S PROPERTY TIMELINE ────────────────────────────────────────────────────────
             //
-            // CREATE-THEN-OPEN when there is no clip yet, the way the terrain and cloud material rows
+            // CREATE-THEN-OPEN when there is no clip yet, the way the landscape and cloud material rows
             // create a `.demat` and open it in one press. The Sequencer's UI half is a document over the
             // UIAnimComponent, so an element without one has no subject to open — the old "Add UI
             // Animation" button lived INSIDE that window, which meant the window had to be able to exist
@@ -1957,8 +1958,9 @@ namespace
 
     const int _desert_collider_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeColliderEntry() );
-    const int _desert_terrain_component_reg =
-         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeTerrainEntry() );
+    const int _desert_landscape_material_component_reg =
+         ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
+              ::Desert::Editor::MakeLandscapeMaterialEntry() );
 
     const int _desert_volumetric_cloud_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeVolumetricCloudEntry() );
@@ -2044,7 +2046,7 @@ namespace
 } // namespace
 
 // SINGLE SOURCE OF TRUTH: materials (shader + params + textures) are authored ONLY in the Material Editor
-// window, on a `.demat`. A mesh entity names one per slot; a terrain entity names one, in TerrainData.
+// window, on a `.demat`. A mesh entity names one per slot; a landscape root names one, in LandscapeMaterialData.
 // MaterialComponent is no longer authored ANYWHERE in the editor: it remains only (a) the RUNTIME override
 // channel for scripts (Lua setMaterialParam) — surfaced by the PBR Materials banner with one-click clear —
 // and (b) legacy-scene compatibility. The terrain was the last thing authoring it, and the v6 -> v7 scene

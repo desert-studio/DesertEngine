@@ -363,8 +363,8 @@ namespace Desert::Editor
         // Details, a rig is pointed at a `.derig`, a different character is picked.
         if ( mode != Core::AuthoringMode::Object && Core::ViewportMode::Get() != Core::EditorMode::Select )
         {
-            return Common::MakeError<bool>( "rig authoring needs Select mode; Foliage, Modeling and "
-                                            "Terrain give the left button to their own tools." );
+            return Common::MakeError<bool>( "rig authoring needs Select mode; Foliage and Modeling "
+                                            "give the left button to their own tools." );
         }
         if ( mode == Core::AuthoringMode::Object )
             return Common::MakeSuccess<bool>( true );
@@ -1515,23 +1515,6 @@ namespace Desert::Editor
             ImGui::EndDragDropTarget();
         }
 
-        // Terrain splat painting: when a terrain entity is selected, show the brush overlay; with the brush
-        // enabled, LMB-drag paints into the splat map (and suppresses the object gizmo to avoid conflicts).
-        const ECS::Entity* terrainEntity = nullptr;
-        if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
-        {
-            if ( auto ref = m_Scene->FindEntityByID( *sel ); ref )
-            {
-                const ECS::Entity& e = ref->get();
-                if ( e.HasComponent<ECS::TerrainComponent>() )
-                    terrainEntity = &e;
-            }
-        }
-        if ( terrainEntity )
-            m_TerrainTool.DrawOverlay( *terrainEntity );
-
-        const bool painting = terrainEntity && m_TerrainTool.BrushEnabled();
-
         const bool foliageMode  = Core::ViewportMode::Get() == Core::EditorMode::Foliage;
         const bool modelingMode = Core::ViewportMode::Get() == Core::EditorMode::Modeling;
 
@@ -1551,30 +1534,9 @@ namespace Desert::Editor
                 // bone authoring owns the gizmo (edits the selected bone, not the object)
                 m_Gizmo.RenderBone( *m_Scene, ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
-            else if ( m_Gizmo.IsActive() && !painting && !selectedIsUI )
+            else if ( m_Gizmo.IsActive() && !selectedIsUI )
             {
                 m_Gizmo.RenderObject( *m_Scene, ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
-            }
-        }
-
-        if ( painting && m_ViewportData.IsHovered )
-        {
-            // Replace the OS pointer with the brush: hide the arrow and draw the world-space radius ring.
-            ImGui::SetMouseCursor( ImGuiMouseCursor_None );
-            if ( const auto camera = ViewCamera() )
-            {
-                auto [mx, my]  = GetMouseViewportSpace();
-                const auto ray = Common::Math::Ray::FromScreenPosition(
-                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(),
-                     camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
-                     static_cast<uint32_t>( m_ViewportData.Size.y ) );
-                const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
-                m_TerrainTool.DrawRing( ray, *terrainEntity, viewProj, m_ViewportData.Size,
-                                        m_ViewportData.ViewportPos );
-
-                if ( ImGui::IsMouseDown( ImGuiMouseButton_Left ) &&
-                     !ImGui::IsAnyItemActive() ) // don't paint while dragging the brush sliders
-                    m_TerrainTool.Paint( ray, *terrainEntity );
             }
         }
 
@@ -1677,10 +1639,6 @@ namespace Desert::Editor
                                  (uint32_t)m_PendingViewportSize->y );
             m_PendingViewportSize.reset();
         }
-
-        // Re-upload edited splat maps here (before any recording) so we never release a GPU image that is
-        // still bound to an in-flight command buffer.
-        m_TerrainTool.UploadDirtySplatMaps( *m_Scene );
     }
 
     std::pair<float, float> ViewportPanel::GetMouseViewportSpace() const
@@ -2219,7 +2177,7 @@ namespace Desert::Editor
         const bool   overImage = mp.x >= vp.ViewportPos.x && mp.y >= vp.ViewportPos.y &&
                                  mp.x < vp.ViewportPos.x + vp.Size.x && mp.y < vp.ViewportPos.y + vp.Size.y;
 
-        if ( e.GetMouseButton() == Common::MouseButton::Left && !m_TerrainTool.BrushEnabled() && !m_UIPreview &&
+        if ( e.GetMouseButton() == Common::MouseButton::Left && !m_UIPreview &&
              Core::ViewportMode::Get() == Core::EditorMode::Select && m_ViewportData.IsHovered && overImage )
         {
             // In-scene UI: the 2D canvas overlays the 3D scene, so a click on a UI element selects it and

@@ -590,7 +590,7 @@ namespace Desert::Geometry
     // on the unit box [-0.5, 0.5] m with its pivot at the centre, which is what PrimitiveBounds states and
     // the ShapeGenerators suite holds against these vertices. Tessellation is fixed here: it is part of
     // what a saved scene looks like. The Capsule is half as wide as it is tall so it reads as a capsule.
-    // Terrain and LightCube are built elsewhere (TerrainMeshFactory, the light gizmo): nullopt.
+    // Terrain and LightCube are built elsewhere (the landscape renderer, the light gizmo): nullopt.
     [[nodiscard]] inline std::optional<ShapeMesh> MakePrimitive( PrimitiveType type )
     {
         constexpr float    size = Common::Units::UnitsPerMetre;

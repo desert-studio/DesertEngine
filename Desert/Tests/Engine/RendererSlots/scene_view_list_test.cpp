@@ -351,7 +351,7 @@ TEST( SceneViewCost, NoRenderCommandHandsItsPayloadAwayWhenItExecutes )
     const std::vector<std::string> commands = {
          "DrawGenericMeshCommand.hpp", "DrawMeshCommand.hpp",
          "DrawSkinnedMeshCommand.hpp", "DrawSlotMaterialMeshCommand.hpp",
-         "DrawTerrainCommand.hpp",     "HeightFogCommand.hpp",
+         "HeightFogCommand.hpp",
          "PointLightCommand.hpp",      "ProceduralSkyCommand.hpp",
          "SkyboxCommand.hpp",          "SpotLightCommand.hpp",
          "VolumetricCloudCommand.hpp",

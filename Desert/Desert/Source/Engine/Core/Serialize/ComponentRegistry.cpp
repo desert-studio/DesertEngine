@@ -1464,8 +1464,6 @@ namespace Desert::Core::Serialize
              "PointLight", "PointLightData", &ECS::PointLightComponent::Data ) );
         Register( MakeReflected<ECS::SpotLightComponent, ECS::SpotLightData>( "SpotLight", "SpotLightData",
                                                                               &ECS::SpotLightComponent::Data ) );
-        Register( MakeReflected<ECS::TerrainComponent, ECS::TerrainData>( "Terrain", "TerrainData",
-                                                                          &ECS::TerrainComponent::Data ) );
         Register( MakeReflected<ECS::TwoBoneIKComponent, ECS::TwoBoneIKData>( "TwoBoneIK", "TwoBoneIKData",
                                                                               &ECS::TwoBoneIKComponent::Data ) );
         Register( MakeReflected<ECS::ControlRigComponent, ECS::ControlRigData>(
@@ -1575,6 +1573,8 @@ namespace Desert::Core::Serialize
         // The root is its frame and nothing else; the tile loads its heights from the file it names
         // (MakeLandscapeTile above). No version bump: two new block keys, and no scene carried them before.
         Register( MakeAuthored<ECS::LandscapeComponent>( "Landscape" ) );
+        Register( MakeReflected<ECS::LandscapeMaterialComponent, ECS::LandscapeMaterialData>(
+             "LandscapeMaterial", "LandscapeMaterialData", &ECS::LandscapeMaterialComponent::Data ) );
         Register( MakeLandscapeTile() );
 
         // ---- Skybox (now FULLY REFLECTED via RA3) ----

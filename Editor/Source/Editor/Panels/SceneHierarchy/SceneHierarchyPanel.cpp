@@ -48,7 +48,6 @@ namespace Desert::Editor
         {
             Model3D,
             Skybox,
-            Terrain,
             DirLight,
             PointLight,
             SpotLight,
@@ -68,7 +67,6 @@ namespace Desert::Editor
         constexpr ArchetypeDef kArchetypes[] = {
              { "Rendering", ICON_MDI_CUBE_OUTLINE, "3D Model", Archetype::Model3D },
              { "Rendering", ICON_MDI_EARTH, "Skybox", Archetype::Skybox },
-             { "Rendering", ICON_MDI_TERRAIN, "Terrain", Archetype::Terrain },
              { "Lighting", ICON_MDI_LIGHTBULB, "Directional Light", Archetype::DirLight },
              { "Lighting", ICON_MDI_LIGHTBULB, "Point Light", Archetype::PointLight },
              { "Lighting", ICON_MDI_SPOTLIGHT, "Spot Light", Archetype::SpotLight },
@@ -111,13 +109,6 @@ namespace Desert::Editor
                 {
                     auto e = scene.CreateNewEntity( "Skybox" );
                     e.AddComponent<ECS::SkyboxComponent>();
-                    Track( e );
-                    break;
-                }
-                case Archetype::Terrain:
-                {
-                    auto e = scene.CreateNewEntity( "Terrain" );
-                    e.AddComponent<ECS::TerrainComponent>();
                     Track( e );
                     break;
                 }
@@ -214,8 +205,10 @@ namespace Desert::Editor
             return EntityTypeKind::SkyAtmosphere;
         if ( entity.HasComponent<ECS::SkyboxComponent>() )
             return EntityTypeKind::Skybox;
-        if ( entity.HasComponent<ECS::TerrainComponent>() )
-            return EntityTypeKind::Terrain;
+        // The landscape ROOT (the actor that owns the tiles) reads as one environment thing; its tiles are
+        // children with their own component and fall through to Actor like any other part of an actor.
+        if ( entity.HasComponent<ECS::LandscapeComponent>() )
+            return EntityTypeKind::Landscape;
         if ( entity.HasComponent<ECS::SkinnedMeshComponent>() )
             return EntityTypeKind::SkinnedMesh;
         if ( entity.HasComponent<ECS::StaticMeshComponent>() )
@@ -279,7 +272,7 @@ namespace Desert::Editor
             icon = ICON_MDI_WEATHER_SUNSET;
         else if ( entity.HasComponent<ECS::SkyboxComponent>() )
             icon = ICON_MDI_EARTH;
-        else if ( entity.HasComponent<ECS::TerrainComponent>() )
+        else if ( entity.HasComponent<ECS::LandscapeComponent>() )
             icon = ICON_MDI_TERRAIN;
         else if ( entity.HasComponent<ECS::TextComponent>() )
             icon = ICON_MDI_FORMAT_TEXT;

@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
 
 namespace Desert::World::Landscape
 {
@@ -31,8 +32,16 @@ namespace Desert::World::Landscape
      *
      * By the entity id and not the tile coordinate: the id is what the scene already uses as a tile's
      * identity, and it cannot collide between two landscapes in one scene the way (0, 0) would.
+     *
+     * Inline, because it is a pure function of two values: the scene migrator names the files of the tiles
+     * it bakes with it (Tools/SceneMigrator, v22 -> v23) and must not pull the disk-and-pak half below in.
      */
-    std::filesystem::path LandscapeTileBlobPath( const std::filesystem::path& scenePath, uint64_t tileId );
+    inline std::filesystem::path LandscapeTileBlobPath( const std::filesystem::path& scenePath, uint64_t tileId )
+    {
+        const std::string directory = scenePath.stem().string() + "_Landscape";
+        const std::string file      = std::to_string( tileId ) + kLandscapeTileExtension;
+        return scenePath.parent_path() / directory / file;
+    }
 
     /// Encodes @p tile and writes it to @p path (write-then-rename, creating the directory). The error names
     /// the file.

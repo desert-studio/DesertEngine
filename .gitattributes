@@ -38,6 +38,7 @@
 *.dcnv         -text
 *.dcmv         -text
 *.detheme      -text
+*.dlht         -text
 *.destrings    -text
 *.deproj       -text
 

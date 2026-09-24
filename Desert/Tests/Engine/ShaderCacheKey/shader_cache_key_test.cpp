@@ -1359,13 +1359,12 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
 
     // The census, so a binding added or lost anywhere in the four stages is named here first.
     const auto bindings = ShaderReflection::BuildLayoutBindings( set );
-    EXPECT_EQ( bindings.size(), 10u ) << DescribeBindings( bindings );
+    EXPECT_EQ( bindings.size(), 9u ) << DescribeBindings( bindings );
     EXPECT_TRUE( HasBinding( bindings, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // TerrainUB (shared)
     EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // Materials[] rows
     EXPECT_TRUE( HasBinding( bindings, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_GrassTex
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_RockTex
     EXPECT_TRUE( HasBinding( bindings, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_SnowTex
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_SplatMap
     EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
     EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]

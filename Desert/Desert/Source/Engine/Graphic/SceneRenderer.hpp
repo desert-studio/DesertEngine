@@ -161,14 +161,10 @@ namespace Desert::Graphic
         void SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots, const glm::mat4& transform,
                          const RenderSubmissionExtra& extra );
 
-        // Submit one terrain entity for this frame (from TerrainECSSystem via DrawTerrainCommand).
-        void SubmitTerrain( const glm::mat4& transform, float size, int resolution, float heightScale,
-                            float noiseFrequency, int seed, const glm::vec3& layerModes = glm::vec3( 0.0f ),
-                            Image2D* splatMap = nullptr, const MaterialOverrides& overrides = {} );
-
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
-        // the Terrain pipeline on its heightmap path, reading the tile's R16 copy.
-        void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile );
+        // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layer modes.
+        void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
+                                  const glm::vec3& layerModes, const MaterialOverrides& overrides );
 
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-PBR shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for

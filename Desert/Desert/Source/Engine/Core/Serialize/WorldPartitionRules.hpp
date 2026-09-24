@@ -70,7 +70,6 @@
 //     `Geometry::PrimitiveBounds`, the same statement the factory stamps on the submesh and the
 //     ShapeGenerators suite holds to the generated vertices. Terrain and LightCube are never a mesh
 //     block's primitive and have no box, so such a record's position is its whole extent;
-//   * the four corners of a Terrain's square, `Size` wide and centred (TerrainMeshFactory.hpp);
 //   * every instance of an InstancedStaticMesh, whose matrices are WORLD-space (MeshECSSystem.hpp submits
 //     the snapshot without the entity's transform) — a kilometre of grass is one record;
 //   * the eight corners of a mesh ASSET's stored bounds (StaticMesh or SkinnedMesh naming a file) — the
@@ -480,6 +479,8 @@ namespace Desert::Core::Rules
          // A landscape root owns the FRAME every tile is placed by, not a place of its own; UE loads
          // ALandscape the same way (not spatially loaded) and streams the proxies.
          { "Landscape", ComponentLoading::Global },
+         // The root's look travels with the root: every tile of it is drawn with it.
+         { "LandscapeMaterial", ComponentLoading::Global },
          // The author's override, and the only authored input to partitioning besides the grid.
          { "AlwaysLoaded", ComponentLoading::Global },
          // ── By field ──
@@ -513,7 +514,6 @@ namespace Desert::Core::Rules
          { "SpotLight", ComponentLoading::Spatial },
          { "StaticMesh", ComponentLoading::Spatial },
          { "LandscapeTile", ComponentLoading::Spatial }, // its rectangle is its footprint
-         { "Terrain", ComponentLoading::Spatial },       // its square is its footprint
          { "Text", ComponentLoading::Spatial },
          { "TwoBoneIK", ComponentLoading::Spatial },
          { "Visibility", ComponentLoading::Spatial },
@@ -557,14 +557,10 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kInstancePointsField     = "InstanceTransforms";
     inline constexpr std::string_view kPrimitiveComponent      = "StaticMesh";
     inline constexpr std::string_view kPrimitiveField          = "Primitive";
-    inline constexpr std::string_view kTerrainComponent        = "Terrain";
-    inline constexpr std::string_view kTerrainSizeField        = "Size";
     // A landscape tile's footprint is a RECTANGLE computed from its coordinate and its root's frame. The
     // root is not a part of the tile (see the register row): it is read, never joined.
     inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
     inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
-    // TerrainData::Size's default, for a block that omits it (same restatement as AbsentIsGlobal above).
-    inline constexpr float kTerrainDefaultSize = 5000.0f;
 
     // THE MESH BLOCKS THAT NAME A MESH ASSET, and the two fields a reference is written as
     // (StaticMeshComponentSer / SkinnedMeshComponentSer in PrefabData.hpp): the handle, and the path beside it.
@@ -821,16 +817,6 @@ namespace Desert::Core::Rules
                     if ( const auto box = bounds( handle, text ); box.has_value() )
                         AppendBoundsCorners( world, box.value(), out );
                 }
-            }
-
-            if ( const auto terrain = BlockOf( record, kTerrainComponent ); terrain.has_value() )
-            {
-                // An absent Size is the struct default; an unreadable one is taken as the same.
-                double size = 0.0;
-                if ( !ReadScalar( terrain.value(), kTerrainSizeField, size ) )
-                    size = kTerrainDefaultSize;
-                const float half = static_cast<float>( size ) * 0.5f;
-                AppendBoxCorners( world, glm::vec3( half, 0.0f, half ), out );
             }
 
             AppendInstancePoints( record, out );

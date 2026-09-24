@@ -378,14 +378,15 @@ TEST( SceneTerrainMaterialMigration, AFileFromBeforeEveryStepStillComesOutAtTheH
 
 // ── The relation: the migration and the component agree where a terrain material lives ─────────────
 
-// The migration takes the material OFF the entity because TerrainData now names it. If that field were
+// The migration takes the material OFF the entity because the terrain's own block named it — and since v23
+// that block's material lives on the landscape root's LandscapeMaterialData. If that field were
 // renamed, retyped, or removed, the migration would be deleting values with nowhere for their replacement
 // to go — and nothing else in the build would notice, because a migration compiles perfectly well against
 // a component that no longer has the field it made room for.
-TEST( SceneTerrainMaterialMigration, TerrainDataNamesItsMaterialAsAMaterialAssetHandle )
+TEST( SceneTerrainMaterialMigration, TheLandscapeNamesItsMaterialAsAMaterialAssetHandle )
 {
-    const auto* field = FindField( "TerrainData", "Material" );
-    ASSERT_NE( field, nullptr ) << "TerrainData has no 'Material' field — the v6 -> v7 migration removes the "
+    const auto* field = FindField( "LandscapeMaterialData", "Material" );
+    ASSERT_NE( field, nullptr ) << "LandscapeMaterialData has no 'Material' field — the v6 -> v7 migration removes the "
                                    "terrain's inline material on the promise that this field replaced it.";
 
     EXPECT_EQ( field->Type, Desert::Reflection::FieldType::AssetHandle );
@@ -395,7 +396,7 @@ TEST( SceneTerrainMaterialMigration, TerrainDataNamesItsMaterialAsAMaterialAsset
     // reference would not survive a rename or a machine.
     EXPECT_EQ( field->Meta.AssetType, "MaterialAsset" );
 
-    // Hidden from the auto-built Details on purpose — the Terrain entry draws the row itself, with an Edit
+    // Hidden from the auto-built Details on purpose — the Landscape Material entry draws the row itself, with an Edit
     // button that opens the Material Editor window. If this ever stops being Hidden the panel grows a
     // SECOND material control beside the first, which is the exact duplication M3 removed.
     EXPECT_TRUE( field->Meta.Hidden );
@@ -406,7 +407,7 @@ TEST( SceneTerrainMaterialMigration, TerrainDataNamesItsMaterialAsAMaterialAsset
 // it. A vector here would promise one material per layer and nothing downstream could consume one.
 TEST( SceneTerrainMaterialMigration, TheTerrainHasOneMaterialFieldAndNoSlotList )
 {
-    const auto* info = Desert::Reflection::ReflectionRegistry::Get().Find( "TerrainData" );
+    const auto* info = Desert::Reflection::ReflectionRegistry::Get().Find( "LandscapeMaterialData" );
     ASSERT_NE( info, nullptr );
 
     const auto assetFields =
@@ -414,7 +415,7 @@ TEST( SceneTerrainMaterialMigration, TheTerrainHasOneMaterialFieldAndNoSlotList 
                         { return f.Type == Desert::Reflection::FieldType::AssetHandle; } );
     EXPECT_EQ( assetFields, 1 );
 
-    EXPECT_EQ( FindField( "TerrainData", "MaterialSlots" ), nullptr )
+    EXPECT_EQ( FindField( "LandscapeMaterialData", "MaterialSlots" ), nullptr )
          << "the terrain grew a slot LIST. Its three splat layers are texture parameters of one "
             "Terrain-domain program, not three materials — see the decision recorded in "
             "Docs/MaterialEditor/PLAN_STAGE3_ASSET_DOCUMENTS.md, M3.";
@@ -433,18 +434,18 @@ TEST( SceneTerrainMaterialMigration, TheTerrainCollectorActuallyReadsTheMaterial
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
-    const std::string path = root + "Desert/Desert/Source/Engine/ECS/System/TerrainECSSystem.hpp";
+    const std::string path = root + "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.cpp";
     std::ifstream     in( path, std::ios::binary );
     ASSERT_TRUE( in ) << path << " is missing — it is the file the terrain's material field is read in";
     std::ostringstream ss;
     ss << in.rdbuf();
     const std::string source = ss.str();
 
-    EXPECT_NE( source.find( "terrain.Material" ), std::string::npos )
-         << "TerrainECSSystem no longer mentions terrain.Material. Either the read moved (point this test "
+    EXPECT_NE( source.find( "look.Material" ), std::string::npos )
+         << "LandscapeECSSystem no longer mentions look.Material. Either the read moved (point this test "
             "at its new home) or it was deleted, and the field became a slot that moves nothing.";
     EXPECT_NE( source.find( "ResolveOverrides" ), std::string::npos )
-         << "TerrainECSSystem no longer resolves the material's values. Reading the handle and not its "
+         << "LandscapeECSSystem no longer resolves the material's values. Reading the handle and not its "
             "contents is the same dead setting one step later.";
 }
 

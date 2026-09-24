@@ -38,6 +38,7 @@ project "SceneMigrator"
         -- the editor's own Geometry::FromRenderMesh and writes Geometry::ToSerialized, so the block it stores
         -- is the one the loader reads - not a second statement of either format.
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp",
@@ -69,6 +70,7 @@ project "SceneMigrator"
     externalincludedirs {
         "%{wks.location}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
         "%{wks.location}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
+        "%{wks.location}/Editor/Resources/Shaders",        -- LandscapeData.cpp compiles LandscapeHeight.glslh as C++
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

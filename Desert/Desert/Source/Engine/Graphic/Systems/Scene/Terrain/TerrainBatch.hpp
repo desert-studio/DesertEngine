@@ -38,11 +38,12 @@ namespace Desert::Graphic::System
     struct TerrainInstance
     {
         glm::mat4 Model{ 1.0f };
-        glm::vec4 Params{ 0.0f }; // x = size, y = gridDim, z = heightScale, w = tessLevel
-        // x = noiseFrequency, y = seed, z = height source (kTerrainHeightSource*), w = a landscape tile's
-        // LandscapeNeighbourMask (which sides have their ring row in the heightmap; 0 for the fBm path)
+        glm::vec4 Params{ 0.0f }; // x = tile extent (cm), y = gridDim, z = height range (cm), w = tessLevel
+        // w = the tile's LandscapeNeighbourMask (which sides have their ring row in the heightmap). x/y/z are
+        // std430 padding: they held the procedural terrain's frequency, seed and height-source switch until
+        // v23 baked that terrain into landscapes (LS-6), and the slot stays so the layout below stays.
         glm::vec4 Params2{ 0.0f };
-        // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off). w is std430 padding, not a field: a
+        // x = grass, y = rock, z = snow (ECS::LandscapeLayerMode: 0=Auto, 1=Off). w is std430 padding: a
         // vec3 here would still occupy 16 bytes and a glm::vec3 member would occupy 12, which is how a
         // C++/GLSL mirror silently shears. .w carried the grass ENABLE flag until Г25 cut the generator.
         glm::vec4 LayerModes{ 0.0f };
@@ -62,12 +63,6 @@ namespace Desert::Graphic::System
                         offsetof( TerrainInstance, LandscapeFrame ) == 112 &&
                         offsetof( TerrainInstance, LandscapeTile ) == 128,
                    "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
-
-    // Params2.z: where a terrain's heights come from. The procedural field is the TerrainComponent's; the
-    // heightmap is a LandscapeTileComponent's R16 copy. Two paths, chosen per draw by the component that
-    // submitted it (the fBm path goes with the migration of its scenes, LS-6).
-    inline constexpr float kTerrainHeightSourceProcedural = 0.0f;
-    inline constexpr float kTerrainHeightSourceHeightmap  = 1.0f;
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first
     // GLOBAL sample, not the tile's own origin: a vertex on a shared edge is then the same integer sample
@@ -105,21 +100,18 @@ namespace Desert::Graphic::System
     }
 
     // The texture half of a terrain material's identity. Two terrains may share one material only if
-    // they bind the same textures: the sorted texture-override handles plus the address of the painted
-    // splat map and of a landscape tile's heightmap (both runtime-owned, no asset handle — same spelling
-    // MeshRenderer uses for the font atlas). Every landscape tile is therefore its own material.
+    // they bind the same textures: the sorted texture-override handles plus the address of the landscape
+    // tile's heightmap (runtime-owned, no asset handle — same spelling MeshRenderer uses for the font
+    // atlas). Every landscape tile is therefore its own material.
     // Sorted, because two terrains naming the same textures in a different order are the same texture
     // set and must share one material rather than allocate two.
-    inline std::string TerrainTextureKey( const MaterialOverrides& overrides, const void* splatMap,
-                                          const void* heightmap )
+    inline std::string TerrainTextureKey( const MaterialOverrides& overrides, const void* heightmap )
     {
         std::vector<std::string> parts;
         parts.reserve( overrides.Textures.size() + 1 );
         for ( const auto& [name, handle] : overrides.Textures )
             if ( handle != 0 )
                 parts.push_back( name + "=" + std::to_string( handle ) );
-        if ( splatMap )
-            parts.push_back( "u_SplatMap=@" + std::to_string( reinterpret_cast<uintptr_t>( splatMap ) ) );
         if ( heightmap )
             parts.push_back( "u_Heightmap=@" + std::to_string( reinterpret_cast<uintptr_t>( heightmap ) ) );
         std::sort( parts.begin(), parts.end() );

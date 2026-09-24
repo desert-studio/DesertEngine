@@ -2,9 +2,9 @@
 // TerrainGBuffer = deferred): ONE statement of what the ground IS at a pixel — normal, albedo, snow cover —
 // before any light. The forward program lights it itself; the G-buffer program hands it to the deferred
 // composite, which is what lights (and shadows) every other opaque surface.
-        // Stage 3 + 3a: textured terrain splatting with per-layer modes. Three layers (grass / rock / snow) are
-        // triplanar-mapped in world space. Each layer's weight comes from its mode: Auto = height/slope rules,
-        // Manual = the painted splat map channel (brush, Stage 3b), Off = 0. Each layer is modulated by a base
+        // Textured landscape layers with per-layer modes. Three layers (grass / rock / snow) are triplanar-
+        // mapped in world space. Each layer's weight comes from its mode: Auto = height/slope rules, Off = 0
+        // (ECS::LandscapeLayerMode on the root's LandscapeMaterial). Each layer is modulated by a base
         // tint so that with UNASSIGNED textures (white backend fallback) the result matches the Stage 2 relief.
         // Lit with a directional key light using the analytic normal from the TES.
 
@@ -37,13 +37,10 @@
         // Data-driven material params (binding 1) are generated from the Properties block above and read
         // through `u_Material`; nothing is declared here.
 
-        // Splat layers (texture2D #pragma params; unassigned => white fallback). Bindings follow MaterialUB.
+        // Layer textures (texture2D #pragma params; unassigned => white fallback). Bindings follow MaterialUB.
         Uniform(2) sampler2D u_GrassTex;
         Uniform(3) sampler2D u_RockTex;
         Uniform(4) sampler2D u_SnowTex;
-        // Per-terrain splat map (R=grass, G=rock, B=snow weights), painted by the brush (Stage 3b). Engine-bound;
-        // unassigned => white fallback (Manual layers show everywhere until painted).
-        Uniform(5) sampler2D u_SplatMap;
 
         // Triplanar sample: project onto the three world planes and blend by the (squared) normal so steep faces
         // don't stretch. scale = tiles per world unit.
@@ -59,12 +56,10 @@
             return xa * bw.x + ya * bw.y + za * bw.z;
         }
 
-        // Resolve a layer's weight from its mode: 0=Auto (rule), 1=Manual (splat channel), 2=Off (0).
-        float LayerWeight( float mode, float autoWeight, float splatChannel )
+        // Resolve a layer's weight from its mode: 0=Auto (rule), 1=Off (0).
+        float LayerWeight( float mode, float autoWeight )
         {
-            if ( mode > 1.5 ) return 0.0;          // Off
-            if ( mode > 0.5 ) return splatChannel; // Manual
-            return autoWeight;                      // Auto
+            return mode > 0.5 ? 0.0 : autoWeight;
         }
 
         struct TerrainSurface
@@ -104,10 +99,6 @@
             vec3  rockT  = Triplanar( u_RockTex, v_WorldPos, N, scale ) * rockCol;
             vec3  snowT  = Triplanar( u_SnowTex, v_WorldPos, N, scale ) * snowCol;
 
-            // Splat-map weights. UV is terrain-local (subtract the Model translation) so painting matches
-            // regardless of where the terrain entity sits in the world.
-            vec2  splatUV  = ( v_WorldPos.xz - u_T.Model[3].xz ) / max( u_T.Params.x, 0.001 ) + 0.5;
-            vec4  splat    = texture( u_SplatMap, splatUV );
             // EACH LAYER'S OWN AUTO RULE, AND grassAuto IS 1.0 ON PURPOSE (Г26). It used to be
             // `1.0 - rockAuto`, which is the same picture written the other way round: rock was the BED
             // and grass was mixed over it by the complement of the slope rule, so the rock layer had no
@@ -122,24 +113,18 @@
             float grassAuto = 1.0;                                 // the ground is grass until something takes it
             float snowAuto  = smoothstep( 0.75, 0.95, v_Height01 ) * ( 1.0 - smoothstep( 0.4, 0.7, slope ) );
 
-            // THE ROCK LAYER WAS THE THIRD DEAD KNOB OF THE SAME FAMILY, AND IT SURVIVED THE CENSUS THAT
-            // WAS SUPPOSED TO CATCH IT. `Rock Layer` is a reflected, serialized, Details-visible enum;
-            // TerrainECSSystem packs it into LayerModes.y; this file never read LayerModes.y and never
-            // sampled splat.g, so the paint tool's own instruction — "set the layer to 'Manual' in Details
-            // to see painted weights" — was false for the `Rock (G)` brush, which is one of the three it
-            // offers. Г25 fixed exactly this for grass (LayerModes.x) and the same shape was left standing
-            // one channel over. `SettingConsumers` stayed green throughout, because a WIRED row asks for a
-            // read of the FIELD and TerrainECSSystem reads it: the census sees the first link of the chain
-            // and cannot see that the last one drops it.
+            // `Rock Layer` WAS ONCE A DEAD KNOB: packed into LayerModes.y and never read here, while the
+            // census stayed green because a WIRED row asks only for a read of the FIELD (Г26). Every mode
+            // is read below; the relation is checked by a frame with a layer Off, not by the census.
             //
             // ROCK IS STILL THE BED under everything, because a ground shader must draw something where no
             // layer claims a pixel and inventing a fourth colour for that case would be a worse answer
             // than the ground this repository's terrain scenes are dressed against. With grass on Auto the
             // bed is fully covered, so `Rock Layer = Off` is visible where it means something — the
             // slopes — rather than nowhere.
-            float wGrass = LayerWeight( u_T.LayerModes.x, grassAuto, splat.r );
-            float wRock  = LayerWeight( u_T.LayerModes.y, rockAuto, splat.g );
-            float wSnow  = LayerWeight( u_T.LayerModes.z, snowAuto, splat.b );
+            float wGrass = LayerWeight( u_T.LayerModes.x, grassAuto );
+            float wRock  = LayerWeight( u_T.LayerModes.y, rockAuto );
+            float wSnow  = LayerWeight( u_T.LayerModes.z, snowAuto );
 
             vec3 albedo = rockT;
             albedo      = mix( albedo, grassT, clamp( wGrass, 0.0, 1.0 ) );

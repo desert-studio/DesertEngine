@@ -1237,11 +1237,14 @@ namespace Desert::Editor
         for ( auto entity : entities )
         {
             // Only entities WITHOUT a rendered/gizmo'd representation get a billboard — anything already
-            // visible (mesh/terrain/foliage/light/camera/skybox) is skipped so we don't double-mark it.
+            // visible (mesh/landscape/foliage/light/camera/skybox) is skipped so we don't double-mark it.
             if ( entity.HasComponent<ECS::StaticMeshComponent>() ||
                  entity.HasComponent<ECS::SkinnedMeshComponent>() ||
                  entity.HasComponent<ECS::InstancedStaticMeshComponent>() ||
-                 entity.HasComponent<ECS::TerrainComponent>() || entity.HasComponent<ECS::FoliageComponent>() ||
+                 // the landscape root owns the rendered tiles; a marker on it would sit in the ground
+                 entity.HasComponent<ECS::LandscapeComponent>() ||
+                 entity.HasComponent<ECS::LandscapeTileComponent>() ||
+                 entity.HasComponent<ECS::FoliageComponent>() ||
                  entity.HasComponent<ECS::PointLightComponent>() ||
                  entity.HasComponent<ECS::SpotLightComponent>() ||
                  entity.HasComponent<ECS::DirectionLightComponent>() ||

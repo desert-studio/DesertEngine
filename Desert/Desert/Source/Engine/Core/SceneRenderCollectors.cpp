@@ -8,7 +8,6 @@
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
-#include <Engine/ECS/System/TerrainECSSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
 #include <Engine/ECS/System/TimeOfDayECSSystem.hpp>
 #include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
@@ -27,7 +26,6 @@ namespace Desert::Core
         // floor) and emits one command.
         scene.AddSystem<ECS::HeightFogECSSystem>();
         scene.AddSystem<ECS::VolumetricCloudECSSystem>();
-        scene.AddSystem<ECS::TerrainECSSystem>();
         scene.AddSystem<ECS::LandscapeECSSystem>();
         scene.AddSystem<ECS::PointLightECSSystem>();
         scene.AddSystem<ECS::SpotLightECSSystem>();

@@ -167,9 +167,6 @@ namespace
               "the sky, the HDR cubemap AND the sun candidate list — the three halves of the report "
               "that opened this task." },
          Row{ "SpotLightSystem.hpp", Verdict::Honours, "same rule and same reason as the point light." },
-         Row{ "TerrainECSSystem.hpp", Verdict::Honours,
-              "one of the original three sites that made the flag look like it worked at all; a "
-              "terrain tile is geometry and hiding it must remove it." },
          Row{ "TextECSSystem.hpp", Verdict::Honours,
               "one of the original three; world text is drawn geometry like any mesh, and the label "
               "of a hidden object has to go with it." },
@@ -202,7 +199,6 @@ namespace
          Site{ "MeshECSSystem.hpp", "static meshes", "StaticMeshComponent& mesh," },
          Site{ "MeshECSSystem.hpp", "instanced static meshes (ISM)", "InstancedStaticMeshComponent& ism" },
          Site{ "MeshECSSystem.hpp", "skinned meshes", "SkinnedMeshComponent& mesh," },
-         Site{ "TerrainECSSystem.hpp", "terrain tiles", "view<TerrainComponent, TransformComponent>" },
          Site{ "TextECSSystem.hpp", "world text", "view<TextComponent, TransformComponent>" },
          Site{ "HeightFogECSSystem.hpp", "the fog volume election", "view<ECS::ExponentialHeightFogComponent>" },
          Site{ "VolumetricCloudECSSystem.hpp", "the cloud layer election", "view<ECS::VolumetricCloudComponent>" },

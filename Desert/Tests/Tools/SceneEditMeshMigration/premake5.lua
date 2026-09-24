@@ -18,6 +18,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Tools/SceneMigrator/Source/SceneMigration.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
         "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",

@@ -993,22 +993,6 @@ TEST( WorldPartitionMeshAssets, AnUnknownMeshIsItsPositionAndIsCounted )
     EXPECT_EQ( plan.Composites[0].Level, 0 );
 }
 
-// A TERRAIN IS ITS SQUARE: `Size` wide, centred on its entity (TerrainMeshFactory). 10000 wide at
-// (25000, 25000) is exactly cell (2, 2); 12000 wide crosses two edges and needs a level-2 cell.
-TEST( WorldPartitionLevels, ATerrainIsItsSquare )
-{
-    std::vector<EntityData> records;
-    records.push_back( Record( 1, "Terrain", { 25000.0f, 0.0f, 25000.0f } ) );
-    With( records[0], "Terrain", R"({"Size":10000.0})" );
-    const WorldPartitionPlan exact = PlanWorldPartition( records, Cells( 10000.0f ) );
-    EXPECT_EQ( exact.Composites[0].Level, 0 );
-    EXPECT_EQ( exact.Composites[0].Cell, ( CellCoord{ 2, 2 } ) );
-
-    With( records[0], "Terrain", R"({"Size":12000})" );
-    const WorldPartitionPlan wider = PlanWorldPartition( records, Cells( 10000.0f ) );
-    EXPECT_EQ( wider.Composites[0].Level, 2 );
-}
-
 // ── 6. ALWAYS-LOADED ───────────────────────────────────────────────────────────────────────────────
 
 // THE SUN, THE SKY AND THE CAMERA ARE NOT IN CELL (0, 0). Each is always-loaded, by Component, and names

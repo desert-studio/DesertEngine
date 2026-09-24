@@ -112,6 +112,47 @@ namespace Desert::ECS
             return it == byCoord.end() ? nullptr : &drawables[it->second];
         };
 
+        // Each root's look, resolved once per frame and shared by all its tiles. The material is a `.demat`
+        // like every other: its values (Tint, DetailTiling and the u_GrassTex/u_RockTex/u_SnowTex layers)
+        // arrive as named overrides that TerrainRenderer applies on top of the shader's schema defaults. A
+        // root without a LandscapeMaterial draws with those defaults and every layer on Auto.
+        struct Surface
+        {
+            glm::vec3                  LayerModes = glm::vec3( 0.0f );
+            Graphic::MaterialOverrides Overrides;
+        };
+        std::map<uint64_t, Surface> surfaces;
+        const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
+        {
+            const auto [it, inserted] = surfaces.try_emplace( static_cast<uint64_t>( rootId ) );
+            if ( !inserted )
+                return it->second;
+            for ( const auto entity : registry.view<LandscapeMaterialComponent, UUIDComponent>() )
+            {
+                if ( registry.get<UUIDComponent>( entity ).UUID != rootId )
+                    continue;
+                const LandscapeMaterialData& look = registry.get<LandscapeMaterialComponent>( entity ).Data;
+                it->second.LayerModes = glm::vec3( static_cast<float>( look.GrassMode ),
+                                                   static_cast<float>( look.RockMode ),
+                                                   static_cast<float>( look.SnowMode ) );
+                const auto raw = static_cast<uint64_t>( look.Material );
+                if ( raw == 0 )
+                    break;
+                auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+                if ( ( materials == nullptr || !materials->ResolveOverrides( look.Material, it->second.Overrides ) ) &&
+                     m_WarnedMaterials.insert( raw ).second )
+                {
+                    // Not a silent default: the scene names a material the asset database does not have, and
+                    // the landscape then renders in the shader's defaults. Said once per handle, not per frame.
+                    LOG_WARN( "[Landscape] material handle {} does not resolve to a registered material — the "
+                              "landscape renders with the Terrain shader's own defaults.",
+                              raw );
+                }
+                break;
+            }
+            return it->second;
+        };
+
         // Pass 2: upload what changed, draw what is shown.
         for ( const Drawable& d : drawables )
         {
@@ -170,7 +211,10 @@ namespace Desert::ECS
             draw.FirstSampleZ  = tileComp.TileZ * static_cast<int32_t>( root.QuadsPerTile );
             draw.QuadsPerTile  = root.QuadsPerTile;
             draw.NeighbourMask = mask;
-            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap.get(), draw );
+            const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
+            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap.get(), draw,
+                                                                                  surface.LayerModes,
+                                                                                  surface.Overrides );
         }
 
         // Release: the entity is gone, lost its tile component, or its heights were unloaded.

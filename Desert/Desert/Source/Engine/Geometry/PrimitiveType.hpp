@@ -77,7 +77,7 @@ namespace Desert::Geometry
     // without tessellating a sphere per record. The ShapeGenerators suite holds this closed form to the
     // generated vertices for every PrimitiveType, so the two cannot drift apart.
     //
-    // Terrain and LightCube are built elsewhere (TerrainMeshFactory, the light gizmo) and are never the
+    // Terrain and LightCube are built elsewhere (the landscape renderer, the light gizmo) and are never the
     // `Primitive` of a mesh block: nullopt, and such an entity's position is its whole extent.
     //
     // Shapes are authored on [-0.5, 0.5] m around their centre (Common/Core/Units.hpp), so a Cube is 100

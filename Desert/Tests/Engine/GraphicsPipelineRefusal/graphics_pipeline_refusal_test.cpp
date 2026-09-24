@@ -540,7 +540,6 @@ TEST( GraphicsPipelineRefusal, EveryBareSharedPtrFactoryIsOnTheRegister )
          "Engine/Core/Window.hpp",
          "Engine/Geometry/MeshFactory.hpp",
          "Engine/Geometry/PrimitiveMeshFactory.hpp",
-         "Engine/Geometry/TerrainMeshFactory.hpp",
          "Engine/Graphic/API/Vulkan/VulkanDevice.hpp",
          "Engine/Graphic/Framebuffer.hpp",
          "Engine/Graphic/Image.hpp",

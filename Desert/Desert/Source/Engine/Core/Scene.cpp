@@ -641,7 +641,7 @@ namespace Desert::Core
         r.prepare<ECS::ControlRigComponent>();
         r.prepare<ECS::RetargetComponent>();
         r.prepare<ECS::TextComponent>();
-        r.prepare<ECS::TerrainComponent>();
+        r.prepare<ECS::LandscapeMaterialComponent>();
 
         // Lights and sky.
         r.prepare<ECS::DirectionLightComponent>();

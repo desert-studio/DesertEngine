@@ -58,12 +58,11 @@ Shader "TerrainGBuffer"
             // forward program's Blinn gloss 0..0.5 over the snow cover, expressed as a roughness.
             float roughness = mix( 0.9, 0.45, s.Snow );
 
-            // The complexity proxy the deferred debug view heat-maps: the three layer maps and the splat.
+            // The complexity proxy the deferred debug view heat-maps: the three layer maps.
             int texCount = 0;
             if ( textureSize( u_GrassTex, 0 ).x > 1 ) texCount++;
             if ( textureSize( u_RockTex, 0 ).x > 1 ) texCount++;
             if ( textureSize( u_SnowTex, 0 ).x > 1 ) texCount++;
-            if ( textureSize( u_SplatMap, 0 ).x > 1 ) texCount++;
 
             oGBufferA        = vec4( s.Albedo * u_Material.Tint.rgb, 0.0 );
             oGBufferB        = vec4( s.N, roughness );

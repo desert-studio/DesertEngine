@@ -245,11 +245,19 @@ namespace Desert::Migration
     //                   the repository.
     inline constexpr int kSceneVersionEditMesh = 22;
 
+    //  23             - THE PROCEDURAL TERRAIN IS GONE; ITS RELIEF IS BAKED INTO A LANDSCAPE (owner decision O2,
+    //                   2026-09-24). A `Terrain` block (value-noise fBm evaluated by the tessellation shader)
+    //                   becomes a `Landscape` root + `LandscapeMaterial` on the same entity and a grid of
+    //                   `LandscapeTile` entities whose heights are the same fBm, evaluated on the CPU at every
+    //                   sample and written as `.dlht` files beside the file (MigrateProceduralTerrainV22ToV23).
+    //                   The tracked corpus had SIX such blocks in four scenes (measured 2026-09-24).
+    inline constexpr int kSceneVersionProceduralTerrain = 23;
+
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionEditMesh == kSceneVersion,
+    static_assert( kSceneVersionProceduralTerrain == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1256,6 +1264,68 @@ namespace Desert::Migration
     // PURE - no GPU, no filesystem, no global state. Idempotent: a block with no CustomVertices is untouched.
     EditMeshMigrationReport MigrateEditMeshV21ToV22( std::vector<Assets::EntityData>& entities );
 
+    // One `.dlht` the v22 -> v23 step produced: where it goes and what it holds, for the tool to write.
+    struct LandscapeTileFile
+    {
+        std::filesystem::path      Path;  // on disk, as the tool sees it: the source file's directory + "<stem>_Landscape/"
+        std::vector<unsigned char> Bytes; // EncodeLandscapeTile's output — the whole file
+    };
+
+    // What MigrateProceduralTerrainV22ToV23 did to one file.
+    struct ProceduralTerrainMigrationReport
+    {
+        int Entities = 0; // Terrain blocks that became a landscape
+        int Tiles    = 0; // tile entities (and files) created for them
+        int Rejected = 0; // Terrain blocks that could not be baked - named below, left EXACTLY as they were
+
+        // "Tag: <quads> x <quads> quads in <n> x <n> tiles, <spacing> cm, max |h| <cm>" per baked terrain, and
+        // every value the new form cannot say (a Manual layer, which only a never-saved brush could feed).
+        std::vector<std::string> ConvertedNames;
+        std::vector<std::string> RejectedNames;
+
+        std::vector<LandscapeTileFile> Files; // for the tool to write; empty when nothing moved
+    };
+
+    // The v22 procedural terrain's height, in centimetres above the entity, at a point of its LOCAL grid
+    // plane (x, z measured from the entity's origin, the grid centred on it). This is the formula
+    // Programs/Terrain/TerrainTessEval.glslh evaluated per tessellated vertex until v23 - value noise, five
+    // octaves, the lattice hashed with fract() - transcribed to float arithmetic, and it lives HERE because
+    // the migration is now its only consumer: the shader that drew it no longer exists.
+    float ProceduralTerrainHeightV22( float x, float z, float noiseFrequency, int seed, float heightScale );
+
+    // How a v22 terrain of side @p sizeCm and grid @p resolution is sampled: the rendered surface was the
+    // fBm at the corners of `min(resolution, 64)` patches per side, each tessellated at most 16 times, so
+    // at least that many quads per side reproduces the relief the camera saw at its finest. Split into equal
+    // tiles of one of UE's section sizes (7..255 quads, the only ones a landscape root accepts).
+    struct ProceduralTerrainGrid
+    {
+        uint32_t TilesPerSide = 0;
+        uint32_t QuadsPerTile = 0;
+        float    SpacingCm    = 0.0f;
+    };
+    ProceduralTerrainGrid ProceduralTerrainGridFor( float sizeCm, int resolution );
+
+    // Raises Terrain blocks from schema v22 to v23: each becomes a LANDSCAPE whose tiles hold the terrain's
+    // fBm baked at ProceduralTerrainGridFor's spacing, in UE's encoding with ZScale = HeightScale / 256 - so
+    // the local range +-256 IS the old +-HeightScale, the shader's height rules normalise by the same number
+    // as before, and the only error is the 16-bit step (HeightScale / 32768 cm).
+    //
+    // THE ENTITY STAYS: same id, tag and hierarchy; its Translation moves to the landscape's sample (0, 0)
+    // (the grid's corner), its Scale is baked in (x/z into the spacing, y into the heights) and reset to 1.
+    // The material and the three layer modes move to `LandscapeMaterial`; Off stays Off, and Manual - which
+    // read a splat map no build ever saved - becomes Auto and is NAMED in the report.
+    //
+    // A terrain the landscape frame cannot state - rotated, or scaled unequally in x and z - is NAMED and left
+    // untouched: a landscape has no rotation, and inventing one would place the relief somewhere else.
+    //
+    // Tile ids are derived from the entity id and the tile coordinate (splitmix64), so a second run over
+    // the same v22 file writes the same files. `sourceFile` names them (LandscapeTileBlobPath); `HeightFile`
+    // is spelled the way the engine's own save spells it - under Common::Constants::Path::ASSETS_PATH -
+    // from the file's place under `assetsRoot`. PURE apart from reading those two paths.
+    ProceduralTerrainMigrationReport MigrateProceduralTerrainV22ToV23( std::vector<Assets::EntityData>& entities,
+                                                                      const std::filesystem::path& sourceFile,
+                                                                      const std::filesystem::path& assetsRoot );
+
     // What MigrateAnimGraphV20ToV21 did, returned rather than logged, like every report above.
     struct AnimGraphMigrationReport
     {
@@ -1365,6 +1435,8 @@ namespace Desert::Migration
         // the schema was below kSceneVersionRetiredKeys
         bool                       EditMeshRaised = false; // the schema was below kSceneVersionEditMesh
         EditMeshMigrationReport    EditMesh;
+        bool                             ProceduralTerrainRaised = false; // below kSceneVersionProceduralTerrain
+        ProceduralTerrainMigrationReport ProceduralTerrain;
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
 
@@ -1374,7 +1446,8 @@ namespace Desert::Migration
                    CloudTypeRaised || CloudSetRaised || TerrainMaterialRaised || MaterialPathRaised ||
                    GravityUnitsRaised || UIVisibilityRaised || SSRUnitsRaised || CloudMaterialRaised ||
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
-                   TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || RetiredKeysRaised;
+                   TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
+                   RetiredKeysRaised;
         }
     };
 
@@ -1393,8 +1466,12 @@ namespace Desert::Migration
     // change. The default is evaluated at the call site, which is the only place that knows whether a
     // project has been opened; the step underneath it takes the root explicitly and is tested that way.
     FileMigrationReport
+    //
+    // `sourceFile` is the file the tree was read from. Only the v22 -> v23 step reads it (its tiles are
+    // files named after it); a Terrain block migrated without one is NAMED and left as it was.
     MigrateScene( SceneSerialized&             scene,
-                  const std::filesystem::path& assetsRoot = Common::Constants::Path::ASSETS_PATH );
+                  const std::filesystem::path& assetsRoot = Common::Constants::Path::ASSETS_PATH,
+                  const std::filesystem::path& sourceFile = {} );
 
     // What MigratePrefab did to one `.deprefab`, on top of the chain's own report.
     struct PrefabMigrationOutcome
@@ -1454,6 +1531,7 @@ namespace Desert::Migration
 
     PrefabMigrationOutcome
     MigratePrefab( Assets::PrefabData&          prefab,
-                   const std::filesystem::path& assetsRoot = Common::Constants::Path::ASSETS_PATH );
+                   const std::filesystem::path& assetsRoot = Common::Constants::Path::ASSETS_PATH,
+                   const std::filesystem::path& sourceFile = {} );
 
 } // namespace Desert::Migration

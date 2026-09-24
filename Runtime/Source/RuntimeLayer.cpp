@@ -29,7 +29,6 @@
 #include <Engine/ECS/System/HeightFogECSSystem.hpp>
 #include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
 #include <Engine/ECS/System/TimeOfDayECSSystem.hpp>
-#include <Engine/ECS/System/TerrainECSSystem.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
 #include <Engine/ECS/System/AnimationECSSystem.hpp>

@@ -247,6 +247,30 @@ namespace
         return true;
     }
 
+    // The v22 -> v23 step's tile files. Each is named by a tile id derived from its entity's, so a path is
+    // never claimed twice in a run; a failed write stops the file, which then keeps its old version and its
+    // Terrain block. Encoded by the step - here they are only written.
+    bool WriteLandscapeTiles( const std::vector<Desert::Migration::LandscapeTileFile>& produced,
+                              const std::filesystem::path& source, std::ostream& out, std::ostream& err )
+    {
+        for ( const auto& tile : produced )
+        {
+            const std::string bytes( tile.Bytes.begin(), tile.Bytes.end() );
+            std::error_code   ec;
+            std::filesystem::create_directories( tile.Path.parent_path(), ec );
+            if ( !Common::Utils::FileSystem::WriteContentToFileAtomic( tile.Path, bytes ) )
+            {
+                err << "FAIL   " << tile.Path.string() << " — the landscape tile could not be written; "
+                    << source.string() << " is left at its old version\n";
+                return false;
+            }
+        }
+        if ( !produced.empty() )
+            out << "        wrote " << produced.size() << " landscape tile file(s) under "
+                << produced.front().Path.parent_path().string() << "\n";
+        return true;
+    }
+
     // WHAT THE CHAIN DID, in one line, for a scene OR a prefab: the same report comes back from
     // both entry points, so the same function prints it and no step can be reported in one file class
     // and silently omitted in the other. §4.7 - a migration that says nothing is a migration nobody can
@@ -465,6 +489,21 @@ namespace
                 out << " " << name << ";";
             for ( const auto& name : report.EditMesh.RejectedNames )
                 out << "; LEFT IN PLACE, not converted: " << name;
+            out << ")";
+        }
+        if ( report.ProceduralTerrainRaised )
+        {
+            out << " scene v" << Desert::Migration::kSceneVersionEditMesh << "->v"
+                << Desert::Migration::kSceneVersionProceduralTerrain << " (";
+            if ( report.ProceduralTerrain.Entities > 0 )
+                out << report.ProceduralTerrain.Entities << " procedural terrain(s) baked into "
+                    << report.ProceduralTerrain.Tiles << " landscape tile(s):";
+            else
+                out << "stamp only - no Terrain payload in this file";
+            for ( const auto& name : report.ProceduralTerrain.ConvertedNames )
+                out << " " << name << ";";
+            for ( const auto& name : report.ProceduralTerrain.RejectedNames )
+                out << "; LEFT IN PLACE, not baked: " << name;
             out << ")";
         }
         if ( report.DebugViewRaised )
@@ -700,7 +739,7 @@ namespace Desert::Migration
             const std::filesystem::path assetsRoot = SceneOutputRoot( path );
 
             const Desert::Migration::FileMigrationReport report =
-                 Desert::Migration::MigrateScene( parsed.value(), assetsRoot );
+                 Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path );
 
             // A scene from a LATER build: nothing ran and nothing was stamped, so this is a FAILED file
             // and not an "ok". It used to be neither — the tree fell through every gate and was stamped
@@ -748,6 +787,12 @@ namespace Desert::Migration
             }
 
             if ( !WriteAnimGraphs( report.AnimGraph.Graphs, assetsRoot, path, writtenGraphs, out, err ) )
+            {
+                ++failed;
+                continue;
+            }
+
+            if ( !WriteLandscapeTiles( report.ProceduralTerrain.Files, path, out, err ) )
             {
                 ++failed;
                 continue;
@@ -955,7 +1000,7 @@ namespace Desert::Migration
             const std::filesystem::path assetsRoot = PrefabOutputRoot( path );
 
             const Desert::Migration::PrefabMigrationOutcome outcome =
-                 Desert::Migration::MigratePrefab( parsed.value(), assetsRoot );
+                 Desert::Migration::MigratePrefab( parsed.value(), assetsRoot, path );
 
             if ( !outcome.Refused.empty() )
             {
@@ -1003,6 +1048,12 @@ namespace Desert::Migration
             }
 
             if ( !WriteAnimGraphs( outcome.Steps.AnimGraph.Graphs, assetsRoot, path, writtenGraphs, out, err ) )
+            {
+                ++failed;
+                continue;
+            }
+
+            if ( !WriteLandscapeTiles( outcome.Steps.ProceduralTerrain.Files, path, out, err ) )
             {
                 ++failed;
                 continue;

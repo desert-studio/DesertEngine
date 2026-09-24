@@ -7,6 +7,10 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 // For the shipped presets' names and the directory they live in, and nothing else. The v4 -> v5 migration
 // turns the species integer a v4 file carries into the PATH of the preset that holds the same twelve
 // numbers, and spelling that path here as a literal would be a second statement of it — the exact
@@ -2709,6 +2713,374 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // THE v22 TERRAIN BLOCK, known here and nowhere else: what ComponentRegistry wrote for the reflected
+        // ECS::TerrainData before v23, with that struct's own defaults for a key the file did not state.
+        struct LegacyTerrainV22
+        {
+            float Size           = 5000.0f;
+            int   Resolution     = 64;
+            float HeightScale    = 500.0f;
+            float NoiseFrequency = 0.08f;
+            int   Seed           = 1337;
+        };
+
+        // The v22 layer modes, by number (TerrainLayerMode: Auto, Manual, Off) ...
+        constexpr int64_t kLegacyLayerManual = 1;
+        constexpr int64_t kLegacyLayerOff    = 2;
+        // ... and v23's (ECS::LandscapeLayerMode: Auto, Off). Stated as numbers because the scene stores them so.
+        constexpr int64_t kLandscapeLayerAuto = 0;
+        constexpr int64_t kLandscapeLayerOff  = 1;
+
+        // What TerrainRenderer drew a v22 terrain with: at most 64 patches per side (kMaxGridDim), each split
+        // at most 16 times by the TCS (kTessLevel). The bake reproduces that finest vertex spacing.
+        constexpr uint32_t kLegacyMaxGridDim   = 64u;
+        constexpr uint32_t kLegacyMaxTessLevel = 16u;
+        // The most tiles a side the bake will make: past it, a smaller section size buys a few percent of
+        // samples with many more entities and files.
+        constexpr uint32_t kMaxTilesPerSide = 16u;
+
+        float Fract( float v )
+        {
+            return v - std::floor( v );
+        }
+
+        // EVERY PRODUCT AND SUM IS ITS OWN STATEMENT, on purpose. The lattice hash takes fract() of numbers
+        // in the hundreds of thousands, so one fused multiply-add (clang contracts `a * b + c` inside ONE
+        // expression by default) moves a hash value and with it a whole noise cell by centimetres. Split,
+        // the port rounds after every operation exactly as the GLSL text states them, and the suite's
+        // vector transcription agrees with it to the 16-bit step.
+        float Mix( float a, float b, float t )
+        {
+            const float wa = a * ( 1.0f - t );
+            const float wb = b * t;
+            return wa + wb;
+        }
+
+        // Hash / ValueNoise / FBm of the v22 TerrainTessEval.glslh, component by component.
+        float LatticeHash( float px, float pz )
+        {
+            px = Fract( px * 123.34f );
+            pz = Fract( pz * 456.21f );
+            const float dx = px * ( px + 45.32f );
+            const float dz = pz * ( pz + 45.32f );
+            const float d  = dx + dz;
+            px += d;
+            pz += d;
+            return Fract( px * pz );
+        }
+
+        float ValueNoise( float px, float pz )
+        {
+            const float ix = std::floor( px );
+            const float iz = std::floor( pz );
+            const float fx = px - ix;
+            const float fz = pz - iz;
+            const float twoX = 2.0f * fx;
+            const float twoZ = 2.0f * fz;
+            const float ux   = fx * fx * ( 3.0f - twoX );
+            const float uz   = fz * fz * ( 3.0f - twoZ );
+
+            const float a = LatticeHash( ix, iz );
+            const float b = LatticeHash( ix + 1.0f, iz );
+            const float c = LatticeHash( ix, iz + 1.0f );
+            const float d = LatticeHash( ix + 1.0f, iz + 1.0f );
+            return Mix( Mix( a, b, ux ), Mix( c, d, ux ), uz );
+        }
+
+        float FBm( float px, float pz )
+        {
+            float sum  = 0.0f;
+            float amp  = 0.5f;
+            float freq = 1.0f;
+            for ( int octave = 0; octave < 5; ++octave )
+            {
+                const float layer = amp * ValueNoise( px * freq, pz * freq );
+                sum += layer;
+                freq *= 2.0f;
+                amp *= 0.5f;
+            }
+            return sum;
+        }
+
+        // A tile's id: the entity's id and the tile coordinate through splitmix64, so the same v22 file always
+        // bakes to the same entity ids and file names. Zero is "no id" and is stepped over.
+        uint64_t TileId( uint64_t rootId, uint32_t tileX, uint32_t tileZ )
+        {
+            uint64_t z = rootId + 0x9E3779B97F4A7C15ull * ( 1ull + ( static_cast<uint64_t>( tileX ) << 32u ) + tileZ );
+            z          = ( z ^ ( z >> 30u ) ) * 0xBF58476D1CE4E5B9ull;
+            z          = ( z ^ ( z >> 27u ) ) * 0x94D049BB133111EBull;
+            z          = z ^ ( z >> 31u );
+            return z == 0u ? 1u : z;
+        }
+
+    } // namespace
+
+    float ProceduralTerrainHeightV22( float x, float z, float noiseFrequency, int seed, float heightScale )
+    {
+        const float freq  = std::max( noiseFrequency, 0.0001f );
+        const float seedF = static_cast<float>( seed );
+        const float sx    = seedF * 0.137f;
+        const float sz    = seedF * 0.911f;
+        const float px    = x * freq;
+        const float pz    = z * freq;
+        const float h     = FBm( px + sx, pz + sz );
+        return ( h - 0.5f ) * 2.0f * heightScale;
+    }
+
+    ProceduralTerrainGrid ProceduralTerrainGridFor( float sizeCm, int resolution )
+    {
+        const uint32_t patches =
+             std::clamp<uint32_t>( static_cast<uint32_t>( std::max( resolution, 1 ) ), 1u, kLegacyMaxGridDim );
+        const uint32_t target = patches * kLegacyMaxTessLevel;
+
+        // Over UE's section sizes (the only tile sizes a landscape root accepts, LandscapeLayout.hpp), with at
+        // most kMaxTilesPerSide tiles: the LARGEST section whose side is within 1/8 of the smallest side that
+        // covers `target`. Fewer, bigger tiles for a few percent more samples; not 60 % more.
+        uint32_t fewest = 0u;
+        for ( const uint32_t quads : World::Landscape::kLandscapeTileQuadsValues )
+        {
+            const uint32_t tiles = ( target + quads - 1u ) / quads;
+            if ( tiles <= kMaxTilesPerSide && ( fewest == 0u || tiles * quads < fewest ) )
+                fewest = tiles * quads;
+        }
+        ProceduralTerrainGrid grid;
+        for ( const uint32_t quads : World::Landscape::kLandscapeTileQuadsValues )
+        {
+            const uint32_t tiles = ( target + quads - 1u ) / quads;
+            if ( tiles <= kMaxTilesPerSide && tiles * quads * 8u <= fewest * 9u )
+            {
+                grid.TilesPerSide = tiles; // ascending sizes: the last one kept is the largest
+                grid.QuadsPerTile = quads;
+            }
+        }
+        grid.SpacingCm = sizeCm / static_cast<float>( grid.TilesPerSide * grid.QuadsPerTile );
+        return grid;
+    }
+
+    ProceduralTerrainMigrationReport MigrateProceduralTerrainV22ToV23( std::vector<Assets::EntityData>& entities,
+                                                                      const std::filesystem::path& sourceFile,
+                                                                      const std::filesystem::path& assetsRoot )
+    {
+        ProceduralTerrainMigrationReport report;
+        std::vector<Assets::EntityData>  created;
+
+        for ( auto& entity : entities )
+        {
+            const auto payload = entity.Components.get( "Terrain" );
+            if ( !payload.has_value() )
+                continue;
+
+            const std::string tag    = entity.Tag.value_or( "Entity" );
+            const auto        reject = [&]( const std::string& why )
+            {
+                report.Rejected += 1;
+                report.RejectedNames.push_back( tag + " > Terrain: " + why );
+            };
+
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+            {
+                reject( "the payload is " + Describe( payload.value() ) + ", not an object" );
+                continue;
+            }
+            const auto& in = fields.value();
+
+            LegacyTerrainV22 terrain;
+            bool             readable = true;
+            const auto       number   = [&]( const char* key, auto& out )
+            {
+                const auto value = in.get( key );
+                if ( !value.has_value() )
+                    return;
+                const auto n = AsFiniteNumber( value.value() );
+                if ( !n.has_value() )
+                {
+                    reject( std::string( key ) + " is " + Describe( value.value() ) + ", not a finite number" );
+                    readable = false;
+                    return;
+                }
+                out = static_cast<std::remove_reference_t<decltype( out )>>( n.value() );
+            };
+            number( "Size", terrain.Size );
+            number( "Resolution", terrain.Resolution );
+            number( "HeightScale", terrain.HeightScale );
+            number( "NoiseFrequency", terrain.NoiseFrequency );
+            number( "Seed", terrain.Seed );
+            if ( !readable )
+                continue;
+            if ( terrain.Size <= 0.0f )
+            {
+                reject( "Size is " + std::to_string( terrain.Size ) + " cm; a landscape needs a positive extent" );
+                continue;
+            }
+
+            const glm::vec3 rotation = entity.Rotation.value_or( glm::vec3( 0.0f ) );
+            const glm::vec3 scale    = entity.Scale.value_or( glm::vec3( 1.0f ) );
+            if ( rotation != glm::vec3( 0.0f ) )
+            {
+                reject( "the entity is rotated; a landscape frame has no rotation (LandscapeComponent)" );
+                continue;
+            }
+            if ( scale.x != scale.z || scale.x <= 0.0f || scale.y < 0.0f )
+            {
+                reject( "the entity's scale (" + std::to_string( scale.x ) + ", " + std::to_string( scale.y ) +
+                        ", " + std::to_string( scale.z ) +
+                        ") is not one positive spacing in x and z; a landscape has one sample spacing" );
+                continue;
+            }
+            if ( !entity.id.has_value() || static_cast<uint64_t>( entity.id.value() ) == 0u )
+            {
+                reject( "the entity has no id for its tiles to name" );
+                continue;
+            }
+            if ( sourceFile.empty() )
+            {
+                reject( "no source file was given, and the tiles' height files are named after it" );
+                continue;
+            }
+
+            const ProceduralTerrainGrid grid       = ProceduralTerrainGridFor( terrain.Size, terrain.Resolution );
+            const uint32_t              quads      = grid.TilesPerSide * grid.QuadsPerTile;
+            const float                 cell       = terrain.Size / static_cast<float>( quads );
+            const float                 half       = terrain.Size * 0.5f;
+            const float                 heightCm   = terrain.HeightScale * scale.y;
+            const float                 zScale     = heightCm > 0.0f ? heightCm / 256.0f
+                                                                     : World::Landscape::kLandscapeDefaultZScale;
+            const uint32_t              rowSamples = quads + 1u;
+
+            // The whole landscape's samples once; the tiles copy their window (edges are shared samples).
+            std::vector<uint16_t> all( static_cast<size_t>( rowSamples ) * rowSamples );
+            float                 maxAbs = 0.0f;
+            for ( uint32_t z = 0; z < rowSamples; ++z )
+                for ( uint32_t x = 0; x < rowSamples; ++x )
+                {
+                    // The v22 vertex stage's own arithmetic for a grid corner: index * cell - size / 2.
+                    const float ax = static_cast<float>( x ) * cell;
+                    const float az = static_cast<float>( z ) * cell;
+                    const float lx = ax - half;
+                    const float lz = az - half;
+                    const float h  = ProceduralTerrainHeightV22( lx, lz, terrain.NoiseFrequency, terrain.Seed,
+                                                                 terrain.HeightScale ) *
+                                    scale.y;
+                    maxAbs = std::max( maxAbs, std::abs( h ) );
+                    all[static_cast<size_t>( z ) * rowSamples + x] = World::Landscape::LandscapeSampleFromLocal( h / zScale );
+                }
+
+            const uint64_t rootId = static_cast<uint64_t>( entity.id.value() );
+            bool           failed = false;
+            std::vector<Assets::EntityData> tiles;
+            std::vector<LandscapeTileFile>  files;
+            for ( uint32_t tz = 0; tz < grid.TilesPerSide && !failed; ++tz )
+                for ( uint32_t tx = 0; tx < grid.TilesPerSide && !failed; ++tx )
+                {
+                    const uint32_t        side = grid.QuadsPerTile + 1u;
+                    std::vector<uint16_t> samples( static_cast<size_t>( side ) * side );
+                    for ( uint32_t z = 0; z < side; ++z )
+                        for ( uint32_t x = 0; x < side; ++x )
+                            samples[static_cast<size_t>( z ) * side + x] =
+                                 all[static_cast<size_t>( tz * grid.QuadsPerTile + z ) * rowSamples +
+                                     tx * grid.QuadsPerTile + x];
+                    auto tile = World::Landscape::LandscapeTileData::FromSamples( side, side, std::move( samples ) );
+                    if ( !tile )
+                    {
+                        reject( "tile (" + std::to_string( tx ) + ", " + std::to_string( tz ) + "): " + tile.GetError() );
+                        failed = true;
+                        break;
+                    }
+
+                    const uint64_t              id   = TileId( rootId, tx, tz );
+                    const std::filesystem::path disk = World::Landscape::LandscapeTileBlobPath( sourceFile, id );
+                    const std::filesystem::path under = disk.lexically_relative( assetsRoot );
+                    if ( under.empty() || *under.begin() == ".." )
+                    {
+                        reject( "the tile file " + disk.generic_string() + " is not under the assets root " +
+                                assetsRoot.generic_string() + ", so the scene could not name it" );
+                        failed = true;
+                        break;
+                    }
+
+                    // Written by the loader's own writer (AuthoredComponentIO), so the block is spelled as
+                    // a save spells it - the root id as a decimal string, not a JSON number.
+                    ECS::LandscapeTileComponent block;
+                    block.Landscape  = Common::UUID( rootId );
+                    block.TileX      = static_cast<int32_t>( tx );
+                    block.TileZ      = static_cast<int32_t>( tz );
+                    block.HeightFile = ( Common::Constants::Path::ASSETS_PATH / under ).generic_string();
+
+                    Assets::EntityData tileEntity;
+                    tileEntity.id                          = Common::UUID( id );
+                    tileEntity.Tag                         = tag + " Tile " + std::to_string( tx ) + "_" + std::to_string( tz );
+                    tileEntity.Components["LandscapeTile"] = rfl::Generic( Core::Serialize::WriteComponent( block ) );
+                    tiles.push_back( std::move( tileEntity ) );
+                    files.push_back( { disk, World::Landscape::EncodeLandscapeTile( tile.GetValue() ) } );
+                }
+            if ( failed )
+                continue;
+
+            // The layer modes and the material leave with the relief, onto the root.
+            rfl::Object<rfl::Generic> material;
+            if ( const auto handle = in.get( "Material" ); handle.has_value() )
+                material["Material"] = handle.value();
+            std::vector<std::string> notes;
+            for ( const char* key : { "GrassMode", "RockMode", "SnowMode" } )
+            {
+                const auto value = in.get( key );
+                if ( !value.has_value() )
+                    continue; // unstated: v22's default was Auto, and so is v23's
+                const auto mode = value.value().to_int64();
+                if ( mode.has_value() && mode.value() == kLegacyLayerManual )
+                    notes.push_back( std::string( key ) + " Manual -> Auto (the splat map was never saved)" );
+                material[key] = rfl::Generic( mode.has_value() && mode.value() == kLegacyLayerOff ? kLandscapeLayerOff
+                                                                                                   : kLandscapeLayerAuto );
+            }
+
+            ECS::LandscapeComponent root;
+            root.QuadsPerTile = grid.QuadsPerTile;
+            root.SpacingCm    = cell * scale.x;
+            root.ZScale       = zScale;
+            const rfl::Generic rootGeneric( Core::Serialize::WriteComponent( root ) );
+
+            // Sample (0, 0) is the grid's corner: the entity's origin minus half the (scaled) side.
+            const glm::vec3 origin = entity.Translation.value_or( glm::vec3( 0.0f ) );
+            entity.Translation     = glm::vec3( origin.x - half * scale.x, origin.y, origin.z - half * scale.z );
+            entity.Scale           = glm::vec3( 1.0f );
+            // Rebuilt, as every step here drops a key: rfl::Object has no erase. The two new blocks take the
+            // retired one's place in the order.
+            rfl::ExtraFields<rfl::Generic> kept;
+            for ( const auto& [key, value] : entity.Components )
+            {
+                if ( key != "Terrain" )
+                {
+                    kept[key] = value;
+                    continue;
+                }
+                kept["Landscape"]         = rootGeneric;
+                kept["LandscapeMaterial"] = rfl::Generic( material );
+            }
+            entity.Components = std::move( kept );
+
+            report.Entities += 1;
+            report.Tiles += static_cast<int>( tiles.size() );
+            std::string line = tag + ": " + std::to_string( quads ) + " x " + std::to_string( quads ) + " quads in " +
+                               std::to_string( grid.TilesPerSide ) + " x " + std::to_string( grid.TilesPerSide ) +
+                               " tiles, " + std::to_string( root.SpacingCm ) + " cm spacing, max |h| " +
+                               std::to_string( maxAbs ) + " cm";
+            for ( const auto& note : notes )
+                line += "; " + note;
+            report.ConvertedNames.push_back( std::move( line ) );
+            for ( auto& t : tiles )
+                created.push_back( std::move( t ) );
+            for ( auto& f : files )
+                report.Files.push_back( std::move( f ) );
+        }
+
+        for ( auto& t : created )
+            entities.push_back( std::move( t ) );
+        return report;
+    }
+
     // И11 свёл цепочку шагов в один RunSteps, и функция выше — материальная, а не сценная: она
     // живёт своим проходом по .demat и в эту цепочку не входит. Обе стороны нужны целиком.
     namespace
@@ -2727,7 +3099,8 @@ namespace Desert::Migration
         // stamp-only case) and the stamping that comes after; this function only runs steps.
         void RunSteps( std::vector<Assets::EntityData>& entities, std::optional<rfl::Generic>* settings,
                        const std::string& name, int statedSceneVersion, int statedUnitVersion,
-                       const std::filesystem::path& assetsRoot, FileMigrationReport& report )
+                       const std::filesystem::path& assetsRoot, const std::filesystem::path& sourceFile,
+                       FileMigrationReport& report )
         {
             // Stands in for the block a prefab does not have. Never read back by the caller: the two
             // steps below that take it are both guarded on has_value(), so an absent block is a no-op
@@ -2918,6 +3291,14 @@ namespace Desert::Migration
                 report.EditMesh       = MigrateEditMeshV21ToV22( entities );
             }
 
+            // The procedural terrain leaves for a landscape. Reads and writes the `Terrain` key only, which
+            // no step after v18 touches; before the retirement pass, like every other step.
+            if ( statedSceneVersion < kSceneVersionProceduralTerrain )
+            {
+                report.ProceduralTerrainRaised = true;
+                report.ProceduralTerrain = MigrateProceduralTerrainV22ToV23( entities, sourceFile, assetsRoot );
+            }
+
             if ( statedSceneVersion < kSceneVersion )
             {
                 report.RetiredKeysRaised = true;
@@ -2937,7 +3318,8 @@ namespace Desert::Migration
         }
     } // namespace
 
-    FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot )
+    FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
+                                      const std::filesystem::path& sourceFile )
     {
         FileMigrationReport report;
 
@@ -2959,7 +3341,7 @@ namespace Desert::Migration
         }
 
         RunSteps( scene.Entities, &scene.Settings, scene.SceneName, statedSceneVersion, statedUnitVersion,
-                  assetsRoot, report );
+                  assetsRoot, sourceFile, report );
 
         // Stamped whether or not anything moved: an empty scene at version 0 is still a scene at version 0,
         // and leaving it unstamped is how every load ends up re-running a migration that already happened.
@@ -2969,7 +3351,8 @@ namespace Desert::Migration
         return report;
     }
 
-    PrefabMigrationOutcome MigratePrefab( Assets::PrefabData& prefab, const std::filesystem::path& assetsRoot )
+    PrefabMigrationOutcome MigratePrefab( Assets::PrefabData& prefab, const std::filesystem::path& assetsRoot,
+                                          const std::filesystem::path& sourceFile )
     {
         PrefabMigrationOutcome outcome;
         outcome.FoundSceneVersion = prefab.SceneVersion.value_or( 0 );
@@ -3014,7 +3397,7 @@ namespace Desert::Migration
         }
 
         RunSteps( prefab.Entities, nullptr, prefab.Name, outcome.FoundSceneVersion, outcome.FoundUnitVersion,
-                  assetsRoot, outcome.Steps );
+                  assetsRoot, sourceFile, outcome.Steps );
 
         prefab.SceneVersion = kSceneVersion;
         prefab.UnitVersion  = kUnitVersion;
