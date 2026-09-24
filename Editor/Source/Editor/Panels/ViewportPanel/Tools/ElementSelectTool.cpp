@@ -93,41 +93,73 @@ namespace Desert::Editor::Tools
                     return;
                 if ( fill != 0 )
                     List.AddTriangleFilled( a, b, c, fill );
-                List.AddTriangle( a, b, c, outline, 1.5f );
+                if ( outline != 0 )
+                    List.AddTriangle( a, b, c, outline, 1.5f );
             }
-            // A whole element of any mode; a polygroup is drawn as its triangles.
-            void Element( ElementMode mode, int id, ImU32 fill, ImU32 line ) const
+            // A mesh edge lies on a group edge when it is open or its two triangles are in different groups
+            // (FGroupTopology's own definition), so a polygroup's triangulation diagonals are not group edges.
+            bool IsGroupEdge( int e ) const
             {
-                switch ( mode )
-                {
-                    case ElementMode::Vertex:
-                        Vertex( id, line, 4.5f );
-                        break;
-                    case ElementMode::Edge:
-                        Edge( id, line, 3.0f );
-                        break;
-                    case ElementMode::Triangle:
-                        Triangle( id, fill, line );
-                        break;
-                    case ElementMode::PolyGroup:
-                        break;
-                }
+                const auto et = Mesh.GetEdgeT( e );
+                return et.B < 0 || Topology.GetGroupID( et.A ) != Topology.GetGroupID( et.B );
             }
         };
 
+        // Colours and widths of UE's UMeshTopologySelectionMechanic::Initialize: PolyEdgesRenderer (every group
+        // edge, red, 2), SelectionRenderer (Gold3f, 4) and HilightRenderer (green, 4). The face fill stands for
+        // UE's DrawnTriangleSetComponent; the entity's own selection outline stays orange, so neither the
+        // selection nor the wire can be confused with it.
+        constexpr ImU32 kGroupEdgeColour = IM_COL32( 255, 0, 0, 255 );
+        constexpr float kGroupEdgeWidth  = 2.0f;
+        constexpr ImU32 kSelectionColour = IM_COL32( 255, 215, 0, 255 );
+        constexpr ImU32 kSelectionFill   = IM_COL32( 255, 215, 0, 60 );
+        constexpr ImU32 kHilightColour   = IM_COL32( 0, 255, 0, 255 );
+        constexpr float kElementWidth    = 4.0f;
+
+        // UMeshTopologySelectionMechanic::Render, bShowEdges: every group edge of the target, drawn as its mesh
+        // edges (TopologyProvider->GetGroupEdgeEdges).
+        void DrawGroupEdges( const Painter& paint )
+        {
+            for ( int g = 0; g < paint.Topology.Edges.Num(); ++g )
+                for ( const int e : paint.Topology.GetGroupEdgeEdges( g ) )
+                    paint.Edge( e, kGroupEdgeColour, kGroupEdgeWidth );
+        }
+
+        // FGroupTopologySelector::DrawSelection. A polygroup is its triangles filled (no triangle outlines - the
+        // diagonals of the triangulation are not drawn) plus the group edges around it (UE ForGroupSetEdges).
         void DrawSelection( const Painter& paint, const Geometry::ElementSelection& selection, ImU32 fill,
                             ImU32 line )
         {
-            if ( selection.Mode() == ElementMode::PolyGroup )
+            switch ( selection.Mode() )
             {
-                const Geometry::ElementSelection tris =
-                     Geometry::ConvertSelection( paint.Mesh, paint.Topology, selection, ElementMode::Triangle );
-                for ( const int t : tris.Ids() )
-                    paint.Triangle( t, fill, line );
-                return;
+                case ElementMode::PolyGroup:
+                {
+                    const Geometry::ElementSelection tris = Geometry::ConvertSelection(
+                         paint.Mesh, paint.Topology, selection, ElementMode::Triangle );
+                    for ( const int t : tris.Ids() )
+                        paint.Triangle( t, fill, 0 );
+                    for ( const int t : tris.Ids() )
+                    {
+                        const auto edges = paint.Mesh.GetTriEdges( t );
+                        for ( int k = 0; k < 3; ++k )
+                            if ( paint.IsGroupEdge( edges[k] ) )
+                                paint.Edge( edges[k], line, kElementWidth );
+                    }
+                    return;
+                }
+                case ElementMode::Triangle:
+                    for ( const int t : selection.Ids() )
+                        paint.Triangle( t, fill, line );
+                    return;
+                case ElementMode::Edge:
+                    for ( const int e : selection.Ids() )
+                        paint.Edge( e, line, kElementWidth );
+                    return;
+                case ElementMode::Vertex:
+                    for ( const int v : selection.Ids() )
+                        paint.Vertex( v, line, 5.0f );
+                    return;
             }
-            for ( const int id : selection.Ids() )
-                paint.Element( selection.Mode(), id, fill, line );
         }
 
         // The ray through the viewport's centre, from the cursor ray's origin (the camera) - what a click in
@@ -300,12 +332,13 @@ namespace Desert::Editor::Tools
 
         const Painter paint{
              *::ImGui::GetWindowDrawList(), mesh, topology, target.World, viewProj, viewportPos, viewportSize };
-        DrawSelection( paint, state.Selection(), IM_COL32( 255, 150, 30, 70 ), IM_COL32( 255, 170, 40, 255 ) );
+        DrawGroupEdges( paint );
+        DrawSelection( paint, state.Selection(), kSelectionFill, kSelectionColour );
         if ( hover.IsHit() && !pickCentre )
         {
             Geometry::ElementSelection one( state.Mode() );
             if ( one.Add( mesh, hover.Id ).IsSuccess() )
-                DrawSelection( paint, one, 0, IM_COL32( 120, 220, 255, 200 ) );
+                DrawSelection( paint, one, 0, kHilightColour );
         }
     }
 } // namespace Desert::Editor::Tools
