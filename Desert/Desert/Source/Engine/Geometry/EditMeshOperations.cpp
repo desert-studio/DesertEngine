@@ -56,28 +56,6 @@ namespace Desert::Geometry
             int                                    BoundaryEdgeCount = 0;
         };
 
-        float CornerAngle( const EditMesh& mesh, int t, int corner )
-        {
-            const auto&     c  = mesh.GetTriangle( t );
-            const glm::vec3 p  = mesh.GetPosition( c[corner] );
-            const glm::vec3 a  = mesh.GetPosition( c[( corner + 1 ) % 3] ) - p;
-            const glm::vec3 b  = mesh.GetPosition( c[( corner + 2 ) % 3] ) - p;
-            const float     la = glm::length( a );
-            const float     lb = glm::length( b );
-            if ( la <= 0.0f || lb <= 0.0f )
-                return 0.0f;
-            return std::acos( std::clamp( glm::dot( a, b ) / ( la * lb ), -1.0f, 1.0f ) );
-        }
-
-        int CornerOf( const EditMesh& mesh, int t, int v )
-        {
-            const auto& c = mesh.GetTriangle( t );
-            for ( int j = 0; j < 3; ++j )
-                if ( c[j] == v )
-                    return j;
-            return -1;
-        }
-
         glm::vec3 AreaNormal( const EditMesh& mesh, int t ) // length = twice the area
         {
             const auto& c = mesh.GetTriangle( t );
@@ -211,111 +189,6 @@ namespace Desert::Geometry
         }
 
         // ── normals: rebuilt per polygroup at a set of vertices ─────────────────────────────────────────
-
-        // Every triangle touching `vertices` gets, at those corners, the angle-weighted normal of the
-        // triangles in ITS polygroup at that vertex; its other corners keep their element. A triangle unset in
-        // the layer must have all three corners in the set (the operations below guarantee it).
-        Common::BoolResultStr RebuildNormalsAt( EditMesh& mesh, const std::vector<int>& vertices )
-        {
-            NormalOverlay* normals = mesh.Attributes().Normals();
-            if ( normals == nullptr )
-                return Common::MakeSuccess( true );
-            std::vector<char> inSet( static_cast<size_t>( mesh.MaxVertexId() ), 0 );
-            for ( const int v : vertices )
-                inSet[v] = 1;
-
-            std::map<std::pair<int, int>, int> element; // (vertex, polygroup) -> new element
-            std::vector<int>                   touched;
-            for ( const int v : vertices )
-            {
-                std::map<int, glm::vec3> sums;
-                for ( const int t : mesh.GetVertexTriangles( v ) )
-                {
-                    sums[mesh.Attributes().GetPolyGroup( t )] +=
-                         TriangleNormal( mesh, t ) * CornerAngle( mesh, t, CornerOf( mesh, t, v ) );
-                    touched.push_back( t );
-                }
-                for ( const auto& [group, sum] : sums )
-                {
-                    const float     length = glm::length( sum );
-                    const glm::vec3 n      = length > 0.0f ? sum / length : glm::vec3( 0.0f, 1.0f, 0.0f );
-                    element[{ v, group }]  = normals->AppendElement( n );
-                }
-            }
-            std::sort( touched.begin(), touched.end() );
-            touched.erase( std::unique( touched.begin(), touched.end() ), touched.end() );
-            for ( const int t : touched )
-            {
-                const auto&        corners = mesh.GetTriangle( t );
-                const bool         wasSet  = normals->IsSetTriangle( t );
-                std::array<int, 3> next{};
-                for ( int j = 0; j < 3; ++j )
-                {
-                    if ( inSet[corners[j]] )
-                        next[j] = element.at( { corners[j], mesh.Attributes().GetPolyGroup( t ) } );
-                    else if ( wasSet )
-                        next[j] = normals->GetTriangle( t )[j];
-                    else
-                        return Common::MakeFormattedError<bool>(
-                             "normal rebuild: triangle {} has no normals and its corner {} is outside the "
-                             "rebuilt set",
-                             t, corners[j] );
-                }
-                if ( const EditResult r = normals->SetTriangle( mesh, t, next ); r != EditResult::Ok )
-                    return Common::MakeFormattedError<bool>( "normal rebuild: triangle {} refused: {}", t,
-                                                             ToString( r ) );
-            }
-            return Common::MakeSuccess( true );
-        }
-
-        // Tangents for the given triangles from UV layer 0 and the (already rebuilt) normals, one element per
-        // corner. Without a UV layer the tangent follows the triangle's first edge: the frame is then
-        // arbitrary but valid, which is all a mesh without UVs can have.
-        Common::BoolResultStr SetTangents( EditMesh& mesh, const std::vector<int>& triangles )
-        {
-            TangentOverlay* tangents = mesh.Attributes().Tangents();
-            if ( tangents == nullptr )
-                return Common::MakeSuccess( true );
-            const UVOverlay*     uvs     = mesh.Attributes().UV( 0 );
-            const NormalOverlay* normals = mesh.Attributes().Normals();
-            for ( const int t : triangles )
-            {
-                const auto&     c       = mesh.GetTriangle( t );
-                const glm::vec3 e1      = mesh.GetPosition( c[1] ) - mesh.GetPosition( c[0] );
-                const glm::vec3 e2      = mesh.GetPosition( c[2] ) - mesh.GetPosition( c[0] );
-                glm::vec3       tangent = e1;
-                glm::vec3       bitangent( 0.0f );
-                if ( uvs != nullptr && uvs->IsSetTriangle( t ) )
-                {
-                    const auto&     u   = uvs->GetTriangle( t );
-                    const glm::vec2 d1  = uvs->GetElement( u[1] ) - uvs->GetElement( u[0] );
-                    const glm::vec2 d2  = uvs->GetElement( u[2] ) - uvs->GetElement( u[0] );
-                    const float     det = d1.x * d2.y - d2.x * d1.y;
-                    if ( std::abs( det ) > 1e-12f )
-                    {
-                        tangent   = ( e1 * d2.y - e2 * d1.y ) / det;
-                        bitangent = ( e2 * d1.x - e1 * d2.x ) / det;
-                    }
-                }
-                std::array<int, 3> next{};
-                for ( int j = 0; j < 3; ++j )
-                {
-                    const glm::vec3 n  = normals != nullptr && normals->IsSetTriangle( t )
-                                              ? normals->GetElement( normals->GetTriangle( t )[j] )
-                                              : TriangleNormal( mesh, t );
-                    glm::vec3       tj = tangent - n * glm::dot( n, tangent );
-                    if ( glm::length( tj ) <= 1e-8f )
-                        tj = glm::cross( n, std::abs( n.x ) < 0.9f ? glm::vec3( 1, 0, 0 ) : glm::vec3( 0, 1, 0 ) );
-                    tj            = glm::normalize( tj );
-                    const float w = glm::dot( glm::cross( n, tj ), bitangent ) < 0.0f ? -1.0f : 1.0f;
-                    next[j]       = tangents->AppendElement( glm::vec4( tj, w ) );
-                }
-                if ( const EditResult r = tangents->SetTriangle( mesh, t, next ); r != EditResult::Ok )
-                    return Common::MakeFormattedError<bool>( "tangents: triangle {} refused: {}", t,
-                                                             ToString( r ) );
-            }
-            return Common::MakeSuccess( true );
-        }
 
         // Refuses when a triangle's normal turned by more than 90 degrees between `before` (ID b) and the
         // result (ID a).
@@ -596,8 +469,8 @@ namespace Desert::Geometry
                                  "{}: stitching boundary edge ({}, {}) refused: {}", options.What, a, bb,
                                  ToString( r ) );
                     const int i  = snap.IndexOf.at( b.Triangle );
-                    const int ca = CornerOf( input, b.Triangle, a );
-                    const int cb = CornerOf( input, b.Triangle, bb );
+                    const int ca = TriangleCornerOf( input, b.Triangle, a );
+                    const int cb = TriangleCornerOf( input, b.Triangle, bb );
                     const int ra = regionNew[i];
                     for ( const int t : quad )
                     {
@@ -684,9 +557,9 @@ namespace Desert::Geometry
                 for ( const BoundaryEdge& b : loop )
                     rebuild.push_back( b.From );
             std::sort( rebuild.begin(), rebuild.end() );
-            if ( auto r = RebuildNormalsAt( mesh, rebuild ); !r.IsSuccess() )
+            if ( auto r = RebuildNormalsByPolyGroupAt( mesh, rebuild ); !r.IsSuccess() )
                 return Common::MakeError<MeshEditOutcome>( std::string( options.What ) + ": " + r.GetError() );
-            if ( auto r = SetTangents( mesh, strip ); !r.IsSuccess() )
+            if ( auto r = ComputeTangentsAt( mesh, strip ); !r.IsSuccess() )
                 return Common::MakeError<MeshEditOutcome>( std::string( options.What ) + ": " + r.GetError() );
 
             // 5. Nothing may turn over: the region against itself, the strip against the region it came from.
@@ -903,7 +776,7 @@ namespace Desert::Geometry
         corners.erase( std::unique( corners.begin(), corners.end() ), corners.end() );
         if ( auto r = RequireNoFlip( mesh, out.Mesh, pairs, "Offset", distance ); !r.IsSuccess() )
             return Common::MakeError<MeshEditOutcome>( r.GetError() );
-        if ( auto r = RebuildNormalsAt( out.Mesh, corners ); !r.IsSuccess() )
+        if ( auto r = RebuildNormalsByPolyGroupAt( out.Mesh, corners ); !r.IsSuccess() )
             return Common::MakeError<MeshEditOutcome>( std::string( "Offset: " ) + r.GetError() );
         out.Selection = selection;
         (void)out.Selection.Prune( out.Mesh );

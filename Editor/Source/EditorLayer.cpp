@@ -4412,17 +4412,19 @@ namespace Desert::Editor
                    state.ReqPickCentre = true;
                    return PaletteCommandDone();
                } } );
-        // The operations on that selection, at the panel's distance (ModelingState::ElementOpDistance).
+        // The operations on that selection, at the panel's values (ModelingState). Cut is not here: it needs
+        // a line drawn in the viewport (the knife, Alt+K).
         for ( const Core::MeshOperation op :
               { Core::MeshOperation::Delete, Core::MeshOperation::Extrude, Core::MeshOperation::PushPull,
-                Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset } )
+                Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
+                Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
                                   {
                                       if ( !m_MainScene )
                                           return PaletteCommandOutcome( false, "no scene is open" );
-                                      return Core::ApplyMeshOperation(
-                                           *m_MainScene, op, Core::ModelingState::Get().ElementOpDistance );
+                                      return Core::ApplyMeshOperation( *m_MainScene, op,
+                                                                       Core::ArgsFromModelingState() );
                                   } } );
         }
         commands.push_back( { "View", "Toggle 2D UI mode", [this]

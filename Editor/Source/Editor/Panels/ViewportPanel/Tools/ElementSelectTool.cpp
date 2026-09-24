@@ -189,7 +189,50 @@ namespace Desert::Editor::Tools
             hover             = Geometry::PickElement( mesh, state.Mode(), view );
         }
 
-        if ( pickCentre || clicked )
+        // THE KNIFE (Alt+K): the next two clicks draw the cut line instead of selecting, and the selected
+        // polygroups are cut by the plane that line sweeps into the scene. Esc, or losing the viewport,
+        // drops it.
+        bool selectClick = clicked;
+        if ( m_KnifeArmed )
+        {
+            selectClick = false;
+            if ( !interactive || ::ImGui::IsKeyPressed( ImGuiKey_Escape, false ) )
+            {
+                m_KnifeArmed = false;
+                m_KnifeStart.reset();
+            }
+            else if ( clicked && hovered && !m_KnifeStart )
+                m_KnifeStart = glm::vec2( mouse.x, mouse.y );
+            else if ( clicked && hovered )
+            {
+                const auto toNdc = [&]( const glm::vec2& p )
+                {
+                    return glm::vec2( ( p.x - viewportPos.x ) / viewportSize.x * 2.0f - 1.0f,
+                                      1.0f - ( p.y - viewportPos.y ) / viewportSize.y * 2.0f );
+                };
+                const glm::vec2 from = *m_KnifeStart;
+                m_KnifeArmed         = false;
+                m_KnifeStart.reset();
+                auto plane = Geometry::CutPlaneFromScreenLine( viewProj * target.World, toNdc( from ),
+                                                               toNdc( glm::vec2( mouse.x, mouse.y ) ) );
+                if ( !plane.IsSuccess() )
+                {
+                    LOG_WARN( "{0}", plane.GetError() );
+                    return;
+                }
+                Core::MeshOperationArgs args = Core::ArgsFromModelingState();
+                args.CutPlane                = plane.GetValue();
+                if ( auto applied = Core::ApplyMeshOperation( scene, Core::MeshOperation::Cut, args );
+                     !applied.IsSuccess() )
+                    LOG_WARN( "{0}", applied.GetError() );
+                return; // the mesh was replaced: `mesh` is the old one
+            }
+            if ( m_KnifeStart && hovered )
+                ::ImGui::GetWindowDrawList()->AddLine( ImVec2( m_KnifeStart->x, m_KnifeStart->y ), mouse,
+                                                       IM_COL32( 255, 70, 70, 255 ), 2.0f );
+        }
+
+        if ( pickCentre || selectClick )
         {
             const ImGuiIO& io       = ::ImGui::GetIO();
             const bool     modifies = !pickCentre && ( io.KeyShift || io.KeyCtrl );
@@ -231,10 +274,19 @@ namespace Desert::Editor::Tools
                 operation = Core::MeshOperation::Inset;
             else if ( io.KeyAlt && ::ImGui::IsKeyPressed( ImGuiKey_O, false ) )
                 operation = Core::MeshOperation::Offset;
+            else if ( io.KeyAlt && ::ImGui::IsKeyPressed( ImGuiKey_B, false ) )
+                operation = Core::MeshOperation::Bevel;
+            else if ( io.KeyAlt && ::ImGui::IsKeyPressed( ImGuiKey_L, false ) )
+                operation = Core::MeshOperation::InsertEdgeLoop;
+            else if ( io.KeyAlt && ::ImGui::IsKeyPressed( ImGuiKey_K, false ) )
+            {
+                m_KnifeArmed = true;
+                m_KnifeStart.reset();
+                LOG_INFO( "[Mesh Selection] Knife: click the two ends of the cut line (Esc cancels)" );
+            }
             if ( operation )
             {
-                if ( auto applied = Core::ApplyMeshOperation( scene, *operation,
-                                                              Core::ModelingState::Get().ElementOpDistance );
+                if ( auto applied = Core::ApplyMeshOperation( scene, *operation, Core::ArgsFromModelingState() );
                      !applied.IsSuccess() )
                     LOG_WARN( "{0}", applied.GetError() );
                 return;

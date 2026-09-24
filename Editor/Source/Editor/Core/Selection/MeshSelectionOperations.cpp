@@ -2,6 +2,7 @@
 
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
+#include <Editor/Core/Selection/ModelingState.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -33,18 +34,52 @@ namespace Desert::Editor::Core
                 return "Inset";
             case MeshOperation::Outset:
                 return "Outset";
+            case MeshOperation::Bevel:
+                return "Bevel";
+            case MeshOperation::InsertEdgeLoop:
+                return "Insert Edge Loop";
+            case MeshOperation::Cut:
+                return "Cut";
+            case MeshOperation::Clean:
+                return "Clean";
         }
         return "Unknown";
     }
 
     bool TakesDistance( MeshOperation operation )
     {
-        return operation != MeshOperation::Delete;
+        switch ( operation )
+        {
+            case MeshOperation::Delete:
+            case MeshOperation::InsertEdgeLoop:
+            case MeshOperation::Cut:
+            case MeshOperation::Clean:
+                return false;
+            case MeshOperation::Extrude:
+            case MeshOperation::PushPull:
+            case MeshOperation::Offset:
+            case MeshOperation::Inset:
+            case MeshOperation::Outset:
+            case MeshOperation::Bevel:
+                return true;
+        }
+        return false;
+    }
+
+    MeshOperationArgs ArgsFromModelingState()
+    {
+        const auto&       ms = ModelingState::Get();
+        MeshOperationArgs args;
+        args.Distance      = ms.ElementOpDistance;
+        args.LoopPosition  = ms.ElementLoopPosition;
+        args.WeldTolerance = ms.ElementWeldTolerance;
+        return args;
     }
 
     Common::BoolResultStr ApplyMeshOperation( ::Desert::Core::Scene& scene, MeshOperation operation,
-                                              float distance )
+                                              const MeshOperationArgs& args )
     {
+        const float        distance = args.Distance;
         auto&              state  = MeshElementSelection::Get();
         const Common::UUID entity = state.Entity();
         if ( !state.HasMesh() )
@@ -89,6 +124,32 @@ namespace Desert::Editor::Core
             case MeshOperation::Outset:
                 result = Geometry::OutsetSelection( *before, selection, distance );
                 break;
+            case MeshOperation::Bevel:
+                result = Geometry::BevelSelection( *before, selection, distance );
+                break;
+            case MeshOperation::InsertEdgeLoop:
+                result = Geometry::InsertEdgeLoop( *before, selection, args.LoopPosition );
+                break;
+            case MeshOperation::Cut:
+                if ( !args.CutPlane )
+                    return Common::MakeError<bool>( "Mesh Cut: no cut line - draw it in the viewport with the "
+                                                    "knife (Alt+K, then two clicks)" );
+                result = Geometry::CutSelection( *before, selection, *args.CutPlane );
+                break;
+            case MeshOperation::Clean:
+            {
+                // Clean is mesh-wide: it takes no selection and leaves none (every ID may change).
+                auto cleaned = Geometry::CleanMesh( *before, args.WeldTolerance );
+                if ( cleaned.IsSuccess() )
+                {
+                    Geometry::CleanOutcome clean = cleaned.ExtractValue();
+                    clean.Edit.Selection         = Geometry::ElementSelection( selection.Mode() );
+                    result                       = Common::MakeSuccess( std::move( clean.Edit ) );
+                }
+                else
+                    result = Common::MakeError<Geometry::MeshEditOutcome>( cleaned.GetError() );
+                break;
+            }
         }
         if ( !result.IsSuccess() )
             return Common::MakeError<bool>( result.GetError() );
@@ -99,9 +160,13 @@ namespace Desert::Editor::Core
             return Common::MakeFormattedError<bool>( "Mesh {}: the result could not be put on the entity: {}",
                                                      ToString( operation ), set.GetError() );
 
-        const std::string label = TakesDistance( operation )
-                                       ? fmt::format( "Mesh {} {} cm", ToString( operation ), distance )
-                                       : fmt::format( "Mesh {}", ToString( operation ) );
+        std::string label = fmt::format( "Mesh {}", ToString( operation ) );
+        if ( TakesDistance( operation ) )
+            label = fmt::format( "Mesh {} {} cm", ToString( operation ), distance );
+        else if ( operation == MeshOperation::InsertEdgeLoop )
+            label = fmt::format( "Mesh {} at {:.2f}", ToString( operation ), args.LoopPosition );
+        else if ( operation == MeshOperation::Clean )
+            label = fmt::format( "Mesh {} {} cm", ToString( operation ), args.WeldTolerance );
         // Selection first, then the mesh: Track prunes the NEW selection against the new mesh (nothing to
         // drop), instead of the old one against it (every re-created triangle reported as lost).
         state.Restore( entity, outcome.Selection );
@@ -112,6 +177,8 @@ namespace Desert::Editor::Core
         LOG_INFO( "[Mesh Selection] {0}: {1} triangles ({2:+d}), {3} vertices ({4:+d})", label,
                   after->TriangleCount(), after->TriangleCount() - before->TriangleCount(), after->VertexCount(),
                   after->VertexCount() - before->VertexCount() );
+        if ( !outcome.Report.empty() )
+            LOG_INFO( "[Mesh Selection] {0}: {1}", label, outcome.Report );
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Editor::Core
