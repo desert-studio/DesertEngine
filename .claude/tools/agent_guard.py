@@ -196,10 +196,14 @@ def main():
 
     # Owner's rule: at most three programme agents. A sub-agent that spawns a general worker is a fourth
     # (2026-09-24: P10e spawned "P10e code" and the machine ran five). Only Explore (discovery) is allowed.
-    if tool == "Agent" and (tin.get("subagent_type") or "general-purpose").lower() != "explore":
+    # Owner 2026-09-24 refined it: the limit exists for ECONOMY — a helper is fine when it LOWERS spend. So a worker
+    # is allowed only on a cheaper model than the caller (sonnet or haiku), never on the inherited expensive one.
+    if tool == "Agent" and (tin.get("subagent_type") or "general-purpose").lower() != "explore" and \
+            (tin.get("model") or "").lower() not in ("sonnet", "haiku"):
         save_state(state, path)
-        deny("[agent_guard] Агент не запускает других агентов, кроме Explore на haiku: владелец разрешил не больше "
-             "трёх агентов программ. Делай работу сам; не влезает в лимит — коммит, пуш, отчёт тимлиду.", data, agent)
+        deny("[agent_guard] Помощник допустим, только если он СНИЖАЕТ расход: model: \"sonnet\" или \"haiku\" "
+             "(механика, прогоны, правки по списку). На своей модели — делай сам; не влезает — коммит, пуш, отчёт.",
+             data, agent)
 
     # --- Economy rules measured on the ledger (owner 2026-09-24: «сделай так, чтобы агенты опять не НЕ исполнили») ---
     if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore" and \
