@@ -397,7 +397,7 @@ TEST( CanonicalText, AFailedWriterRefusesTheSaveAndLeavesTheFileAsItWas )
     // here refused the good save below for a reason that is this test's, not the writer's.
     std::ostringstream now;
     {
-        std::ifstream in( file, std::ios::binary );
+        const std::ifstream in( file, std::ios::binary );
         now << in.rdbuf();
     }
     EXPECT_EQ( now.str(), before );
