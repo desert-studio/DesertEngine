@@ -27,8 +27,8 @@ import sys
 import time
 
 STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
-TURN_WARN = 60
-TURN_LIMIT = 80
+TURN_WARN = 40
+TURN_LIMIT = 55
 MAX_SLEEP = 270
 MAX_EDITOR_BUILDS = 2
 
