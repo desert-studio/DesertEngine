@@ -57,7 +57,7 @@ namespace Desert::Geometry
     };
 
     // Total: every live element of every enabled layer is written.
-    [[nodiscard]] EditMeshSer ToSerialized( const EditMesh& mesh );
+    [[nodiscard]] EditMeshSer ToSerialized( const EditMesh& source );
 
     // Rebuilds the mesh and verifies it with EditMesh::CheckValidity. Refused, naming the array and the
     // numbers, on anything a writer of this form could not have produced: a length that is not a whole

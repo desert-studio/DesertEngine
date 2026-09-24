@@ -2,6 +2,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -56,21 +57,13 @@ namespace Desert::Core
 
         // THE ROOT A TILE NAMES, as the frame LandscapeLayout computes with. nullopt when the id names no
         // entity with a LandscapeComponent — an observation that did not resolve, which the caller reports.
-        std::optional<World::Landscape::LandscapeRoot> FindLandscapeRoot( const Scene&        scene,
-                                                                          const Common::UUID& id )
+        std::optional<World::Landscape::LandscapeRoot> FindTileRoot( const Scene& scene, const Common::UUID& id )
         {
             const auto found = scene.FindEntityByID( id );
             if ( !found.has_value() || !found->get().HasComponent<ECS::LandscapeComponent>() )
                 return std::nullopt;
 
-            const ECS::Entity&              entity    = found->get();
-            const ECS::LandscapeComponent&  component = entity.GetComponent<ECS::LandscapeComponent>();
-            World::Landscape::LandscapeRoot root;
-            root.Origin       = glm::vec3( entity.GetWorldTransform()[3] );
-            root.QuadsPerTile = component.QuadsPerTile;
-            root.SpacingCm    = component.SpacingCm;
-            root.ZScale       = component.ZScale;
-            return root;
+            return ECS::LandscapeRootOf( found->get() );
         }
 
         // AFTER A LOAD: every tile's heights against the root it names. A tile of the wrong size, or under
@@ -85,7 +78,9 @@ namespace Desert::Core
                 if ( entity.HasComponent<ECS::LandscapeComponent>() )
                 {
                     const glm::mat4 world = entity.GetWorldTransform();
-                    const glm::vec3 x( world[0] ), y( world[1] ), z( world[2] );
+                    const glm::vec3 x( world[0] );
+                    const glm::vec3 y( world[1] );
+                    const glm::vec3 z( world[2] );
                     const bool      axisAligned = std::abs( x.y ) + std::abs( x.z ) + std::abs( y.x ) +
                                                   std::abs( y.z ) + std::abs( z.x ) + std::abs( z.y ) <
                                              1e-5f;
@@ -103,7 +98,7 @@ namespace Desert::Core
                 if ( !tile.Heights )
                     continue;
 
-                const auto root = FindLandscapeRoot( scene, tile.Landscape );
+                const auto root = FindTileRoot( scene, tile.Landscape );
                 if ( !root.has_value() )
                 {
                     LOG_WARN( "[Landscape] '{0}': tile ({1}, {2}) names landscape {3}, which this scene does not "
@@ -153,7 +148,7 @@ namespace Desert::Core
                 if ( !entity.HasComponent<ECS::UUIDComponent>() )
                     return Common::MakeFormattedError( "tile ({}, {}) has no entity id to name its file by",
                                                        tile.TileX, tile.TileZ );
-                const uint64_t id = static_cast<uint64_t>( entity.GetComponent<ECS::UUIDComponent>().UUID );
+                const auto id = static_cast<uint64_t>( entity.GetComponent<ECS::UUIDComponent>().UUID );
                 const std::filesystem::path file = World::Landscape::LandscapeTileBlobPath( relative, id );
                 if ( const auto written = World::Landscape::WriteLandscapeTileFile( file, *tile.Heights );
                      !written )

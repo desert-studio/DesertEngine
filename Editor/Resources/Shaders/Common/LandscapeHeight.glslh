@@ -57,11 +57,27 @@ float LandscapeCellOf( float g, float samples )
     return min( floor( g ), samples - 2.0f );
 }
 
-// dh/d(axis) in cm per cm from the two samples either side, `steps` samples apart (2 inside the tile, 1 on
-// its border, where the missing neighbour lives in another tile).
+// dh/d(axis) in cm per cm from the two samples either side, `steps` samples apart.
 float LandscapeGradient( float hLow, float hHigh, float steps, float spacingCm )
 {
     return ( hHigh - hLow ) / ( steps * spacingCm );
+}
+
+// The two sample indices the gradient at index i of one axis differences, i in [0, last]. CENTRAL wherever
+// the sample beyond exists: inside the tile, and on a border whose neighbouring tile is loaded — the tile
+// then carries that neighbour's next row as a one-sample ring (UE keeps its components' neighbour edges the
+// same way), index -1 or last + 1. One-sided only on the landscape's own edge, where nothing lies beyond.
+// hasLow / hasHigh are 1 when the neighbour on that side is present. The seam rests on this: both tiles of
+// a shared edge difference the same two samples over the same two steps, so the normal there is one value,
+// not a one-sided slope from each side that differ by the curvature and draw a line of light.
+float LandscapeGradientLow( float i, float hasLow )
+{
+    return ( i > 0.0f || hasLow > 0.5f ) ? i - 1.0f : i;
+}
+
+float LandscapeGradientHigh( float i, float last, float hasHigh )
+{
+    return ( i < last || hasHigh > 0.5f ) ? i + 1.0f : i;
 }
 
 #endif // LANDSCAPE_HEIGHT_GLSLH

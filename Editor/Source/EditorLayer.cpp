@@ -4150,6 +4150,31 @@ namespace Desert::Editor
         //
         // It returns the planner's own refusal rather than PaletteCommandDone: a fold that would have
         // destroyed a collider must say so to whoever asked, on the channel and in the toast alike.
+        // Placement by ray: the one door to it that does not need a mouse drag, so the control channel can
+        // put an object on a hill and shoot the result. The ray is the active viewport's line of sight, and
+        // the surface is whatever Scene::Raycast meets first — the landscape included.
+        commands.push_back( { "Entity", "Place a cube on the surface at the viewport centre", [this]
+                              {
+                                  ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
+                                  if ( !camera || !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no viewport camera or no scene" );
+                                  const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
+                                  ::Desert::Core::RaycastHit hit;
+                                  if ( !m_MainScene->Raycast( ray, hit ) )
+                                      return PaletteCommandOutcome( false,
+                                                                    "the viewport centre looks at no surface" );
+                                  auto& e       = m_MainScene->CreateNewEntity( "Cube" );
+                                  auto& smc     = e.AddComponent<ECS::StaticMeshComponent>();
+                                  smc.Primitive = Geometry::PrimitiveType::Cube;
+                                  // The primitive cube is one metre, centred on its pivot: lift it by half
+                                  // along the surface normal so it stands on the surface, not in it.
+                                  e.GetComponent<ECS::TransformComponent>().Translation =
+                                       hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre );
+                                  const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
+                                  Core::SelectionManager::SetSelected( uuid );
+                                  Commands::NotifyCreated( { uuid } );
+                                  return PaletteCommandDone();
+                              } } );
         commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh", []
                               {
                                   const auto folded = Commands::CollapseIntoInstancedMesh(
@@ -4325,6 +4350,42 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+        // CREATE SHAPE (Modeling Mode -> Create). One entry per shape, and the placement a click makes, at the
+        // viewport centre: placing is the whole tool, and a capability the channel cannot reach does not exist
+        // for an unattended check.
+        for ( const Core::ModelingState::Shape shape : Core::ModelingState::kShapes )
+        {
+            commands.push_back( { "Modeling",
+                                  std::string( "Create shape tool: " ) + Core::ModelingState::ShapeName( shape ),
+                                  [shape]
+                                  {
+                                      auto& ms            = Core::ModelingState::Get();
+                                      ms.ActiveTool       = Core::ModelingState::Tool::CreateShape;
+                                      ms.CreateShape.Kind = shape;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        commands.push_back( { "Modeling", "Create shape: place at the viewport centre", []
+                              {
+                                  auto& ms = Core::ModelingState::Get();
+                                  if ( ms.ActiveTool != Core::ModelingState::Tool::CreateShape )
+                                      return PaletteCommandOutcome( false, "the Create Shape tool is not active" );
+                                  ms.ReqPlaceCentre = true;
+                                  return PaletteCommandDone();
+                              } } );
+        // ADD SHAPE: the outliner's Add > Shapes, one entry per authorable primitive, through the same spawn.
+        for ( const Geometry::PrimitiveType type : Geometry::kAuthorablePrimitives )
+        {
+            commands.push_back( { "Scene", std::string( "Add shape: " ) + Geometry::PrimitiveTypeName( type ),
+                                  [this, type]
+                                  {
+                                      if ( !m_MainScene )
+                                          return PaletteCommandOutcome( false, "no scene is open" );
+                                      Editor::SceneHierarchyPanel::SpawnPrimitive( *m_MainScene, type );
+                                      return PaletteCommandDone();
+                                  } } );
+        }
         for ( const Geometry::ElementMode mode :
               { Geometry::ElementMode::Vertex, Geometry::ElementMode::Edge, Geometry::ElementMode::Triangle,
                 Geometry::ElementMode::PolyGroup } )

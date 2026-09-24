@@ -7,6 +7,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -15,6 +16,7 @@
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
+#include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
 #include <algorithm>
 #include <cfloat>
@@ -82,6 +84,38 @@ namespace Desert::Core
             }
             return { mn, mx };
         }
+        // Every landscape tile that is drawn: loaded heights, under a loaded root they match. A tile the
+        // renderer refuses (LandscapeECSSystem warns why) is not on screen, so it is not pickable either.
+        struct PickableTile
+        {
+            Common::UUID                       Entity;
+            World::Landscape::LandscapeRayTile Ray;
+        };
+
+        std::vector<PickableTile> PickableLandscapeTiles( const Scene& scene )
+        {
+            std::vector<PickableTile> tiles;
+            for ( const auto& entity : scene.GetAllEntities() )
+            {
+                if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
+                    continue;
+                const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
+                if ( !tile.Heights.has_value() )
+                    continue;
+                const auto rootEntity = scene.FindEntityByID( tile.Landscape );
+                if ( !rootEntity.has_value() || !rootEntity->get().HasComponent<ECS::LandscapeComponent>() )
+                    continue;
+                const auto root = ECS::LandscapeRootOf( rootEntity->get() );
+                if ( !World::Landscape::CheckTileMatchesRoot( *tile.Heights, root ).IsSuccess() )
+                    continue;
+                PickableTile pick;
+                pick.Entity      = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                pick.Ray.Heights = &*tile.Heights;
+                pick.Ray.Frame   = World::Landscape::LandscapeTileFrame( root, tile.TileX, tile.TileZ );
+                tiles.push_back( pick );
+            }
+            return tiles;
+        }
     } // namespace
 
     bool Scene::Raycast( const Common::Math::Ray& ray, RaycastHit& outHit ) const
@@ -118,9 +152,12 @@ namespace Desert::Core
                 for ( const auto& sm : mesh->GetSubmeshes() )
                 {
                     float t = 0.0f;
-                    if ( localRay.IntersectsAABB( sm.BoundingBox, t ) && t > 0.0f && t < closest )
+                    if ( !localRay.IntersectsAABB( sm.BoundingBox, t ) || t <= 0.0f )
+                        continue;
+                    // Compared in WORLD units: a local t is in the entity's own (scaled) units.
+                    if ( const float d = ray.WorldDistanceOf( localRay, t, xf ); d > 0.0f && d < closest )
                     {
-                        closest    = t;
+                        closest    = d;
                         bestXf     = xf;
                         bestAABB   = sm.BoundingBox;
                         bestLocal  = localRay;
@@ -147,9 +184,11 @@ namespace Desert::Core
 
                 const Common::Math::AABB bounds = SkinnedLocalBounds( *sk, skin );
                 float                    t      = 0.0f;
-                if ( localRay.IntersectsAABB( bounds, t ) && t > 0.0f && t < closest )
+                if ( !localRay.IntersectsAABB( bounds, t ) || t <= 0.0f )
+                    continue;
+                if ( const float d = ray.WorldDistanceOf( localRay, t, xf ); d > 0.0f && d < closest )
                 {
-                    closest    = t;
+                    closest    = d;
                     bestXf     = xf;
                     bestAABB   = bounds;
                     bestLocal  = localRay;
@@ -157,6 +196,29 @@ namespace Desert::Core
                     bestUUID   = entity.GetComponent<ECS::UUIDComponent>().UUID;
                     hit        = true;
                 }
+            }
+        }
+
+        // The landscape after the meshes, against the nearest mesh distance: a rock standing on a hill is
+        // picked when the ray meets the rock first, the hill otherwise.
+        const auto landscape = PickableLandscapeTiles( *this );
+        if ( !landscape.empty() )
+        {
+            std::vector<World::Landscape::LandscapeRayTile> rayTiles;
+            rayTiles.reserve( landscape.size() );
+            for ( const auto& tile : landscape )
+                rayTiles.push_back( tile.Ray );
+            const float limit = hit ? closest : std::numeric_limits<float>::max();
+            if ( const auto terrain =
+                      World::Landscape::RaycastLandscape( rayTiles, ray.Origin, ray.Direction, limit );
+                 terrain && terrain->Distance < limit )
+            {
+                outHit.Hit      = true;
+                outHit.Entity   = landscape[terrain->Tile].Entity;
+                outHit.Point    = terrain->Point;
+                outHit.Normal   = terrain->Normal;
+                outHit.Distance = terrain->Distance;
+                return true;
             }
         }
 

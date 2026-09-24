@@ -20,6 +20,7 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/RenderGraphBuilder.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
+#include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
@@ -330,6 +331,19 @@ namespace Desert::Graphic::System
         float GetShadowBias() const     { return m_ShadowBias; }
         // CSM data the deferred lighting pass needs to shadow the sun (same source the forward material uses).
         const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
+
+        // The target a non-mesh caster builds its pipeline against — every cascade's has the same formats.
+        const std::shared_ptr<Framebuffer>& GetCascadeFramebuffer() const
+        {
+            return m_CascadeFB[0];
+        }
+
+        // A renderer that casts into the cascades from inside their passes (IShadowCaster says why). Held
+        // weakly: the caster is another render system of the same SceneRenderer and may be torn down first.
+        void AddShadowCaster( std::weak_ptr<IShadowCaster> caster )
+        {
+            m_ShadowCasters.push_back( std::move( caster ) );
+        }
         const glm::vec4& GetCascadeWorldPerTexel() const   { return m_CascadeWorldPerTexel; }
 
         // Debug visualizations. TWO KINDS, and the boundary runs between them: `showNormals` and
@@ -483,6 +497,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>           m_ShadowShader;
         std::unique_ptr<MaterialShadow>   m_ShadowMaterial[kMaxCascades];
         std::shared_ptr<Framebuffer>      m_CascadeFB[kMaxCascades];
+        std::vector<std::weak_ptr<IShadowCaster>> m_ShadowCasters; // non-mesh casters, AddShadowCaster
 
         // Instanced shadow caster: one pipeline + per-cascade instanced material (each owns the cascade's
         // light matrix UBO + an InstanceTransforms SSBO). Batched casters of one mesh collapse to a single

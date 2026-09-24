@@ -57,7 +57,7 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 12> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 14> kEntityTables{ {
          { "Desert/Desert/Source/Engine/Core/SceneEntityIndex.hpp", "m_SlotOf", Release::Destroyer,
            "Desert/Desert/Source/Engine/Core/SceneEntityIndex.cpp", "index.Remove( *it )",
            "the scene's own entity index; the destroy path removes the row before registry.destroy" },
@@ -93,6 +93,14 @@ namespace Desert::Tests::RuntimeHandles
          { "Desert/Desert/Source/Engine/Scripting/Internal/ScriptRuntime.hpp", "Envs", Release::Listener,
            "Desert/Desert/Source/Engine/ECS/System/ScriptSystem.hpp", "on_destroy<ScriptComponent>().connect",
            "Lua environments and timers, ScriptEngine::Release" },
+         { "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.hpp", "m_Tiles", Release::Sweep,
+           "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.cpp", "m_Tiles.erase( it )",
+           "the tile's R16 heightmap; the per-frame pass drops tiles that are gone, lost the component or "
+           "were unloaded" },
+         { "Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.hpp", "m_Bodies", Release::Listener,
+           "Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp",
+           "on_destroy<LandscapeTileComponent>().connect",
+           "the tile's Jolt heightfield body (LS-7); Sync also drops tiles that stopped being drawable" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp", "m_Emitters",
            Release::Exception, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
            "m_Emitters.clear()",

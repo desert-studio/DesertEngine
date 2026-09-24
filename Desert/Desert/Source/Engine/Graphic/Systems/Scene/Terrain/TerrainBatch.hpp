@@ -39,7 +39,8 @@ namespace Desert::Graphic::System
     {
         glm::mat4 Model{ 1.0f };
         glm::vec4 Params{ 0.0f }; // x = size, y = gridDim, z = heightScale, w = tessLevel
-        // x = noiseFrequency, y = seed, z = height source (kTerrainHeightSource*), w = spare
+        // x = noiseFrequency, y = seed, z = height source (kTerrainHeightSource*), w = a landscape tile's
+        // LandscapeNeighbourMask (which sides have their ring row in the heightmap; 0 for the fBm path)
         glm::vec4 Params2{ 0.0f };
         // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off). w is std430 padding, not a field: a
         // vec3 here would still occupy 16 bytes and a glm::vec3 member would occupy 12, which is how a
@@ -82,6 +83,8 @@ namespace Desert::Graphic::System
         int32_t  FirstSampleX = 0;
         int32_t  FirstSampleZ = 0;
         uint32_t QuadsPerTile = 0u;
+        // World::Landscape::LandscapeNeighbourMask of the neighbours whose ring row the heightmap carries.
+        uint32_t NeighbourMask = 0u;
     };
 
     // The most heightmap quads one tessellated patch spans. It equals the pass's maximum tessellation

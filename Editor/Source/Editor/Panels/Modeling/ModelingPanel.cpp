@@ -122,8 +122,7 @@ namespace Desert::Editor
             return;
         }
 
-        // Create category: its one working tool. Box / Sphere / Cylinder / Cone / Stairs are not listed
-        // as disabled placeholders — they are being rebuilt on EditMesh and appear when they work.
+        // Create category: CubeGrid, then one button per shape of the Create Shape tool.
         {
             const bool active = ms.ActiveTool == MS::Tool::CubeGrid;
             if ( active )
@@ -135,8 +134,36 @@ namespace Desert::Editor
             }
             if ( active )
                 ImGui::PopStyleColor();
+
+            const float half   = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+            int         column = 0;
+            for ( const MS::Shape shape : MS::kShapes )
+            {
+                const bool on = ms.ActiveTool == MS::Tool::CreateShape && ms.CreateShape.Kind == shape;
+                if ( on )
+                    ImGui::PushStyleColor( ImGuiCol_Button, sel );
+                if ( column % 2 == 1 )
+                    ImGui::SameLine();
+                if ( ImGui::Button( MS::ShapeName( shape ), ImVec2( half, 26.0f ) ) )
+                {
+                    ms.ActiveTool       = MS::Tool::CreateShape;
+                    ms.CreateShape.Kind = shape;
+                    Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                }
+                if ( on )
+                    ImGui::PopStyleColor();
+                ++column;
+            }
         }
         ImGui::Separator();
+
+        if ( ms.ActiveTool == MS::Tool::CreateShape )
+        {
+            DrawCreateShape();
+            ImGui::EndChild();
+            ImGui::PopStyleVar( 2 );
+            return;
+        }
 
         // --- Tool Properties (CubeGrid) ---
         if ( ms.ActiveTool == MS::Tool::CubeGrid )
@@ -279,10 +306,93 @@ namespace Desert::Editor
         }
         else
         {
-            ImGui::TextDisabled( "Pick a tool above (CubeGrid) to begin." );
+            ImGui::TextDisabled( "Pick a tool above to begin." );
         }
         ImGui::EndChild();
         ImGui::PopStyleVar( 2 );
+    }
+
+    void ModelingPanel::DrawCreateShape()
+    {
+        using MS      = Core::ModelingState;
+        auto&      ms = MS::Get();
+        auto&      s  = ms.CreateShape;
+        const auto cm = []( const char* label, float* value, const char* tip )
+        {
+            ImGui::SetNextItemWidth( 110.0f );
+            if ( ImGui::DragFloat( label, value, 1.0f, 1.0f, 100000.0f, "%.0f cm" ) )
+                *value = std::max( *value, 1.0f );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "%s", tip );
+        };
+        const auto count = []( const char* label, int* value, int lowest, int highest )
+        {
+            ImGui::SetNextItemWidth( 110.0f );
+            ImGui::SliderInt( label, value, lowest, highest );
+        };
+
+        ImGui::TextUnformatted( MS::ShapeName( s.Kind ) );
+        ImGui::Spacing();
+        if ( Utils::ImGuiUtilities::SectionHeader( "Shape" ) )
+        {
+            // Only the fields the chosen shape reads: a field shown here always moves the shape.
+            const bool round = s.Kind == MS::Shape::Sphere || s.Kind == MS::Shape::Cylinder ||
+                               s.Kind == MS::Shape::Cone || s.Kind == MS::Shape::Capsule;
+            cm( round ? "Diameter" : "Width", &s.Width, round ? "Full width across the axis." : "X extent." );
+            if ( s.Kind == MS::Shape::Box || s.Kind == MS::Shape::Pyramid )
+                cm( "Depth", &s.Depth, "Z extent." );
+            if ( s.Kind != MS::Shape::Sphere && s.Kind != MS::Shape::Stairs )
+                cm( "Height", &s.Height,
+                    s.Kind == MS::Shape::Capsule ? "End to end, never less than the diameter." : "Y extent." );
+            if ( s.Kind == MS::Shape::Box )
+                count( "Subdivisions", &s.Subdivisions, 1, 32 );
+            if ( round )
+                count( "Slices", &s.Slices, 3, 128 );
+            if ( s.Kind == MS::Shape::Sphere || s.Kind == MS::Shape::Capsule )
+                count( "Stacks", &s.Stacks, 2, 128 );
+            if ( s.Kind == MS::Shape::Stairs )
+            {
+                count( "Steps", &s.Steps, 1, 64 );
+                cm( "Step Depth", &s.StepDepth, "Tread depth, along +Z." );
+                cm( "Step Height", &s.StepHeight, "Riser height." );
+            }
+        }
+        if ( Utils::ImGuiUtilities::SectionHeader( "Polygroups and Pivot" ) )
+        {
+            constexpr Geometry::ShapePolygroupMode modes[] = { Geometry::ShapePolygroupMode::PerFace,
+                                                               Geometry::ShapePolygroupMode::PerQuad,
+                                                               Geometry::ShapePolygroupMode::Single };
+            ImGui::SetNextItemWidth( 110.0f );
+            if ( ImGui::BeginCombo( "Polygroups", Geometry::ToString( s.Groups ) ) )
+            {
+                for ( const auto mode : modes )
+                    if ( ImGui::Selectable( Geometry::ToString( mode ), mode == s.Groups ) )
+                        s.Groups = mode;
+                ImGui::EndCombo();
+            }
+            constexpr Geometry::ShapePivot pivots[] = { Geometry::ShapePivot::Base, Geometry::ShapePivot::Centre,
+                                                        Geometry::ShapePivot::Top };
+            ImGui::SetNextItemWidth( 110.0f );
+            if ( ImGui::BeginCombo( "Pivot", Geometry::ToString( s.Pivot ) ) )
+            {
+                for ( const auto pivot : pivots )
+                    if ( ImGui::Selectable( Geometry::ToString( pivot ), pivot == s.Pivot ) )
+                        s.Pivot = pivot;
+                ImGui::EndCombo();
+            }
+        }
+        if ( Utils::ImGuiUtilities::SectionHeader( "Placement" ) )
+        {
+            bool onScene = s.Place == MS::Placement::OnScene;
+            if ( ImGui::Checkbox( "Place on Scene", &onScene ) )
+                s.Place = onScene ? MS::Placement::OnScene : MS::Placement::Ground;
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "On: the click lands on the object under the cursor (its bounding box),\n"
+                                   "or on the ground where there is none. Off: always the ground, Y = 0." );
+        }
+        ImGui::Spacing();
+        ImGui::TextDisabled( "LMB in the viewport places the shape." );
+        ImGui::TextDisabled( "Ctrl+Z removes it again." );
     }
 
     void ModelingPanel::DrawElementSelection()

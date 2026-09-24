@@ -193,9 +193,9 @@ namespace Desert::World::Landscape
         return Common::MakeSuccess( true );
     }
 
-    std::vector<LandscapeRect> LandscapeTileData::TakeDirtyRects()
+    std::vector<LandscapeRect> LandscapeTileData::TakeDirtyRects( LandscapeDirtyConsumer consumer )
     {
-        return std::exchange( m_Dirty, {} );
+        return std::exchange( m_Dirty[static_cast<size_t>( consumer )], {} );
     }
 
     void LandscapeTileData::MarkDirty( LandscapeRect rect )
@@ -203,21 +203,25 @@ namespace Desert::World::Landscape
         // Absorbing one rectangle can make the grown one touch another that it did not touch before, so the
         // scan restarts until a pass absorbs nothing. The list stays tiny (disjoint, non-touching boxes on
         // one tile), so the quadratic worst case is a handful of comparisons.
-        bool absorbed = true;
-        while ( absorbed )
+        for ( auto& list : m_Dirty )
         {
-            absorbed = false;
-            for ( size_t i = 0; i < m_Dirty.size(); ++i )
+            LandscapeRect grown    = rect;
+            bool          absorbed = true;
+            while ( absorbed )
             {
-                if ( !Touches( m_Dirty[i], rect ) )
-                    continue;
-                rect = Union( m_Dirty[i], rect );
-                m_Dirty.erase( m_Dirty.begin() + static_cast<ptrdiff_t>( i ) );
-                absorbed = true;
-                break;
+                absorbed = false;
+                for ( size_t i = 0; i < list.size(); ++i )
+                {
+                    if ( !Touches( list[i], grown ) )
+                        continue;
+                    grown = Union( list[i], grown );
+                    list.erase( list.begin() + static_cast<ptrdiff_t>( i ) );
+                    absorbed = true;
+                    break;
+                }
             }
+            list.push_back( grown );
         }
-        m_Dirty.push_back( rect );
     }
 
     // ── Sampling ──────────────────────────────────────────────────────────────────────────────────────
@@ -266,19 +270,66 @@ namespace Desert::World::Landscape
             return LandscapeHeightCm( tile.Sample( x, z ), frame.ZScale );
         }
 
-        // dh/dx and dh/dz at a sample, in cm per cm. Central where both neighbours exist; one-sided on the
-        // border, because the missing neighbour lives in another tile this function cannot see.
-        std::pair<float, float> GradientAt( const LandscapeTileData& tile, const LandscapeFrame& frame, uint32_t x,
-                                            uint32_t z )
+        // A sample of the bordered grid: x in [-1, SamplesX], z in [-1, SamplesZ]. The ring row is the
+        // neighbour's SECOND row (index 1 or Samples - 2): its first is this tile's own edge.
+        uint16_t BorderedSample( const LandscapeTileData& tile, const LandscapeTileNeighbours& n, int32_t x,
+                                 int32_t z )
         {
-            const uint32_t xa = x > 0u ? x - 1u : x;
-            const uint32_t xb = x + 1u < tile.SamplesX() ? x + 1u : x;
-            const uint32_t za = z > 0u ? z - 1u : z;
-            const uint32_t zb = z + 1u < tile.SamplesZ() ? z + 1u : z;
-            const float    dx = LandscapeGradient( HeightAt( tile, frame, xa, z ), HeightAt( tile, frame, xb, z ),
-                                                   static_cast<float>( xb - xa ), frame.SpacingCm );
-            const float    dz = LandscapeGradient( HeightAt( tile, frame, x, za ), HeightAt( tile, frame, x, zb ),
-                                                   static_cast<float>( zb - za ), frame.SpacingCm );
+            const auto sx   = static_cast<int32_t>( tile.SamplesX() );
+            const auto sz   = static_cast<int32_t>( tile.SamplesZ() );
+            const bool outX = x < 0 || x >= sx;
+            const bool outZ = z < 0 || z >= sz;
+            const auto cx   = static_cast<uint32_t>( std::clamp( x, 0, sx - 1 ) );
+            const auto cz   = static_cast<uint32_t>( std::clamp( z, 0, sz - 1 ) );
+            if ( outX == outZ ) // inside, or a ring corner no gradient reads
+                return tile.Sample( cx, cz );
+            if ( x < 0 && n.West )
+                return n.West->Sample( static_cast<uint32_t>( sx - 2 ), cz );
+            if ( x >= sx && n.East )
+                return n.East->Sample( 1u, cz );
+            if ( z < 0 && n.South )
+                return n.South->Sample( cx, static_cast<uint32_t>( sz - 2 ) );
+            if ( z >= sz && n.North )
+                return n.North->Sample( cx, 1u );
+            return tile.Sample( cx, cz ); // absent neighbour: never differenced (the mask says so)
+        }
+
+        void VerifyNeighbours( const LandscapeTileData& tile, const LandscapeTileNeighbours& n )
+        {
+            for ( const LandscapeTileData* other : { n.West, n.East, n.South, n.North } )
+                DESERT_VERIFY(
+                     !other || ( other->SamplesX() == tile.SamplesX() && other->SamplesZ() == tile.SamplesZ() ),
+                     "Landscape neighbour of {} x {} samples beside a tile of {} x {}",
+                     other ? other->SamplesX() : 0u, other ? other->SamplesZ() : 0u, tile.SamplesX(),
+                     tile.SamplesZ() );
+        }
+
+        float BorderedHeight( const LandscapeTileData& tile, const LandscapeTileNeighbours& n,
+                              const LandscapeFrame& frame, float x, float z )
+        {
+            return LandscapeHeightCm(
+                 BorderedSample( tile, n, static_cast<int32_t>( x ), static_cast<int32_t>( z ) ), frame.ZScale );
+        }
+
+        // dh/dx and dh/dz at a sample, in cm per cm — LandscapeGradientLow/High pick the two samples, the
+        // same functions the terrain shader calls on the same bordered grid.
+        std::pair<float, float> GradientAt( const LandscapeTileData& tile, const LandscapeTileNeighbours& n,
+                                            const LandscapeFrame& frame, uint32_t ix, uint32_t iz )
+        {
+            const float x     = static_cast<float>( ix );
+            const float z     = static_cast<float>( iz );
+            const float lastX = static_cast<float>( tile.SamplesX() - 1u );
+            const float lastZ = static_cast<float>( tile.SamplesZ() - 1u );
+            const float xa    = LandscapeGradientLow( x, n.West ? 1.0f : 0.0f );
+            const float xb    = LandscapeGradientHigh( x, lastX, n.East ? 1.0f : 0.0f );
+            const float za    = LandscapeGradientLow( z, n.South ? 1.0f : 0.0f );
+            const float zb    = LandscapeGradientHigh( z, lastZ, n.North ? 1.0f : 0.0f );
+            const float dx =
+                 LandscapeGradient( BorderedHeight( tile, n, frame, xa, z ),
+                                    BorderedHeight( tile, n, frame, xb, z ), xb - xa, frame.SpacingCm );
+            const float dz =
+                 LandscapeGradient( BorderedHeight( tile, n, frame, x, za ),
+                                    BorderedHeight( tile, n, frame, x, zb ), zb - za, frame.SpacingCm );
             return { dx, dz };
         }
     } // namespace
@@ -296,16 +347,38 @@ namespace Desert::World::Landscape
         return frame.BaseY + h;
     }
 
+    uint32_t LandscapeNeighbourMask( const LandscapeTileNeighbours& neighbours )
+    {
+        return ( neighbours.West ? 1u : 0u ) | ( neighbours.East ? 2u : 0u ) | ( neighbours.South ? 4u : 0u ) |
+               ( neighbours.North ? 8u : 0u );
+    }
+
+    std::vector<uint16_t> LandscapeBorderedSamples( const LandscapeTileData&       tile,
+                                                    const LandscapeTileNeighbours& neighbours )
+    {
+        VerifyNeighbours( tile, neighbours );
+        const auto            sx = static_cast<int32_t>( tile.SamplesX() );
+        const auto            sz = static_cast<int32_t>( tile.SamplesZ() );
+        std::vector<uint16_t> out;
+        out.reserve( static_cast<size_t>( sx + 2 ) * static_cast<size_t>( sz + 2 ) );
+        for ( int32_t z = -1; z <= sz; ++z )
+            for ( int32_t x = -1; x <= sx; ++x )
+                out.push_back( BorderedSample( tile, neighbours, x, z ) );
+        return out;
+    }
+
     std::optional<glm::vec3> SampleLandscapeNormal( const LandscapeTileData& tile, const LandscapeFrame& frame,
-                                                    float worldX, float worldZ )
+                                                    const LandscapeTileNeighbours& neighbours, float worldX,
+                                                    float worldZ )
     {
         const auto p = Locate( tile, frame, worldX, worldZ );
         if ( !p )
             return std::nullopt;
-        const auto  g00 = GradientAt( tile, frame, p->CellX, p->CellZ );
-        const auto  g10 = GradientAt( tile, frame, p->CellX + 1u, p->CellZ );
-        const auto  g01 = GradientAt( tile, frame, p->CellX, p->CellZ + 1u );
-        const auto  g11 = GradientAt( tile, frame, p->CellX + 1u, p->CellZ + 1u );
+        VerifyNeighbours( tile, neighbours );
+        const auto  g00 = GradientAt( tile, neighbours, frame, p->CellX, p->CellZ );
+        const auto  g10 = GradientAt( tile, neighbours, frame, p->CellX + 1u, p->CellZ );
+        const auto  g01 = GradientAt( tile, neighbours, frame, p->CellX, p->CellZ + 1u );
+        const auto  g11 = GradientAt( tile, neighbours, frame, p->CellX + 1u, p->CellZ + 1u );
         const float dx  = Bilinear( g00.first, g10.first, g01.first, g11.first, p->Fx, p->Fz );
         const float dz  = Bilinear( g00.second, g10.second, g01.second, g11.second, p->Fx, p->Fz );
         // The surface y = h(x, z) has the (unnormalised) normal (-dh/dx, 1, -dh/dz).

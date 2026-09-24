@@ -36,6 +36,7 @@ namespace Desert::Editor
 
     private:
         // The Select Elements tool's properties: mode, counts, and the selection operations.
+        void DrawCreateShape();
         void DrawElementSelection();
 
         std::shared_ptr<Desert::Core::Scene> m_Scene;

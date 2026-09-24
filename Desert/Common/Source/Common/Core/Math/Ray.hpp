@@ -101,6 +101,16 @@ namespace Common::Math
             return Ray( localOrigin, localDirection );
         }
 
+        // The distance along THIS (world) ray of a hit found on `local`, this ray taken into an object's
+        // space by ToLocalSpace( transform ), at `localT`. ToLocalSpace renormalises the direction, so a
+        // local t is measured in the object's own units: under a scale it is not a world distance, and two
+        // objects' local t cannot be compared to find the nearer one.
+        [[nodiscard]] float WorldDistanceOf( const Ray& local, float localT, const glm::mat4& transform ) const
+        {
+            const glm::vec3 point = transform * glm::vec4( local.GetPoint( localT ), 1.0f );
+            return glm::dot( point - Origin, Direction );
+        }
+
         /**
          * Transforms ray from local space to world space
          * @param transform - Object's model matrix

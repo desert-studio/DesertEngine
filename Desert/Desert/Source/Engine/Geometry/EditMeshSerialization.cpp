@@ -149,8 +149,9 @@ namespace Desert::Geometry
         triangleIds.reserve( triangleCount );
         for ( size_t row = 0; row < triangleCount; ++row )
         {
-            const int a = saved.Triangles[row * 3], b = saved.Triangles[row * 3 + 1],
-                      c = saved.Triangles[row * 3 + 2];
+            const int a = saved.Triangles[row * 3];
+            const int b = saved.Triangles[row * 3 + 1];
+            const int c = saved.Triangles[row * 3 + 2];
             for ( const int v : { a, b, c } )
                 if ( v < 0 || static_cast<size_t>( v ) >= vertexCount )
                     return MakeFormattedError<EditMesh>( "EditMesh: triangle {} names vertex {} of {}", row, v,

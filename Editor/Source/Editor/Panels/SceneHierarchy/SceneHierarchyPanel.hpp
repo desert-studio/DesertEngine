@@ -28,11 +28,16 @@ namespace Desert::Editor
             m_Scene = scene;
         }
 
+        // The outliner's "Add > Shapes" entry for one primitive: an entity drawing it, one undo step. The
+        // palette's "Add shape" entries call the same function, so the two cannot disagree.
+        static Common::UUID SpawnPrimitive( Desert::Core::Scene& scene, Geometry::PrimitiveType type );
+
     private:
         // What the outliner calls this entity — one lookup, so the Type column's text, the row icon's
         // colour and the column's own width all come from the same census (EntityTypeCensus.hpp).
         static EntityTypeKind ClassifyEntity( const ECS::Entity& entity );
         static const char*    GetEntityTypeName( const ECS::Entity& entity );
+
         void                  DrawEntityNode( ECS::Entity& entity );
         void               DrawInstantiatePrefabPopup();
         void               DrawSavePrefabPopup();

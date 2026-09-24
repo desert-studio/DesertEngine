@@ -66,7 +66,7 @@ namespace Common::Utils
         std::string BoundsText( const Common::Math::AABB& box )
         {
             std::string out;
-            out.reserve( 6 * 9 );
+            out.reserve( std::size_t{ 6 } * 9 );
             const std::array<float, 6> values = BoxFloats( box );
             for ( std::size_t i = 0; i < values.size(); ++i )
             {
@@ -379,7 +379,10 @@ namespace Common::Utils
                 }
             }
             out += ' ';
-            out += entry.Bounds.has_value() ? BoundsText( *entry.Bounds ) : std::string( kNone );
+            // NOLINTBEGIN(bugprone-unchecked-optional-access)
+            out += entry.Bounds.has_value() ? BoundsText( entry.Bounds.value() )
+                                            : std::string( kNone ); // NOLINT(bugprone-unchecked-optional-access)
+            // NOLINTEND(bugprone-unchecked-optional-access)
             out += ' ';
             out += entry.Key;
             out += '\n';

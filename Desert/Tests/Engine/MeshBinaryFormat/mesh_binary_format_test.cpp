@@ -334,8 +334,11 @@ namespace
 {
     std::string AsVersionOne( const std::string& v2 )
     {
-        constexpr size_t kHeader = 64, kRow = 24, kRowsV2 = 10;
-        uint32_t         version = 0, sections = 0;
+        constexpr size_t kHeader  = 64;
+        constexpr size_t kRow     = 24;
+        constexpr size_t kRowsV2  = 10;
+        uint32_t         version  = 0;
+        uint32_t         sections = 0;
         uint64_t         fileSize = 0;
         std::memcpy( &version, v2.data() + 12, 4 );
         std::memcpy( &fileSize, v2.data() + 16, 8 );
@@ -599,7 +602,7 @@ TEST( MeshBinaryFormat, EveryCommittedMeshRowStatesTheBoundsOfItsFile )
             std::error_code ec;
             std::filesystem::current_path( Saved, ec );
         }
-    } restore;
+    } const restore;
     std::filesystem::current_path( std::filesystem::absolute( root / "Editor" ) );
 
     std::size_t meshes = 0;
@@ -621,8 +624,12 @@ TEST( MeshBinaryFormat, EveryCommittedMeshRowStatesTheBoundsOfItsFile )
         const std::optional<Common::Math::AABB> box = Ser::MeshDataBounds( read.GetValue() );
         ASSERT_TRUE( box.has_value() ) << row.Key << " has no submesh";
         char text[256];
-        std::snprintf( text, sizeof( text ), "%.9g %.9g %.9g %.9g %.9g %.9g", box->Min.x, box->Min.y, box->Min.z,
-                       box->Max.x, box->Max.y, box->Max.z );
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        std::snprintf( text, sizeof( text ), "%.9g %.9g %.9g %.9g %.9g %.9g", box.value().Min.x,
+                       box.value().Min.y, // NOLINT(bugprone-unchecked-optional-access)
+                       box.value().Min.z, box.value().Max.x, box.value().Max.y,
+                       box.value().Max.z ); // NOLINT(bugprone-unchecked-optional-access)
+        // NOLINTEND(bugprone-unchecked-optional-access)
         EXPECT_TRUE( Common::Utils::SameBounds( row.Bounds, box ) )
              << row.Key << " states " << ( row.Bounds.has_value() ? "a different box" : "no box" )
              << "; the file's is " << text << ". Re-cook the mesh in the editor (its registry row is "

@@ -1,0 +1,154 @@
+// The terrain's fragment surface, shared by the two Terrain programs that shade it (Terrain = forward,
+// TerrainGBuffer = deferred): ONE statement of what the ground IS at a pixel — normal, albedo, snow cover —
+// before any light. The forward program lights it itself; the G-buffer program hands it to the deferred
+// composite, which is what lights (and shadows) every other opaque surface.
+        // Stage 3 + 3a: textured terrain splatting with per-layer modes. Three layers (grass / rock / snow) are
+        // triplanar-mapped in world space. Each layer's weight comes from its mode: Auto = height/slope rules,
+        // Manual = the painted splat map channel (brush, Stage 3b), Off = 0. Each layer is modulated by a base
+        // tint so that with UNASSIGNED textures (white backend fallback) the result matches the Stage 2 relief.
+        // Lit with a directional key light using the analytic normal from the TES.
+
+        In(0) vec3 v_WorldPos;
+        In(1) vec3 v_Normal;
+        In(2) float v_Height01;
+
+
+        // Engine-filled terrain UB (binding 0) — shared frame data only; the per-terrain half (Model,
+        // Params, layer modes) is this draw's TerrainInstances row, see the note above Vertex.
+        Uniform(0) TerrainUB
+        {
+            mat4 View;
+            mat4 Projection;
+            vec4 SunDir;     // xyz = normalized light direction (scene directional light)
+            vec4 SunColor;   // rgb = color, a = intensity
+        }
+        u;
+
+        #include <Common/TerrainInstance.glslh>
+        ReadBuffer(8) TerrainInstances
+        {
+            TerrainInstance u_Terrains[];
+        };
+        // m_PushConstants is already declared here: the generated Materials[] transport injects
+        // MaterialTransport.glslh at the top of the fragment stage, and its include guard makes this
+        // stage's declaration one with the other stages' explicit includes.
+        #define u_T u_Terrains[m_PushConstants.MaterialIndex]
+
+        // Data-driven material params (binding 1) are generated from the Properties block above and read
+        // through `u_Material`; nothing is declared here.
+
+        // Splat layers (texture2D #pragma params; unassigned => white fallback). Bindings follow MaterialUB.
+        Uniform(2) sampler2D u_GrassTex;
+        Uniform(3) sampler2D u_RockTex;
+        Uniform(4) sampler2D u_SnowTex;
+        // Per-terrain splat map (R=grass, G=rock, B=snow weights), painted by the brush (Stage 3b). Engine-bound;
+        // unassigned => white fallback (Manual layers show everywhere until painted).
+        Uniform(5) sampler2D u_SplatMap;
+
+        // Triplanar sample: project onto the three world planes and blend by the (squared) normal so steep faces
+        // don't stretch. scale = tiles per world unit.
+        vec3 Triplanar( sampler2D tex, vec3 wpos, vec3 n, float scale )
+        {
+            vec3 bw = abs( n );
+            bw      = pow( bw, vec3( 4.0 ) );
+            bw     /= max( bw.x + bw.y + bw.z, 0.0001 );
+
+            vec3 xa = texture( tex, wpos.yz * scale ).rgb;
+            vec3 ya = texture( tex, wpos.xz * scale ).rgb;
+            vec3 za = texture( tex, wpos.xy * scale ).rgb;
+            return xa * bw.x + ya * bw.y + za * bw.z;
+        }
+
+        // Resolve a layer's weight from its mode: 0=Auto (rule), 1=Manual (splat channel), 2=Off (0).
+        float LayerWeight( float mode, float autoWeight, float splatChannel )
+        {
+            if ( mode > 1.5 ) return 0.0;          // Off
+            if ( mode > 0.5 ) return splatChannel; // Manual
+            return autoWeight;                      // Auto
+        }
+
+        struct TerrainSurface
+        {
+            vec3  N;
+            vec3  Albedo; // untinted: the forward program tints its lit result, the G-buffer its albedo
+            float Snow;   // snow cover [0..1] — the one glossy layer
+        };
+
+        TerrainSurface EvaluateTerrainSurface()
+        {
+            vec3 N = normalize( v_Normal );
+
+            // Slope = how far the normal tilts from straight up (0 = flat, 1 = vertical cliff).
+            float slope = clamp( 1.0 - N.y, 0.0, 1.0 );
+
+            // Base tints (placeholder until Stage 6 PBR textures). The grass layer is a DARK olive ground
+            // tone; rock is the default ground and snow caps it.
+            //
+            // IT USED TO BE THE FLOOR UNDER GENERATED BLADES and it is not any more (Г25). The tone was
+            // chosen dark so the gaps between thin procedural blades read as a continuous lawn rather than
+            // glowing bright-green through them, and it was multiplied by Params2.z — the blade Brightness
+            // slider — so ground and blades tracked each other as one material. Both the blades and that
+            // slider are gone; the tone is kept as authored because it is the ground this repository's
+            // terrain scenes were dressed against, and grass now arrives as a MESH ASSET scattered by the
+            // Foliage tool, which stands on this ground rather than being tinted with it.
+            //
+            // 0.031/0.027 are frequencies per world unit — a ~2 m patch, which is what the metre era's
+            // 3.1/2.7 meant. Left alone they were a 2 cm chequer: shimmer, not variation.
+            float groundVar  = sin( v_WorldPos.x * 0.031 ) * sin( v_WorldPos.z * 0.027 ) * 0.5 + 0.5;
+            vec3  grassCol   = vec3( 0.052, 0.10, 0.034 ) * ( 0.75 + 0.5 * groundVar );
+            vec3  rockCol   = vec3( 0.40, 0.37, 0.33 ); // bare rock (default base)
+            vec3  snowCol   = vec3( 0.86, 0.88, 0.92 );
+
+            float scale  = 1.0 / max( u_Material.DetailTiling, 0.001 );
+            vec3  grassT = Triplanar( u_GrassTex, v_WorldPos, N, scale ) * grassCol;
+            vec3  rockT  = Triplanar( u_RockTex, v_WorldPos, N, scale ) * rockCol;
+            vec3  snowT  = Triplanar( u_SnowTex, v_WorldPos, N, scale ) * snowCol;
+
+            // Splat-map weights. UV is terrain-local (subtract the Model translation) so painting matches
+            // regardless of where the terrain entity sits in the world.
+            vec2  splatUV  = ( v_WorldPos.xz - u_T.Model[3].xz ) / max( u_T.Params.x, 0.001 ) + 0.5;
+            vec4  splat    = texture( u_SplatMap, splatUV );
+            // EACH LAYER'S OWN AUTO RULE, AND grassAuto IS 1.0 ON PURPOSE (Г26). It used to be
+            // `1.0 - rockAuto`, which is the same picture written the other way round: rock was the BED
+            // and grass was mixed over it by the complement of the slope rule, so the rock layer had no
+            // weight of its own and `LayerModes.y` had nothing to gate. Writing it as "grass covers the
+            // ground, rock takes it back on slopes, snow caps it" gives rock a weight the mode can act on
+            // and is ALGEBRAICALLY THE SAME MIX while every layer is on Auto:
+            //   mix(mix(rock, grass, 1), rock, rockAuto) == rock*rockAuto + grass*(1 - rockAuto),
+            // which is exactly what the old two-line form produced. That is why every terrain scene in the
+            // repository renders byte-identically across this change, and it is the negative control the
+            // change was measured with.
+            float rockAuto  = smoothstep( 0.25, 0.55, slope );
+            float grassAuto = 1.0;                                 // the ground is grass until something takes it
+            float snowAuto  = smoothstep( 0.75, 0.95, v_Height01 ) * ( 1.0 - smoothstep( 0.4, 0.7, slope ) );
+
+            // THE ROCK LAYER WAS THE THIRD DEAD KNOB OF THE SAME FAMILY, AND IT SURVIVED THE CENSUS THAT
+            // WAS SUPPOSED TO CATCH IT. `Rock Layer` is a reflected, serialized, Details-visible enum;
+            // TerrainECSSystem packs it into LayerModes.y; this file never read LayerModes.y and never
+            // sampled splat.g, so the paint tool's own instruction — "set the layer to 'Manual' in Details
+            // to see painted weights" — was false for the `Rock (G)` brush, which is one of the three it
+            // offers. Г25 fixed exactly this for grass (LayerModes.x) and the same shape was left standing
+            // one channel over. `SettingConsumers` stayed green throughout, because a WIRED row asks for a
+            // read of the FIELD and TerrainECSSystem reads it: the census sees the first link of the chain
+            // and cannot see that the last one drops it.
+            //
+            // ROCK IS STILL THE BED under everything, because a ground shader must draw something where no
+            // layer claims a pixel and inventing a fourth colour for that case would be a worse answer
+            // than the ground this repository's terrain scenes are dressed against. With grass on Auto the
+            // bed is fully covered, so `Rock Layer = Off` is visible where it means something — the
+            // slopes — rather than nowhere.
+            float wGrass = LayerWeight( u_T.LayerModes.x, grassAuto, splat.r );
+            float wRock  = LayerWeight( u_T.LayerModes.y, rockAuto, splat.g );
+            float wSnow  = LayerWeight( u_T.LayerModes.z, snowAuto, splat.b );
+
+            vec3 albedo = rockT;
+            albedo      = mix( albedo, grassT, clamp( wGrass, 0.0, 1.0 ) );
+            albedo      = mix( albedo, rockT, clamp( wRock, 0.0, 1.0 ) );
+            albedo      = mix( albedo, snowT, clamp( wSnow, 0.0, 1.0 ) );
+
+            TerrainSurface s;
+            s.N      = N;
+            s.Albedo = albedo;
+            s.Snow   = clamp( wSnow, 0.0, 1.0 );
+            return s;
+        }

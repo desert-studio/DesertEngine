@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 
 #include <glm/glm.hpp>
@@ -49,13 +50,34 @@ namespace Desert::Graphic::System
     // (vertexless patch-list draw -> TCS LOD -> TES displacement). Driven by the ECS: each TerrainComponent
     // entity is submitted as a TerrainDrawData every frame. Stage 1 keeps the surface flat (validates the
     // tessellation pipeline); later stages add compute-heightmap displacement + PBR shading.
-    class TerrainRenderer final : public RenderSystem
+    // Draws every terrain of the frame, in whichever pass the render path shades opaque geometry with, and
+    // into the sun's cascades. One frame's data — materials, param rows, TerrainInstances — is resolved ONCE
+    // by PrepareFrame, and every pass that follows draws from it:
+    //   - Forward:  the "TerrainPass" graph pass (Terrain.shader, lit by itself);
+    //   - Deferred: RenderGBufferManual, after the meshes' G-buffer fill (TerrainGBuffer.shader, lit by the
+    //     deferred composite like every other opaque surface — so it receives the cascaded shadows);
+    //   - both:     RecordShadowCascade, from inside the mesh renderer's cascade passes (TerrainShadow.shader).
+    // The three programs share their patch stages (Programs/Terrain/*.glslh) and differ in what the
+    // fragment writes and in the matrix pushed per draw (camera or cascade).
+    class TerrainRenderer final : public RenderSystem, public IShadowCaster
     {
     public:
         using RenderSystem::RenderSystem;
 
         virtual Common::BoolResultStr Initialize() override;
         void                          RegisterPasses( RenderGraphBuilder& builder ) override;
+
+        // The caster pipeline is built against the cascade targets, which the mesh renderer owns and makes.
+        Common::BoolResultStr CreateShadowPipeline( const std::shared_ptr<Framebuffer>& cascadeFramebuffer );
+
+        // Before the render graph records: resolves every queued terrain's material, packs the rows and
+        // uploads them. Nothing may draw a terrain this frame before it ran.
+        void PrepareFrame();
+
+        // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'.
+        void RenderGBufferManual();
+
+        void RecordShadowCascade( uint32_t cascade, const glm::mat4& cascadeViewProj ) override;
 
         void Submit( const TerrainDrawData& data )
         {
@@ -65,20 +87,47 @@ namespace Desert::Graphic::System
         void ClearQueue()
         {
             m_Queue.clear();
+            m_FrameGroups.clear();
+            m_FrameDraws.clear();
         }
 
     private:
-        std::shared_ptr<GraphicsPipeline> m_Pipeline;
+        // One texture set's materials, one per program. Textures are the materials' identity (see
+        // TerrainTextureKey), so each program needs its own copy of the set.
+        struct ProgramMaterials
+        {
+            std::unique_ptr<DataDrivenMaterial> Forward;
+            std::unique_ptr<DataDrivenMaterial> GBuffer;
+            std::unique_ptr<DataDrivenMaterial> Shadow;
+        };
 
-        // ONE MATERIAL PER TEXTURE SET, keyed by TerrainTextureKey (TerrainBatch.hpp), never one for the
-        // whole queue: a sampler is a descriptor, a descriptor set belongs to the material, and the
-        // set is written at most once per frame BEFORE its first bind — so with one shared material the
-        // first terrain's textures were the frame's textures and every later SetTexture was silently
-        // swallowed. Same rule and key shape as MeshRenderer::m_GenericMaterials. Keys persist across
-        // frames (a material owns per-frame GPU state and must outlive the frames in flight); a scene's
-        // terrain texture sets are few and stable, so the map does not grow in practice.
-        std::unordered_map<std::string, std::unique_ptr<DataDrivenMaterial>> m_Materials;
+        // A frame's terrains sharing one texture set. Named by key, not by pointer: m_Materials owns them.
+        struct FrameGroup
+        {
+            std::string                  Key;
+            std::vector<glm::vec4>       ParamRows;
+            std::vector<TerrainInstance> Instances;
+        };
+
+        struct FrameDraw
+        {
+            size_t   Group       = 0;
+            uint32_t Row         = 0; // names BOTH the param row and the instance row
+            uint32_t VertexCount = 0;
+        };
+
+        void RecordDraws( GraphicsPipeline*                   pipeline,
+                          std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
+                          const glm::mat4&                                       clipFromWorld );
+
+        std::shared_ptr<GraphicsPipeline> m_Pipeline;
+        std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
+        std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
+
+        std::unordered_map<std::string, ProgramMaterials> m_Materials;
 
         std::vector<TerrainDrawData> m_Queue;
+        std::vector<FrameGroup>      m_FrameGroups;
+        std::vector<FrameDraw>       m_FrameDraws;
     };
 } // namespace Desert::Graphic::System

@@ -46,7 +46,6 @@ namespace Desert::Editor
         // parameter-less multi-line lambdas are the one construct clang-format versions disagree on.
         enum class Archetype
         {
-            Cube,
             Model3D,
             Skybox,
             Terrain,
@@ -67,7 +66,6 @@ namespace Desert::Editor
         };
 
         constexpr ArchetypeDef kArchetypes[] = {
-             { "Rendering", ICON_MDI_CUBE, "Cube", Archetype::Cube },
              { "Rendering", ICON_MDI_CUBE_OUTLINE, "3D Model", Archetype::Model3D },
              { "Rendering", ICON_MDI_EARTH, "Skybox", Archetype::Skybox },
              { "Rendering", ICON_MDI_TERRAIN, "Terrain", Archetype::Terrain },
@@ -102,15 +100,6 @@ namespace Desert::Editor
         {
             switch ( kind )
             {
-                case Archetype::Cube:
-                {
-                    // Primitive path (RuntimeMesh generated + Invalidated by MeshECSSystem) — renders +
-                    // serializes reliably, unlike the builtin procedural-handle path.
-                    auto e                                               = scene.CreateNewEntity( "Cube" );
-                    e.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Cube;
-                    Track( e );
-                    break;
-                }
                 case Archetype::Model3D:
                 {
                     auto e                                                = scene.CreateNewEntity( "3D Model" );
@@ -196,6 +185,15 @@ namespace Desert::Editor
             }
         }
     } // namespace
+
+    Common::UUID SceneHierarchyPanel::SpawnPrimitive( Desert::Core::Scene& scene, Geometry::PrimitiveType type )
+    {
+        // Primitive path: the shared mesh comes from PrimitiveMeshFactory, i.e. from ShapeGenerators.
+        auto e = scene.CreateNewEntity( Geometry::PrimitiveTypeName( type ) );
+        e.AddComponent<ECS::StaticMeshComponent>().Primitive = type;
+        Track( e );
+        return e.GetComponent<ECS::UUIDComponent>().UUID;
+    }
 
     EntityTypeKind SceneHierarchyPanel::ClassifyEntity( const ECS::Entity& entity )
     {
@@ -657,6 +655,12 @@ namespace Desert::Editor
                     if ( m_AddEntityFilter.PassFilter( a.Label ) &&
                          ImGui::Selectable( ( std::string( a.Icon ) + "  " + a.Label ).c_str() ) )
                         SpawnArchetype( *scene, a.Kind );
+                for ( const Geometry::PrimitiveType type : Geometry::kAuthorablePrimitives )
+                    if ( m_AddEntityFilter.PassFilter( Geometry::PrimitiveTypeName( type ) ) &&
+                         ImGui::Selectable(
+                              ( std::string( ICON_MDI_SHAPE ) + "  " + Geometry::PrimitiveTypeName( type ) )
+                                   .c_str() ) )
+                        SpawnPrimitive( *scene, type );
                 ImGui::EndMenu();
                 return;
             }
@@ -687,6 +691,17 @@ namespace Desert::Editor
             }
 
             ImGui::Separator();
+
+            // Shapes: every authorable primitive, listed from the one array the Details combo reads too.
+            if ( ImGui::BeginMenu( ICON_MDI_SHAPE "  Shapes" ) )
+            {
+                for ( const Geometry::PrimitiveType type : Geometry::kAuthorablePrimitives )
+                    if ( ImGui::Selectable(
+                              ( std::string( ICON_MDI_SHAPE ) + "  " + Geometry::PrimitiveTypeName( type ) )
+                                   .c_str() ) )
+                        SpawnPrimitive( *scene, type );
+                ImGui::EndMenu();
+            }
 
             for ( const auto& cat : kAddCategories )
             {

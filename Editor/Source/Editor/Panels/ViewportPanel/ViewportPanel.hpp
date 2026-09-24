@@ -19,6 +19,7 @@
 #include "PerfHudOverlay.hpp"
 #include "Tools/FoliagePaintTool.hpp"
 #include "Tools/CubeGridTool.hpp"
+#include "Tools/CreateShapeTool.hpp"
 #include "Tools/ElementSelectTool.hpp"
 #include "Tools/PolyEditTool.hpp"
 #include "Tools/TerrainPaintTool.hpp"
@@ -217,6 +218,10 @@ namespace Desert::Editor
         // to its material elements (all of them — the hit carries no submesh id yet).
         void AssignMaterialAtCursor( const std::string& materialPath );
 
+        // What the cursor is over — a mesh's box or the landscape's surface (Scene::Raycast) — or nullopt.
+        // The drop targets place what they spawn there, as UE drops an actor onto the surface under it.
+        [[nodiscard]] std::optional<::Desert::Core::RaycastHit> SurfaceAtCursor() const;
+
         // Godot-style toolbar row ABOVE the image: mode, transform tools, snap, contextual
         // skeleton toggle, camera gear (right). Replaces the old floating in-viewport overlay.
         void DrawViewportToolbar();
@@ -342,6 +347,7 @@ namespace Desert::Editor
         Tools::CubeGridTool                   m_CubeGridTool; // UE5-style CubeGrid blockout (Modeling mode)
         Tools::PolyEditTool                   m_PolyEditTool; // face select + push/pull (Modeling mode)
         Tools::ElementSelectTool              m_ElementSelectTool; // mesh element selection (Modeling mode)
+        Tools::CreateShapeTool                m_CreateShapeTool;   // Create -> shapes (Modeling mode)
         Tools::TerrainPaintTool               m_TerrainTool;  // terrain splat-layer painting (extracted)
         Tools::GizmoController                m_Gizmo;       // object + bone transform gizmos (extracted)
         Tools::PickingController              m_Picking;     // ray-pick + select (extracted)

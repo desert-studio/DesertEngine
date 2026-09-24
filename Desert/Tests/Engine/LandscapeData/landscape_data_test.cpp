@@ -173,7 +173,7 @@ TEST( LandscapeSampling, PlaneIsExactHeightAndNormal )
         const auto  h  = SampleLandscapeHeight( tile, frame, frame.OriginX + lx, frame.OriginZ + lz );
         ASSERT_TRUE( h.has_value() );
         ASSERT_NEAR( *h, frame.BaseY + plane( lx, lz ), 1e-3f ) << "at local (" << lx << ", " << lz << ")";
-        const auto n = SampleLandscapeNormal( tile, frame, frame.OriginX + lx, frame.OriginZ + lz );
+        const auto n = SampleLandscapeNormal( tile, frame, {}, frame.OriginX + lx, frame.OriginZ + lz );
         ASSERT_TRUE( n.has_value() );
         ASSERT_NEAR( n->x, expectedNormal.x, 1e-5f );
         ASSERT_NEAR( n->y, expectedNormal.y, 1e-5f );
@@ -230,7 +230,7 @@ TEST( LandscapeSampling, SineIsWithinTheInterpolationAndQuantisationBound )
         ASSERT_NEAR( *h, wave( lx, 0.0f ), heightTol ) << "x = " << lx;
         if ( lx >= s && lx <= 63.0f * s )
         {
-            const auto      n        = SampleLandscapeNormal( tile, frame, lx, 2.0f * s );
+            const auto      n        = SampleLandscapeNormal( tile, frame, {}, lx, 2.0f * s );
             const float     slope    = amplitude * k * std::cos( k * lx );
             const glm::vec3 expected = glm::normalize( glm::vec3( -slope, 1.0f, 0.0f ) );
             ASSERT_TRUE( n.has_value() );
@@ -275,7 +275,7 @@ TEST( LandscapeSampling, EdgesAreInclusiveOffTileIsNulloptAndSeamsAgree )
     EXPECT_FALSE( SampleLandscapeHeight( tA, a, 10.0f, 400.01f ).has_value() );
     EXPECT_FALSE( SampleLandscapeHeight( tA, a, 10.0f, -0.01f ).has_value() );
     EXPECT_FALSE( SampleLandscapeHeight( tA, a, std::nanf( "" ), 10.0f ).has_value() );
-    EXPECT_FALSE( SampleLandscapeNormal( tA, a, 400.01f, 10.0f ).has_value() );
+    EXPECT_FALSE( SampleLandscapeNormal( tA, a, {}, 400.01f, 10.0f ).has_value() );
 }
 
 TEST( LandscapeSampling, FrameValidationNamesTheNumber )
@@ -302,61 +302,83 @@ TEST( LandscapeSampling, FrameValidationNamesTheNumber )
 TEST( LandscapeDirty, NewTileIsWhollyDirtyAndTakeClears )
 {
     auto tile = MakeTile( 33u, 17u );
-    ASSERT_EQ( tile.DirtyRects().size(), 1u );
-    EXPECT_EQ( tile.DirtyRects()[0], ( LandscapeRect{ 0u, 0u, 33u, 17u } ) );
-    const auto taken = tile.TakeDirtyRects();
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 1u );
+    EXPECT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu )[0], ( LandscapeRect{ 0u, 0u, 33u, 17u } ) );
+    const auto taken = tile.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
     EXPECT_EQ( taken.size(), 1u );
-    EXPECT_TRUE( tile.DirtyRects().empty() );
+    EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).empty() );
+}
+
+// The GPU and physics copies are refreshed on different frames (physics only runs in Play). A shared list
+// would hand an edit to whichever consumer took first and hide it from the other one for good.
+TEST( LandscapeDirty, EachConsumerSeesEveryEdit )
+{
+    auto tile = MakeTile( 33u, 17u );
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Physics ).size(), 1u )
+         << "taking for the GPU must not consume the physics copy's creation rectangle";
+
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics );
+    tile.SetSample( 4u, 4u, 40000u );
+    const auto gpu = tile.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
+    tile.SetSample( 20u, 10u, 40000u );
+    const auto physics = tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics );
+    ASSERT_EQ( gpu.size(), 1u );
+    EXPECT_EQ( gpu[0], ( LandscapeRect{ 4u, 4u, 5u, 5u } ) );
+    ASSERT_EQ( physics.size(), 2u ) << "physics took later, so it is owed both edits";
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 1u );
+    EXPECT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu )[0], ( LandscapeRect{ 20u, 10u, 21u, 11u } ) );
 }
 
 TEST( LandscapeDirty, NoOpWritesDirtyNothing )
 {
     auto tile = MakeTile( 8u, 8u );
-    tile.TakeDirtyRects();
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
     tile.SetSample( 3u, 3u, kLandscapeMidSample );
-    EXPECT_TRUE( tile.DirtyRects().empty() ) << "writing the value already there is not a change";
+    EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).empty() )
+         << "writing the value already there is not a change";
     const std::vector<uint16_t> same( 4u, kLandscapeMidSample );
     ASSERT_TRUE( tile.WriteRegion( { 1u, 1u, 3u, 3u }, same ).IsSuccess() );
-    EXPECT_TRUE( tile.DirtyRects().empty() );
+    EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).empty() );
 }
 
 TEST( LandscapeDirty, TouchingMergesFarStaysApartBridgeJoinsTheChain )
 {
     auto tile = MakeTile( 64u, 64u );
-    tile.TakeDirtyRects();
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
 
     tile.SetSample( 5u, 5u, 1u );
-    ASSERT_EQ( tile.DirtyRects().size(), 1u );
-    EXPECT_EQ( tile.DirtyRects()[0], ( LandscapeRect{ 5u, 5u, 6u, 6u } ) );
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 1u );
+    EXPECT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu )[0], ( LandscapeRect{ 5u, 5u, 6u, 6u } ) );
 
     tile.SetSample( 6u, 5u, 1u ); // shares an edge
-    ASSERT_EQ( tile.DirtyRects().size(), 1u );
-    EXPECT_EQ( tile.DirtyRects()[0], ( LandscapeRect{ 5u, 5u, 7u, 6u } ) );
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 1u );
+    EXPECT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu )[0], ( LandscapeRect{ 5u, 5u, 7u, 6u } ) );
 
     tile.SetSample( 40u, 40u, 1u ); // far away
-    ASSERT_EQ( tile.DirtyRects().size(), 2u );
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 2u );
 
     // A region spanning from the first box to the second absorbs both into one.
     std::vector<uint16_t> fill( 36u * 36u, 2u );
     ASSERT_TRUE( tile.WriteRegion( { 6u, 5u, 42u, 41u }, fill ).IsSuccess() );
-    ASSERT_EQ( tile.DirtyRects().size(), 1u );
-    EXPECT_EQ( tile.DirtyRects()[0], ( LandscapeRect{ 5u, 5u, 42u, 41u } ) );
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 1u );
+    EXPECT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu )[0], ( LandscapeRect{ 5u, 5u, 42u, 41u } ) );
 
     // Chain: B, then A, then R, where R touches only A and only A ∪ R reaches B. B sits EARLIER in the
     // list than A, so a merge that does not rescan after growing leaves two rectangles that touch.
-    tile.TakeDirtyRects();
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
     tile.SetSample( 2u, 8u, 9u );                                                                         // B
     ASSERT_TRUE( tile.WriteRegion( { 0u, 0u, 1u, 10u }, std::vector<uint16_t>( 10u, 9u ) ).IsSuccess() ); // A
-    ASSERT_EQ( tile.DirtyRects().size(), 2u );
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 2u );
     tile.SetSample( 1u, 0u, 9u ); // R
-    ASSERT_EQ( tile.DirtyRects().size(), 1u );
-    EXPECT_EQ( tile.DirtyRects()[0], ( LandscapeRect{ 0u, 0u, 3u, 10u } ) );
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 1u );
+    EXPECT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu )[0], ( LandscapeRect{ 0u, 0u, 3u, 10u } ) );
 }
 
 TEST( LandscapeDirty, RefusedWritesWriteNothingAndNameTheNumbers )
 {
     auto tile = MakeTile( 8u, 8u );
-    tile.TakeDirtyRects();
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
     const std::vector<uint16_t> before = tile.Samples();
 
     const std::vector<uint16_t> four( 4u, 1u );
@@ -374,14 +396,14 @@ TEST( LandscapeDirty, RefusedWritesWriteNothingAndNameTheNumbers )
     EXPECT_FALSE( tile.ReadRegion( { 0u, 0u, 9u, 1u } ).IsSuccess() );
 
     EXPECT_EQ( tile.Samples(), before );
-    EXPECT_TRUE( tile.DirtyRects().empty() );
+    EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).empty() );
 }
 
 TEST( LandscapeDirty, SnapshotRestoresExactlyTheUndoContract )
 {
     LandscapeFrame frame;
     auto           tile = TileFrom( 20u, 20u, frame, []( float x, float z ) { return 0.5f * x - 0.25f * z; } );
-    tile.TakeDirtyRects();
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
     const std::vector<uint16_t> original = tile.Samples();
 
     const LandscapeRect brush{ 4u, 6u, 11u, 9u };
@@ -396,18 +418,19 @@ TEST( LandscapeDirty, SnapshotRestoresExactlyTheUndoContract )
     for ( size_t i = 0; i < stroke.size(); ++i )
         stroke[i] = static_cast<uint16_t>( 1000u + i );
     ASSERT_TRUE( tile.WriteRegion( brush, stroke ).IsSuccess() );
-    ASSERT_EQ( tile.DirtyRects().size(), 1u );
-    EXPECT_EQ( tile.DirtyRects()[0], brush );
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 1u );
+    EXPECT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu )[0], brush );
     EXPECT_EQ( tile.Sample( 10u, 8u ), static_cast<uint16_t>( 1000u + stroke.size() - 1u ) );
     // Outside the brush nothing moved.
     EXPECT_EQ( tile.Sample( 3u, 6u ), original[6u * 20u + 3u] );
     EXPECT_EQ( tile.Sample( 11u, 8u ), original[8u * 20u + 11u] );
 
-    tile.TakeDirtyRects();
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
     ASSERT_TRUE( tile.WriteRegion( brush, saved ).IsSuccess() );
     EXPECT_EQ( tile.Samples(), original );
-    ASSERT_EQ( tile.DirtyRects().size(), 1u );
-    EXPECT_EQ( tile.DirtyRects()[0], brush ) << "the undo is itself a change the GPU must receive";
+    ASSERT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 1u );
+    EXPECT_EQ( tile.DirtyRects( LandscapeDirtyConsumer::Gpu )[0], brush )
+         << "the undo is itself a change the GPU must receive";
 }
 
 TEST( LandscapeDirty, DimensionsAreValidated )
@@ -418,9 +441,9 @@ TEST( LandscapeDirty, DimensionsAreValidated )
     // The empty tile a failed unwrap hands back is inert, not plausible.
     const LandscapeTileData empty;
     EXPECT_FALSE( SampleLandscapeHeight( empty, LandscapeFrame{}, 0.0f, 0.0f ).has_value() );
-    EXPECT_FALSE( SampleLandscapeNormal( empty, LandscapeFrame{}, 0.0f, 0.0f ).has_value() );
+    EXPECT_FALSE( SampleLandscapeNormal( empty, LandscapeFrame{}, {}, 0.0f, 0.0f ).has_value() );
     EXPECT_FALSE( empty.ReadRegion( { 0u, 0u, 1u, 1u } ).IsSuccess() );
-    EXPECT_TRUE( empty.DirtyRects().empty() );
+    EXPECT_TRUE( empty.DirtyRects( LandscapeDirtyConsumer::Gpu ).empty() );
 
     auto r = LandscapeTileData::FromSamples( 4u, 4u, std::vector<uint16_t>( 15u ) );
     ASSERT_FALSE( r.IsSuccess() );
@@ -498,12 +521,13 @@ TEST( LandscapeBlob, RoundTripIsByteIdentical )
         EXPECT_EQ( back.SamplesX(), sx );
         EXPECT_EQ( back.SamplesZ(), sz );
         EXPECT_EQ( back.Samples(), samples );
-        ASSERT_EQ( back.DirtyRects().size(), 1u ) << "a decoded tile has never been uploaded";
-        EXPECT_EQ( back.DirtyRects()[0], back.Bounds() );
+        ASSERT_EQ( back.DirtyRects( LandscapeDirtyConsumer::Gpu ).size(), 1u )
+             << "a decoded tile has never been uploaded";
+        EXPECT_EQ( back.DirtyRects( LandscapeDirtyConsumer::Gpu )[0], back.Bounds() );
 
         EXPECT_EQ( EncodeLandscapeTile( back ), first ) << sx << " x " << sz;
         // Dirty state is not in the blob.
-        back.TakeDirtyRects();
+        back.TakeDirtyRects( LandscapeDirtyConsumer::Gpu );
         EXPECT_EQ( EncodeLandscapeTile( back ), first );
     }
 }

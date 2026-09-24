@@ -1,0 +1,54 @@
+// Terrain patch stage bodies, shared by the three Terrain programs (Terrain = forward, TerrainGBuffer =
+// deferred, TerrainShadow = cascade depth): ONE statement of where a terrain vertex is, so the surface a
+// cascade sees is the surface the camera sees — same patches, same tessellation, same displacement.
+        // GPU terrain — vertexless patch grid. A draw of (gridDim*gridDim*4) vertices synthesizes a grid of
+        // quad patches purely from gl_VertexIndex (no vertex buffer). This stage emits each patch corner as a
+        // world-space control point on the y=0 plane; the TES projects + (later) displaces it.
+
+        #include <Common/MaterialTransport.glslh>
+
+        #include <Common/TerrainInstance.glslh>
+        ReadBuffer(8) TerrainInstances
+        {
+            TerrainInstance u_Terrains[];
+        };
+        #define u_T u_Terrains[m_PushConstants.MaterialIndex]
+
+        Out(0) vec2 v_WorldXZ;
+        Out(1) vec2 v_SampleXZ; // landscape tiles: the corner's global sample index
+
+        void main()
+        {
+            int gridDim = int( u_T.Params.y );
+            int patchId = gl_VertexIndex / 4;
+            int corner  = gl_VertexIndex % 4;
+
+            int gx = patchId % gridDim;
+            int gz = patchId / gridDim;
+
+            // Unit-quad corner offsets in CCW order: (0,0) (1,0) (1,1) (0,1).
+            vec2 off = vec2( ( corner == 1 || corner == 2 ) ? 1.0 : 0.0, ( corner == 2 || corner == 3 ) ? 1.0 : 0.0 );
+
+            if ( u_T.Params2.z > 0.5 )
+            {
+                // Landscape tile: the corner is a GLOBAL sample index (integers, exact in float), and its
+                // world position is the root's origin plus index * spacing. A corner on a shared tile edge
+                // is the same index seen from both tiles, so both compute the same bits here — which is
+                // what gives the TCS the same edge, and the same edge tessellation, on both sides.
+                float quadsPerPatch = u_T.LandscapeTile.z / float( gridDim );
+                vec2  g = u_T.LandscapeTile.xy + ( vec2( float( gx ), float( gz ) ) + off ) * quadsPerPatch;
+                v_SampleXZ  = g;
+                v_WorldXZ   = u_T.LandscapeFrame.xz + g * u_T.LandscapeFrame.w;
+                gl_Position = vec4( v_WorldXZ.x, u_T.LandscapeFrame.y, v_WorldXZ.y, 1.0 );
+                return;
+            }
+
+            float size = u_T.Params.x;
+            float cell = size / float( gridDim );
+            float x    = ( float( gx ) + off.x ) * cell - size * 0.5;
+            float z    = ( float( gz ) + off.y ) * cell - size * 0.5;
+
+            v_SampleXZ  = vec2( 0.0 );
+            v_WorldXZ   = vec2( x, z );
+            gl_Position = vec4( x, 0.0, z, 1.0 ); // world-space control point (projection happens in the TES)
+        }

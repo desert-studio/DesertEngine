@@ -238,7 +238,10 @@ TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
     ASSERT_NE( back, nullptr );
     ASSERT_TRUE( back->Bounds.has_value() );
     EXPECT_TRUE( Common::Utils::SameBounds( back->Bounds, box ) );
-    EXPECT_TRUE( std::signbit( back->Bounds->Min.y ) ) << "negative zero lost its sign";
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_TRUE( std::signbit( back->Bounds.value().Min.y ) )
+         << "negative zero lost its sign"; // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     const AssetRegistryEntry* none = parsed.GetValue().FindByKey( "assets:Materials/M.demat" );
     ASSERT_NE( none, nullptr );
