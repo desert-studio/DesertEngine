@@ -511,21 +511,28 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction";
     std::filesystem::create_directories( dir );
 
-    const std::filesystem::path texturePath  = dir / "probe_texture.tex";
+    const std::filesystem::path texturePath  = dir / "probe_texture.detex";
     const std::filesystem::path materialPath = dir / "probe_material.demat";
+
+    // A `.detex` with its GUID in the header: a `.demat` names a texture by that GUID (MATL 3), so the
+    // texture's handle has to be the one the GUID derives, which a headerless file cannot state.
+    const auto source = std::vector<std::byte>( 4, std::byte{ 0x7F } );
+    const auto textureSource =
+         MakeTextureSourceAsset( Common::Content::ContentKind::Texture, "assets:Textures/EvictionProbe.png",
+                                 source, TextureImportSettings{} );
+    ASSERT_TRUE( WriteTextureSourceAssetFile( texturePath, textureSource ).IsSuccess() );
 
     AssetManager manager;
 
     auto texture =
          manager.CreateAsset<TextureAsset>( AssetPriority::Medium, Common::Filepath( texturePath ), false );
     ASSERT_TRUE( texture );
-    const uint64_t textureHandle = static_cast<uint64_t>( texture->GetMetadata().Handle );
 
     {
         // Through the one .demat writer, so the probe states the header and schema generation the loader
         // requires; a hand-typed body without them loads as substituted defaults and names no texture.
         MaterialData probe;
-        probe.SetTexture( "u_AlbedoTexture", textureHandle );
+        probe.SetTexture( "u_AlbedoTexture", textureSource.Guid, "assets:Textures/EvictionProbe.detex" );
         const auto written = WriteMaterialFile( materialPath, probe );
         ASSERT_TRUE( written ) << written.GetError();
     }
@@ -548,6 +555,7 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
          << "the ROOT set was mutated; the closure must be a copy so the caller's roots stay its own";
 
     std::filesystem::remove( materialPath );
+    std::filesystem::remove( texturePath );
 }
 
 TEST( AssetEviction, ATextureCreatedWithoutLoadIsKeyedByItsHeaderGuid )

@@ -203,8 +203,11 @@ namespace
     // BOOLSUCCESS;` — it never opened the file it named, so a skybox whose .hdr had been moved or left
     // out of a package loaded, registered and reported ready while the sky came out black. It verifies
     // the file's presence now, and AssetManager::CreateAsset drops an asset whose Load fails, so the
-    // tests below have to give it something to find. The CONTENT is irrelevant: this asset carries an
-    // identity, and the panorama's bytes are read by the GPU environment bake, not by Load.
+    // tests below have to give it something to find. The HEADER matters and the pixels do not: the
+    // skybox adopts its panorama asset's header GUID at creation (MATL 3), so a headerless file logs an
+    // unreadable identity - which lands on the one line the child-process tests read back. The file is
+    // written through the importer's own writer, a fresh GUID per file; the panorama's bytes are read by
+    // the GPU environment bake, not by Load.
     class ScratchFile
     {
     public:
@@ -212,8 +215,14 @@ namespace
         {
             std::error_code ec;
             std::filesystem::create_directories( m_Path.parent_path(), ec );
-            std::ofstream out( m_Path, std::ios::binary );
-            out << "scratch";
+            const std::vector<std::byte> source( 4, std::byte{ 0x7F } );
+            const auto asset   = Desert::Assets::MakeTextureSourceAsset( Common::Content::ContentKind::Skybox,
+                                                                         "assets:Sky/Scratch.hdr", source,
+                                                                         Desert::Assets::TextureImportSettings{} );
+            const auto written = Desert::Assets::WriteTextureSourceAssetFile( m_Path, asset );
+            if ( !written.IsSuccess() )
+                ADD_FAILURE() << "scratch skybox '" << m_Path.string()
+                              << "' was not written: " << written.GetError();
         }
 
         ~ScratchFile()
@@ -487,7 +496,7 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
     {
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out << R"({"Params":[],"Textures":[]})";
+        out << R"({"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})";
     }
 
     Desert::Assets::SurfaceMaterialAsset material( AssetPriority::Medium, Common::Filepath( scratch ) );
@@ -940,7 +949,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
         out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
-               R"("Versions":{"MATL":2},"Dependencies":[]},"Params":[],"Textures":[]})";
+               R"("Versions":{"MATL":3},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})";
     }
 
     ProjectRootGuard guard;
@@ -1064,10 +1073,9 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 
     Desert::Assets::AssetManager manager;
 
-    // One SkyboxAsset, and nothing else in the registry. Its handle is derived from its path, and the
-    // derivation is type-blind by design (asserted at the top of this file), so this same number is what a
-    // CloudTypeAsset at this path would carry — which is exactly how a request for the wrong type arrives
-    // at a real record: a saved scene stores a bare 64-bit number with no type beside it.
+    // One SkyboxAsset, and nothing else in the registry. Its handle is its header GUID's fold, a number
+    // with no type in it — which is exactly how a request for the wrong type arrives at a real record: a
+    // saved scene stores a bare 64-bit number with no type beside it.
     const ScratchFile impostor( "RegistryProbe/Content/Impostor.asset" );
     const auto        sky = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
          AssetPriority::Medium, Common::Filepath( "RegistryProbe/Content/Impostor.asset" ) );

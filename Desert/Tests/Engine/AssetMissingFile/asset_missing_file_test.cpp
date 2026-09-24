@@ -116,7 +116,7 @@ TEST( AssetMissingFile, AParsedMaterialSavesNormally )
 {
     const fs::path path = PathWith(
          "fine.demat",
-         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":2},"Dependencies":[]},"Params":[],"Textures":[]})" );
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":3},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})" );
 
     Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
     ASSERT_TRUE( material.Load().IsSuccess() );
@@ -144,7 +144,7 @@ TEST( AssetMissingFile, AMaterialHoldingANonNumberRefusesToSaveAndNamesTheParame
 {
     const fs::path path = PathWith(
          "not_a_number.demat",
-         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a002","Versions":{"MATL":2},"Dependencies":[]},"Params":[],"Textures":[]})" );
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a002","Versions":{"MATL":3},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})" );
 
     for ( const float bad : { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
                               -std::numeric_limits<float>::infinity() } )
