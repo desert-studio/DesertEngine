@@ -198,12 +198,12 @@ namespace Desert::Editor::Core
 
     struct LandscapeSculptSettings
     {
-        LandscapeTool                              Tool = LandscapeTool::Sculpt;
-        World::Landscape::LandscapeBrushSettings   Brush;
-        World::Landscape::LandscapeSmoothSettings  Smooth;
-        World::Landscape::LandscapeFlattenSettings Flatten;
-        World::Landscape::LandscapeNoiseSettings   Noise;
-        World::Landscape::LandscapeRampSettings    Ramp;
+        LandscapeTool                                   Tool = LandscapeTool::Sculpt;
+        World::Landscape::LandscapeBrushSettings        Brush;
+        World::Landscape::LandscapeSmoothSettings       Smooth;
+        World::Landscape::LandscapeFlattenSettings      Flatten;
+        World::Landscape::LandscapeNoiseSettings        Noise;
+        World::Landscape::LandscapeRampSettings         Ramp;
         World::Landscape::LandscapeErosionSettings      Erosion;
         World::Landscape::LandscapeHydroErosionSettings HydroErosion;
         World::Landscape::LandscapeMirrorSettings       Mirror;

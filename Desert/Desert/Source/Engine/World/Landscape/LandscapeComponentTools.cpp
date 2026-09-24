@@ -193,7 +193,8 @@ namespace Desert::World::Landscape
     }
 
     Common::BoolResultStr LandscapeHeightStroke::ApplyPaste( const LandscapeCopyBuffer& buffer, glm::vec3 atCm,
-                                                             LandscapePasteMode mode )
+                                                             LandscapePasteMode            mode,
+                                                             const LandscapeBrushSettings& brush )
     {
         if ( buffer.Empty() ||
              buffer.Relative.size() != static_cast<size_t>( buffer.SizeX ) * static_cast<size_t>( buffer.SizeZ ) )
@@ -207,6 +208,12 @@ namespace Desert::World::Landscape
         const int32_t               z1 = cz - buffer.SizeZ / 2;
         const LandscapeSampleBounds rect =
              Clip( { x1, z1, x1 + buffer.SizeX - 1, z1 + buffer.SizeZ - 1 }, m_Bounds );
+        // UE's circle brush centred on the paste point: PaintAmount = BrushValue · ToolStrength, so the falloff
+        // carries the pasted heights into the relief instead of standing them on a wall.
+        const glm::vec2 centre( atCm.x, atCm.z );
+        auto            weights = ComputeLandscapeBrush( m_Root, brush, std::span<const glm::vec2>( &centre, 1 ) );
+        if ( !weights.IsSuccess() )
+            return Common::MakeError( "landscape paste: " + weights.GetError() );
         auto cached = Cache( rect );
         if ( !cached.IsSuccess() )
             return cached;
@@ -222,10 +229,16 @@ namespace Desert::World::Landscape
                 uint16_t&     value = data[static_cast<size_t>( ( z - rect.Z1 ) * width + ( x - rect.X1 ) )];
                 const int32_t rel = buffer.Relative[static_cast<size_t>( ( z - z1 ) * buffer.SizeX + ( x - x1 ) )];
                 const uint16_t dest = static_cast<uint16_t>( std::clamp( base + rel, 0, 65535 ) );
-                // PaintAmount is 1 (gizmo brush, ratio 1): Lerp(Original, Dest, 1) is Dest.
-                if ( mode == LandscapePasteMode::Both || ( mode == LandscapePasteMode::Raise && value < dest ) ||
-                     ( mode == LandscapePasteMode::Lower && value > dest ) )
-                    value = dest;
+                // Lerp(Original, Dest, PaintAmount) truncated to uint16 as UE does; the amount is clamped to
+                // [0, 1] because a strength above 1 would extrapolate past Dest and a float outside uint16 does
+                // not convert.
+                const float paint = std::clamp( weights.GetValue().At( x, z ), 0.0f, 1.0f );
+                if ( paint > 0.0f &&
+                     ( mode == LandscapePasteMode::Both || ( mode == LandscapePasteMode::Raise && value < dest ) ||
+                       ( mode == LandscapePasteMode::Lower && value > dest ) ) )
+                    value = static_cast<uint16_t>( static_cast<float>( value ) +
+                                                   ( static_cast<float>( dest ) - static_cast<float>( value ) ) *
+                                                        paint );
             }
         return m_Cache.SetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2, data );
     }

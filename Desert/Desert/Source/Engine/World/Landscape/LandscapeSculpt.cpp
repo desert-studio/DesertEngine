@@ -1061,6 +1061,10 @@ namespace Desert::World::Landscape
     int32_t LandscapeThermalErosion( LandscapeErosionField& field, const LandscapeErosionSettings& s,
                                      float strength )
     {
+        // UE's slider stops at 1 (ToolStrength UIMax). Above it every shed hands a neighbour more than the slope
+        // it came from, the pair swaps with a larger step each iteration and the stroke grows spikes up to the
+        // height limit, so the strength that reaches the shed is capped at 1, as Smooth caps its own.
+        strength = std::clamp( strength, 0.0f, 1.0f );
         const FieldIndex       ix{ field };
         std::vector<uint16_t>& h      = field.Heights;
         const uint16_t         thresh = static_cast<uint16_t>( s.Threshold );

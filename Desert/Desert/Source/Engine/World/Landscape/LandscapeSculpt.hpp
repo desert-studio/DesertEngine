@@ -419,7 +419,7 @@ namespace Desert::World::Landscape
          * heights. Refuses an empty buffer and a paste centre outside the landscape.
          */
         Common::BoolResultStr ApplyPaste( const LandscapeCopyBuffer& buffer, glm::vec3 atCm,
-                                          LandscapePasteMode mode );
+                                          LandscapePasteMode mode, const LandscapeBrushSettings& brush );
 
         bool Touched() const
         {

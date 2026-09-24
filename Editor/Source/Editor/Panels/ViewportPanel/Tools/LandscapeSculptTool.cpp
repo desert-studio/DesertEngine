@@ -212,7 +212,7 @@ namespace Desert::Editor::Tools
         m_Target = target.GetValue();
         m_Stroke.emplace( m_Target->Root, m_Target->Lookup, m_Target->Bounds );
         m_ToolName = Core::LandscapeToolName( Core::LandscapeSculptState::Get().Settings.Tool );
-        m_Failed = false;
+        m_Failed   = false;
         return Common::MakeSuccess( true );
     }
 
@@ -397,7 +397,8 @@ namespace Desert::Editor::Tools
             auto begun   = Begin( scene );
             m_ToolName   = "Paste";
             auto applied = begun.IsSuccess()
-                                ? m_Stroke->ApplyPaste( state.CopyBuffer, *point, state.Settings.PasteMode )
+                                ? m_Stroke->ApplyPaste( state.CopyBuffer, *point, state.Settings.PasteMode,
+                                                        state.Settings.Brush )
                                 : begun;
             if ( !applied.IsSuccess() )
                 ToastManager::Push( applied.GetError(), ToastLevel::Error, 6.0f );

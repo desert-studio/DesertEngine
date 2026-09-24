@@ -503,24 +503,24 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
     EXPECT_EQ( rows.size(), 36u );
 
     LandscapeSculptSettings other;
-    other.Tool                      = LandscapeTool::Smooth;
-    other.Brush.RadiusCm            = 400.0f;
-    other.Brush.FalloffFraction     = 0.2f;
-    other.Brush.Shape               = LandscapeBrushFalloff::Tip;
-    other.Brush.Strength            = 0.4f;
-    other.Smooth.FilterKernelRadius = 9;
-    other.Smooth.DetailSmooth       = true;
-    other.Smooth.DetailScale        = 0.5f;
-    other.Flatten.Mode              = LandscapeFlattenMode::Terrace;
-    other.Flatten.UseSlopeFlatten   = true;
-    other.Flatten.PickValuePerApply = true;
-    other.Flatten.TerraceIntervalCm = 256.0f;
-    other.Flatten.TerraceSmooth     = 0.5f;
-    other.Noise.Mode                = LandscapeNoiseMode::Sub;
-    other.Noise.NoiseScale          = 64.0f;
-    other.Ramp.Mode                 = LandscapeRampMode::Lower;
-    other.Ramp.WidthCm              = 500.0f;
-    other.Ramp.SideFalloff          = 0.7f;
+    other.Tool                          = LandscapeTool::Smooth;
+    other.Brush.RadiusCm                = 400.0f;
+    other.Brush.FalloffFraction         = 0.2f;
+    other.Brush.Shape                   = LandscapeBrushFalloff::Tip;
+    other.Brush.Strength                = 0.4f;
+    other.Smooth.FilterKernelRadius     = 9;
+    other.Smooth.DetailSmooth           = true;
+    other.Smooth.DetailScale            = 0.5f;
+    other.Flatten.Mode                  = LandscapeFlattenMode::Terrace;
+    other.Flatten.UseSlopeFlatten       = true;
+    other.Flatten.PickValuePerApply     = true;
+    other.Flatten.TerraceIntervalCm     = 256.0f;
+    other.Flatten.TerraceSmooth         = 0.5f;
+    other.Noise.Mode                    = LandscapeNoiseMode::Sub;
+    other.Noise.NoiseScale              = 64.0f;
+    other.Ramp.Mode                     = LandscapeRampMode::Lower;
+    other.Ramp.WidthCm                  = 500.0f;
+    other.Ramp.SideFalloff              = 0.7f;
     other.Erosion.Threshold             = 128;
     other.Erosion.Iterations            = 10;
     other.Erosion.NoiseMode             = LandscapeErosionNoiseMode::Both;
@@ -1073,6 +1073,18 @@ TEST( LandscapeSculpt, MirrorRefusesALineOnTheEdge )
     EXPECT_FALSE( stroke.Touched() );
 }
 
+namespace
+{
+    /// A hard-edged brush wider than every copy the tests paste: weight 1 over the whole copy.
+    LandscapeBrushSettings WholeCopy()
+    {
+        LandscapeBrushSettings brush;
+        brush.RadiusCm        = 2000.0f;
+        brush.FalloffFraction = 0.0f;
+        return brush;
+    }
+} // namespace
+
 TEST( LandscapeSculpt, CopyThenPasteElsewhereKeepsTheRelativeHeightsAcrossSeams )
 {
     World                       w( Noise );
@@ -1089,7 +1101,8 @@ TEST( LandscapeSculpt, CopyThenPasteElsewhereKeepsTheRelativeHeightsAcrossSeams 
     // Paste centred on (31, 31): the corner where four tiles meet.
     LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
     ASSERT_TRUE(
-         stroke.ApplyPaste( buffer, glm::vec3( 3100.0f, 0.0f, 3100.0f ), LandscapePasteMode::Both ).IsSuccess() );
+         stroke.ApplyPaste( buffer, glm::vec3( 3100.0f, 0.0f, 3100.0f ), LandscapePasteMode::Both, WholeCopy() )
+              .IsSuccess() );
     const int32_t base = Noise( 31, 31 );
     for ( int32_t dz = -6; dz <= 6; ++dz )
         for ( int32_t dx = -5; dx <= 5; ++dx )
@@ -1111,8 +1124,8 @@ TEST( LandscapeSculpt, PasteRaiseOnlyLiftsAndLowerOnlySinks )
                                              glm::vec3( 5000.0f, 0.0f, 5000.0f ) );
         ASSERT_TRUE( copied.IsSuccess() );
         LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
-        ASSERT_TRUE(
-             stroke.ApplyPaste( copied.GetValue(), glm::vec3( 1000.0f, 0.0f, 1000.0f ), mode ).IsSuccess() );
+        ASSERT_TRUE( stroke.ApplyPaste( copied.GetValue(), glm::vec3( 1000.0f, 0.0f, 1000.0f ), mode, WholeCopy() )
+                          .IsSuccess() );
         int32_t changed = 0, kept = 0;
         for ( int32_t dz = -5; dz <= 5; ++dz )
             for ( int32_t dx = -5; dx <= 5; ++dx )
@@ -1136,11 +1149,58 @@ TEST( LandscapeSculpt, CopyAndPasteRefuseWhatUESilentlySkips )
                                         glm::vec3( -500.0f, 0.0f, -500.0f ) )
                        .IsSuccess() );
     LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
-    EXPECT_FALSE( stroke.ApplyPaste( {}, glm::vec3( 1000.0f ), LandscapePasteMode::Both ).IsSuccess() );
+    EXPECT_FALSE(
+         stroke.ApplyPaste( {}, glm::vec3( 1000.0f ), LandscapePasteMode::Both, WholeCopy() ).IsSuccess() );
     auto copied = CopyLandscapeHeights( w.Root, w.Lookup(), w.Bounds(), glm::vec3( 0.0f ), glm::vec3( 300.0f ) );
     ASSERT_TRUE( copied.IsSuccess() );
-    EXPECT_FALSE(
-         stroke.ApplyPaste( copied.GetValue(), glm::vec3( 9000.0f, 0.0f, 0.0f ), LandscapePasteMode::Both )
-              .IsSuccess() );
+    EXPECT_FALSE( stroke
+                       .ApplyPaste( copied.GetValue(), glm::vec3( 9000.0f, 0.0f, 0.0f ), LandscapePasteMode::Both,
+                                    WholeCopy() )
+                       .IsSuccess() );
     EXPECT_FALSE( stroke.Touched() );
+}
+
+TEST( LandscapeSculpt, ThermalErosionAtUEsLimitsRaisesNoPeakAndKeepsItsMass )
+{
+    // UE's ClampMax: strength 10, 300 iterations; thirty strokes over the same cliff, at full and half brush.
+    for ( const float brushValue : { 1.0f, 0.5f } )
+    {
+        LandscapeErosionField    f = Field( Cliff, brushValue );
+        LandscapeErosionSettings s;
+        s.Iterations       = kLandscapeMaxErosionIterations;
+        const auto highest = []( const LandscapeErosionField& e )
+        { return *std::max_element( e.Heights.begin(), e.Heights.end() ); };
+        const int32_t peak       = highest( f );
+        const int64_t massBefore = Mass( f );
+        for ( int32_t stroke = 0; stroke < 30; ++stroke )
+            LandscapeThermalErosion( f, s, 10.0f );
+        EXPECT_LE( highest( f ), peak ) << "erosion only moves height downhill, brush " << brushValue;
+        const int64_t lost = massBefore - Mass( f );
+        EXPECT_GE( lost, 0 ) << "brush " << brushValue;
+        EXPECT_LT( static_cast<double>( lost ) / static_cast<double>( massBefore ), 1e-4 ) << brushValue;
+    }
+}
+
+TEST( LandscapeSculpt, PasteFadesIntoTheReliefAlongTheBrushFalloff )
+{
+    World w( Noise );
+    auto  copied = CopyLandscapeHeights( w.Root, w.Lookup(), w.Bounds(), glm::vec3( 4000.0f, 0.0f, 4000.0f ),
+                                         glm::vec3( 5000.0f, 0.0f, 5000.0f ) );
+    ASSERT_TRUE( copied.IsSuccess() );
+    // A 5-sample brush inside the 11 x 11 copy: the circle's rim is where the paste must meet the relief.
+    LandscapeBrushSettings brush;
+    brush.RadiusCm        = 500.0f;
+    brush.FalloffFraction = 0.5f;
+    LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+    ASSERT_TRUE( stroke
+                      .ApplyPaste( copied.GetValue(), glm::vec3( 1000.0f, 0.0f, 1000.0f ),
+                                   LandscapePasteMode::Both, brush )
+                      .IsSuccess() );
+    EXPECT_EQ( w.At( 10, 10 ), Noise( 10, 10 ) ) << "the centre keeps the paste point's height";
+    EXPECT_EQ( int32_t( w.At( 11, 10 ) ) - Noise( 10, 10 ), Noise( 46, 45 ) - Noise( 45, 45 ) )
+         << "inside the full-weight circle the copy lands exactly";
+    for ( int32_t d = -5; d <= 5; ++d )
+        for ( const auto& [x, z] : { std::pair{ 10 + d, 5 }, std::pair{ 10 + d, 15 }, std::pair{ 5, 10 + d },
+                                     std::pair{ 15, 10 + d } } )
+            EXPECT_EQ( w.At( x, z ), Noise( x, z ) ) << "no wall on the rim at " << x << "," << z;
 }
