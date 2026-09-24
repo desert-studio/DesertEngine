@@ -117,6 +117,12 @@ static void OpenConsoleIfAsked( const int argc, char** argv )
 int main( int argc, char** argv )
 {
 #ifdef _WIN32
+    // PER-MONITOR DPI AWARENESS, FIRST THING. It can only be declared before the process creates its first
+    // window, and the native splash now does that before GLFW starts -- GLFW's own attempt then failed
+    // silently, and Windows bitmap-stretched the whole editor to the display scale (owner, 2026-09-24:
+    // "everything is too big"). UE declares the same, per monitor v2, in its application manifest.
+    if ( SetProcessDpiAwarenessContext( DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ) == 0 )
+        (void)SetProcessDPIAware();
     OpenConsoleIfAsked( argc, argv );
 #endif
     // Before anything can throw, and before the logger exists: the handler writes to stderr directly so
