@@ -199,6 +199,82 @@ namespace Desert::World::Landscape
             for ( size_t x = 0; x < width; ++x )
                 Dft( data, x, width, height, sign, scratch );
         }
+
+        /// UE's BrushValue at every sample of @p inner, row-major, X fastest.
+        std::vector<float> BrushValues( const LandscapeBrushWeights& weights, const LandscapeBrushSettings& brush,
+                                        const LandscapeSampleBounds& inner )
+        {
+            std::vector<float> values;
+            values.reserve( static_cast<size_t>( inner.X2 - inner.X1 + 1 ) *
+                            static_cast<size_t>( inner.Z2 - inner.Z1 + 1 ) );
+            for ( int32_t z = inner.Z1; z <= inner.Z2; ++z )
+                for ( int32_t x = inner.X1; x <= inner.X2; ++x )
+                    values.push_back( BrushValue( weights, brush, x, z ) );
+            return values;
+        }
+
+        /// LowPassFilter: a 2D DFT of @p inner (the brush bounds inside @p rect, UE's X1 + 1 .. X2 - 1), the
+        /// 1 / (1 + d^2 / dist) filter, and a lerp towards the filtered height by BrushValue * @p amount.
+        void LowPassFilter( std::vector<uint16_t>& data, const LandscapeSampleBounds& rect,
+                            const LandscapeSampleBounds& inner, const std::vector<float>& brushValues,
+                            float detailScale, float amount )
+        {
+            const int32_t width = rect.X2 - rect.X1 + 1;
+            auto          index = [&]( int32_t x, int32_t z )
+            { return static_cast<size_t>( ( z - rect.Z1 ) * width + ( x - rect.X1 ) ); };
+            const size_t fftW = static_cast<size_t>( inner.X2 - inner.X1 + 1 );
+            const size_t fftH = static_cast<size_t>( inner.Z2 - inner.Z1 + 1 );
+            if ( fftW <= 1u && fftH <= 1u )
+                return;
+            auto local = [&]( int32_t x, int32_t z )
+            { return static_cast<size_t>( z - inner.Z1 ) * fftW + static_cast<size_t>( x - inner.X1 ); };
+            std::vector<Complex> buf( fftW * fftH );
+            for ( int32_t z = inner.Z1; z <= inner.Z2; ++z )
+                for ( int32_t x = inner.X1; x <= inner.X2; ++x )
+                    buf[local( x, z )] = Complex( static_cast<double>( data[index( x, z )] ), 0.0 );
+            Dft2D( buf, fftW, fftH, -1.0 );
+
+            const int32_t dims0 = static_cast<int32_t>( fftH );
+            const int32_t dims1 = static_cast<int32_t>( fftW );
+            const float   ratio = 1.0f - detailScale;
+            const float   dist =
+                 std::min( ( dims0 * ratio ) * ( dims0 * ratio ), ( dims1 * ratio ) * ( dims1 * ratio ) );
+            for ( int32_t y = 0; y < dims0; ++y )
+                for ( int32_t x = 0; x < dims1; ++x )
+                {
+                    // The four quadrants of UE's loop: distance from the zero frequency with wrap-around.
+                    const int32_t fy             = y < ( dims0 >> 1 ) ? y : y - dims0;
+                    const int32_t fx             = x < ( dims1 >> 1 ) ? x : x - dims1;
+                    const float   distFromCenter = static_cast<float>( fx * fx + fy * fy );
+                    const float   filter         = 1.0f / ( 1.0f + distFromCenter / dist );
+                    buf[static_cast<size_t>( y ) * fftW + static_cast<size_t>( x )] *=
+                         static_cast<double>( filter );
+                }
+            Dft2D( buf, fftW, fftH, 1.0 );
+
+            const float scale = static_cast<float>( dims0 * dims1 );
+            for ( int32_t z = inner.Z1; z <= inner.Z2; ++z )
+                for ( int32_t x = inner.X1; x <= inner.X2; ++x )
+                {
+                    const float brushValue = brushValues[local( x, z )];
+                    if ( brushValue > 0.0f )
+                    {
+                        const float filtered = static_cast<float>( buf[local( x, z )].real() );
+                        data[index( x, z )] =
+                             LerpValue( data[index( x, z )], filtered / scale, brushValue * amount );
+                    }
+                }
+        }
+
+        /// NoiseModeConversion: Both keeps the noise centred on 0, Add / Sub shift it by its amplitude.
+        float NoiseModeConversion( LandscapeNoiseMode mode, float amount, float sample )
+        {
+            if ( mode == LandscapeNoiseMode::Add )
+                return sample + amount;
+            if ( mode == LandscapeNoiseMode::Sub )
+                return sample - amount;
+            return sample;
+        }
     } // namespace
 
     Common::BoolResultStr ValidateLandscapeSmooth( const LandscapeSmoothSettings& s )
@@ -497,50 +573,7 @@ namespace Desert::World::Landscape
 
         if ( smooth.DetailSmooth )
         {
-            // LowPassFilter over the brush bounds (UE's X1 + 1 .. X2 - 1 of the grown rectangle).
-            const size_t fftW = static_cast<size_t>( b.X2 - b.X1 + 1 );
-            const size_t fftH = static_cast<size_t>( b.Z2 - b.Z1 + 1 );
-            if ( fftW <= 1u && fftH <= 1u )
-                return m_Cache.SetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2, data );
-            std::vector<Complex> buf( fftW * fftH );
-            for ( int32_t z = b.Z1; z <= b.Z2; ++z )
-                for ( int32_t x = b.X1; x <= b.X2; ++x )
-                    buf[static_cast<size_t>( z - b.Z1 ) * fftW + static_cast<size_t>( x - b.X1 )] =
-                         Complex( static_cast<double>( data[index( x, z )] ), 0.0 );
-            Dft2D( buf, fftW, fftH, -1.0 );
-
-            const int32_t dims0 = static_cast<int32_t>( fftH );
-            const int32_t dims1 = static_cast<int32_t>( fftW );
-            const float   ratio = 1.0f - smooth.DetailScale;
-            const float   dist =
-                 std::min( ( dims0 * ratio ) * ( dims0 * ratio ), ( dims1 * ratio ) * ( dims1 * ratio ) );
-            for ( int32_t y = 0; y < dims0; ++y )
-                for ( int32_t x = 0; x < dims1; ++x )
-                {
-                    // The four quadrants of UE's loop: distance from the zero frequency with wrap-around.
-                    const int32_t fy             = y < ( dims0 >> 1 ) ? y : y - dims0;
-                    const int32_t fx             = x < ( dims1 >> 1 ) ? x : x - dims1;
-                    const float   distFromCenter = static_cast<float>( fx * fx + fy * fy );
-                    const float   filter         = 1.0f / ( 1.0f + distFromCenter / dist );
-                    buf[static_cast<size_t>( y ) * fftW + static_cast<size_t>( x )] *=
-                         static_cast<double>( filter );
-                }
-            Dft2D( buf, fftW, fftH, 1.0 );
-
-            const float scale = static_cast<float>( dims0 * dims1 );
-            for ( int32_t z = b.Z1; z <= b.Z2; ++z )
-                for ( int32_t x = b.X1; x <= b.X2; ++x )
-                {
-                    const float brushValue = BrushValue( weights, brush, x, z );
-                    if ( brushValue > 0.0f )
-                    {
-                        const float filtered = static_cast<float>(
-                             buf[static_cast<size_t>( z - b.Z1 ) * fftW + static_cast<size_t>( x - b.X1 )]
-                                  .real() );
-                        data[index( x, z )] =
-                             LerpValue( data[index( x, z )], filtered / scale, brushValue * toolStrength );
-                    }
-                }
+            LowPassFilter( data, rect, b, BrushValues( weights, brush, b ), smooth.DetailScale, toolStrength );
             return m_Cache.SetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2, data );
         }
 
@@ -793,12 +826,8 @@ namespace Desert::World::Landscape
                 uint16_t&   current       = data[static_cast<size_t>( ( z - rect.Z1 ) * width + ( x - rect.X1 ) )];
                 const float totalStrength = brushValue * brush.Strength * multiplier;
                 const float amount        = totalStrength * brushSizeAdjust;
-                float       paint         = LandscapeNoiseSample( x, z, noise.NoiseScale ) * amount;
-                // NoiseModeConversion
-                if ( noise.Mode == LandscapeNoiseMode::Add )
-                    paint += amount;
-                else if ( noise.Mode == LandscapeNoiseMode::Sub )
-                    paint -= amount;
+                const float paint         = NoiseModeConversion( noise.Mode, amount,
+                                                                 LandscapeNoiseSample( x, z, noise.NoiseScale ) * amount );
                 current = ClampValue( static_cast<int64_t>( static_cast<float>( current ) + paint ) );
             }
         return m_Cache.SetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2, data );
@@ -947,6 +976,356 @@ namespace Desert::World::Landscape
         record.Before = before.GetValue();
         record.After  = after.GetValue();
         return Common::MakeSuccess( std::move( record ) );
+    }
+
+    Common::BoolResultStr ValidateLandscapeErosion( const LandscapeErosionSettings& s )
+    {
+        if ( s.Threshold < 0 || s.Threshold > kLandscapeMaxErosionThreshold )
+            return Common::MakeError( "landscape erosion: threshold " + std::to_string( s.Threshold ) +
+                                      " outside 0.." + std::to_string( kLandscapeMaxErosionThreshold ) );
+        if ( s.Iterations < 1 || s.Iterations > kLandscapeMaxErosionIterations )
+            return Common::MakeError( "landscape erosion: iterations " + std::to_string( s.Iterations ) +
+                                      " outside 1.." + std::to_string( kLandscapeMaxErosionIterations ) );
+        if ( !( s.NoiseScale >= kLandscapeMinNoiseScale && s.NoiseScale <= kLandscapeMaxNoiseScale ) )
+            return Common::MakeError( "landscape erosion: noise scale " + std::to_string( s.NoiseScale ) +
+                                      " outside " + std::to_string( kLandscapeMinNoiseScale ) + ".." +
+                                      std::to_string( kLandscapeMaxNoiseScale ) );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr ValidateLandscapeHydroErosion( const LandscapeHydroErosionSettings& s )
+    {
+        if ( s.RainAmount < 1 || s.RainAmount > kLandscapeMaxRainAmount )
+            return Common::MakeError( "landscape hydro erosion: rain amount " + std::to_string( s.RainAmount ) +
+                                      " outside 1.." + std::to_string( kLandscapeMaxRainAmount ) );
+        if ( !( s.SedimentCapacity >= kLandscapeMinSedimentCapacity && s.SedimentCapacity <= 1.0f ) )
+            return Common::MakeError( "landscape hydro erosion: sediment capacity " +
+                                      std::to_string( s.SedimentCapacity ) + " outside " +
+                                      std::to_string( kLandscapeMinSedimentCapacity ) + "..1" );
+        if ( s.Iterations < 1 || s.Iterations > kLandscapeMaxErosionIterations )
+            return Common::MakeError( "landscape hydro erosion: iterations " + std::to_string( s.Iterations ) +
+                                      " outside 1.." + std::to_string( kLandscapeMaxErosionIterations ) );
+        if ( !( s.RainScale >= kLandscapeMinNoiseScale && s.RainScale <= kLandscapeMaxNoiseScale ) )
+            return Common::MakeError( "landscape hydro erosion: rain scale " + std::to_string( s.RainScale ) +
+                                      " outside " + std::to_string( kLandscapeMinNoiseScale ) + ".." +
+                                      std::to_string( kLandscapeMaxNoiseScale ) );
+        if ( !( s.DetailScale >= 0.0f && s.DetailScale <= kLandscapeMaxHydroDetailScale ) )
+            return Common::MakeError( "landscape hydro erosion: detail scale " + std::to_string( s.DetailScale ) +
+                                      " outside 0.." + std::to_string( kLandscapeMaxHydroDetailScale ) );
+        return Common::MakeSuccess( true );
+    }
+
+    namespace
+    {
+        /// Index helpers over an erosion field: @p Rect for heights, @p Inner for brush values.
+        struct FieldIndex
+        {
+            const LandscapeErosionField& F;
+
+            size_t At( int32_t x, int32_t z ) const
+            {
+                return static_cast<size_t>( ( z - F.Rect.Z1 ) * ( F.Rect.X2 - F.Rect.X1 + 1 ) +
+                                            ( x - F.Rect.X1 ) );
+            }
+
+            float Brush( int32_t x, int32_t z ) const
+            {
+                return F.Brush[static_cast<size_t>( ( z - F.Inner.Z1 ) * ( F.Inner.X2 - F.Inner.X1 + 1 ) +
+                                                    ( x - F.Inner.X1 ) )];
+            }
+        };
+
+        /// A float amount as UE's (uint16) cast takes it, clamped first: a float outside uint16 converts with
+        /// undefined behaviour in C++ (UE relies on it not happening).
+        uint16_t ToSample( float v )
+        {
+            return static_cast<uint16_t>( std::clamp( v, 0.0f, static_cast<float>( kLandscapeMaxSample ) ) );
+        }
+
+        /// UE casts ELandscapeToolErosionMode to ELandscapeToolNoiseMode: Both / Raise / Lower = Both / Add / Sub.
+        LandscapeNoiseMode ErosionNoiseMode( LandscapeErosionNoiseMode mode )
+        {
+            switch ( mode )
+            {
+                case LandscapeErosionNoiseMode::Raise:
+                    return LandscapeNoiseMode::Add;
+                case LandscapeErosionNoiseMode::Lower:
+                    return LandscapeNoiseMode::Sub;
+                case LandscapeErosionNoiseMode::Both:
+                    break;
+            }
+            return LandscapeNoiseMode::Both;
+        }
+    } // namespace
+
+    int32_t LandscapeThermalErosion( LandscapeErosionField& field, const LandscapeErosionSettings& s,
+                                     float strength )
+    {
+        const FieldIndex       ix{ field };
+        std::vector<uint16_t>& h      = field.Heights;
+        const uint16_t         thresh = static_cast<uint16_t>( s.Threshold );
+        int32_t                ran    = 0;
+        for ( int32_t i = 0; i < s.Iterations; ++i )
+        {
+            ++ran;
+            bool changed = false;
+            for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
+                for ( int32_t x = field.Inner.X1; x <= field.Inner.X2; ++x )
+                {
+                    const float brushValue = ix.Brush( x, z );
+                    if ( !( brushValue > 0.0f ) )
+                        continue;
+                    const size_t                center     = ix.At( x, z );
+                    const std::array<size_t, 4> neighbour  = { ix.At( x - 1, z ), ix.At( x + 1, z ),
+                                                               ix.At( x, z - 1 ), ix.At( x, z + 1 ) };
+                    uint32_t                    slopeTotal = 0;
+                    uint16_t                    slopeMax   = thresh;
+                    for ( const size_t n : neighbour )
+                        if ( h[center] > h[n] )
+                        {
+                            const uint16_t slope = static_cast<uint16_t>( h[center] - h[n] );
+                            if ( static_cast<float>( slope ) * brushValue > static_cast<float>( thresh ) )
+                            {
+                                slopeTotal += slope;
+                                slopeMax = std::max( slopeMax, slope );
+                            }
+                        }
+                    if ( slopeTotal == 0 )
+                        continue;
+                    // UE's Softness stays 1: layer hardness needs paint layers the heightmap target lacks.
+                    float totalHeightDiff = 0.0f;
+                    for ( const size_t n : neighbour )
+                        if ( h[center] > h[n] )
+                        {
+                            const uint16_t slope = static_cast<uint16_t>( h[center] - h[n] );
+                            if ( slope > thresh )
+                            {
+                                const float weightDiff =
+                                     strength *
+                                     ( static_cast<float>( slope ) / static_cast<float>( slopeTotal ) ) *
+                                     brushValue;
+                                const float heightDiff = static_cast<float>( slopeMax - thresh ) * weightDiff;
+                                h[n] = ClampValue( static_cast<int64_t>( h[n] ) + ToSample( heightDiff ) );
+                                totalHeightDiff += heightDiff;
+                            }
+                        }
+                    // UE's uint16 subtraction wraps when a strength above 1 sheds more than the sample holds;
+                    // ours stops at 0.
+                    h[center] = ClampValue( static_cast<int64_t>( h[center] ) - ToSample( totalHeightDiff ) );
+                    changed   = true;
+                }
+            if ( !changed )
+                break;
+        }
+        return ran;
+    }
+
+    void LandscapeErosionNoise( LandscapeErosionField& field, const LandscapeErosionSettings& s, float strength,
+                                float radiusCm )
+    {
+        const FieldIndex         ix{ field };
+        const LandscapeNoiseMode mode            = ErosionNoiseMode( s.NoiseMode );
+        const float              brushSizeAdjust = radiusCm < kLandscapeNoiseMaximumValueRadiusCm
+                                                        ? radiusCm / kLandscapeNoiseMaximumValueRadiusCm
+                                                        : 1.0f;
+        for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
+            for ( int32_t x = field.Inner.X1; x <= field.Inner.X2; ++x )
+            {
+                const float brushValue = ix.Brush( x, z );
+                if ( !( brushValue > 0.0f ) )
+                    continue;
+                const float amount = brushValue * static_cast<float>( s.Threshold ) * strength * brushSizeAdjust;
+                const float paint =
+                     NoiseModeConversion( mode, amount, LandscapeNoiseSample( x, z, s.NoiseScale ) * amount );
+                uint16_t& current = field.Heights[ix.At( x, z )];
+                current           = ClampValue( static_cast<int64_t>( static_cast<float>( current ) + paint ) );
+            }
+    }
+
+    int32_t LandscapeHydraulicErosion( LandscapeErosionField& field, const LandscapeHydroErosionSettings& s,
+                                       float strength )
+    {
+        const FieldIndex       ix{ field };
+        std::vector<uint16_t>& height = field.Heights;
+        std::vector<uint16_t>  water( height.size(), 0 );
+        std::vector<uint16_t>  sediment( height.size(), 0 );
+        const float            dissolvingRatio  = 0.07f * strength;
+        const float            evaporateRatio   = 0.5f;
+        const float            sedimentCapacity = 0.10f * s.SedimentCapacity;
+        const float            rainAmount       = static_cast<float>( s.RainAmount );
+        // UE casts RainDistMode to the noise mode: Both = Both, Positive = Add.
+        const LandscapeNoiseMode rainMode =
+             s.RainMode == LandscapeRainMode::Positive ? LandscapeNoiseMode::Add : LandscapeNoiseMode::Both;
+
+        for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
+            for ( int32_t x = field.Inner.X1; x <= field.Inner.X2; ++x )
+                if ( ix.Brush( x, z ) >= 1.0f )
+                {
+                    const float paint = NoiseModeConversion(
+                         rainMode, rainAmount, LandscapeNoiseSample( x, z, s.RainScale ) * rainAmount );
+                    if ( paint > 0.0f ) // "Raining only for positive region"
+                        water[ix.At( x, z )] = static_cast<uint16_t>( water[ix.At( x, z )] + ToSample( paint ) );
+                }
+
+        int32_t ran = 0;
+        for ( int32_t i = 0; i < s.Iterations; ++i )
+        {
+            ++ran;
+            bool waterExists = false;
+            for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
+                for ( int32_t x = field.Inner.X1; x <= field.Inner.X2; ++x )
+                {
+                    const float brushValue = ix.Brush( x, z );
+                    if ( !( brushValue > 0.0f ) )
+                        continue;
+                    const size_t                center    = ix.At( x, z );
+                    const std::array<size_t, 8> neighbour = { ix.At( x - 1, z ),     ix.At( x + 1, z ),
+                                                              ix.At( x, z - 1 ),     ix.At( x, z + 1 ),
+                                                              ix.At( x - 1, z - 1 ), ix.At( x + 1, z + 1 ),
+                                                              ix.At( x + 1, z - 1 ), ix.At( x - 1, z + 1 ) };
+
+                    const float dissolved = dissolvingRatio * static_cast<float>( water[center] ) * brushValue;
+                    if ( dissolved > 0.0f && static_cast<float>( height[center] ) >= dissolved )
+                    {
+                        height[center]   = static_cast<uint16_t>( height[center] - ToSample( dissolved ) );
+                        sediment[center] = static_cast<uint16_t>( sediment[center] + ToSample( dissolved ) );
+                    }
+
+                    uint32_t                totalHeightDiff   = 0;
+                    uint32_t                totalAltitudeDiff = 0;
+                    std::array<uint32_t, 8> altitudeDiff{};
+                    uint32_t                totalWaterDiff    = 0;
+                    uint32_t                totalSedimentDiff = 0;
+                    const uint32_t          altitude          = height[center] + water[center];
+                    float                   averageAltitude   = 0.0f;
+                    uint32_t                lowerNeighbours   = 0;
+                    for ( size_t k = 0; k < neighbour.size(); ++k )
+                    {
+                        const uint32_t neighbourAltitude = height[neighbour[k]] + water[neighbour[k]];
+                        if ( altitude > neighbourAltitude )
+                        {
+                            altitudeDiff[k] = altitude - neighbourAltitude;
+                            totalAltitudeDiff += altitudeDiff[k];
+                            ++lowerNeighbours;
+                            averageAltitude += static_cast<float>( neighbourAltitude );
+                            if ( height[center] > height[neighbour[k]] )
+                                totalHeightDiff += static_cast<uint32_t>( height[center] - height[neighbour[k]] );
+                        }
+                    }
+                    if ( lowerNeighbours > 0 )
+                    {
+                        averageAltitude /= static_cast<float>( lowerNeighbours );
+                        if ( totalHeightDiff != 0 )
+                            averageAltitude *= std::max(
+                                 0.0f, static_cast<float>( 1.0f - 0.1 * static_cast<double>( strength ) ) );
+                        const uint32_t waterTransfer = static_cast<uint32_t>(
+                             static_cast<float>( std::min<uint32_t>(
+                                  water[center], altitude - static_cast<uint32_t>( averageAltitude ) ) ) *
+                             brushValue );
+                        for ( size_t k = 0; k < neighbour.size(); ++k )
+                        {
+                            if ( altitudeDiff[k] == 0 )
+                                continue;
+                            const uint32_t waterDiff = static_cast<uint32_t>(
+                                 static_cast<float>( waterTransfer ) * static_cast<float>( altitudeDiff[k] ) /
+                                 static_cast<float>( totalAltitudeDiff ) );
+                            water[neighbour[k]] = static_cast<uint16_t>( water[neighbour[k]] + waterDiff );
+                            totalWaterDiff += waterDiff;
+                            const uint32_t sedimentDiff =
+                                 water[center] > 0
+                                      ? static_cast<uint32_t>( static_cast<float>( sediment[center] ) *
+                                                               static_cast<float>( waterDiff ) /
+                                                               static_cast<float>( water[center] ) )
+                                      : 0u;
+                            sediment[neighbour[k]] =
+                                 static_cast<uint16_t>( sediment[neighbour[k]] + sedimentDiff );
+                            totalSedimentDiff += sedimentDiff;
+                        }
+                        water[center]    = static_cast<uint16_t>( water[center] - totalWaterDiff );
+                        sediment[center] = static_cast<uint16_t>( sediment[center] - totalSedimentDiff );
+                    }
+
+                    if ( water[center] > 0 )
+                    {
+                        waterExists = true;
+                        water[center] =
+                             ToSample( static_cast<float>( water[center] ) * ( 1.0f - evaporateRatio ) );
+                        const float capacity     = sedimentCapacity * static_cast<float>( water[center] );
+                        const float sedimentDiff = static_cast<float>( sediment[center] ) - capacity;
+                        if ( sedimentDiff > 0.0f )
+                        {
+                            sediment[center] =
+                                 static_cast<uint16_t>( sediment[center] - ToSample( sedimentDiff ) );
+                            height[center] = ToSample( static_cast<float>( height[center] ) + sedimentDiff );
+                        }
+                    }
+                }
+            if ( !waterExists )
+                break;
+        }
+
+        if ( s.DetailSmooth )
+            LowPassFilter( height, field.Rect, field.Inner, field.Brush, s.DetailScale, 1.0f );
+        return ran;
+    }
+
+    Common::ResultStr<LandscapeErosionField>
+    LandscapeHeightStroke::ErosionField( const LandscapeBrushWeights&  weights,
+                                         const LandscapeBrushSettings& brush )
+    {
+        LandscapeErosionField field;
+        if ( weights.Empty() )
+            return Common::MakeSuccess( std::move( field ) );
+        field.Rect = StepRect( weights );
+        field.Inner =
+             Intersect( BrushRect( weights ), LandscapeSampleBounds{ field.Rect.X1 + 1, field.Rect.Z1 + 1,
+                                                                     field.Rect.X2 - 1, field.Rect.Z2 - 1 } );
+        if ( field.Rect.Empty() || field.Inner.Empty() )
+            return Common::MakeSuccess( std::move( field ) );
+        auto cached = Cache( field.Rect );
+        if ( !cached.IsSuccess() )
+            return Common::MakeError<LandscapeErosionField>( cached.GetError() );
+        auto read = m_Cache.GetCachedData( field.Rect.X1, field.Rect.Z1, field.Rect.X2, field.Rect.Z2 );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<LandscapeErosionField>( read.GetError() );
+        field.Heights = read.GetValue();
+        field.Brush   = BrushValues( weights, brush, field.Inner );
+        return Common::MakeSuccess( std::move( field ) );
+    }
+
+    Common::BoolResultStr LandscapeHeightStroke::ApplyErosion( const LandscapeBrushWeights&    weights,
+                                                               const LandscapeBrushSettings&   brush,
+                                                               const LandscapeErosionSettings& erosion )
+    {
+        auto valid = ValidateLandscapeErosion( erosion );
+        if ( !valid.IsSuccess() )
+            return valid;
+        auto read = ErosionField( weights, brush );
+        if ( !read.IsSuccess() )
+            return Common::MakeError( read.GetError() );
+        LandscapeErosionField field = read.GetValue();
+        if ( field.Brush.empty() )
+            return Common::MakeSuccess( true );
+        LandscapeThermalErosion( field, erosion, brush.Strength );
+        LandscapeErosionNoise( field, erosion, brush.Strength, brush.RadiusCm );
+        return m_Cache.SetCachedData( field.Rect.X1, field.Rect.Z1, field.Rect.X2, field.Rect.Z2, field.Heights );
+    }
+
+    Common::BoolResultStr LandscapeHeightStroke::ApplyHydroErosion( const LandscapeBrushWeights&         weights,
+                                                                    const LandscapeBrushSettings&        brush,
+                                                                    const LandscapeHydroErosionSettings& hydro )
+    {
+        auto valid = ValidateLandscapeHydroErosion( hydro );
+        if ( !valid.IsSuccess() )
+            return valid;
+        auto read = ErosionField( weights, brush );
+        if ( !read.IsSuccess() )
+            return Common::MakeError( read.GetError() );
+        LandscapeErosionField field = read.GetValue();
+        if ( field.Brush.empty() )
+            return Common::MakeSuccess( true );
+        LandscapeHydraulicErosion( field, hydro, brush.Strength );
+        return m_Cache.SetCachedData( field.Rect.X1, field.Rect.Z1, field.Rect.X2, field.Rect.Z2, field.Heights );
     }
 
     Common::BoolResultStr WriteLandscapeHeights( const LandscapeRoot& root, LandscapeTileLookup lookup,

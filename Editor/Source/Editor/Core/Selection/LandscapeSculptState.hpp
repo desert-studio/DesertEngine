@@ -13,9 +13,9 @@
 namespace Desert::Editor::Core
 {
     /**
-     * @brief The Landscape mode's Sculpt / Smooth / Flatten / Noise / Erase tool settings (UE's
-     * ULandscapeEditorObject subset) and the ONE table the tool panel draws its widgets from and the command
-     * palette offers as commands.
+     * @brief The Landscape mode's Sculpt / Smooth / Flatten / Noise / Erase / Ramp / Erosion / Hydro Erosion tool
+     * settings (UE's ULandscapeEditorObject subset) and the ONE table the tool panel draws its widgets from and
+     * the command palette offers as commands.
      *
      * WHY ONE TABLE. Synthetic mouse input is closed on this machine, so a setting only a hand can change is a
      * setting no unattended run can photograph. The panel draws NOTHING but the rows of LandscapeToolControls()
@@ -29,6 +29,8 @@ namespace Desert::Editor::Core
         Noise,
         Erase,
         Ramp,
+        Erosion,
+        HydroErosion,
     };
 
     inline const char* LandscapeToolName( LandscapeTool tool )
@@ -47,6 +49,10 @@ namespace Desert::Editor::Core
                 return "Erase";
             case LandscapeTool::Ramp:
                 return "Ramp";
+            case LandscapeTool::Erosion:
+                return "Erosion";
+            case LandscapeTool::HydroErosion:
+                return "Hydro Erosion";
         }
         return "Unknown";
     }
@@ -79,6 +85,32 @@ namespace Desert::Editor::Core
                 return "Add";
             case World::Landscape::LandscapeNoiseMode::Sub:
                 return "Sub";
+        }
+        return "Unknown";
+    }
+
+    inline const char* LandscapeErosionNoiseModeName( World::Landscape::LandscapeErosionNoiseMode mode )
+    {
+        switch ( mode )
+        {
+            case World::Landscape::LandscapeErosionNoiseMode::Both:
+                return "Both";
+            case World::Landscape::LandscapeErosionNoiseMode::Raise:
+                return "Raise";
+            case World::Landscape::LandscapeErosionNoiseMode::Lower:
+                return "Lower";
+        }
+        return "Unknown";
+    }
+
+    inline const char* LandscapeRainModeName( World::Landscape::LandscapeRainMode mode )
+    {
+        switch ( mode )
+        {
+            case World::Landscape::LandscapeRainMode::Both:
+                return "Both";
+            case World::Landscape::LandscapeRainMode::Positive:
+                return "Positive";
         }
         return "Unknown";
     }
@@ -127,6 +159,8 @@ namespace Desert::Editor::Core
         World::Landscape::LandscapeFlattenSettings Flatten;
         World::Landscape::LandscapeNoiseSettings   Noise;
         World::Landscape::LandscapeRampSettings    Ramp;
+        World::Landscape::LandscapeErosionSettings      Erosion;
+        World::Landscape::LandscapeHydroErosionSettings HydroErosion;
     };
 
     /// A stroke asked for from the palette: one step at the viewport centre, then the stroke ends. The ramp's
@@ -183,8 +217,9 @@ namespace Desert::Editor::Core
         auto ramp    = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Ramp; };
 
         std::vector<LandscapeToolControl> controls;
-        for ( const LandscapeTool tool : { LandscapeTool::Sculpt, LandscapeTool::Smooth, LandscapeTool::Flatten,
-                                           LandscapeTool::Noise, LandscapeTool::Erase, LandscapeTool::Ramp } )
+        for ( const LandscapeTool tool :
+              { LandscapeTool::Sculpt, LandscapeTool::Smooth, LandscapeTool::Flatten, LandscapeTool::Noise,
+                LandscapeTool::Erase, LandscapeTool::Ramp, LandscapeTool::Erosion, LandscapeTool::HydroErosion } )
             controls.push_back( { std::string( "Tool: " ) + LandscapeToolName( tool ), "Tool",
                                   [tool]( LandscapeSculptSettings& s ) { s.Tool = tool; }, always } );
 
@@ -330,6 +365,95 @@ namespace Desert::Editor::Core
              { "Ramp: set end at viewport centre", "Ramp", {}, ramp, LandscapeStrokeRequest::RampEnd } );
         controls.push_back( { "Ramp: apply", "Ramp", {}, ramp, LandscapeStrokeRequest::RampApply } );
         controls.push_back( { "Ramp: reset", "Ramp", {}, ramp, LandscapeStrokeRequest::RampReset } );
+
+        namespace L  = World::Landscape;
+        auto erosion = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Erosion; };
+        auto hydro   = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::HydroErosion; };
+        controls.push_back(
+             { "Erosion threshold: larger", "Erosion threshold", []( LandscapeSculptSettings& s )
+               { s.Erosion.Threshold = std::min( s.Erosion.Threshold + 16, L::kLandscapeMaxErosionThreshold ); },
+               erosion } );
+        controls.push_back( { "Erosion threshold: smaller", "Erosion threshold", []( LandscapeSculptSettings& s )
+                              { s.Erosion.Threshold = std::max( s.Erosion.Threshold - 16, 0 ); }, erosion } );
+        controls.push_back(
+             { "Erosion iterations: more", "Erosion iterations", []( LandscapeSculptSettings& s )
+               { s.Erosion.Iterations = std::min( s.Erosion.Iterations * 2, L::kLandscapeMaxErosionIterations ); },
+               erosion } );
+        controls.push_back( { "Erosion iterations: fewer", "Erosion iterations", []( LandscapeSculptSettings& s )
+                              { s.Erosion.Iterations = std::max( s.Erosion.Iterations / 2, 1 ); }, erosion } );
+        for ( const L::LandscapeErosionNoiseMode mode :
+              { L::LandscapeErosionNoiseMode::Both, L::LandscapeErosionNoiseMode::Raise,
+                L::LandscapeErosionNoiseMode::Lower } )
+            controls.push_back( { std::string( "Erosion noise mode: " ) + LandscapeErosionNoiseModeName( mode ),
+                                  "Erosion noise mode", [mode]( LandscapeSculptSettings& s )
+                                  { s.Erosion.NoiseMode = mode; }, erosion } );
+        controls.push_back(
+             { "Erosion noise scale: larger", "Erosion noise scale", []( LandscapeSculptSettings& s )
+               { s.Erosion.NoiseScale = std::min( s.Erosion.NoiseScale * 2.0f, L::kLandscapeMaxNoiseScale ); },
+               erosion } );
+        controls.push_back(
+             { "Erosion noise scale: smaller", "Erosion noise scale", []( LandscapeSculptSettings& s )
+               { s.Erosion.NoiseScale = std::max( s.Erosion.NoiseScale / 2.0f, L::kLandscapeMinNoiseScale ); },
+               erosion } );
+
+        controls.push_back( { "Rain amount: more", "Rain amount",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.HydroErosion.RainAmount =
+                                       std::min( s.HydroErosion.RainAmount * 2, L::kLandscapeMaxRainAmount );
+                              },
+                              hydro } );
+        controls.push_back( { "Rain amount: less", "Rain amount", []( LandscapeSculptSettings& s )
+                              { s.HydroErosion.RainAmount = std::max( s.HydroErosion.RainAmount / 2, 1 ); },
+                              hydro } );
+        controls.push_back(
+             { "Sediment capacity: larger", "Sediment capacity", []( LandscapeSculptSettings& s )
+               { s.HydroErosion.SedimentCapacity = std::min( s.HydroErosion.SedimentCapacity + 0.1f, 1.0f ); },
+               hydro } );
+        controls.push_back( { "Sediment capacity: smaller", "Sediment capacity",
+                              []( LandscapeSculptSettings& s )
+                              {
+                                  s.HydroErosion.SedimentCapacity = std::max(
+                                       s.HydroErosion.SedimentCapacity - 0.1f, L::kLandscapeMinSedimentCapacity );
+                              },
+                              hydro } );
+        controls.push_back( { "Hydro iterations: more", "Hydro iterations",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.HydroErosion.Iterations = std::min( s.HydroErosion.Iterations * 2,
+                                                                        L::kLandscapeMaxErosionIterations );
+                              },
+                              hydro } );
+        controls.push_back( { "Hydro iterations: fewer", "Hydro iterations", []( LandscapeSculptSettings& s )
+                              { s.HydroErosion.Iterations = std::max( s.HydroErosion.Iterations / 2, 1 ); },
+                              hydro } );
+        for ( const L::LandscapeRainMode mode : { L::LandscapeRainMode::Both, L::LandscapeRainMode::Positive } )
+            controls.push_back( { std::string( "Rain distribution: " ) + LandscapeRainModeName( mode ),
+                                  "Rain distribution", [mode]( LandscapeSculptSettings& s )
+                                  { s.HydroErosion.RainMode = mode; }, hydro } );
+        controls.push_back( { "Rain scale: larger", "Rain scale",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.HydroErosion.RainScale =
+                                       std::min( s.HydroErosion.RainScale * 2.0f, L::kLandscapeMaxNoiseScale );
+                              },
+                              hydro } );
+        controls.push_back( { "Rain scale: smaller", "Rain scale",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.HydroErosion.RainScale =
+                                       std::max( s.HydroErosion.RainScale / 2.0f, L::kLandscapeMinNoiseScale );
+                              },
+                              hydro } );
+        controls.push_back( { "Hydro detail smooth: on", "Hydro detail smooth",
+                              []( LandscapeSculptSettings& s ) { s.HydroErosion.DetailSmooth = true; }, hydro } );
+        controls.push_back( { "Hydro detail smooth: off", "Hydro detail smooth",
+                              []( LandscapeSculptSettings& s ) { s.HydroErosion.DetailSmooth = false; }, hydro } );
+        controls.push_back( { "Hydro detail scale: larger", "Hydro detail scale",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.HydroErosion.DetailScale = std::min( s.HydroErosion.DetailScale + 0.1f,
+                                                                         L::kLandscapeMaxHydroDetailScale );
+                              },
+                              hydro } );
+        controls.push_back(
+             { "Hydro detail scale: smaller", "Hydro detail scale", []( LandscapeSculptSettings& s )
+               { s.HydroErosion.DetailScale = std::max( s.HydroErosion.DetailScale - 0.1f, 0.0f ); }, hydro } );
         return controls;
     }
 } // namespace Desert::Editor::Core

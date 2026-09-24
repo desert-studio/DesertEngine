@@ -132,6 +132,19 @@ namespace Desert::Editor::Tools
         if ( settings.Tool == Core::LandscapeTool::Noise )
             ImGui::Text( "Mode %s   Scale %.1f", Core::LandscapeNoiseModeName( settings.Noise.Mode ),
                          settings.Noise.NoiseScale );
+        if ( settings.Tool == Core::LandscapeTool::Erosion )
+            ImGui::Text( "Threshold %d   Iterations %d   Noise mode %s   Noise scale %.1f",
+                         settings.Erosion.Threshold, settings.Erosion.Iterations,
+                         Core::LandscapeErosionNoiseModeName( settings.Erosion.NoiseMode ),
+                         settings.Erosion.NoiseScale );
+        if ( settings.Tool == Core::LandscapeTool::HydroErosion )
+            ImGui::Text(
+                 "Rain %d   Sediment capacity %.2f   Iterations %d   Rain distribution %s   Rain scale %.1f   "
+                 "Detail smooth %s %.2f",
+                 settings.HydroErosion.RainAmount, settings.HydroErosion.SedimentCapacity,
+                 settings.HydroErosion.Iterations, Core::LandscapeRainModeName( settings.HydroErosion.RainMode ),
+                 settings.HydroErosion.RainScale, settings.HydroErosion.DetailSmooth ? "on" : "off",
+                 settings.HydroErosion.DetailScale );
 
         // Every button is a row of LandscapeToolControls(), which the palette offers too (see that header).
         const char* row = nullptr;
@@ -205,6 +218,10 @@ namespace Desert::Editor::Tools
             case Core::LandscapeTool::Ramp:
                 return Common::MakeError( "landscape ramp: the ramp is not stroked; set its two points and run "
                                           "'Landscape: Ramp: apply'" );
+            case Core::LandscapeTool::Erosion:
+                return m_Stroke->ApplyErosion( weights.GetValue(), settings.Brush, settings.Erosion );
+            case Core::LandscapeTool::HydroErosion:
+                return m_Stroke->ApplyHydroErosion( weights.GetValue(), settings.Brush, settings.HydroErosion );
         }
         return Common::MakeError( "landscape stroke: unknown tool" );
     }

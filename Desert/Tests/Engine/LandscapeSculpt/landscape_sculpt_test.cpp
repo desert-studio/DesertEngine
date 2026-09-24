@@ -496,8 +496,10 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
     }
     // Every setting of LandscapeSculptSettings has a row: tool, radius, falloff, shape, strength, filter radius,
     // detail smooth, detail scale, flatten mode, slope flatten, pick per apply, terrace interval, terrace smooth,
-    // noise mode, noise scale, ramp mode, ramp width, side falloff — and the ramp's action row.
-    EXPECT_EQ( rows.size(), 19u );
+    // noise mode, noise scale, ramp mode, ramp width, side falloff — and the ramp's action row; erosion threshold,
+    // iterations, noise mode, noise scale; rain amount, sediment capacity, hydro iterations, rain distribution,
+    // rain scale, hydro detail smooth, hydro detail scale.
+    EXPECT_EQ( rows.size(), 30u );
 
     LandscapeSculptSettings other;
     other.Tool                      = LandscapeTool::Smooth;
@@ -518,7 +520,18 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
     other.Ramp.Mode                 = LandscapeRampMode::Lower;
     other.Ramp.WidthCm              = 500.0f;
     other.Ramp.SideFalloff          = 0.7f;
-    auto key                        = []( const LandscapeSculptSettings& s )
+    other.Erosion.Threshold             = 128;
+    other.Erosion.Iterations            = 10;
+    other.Erosion.NoiseMode             = LandscapeErosionNoiseMode::Both;
+    other.Erosion.NoiseScale            = 16.0f;
+    other.HydroErosion.RainAmount       = 64;
+    other.HydroErosion.SedimentCapacity = 0.5f;
+    other.HydroErosion.Iterations       = 20;
+    other.HydroErosion.RainMode         = LandscapeRainMode::Positive;
+    other.HydroErosion.RainScale        = 16.0f;
+    other.HydroErosion.DetailSmooth     = false;
+    other.HydroErosion.DetailScale      = 0.5f;
+    auto key                            = []( const LandscapeSculptSettings& s )
     {
         return std::to_string( static_cast<int>( s.Tool ) ) + std::to_string( s.Brush.RadiusCm ) +
                std::to_string( s.Brush.FalloffFraction ) + std::to_string( static_cast<int>( s.Brush.Shape ) ) +
@@ -528,7 +541,14 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
                std::to_string( s.Flatten.PickValuePerApply ) + std::to_string( s.Flatten.TerraceIntervalCm ) +
                std::to_string( s.Flatten.TerraceSmooth ) + std::to_string( static_cast<int>( s.Noise.Mode ) ) +
                std::to_string( s.Noise.NoiseScale ) + std::to_string( static_cast<int>( s.Ramp.Mode ) ) +
-               std::to_string( s.Ramp.WidthCm ) + std::to_string( s.Ramp.SideFalloff );
+               std::to_string( s.Ramp.WidthCm ) + std::to_string( s.Ramp.SideFalloff ) + "|" +
+               std::to_string( s.Erosion.Threshold ) + std::to_string( s.Erosion.Iterations ) +
+               std::to_string( static_cast<int>( s.Erosion.NoiseMode ) ) + std::to_string( s.Erosion.NoiseScale ) +
+               std::to_string( s.HydroErosion.RainAmount ) + std::to_string( s.HydroErosion.SedimentCapacity ) +
+               std::to_string( s.HydroErosion.Iterations ) +
+               std::to_string( static_cast<int>( s.HydroErosion.RainMode ) ) +
+               std::to_string( s.HydroErosion.RainScale ) + std::to_string( s.HydroErosion.DetailSmooth ) +
+               std::to_string( s.HydroErosion.DetailScale );
     };
     std::set<LandscapeStrokeRequest> requests;
     for ( const auto& c : controls )
@@ -551,6 +571,8 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
             EXPECT_TRUE( ValidateLandscapeFlatten( s.Flatten ).IsSuccess() ) << c.Label;
             EXPECT_TRUE( ValidateLandscapeNoise( s.Noise ).IsSuccess() ) << c.Label;
             EXPECT_TRUE( ValidateLandscapeRamp( s.Ramp ).IsSuccess() ) << c.Label;
+            EXPECT_TRUE( ValidateLandscapeErosion( s.Erosion ).IsSuccess() ) << c.Label;
+            EXPECT_TRUE( ValidateLandscapeHydroErosion( s.HydroErosion ).IsSuccess() ) << c.Label;
         }
         EXPECT_TRUE( changes ) << c.Label << " changes nothing from either base: a dead widget";
     }
@@ -700,6 +722,213 @@ TEST( LandscapeSculpt, BadRampsAreRefused )
     LandscapeRampSettings wide;
     wide.SideFalloff = 1.5f;
     EXPECT_FALSE( ValidateLandscapeRamp( wide ).IsSuccess() );
+    EXPECT_FALSE( stroke.Touched() );
+}
+
+namespace
+{
+    /// A 41 x 41 field whose heights come from @p height, the brush weighing @p brushValue everywhere inside the
+    /// outer ring (UE's grown-by-one rectangle), at global samples offset by @p origin.
+    LandscapeErosionField Field( uint16_t ( *height )( int32_t, int32_t ), float brushValue = 1.0f,
+                                 int32_t origin = 0 )
+    {
+        LandscapeErosionField f;
+        f.Rect  = { origin, origin, origin + 40, origin + 40 };
+        f.Inner = { origin + 1, origin + 1, origin + 39, origin + 39 };
+        for ( int32_t z = f.Rect.Z1; z <= f.Rect.Z2; ++z )
+            for ( int32_t x = f.Rect.X1; x <= f.Rect.X2; ++x )
+                f.Heights.push_back( height( x - origin, z - origin ) );
+        f.Brush.assign( 39u * 39u, brushValue );
+        return f;
+    }
+
+    /// A cliff of 900 steps across x = 20 over a gentle ramp, with a notch so the scan meets both orientations.
+    uint16_t Cliff( int32_t x, int32_t z )
+    {
+        const int32_t notch = ( z > 25 && z < 30 ) ? 3 : 0;
+        return static_cast<uint16_t>( 30000 + 10 * x + 5 * z + ( x > 20 + notch ? 900 : 0 ) );
+    }
+
+    /// A round hill, 3000 steps high and 15 samples in radius, on a sloping plain: water has somewhere to run.
+    uint16_t Hill( int32_t x, int32_t z )
+    {
+        const double r = std::sqrt( double( ( x - 20 ) * ( x - 20 ) + ( z - 18 ) * ( z - 18 ) ) );
+        const double h = r < 15.0 ? 3000.0 * 0.5 * ( 1.0 + std::cos( r / 15.0 * 3.14159265358979 ) ) : 0.0;
+        return static_cast<uint16_t>( 30000.0 + 20.0 * x + h );
+    }
+
+    /// The steepest 4-neighbour difference between two samples of the field's inner area.
+    int32_t SteepestInner( const LandscapeErosionField& f )
+    {
+        const int32_t width = f.Rect.X2 - f.Rect.X1 + 1;
+        auto          at    = [&]( int32_t x, int32_t z ) -> int32_t
+        { return f.Heights[static_cast<size_t>( ( z - f.Rect.Z1 ) * width + ( x - f.Rect.X1 ) )]; };
+        int32_t steepest = 0;
+        for ( int32_t z = f.Inner.Z1; z <= f.Inner.Z2; ++z )
+            for ( int32_t x = f.Inner.X1; x <= f.Inner.X2; ++x )
+            {
+                if ( x < f.Inner.X2 )
+                    steepest = std::max( steepest, std::abs( at( x, z ) - at( x + 1, z ) ) );
+                if ( z < f.Inner.Z2 )
+                    steepest = std::max( steepest, std::abs( at( x, z ) - at( x, z + 1 ) ) );
+            }
+        return steepest;
+    }
+
+    int64_t Mass( const LandscapeErosionField& f )
+    {
+        int64_t sum = 0;
+        for ( const uint16_t h : f.Heights )
+            sum += h;
+        return sum;
+    }
+} // namespace
+
+TEST( LandscapeSculpt, ThermalErosionBringsNoSlopeAboveTheSteepestAndConservesMassToUEsTruncation )
+{
+    LandscapeErosionField    f              = Field( Cliff );
+    const int32_t            steepestBefore = SteepestInner( f );
+    const int64_t            massBefore     = Mass( f );
+    LandscapeErosionSettings s;
+    const int32_t            ran           = LandscapeThermalErosion( f, s, 1.0f );
+    const int32_t            steepestAfter = SteepestInner( f );
+    EXPECT_GT( ran, 1 );
+    EXPECT_LT( steepestAfter, steepestBefore ) << "the cliff must have been worn down";
+    EXPECT_LE( steepestAfter - s.Threshold, steepestBefore - s.Threshold );
+    // Every sample above the threshold that sheds truncates each neighbour's share ((uint16)HeightDiff) and the
+    // total it loses ((uint16)TotalHeightDiff) separately: the field can only lose, and under 4 steps per shed.
+    const int64_t lost = massBefore - Mass( f );
+    EXPECT_GE( lost, 0 ) << "thermal erosion only moves height";
+    EXPECT_LT( lost, 4LL * ran * 39 * 39 );
+    EXPECT_LT( static_cast<double>( lost ) / static_cast<double>( massBefore ), 1e-4 );
+
+    // Below the threshold nothing moves: the gentle ramp (10 and 5 steps per sample) is left alone.
+    LandscapeErosionField ramp      = Field( []( int32_t x, int32_t z ) -> uint16_t
+                                        { return static_cast<uint16_t>( 30000 + 10 * x + 5 * z ); } );
+    const auto            untouched = ramp.Heights;
+    EXPECT_EQ( LandscapeThermalErosion( ramp, s, 1.0f ), 1 ) << "the first iteration changes nothing and stops";
+    EXPECT_EQ( ramp.Heights, untouched );
+}
+
+TEST( LandscapeSculpt, ErosionNoiseFollowsItsModeAndTheBrushSize )
+{
+    LandscapeErosionSettings s;
+    for ( const auto mode : { LandscapeErosionNoiseMode::Lower, LandscapeErosionNoiseMode::Raise } )
+    {
+        s.NoiseMode             = mode;
+        LandscapeErosionField f = Field( Flat );
+        LandscapeErosionNoise( f, s, 1.0f, 5000.0f );
+        int moved = 0;
+        for ( const uint16_t h : f.Heights )
+        {
+            if ( mode == LandscapeErosionNoiseMode::Lower )
+                EXPECT_LE( h, kLandscapeMidSample );
+            else
+                EXPECT_GE( h, kLandscapeMidSample );
+            // Amplitude Threshold * strength * radius / MaximumValueRadius = 32 steps, doubled by the mode shift.
+            EXPECT_LE( std::abs( int32_t( h ) - int32_t( kLandscapeMidSample ) ), 64 );
+            moved += h != kLandscapeMidSample;
+        }
+        EXPECT_GT( moved, 100 );
+    }
+}
+
+TEST( LandscapeSculpt, HydraulicErosionIsDeterministicAndStaysInsideTheOriginalRange )
+{
+    LandscapeHydroErosionSettings s;
+    const LandscapeErosionField   original = Field( Hill );
+    const auto [lowest, highest] = std::minmax_element( original.Heights.begin(), original.Heights.end() );
+    int changedCases             = 0;
+    for ( const bool detailSmooth : { true, false } )
+        for ( const auto mode : { LandscapeRainMode::Both, LandscapeRainMode::Positive } )
+        {
+            s.DetailSmooth            = detailSmooth;
+            s.RainMode                = mode;
+            LandscapeErosionField one = original;
+            LandscapeErosionField two = original;
+            const int32_t         ran = LandscapeHydraulicErosion( one, s, 1.0f );
+            EXPECT_EQ( LandscapeHydraulicErosion( two, s, 1.0f ), ran );
+            EXPECT_EQ( one.Heights, two.Heights ) << "no random state: the rain is seeded by position";
+            // Near the origin UE's Both-mode rain (noise * RainAmount, truncated) can fall as nothing at all.
+            changedCases += one.Heights != original.Heights;
+            EXPECT_GT( ran, 1 );
+            for ( const uint16_t h : one.Heights )
+            {
+                EXPECT_GE( h, *lowest );
+                EXPECT_LE( h, *highest );
+            }
+        }
+    EXPECT_GE( changedCases, 3 );
+    // The rain is a function of the global sample: the same hill elsewhere on the landscape erodes differently.
+    LandscapeErosionField here      = original;
+    LandscapeErosionField elsewhere = Field( Hill, 1.0f, 37 );
+    LandscapeHydraulicErosion( here, s, 1.0f );
+    LandscapeHydraulicErosion( elsewhere, s, 1.0f );
+    EXPECT_NE( here.Heights, elsewhere.Heights );
+    // UE rains only where the brush weighs 1: under a partial brush no water falls and nothing dissolves.
+    LandscapeErosionField partial = Field( Hill, 0.9f );
+    s.DetailSmooth                = false;
+    EXPECT_EQ( LandscapeHydraulicErosion( partial, s, 1.0f ), 1 );
+    EXPECT_EQ( partial.Heights, original.Heights );
+}
+
+TEST( LandscapeSculpt, ErosionStrokesWriteEqualSeamCopiesAndUndoByteForByte )
+{
+    World                       w( Noise );
+    const std::vector<uint16_t> original = w.Bytes();
+    const auto                  b        = Brush( 1000.0f );
+    LandscapeHeightStroke       stroke( w.Root, w.Lookup(), w.Bounds() );
+    ASSERT_TRUE( stroke.ApplyErosion( Weights( w, b, { 3100.0f, 3100.0f } ), b, {} ).IsSuccess() );
+    ASSERT_TRUE( stroke.ApplyHydroErosion( Weights( w, b, { 3100.0f, 2400.0f } ), b, {} ).IsSuccess() );
+    ASSERT_TRUE( stroke.ApplyErosion( Weights( w, b, { 5900.0f, 300.0f } ), b, {} ).IsSuccess() )
+         << "a brush over the landscape's corner";
+    int changedX = 0;
+    int changedZ = 0;
+    for ( int32_t i = 0; i <= kQ; ++i )
+    {
+        for ( int32_t t = 0; t < 2; ++t )
+        {
+            const uint32_t u = static_cast<uint32_t>( i );
+            EXPECT_EQ( w.Tiles.at( { 0, t } ).Sample( kQuads, u ), w.Tiles.at( { 1, t } ).Sample( 0u, u ) );
+            EXPECT_EQ( w.Tiles.at( { t, 0 } ).Sample( u, kQuads ), w.Tiles.at( { t, 1 } ).Sample( u, 0u ) );
+        }
+        changedX += w.At( kQ, i ) != Noise( kQ, i );
+        changedZ += w.At( i, kQ ) != Noise( i, kQ );
+    }
+    EXPECT_GT( changedX, 5 ) << "the X seam must have been edited, or the equality proves nothing";
+    EXPECT_GT( changedZ, 5 ) << "the Z seam must have been edited, or the equality proves nothing";
+
+    auto record = stroke.Finish();
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    const auto edited = w.Bytes();
+    ASSERT_NE( edited, original );
+    const auto& r = record.GetValue();
+    ASSERT_TRUE( WriteLandscapeHeights( w.Root, w.Lookup(), r.Rect, r.Before ).IsSuccess() );
+    EXPECT_EQ( w.Bytes(), original ) << "undo";
+    ASSERT_TRUE( WriteLandscapeHeights( w.Root, w.Lookup(), r.Rect, r.After ).IsSuccess() );
+    EXPECT_EQ( w.Bytes(), edited ) << "redo";
+}
+
+TEST( LandscapeSculpt, BadErosionSettingsAreRefused )
+{
+    World                    w( Noise );
+    const auto               b = Brush();
+    LandscapeHeightStroke    stroke( w.Root, w.Lookup(), w.Bounds() );
+    LandscapeErosionSettings thermal;
+    thermal.Threshold = 300;
+    EXPECT_FALSE( stroke.ApplyErosion( Weights( w, b, { 3100.0f, 3100.0f } ), b, thermal ).IsSuccess() );
+    thermal.Threshold  = 64;
+    thermal.Iterations = 0;
+    EXPECT_FALSE( ValidateLandscapeErosion( thermal ).IsSuccess() );
+    LandscapeHydroErosionSettings hydro;
+    hydro.SedimentCapacity = 0.05f;
+    EXPECT_FALSE( stroke.ApplyHydroErosion( Weights( w, b, { 3100.0f, 3100.0f } ), b, hydro ).IsSuccess() );
+    hydro.SedimentCapacity = 0.3f;
+    hydro.DetailScale      = 1.0f;
+    EXPECT_FALSE( ValidateLandscapeHydroErosion( hydro ).IsSuccess() );
+    hydro.DetailScale = 0.01f;
+    hydro.RainAmount  = 0;
+    EXPECT_FALSE( ValidateLandscapeHydroErosion( hydro ).IsSuccess() );
     EXPECT_FALSE( stroke.Touched() );
 }
 

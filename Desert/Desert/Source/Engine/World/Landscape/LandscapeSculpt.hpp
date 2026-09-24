@@ -4,6 +4,9 @@
 // :1134-1142 (StrengthMultiplier), LandscapeEditorObject.h:85-99 (NoiseModeConversion),
 // LandscapeEdModeRampTool.cpp:29-75 (FLandscapeRampToolHeightRasterPolicy) and :486-613 (ApplyRamp),
 // LandscapeEditorObject.h:396-403 with LandscapeEditorObject.cpp:57-58 (RampWidth / RampSideFalloff),
+// LandscapeEdModeErosionTools.cpp:61-257 (Erosion) and :265-523 (Hydraulic Erosion) with LandscapeEditorObject.h
+// :423-474 and LandscapeEditorObject.cpp:64-77 (their settings), adapted: no paint-layer weight transfer or
+// hardness, float-to-uint16 casts clamp instead of wrapping, the landscape's outermost ring sheds nothing,
 // Runtime/Engine/ Public/Raster.h (FTriangleRasterizer), adapted: the ramp's two points come from palette
 // commands, not a hit proxy; UObject/ULandscapeEditorObject settings become plain structs, the stroke writes
 // through LandscapeHeightCache (L2) on the global sample lattice, kissfft is replaced by a separable DFT, the clay
@@ -174,6 +177,105 @@ namespace Desert::World::Landscape
 
     Common::BoolResultStr ValidateLandscapeRamp( const LandscapeRampSettings& settings );
 
+    /// UE's ELandscapeToolErosionMode; the stroke casts it to the noise mode as UE does (Raise = Add,
+    /// Lower = Sub).
+    enum class LandscapeErosionNoiseMode : uint8_t
+    {
+        Both,
+        Raise,
+        Lower,
+    };
+
+    /**
+     * @brief UE's Erosion tool settings. Not ported: ErodeSurfaceThickness and bErosionUseLayerHardness — UE
+     * reads them only to move paint-layer weights and to soften by layer hardness, and the heightmap target has
+     * no paint layers; a setting that could not change a height would be a dead one.
+     */
+    struct LandscapeErosionSettings
+    {
+        /// UE: ErodeThresh, height steps, ClampMin 0, ClampMax 256, default 64.
+        int32_t Threshold = 64;
+        /// UE: ErodeIterationNum, ClampMin 1, ClampMax 300, default 28.
+        int32_t Iterations = 28;
+        /// UE: ErosionNoiseMode, default Lower (the constructor's value).
+        LandscapeErosionNoiseMode NoiseMode = LandscapeErosionNoiseMode::Lower;
+        /// UE: ErosionNoiseScale, samples per noise period, ClampMin 1, ClampMax 512, default 60.
+        float NoiseScale = 60.0f;
+    };
+
+    inline constexpr int32_t kLandscapeMaxErosionThreshold  = 256;
+    inline constexpr int32_t kLandscapeMaxErosionIterations = 300;
+
+    Common::BoolResultStr ValidateLandscapeErosion( const LandscapeErosionSettings& settings );
+
+    /// UE's ELandscapeToolHydroErosionMode: Both rains where the noise is positive, Positive everywhere.
+    enum class LandscapeRainMode : uint8_t
+    {
+        Both,
+        Positive,
+    };
+
+    struct LandscapeHydroErosionSettings
+    {
+        /// UE: RainAmount, water steps per rained sample, ClampMin 1, ClampMax 512, default 128.
+        int32_t RainAmount = 128;
+        /// UE: SedimentCapacity, ClampMin 0.1, ClampMax 1, default 0.3.
+        float SedimentCapacity = 0.3f;
+        /// UE: HErodeIterationNum, ClampMin 1, ClampMax 300, default 75.
+        int32_t Iterations = 75;
+        /// UE: RainDistMode, default Both.
+        LandscapeRainMode RainMode = LandscapeRainMode::Both;
+        /// UE: RainDistScale, samples per noise period, ClampMin 1, ClampMax 512, default 60.
+        float RainScale = 60.0f;
+        /// UE: bHErosionDetailSmooth, default on.
+        bool DetailSmooth = true;
+        /// UE: HErosionDetailScale, ClampMin 0, ClampMax 0.99, default 0.01.
+        float DetailScale = 0.01f;
+    };
+
+    inline constexpr int32_t kLandscapeMaxRainAmount       = 512;
+    inline constexpr float   kLandscapeMinSedimentCapacity = 0.1f;
+    inline constexpr float   kLandscapeMaxHydroDetailScale = 0.99f;
+
+    Common::BoolResultStr ValidateLandscapeHydroErosion( const LandscapeHydroErosionSettings& settings );
+
+    /**
+     * @brief The heights one erosion step works on: @p Heights over @p Rect (UE's brush bounds grown by one),
+     * and UE's BrushValue over @p Inner, both row-major, X fastest. Inner lies inside Rect shrunk by one, so
+     * every neighbour the simulation reads is cached (UE's cache reads 0 past the landscape; ours has no such
+     * sample, so the landscape's outermost ring sheds nothing; it only receives, as UE's ring does).
+     */
+    struct LandscapeErosionField
+    {
+        LandscapeSampleBounds Rect;
+        std::vector<uint16_t> Heights;
+        LandscapeSampleBounds Inner;
+        std::vector<float>    Brush;
+    };
+
+    /**
+     * @brief FLandscapeToolStrokeErosion::Apply's thermal loop, without the noise pass: every sample steeper
+     * than the threshold towards a lower 4-neighbour sheds height to it, until an iteration changes nothing.
+     * @return the number of iterations run.
+     */
+    int32_t LandscapeThermalErosion( LandscapeErosionField& field, const LandscapeErosionSettings& settings,
+                                     float strength );
+
+    /// The noise pass that closes FLandscapeToolStrokeErosion::Apply (amplitude BrushValue · Threshold ·
+    /// strength · BrushSizeAdjust).
+    void LandscapeErosionNoise( LandscapeErosionField& field, const LandscapeErosionSettings& settings,
+                                float strength, float radiusCm );
+
+    /**
+     * @brief FLandscapeToolStrokeHydraErosion::Apply: rain by noise where the brush weighs 1, then per iteration
+     * dissolve, flow over the 8 neighbours by water-surface altitude, evaporate half and deposit what exceeds
+     * the capacity, until no water is left; then the detail smooth. Position-seeded (the noise), scan order
+     * Z then X as UE's Y then X — no random state.
+     * @return the number of iterations run.
+     */
+    int32_t LandscapeHydraulicErosion( LandscapeErosionField& field, const LandscapeHydroErosionSettings& settings,
+                                       float strength );
+
     /**
      * @brief UE's SculptStrength for one step, in height steps at brush weight 1:
      *        Strength · (RadiusCm · 128 / ZScale) · min(dt, 0.1) · 3, and at least 1 (UE's non-clay floor).
@@ -235,6 +337,16 @@ namespace Desert::World::Landscape
          */
         Common::BoolResultStr ApplyRamp( glm::vec3 startCm, glm::vec3 endCm, const LandscapeRampSettings& ramp );
 
+        /// FLandscapeToolStrokeErosion::Apply for the heightmap target: the thermal loop, then the noise pass.
+        Common::BoolResultStr ApplyErosion( const LandscapeBrushWeights&    weights,
+                                            const LandscapeBrushSettings&   brush,
+                                            const LandscapeErosionSettings& erosion );
+
+        /// FLandscapeToolStrokeHydraErosion::Apply for the heightmap target.
+        Common::BoolResultStr ApplyHydroErosion( const LandscapeBrushWeights&         weights,
+                                                 const LandscapeBrushSettings&        brush,
+                                                 const LandscapeHydroErosionSettings& hydro );
+
         bool Touched() const
         {
             return m_Touched;
@@ -247,6 +359,9 @@ namespace Desert::World::Landscape
         /// The step's rectangle: the brush's inclusive bounds grown by one (UE), clipped to the landscape.
         LandscapeSampleBounds StepRect( const LandscapeBrushWeights& weights ) const;
         Common::BoolResultStr Cache( const LandscapeSampleBounds& rect );
+        /// Caches and reads one erosion step's rectangle; an empty Brush means there is nothing to erode.
+        Common::ResultStr<LandscapeErosionField> ErosionField( const LandscapeBrushWeights&  weights,
+                                                               const LandscapeBrushSettings& brush );
         /// UE's cache GetValue: bilinear at a lattice position, a missing corner taking its nearest neighbour.
         float PickValue( float gx, float gz );
         /// UE's cache GetNormal of the quad at (x, z), in lattice units (x, z, sample value).
