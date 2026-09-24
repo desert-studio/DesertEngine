@@ -2,6 +2,7 @@
 
 #include <Editor/Core/CommandHistory.hpp> // ICommand: RecordEditMeshChange takes one by unique_ptr
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 
 #include <glm/glm.hpp>
@@ -9,6 +10,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -23,7 +25,7 @@ namespace Desert::Assets
 }
 namespace Desert::Geometry
 {
-    class EditMesh;
+    class FDynamicMesh3;
 }
 
 namespace Desert::Editor::Commands
@@ -70,8 +72,8 @@ namespace Desert::Editor::Commands
     // the two are the same object. The meshes are immutable, so both are kept by reference. @p alongside is
     // undone / redone with the mesh as part of the SAME step (a mesh operation's selection change).
     void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
-                               std::shared_ptr<const Geometry::EditMesh> before,
-                               std::unique_ptr<ICommand>                 alongside = nullptr );
+                               std::shared_ptr<const Geometry::FDynamicMesh3> before,
+                               std::unique_ptr<ICommand>                      alongside = nullptr );
 
     // Record a mesh operation that SPLIT the entity in two (Plane Cut, Keep Both Halves): the entity's CURRENT
     // EditableMesh is one half; a copy of the entity alone (not its children), named "<name> Half", is created
@@ -79,8 +81,37 @@ namespace Desert::Editor::Commands
     // left created or recorded - when the copy cannot be made or cannot take the mesh; the caller then puts
     // @p before back on the source.
     [[nodiscard]] Common::ResultStr<Common::UUID> RecordEditMeshSplit(
-         const Common::UUID& uuid, const std::string& label, std::shared_ptr<const Geometry::EditMesh> before,
-         std::shared_ptr<const Geometry::EditMesh> otherHalf, std::unique_ptr<ICommand> alongside = nullptr );
+         const Common::UUID& uuid, const std::string& label, std::shared_ptr<const Geometry::FDynamicMesh3> before,
+         std::shared_ptr<const Geometry::FDynamicMesh3> otherHalf, std::unique_ptr<ICommand> alongside = nullptr );
+
+    // ---- XForm (Modeling): whole-entity mesh + transform edits as ONE undo step ----
+
+    // What an entity holds after an XForm operation: its mesh (by reference, like EditMeshCommand), its LOCAL
+    // transform, and - when set - its material slots (Merge unites the parts' slots).
+    struct XformEntityState
+    {
+        Common::UUID                                    Entity;
+        std::shared_ptr<const Geometry::FDynamicMesh3>  Mesh;
+        glm::vec3                                       Translation{ 0.0f };
+        glm::vec3                                       Rotation{ 0.0f };
+        glm::vec3                                       Scale{ 1.0f };
+        std::optional<std::vector<Common::AssetHandle>> MaterialSlots;
+    };
+
+    // A new entity: a copy of CopyOf alone (not its children, same parent), named Name, then given State.
+    struct XformNewEntity
+    {
+        Common::UUID     CopyOf;
+        std::string      Name;
+        XformEntityState State; // State.Entity is ignored
+    };
+
+    // Applies every change, creates every new entity and destroys every deleted one (with its subtree), and
+    // records the lot as ONE undo step labelled @p label. Refused - everything already applied put back, nothing
+    // recorded - when an entity is missing or a mesh cannot be set. Returns the new entities' UUIDs in order.
+    [[nodiscard]] Common::ResultStr<std::vector<Common::UUID>>
+    ApplyXformEdit( const std::string& label, const std::vector<XformEntityState>& changes,
+                    const std::vector<XformNewEntity>& creates, const std::vector<Common::UUID>& deletes );
 
     // Record a finished transform edit (gizmo drag): oldT/R/S = values before the drag; the entity's
     // CURRENT transform is captured as the "new" state. No-ops if nothing actually changed.

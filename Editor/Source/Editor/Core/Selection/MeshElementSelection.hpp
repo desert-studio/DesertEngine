@@ -4,7 +4,9 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
-#include <Engine/Geometry/EditMeshSelection.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
+#include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp>
 
 #include <memory>
 #include <string>
@@ -33,6 +35,7 @@ namespace Desert::Editor::Core
             SelectConnected,
             Grow,
             Shrink,
+            Invert,
             Clear,
         };
         [[nodiscard]] static const char* ToString( Op op );
@@ -49,6 +52,17 @@ namespace Desert::Editor::Core
         {
             return m_Selection.Mode();
         }
+        // What a Vertex / Edge pick lands on: group corners and group edges (UE PolyEdit, the default) or every
+        // mesh vertex and edge (UE TriEdit). The selection stores mesh IDs either way, so a change of level keeps
+        // it and is not an undo step - like switching between UE's two tools.
+        [[nodiscard]] Geometry::TopologyLevel Level() const
+        {
+            return m_Level;
+        }
+        void SetLevel( Geometry::TopologyLevel level )
+        {
+            m_Level = level;
+        }
         // What the last check against an edited mesh dropped, and the running total since the entity was
         // picked - the panel shows both, so an edit that emptied the selection says so.
         [[nodiscard]] const Geometry::PruneReport& LastDropped() const
@@ -59,6 +73,17 @@ namespace Desert::Editor::Core
         {
             return m_TotalDropped;
         }
+        // The mesh the selection's IDs name and its polygroup topology, built together by Track (null when no
+        // mesh is tracked). Picking and every selection operation read these two.
+        [[nodiscard]] const std::shared_ptr<const Geometry::FDynamicMesh3>& Mesh() const
+        {
+            return m_Mesh;
+        }
+        [[nodiscard]] const Geometry::FGroupTopology* Topology() const
+        {
+            return m_Topology.get();
+        }
+
         [[nodiscard]] bool HasMesh() const
         {
             return m_Mesh != nullptr;
@@ -67,7 +92,7 @@ namespace Desert::Editor::Core
         // Called by the tool every frame with the entity it edits and that entity's current mesh (null when
         // it has none). A new entity starts an empty selection (not an undo step: nothing was un-selected
         // by the user); a new mesh on the same entity prunes the selection against it and counts the drop.
-        void Track( const Common::UUID& entity, std::shared_ptr<const Geometry::EditMesh> mesh );
+        void Track( const Common::UUID& entity, std::shared_ptr<const Geometry::FDynamicMesh3> mesh );
 
         // Replaces the selection as one undo step labelled `label`; nothing is recorded when it is unchanged.
         void Commit( Geometry::ElementSelection next, const std::string& label );
@@ -92,8 +117,13 @@ namespace Desert::Editor::Core
 
     private:
         Common::UUID                              m_Entity = Common::UUID::Null();
-        std::shared_ptr<const Geometry::EditMesh> m_Mesh;
+        std::shared_ptr<const Geometry::FDynamicMesh3> m_Mesh;
+        // Built from m_Mesh whenever m_Mesh changes. No other invalidation exists or is needed: the component's
+        // mesh is immutable (every edit puts a NEW FDynamicMesh3 on the entity), and m_Mesh keeps the one this
+        // topology was built from alive, so pointer identity cannot be reused under it.
+        std::unique_ptr<const Geometry::FGroupTopology> m_Topology;
         Geometry::ElementSelection                m_Selection{ Geometry::ElementMode::PolyGroup };
+        Geometry::TopologyLevel                         m_Level = Geometry::TopologyLevel::Group;
         Geometry::PruneReport                     m_LastDropped;
         int                                       m_TotalDropped = 0;
     };

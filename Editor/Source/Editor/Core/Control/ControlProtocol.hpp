@@ -171,6 +171,7 @@ namespace Desert::Editor::Control
     {
         Document, ///< the focused document's own values — the default, and what every older client means
         Viewport, ///< the editor's view: where the camera is and which way it looks
+        Modeling, ///< the Modeling panel's dragged values (Core::kModelingStateRows)
     };
 
     struct SubjectSpec
@@ -182,6 +183,7 @@ namespace Desert::Editor::Control
     inline constexpr SubjectSpec kSubjects[] = {
          { "document", Subject::Document },
          { "viewport", Subject::Viewport },
+         { "modeling", Subject::Modeling },
     };
 
     [[nodiscard]] inline std::string KnownSubjectList()

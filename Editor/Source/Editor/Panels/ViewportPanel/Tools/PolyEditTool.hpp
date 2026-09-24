@@ -14,7 +14,7 @@ namespace Desert::Core
 }
 namespace Desert::Geometry
 {
-    class EditMesh;
+    class FDynamicMesh3;
 }
 
 namespace Desert::Editor::Tools
@@ -45,6 +45,6 @@ namespace Desert::Editor::Tools
         float            m_DragS    = 0.0f; // last push parameter along the world normal line
         // The drag's undo record: whose mesh, and the mesh it started from (immutable, so kept by reference).
         Common::UUID                              m_DragEntity = Common::UUID::Null();
-        std::shared_ptr<const Geometry::EditMesh> m_DragBefore;
+        std::shared_ptr<const Geometry::FDynamicMesh3> m_DragBefore;
     };
 } // namespace Desert::Editor::Tools

@@ -2,12 +2,12 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 
 namespace Desert::ECS
 {
-    Common::BoolResultStr SetEditableMesh( StaticMeshComponent&                      component,
-                                           std::shared_ptr<const Geometry::EditMesh> mesh )
+    Common::BoolResultStr SetEditableMesh( StaticMeshComponent&                           component,
+                                           std::shared_ptr<const Geometry::FDynamicMesh3> mesh )
     {
         if ( !mesh )
             return Common::MakeError<bool>( "SetEditableMesh: no mesh - use ClearEditableMesh to drop one" );

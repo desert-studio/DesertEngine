@@ -115,6 +115,14 @@ namespace
         return s;
     }
 
+    ElementSelection Select( const EditMesh& mesh, ElementMode mode, const std::vector<int>& ids )
+    {
+        ElementSelection s( mode );
+        for ( const int id : ids )
+            EXPECT_TRUE( s.Add( mesh, id ).IsSuccess() );
+        return s;
+    }
+
     const Camera kFront = LookAt( { 0.0f, 100.0f, 500.0f }, { 0.0f, 100.0f, 0.0f } );
 } // namespace
 
@@ -222,7 +230,7 @@ TEST( ElementPick, CylinderWallAndCapAreTheirOwnGroups )
 
 // ── conversion ──────────────────────────────────────────────────────────────────────────────────────────
 
-TEST( ElementConvert, DownIsEveryPartUpIsOnlyWhatIsWhole )
+TEST( ElementConvert, DownIsEveryPartUpIsWholeUpToAGroupExpands )
 {
     const EditMesh   mesh  = MakeCube();
     const ElementHit front = PickElement( mesh, ElementMode::PolyGroup, ViewAt( kFront, { 400, 400 } ) );
@@ -239,10 +247,21 @@ TEST( ElementConvert, DownIsEveryPartUpIsOnlyWhatIsWhole )
          tris );
     EXPECT_EQ( ConvertSelection( mesh, tris, ElementMode::PolyGroup ), group );
 
-    // One triangle of the face is not the face; one corner is no triangle.
-    EXPECT_TRUE(
-         ConvertSelection( mesh, Select( mesh, ElementMode::Triangle, { tris.Ids()[0] } ), ElementMode::PolyGroup )
-              .Empty() );
+    // Up to a polygroup EXPANDS, as UE ConvertSelection ToPolyFace (GeometrySelectionUtil.cpp:1828-1850): one
+    // triangle is its whole face, a cube corner touches three faces, an edge the two faces on its sides.
+    EXPECT_EQ( ConvertSelection( mesh, Select( mesh, ElementMode::Triangle, { tris.Ids()[0] } ),
+                                 ElementMode::PolyGroup ),
+               group );
+    const int corner = VertexAt( mesh, { 100, 200, 100 } );
+    EXPECT_EQ(
+         ConvertSelection( mesh, Select( mesh, ElementMode::Vertex, { corner } ), ElementMode::PolyGroup ).Size(),
+         3 );
+    const auto oneEdge = ConvertSelection(
+         mesh, Select( mesh, ElementMode::Vertex, { corner, VertexAt( mesh, { 100, 0, 100 } ) } ),
+         ElementMode::Edge );
+    ASSERT_EQ( oneEdge.Size(), 1 );
+    EXPECT_EQ( ConvertSelection( mesh, oneEdge, ElementMode::PolyGroup ).Size(), 2 );
+    // Down to triangles stays contained: one corner is no triangle.
     EXPECT_TRUE( ConvertSelection( mesh,
                                    Select( mesh, ElementMode::Vertex, { VertexAt( mesh, { 100, 200, 100 } ) } ),
                                    ElementMode::Triangle )
@@ -305,6 +324,90 @@ TEST( ElementTopology, GrowAndShrinkByOneRing )
     const auto all = GrowSelection( cube, five );
     EXPECT_EQ( all.Size(), 6 );
     EXPECT_EQ( ShrinkSelection( cube, all ), all );
+}
+
+TEST( ElementTopology, InvertIsTheRestOfTheSameMode )
+{
+    const EditMesh cube  = MakeCube();
+    const int      front = PickElement( cube, ElementMode::PolyGroup, ViewAt( kFront, { 400, 400 } ) ).Id;
+    const auto     one   = Select( cube, ElementMode::PolyGroup, { front } );
+    const auto     rest  = InvertSelection( cube, one );
+    EXPECT_EQ( rest.Mode(), ElementMode::PolyGroup );
+    EXPECT_EQ( rest.Size(), 5 );
+    EXPECT_FALSE( rest.Contains( front ) );
+    // Twice is the identity; the empty selection inverts to everything, everything to nothing.
+    EXPECT_EQ( InvertSelection( cube, rest ), one );
+    const auto all = InvertSelection( cube, ElementSelection( ElementMode::Edge ) );
+    EXPECT_EQ( all.Size(), cube.EdgeCount() );
+    EXPECT_TRUE( InvertSelection( cube, all ).Empty() );
+    const auto verts = InvertSelection( cube, ElementSelection( ElementMode::Vertex ) );
+    EXPECT_EQ( verts.Size(), cube.VertexCount() );
+}
+
+// Shrink contracts from the SELECTION's border only, never from the open border of the mesh: UE
+// FMeshFaceSelection::ContractBorderByOneRingNeighbours with bContractFromMeshBoundary = false
+// (MeshFaceSelection.cpp:149-190, called so by MeshGroupPaintTool.cpp:1264).
+TEST( ElementTopology, ShrinkKeepsTheOpenBorderOfTheMesh )
+{
+    using EditMeshTest::MakeGrid;
+    const EditMesh grid     = MakeGrid( 4 ); // an open 5 x 5 vertex plane
+    const int      centre   = 2 * 5 + 2;
+    const auto     onBorder = []( int v ) { return v % 5 == 0 || v % 5 == 4 || v / 5 == 0 || v / 5 == 4; };
+    const auto     allOf    = [&]( ElementMode mode )
+    {
+        std::vector<int> ids;
+        if ( mode == ElementMode::Vertex )
+            for ( const int id : grid.VertexIds() )
+                ids.push_back( id );
+        else
+            for ( const int id : grid.TriangleIds() )
+                ids.push_back( id );
+        return ids;
+    };
+
+    // The whole open plane has no selection border: nothing goes.
+    const auto plane = Select( grid, ElementMode::Triangle, allOf( ElementMode::Triangle ) );
+    EXPECT_EQ( ShrinkSelection( grid, plane ), plane );
+
+    // Punch one triangle out of the middle: exactly the triangles sharing a corner with the hole go (the inner
+    // border contracts), and every triangle on the open border of the plane stays.
+    const int        hole = grid.GetVertexTriangles( centre )[0];
+    std::vector<int> rest;
+    for ( const int t : allOf( ElementMode::Triangle ) )
+        if ( t != hole )
+            rest.push_back( t );
+    const auto    shrunk  = ShrinkSelection( grid, Select( grid, ElementMode::Triangle, rest ) );
+    const auto    holeTri = grid.GetTriangle( hole );
+    std::set<int> holeCorners( holeTri.begin(), holeTri.end() );
+    int           keptOnBorder = 0;
+    for ( const int t : rest )
+    {
+        bool nearHole = false;
+        bool border   = false;
+        for ( const int v : grid.GetTriangle( t ) )
+        {
+            nearHole = nearHole || holeCorners.count( v ) != 0;
+            border   = border || onBorder( v );
+        }
+        EXPECT_EQ( shrunk.Contains( t ), !nearHole ) << "triangle " << t;
+        keptOnBorder += border && shrunk.Contains( t ) ? 1 : 0;
+    }
+    EXPECT_GT( keptOnBorder, 0 );
+    EXPECT_LT( shrunk.Size(), static_cast<int>( rest.size() ) ); // the negative control: the inner border DID move
+
+    // Vertices: all but the centre loses the centre's neighbours, and not one vertex of the open border.
+    std::vector<int> verts;
+    for ( const int v : allOf( ElementMode::Vertex ) )
+        if ( v != centre )
+            verts.push_back( v );
+    const auto shrunkVerts = ShrinkSelection( grid, Select( grid, ElementMode::Vertex, verts ) );
+    const auto around      = grid.GetVertexNeighbours( centre );
+    for ( const int v : verts )
+    {
+        const bool neighbour = std::find( around.begin(), around.end(), v ) != around.end();
+        EXPECT_EQ( shrunkVerts.Contains( v ), !neighbour )
+             << "vertex " << v << ( onBorder( v ) ? " (border)" : "" );
+    }
 }
 
 // ── the mesh changes under the selection ────────────────────────────────────────────────────────────────

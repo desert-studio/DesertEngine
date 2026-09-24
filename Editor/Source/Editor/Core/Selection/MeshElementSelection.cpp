@@ -59,18 +59,22 @@ namespace Desert::Editor::Core
                 return "Grow Selection";
             case Op::Shrink:
                 return "Shrink Selection";
+            case Op::Invert:
+                return "Invert Selection";
             case Op::Clear:
                 return "Clear Selection";
         }
         return "Unknown";
     }
 
-    void MeshElementSelection::Track( const Common::UUID& entity, std::shared_ptr<const Geometry::EditMesh> mesh )
+    void MeshElementSelection::Track( const Common::UUID&                            entity,
+                                      std::shared_ptr<const Geometry::FDynamicMesh3> mesh )
     {
         if ( static_cast<uint64_t>( entity ) != static_cast<uint64_t>( m_Entity ) )
         {
-            m_Entity = entity;
-            m_Mesh   = std::move( mesh );
+            m_Entity   = entity;
+            m_Mesh     = std::move( mesh );
+            m_Topology = m_Mesh ? std::make_unique<const Geometry::FGroupTopology>( m_Mesh.get(), true ) : nullptr;
             m_Selection.Clear();
             m_LastDropped  = {};
             m_TotalDropped = 0;
@@ -79,11 +83,13 @@ namespace Desert::Editor::Core
         if ( mesh == m_Mesh )
             return;
         m_Mesh = std::move( mesh );
+        m_Topology.reset();
         if ( !m_Mesh )
         {
             m_Selection.Clear();
             return;
         }
+        m_Topology = std::make_unique<const Geometry::FGroupTopology>( m_Mesh.get(), true );
         const Geometry::PruneReport dropped = m_Selection.Prune( *m_Mesh );
         if ( dropped.Total() > 0 )
         {
@@ -115,7 +121,7 @@ namespace Desert::Editor::Core
             m_Selection = Geometry::ElementSelection( mode );
             return Common::MakeSuccess( true );
         }
-        Commit( Geometry::ConvertSelection( *m_Mesh, m_Selection, mode ),
+        Commit( Geometry::ConvertSelection( *m_Mesh, *m_Topology, m_Selection, mode ),
                 std::string( "Mesh Selection: " ) + Geometry::ToString( mode ) + " mode" );
         return Common::MakeSuccess( true );
     }
@@ -126,7 +132,8 @@ namespace Desert::Editor::Core
             return Common::MakeFormattedError<bool>(
                  "Mesh Selection: {} needs the Select Elements tool on an entity with an editable mesh",
                  ToString( op ) );
-        const Geometry::EditMesh&  mesh = *m_Mesh;
+        const Geometry::FDynamicMesh3&  mesh     = *m_Mesh;
+        const Geometry::FGroupTopology& topology = *m_Topology;
         Geometry::ElementSelection next( m_Selection.Mode() );
         switch ( op )
         {
@@ -134,20 +141,23 @@ namespace Desert::Editor::Core
             {
                 // Every live element is a superset of every piece: connected-from-everything is "all".
                 Geometry::ElementSelection seed( Geometry::ElementMode::Vertex );
-                for ( const int v : mesh.VertexIds() )
+                for ( const int v : mesh.VertexIndicesItr() )
                     if ( auto added = seed.Add( mesh, v ); !added.IsSuccess() )
                         return added;
-                next = Geometry::ConvertSelection( mesh, seed, m_Selection.Mode() );
+                next = Geometry::ConvertSelection( mesh, topology, seed, m_Selection.Mode() );
                 break;
             }
             case Op::SelectConnected:
-                next = Geometry::SelectConnected( mesh, m_Selection );
+                next = Geometry::SelectConnected( mesh, topology, m_Selection );
                 break;
             case Op::Grow:
-                next = Geometry::GrowSelection( mesh, m_Selection );
+                next = Geometry::GrowSelection( mesh, topology, m_Selection );
                 break;
             case Op::Shrink:
-                next = Geometry::ShrinkSelection( mesh, m_Selection );
+                next = Geometry::ShrinkSelection( mesh, topology, m_Selection );
+                break;
+            case Op::Invert:
+                next = Geometry::InvertSelection( mesh, topology, m_Selection );
                 break;
             case Op::Clear:
                 break;
@@ -173,6 +183,7 @@ namespace Desert::Editor::Core
             SelectionManager::SetSelected( entity );
             m_Entity = entity;
             m_Mesh.reset();
+            m_Topology.reset();
         }
         m_Selection = std::move( selection );
     }

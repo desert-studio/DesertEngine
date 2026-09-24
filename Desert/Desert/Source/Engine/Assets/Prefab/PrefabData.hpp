@@ -4,7 +4,7 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Geometry/SavedMeshForm.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -21,7 +21,7 @@ namespace Desert::Assets
 {
     // Mesh component serialization mirrors. Meshes keep a custom (non-reflected) serializer because they
     // carry data reflection can't express: a mesh built in the editor (the component's EditMesh, stored as
-    // its own saved form - Engine/Geometry/EditMeshSerialization.hpp) and a std::optional primitive type. Asset
+    // its own saved form - Engine/Geometry/SavedMeshForm.hpp) and a std::optional primitive type. Asset
     // references (MeshPath / MaterialPaths) round-trip as paths through the shared AssetResolver — same code path
     // the reflected components use. Asset references persist BOTH ways (asset-database):
     //   *Guid  — the stable asset handle (survives file renames/moves; preferred on load)

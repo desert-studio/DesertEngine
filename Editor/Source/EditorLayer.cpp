@@ -148,7 +148,10 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
+#include <Editor/Core/Selection/ModelingToolTarget.hpp>
+#include <Editor/Core/Selection/ModelingStateProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
@@ -2209,6 +2212,14 @@ namespace Desert::Editor
 
             case Control::Op::Properties:
             {
+                if ( request.Whose == Control::Subject::Modeling )
+                {
+                    return Control::Response::Success(
+                         request.Id,
+                         Control::PropertiesToJson(
+                              Control::kSubjects[static_cast<std::size_t>( Control::Subject::Modeling )].Name,
+                              Core::DescribeModelingState( Core::ModelingState::Get() ) ) );
+                }
                 if ( request.Whose == Control::Subject::Viewport )
                 {
                     ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
@@ -2242,6 +2253,14 @@ namespace Desert::Editor
             {
                 if ( request.Whose == Control::Subject::Viewport )
                     return SetViewportCameraProperty( request );
+                if ( request.Whose == Control::Subject::Modeling )
+                {
+                    if ( const auto written = Core::SetModelingStateProperty( Core::ModelingState::Get(),
+                                                                              request.Property, request.Value );
+                         !written )
+                        return Control::Response::Failure( request.Id, written.GetError() );
+                    return Control::Response::Success( request.Id );
+                }
 
                 // THE FOCUSED DOCUMENT AND NO OTHER. A property named without a document would have to be
                 // searched for across every open window, and the first match would win — which is a
@@ -4497,23 +4516,43 @@ namespace Desert::Editor
             commands.push_back( { "Modeling", std::string( "Mesh selection mode: " ) + Geometry::ToString( mode ),
                                   [mode] { return Core::MeshElementSelection::Get().SetMode( mode ); } } );
         }
+        // UE's PolyEdit / TriEdit: which topology Vertex and Edge pick (group corners and borders, or every mesh
+        // vertex and edge). The panel's two level buttons; without this a TriEdit frame cannot be taken.
+        for ( const auto& [label, level] :
+              { std::pair{ "Mesh selection level: PolyEdit", Geometry::TopologyLevel::Group },
+                std::pair{ "Mesh selection level: TriEdit", Geometry::TopologyLevel::Triangle } } )
+        {
+            commands.push_back( { "Modeling", label, [level]
+                                  {
+                                      Core::MeshElementSelection::Get().SetLevel( level );
+                                      return PaletteCommandDone();
+                                  } } );
+        }
         using SelectionOp = Core::MeshElementSelection::Op;
         for ( const SelectionOp op : { SelectionOp::SelectAll, SelectionOp::SelectConnected, SelectionOp::Grow,
-                                       SelectionOp::Shrink, SelectionOp::Clear } )
+                                       SelectionOp::Shrink, SelectionOp::Invert, SelectionOp::Clear } )
         {
             commands.push_back( { "Modeling",
                                   std::string( "Mesh selection: " ) + Core::MeshElementSelection::ToString( op ),
                                   [op] { return Core::MeshElementSelection::Get().Apply( op ); } } );
         }
         commands.push_back(
-             { "Modeling", "Mesh selection: pick at the viewport centre", []
+             { "Modeling", "Mesh selection: pick at the viewport centre", [this]
                {
-                   auto& state = Core::MeshElementSelection::Get();
-                   if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect ||
-                        !state.HasMesh() )
-                       return PaletteCommandOutcome(
-                            false, "the Select Elements tool is not on an entity with an editable mesh" );
-                   state.ReqPickCentre = true;
+                   if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect )
+                       return PaletteCommandOutcome( false, "the Select Elements tool is not active" );
+                   // The tool's own target rule, not "the tracker has a mesh": the tracker only learns the mesh
+                   // on the tool's next frame, and a static mesh with no EditableMesh is a target too (P9c).
+                   const auto selected = Core::SelectionManager::GetSelected();
+                   if ( !m_MainScene || !selected.has_value() )
+                       return PaletteCommandOutcome( false, "no entity is selected" );
+                   auto ref = m_MainScene->FindEntityByID( *selected );
+                   if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                       return PaletteCommandOutcome( false, "the selected entity has no static mesh" );
+                   auto target = Editor::GetToolTargetMesh( ref->get().GetComponent<ECS::StaticMeshComponent>() );
+                   if ( !target.IsSuccess() )
+                       return PaletteCommandOutcome( false, target.GetError() );
+                   Core::MeshElementSelection::Get().ReqPickCentre = true;
                    return PaletteCommandDone();
                } } );
         // The operations on that selection, at the panel's values (ModelingState). Cut is not here: it needs
@@ -4523,7 +4562,7 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::Trim } )
+                Core::MeshOperation::Trim, Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
                                   {
@@ -4533,6 +4572,260 @@ namespace Desert::Editor
                                                                        Core::ArgsFromModelingState() );
                                   } } );
         }
+        // XForm (UE's XForm tab) on the scene selection's entities, at the panel's values.
+        for ( const Core::XformOperation op :
+              { Core::XformOperation::EditPivot, Core::XformOperation::BakeTransform, Core::XformOperation::Merge,
+                Core::XformOperation::Split, Core::XformOperation::Pattern } )
+        {
+            commands.push_back( { "Modeling", std::string( "XForm: " ) + Core::ToString( op ), [this, op]
+                                  {
+                                      if ( !m_MainScene )
+                                          return PaletteCommandOutcome( false, "no scene is open" );
+                                      return Core::ApplyXformOperation( *m_MainScene, op,
+                                                                        Core::XformArgsFromModelingState() );
+                                  } } );
+        }
+        // THE REST OF THE MODELING PANEL (M30): every button, checkbox and closed choice ModelingPanel draws,
+        // so a tool is usable - and photographable - with no mouse. Each entry writes what the widget writes
+        // or calls what the button calls; the dragged values are the channel's `modeling` subject
+        // (ModelingStateProperties.hpp). Suite ModelingPaletteCensus holds this list to the panel's widgets.
+        using MS           = Core::ModelingState;
+        auto modelingOnOff = [&commands]( const char* group, const std::string& name, auto write )
+        {
+            for ( const bool on : { true, false } )
+                commands.push_back( { group, name + ( on ? ": on" : ": off" ), [write, on]
+                                      {
+                                          write( MS::Get(), on );
+                                          return PaletteCommandDone();
+                                      } } );
+        };
+        auto modelingTool = [&commands]( const char* group, const char* label, MS::Tool tool )
+        {
+            commands.push_back( { group, label, [tool]
+                                  {
+                                      MS::Get().ActiveTool = tool;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
+        };
+        auto needCubeGrid = []
+        {
+            return MS::Get().ActiveTool == MS::Tool::CubeGrid
+                        ? PaletteCommandDone()
+                        : PaletteCommandOutcome( false, "the CubeGrid tool is not active ('CubeGrid tool')" );
+        };
+        modelingTool( "Modeling", "PolyEdit tool", MS::Tool::PolyEdit );
+        modelingTool( "CubeGrid", "CubeGrid tool", MS::Tool::CubeGrid );
+
+        // CubeGrid's panel buttons are the tool's own one-shot requests.
+        for ( const auto& [label, request] : std::initializer_list<std::pair<const char*, bool MS::*>>{
+                   { "Accept and Start New", &MS::ReqAccept },
+                   { "Cancel", &MS::ReqCancel },
+                   { "Reset Grid from Actor", &MS::ReqResetFromActor },
+                   { "Corner Mode (Z)", &MS::ReqCornerMode },
+                   { "Clear", &MS::ReqClear } } )
+        {
+            commands.push_back( { "CubeGrid", label, [request, needCubeGrid]
+                                  {
+                                      if ( auto active = needCubeGrid(); !active )
+                                          return active;
+                                      MS::Get().*request = true;
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        for ( int power = 0; power <= MS::MaxGridPower; ++power )
+            commands.push_back( { "CubeGrid", "Grid Power " + std::to_string( power ), [power]
+                                  {
+                                      MS::Get().SetGridPower( power );
+                                      return PaletteCommandDone();
+                                  } } );
+        commands.push_back( { "CubeGrid", "Block Size /2", []
+                              {
+                                  MS::Get().HalveBlockSize();
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "CubeGrid", "Block Size x2", []
+                              {
+                                  MS::Get().DoubleBlockSize();
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const int div : { 2, 4, 10 } )
+            commands.push_back( { "CubeGrid", "Snap Size 1/" + std::to_string( div ) + " block", [div]
+                                  {
+                                      MS::Get().CornerSnapDiv = div;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "CubeGrid", "Show Gizmo", []( MS& ms, bool on ) { ms.ShowGizmo = on; } );
+        modelingOnOff( "CubeGrid", "Hit Unrelated Geometry", []( MS& ms, bool on ) { ms.HitUnrelated = on; } );
+        modelingOnOff( "CubeGrid", "Generate Collision", []( MS& ms, bool on ) { ms.GenerateCollision = on; } );
+        // The mouse's part: aim from the viewport centre, a marquee of N x N blocks there, E / Q, and the
+        // corner posts Corner Mode picks (bit k = VoxelBlockout's kPosts[k]: (u-,v-) (u+,v-) (u-,v+) (u+,v+)).
+        modelingOnOff( "CubeGrid", "Aim at the viewport centre",
+                       []( MS& ms, bool on ) { ms.CubeGridAimCentre = on; } );
+        for ( const int blocks : { 1, 2, 3, 4 } )
+            commands.push_back(
+                 { "CubeGrid",
+                   "Select " + std::to_string( blocks ) + "x" + std::to_string( blocks ) + " blocks at the aim",
+                   [blocks, needCubeGrid]
+                   {
+                       if ( auto active = needCubeGrid(); !active )
+                           return active;
+                       MS::Get().ReqCubeGridSelectBlocks = blocks;
+                       return PaletteCommandDone();
+                   } } );
+        for ( const auto& [label, dir] : std::initializer_list<std::pair<const char*, int>>{
+                   { "Push/Pull out (E)", +1 }, { "Push/Pull in (Q)", -1 } } )
+            commands.push_back( { "CubeGrid", label, [dir, needCubeGrid]
+                                  {
+                                      if ( auto active = needCubeGrid(); !active )
+                                          return active;
+                                      MS::Get().ReqCubeGridStep = dir;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto& [label, posts] :
+              std::initializer_list<std::pair<const char*, int>>{ { "Corner posts: all", 0b1111 },
+                                                                  { "Corner posts: none", 0b0000 },
+                                                                  { "Corner posts: U+ edge", 0b1010 },
+                                                                  { "Corner posts: U- edge", 0b0101 },
+                                                                  { "Corner posts: V+ edge", 0b1100 },
+                                                                  { "Corner posts: V- edge", 0b0011 } } )
+            commands.push_back( { "CubeGrid", label, [posts]
+                                  {
+                                      if ( !MS::Get().CornerMode )
+                                          return PaletteCommandOutcome(
+                                               false,
+                                               "corner posts are picked in Corner Mode ('Corner Mode (Z)')" );
+                                      MS::Get().ReqCornerPosts = posts;
+                                      return PaletteCommandDone();
+                                  } } );
+
+        // Create Shape's closed choices.
+        for ( const Geometry::ShapePolygroupMode mode :
+              { Geometry::ShapePolygroupMode::PerFace, Geometry::ShapePolygroupMode::PerQuad,
+                Geometry::ShapePolygroupMode::Single } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Create shape polygroups: " ) + Geometry::ToString( mode ), [mode]
+                                  {
+                                      MS::Get().CreateShape.Groups = mode;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::ShapePivot pivot :
+              { Geometry::ShapePivot::Base, Geometry::ShapePivot::Centre, Geometry::ShapePivot::Top } )
+            commands.push_back( { "Modeling", std::string( "Create shape pivot: " ) + Geometry::ToString( pivot ),
+                                  [pivot]
+                                  {
+                                      MS::Get().CreateShape.Pivot = pivot;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Create shape: Place on Scene", []( MS& ms, bool on )
+                       { ms.CreateShape.Place = on ? MS::Placement::OnScene : MS::Placement::Ground; } );
+        for ( const auto& [label, type] : std::initializer_list<std::pair<const char*, MS::OutputType>>{
+                   { "Output type: Static Mesh", MS::OutputType::StaticMesh },
+                   { "Output type: Dynamic Mesh", MS::OutputType::Dynamic } } )
+            commands.push_back( { "Modeling", label, [type]
+                                  {
+                                      MS::Get().Output.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+
+        // Select Elements' options for Subdivide, Mirror, Plane Cut and Trim.
+        modelingOnOff( "Modeling", "Subdivide: Smooth (Loop)",
+                       []( MS& ms, bool on ) {
+                           ms.ElementSubdivideScheme =
+                                on ? Geometry::SubdivideScheme::Loop : Geometry::SubdivideScheme::Uniform;
+                       } );
+        static constexpr std::array<const char*, 3> kAxisNames = { "X", "Y", "Z" };
+        for ( int axis = 0; axis < 3; ++axis )
+        {
+            commands.push_back( { "Modeling", std::string( "Mirror axis: " ) + kAxisNames[axis], [axis]
+                                  {
+                                      MS::Get().ElementMirrorAxis = axis;
+                                      return PaletteCommandDone();
+                                  } } );
+            commands.push_back( { "Modeling", std::string( "Plane Cut axis: " ) + kAxisNames[axis], [axis]
+                                  {
+                                      MS::Get().ElementPlaneCutAxis = axis;
+                                      return PaletteCommandDone();
+                                  } } );
+            commands.push_back( { "Modeling", std::string( "Pattern axis: " ) + kAxisNames[axis], [axis]
+                                  {
+                                      MS::Get().XformPattern.AxisA = axis;
+                                      return PaletteCommandDone();
+                                  } } );
+            commands.push_back( { "Modeling", std::string( "Pattern axis B: " ) + kAxisNames[axis], [axis]
+                                  {
+                                      MS::Get().XformPattern.AxisB = axis;
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        modelingOnOff( "Modeling", "Mirror: World", []( MS& ms, bool on ) { ms.ElementMirrorWorld = on; } );
+        modelingOnOff( "Modeling", "Mirror: Keep -",
+                       []( MS& ms, bool on ) { ms.ElementMirrorKeepNegative = on; } );
+        modelingOnOff( "Modeling", "Mirror: Cut the far half first",
+                       []( MS& ms, bool on ) {
+                           ms.ElementMirrorMode =
+                                on ? Geometry::MirrorMode::CutAndMirror : Geometry::MirrorMode::AddMirroredCopy;
+                       } );
+        modelingOnOff( "Modeling", "Plane Cut: World", []( MS& ms, bool on ) { ms.ElementPlaneCutWorld = on; } );
+        modelingOnOff( "Modeling", "Plane Cut: Keep -",
+                       []( MS& ms, bool on ) { ms.ElementPlaneCutKeepNegative = on; } );
+        modelingOnOff( "Modeling", "Plane Cut: Fill", []( MS& ms, bool on ) { ms.ElementPlaneCutFill = on; } );
+        modelingOnOff( "Modeling", "Plane Cut: Keep both halves",
+                       []( MS& ms, bool on )
+                       {
+                           ms.ElementPlaneCutMode = on ? Geometry::PlaneCutMode::KeepBothHalves
+                                                       : Geometry::PlaneCutMode::DiscardNegativeSide;
+                       } );
+        modelingOnOff(
+             "Modeling", "Trim: Keep only the inside", []( MS& ms, bool on )
+             { ms.ElementTrimSide = on ? Geometry::TrimSide::RemoveOutside : Geometry::TrimSide::RemoveInside; } );
+        commands.push_back( { "Modeling", "Trim: Pick Cutter from the selection",
+                              [] { return Editor::ModelingPanel::PickTrimCutterFromSelection(); } } );
+        // The cutter named: one entry per entity with a Tag, as the "Entity" group's selection entries.
+        if ( m_MainScene )
+        {
+            for ( const auto& entity : m_MainScene->GetAllEntities() )
+            {
+                if ( !entity.HasComponent<ECS::TagComponent>() || !entity.HasComponent<ECS::UUIDComponent>() )
+                    continue;
+                const Common::UUID uuid = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                commands.push_back( { "Modeling", "Trim: cutter " + entity.GetComponent<ECS::TagComponent>().Tag,
+                                      [uuid] { return Editor::ModelingPanel::PickTrimCutter( uuid ); } } );
+            }
+        }
+
+        // XForm's closed choices.
+        for ( const auto& [label, pivot] : std::initializer_list<std::pair<const char*, Geometry::PivotLocation>>{
+                   { "XForm pivot: Bounds Center", Geometry::PivotLocation::BoundsCenter },
+                   { "XForm pivot: Bounds Base", Geometry::PivotLocation::BoundsBase },
+                   { "XForm pivot: World Origin", Geometry::PivotLocation::WorldOrigin },
+                   { "XForm pivot: World Point", Geometry::PivotLocation::WorldPoint } } )
+            commands.push_back( { "Modeling", label, [pivot]
+                                  {
+                                      MS::Get().XformPivot = pivot;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Bake: Rotation", []( MS& ms, bool on ) { ms.XformBake.Rotation = on; } );
+        modelingOnOff( "Modeling", "Bake: Scale", []( MS& ms, bool on ) { ms.XformBake.Scale = on; } );
+        modelingOnOff( "Modeling", "Bake: Location", []( MS& ms, bool on ) { ms.XformBake.Translation = on; } );
+        modelingOnOff( "Modeling", "Split by polygroups",
+                       []( MS& ms, bool on ) {
+                           ms.XformSplit = on ? Geometry::SplitMethod::PolyGroups
+                                              : Geometry::SplitMethod::ConnectedComponents;
+                       } );
+        for ( const auto& [label, shape] : std::initializer_list<std::pair<const char*, Geometry::PatternShape>>{
+                   { "Pattern shape: Line", Geometry::PatternShape::Line },
+                   { "Pattern shape: Grid", Geometry::PatternShape::Grid },
+                   { "Pattern shape: Circle", Geometry::PatternShape::Circle } } )
+            commands.push_back( { "Modeling", label, [shape]
+                                  {
+                                      MS::Get().XformPattern.Shape = shape;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Pattern: Orient",
+                       []( MS& ms, bool on ) { ms.XformPattern.OrientToCircle = on; } );
+        modelingOnOff( "Modeling", "Pattern: Separate entities",
+                       []( MS& ms, bool on ) { ms.XformPatternSeparate = on; } );
         commands.push_back( { "View", "Toggle 2D UI mode", [this]
                               {
                                   // REFUSES RATHER THAN DOING NOTHING when there is no scene. The mode is
