@@ -221,8 +221,9 @@ def main():
         calls = state.get("calls", 0)
         if calls >= TURN_WARN:
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-                  f"[agent_guard] Вызов {calls}/{TURN_LIMIT}. Остановись на границе шага: коммит, пуш, отчёт "
-                  f"тимлиду. После {TURN_LIMIT} разрешены только git, SendMessage и отчёт."}})
+                  f"[agent_guard] Вызов {calls}/{TURN_LIMIT}, осталось {TURN_LIMIT - calls}. Доделай ТЕКУЩИЙ шаг, "
+                  f"новый крупный не начинай; закоммить, запушь и отчитайся до {TURN_LIMIT}. Не останавливайся "
+                  f"раньше времени: каждый новый агент платит ~10 вызовов за вход в задачу."}})
         sys.exit(0)
 
     tool = data.get("tool_name", "")
