@@ -370,6 +370,10 @@ namespace Desert::Geometry
         {
             return View[static_cast<size_t>( Index )];
         }
+        bool Contains( const std::remove_const_t<T>& Item ) const
+        {
+            return std::find( View.begin(), View.end(), Item ) != View.end();
+        }
         auto begin() const
         {
             return View.begin();
