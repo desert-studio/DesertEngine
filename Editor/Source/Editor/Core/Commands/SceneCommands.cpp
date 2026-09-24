@@ -21,6 +21,8 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <fmt/format.h>
+
 #include <glm/gtc/epsilon.hpp>
 
 #include <functional>
@@ -489,6 +491,151 @@ namespace Desert::Editor::Commands
             std::shared_ptr<const Geometry::EditMesh> m_Mesh;
             std::unique_ptr<ICommand>                 m_Alongside;
             std::vector<Assets::EntityData>           m_Snapshot;
+        };
+
+        // XForm: the state an entity is put in, and the command that walks a whole XForm edit back and forth.
+        [[nodiscard]] Common::BoolResultStr ApplyXformState( const XformEntityState& state,
+                                                             const Common::UUID&     id )
+        {
+            auto e = FindEntity( id );
+            if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() ||
+                 !e->HasComponent<ECS::TransformComponent>() )
+                return Common::MakeFormattedError<bool>( "entity {} has no mesh or no transform",
+                                                         static_cast<uint64_t>( id ) );
+            auto& smc = e->GetComponent<ECS::StaticMeshComponent>();
+            if ( state.Mesh && state.Mesh != smc.EditableMesh )
+                if ( auto set = ECS::SetEditableMesh( smc, state.Mesh ); !set.IsSuccess() )
+                    return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
+                                                             set.GetError() );
+            if ( state.MaterialSlots && *state.MaterialSlots != smc.MaterialSlots )
+            {
+                smc.MaterialSlots = *state.MaterialSlots;
+                // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
+                smc.RuntimeMaterialInstances.clear();
+                smc.RuntimeSlots.reset();
+                smc.SeenMaterialsVersion = 0;
+            }
+            auto& tc       = e->GetComponent<ECS::TransformComponent>();
+            tc.Translation = state.Translation;
+            tc.Rotation    = state.Rotation;
+            tc.Scale       = state.Scale;
+            return Common::MakeSuccess( true );
+        }
+
+        std::optional<XformEntityState> CaptureXformState( const Common::UUID& id, bool withSlots )
+        {
+            auto e = FindEntity( id );
+            if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() ||
+                 !e->HasComponent<ECS::TransformComponent>() )
+                return std::nullopt;
+            const auto&      smc = e->GetComponent<ECS::StaticMeshComponent>();
+            const auto&      tc  = e->GetComponent<ECS::TransformComponent>();
+            XformEntityState out{ id, smc.EditableMesh, tc.Translation, tc.Rotation, tc.Scale, std::nullopt };
+            if ( withSlots )
+                out.MaterialSlots = smc.MaterialSlots;
+            return out;
+        }
+
+        class XformCommand final : public ICommand
+        {
+        public:
+            struct Changed
+            {
+                XformEntityState Before, After;
+            };
+            struct Made
+            {
+                Common::UUID                    Id;
+                XformEntityState                State;
+                std::vector<Assets::EntityData> Snapshot;
+            };
+            struct Gone
+            {
+                Common::UUID                              Id;
+                std::shared_ptr<const Geometry::EditMesh> Mesh;
+                std::vector<Assets::EntityData>           Snapshot;
+            };
+
+            XformCommand( std::string label, std::vector<Changed> changed, std::vector<Made> made,
+                          std::vector<Gone> gone )
+                 : m_Label( std::move( label ) ), m_Changed( std::move( changed ) ), m_Made( std::move( made ) ),
+                   m_Gone( std::move( gone ) )
+            {
+            }
+
+            [[nodiscard]] std::string GetLabel() const override
+            {
+                return m_Label;
+            }
+
+            bool Undo() override
+            {
+                bool ok = true;
+                for ( Made& made : m_Made )
+                {
+                    auto e = FindEntity( made.Id );
+                    if ( !e )
+                    {
+                        ok = false;
+                        continue;
+                    }
+                    made.Snapshot = CaptureSubtree( *e );
+                    DestroyByUUID( made.Id );
+                }
+                for ( auto it = m_Changed.rbegin(); it != m_Changed.rend(); ++it )
+                    ok &= Report( ApplyXformState( it->Before, it->Before.Entity ) );
+                for ( Gone& gone : m_Gone )
+                {
+                    ECS::Entity root = RestoreSnapshot( gone.Snapshot, /*preserveIds=*/true );
+                    if ( !root || !root.HasComponent<ECS::StaticMeshComponent>() )
+                    {
+                        ok = false;
+                        continue;
+                    }
+                    ok &= Report(
+                         ECS::SetEditableMesh( root.GetComponent<ECS::StaticMeshComponent>(), gone.Mesh ) );
+                }
+                OnStructuralChange();
+                return ok;
+            }
+
+            bool Redo() override
+            {
+                bool ok = true;
+                for ( Gone& gone : m_Gone )
+                {
+                    auto e = FindEntity( gone.Id );
+                    if ( !e )
+                    {
+                        ok = false;
+                        continue;
+                    }
+                    gone.Snapshot = CaptureSubtree( *e );
+                    DestroyByUUID( gone.Id );
+                }
+                for ( const Changed& changed : m_Changed )
+                    ok &= Report( ApplyXformState( changed.After, changed.After.Entity ) );
+                for ( const Made& made : m_Made )
+                {
+                    ECS::Entity root = RestoreSnapshot( made.Snapshot, /*preserveIds=*/true );
+                    ok &= root && Report( ApplyXformState( made.State, made.Id ) );
+                }
+                OnStructuralChange();
+                return ok;
+            }
+
+        private:
+            bool Report( const Common::BoolResultStr& result ) const
+            {
+                if ( !result.IsSuccess() )
+                    LOG_ERROR( "[Undo] '{0}': {1}", m_Label, result.GetError() );
+                return result.IsSuccess();
+            }
+
+            std::string          m_Label;
+            std::vector<Changed> m_Changed;
+            std::vector<Made>    m_Made;
+            std::vector<Gone>    m_Gone;
         };
 
         class CompositeCommand final : public ICommand
@@ -976,6 +1123,80 @@ namespace Desert::Editor::Commands
              std::make_unique<SplitCopyCommand>( copyId, std::move( otherHalf ), std::move( alongside ) ) );
         OnStructuralChange();
         return Common::MakeSuccess( copyId );
+    }
+
+    Common::ResultStr<std::vector<Common::UUID>> ApplyXformEdit( const std::string&                   label,
+                                                                 const std::vector<XformEntityState>& changes,
+                                                                 const std::vector<XformNewEntity>&   creates,
+                                                                 const std::vector<Common::UUID>&     deletes )
+    {
+        using Out = std::vector<Common::UUID>;
+        if ( !Ready() )
+            return Common::MakeFormattedError<Out>( "{}: the scene commands are not bound to a scene", label );
+        std::vector<XformCommand::Changed> changed;
+        std::vector<XformCommand::Made>    made;
+        // Put back what was already done, newest first, so a refusal leaves the scene as it was.
+        auto rollback = [&]( const std::string& why )
+        {
+            for ( const auto& m : made )
+                DestroyByUUID( m.Id );
+            for ( auto it = changed.rbegin(); it != changed.rend(); ++it )
+                if ( auto r = ApplyXformState( it->Before, it->Before.Entity ); !r.IsSuccess() )
+                    LOG_ERROR( "[SceneCommands] {0}: rolling back: {1}", label, r.GetError() );
+            OnStructuralChange();
+            return Common::MakeFormattedError<Out>( "{}: {}", label, why );
+        };
+        for ( const XformEntityState& after : changes )
+        {
+            auto before = CaptureXformState( after.Entity, after.MaterialSlots.has_value() );
+            if ( !before )
+                return rollback( fmt::format( "entity {} has no mesh or no transform",
+                                              static_cast<uint64_t>( after.Entity ) ) );
+            if ( auto r = ApplyXformState( after, after.Entity ); !r.IsSuccess() )
+                return rollback( r.GetError() );
+            changed.push_back( { std::move( *before ), after } );
+        }
+        for ( const XformNewEntity& create : creates )
+        {
+            auto source = FindEntity( create.CopyOf );
+            if ( !source )
+                return rollback(
+                     fmt::format( "entity {} to copy is gone", static_cast<uint64_t>( create.CopyOf ) ) );
+            std::vector<Assets::EntityData> record = CaptureSubtree( *source );
+            record.resize( 1 );
+            ECS::Entity copy = RestoreSnapshot( record, /*preserveIds=*/false );
+            if ( !copy )
+                return rollback( fmt::format( "the copy of entity {} could not be made",
+                                              static_cast<uint64_t>( create.CopyOf ) ) );
+            const Common::UUID id = UUIDOf( copy );
+            if ( copy.HasComponent<ECS::TagComponent>() )
+                copy.GetComponent<ECS::TagComponent>().Tag = create.Name;
+            made.push_back( { id, create.State, {} } );
+            made.back().State.Entity = id;
+            if ( auto r = ApplyXformState( made.back().State, id ); !r.IsSuccess() )
+                return rollback( r.GetError() );
+        }
+        std::vector<XformCommand::Gone> gone;
+        for ( const Common::UUID& id : deletes )
+        {
+            auto e = FindEntity( id );
+            if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
+                return rollback( fmt::format( "entity {} to delete has no mesh", static_cast<uint64_t>( id ) ) );
+            gone.push_back( { id, e->GetComponent<ECS::StaticMeshComponent>().EditableMesh, {} } );
+        }
+        // Destroyed last: nothing can refuse after this point.
+        for ( XformCommand::Gone& g : gone )
+        {
+            g.Snapshot = CaptureSubtree( *FindEntity( g.Id ) );
+            DestroyByUUID( g.Id );
+        }
+        Out created;
+        for ( const auto& m : made )
+            created.push_back( m.Id );
+        CommandHistory::Get().PushCommand(
+             std::make_unique<XformCommand>( label, std::move( changed ), std::move( made ), std::move( gone ) ) );
+        OnStructuralChange();
+        return Common::MakeSuccess( std::move( created ) );
     }
 
     void RecordTransformEdit( const Common::UUID& uuid, const glm::vec3& oldTranslation,

@@ -494,13 +494,17 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   the cell source by WorldCellLoader::m_Source - each co-held by the JobSystem workers reading a cell, which
     //   may outlive the frame that started them. WorldStreamer::m_Source (unique) became ::m_Loader (unique).
     //   Shared 339+4.
-    //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared):
-    //   400 / 343 / 131 / 39 = 913.
+    //   M17 (2026-09-24) added two shared_ptr<const Geometry::EditMesh>, shared for M4's reason: SceneCommands'
+    //   XformEntityState::Mesh (the state an XForm operation puts an entity in, held by the undo step) and
+    //   XformCommand::Gone::Mesh (a merged-away entity's mesh, put back by reference on undo, as
+    //   SplitCopyCommand::m_Mesh). Merge's parts are held by reference, so Raw does not move. Shared 340+2.
+    //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared, M17 +2 Shared):
+    //   400 / 345 / 131 / 39 = 915.
     EXPECT_EQ( CountOf( Form::Raw ), 400 );
-    EXPECT_EQ( CountOf( Form::Shared ), 343 );
+    EXPECT_EQ( CountOf( Form::Shared ), 345 );
     EXPECT_EQ( CountOf( Form::Unique ), 131 );
     EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 913 )
+    EXPECT_EQ( (int)Members().size(), 915 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -754,7 +758,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // 339 -> 338 with LS-6 (the procedural terrain's SplatMap), -> 339 with M16b (SplitCopyCommand::m_Mesh),
     // -> 343 with WP9: a cooked world's index, the Play snapshot and the cell source, co-held by the JobSystem
     // workers reading cells - see TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 343 );
+    // -> 345 with M17: XformEntityState::Mesh and XformCommand::Gone::Mesh.
+    EXPECT_EQ( CountOf( Form::Shared ), 345 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 
