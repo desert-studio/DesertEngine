@@ -808,6 +808,8 @@ namespace Desert::Geometry
                 const int t = tris[side];
                 if ( t == InvalidId )
                     continue;
+                // An iterator, not a pointer: libc++ makes std::array's iterator a raw pointer, MSVC does not.
+                // NOLINTNEXTLINE(readability-qualified-auto)
                 const auto slot = std::find( m_TriangleEdges[t].begin(), m_TriangleEdges[t].end(), e );
                 if ( slot == m_TriangleEdges[t].end() )
                     return MakeFormattedError<bool>( "edge {} lists triangle {} which does not use it", e, t );
