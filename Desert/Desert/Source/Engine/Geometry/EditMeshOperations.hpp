@@ -69,11 +69,6 @@ namespace Desert::Geometry
         // The region the operation acted on, on the result, in the input selection's mode (empty after
         // Delete). Triangle IDs change for the region's triangles: they are re-created on the new vertices.
         ElementSelection Selection{ ElementMode::Triangle };
-
-        int TrianglesAdded   = 0;
-        int TrianglesRemoved = 0;
-        int VerticesAdded    = 0;
-        int VerticesRemoved  = 0;
     };
 
     // Removes the region's triangles, and every vertex left with no triangle. On a closed mesh the open

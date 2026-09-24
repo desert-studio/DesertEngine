@@ -1,6 +1,7 @@
 #include "ElementSelectTool.hpp"
 
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
+#include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
@@ -15,6 +16,7 @@
 #include <ImGui/imgui.h>
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Desert::Editor::Tools
@@ -213,6 +215,30 @@ namespace Desert::Editor::Tools
                 }
             }
             state.Commit( std::move( next ), label );
+        }
+
+        // Operation hotkeys, with the cursor over the viewport and no field being typed in. The operation
+        // replaces the mesh, so this frame paints nothing more: `mesh` is the old one, the selection the new.
+        if ( hovered && !::ImGui::IsAnyItemActive() && !::ImGui::GetIO().WantTextInput )
+        {
+            const ImGuiIO&                     io = ::ImGui::GetIO();
+            std::optional<Core::MeshOperation> operation;
+            if ( ::ImGui::IsKeyPressed( ImGuiKey_Delete, false ) )
+                operation = Core::MeshOperation::Delete;
+            else if ( io.KeyAlt && ::ImGui::IsKeyPressed( ImGuiKey_E, false ) )
+                operation = Core::MeshOperation::Extrude;
+            else if ( io.KeyAlt && ::ImGui::IsKeyPressed( ImGuiKey_I, false ) )
+                operation = Core::MeshOperation::Inset;
+            else if ( io.KeyAlt && ::ImGui::IsKeyPressed( ImGuiKey_O, false ) )
+                operation = Core::MeshOperation::Offset;
+            if ( operation )
+            {
+                if ( auto applied = Core::ApplyMeshOperation( scene, *operation,
+                                                              Core::ModelingState::Get().ElementOpDistance );
+                     !applied.IsSuccess() )
+                    LOG_WARN( "{0}", applied.GetError() );
+                return;
+            }
         }
 
         const Painter paint{

@@ -466,11 +466,15 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   last checked against - its IDENTITY is how an edit is noticed and the selection pruned - and the
     //   Select Elements tool's per-frame Target::Mesh. The tool's painter holds its draw list by reference,
     //   so Raw does not move. Shared 335+2.
-    EXPECT_EQ( CountOf( Form::Raw ), 391 );
+    //   M14 (2026-09-24) added two: EditMeshOperations' LayerRecord::Layer (raw, call-scoped, with a row) -
+    //   an attribute layer of the mesh the operation is building - and EditMeshCommand::m_Alongside
+    //   (unique), the selection change undone and redone with a mesh operation as one step. Raw 391+1,
+    //   Unique 123+1.
+    EXPECT_EQ( CountOf( Form::Raw ), 392 );
     EXPECT_EQ( CountOf( Form::Shared ), 337 );
-    EXPECT_EQ( CountOf( Form::Unique ), 123 );
+    EXPECT_EQ( CountOf( Form::Unique ), 124 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 889 )
+    EXPECT_EQ( (int)Members().size(), 891 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Core/CommandHistory.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
@@ -77,6 +78,13 @@ namespace Desert::Editor::Core
 
         // Undo / redo land here: the selection as it was, on the entity it was made on.
         void Restore( const Common::UUID& entity, Geometry::ElementSelection selection );
+
+        // The same selection change as an undo sub-step that is NOT pushed: a mesh operation records it with
+        // its mesh edit, so the edit and the selection it leaves are one step (Commands::RecordEditMeshChange).
+        [[nodiscard]] static std::unique_ptr<ICommand> MakeSelectionChange( const Common::UUID&        entity,
+                                                                            Geometry::ElementSelection before,
+                                                                            Geometry::ElementSelection after,
+                                                                            std::string                label );
 
         // One-shot for the command palette / control channel: pick at the viewport's centre on the next
         // frame, as if clicked there (no modifier). The viewport owns the camera, so only the tool can.

@@ -64,6 +64,10 @@ namespace Desert::Editor::Core
         bool ReqClear          = false; // one-shot: clear the cells (keep editing)
         bool ReqResetFromActor = false; // one-shot: put the grid origin on the selected entity
 
+        // Select Elements: the distance Extrude / Push-Pull / Offset / Inset / Outset use, in centimetres (the
+        // panel's field, the Alt hotkeys and the palette entries all read this one value). Push/Pull and
+        // Offset take its sign; the others refuse a negative one.
+        float ElementOpDistance = 20.0f;
         // Tool -> panel (read-only stats for the properties panel)
         int  Cubes      = 0;
         bool CornerMode = false; // the tool is currently in Corner Mode

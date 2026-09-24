@@ -140,6 +140,7 @@
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
+#include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
@@ -4334,6 +4335,19 @@ namespace Desert::Editor
                    state.ReqPickCentre = true;
                    return PaletteCommandDone();
                } } );
+        // The operations on that selection, at the panel's distance (ModelingState::ElementOpDistance).
+        for ( const Core::MeshOperation op :
+              { Core::MeshOperation::Delete, Core::MeshOperation::Extrude, Core::MeshOperation::PushPull,
+                Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset } )
+        {
+            commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
+                                  {
+                                      if ( !m_MainScene )
+                                          return PaletteCommandOutcome( false, "no scene is open" );
+                                      return Core::ApplyMeshOperation(
+                                           *m_MainScene, op, Core::ModelingState::Get().ElementOpDistance );
+                                  } } );
+        }
         commands.push_back( { "View", "Toggle 2D UI mode", [this]
                               {
                                   // REFUSES RATHER THAN DOING NOTHING when there is no scene. The mode is

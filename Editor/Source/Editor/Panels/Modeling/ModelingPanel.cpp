@@ -2,6 +2,7 @@
 
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
+#include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 
@@ -332,7 +333,37 @@ namespace Desert::Editor
             report( state.Apply( Op::SelectAll ) );
         if ( ImGui::Button( "Clear", ImVec2( -1.0f, 0.0f ) ) )
             report( state.Apply( Op::Clear ) );
+
+        // Operations on the selection: one click = one undo step (mesh + the selection it leaves).
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::TextUnformatted( "Operations" );
+        auto& ms = Core::ModelingState::Get();
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::DragFloat( "##ElementOpDistance", &ms.ElementOpDistance, 0.5f, -10000.0f, 10000.0f,
+                          "Distance %.1f cm" );
+        using MO           = Core::MeshOperation;
+        const auto operate = [&]( MO op )
+        {
+            if ( !m_Scene )
+            {
+                LOG_WARN( "Mesh {0}: the Modeling panel has no scene", Core::ToString( op ) );
+                return;
+            }
+            report( Core::ApplyMeshOperation( *m_Scene, op, ms.ElementOpDistance ) );
+        };
+        const MO grid[3][2] = {
+             { MO::Extrude, MO::PushPull }, { MO::Inset, MO::Outset }, { MO::Offset, MO::Delete } };
+        for ( const auto& row : grid )
+        {
+            if ( ImGui::Button( Core::ToString( row[0] ), ImVec2( half, 0.0f ) ) )
+                operate( row[0] );
+            ImGui::SameLine();
+            if ( ImGui::Button( Core::ToString( row[1] ), ImVec2( half, 0.0f ) ) )
+                operate( row[1] );
+        }
         ImGui::Spacing();
         ImGui::TextDisabled( "LMB select, Shift+LMB add, Ctrl+LMB remove" );
+        ImGui::TextDisabled( "Del delete, Alt+E extrude, Alt+I inset, Alt+O offset" );
     }
 } // namespace Desert::Editor

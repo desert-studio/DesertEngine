@@ -156,6 +156,15 @@ namespace Desert::Editor::Core
         return Common::MakeSuccess( true );
     }
 
+    std::unique_ptr<ICommand> MeshElementSelection::MakeSelectionChange( const Common::UUID&        entity,
+                                                                         Geometry::ElementSelection before,
+                                                                         Geometry::ElementSelection after,
+                                                                         std::string                label )
+    {
+        return std::make_unique<ElementSelectionCommand>( entity, std::move( before ), std::move( after ),
+                                                          std::move( label ) );
+    }
+
     void MeshElementSelection::Restore( const Common::UUID& entity, Geometry::ElementSelection selection )
     {
         if ( static_cast<uint64_t>( entity ) != static_cast<uint64_t>( m_Entity ) )

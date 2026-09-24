@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <string>
 #include <unordered_map>
 #include <utility>
 
@@ -424,7 +425,7 @@ namespace Desert::Geometry
 
         struct CutOptions
         {
-            const char* What           = "";
+            std::string What;
             float       Distance       = 0.0f;
             StripUV     UV             = StripUV::ArcLength;
             bool        CheckStripFlip = false; // Inset only: its ring must stay in the region's surface
@@ -437,10 +438,8 @@ namespace Desert::Geometry
                               const std::unordered_map<int, glm::vec3>& moved, const CutOptions& options )
         {
             MeshEditOutcome out;
-            out.Mesh                  = input;
-            EditMesh& mesh            = out.Mesh;
-            const int verticesBefore  = mesh.VertexCount();
-            const int trianglesBefore = mesh.TriangleCount();
+            out.Mesh       = input;
+            EditMesh& mesh = out.Mesh;
 
             int nextGroup = 0;
             for ( const int t : mesh.TriangleIds() )
@@ -691,7 +690,8 @@ namespace Desert::Geometry
                 return Common::MakeError<MeshEditOutcome>( std::string( options.What ) + ": " + r.GetError() );
 
             // 5. Nothing may turn over: the region against itself, the strip against the region it came from.
-            if ( auto r = RequireNoFlip( input, mesh, flipPairs, options.What, options.Distance ); !r.IsSuccess() )
+            if ( auto r = RequireNoFlip( input, mesh, flipPairs, options.What.c_str(), options.Distance );
+                 !r.IsSuccess() )
                 return Common::MakeError<MeshEditOutcome>( r.GetError() );
             if ( options.CheckStripFlip )
                 for ( size_t s = 0; s < strip.size(); ++s )
@@ -715,11 +715,9 @@ namespace Desert::Geometry
             ElementSelection result( ElementMode::Triangle );
             for ( const int t : regionNew )
                 (void)result.Add( mesh, t );
-            out.Selection      = selection.Mode() == ElementMode::Triangle
-                                      ? result
-                                      : ConvertSelection( mesh, result, selection.Mode() );
-            out.TrianglesAdded = mesh.TriangleCount() - trianglesBefore;
-            out.VerticesAdded  = mesh.VertexCount() - verticesBefore;
+            out.Selection = selection.Mode() == ElementMode::Triangle
+                                 ? result
+                                 : ConvertSelection( mesh, result, selection.Mode() );
             return Common::MakeSuccess( std::move( out ) );
         }
     } // namespace
@@ -737,8 +735,6 @@ namespace Desert::Geometry
             if ( const EditResult r = out.Mesh.RemoveTriangle( t, true ); r != EditResult::Ok )
                 return Common::MakeFormattedError<MeshEditOutcome>( "Delete: removing triangle {} refused: {}", t,
                                                                     ToString( r ) );
-        out.TrianglesRemoved = mesh.TriangleCount() - out.Mesh.TriangleCount();
-        out.VerticesRemoved  = mesh.VertexCount() - out.Mesh.VertexCount();
         return Common::MakeSuccess( std::move( out ) );
     }
 

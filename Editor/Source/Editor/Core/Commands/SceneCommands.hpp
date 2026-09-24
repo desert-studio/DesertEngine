@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Core/CommandHistory.hpp> // ICommand: RecordEditMeshChange takes one by unique_ptr
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
@@ -64,9 +65,11 @@ namespace Desert::Editor::Commands
 
     // Record a finished edit of the entity's EditMesh (a PolyEdit drag): @p before is the mesh the component
     // held when the edit began; the component's CURRENT EditableMesh is the "after". One undo step; no-op when
-    // the two are the same object. The meshes are immutable, so both are kept by reference.
+    // the two are the same object. The meshes are immutable, so both are kept by reference. @p alongside is
+    // undone / redone with the mesh as part of the SAME step (a mesh operation's selection change).
     void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
-                               std::shared_ptr<const Geometry::EditMesh> before );
+                               std::shared_ptr<const Geometry::EditMesh> before,
+                               std::unique_ptr<ICommand>                 alongside = nullptr );
 
     // Record a finished transform edit (gizmo drag): oldT/R/S = values before the drag; the entity's
     // CURRENT transform is captured as the "new" state. No-ops if nothing actually changed.
