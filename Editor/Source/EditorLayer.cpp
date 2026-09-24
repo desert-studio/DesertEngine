@@ -1128,7 +1128,7 @@ namespace Desert::Editor
                     // THE SETTLE PHASE GETS ITS OWN LABEL. A splash that says nothing while it waits is
                     // indistinguishable from an editor that has hung, and this wait is the one the
                     // demand-driven model introduced.
-                    ReportSplashStep( "Waiting for the scene's content...", SplashSettleStep() );
+                    ReportSplashStep( "Loading scene content...", SplashSettleStep() );
                     m_Boot.LogSummary();
                     LOG_INFO( "[Startup] all {} stage(s) done in {:.1f} ms; the editor is now answering "
                               "about a project it has actually read.",
@@ -1414,7 +1414,13 @@ namespace Desert::Editor
         // ONE thumbnail capture pump for the whole editor. Panels only request; whether the asset browser
         // is open, hidden or closed no longer changes whether previews progress, and a request made by one
         // panel is finished for all of them.
-        ThumbnailService::Get().Tick();
+        //
+        // NOT WHILE THE SPLASH IS UP. A preview is background work nobody can see until the window is
+        // shown, and pumped during the settle it shares the settle's frames and asset loader — the one
+        // thing the splash is waiting on. Requests made before the hand-over stay queued and are served
+        // after it, at the service's own per-frame pace.
+        if ( Splash::BackgroundWorkAllowed( CurrentRevealState() ) )
+            ThumbnailService::Get().Tick();
 
         UpdateContextualPanels();
 
@@ -5674,21 +5680,45 @@ namespace Desert::Editor
     // surface it reveals already holds the editor, and the splash crossfades into it from this instant.
     void EditorLayer::RevealWhenReady()
     {
-        if ( m_Revealed || !m_Splash || !m_RealFrameDrawn )
+        if ( !Splash::MayReveal( CurrentRevealState() ) )
             return;
         m_Revealed = true;
         if ( const auto& window = m_Application->GetWindow() )
             window->Show();
+        LOG_INFO( "[Startup] reveal: the scene's content has settled and the editor window is shown" );
         // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
-        LOG_INFO( "[Startup] the editor is on screen and the splash is closed" );
+        LOG_INFO( "[Startup] the splash is closed" );
+    }
+
+    Splash::RevealState EditorLayer::CurrentRevealState() const
+    {
+        Splash::RevealState state;
+        state.HasSplash        = m_Splash != nullptr;
+        state.Revealed         = m_Revealed;
+        state.StartupLoading   = StartupLoading();
+        state.SceneLoadPending = m_SceneLoadRequested.has_value();
+        state.ContentSettling  = ContentSettling();
+        state.RealFrameDrawn   = m_RealFrameDrawn;
+        return state;
     }
 
     void EditorLayer::UpdateContentSettling()
     {
         const auto& loader = Assets::AsyncAssetLoader::Get();
-        if ( !m_Content.Tick( loader.Outstanding(), loader.StartedCount() ) )
+        const bool  settled = m_Content.Tick( loader.Outstanding(), loader.StartedCount() );
+        if ( !settled )
+        {
+            // THE SETTLE SAYS HOW MUCH IS LEFT, not only that it is waiting: a count that moves is the
+            // difference between a load and a hang. Pushed only when the count changes.
+            if ( ContentSettling() && !m_Revealed && loader.Outstanding() != m_SplashOutstandingShown )
+            {
+                m_SplashOutstandingShown = loader.Outstanding();
+                ReportSplashStep( fmt::format( "Loading scene content ({} pending)...", loader.Outstanding() ),
+                                  SplashSettleStep() );
+            }
             return;
+        }
 
         LOG_INFO( "[Content] settled after {} frame(s) in {:.1f} ms; {} read(s) have gone to a worker "
                   "this session. This is the cost that used to be a boot stage, and a scene that asks "

@@ -79,7 +79,15 @@ namespace Desert::Platform::MacOS
                 // channel: Window ▸ Restore gave 2056x1317 against a 1289-tall work area, hanging off the
                 // bottom. Four fifths of the work area is a window that is obviously not maximized and
                 // obviously still usable.
-                glfwWindowHint( GLFW_MAXIMIZED, GLFW_TRUE );
+                //
+                // ONLY A VISIBLE WINDOW IS ZOOMED AT CREATION. The hint makes GLFW call -zoom: (Cocoa) /
+                // create with WS_MAXIMIZE (Win32) on a window the editor keeps hidden behind its splash,
+                // and a zoom is a window-manager operation on a window that is not meant to be on screen
+                // yet. A hidden window keeps the restore size and is maximized by Show().
+                if ( m_Data.Specification.Visible )
+                    glfwWindowHint( GLFW_MAXIMIZED, GLFW_TRUE );
+                else
+                    m_MaximizeOnShow = true;
                 int wx, wy, ww, wh;
                 glfwGetMonitorWorkarea( monitor, &wx, &wy, &ww, &wh );
                 width  = (uint32_t)( ww * 4 / 5 );
@@ -117,7 +125,7 @@ namespace Desert::Platform::MacOS
             // Dropping the title bar grows the CONTENT rect (setStyleMask keeps the frame rect), and a
             // window that was created maximized is no longer zoomed afterwards. Re-issue it so the
             // OS's own maximized flag and the window agree from the first frame.
-            if ( m_Data.Specification.Fullscreen && !coverTaskbar )
+            if ( m_Data.Specification.Fullscreen && !coverTaskbar && m_Data.Specification.Visible )
                 glfwMaximizeWindow( m_GLFWWindow );
         }
 
@@ -306,9 +314,20 @@ namespace Desert::Platform::MacOS
         RefreshCachedSize();
     }
 
+    // THE MAXIMIZE A HIDDEN WINDOW WAS OWED HAPPENS HERE, AFTER IT IS ON SCREEN. Issued on the hidden
+    // window (as Init used to, right after taking the frame off) it is a zoom performed on a window the
+    // splash is meant to be covering for, and the owner saw the editor's own title-bar buttons appear
+    // next to the splash. Shown first, then zoomed: the zoom is a visible window's ordinary maximize, so
+    // the OS records the creation size as the restore size exactly as for a click on the button.
     void MacOSWindow::Show()
     {
         glfwShowWindow( m_GLFWWindow );
+        if ( m_MaximizeOnShow )
+        {
+            m_MaximizeOnShow = false;
+            glfwMaximizeWindow( m_GLFWWindow );
+            RefreshCachedSize();
+        }
         glfwFocusWindow( m_GLFWWindow );
     }
 

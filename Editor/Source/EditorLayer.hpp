@@ -24,6 +24,7 @@
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
+#include "Editor/Splash/RevealGate.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
 #include <chrono>
@@ -697,6 +698,8 @@ namespace Desert::Editor
             return m_StartupStages.size() + 1;
         }
         void ReportSplashStep( const std::string& label, size_t step );
+        // Every condition the splash hand-over depends on, read off this layer for Splash::MayReveal.
+        Splash::RevealState CurrentRevealState() const;
         // Called at every presented frame; the first one presented after the start is over shows the
         // hidden main window and closes the splash. Until then the splash is the only window.
         void RevealWhenReady();
@@ -705,6 +708,8 @@ namespace Desert::Editor
         // the editor has just appeared on.
         std::unique_ptr<Splash::SplashScreen> m_Splash;
         bool                                  m_Revealed = false;
+        // The pending count the splash last showed during the settle, so the label is pushed on change only.
+        size_t m_SplashOutstandingShown = SIZE_MAX;
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
         // WHERE THE ELAPSED TOTAL LIVES NOW. It used to be a `long long` accumulated here with the
