@@ -350,13 +350,14 @@ namespace Desert::Editor
         // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
         bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );
 
-        // Bottom preview strip for the currently selected file: thumbnail (texture/material/mesh) or a
-        // text excerpt (scripts, .demat/.deprefab/.desce JSON), plus name/type/size.
-        void DrawPreviewPane();
+        // UE-style hover tooltip for a tile: picture, name, type/size, path. Shown after the cursor has
+        // rested AssetTooltipLayout::kHoverDelaySeconds on the same tile; size and placement from
+        // AssetTooltipLayout::Compute (capped, never off-window). A click only selects.
+        void DrawAssetTooltip( DirectoryInformation* entry );
 
-        // Text-excerpt cache for the preview pane (loaded once per selection change, capped size).
-        std::string m_PreviewTextPath;
-        std::string m_PreviewText;
+        // Which tile the cursor rests on and since when; identity only, never dereferenced here.
+        const DirectoryInformation* m_TooltipEntry      = nullptr;
+        double                      m_TooltipHoverStart = 0.0;
 
         // ── Creating a cloud volume: the one generation this panel may have in flight ──────────────────
         //
