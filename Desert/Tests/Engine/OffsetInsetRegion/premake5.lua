@@ -21,6 +21,18 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMeshEditor.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/Operations/OffsetMeshRegion.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/Operations/InsetMeshRegion.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/MeshTangents.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/GroupTopology.cpp",
+        -- RunRegionOperation and what it and the tangent-cube test call: selection, render conversion
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshRegionOperation.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/DynamicMeshSelection.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/DynamicMeshRenderConversion.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSelection.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshNormals.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshPolyGroups.cpp",
     }
 
     includedirs {

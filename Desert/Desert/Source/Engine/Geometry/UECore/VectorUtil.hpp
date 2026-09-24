@@ -1,5 +1,6 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/VectorUtil.h:42-56,70-109,148-178,476-489,540-552,
-// adapted: only the functions the FDynamicMesh3 port calls; namespace Desert::Geometry::VectorUtil.
+// 612-636, adapted: only the functions the FDynamicMesh3 port and MeshTangents call; namespace
+// Desert::Geometry::VectorUtil.
 #pragma once
 
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
@@ -99,5 +100,26 @@ namespace Desert::Geometry::VectorUtil
         const TVector<RealType> BChat = Normalized( C - B );
         const TVector<RealType> AChat = Normalized( C - A );
         return TVector<RealType>( AngleR( ABhat, AChat ), AngleR( -ABhat, BChat ), AngleR( AChat, BChat ) );
+    }
+    // Sign of Bitangent relative to Normal and Tangent (UE follows RenderUtils.h::GetBasisDeterminantSign()).
+    template <typename RealType>
+    inline RealType BitangentSign( const TVector<RealType>& NormalIn, const TVector<RealType>& TangentIn,
+                                   const TVector<RealType>& BitangentIn )
+    {
+        RealType Cross00     = BitangentIn.Y * NormalIn.Z - BitangentIn.Z * NormalIn.Y;
+        RealType Cross10     = BitangentIn.Z * NormalIn.X - BitangentIn.X * NormalIn.Z;
+        RealType Cross20     = BitangentIn.X * NormalIn.Y - BitangentIn.Y * NormalIn.X;
+        RealType Determinant = TangentIn.X * Cross00 + TangentIn.Y * Cross10 + TangentIn.Z * Cross20;
+        return ( Determinant < 0 ) ? (RealType)-1 : (RealType)1;
+    }
+
+    // Bitangent from Normal, Tangent and a +1/-1 sign.
+    template <typename RealType>
+    inline TVector<RealType> Bitangent( const TVector<RealType>& NormalIn, const TVector<RealType>& TangentIn,
+                                        RealType BitangentSign )
+    {
+        return BitangentSign * TVector<RealType>( NormalIn.Y * TangentIn.Z - NormalIn.Z * TangentIn.Y,
+                                                  NormalIn.Z * TangentIn.X - NormalIn.X * TangentIn.Z,
+                                                  NormalIn.X * TangentIn.Y - NormalIn.Y * TangentIn.X );
     }
 } // namespace Desert::Geometry::VectorUtil

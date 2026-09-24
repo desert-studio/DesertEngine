@@ -12,8 +12,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
-#include <Engine/Geometry/UECore/Operations/InsetMeshRegion.hpp>
-#include <Engine/Geometry/UECore/Operations/OffsetMeshRegion.hpp>
+#include <Engine/Geometry/MeshRegionOperation.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -23,6 +22,7 @@
 
 #include <cmath>
 #include <memory>
+#include <optional>
 
 namespace Desert::Editor::Core
 {
@@ -118,106 +118,22 @@ namespace Desert::Editor::Core
             return Common::MakeSuccess( std::move( outcome ) );
         }
 
-        bool IsRegionOperation( MeshOperation operation )
+        // The four operations the Engine runs on a region (MeshRegionOperation.hpp); none for the rest.
+        std::optional<Geometry::RegionOperation> ToRegionOperation( MeshOperation operation )
         {
-            return operation == MeshOperation::Extrude || operation == MeshOperation::PushPull ||
-                   operation == MeshOperation::Inset || operation == MeshOperation::Outset;
-        }
-
-        struct RegionOutcome
-        {
-            std::shared_ptr<const Geometry::FDynamicMesh3> Mesh;
-            Geometry::ElementSelection                     Selection{ Geometry::ElementMode::Triangle };
-        };
-
-        // Extrude / Push-Pull / Inset / Outset, as UE's PolyEdit runs them on a copy of the mesh:
-        // FExtrudeOp (ModelingOperators/Private/DeformationOps/ExtrudeOp.cpp:94-146) drives FOffsetMeshRegion,
-        // UPolyEditInsetOutsetActivity (PolyEditInsetOutsetActivity.cpp:181) drives FInsetMeshRegion with the
-        // distance negated for Outset. The result's selection is the moved region (OffsetTids) or the inset
-        // region (InitialTriangles), in the mode the user selected in.
-        Common::ResultStr<RegionOutcome> RunRegionOperation( MeshOperation                     operation,
-                                                             const Geometry::FDynamicMesh3&    before,
-                                                             const Geometry::ElementSelection& selection,
-                                                             float                             distance )
-        {
-            const char* name = ToString( operation );
-            if ( distance == 0.0f )
-                return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: distance 0 cm changes nothing", name );
-            if ( distance < 0.0f && operation != MeshOperation::PushPull )
-                return Common::MakeFormattedError<RegionOutcome>(
-                     "Mesh {}: distance {} cm is negative - {}", name, distance,
-                     operation == MeshOperation::Extrude ? "Push/Pull takes a signed distance"
-                     : operation == MeshOperation::Inset ? "use Outset"
-                                                         : "use Inset" );
-            const Geometry::FGroupTopology   topology( &before, true );
-            const Geometry::ElementSelection triangles =
-                 Geometry::ConvertSelection( before, topology, selection, Geometry::ElementMode::Triangle );
-            if ( triangles.Empty() )
-                return Common::MakeFormattedError<RegionOutcome>(
-                     "Mesh {}: the {} selected {} cover no whole triangle", name, selection.Size(),
-                     Geometry::ToString( selection.Mode() ) );
-            Geometry::TArray<Geometry::int32> regionTriangles;
-            for ( const int t : triangles.Ids() )
-                regionTriangles.Add( t );
-
-            auto                              mesh = std::make_shared<Geometry::FDynamicMesh3>( before );
-            Geometry::TArray<Geometry::int32> resultTriangles;
-            if ( operation == MeshOperation::Extrude || operation == MeshOperation::PushPull )
+            switch ( operation )
             {
-                Geometry::FOffsetMeshRegion extruder( mesh.get() );
-                extruder.Triangles = regionTriangles;
-                // UE's Extrude default (SelectedTriangleNormalsEven): every selected face moves by the full
-                // distance. Push/Pull is FExtrudeOp's SingleDirection: one direction, the region's area-weighted
-                // normal, so the walls are parallel and a push into a solid cannot fold them.
-                extruder.ExtrusionVectorType = Geometry::FOffsetMeshRegion::EVertexExtrusionVectorType::
-                     SelectionTriNormalsAngleWeightedAdjusted;
-                extruder.DefaultOffsetDistance = distance;
-                if ( operation == MeshOperation::PushPull )
-                {
-                    Geometry::FVector3d direction( 0.0, 0.0, 0.0 );
-                    for ( const int t : triangles.Ids() )
-                        direction += before.GetTriNormal( t ) * before.GetTriArea( t );
-                    if ( direction.Length() <= 0.0 )
-                        return Common::MakeFormattedError<RegionOutcome>(
-                             "Mesh {}: the {} selected triangles have no average normal (they cancel out)", name,
-                             triangles.Size() );
-                    Geometry::Normalize( direction );
-                    const double signedDistance = distance;
-                    extruder.OffsetPositionFunc = [direction, signedDistance]( const Geometry::FVector3d& position,
-                                                                               const Geometry::FVector3d&, int )
-                    { return position + direction * signedDistance; };
-                }
-                extruder.bIsPositiveOffset = distance > 0.0f;
-                if ( !extruder.Apply() )
-                    return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name,
-                                                                      extruder.FailureReason );
-                for ( const auto& region : extruder.OffsetRegions )
-                    for ( const Geometry::int32 t : region.OffsetTids )
-                        resultTriangles.Add( t );
+                case MeshOperation::Extrude:
+                    return Geometry::RegionOperation::Extrude;
+                case MeshOperation::PushPull:
+                    return Geometry::RegionOperation::PushPull;
+                case MeshOperation::Inset:
+                    return Geometry::RegionOperation::Inset;
+                case MeshOperation::Outset:
+                    return Geometry::RegionOperation::Outset;
+                default:
+                    return std::nullopt;
             }
-            else
-            {
-                Geometry::FInsetMeshRegion inset( mesh.get() );
-                inset.Triangles     = regionTriangles;
-                inset.InsetDistance = operation == MeshOperation::Outset ? -distance : distance;
-                if ( !inset.Apply() )
-                    return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, inset.FailureReason );
-                for ( const auto& region : inset.InsetRegions )
-                    for ( const Geometry::int32 t : region.InitialTriangles )
-                        resultTriangles.Add( t );
-            }
-
-            Geometry::ElementSelection result( Geometry::ElementMode::Triangle );
-            for ( const Geometry::int32 t : resultTriangles )
-                if ( auto added = result.Add( *mesh, t ); !added.IsSuccess() )
-                    return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: result triangle {}: {}", name, t,
-                                                                      added.GetError() );
-            if ( selection.Mode() != Geometry::ElementMode::Triangle )
-            {
-                const Geometry::FGroupTopology afterTopology( mesh.get(), true );
-                result = Geometry::ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
-            }
-            return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
         }
     } // namespace
 
@@ -302,12 +218,12 @@ namespace Desert::Editor::Core
         std::shared_ptr<const Geometry::FDynamicMesh3>       otherHalf; // Plane Cut, Keep Both Halves
         std::shared_ptr<const Geometry::FDynamicMesh3>       after;
         Geometry::MeshEditOutcome                            outcome;
-        if ( IsRegionOperation( operation ) )
+        if ( const auto regionOperation = ToRegionOperation( operation ) )
         {
-            auto region = RunRegionOperation( operation, *before, selection, distance );
+            auto region = Geometry::RunRegionOperation( *regionOperation, *before, selection, distance );
             if ( !region.IsSuccess() )
                 return Common::MakeError<bool>( region.GetError() );
-            RegionOutcome done = region.ExtractValue();
+            Geometry::RegionOutcome done = region.ExtractValue();
             after              = std::move( done.Mesh );
             outcome.Selection  = std::move( done.Selection );
         }
