@@ -196,7 +196,7 @@ namespace Desert::Core::WorldCells
                                 m_ByGuid.emplace( std::pair{ row.Guid->Hi, row.Guid->Lo }, row.Key );
                 }
                 static const std::string none;
-                const auto known = m_ByGuid.find( std::pair{ guid.Hi, guid.Lo } );
+                const auto               known = m_ByGuid.find( std::pair{ guid.Hi, guid.Lo } );
                 return known != m_ByGuid.end() ? known->second : none;
             }
 

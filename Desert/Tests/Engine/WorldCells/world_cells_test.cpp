@@ -343,7 +343,7 @@ TEST( WorldCells, AUnitsAssetsAreWhatItsRecordsNameAndWhatThoseDependOn )
     ASSERT_TRUE( materialGuid ) << materialGuid.GetError();
     // Gathered, not parsed: the row carries the header GUID and no Identity, exactly what a registry read by
     // AssetRegistry::LoadFrom holds for a material the cook never opened.
-    material.Guid = materialGuid.GetValue();
+    material.Guid         = materialGuid.GetValue();
     material.Dependencies = { kTextureId };
     Common::Utils::AssetRegistryEntry texture;
     texture.Key      = "assets:Textures/T_Brick.tex";
