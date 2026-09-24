@@ -21,7 +21,9 @@ namespace Desert::Editor
     class LandscapePanel final : public IPanel
     {
     public:
-        LandscapePanel();
+        /// The scene is a constructor argument, like the Modeling and Scene Settings panels': SetScene only
+        /// runs when the ACTIVE scene changes, and the primary scene is already active at registration.
+        explicit LandscapePanel( const std::shared_ptr<Desert::Core::Scene>& scene );
 
         void OnUIRender() override;
         bool IsContextual() const override

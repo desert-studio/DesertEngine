@@ -725,7 +725,7 @@ namespace Desert::Editor
             m_Panels.Adopt( std::move( fileExplorer ) );
         }
         m_Panels.Add<Editor::ModelingPanel>( m_MainScene );
-        m_Panels.Add<Editor::LandscapePanel>();
+        m_Panels.Add<Editor::LandscapePanel>( m_MainScene );
         m_Panels.Add<Editor::SceneSettingsPanel>( m_MainScene );
         m_Panels.Add<Editor::LogsPanel>();
         m_Panels.Add<Editor::CollectionsPanel>( m_AssetManager.get() );

@@ -124,7 +124,10 @@ namespace Desert::Editor
         }
     } // namespace
 
-    LandscapePanel::LandscapePanel() : IPanel( "Landscape", /*showPanel=*/false ) // contextual: the mode opens it
+    LandscapePanel::LandscapePanel( const std::shared_ptr<Desert::Core::Scene>& scene )
+         : IPanel( "Landscape", /*showPanel=*/false ) // contextual: the mode opens it
+           ,
+           m_Scene( scene )
     {
     }
 
