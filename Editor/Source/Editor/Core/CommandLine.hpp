@@ -93,6 +93,7 @@ namespace Desert::Editor
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
          { "--play", false, nullptr },
+         { "--console", false, nullptr }, // Windows: opens a console window (Engine/EntryPoint.hpp)
          { "--ui-pointer", true, "640,360" },
          { "--ui-press", true, "right", "--ui-pointer 640,360" },
          { "--flight", true, "line:0,200,0:1000,200,0",
@@ -302,6 +303,7 @@ namespace Desert::Editor
                     options.Shot.GpuFrameOnly = true;
                 else if ( arg == "--play" )
                     options.Shot.Play = true;
+                // `--console` is acted on in main(), before the application exists; nothing to record here.
                 continue;
             }
 
