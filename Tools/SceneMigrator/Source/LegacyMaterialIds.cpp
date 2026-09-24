@@ -280,6 +280,34 @@ namespace Desert::Migration
         }
         return Common::MakeSuccess( std::move( out ) );
     }
+
+    Common::ResultStr<uint32_t> CookedMeshVersion( const std::string_view source, const std::string_view bytes )
+    {
+        namespace Content = Common::Content;
+        const auto Fail   = [&]( const std::string& why )
+        { return Common::MakeFormattedError<uint32_t>( "'{}' {}", std::string( source ), why ); };
+
+        // THE SIGNATURE BEFORE THE VERSION: bytes 12..15 of any file read as a number, and a JSON mesh's
+        // `":fal"` reads as 1818322490 - "newer than this build" to a check that asked only the version.
+        if ( bytes.size() < sizeof( Content::kMeshBinaryMagic ) ||
+             std::memcmp( bytes.data(), Content::kMeshBinaryMagic, sizeof( Content::kMeshBinaryMagic ) ) != 0 )
+        {
+            if ( !bytes.empty() && bytes.front() == '{' )
+                return Fail( "is a JSON mesh (pre-binary format) — re-import from source" );
+            return Fail( "is an unknown mesh format: it does not open with the cooked-mesh signature DESTMESH" );
+        }
+        Content::MeshBinaryFileHeader header{};
+        if ( bytes.size() < sizeof( header ) )
+            return Fail( "is " + std::to_string( bytes.size() ) + " bytes, shorter than a mesh header" );
+        std::memcpy( &header, bytes.data(), sizeof( header ) );
+        if ( header.ByteOrder != Content::kMeshBinaryByteOrderTag )
+            return Fail( "is a cooked mesh of the other byte order; re-cook it on this host" );
+        if ( header.Version < 1 || header.Version > Content::kMeshBinaryVersion )
+            return Fail( "is mesh version " + std::to_string( header.Version ) + "; this build reads 1.." +
+                         std::to_string( Content::kMeshBinaryVersion ) );
+        return Common::MakeSuccess( header.Version );
+    }
+
     Common::ResultStr<std::string> UpgradeMeshBytesToV3( const std::string_view            source,
                                                          const std::string_view            bytes,
                                                          const Common::Content::AssetGuid& meshGuid,

@@ -976,16 +976,21 @@ namespace Desert::Migration
         // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
         // second run changes nothing. A mesh under <project>/Cooked/Meshes translates its material numbers
         // through the register of <project>/Resources/Assets; one under an assets root's Meshes/ through
-        // that root's.
+        // that root's. A file that is not a cooked mesh this build reads (a JSON-era mesh, a foreign file, a
+        // later version) FAILS by name and is left untouched - never "ok".
         for ( const auto& path : meshes )
         {
-            const std::string                     bytes = ReadAll( path );
-            Common::Content::MeshBinaryFileHeader header{};
-            if ( bytes.size() >= sizeof( header ) )
-                std::memcpy( &header, bytes.data(), sizeof( header ) );
-            if ( header.Version >= Common::Content::kMeshBinaryVersion )
+            const std::string bytes   = ReadAll( path );
+            const auto        version = Desert::Migration::CookedMeshVersion( path.string(), bytes );
+            if ( !version )
             {
-                out << "ok     " << path.string() << " — already at mesh v" << header.Version << "\n";
+                err << "FAIL   " << version.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( version.GetValue() == Common::Content::kMeshBinaryVersion )
+            {
+                out << "ok     " << path.string() << " — already at mesh v" << version.GetValue() << "\n";
                 continue;
             }
             std::optional<std::filesystem::path> assetsRoot;
@@ -1019,9 +1024,9 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — mesh v" << header.Version << " -> v"
-                << Common::Content::kMeshBinaryVersion << ", GUID " << Common::Content::AssetGuidToText( guid )
-                << "\n";
+            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — mesh v" << version.GetValue()
+                << " -> v" << Common::Content::kMeshBinaryVersion << ", GUID "
+                << Common::Content::AssetGuidToText( guid ) << "\n";
             ++changed;
             if ( check )
                 continue;
