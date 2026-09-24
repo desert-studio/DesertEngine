@@ -227,8 +227,8 @@ def main():
         if EDITOR_RUN.search(cmd) and "run_capped.sh" not in cmd and not re.search(r"\bpkill\b|\bpgrep\b|\bls\b|\bfile\b", cmd):
             save_state(state, path)
             deny("[agent_guard] Редактор/рантайм запускается только через ограничитель памяти: "
-                 "\"$CLAUDE_PROJECT_DIR\"/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... "
-                 "(путь: /Users/daniilsavcenko/Desktop/Programming/C++/DesertEngine/.claude/tools/run_capped.sh). "
+                 "~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... "
+                 "(путь: /Users/daniilsavcenko/.claude/tools/run_capped.sh). "
                  "2026-09-24 один редактор съел 13.7 ГБ из 16 и уронил машину.", data, agent)
         if EDITOR_RUN.search(cmd) and not re.search(r"\bpkill\b|\bpgrep\b", cmd) and editor_running():
             save_state(state, path)
