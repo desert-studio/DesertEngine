@@ -41,6 +41,7 @@ EDITOR_BUILD = re.compile(r"\bmake\b[^;&|]*\bEditor\b")
 MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
 MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
 MAX_MAKE_JOBS = 4
+SELF_WAIT = re.compile(r"pgrep\s+-x\s+make")  # a command that waits for the other build itself is allowed
 ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 
 
@@ -151,11 +152,12 @@ def main():
                 save_state(state, path)
                 deny(f"[agent_guard] make -j{max(jobs)} > -j{MAX_MAKE_JOBS}: 16 ГБ памяти, clang этого движка "
                      f"берёт 1-2 ГБ на файл. Собирай с -j{MAX_MAKE_JOBS}.", data, agent)
-            if other_build_running():
+            if other_build_running() and not SELF_WAIT.search(cmd):
                 save_state(state, path)
                 deny("[agent_guard] На машине уже идёт сборка (другой агент или тимлид). Одновременно — только "
-                     "одна: 2026-09-24 три параллельные сборки съели 16 ГБ и уронили машину. Подожди кусками "
-                     "(for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; done) и повтори.",
+                     "одна: 2026-09-24 три параллельные сборки съели 16 ГБ и уронили машину. Поставь ожидание перед "
+                     "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
+                     "done; make ...",
                      data, agent)
         if EDITOR_BUILD.search(cmd):
             if state.get("editor_builds", 0) >= MAX_EDITOR_BUILDS:
