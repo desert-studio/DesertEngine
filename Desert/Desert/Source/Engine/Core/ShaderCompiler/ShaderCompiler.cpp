@@ -62,7 +62,10 @@ namespace Desert::Core
         const uint64_t key = ComputeShaderCacheKeyForProfile( stage, source, shaderPath, spirvDebugInfo, variant );
 
         if ( auto cached = TryLoadCachedSpirv( key ) )
+        {
+            CountShaderCacheHit();
             return Common::MakeSuccess( std::move( *cached ) );
+        }
 
         static shaderc::Compiler compiler;
         shaderc::CompileOptions  options;
@@ -101,7 +104,12 @@ namespace Desert::Core
                   Graphic::Shader::GetStringShaderStage( stage ), compileMs );
 
         std::vector<uint32_t> spirv( result.begin(), result.end() );
-        StoreCachedSpirv( key, spirv );
+        // A failed store is not fatal to THIS compile, but it keeps the cache cold: the next start pays
+        // the same compile again. Say so, with the path and the file system's reason.
+        const auto stored = StoreCachedSpirv( key, spirv );
+        if ( !stored )
+            LOG_WARN( "[ShaderCache] could not store {}: {}", SpirvCachePathForKey( key ).string(), stored.GetError() );
+        CountShaderCacheCompile( static_cast<bool>( stored ) );
         return Common::MakeSuccess( std::move( spirv ) );
     }
 

@@ -568,7 +568,7 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     // The dev side stores one artifact of each kind, exactly as the cook does.
     const std::vector<uint32_t> spirv    = { 0x07230203u, 1u, 2u, 3u };
     const uint64_t              spirvKey = 0xA5A5A5A5DEADBEEFull;
-    Desert::Core::StoreCachedSpirv( spirvKey, spirv );
+    ASSERT_TRUE( Desert::Core::StoreCachedSpirv( spirvKey, spirv ) );
 
     Desert::Text::BakedFont font;
     font.AtlasWidth        = 2;

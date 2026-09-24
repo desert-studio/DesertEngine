@@ -78,12 +78,12 @@ namespace Common::DDC
         return Utils::VFS::ReadFile( PackagedPath( path ) );
     }
 
-    bool Put( const Deriver& deriver, const uint64_t key, const std::string_view bytes )
+    Common::BoolResultStr Put( const Deriver& deriver, const uint64_t key, const std::string_view bytes )
     {
         const std::filesystem::path path = PathFor( deriver, key );
         std::error_code             ec;
         std::filesystem::create_directories( path.parent_path(), ec );
-        return Utils::FileSystem::WriteContentToFileAtomic( path, std::string( bytes ) ).IsSuccess();
+        return Utils::FileSystem::WriteContentToFileAtomic( path, std::string( bytes ) );
     }
 
     std::filesystem::path PackagedPath( const std::filesystem::path& loosePath )

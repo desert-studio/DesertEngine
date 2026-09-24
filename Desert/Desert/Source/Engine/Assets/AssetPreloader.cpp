@@ -1,6 +1,7 @@
 #include "AssetPreloader.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -488,6 +489,10 @@ namespace Desert::Assets
              std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() - start )
                   .count();
         LOG_INFO( "[AssetPreloader] {} shader program(s) ready in {} ms", count, ms );
+        // Cumulative for the process, which at this point is startup: a cold cache shows as hits 0.
+        const Core::ShaderCacheCounts cache = Core::ReadShaderCacheCounts();
+        LOG_INFO( "[ShaderCache] {} hit(s), {} compiled, {} store failure(s) in {}", cache.Hits, cache.Compiled,
+                  cache.StoreFailures, Core::ShaderCacheDir().string() );
     }
 
 } // namespace Desert::Assets

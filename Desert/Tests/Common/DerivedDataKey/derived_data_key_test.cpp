@@ -186,25 +186,43 @@ namespace
                                                             "Runtime/Source" };
 } // namespace
 
-TEST( DerivedDataKey, OnlyThePackagerNamesSavedCooked )
+TEST( DerivedDataKey, OnlyTheCookersNameSavedCooked )
 {
-    const fs::path repo = RepoRoot();
+    // Saved/Cooked/<Platform> is WRITTEN by the two cookers and read by nothing in the editor or engine:
+    // the packager (Editor/Packaging) and AssetRegistryTool's `cook`, which writes the gathered registry
+    // there for a build that packs without the editor. Tools/ is scanned too, so a third tool that starts
+    // writing (or reading) the cook output is a row added here on purpose, not a silent new consumer.
+    const std::array<const char*, 2> kCookers = { "Editor/Source/Editor/Packaging/", "Tools/AssetRegistryTool/" };
+    const fs::path                   repo     = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    size_t scanned = 0;
-    for ( const char* root : kEngineSourceRoots )
+    size_t                           scanned = 0;
+    std::array<size_t, 2>            seen{};
+    std::vector<std::string>         roots( kEngineSourceRoots.begin(), kEngineSourceRoots.end() );
+    roots.emplace_back( "Tools" );
+    for ( const std::string& root : roots )
         for ( const fs::path& file : SourcesUnder( repo / root ) )
         {
             ++scanned;
             const std::string text  = ReadText( file );
             const bool        names = text.find( "PlatformCookedDir" ) != std::string::npos ||
                                text.find( "Saved/Cooked" ) != std::string::npos;
-            const std::string rel = file.lexically_relative( repo ).generic_string();
-            if ( names )
-                EXPECT_EQ( rel.rfind( "Editor/Source/Editor/Packaging/", 0 ), 0u )
-                     << rel
-                     << " names the packager's cook output; the editor and the engine never read Saved/Cooked";
+            if ( !names )
+                continue;
+            const std::string rel    = file.lexically_relative( repo ).generic_string();
+            bool              cooker = false;
+            for ( size_t i = 0; i < kCookers.size(); ++i )
+                if ( rel.rfind( kCookers[i], 0 ) == 0 )
+                {
+                    cooker = true;
+                    ++seen[i];
+                }
+            EXPECT_TRUE( cooker ) << rel
+                                  << " names the cook output; only the cookers write Saved/Cooked, the editor and "
+                                     "the engine never read it";
         }
     EXPECT_GT( scanned, 500u ) << "the census read almost nothing — wrong root";
+    for ( size_t i = 0; i < kCookers.size(); ++i )
+        EXPECT_GT( seen[i], 0u ) << kCookers[i] << " no longer names the cook output — drop its row";
 }
 
 TEST( DerivedDataKey, NoDerivedCacheIsSpelledUnderTheCookedTree )

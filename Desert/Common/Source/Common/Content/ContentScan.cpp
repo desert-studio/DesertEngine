@@ -434,8 +434,8 @@ namespace Common::Content
 
             // The SIZE comes from the disk even here, and it has to: git knows the blob, not the bytes
             // as they land. In a clean checkout the two agree, and where they do not — a file edited but
-            // not committed — the gate SHOULD report it, because the committed registry describes the
-            // committed bytes.
+            // not committed — the gate SHOULD report it: the registry is gathered from the disk, so it
+            // describes bytes another checkout of the same commit does not have.
             tracked.emplace( key, DescribeContentFile( file, *kind ) );
         }
 

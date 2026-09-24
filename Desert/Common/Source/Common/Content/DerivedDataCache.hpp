@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -36,7 +38,8 @@
 // THE PACKAGED GAME has no DDC. The packager copies the entries it cooked into Saved/Cooked/<Platform>/
 // under the same relative layout (RelativePath) and packs that tree under the archive key
 // "Cooked", so a reader that misses the loose DDC file asks the VFS for PackagedPath() of it. The editor
-// never reads Saved/Cooked: only the packager names PlatformCookedDir().
+// never reads Saved/Cooked: only the cookers name PlatformCookedDir() — the packager, and AssetRegistryTool
+// `cook`, which writes the gathered registry there (census DerivedDataKey.OnlyTheCookersNameSavedCooked).
 namespace Common::DDC
 {
     // FCacheBucket::IsValidName: alphanumeric, non-empty, at most 63 code units. It becomes a directory
@@ -100,9 +103,10 @@ namespace Common::DDC
 
     // The local file store's Get/Put (UE FFileSystemCacheStore). Get reads the loose entry, then — in a
     // packaged game — the archive at PackagedPath(); a miss is silent, it is the normal cold start. Put
-    // writes atomically (write-then-rename): an entry is the whole artifact or absent.
+    // writes atomically (write-then-rename): an entry is the whole artifact or absent. A failed Put carries
+    // the file system's own reason (path + errno text), so the caller can say WHY the cache stays cold.
     std::optional<std::string> Get( const Deriver& deriver, uint64_t key );
-    bool                       Put( const Deriver& deriver, uint64_t key, std::string_view bytes );
+    Common::BoolResultStr      Put( const Deriver& deriver, uint64_t key, std::string_view bytes );
 
     // Root() / "Buckets" / bucket — for derivers whose entries are not addressed by MakeKey (thumbnails, see
     // there).

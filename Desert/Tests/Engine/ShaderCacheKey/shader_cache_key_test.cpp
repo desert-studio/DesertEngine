@@ -45,12 +45,14 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -488,6 +490,129 @@ TEST_F( ShaderRootFixture, SubstitutingTheShippedMediumMovesTheKeyOfTheRealCloud
             "would pass on the closure rather than on the variant";
 
     EXPECT_NE( shipped, ComputeShaderCacheKey( ShaderStage::Compute, source, path, authored ) );
+}
+
+// ---- The key across processes -----------------------------------------------------------------------
+//
+// Every assertion above compares two keys computed in ONE process, so a key that folded in anything
+// per-process — a pointer, std::hash of a string (seeded per run by some standard libraries), iteration
+// order of an unordered container keyed by address — would pass all of them and still miss the cache on
+// every start, because the cache is only ever read by the NEXT process. This test asks two fresh
+// processes (this same binary, run with --print-shader-keys) for the keys of real shipped shaders and
+// requires both to print the number this process computed.
+
+namespace
+{
+    // Captured during static initialisation, before any fixture moves the working directory, so a
+    // relative argv[0] still resolves.
+    const std::filesystem::path kStartDirectory = std::filesystem::current_path();
+
+    constexpr const char* kPrintKeysFlag = "--print-shader-keys";
+    constexpr const char* kKeyLinePrefix = "SHADERKEY ";
+
+    // Real shipped programs, both debug-info profiles, and one substituting variant: each input the
+    // compiler folds into the key is represented.
+    std::vector<std::string> KeysOfRealShaders()
+    {
+        struct Case
+        {
+            const char* File;
+            ShaderStage Stage;
+        };
+        const std::array<Case, 3> cases = { Case{ "Clouds/CloudRaymarch.shader", ShaderStage::Compute },
+                                            Case{ "Fog/HeightFog.shader", ShaderStage::Compute },
+                                            Case{ "Clouds/CloudRaymarch.shader", ShaderStage::Compute } };
+        const Desert::Core::ShaderVariant authored{
+             { { "Generated/CloudMedium.glslh",
+                 "#include <Common/CloudMediumDefault.glslh>\n// an authored medium\n" } } };
+
+        std::vector<std::string> lines;
+        for ( size_t i = 0; i < cases.size(); ++i )
+        {
+            const auto        path    = ShaderPath( cases[i].File );
+            const std::string source  = StageSource( path, cases[i].Stage );
+            const bool        variant = i == 2;
+            for ( const bool debugInfo : { false, true } )
+                lines.push_back( std::format(
+                     "{}{} {} {:016x}", cases[i].File, variant ? "+variant" : "", debugInfo ? "debug" : "release",
+                     Desert::Core::ComputeShaderCacheKeyForProfile( cases[i].Stage, source, path, debugInfo,
+                                                                    variant ? authored
+                                                                            : Desert::Core::ShaderVariant{} ) ) );
+        }
+        return lines;
+    }
+
+    bool AskedToPrintKeys()
+    {
+        const auto& argv = ::testing::internal::GetArgvs();
+        return std::find( argv.begin(), argv.end(), std::string( kPrintKeysFlag ) ) != argv.end();
+    }
+
+    // Runs this binary as a child that prints the keys; returns the key lines in order.
+    std::vector<std::string> KeysFromAnotherProcess()
+    {
+        std::filesystem::path self( ::testing::internal::GetArgvs().at( 0 ) );
+        if ( self.is_relative() )
+            self = kStartDirectory / self;
+        // Double quotes: cmd.exe does not treat single quotes as quoting, POSIX sh accepts both.
+        const std::string command = std::format(
+             "\"{}\" --gtest_filter=ShaderRootFixture.PrintsTheKeysForAnotherProcess {} 2>&1",
+             self.make_preferred().string(), kPrintKeysFlag );
+#ifdef _WIN32
+        // cmd /c strips the outer pair of quotes when the line starts with one; a second pair survives it.
+        FILE* pipe = _popen( ( "\"" + command + "\"" ).c_str(), "r" );
+#else
+        FILE* pipe = popen( command.c_str(), "r" );
+#endif
+        std::vector<std::string> keys;
+        if ( pipe == nullptr )
+            return keys;
+        std::string output;
+        std::array<char, 4096> buffer{};
+        size_t                 got = 0;
+        while ( ( got = fread( buffer.data(), 1, buffer.size(), pipe ) ) > 0 )
+            output.append( buffer.data(), got );
+#ifdef _WIN32
+        _pclose( pipe );
+#else
+        pclose( pipe );
+#endif
+        std::istringstream in( output );
+        std::string        line;
+        while ( std::getline( in, line ) )
+        {
+            if ( !line.empty() && line.back() == '\r' )
+                line.pop_back();
+            if ( line.rfind( kKeyLinePrefix, 0 ) == 0 )
+                keys.push_back( line.substr( std::string_view( kKeyLinePrefix ).size() ) );
+        }
+        return keys;
+    }
+} // namespace
+
+// The child half. Run without the flag it computes nothing and passes; it exists to be the process the
+// test below starts.
+TEST_F( ShaderRootFixture, PrintsTheKeysForAnotherProcess )
+{
+    if ( !AskedToPrintKeys() )
+        return;
+    for ( const std::string& line : KeysOfRealShaders() )
+        std::cout << kKeyLinePrefix << line << std::endl;
+}
+
+TEST_F( ShaderRootFixture, TwoProcessesComputeTheSameKeyForTheSameShader )
+{
+    if ( AskedToPrintKeys() )
+        return;
+    const std::vector<std::string> here = KeysOfRealShaders();
+    ASSERT_EQ( here.size(), 6u );
+
+    const std::vector<std::string> first  = KeysFromAnotherProcess();
+    const std::vector<std::string> second = KeysFromAnotherProcess();
+    ASSERT_EQ( first.size(), here.size() ) << "the child process printed " << first.size()
+                                           << " key line(s); it did not run the printer";
+    EXPECT_EQ( first, here ) << "a key computed in another process differs: the cache misses on every start";
+    EXPECT_EQ( second, first ) << "two child processes disagree about the same shader's key";
 }
 
 // ---- The include closure ----------------------------------------------------------------------------

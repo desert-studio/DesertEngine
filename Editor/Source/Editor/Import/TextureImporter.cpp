@@ -580,11 +580,12 @@ namespace Desert::Editor
         // A HANDLE IS ONLY RETURNED FOR PLATFORM DATA THAT IS STORED. The DDC entry is the one place the
         // runtime finds it; a build that could not be Put would be a texture nobody can load.
         const std::string encoded = Assets::Serialization::EncodeTextureBinary( data );
-        if ( !Common::DDC::Put( Assets::kTextureDeriver, ddcKey, encoded ) )
+        if ( const auto stored = Common::DDC::Put( Assets::kTextureDeriver, ddcKey, encoded ); !stored )
         {
             LOG_ERROR( "[TextureImporter] '{0}' was built but its platform data could not be stored in the DDC "
-                       "({1}). The null handle is returned and nothing is cached.",
-                       assetPath.string(), Common::DDC::PathFor( Assets::kTextureDeriver, ddcKey ).string() );
+                       "({1}): {2}. The null handle is returned and nothing is cached.",
+                       assetPath.string(), Common::DDC::PathFor( Assets::kTextureDeriver, ddcKey ).string(),
+                       stored.GetError() );
             return { Common::AssetHandle::Null(), TextureCookOutcome::Unwritten };
         }
 
