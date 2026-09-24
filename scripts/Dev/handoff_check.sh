@@ -81,7 +81,12 @@ echo "$line$behind$dirty; logs $LOG"
 i=0; for r in "${red[@]:+${red[@]}}"; do i=$((i + 1)); [ $i -le 6 ] && echo "  RED $r"; done
 [ ${#red[@]} -gt 6 ] && echo "  ... $(( ${#red[@]} - 6 )) more in $LOG/summary.txt"
 [ "$cl" = RED ] && echo "  .claude changed vs merge-base: $(grep -c '|' "$LOG/claude.log") file(s) — lead must fix"
-[ ${#stale[@]} -gt 0 ] && echo "  WARN ${#stale[@]} stale test binary(ies), e.g. ${stale[0]} — rebuild before trusting them"
+# A stale binary tests old code: T6c4 got "145/146 green" with 119 of them stale and a suite that no longer compiled.
+# So stale is a failure, not a warning — the marker must mean "this commit's code passed".
+if [ ${#stale[@]} -gt 0 ]; then
+    fail=1
+    echo "  STALE ${#stale[@]} test binary(ies), e.g. ${stale[0]} — no marker. Rebuild: scripts/Dev/suite.sh $(printf '%s\n' "${stale[@]}" | sed 's/<.*//' | sort -u | tr '\n' ' ')" | cut -c1-600
+fi
 if [ $fail -eq 0 ] && [ -z "$dirty" ]; then
     mkdir -p "$(dirname "$MARKER")" && echo "$line" >"$MARKER" && echo "  marker $MARKER"
 fi
