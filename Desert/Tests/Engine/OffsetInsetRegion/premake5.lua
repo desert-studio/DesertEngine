@@ -17,6 +17,8 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMeshOverlay.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/MeshRegionBoundaryLoops.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/MeshBoundaryLoops.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/SimpleHoleFiller.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/MeshNormals.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMeshEditor.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.cpp",

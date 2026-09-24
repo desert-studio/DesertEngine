@@ -8,6 +8,9 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <algorithm>
+#include <limits>
+
 namespace Desert::Geometry
 {
     namespace
@@ -426,5 +429,127 @@ namespace Desert::Geometry
                 }
             }
         }
+    }
+
+    // UE DynamicMeshEditor.cpp:553-590
+    bool FDynamicMeshEditor::AddTriangleFan_OrderedVertexLoop( int CenterVertex, const TArray<int>& VertexLoop,
+                                                               int GroupID, FDynamicMeshEditResult& ResultOut )
+    {
+        if ( GroupID == -1 )
+        {
+            GroupID = Mesh->AllocateTriangleGroup();
+            ResultOut.NewGroups.Add( GroupID );
+        }
+        const int N = VertexLoop.Num();
+        for ( int i = 0; i < N; ++i )
+        {
+            const int A      = VertexLoop[i];
+            const int B      = VertexLoop[( i + 1 ) % N];
+            const int NewTID = Mesh->AppendTriangle( FIndex3i( CenterVertex, B, A ), GroupID );
+            if ( NewTID < 0 )
+            {
+                // back out what was added so far
+                const bool bRemoved = RemoveTriangles( ResultOut.NewTriangles, false );
+                UE_CHECK( bRemoved );
+                return false;
+            }
+            ResultOut.NewTriangles.Add( NewTID );
+        }
+        return true;
+    }
+
+    // UE DynamicMeshEditor.cpp:1231-1263
+    void FDynamicMeshEditor::SetTriangleNormals( const TArray<int>& Triangles, const FVector3f& Normal )
+    {
+        UE_CHECK( Mesh->HasAttributes() );
+        FDynamicMeshNormalOverlay* Normals = Mesh->Attributes()->PrimaryNormals();
+        TMap<int, int>             Vertices;
+        for ( int Tid : Triangles )
+        {
+            if ( Normals->IsSetTriangle( Tid ) )
+                Normals->UnsetTriangle( Tid );
+            const FIndex3i BaseTri = Mesh->GetTriangle( Tid );
+            FIndex3i       ElemTri;
+            for ( int j = 0; j < 3; ++j )
+            {
+                const int* Found = Vertices.Find( BaseTri[j] );
+                if ( Found == nullptr )
+                {
+                    ElemTri[j] = Normals->AppendElement( Normal );
+                    Vertices.Add( BaseTri[j], ElemTri[j] );
+                }
+                else
+                {
+                    ElemTri[j] = *Found;
+                }
+            }
+            Normals->SetTriangle( Tid, ElemTri );
+        }
+    }
+
+    // UE DynamicMeshEditor.cpp:1494-1549 with FFrame3d(Origin, Normal).ToPlaneUV(P, 2): the frame is
+    // TQuaternion::SetFromTo(UnitZ, Normal) (Quaternion.h:420-460), so its X/Y axes are UnitX/UnitY rotated by it.
+    void FDynamicMeshEditor::SetTriangleUVsFromProjection( const TArray<int>& Triangles, const FVector3d& Origin,
+                                                           const FVector3d& Normal, float UVScaleFactor )
+    {
+        if ( Triangles.Num() == 0 )
+            return;
+        UE_CHECK( Mesh->HasAttributes() && Mesh->Attributes()->NumUVLayers() > 0 );
+        FDynamicMeshUVOverlay* UVs = Mesh->Attributes()->PrimaryUV();
+
+        // SetFromTo(UnitZ, Normal): W = from.bisector, XYZ = from x bisector; an antiparallel Normal takes UE's
+        // first W == 0 branch (|from.X| >= |from.Y| holds for UnitZ): X = -1, Y = Z = 0.
+        const FVector3d From( 0, 0, 1 );
+        FVector3d       To = Normal;
+        Normalize( To );
+        FVector3d    Bisector       = From + To;
+        const double BisectorLength = Normalize( Bisector );
+        double       QW             = 0;
+        FVector3d    QV( -1, 0, 0 );
+        if ( BisectorLength > FMathd::ZeroTolerance )
+        {
+            QW = From.Dot( Bisector );
+            QV = From.Cross( Bisector );
+        }
+        const auto Rotate = [&]( const FVector3d& V ) -> FVector3d
+        {
+            const FVector3d T = 2.0 * QV.Cross( V );
+            return V + QW * T + QV.Cross( T );
+        };
+        const FVector3d AxisX = Rotate( FVector3d( 1, 0, 0 ) );
+        const FVector3d AxisY = Rotate( FVector3d( 0, 1, 0 ) );
+
+        TMap<int, int> BaseToOverlay;
+        TArray<int>    AllUVIndices;
+        FVector2f      UVMin( std::numeric_limits<float>::max(), std::numeric_limits<float>::max() );
+        for ( int Tid : Triangles )
+        {
+            if ( UVs->IsSetTriangle( Tid ) )
+                UVs->UnsetTriangle( Tid );
+            const FIndex3i BaseTri = Mesh->GetTriangle( Tid );
+            FIndex3i       ElemTri;
+            for ( int j = 0; j < 3; ++j )
+            {
+                const int* Found = BaseToOverlay.Find( BaseTri[j] );
+                if ( Found == nullptr )
+                {
+                    const FVector3d Local = Mesh->GetVertex( BaseTri[j] ) - Origin;
+                    const FVector2f UV( (float)Local.Dot( AxisX ), (float)Local.Dot( AxisY ) );
+                    UVMin.X    = std::min( UVMin.X, UV.X );
+                    UVMin.Y    = std::min( UVMin.Y, UV.Y );
+                    ElemTri[j] = UVs->AppendElement( UV );
+                    AllUVIndices.Add( ElemTri[j] );
+                    BaseToOverlay.Add( BaseTri[j], ElemTri[j] );
+                }
+                else
+                {
+                    ElemTri[j] = *Found;
+                }
+            }
+            UVs->SetTriangle( Tid, ElemTri );
+        }
+        // shift so the bounding box min corner is at the origin, then scale
+        for ( int UVID : AllUVIndices )
+            UVs->SetElement( UVID, ( UVs->GetElement( UVID ) - UVMin ) * UVScaleFactor );
     }
 } // namespace Desert::Geometry

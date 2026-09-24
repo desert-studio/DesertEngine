@@ -91,6 +91,12 @@ namespace Desert::Geometry
         FVector3f ComputeAndSetQuadNormal( const FIndex2i& QuadTris, bool bIsPlanar );
         void      SetQuadNormals( const FIndex2i& QuadTris, const FVector3f& Normal );
         void      SetTriangleNormals( const TArray<int>& Triangles );
+        void      SetTriangleNormals( const TArray<int>& Triangles, const FVector3f& Normal );
+        bool      AddTriangleFan_OrderedVertexLoop( int CenterVertex, const TArray<int>& VertexLoop, int GroupID,
+                                                    FDynamicMeshEditResult& ResultOut );
+        /** UE's overload with FFrame3d(Origin, Normal), bShiftToOrigin = true, UV layer 0. */
+        void SetTriangleUVsFromProjection( const TArray<int>& Triangles, const FVector3d& Origin,
+                                           const FVector3d& Normal, float UVScaleFactor );
         void SetQuadUVsFromProjection( const FIndex2i& QuadTris, const FVector3d& AxisX, const FVector3d& AxisY,
                                        float UVScaleFactor, const FVector2f& UVTranslation );
         void ReverseTriangleOrientations( const TArray<int>& Triangles, bool bInvertNormals );

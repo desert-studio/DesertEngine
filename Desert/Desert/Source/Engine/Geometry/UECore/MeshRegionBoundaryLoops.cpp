@@ -37,6 +37,39 @@ void FEdgeSpan::InitializeFromEdges( const FDynamicMesh3& Mesh, const TArray<int
     Vertices[NumEdges] = IndexUtil::FindEdgeOtherVertex( PrevEv, Vertices[NumEdges - 1] );
 }
 
+void FEdgeLoop::Initialize( const TArray<int>& VerticesIn, const TArray<int>& EdgesIn,
+                            const TArray<int>* BowtieVerticesIn )
+{
+    Vertices = VerticesIn;
+    Edges    = EdgesIn;
+    if ( BowtieVerticesIn != nullptr )
+        BowtieVertices = *BowtieVerticesIn;
+}
+
+bool FEdgeLoop::InitializeFromVertices( const FDynamicMesh3& Mesh, const TArray<int>& VerticesIn )
+{
+    Vertices              = VerticesIn;
+    const int NumVertices = Vertices.Num();
+    Edges.SetNum( NumVertices );
+    for ( int i = 0; i < NumVertices; ++i )
+    {
+        Edges[i] = Mesh.FindEdge( Vertices[i], Vertices[( i + 1 ) % NumVertices] );
+        if ( Edges[i] == IndexConstants::InvalidID )
+            return false;
+    }
+    return true;
+}
+
+bool FEdgeLoop::IsBoundaryLoop( const FDynamicMesh3& Mesh ) const
+{
+    for ( int Eid : Edges )
+    {
+        if ( !Mesh.IsBoundaryEdge( Eid ) )
+            return false;
+    }
+    return true;
+}
+
 FMeshRegionBoundaryLoops::FMeshRegionBoundaryLoops( const FDynamicMesh3* MeshIn, const TArray<int>& RegionTris,
                                                     bool bAutoCompute )
      : Mesh( MeshIn )

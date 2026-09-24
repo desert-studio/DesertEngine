@@ -5,7 +5,11 @@
 #include "Engine/Geometry/MeshRegionOperation.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/MeshTangents.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MergeCoincidentMeshEdges.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/SimpleHoleFiller.hpp"
+#include "Engine/Geometry/UECore/DynamicMeshEditor.hpp"
+#include "Engine/Geometry/UECore/MeshBoundaryLoops.hpp"
 
 #include <gtest/gtest.h>
 
@@ -235,6 +239,50 @@ TEST( RegionOperation, WeldClosesACubeCutAlongEverySeam )
     ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
     // hard edges survive: three faces meet at 90 degrees at each corner, so no normal element is welded
     EXPECT_EQ( render.GetValue().Vertices.size(), 24u );
+    for ( const Vertex& v : render.GetValue().Vertices )
+    {
+        EXPECT_NEAR( glm::length( v.Tangent ), 1.0f, 1e-5f );
+        EXPECT_NEAR( glm::dot( v.Tangent, v.Normal ), 0.0f, 1e-5f );
+    }
+}
+
+// P12b: a cube with its top face deleted has one four-edge hole; FMeshBoundaryLoops finds it and FSimpleHoleFiller
+// closes it with a fan that faces out, and the attributes UE's HoleFillOp sets make it render back.
+TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
+{
+    FDynamicMesh3 mesh = TangentCube();
+    mesh.RemoveTriangle( 2 * kPlusZ );
+    mesh.RemoveTriangle( 2 * kPlusZ + 1 );
+    ASSERT_FALSE( mesh.IsClosed() );
+
+    FMeshBoundaryLoops loops( &mesh );
+    ASSERT_EQ( loops.GetLoopCount(), 1 );
+    EXPECT_EQ( loops.Spans.Num(), 0 );
+    EXPECT_EQ( loops.Loops[0].GetEdgeCount(), 4 );
+    EXPECT_TRUE( loops.Loops[0].IsBoundaryLoop( mesh ) );
+
+    FSimpleHoleFiller filler( &mesh, loops.Loops[0] );
+    ASSERT_TRUE( filler.Fill() ) << filler.FailureReason;
+    EXPECT_EQ( filler.NewTriangles.Num(), 4 );
+    EXPECT_TRUE( mesh.IsClosed() );
+    int open = 0;
+    for ( int e : mesh.BoundaryEdgeIndicesItr() )
+        open += e >= 0 ? 1 : 0;
+    EXPECT_EQ( open, 0 );
+    for ( int t : filler.NewTriangles )
+        EXPECT_NEAR( mesh.GetTriNormal( t ).Z, 1.0, 1e-9 ) << "fan triangle " << t << " faces into the cube";
+
+    FDynamicMeshEditor editor( &mesh );
+    editor.SetTriangleNormals( filler.NewTriangles, FVector3f( 0, 0, 1 ) );
+    editor.SetTriangleUVsFromProjection( filler.NewTriangles, mesh.GetVertex( filler.NewVertex ),
+                                         FVector3d( 0, 0, 1 ), 1.0f );
+    FDynamicMeshAttributeSet* attributes = mesh.Attributes();
+    FMeshTangentsd            tangents( &mesh );
+    tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), attributes->PrimaryUV() );
+    ASSERT_TRUE( tangents.CopyToOverlays( mesh ) );
+
+    auto render = ToRenderMesh( mesh );
+    ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
     for ( const Vertex& v : render.GetValue().Vertices )
     {
         EXPECT_NEAR( glm::length( v.Tangent ), 1.0f, 1e-5f );
