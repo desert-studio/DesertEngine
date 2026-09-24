@@ -15,7 +15,7 @@
 ## 1. Один кадр без взаимодействия (сцена + камера)
 ```
 export HOME=/private/tmp/claude-501/<T>/home; mkdir -p $HOME
-cd <TREE>/Editor && ~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
+cd <TREE>/Editor && /Users/daniilsavcenko/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
   --scene Resources/Assets/Scenes/Starter.desce \
   --shot /private/tmp/claude-501/<T>/shot.png --shot-frames 90 --camera 0,200,0 --look 0,0.9,-1 \
   > /private/tmp/claude-501/<T>/editor.log 2>&1
@@ -27,7 +27,7 @@ cd <TREE>/Editor && ~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --pr
 Запуск (Bash с run_in_background: true):
 ```
 export HOME=/private/tmp/claude-501/<T>/home; mkdir -p $HOME
-cd <TREE>/Editor && ~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
+cd <TREE>/Editor && /Users/daniilsavcenko/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
   --scene Resources/Assets/Scenes/<Scene>.desce --control-socket /tmp/<T>.sock \
   > /private/tmp/claude-501/<T>/editor.log 2>&1
 ```
