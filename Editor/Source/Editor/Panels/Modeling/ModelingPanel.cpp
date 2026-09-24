@@ -842,11 +842,13 @@ namespace Desert::Editor
         using MO           = Core::MeshOperation;
         const auto operate = [this]( MO op ) { Operate( op ); };
         // UE 5.8's Selection palette order (ModelingToolsEditorModeToolkit.cpp:1862-1880): Delete, Extrude,
-        // Offset, PushPull, Inset, Outset, Bevel, InsertEdgeLoop, then Retriangulate (our Clean).
-        const MO grid[4][2] = { { MO::Delete, MO::Extrude },
+        // Offset, PushPull, Inset, Outset, Bevel, InsertEdgeLoop, then Retriangulate (our Clean). Fill Hole and
+        // Weld Edges sit under UE's Mesh Repair palette; they share this grid instead of a category of two.
+        const MO grid[5][2] = { { MO::Delete, MO::Extrude },
                                 { MO::Offset, MO::PushPull },
                                 { MO::Inset, MO::Outset },
-                                { MO::Bevel, MO::InsertEdgeLoop } };
+                                { MO::Bevel, MO::InsertEdgeLoop },
+                                { MO::FillHole, MO::WeldEdges } };
         for ( const auto& row : grid )
         {
             if ( ImGui::Button( Core::ToString( row[0] ), ImVec2( half, 0.0f ) ) )

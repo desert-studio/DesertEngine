@@ -58,6 +58,10 @@ namespace Desert::Editor::Core
                 return "Plane Cut";
             case MeshOperation::Trim:
                 return "Trim";
+            case MeshOperation::FillHole:
+                return "Fill Hole";
+            case MeshOperation::WeldEdges:
+                return "Weld Edges";
         }
         return "Unknown";
     }
@@ -149,6 +153,8 @@ namespace Desert::Editor::Core
             case MeshOperation::Mirror:
             case MeshOperation::PlaneCut:
             case MeshOperation::Trim:
+            case MeshOperation::FillHole:
+            case MeshOperation::WeldEdges:
                 return false;
             case MeshOperation::Extrude:
             case MeshOperation::PushPull:
@@ -227,6 +233,17 @@ namespace Desert::Editor::Core
             after              = std::move( done.Mesh );
             outcome.Selection  = std::move( done.Selection );
         }
+        else if ( operation == MeshOperation::FillHole || operation == MeshOperation::WeldEdges )
+        {
+            auto repaired = operation == MeshOperation::FillHole
+                                 ? Geometry::FillHoles( *before, selection )
+                                 : Geometry::WeldEdges( *before, selection.Mode() );
+            if ( !repaired.IsSuccess() )
+                return Common::MakeError<bool>( repaired.GetError() );
+            Geometry::RegionOutcome done = repaired.ExtractValue();
+            after                        = std::move( done.Mesh );
+            outcome.Selection            = std::move( done.Selection );
+        }
         else
         {
             auto view = Geometry::Bridge::EditMeshView( before );
@@ -250,6 +267,8 @@ namespace Desert::Editor::Core
                 case MeshOperation::PushPull:
                 case MeshOperation::Inset:
                 case MeshOperation::Outset:
+                case MeshOperation::FillHole:
+                case MeshOperation::WeldEdges:
                     return Common::MakeFormattedError<bool>( "Mesh {}: runs on FDynamicMesh3, not the EditMesh",
                                                              ToString( operation ) );
                 case MeshOperation::Offset:
