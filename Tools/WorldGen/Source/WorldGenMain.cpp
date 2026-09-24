@@ -91,9 +91,9 @@ namespace Desert::WorldGen
             if ( !guid || guid.GetValue().IsNull() )
                 return Common::MakeError<MaterialRef>( "material '" + relative + "' states no GUID" );
 
-            // The handle a scene names it by: its GUID through the one fold the engine uses.
+            // A scene names a material by its header GUID's text (SCNE 27); the loader folds it to a handle.
             return Common::MakeSuccess<MaterialRef>(
-                 { relative, static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) } );
+                 { relative, Common::Content::AssetGuidToText( guid.GetValue() ) } );
         }
 
         // THE WORLD'S PALETTE. Four untextured colours for the buildings and the one textured material

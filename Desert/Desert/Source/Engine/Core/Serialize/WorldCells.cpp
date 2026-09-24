@@ -3,6 +3,7 @@
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
@@ -213,6 +214,15 @@ namespace Desert::Core::WorldCells
                 }
                 if ( const auto text = value.to_string(); text )
                 {
+                    // A material slot names its material by header GUID text (SCNE 27); the registry row is
+                    // keyed by the handle that GUID folds to, the same fold the loader resolves it through.
+                    if ( const auto guid = CC::AssetGuidFromText( text.value() );
+                         guid && !guid.GetValue().IsNull() )
+                    {
+                        Add( KeyOfHandle( static_cast<std::uint64_t>( CC::HandleForGuid( guid.GetValue() ) ) ),
+                             keys );
+                        return;
+                    }
                     Common::UUID asHandle;
                     if ( Rules::Detail::ParseIdString( text.value(), asHandle ) )
                     {

@@ -30,9 +30,8 @@
 //
 // And the two kinds of row are deliberately both here, because they fail in opposite directions:
 //   * `MeshPath` + `MeshGuid` is a PATH-DERIVED handle. It breaks if the derivation moves.
-//   * `MaterialPaths` + `MaterialGuids` is an ADOPTED handle — the OLD id the legacy register associates
-//     with the named `.demat`'s header GUID, a random authored id that no derivation produces. It breaks
-//     if the adoption is dropped.
+//   * `MaterialPaths` + `MaterialGuids` names the material by its header GUID TEXT (SCNE 27; before, an
+//     adopted legacy id). It breaks if the path and the GUID stop naming one file.
 // An index that only recorded derivations would be empty for exactly the references that exist most.
 
 #include <gtest/gtest.h>
@@ -194,6 +193,7 @@ namespace
         std::string Field; // which pair of fields it came from, for the failure message
         std::string Path;
         uint64_t    Handle = 0;
+        std::string Guid; // material rows: the header GUID text the scene states (SCNE 27)
     };
 
     // Pulls every such pair out of one parsed scene document. The walk is recursive because a component
@@ -271,11 +271,10 @@ namespace
                 for ( size_t at = 0; at < p.size() && at < g.size(); ++at )
                 {
                     const auto text  = p[at].to_string();
-                    const auto value = g[at].to_int64();
-                    if ( !text || !value || text->empty() || *value == 0 )
+                    const auto value = g[at].to_string();
+                    if ( !text || !value || text->empty() || value->empty() )
                         continue;
-                    materials.push_back(
-                         { scene, "MaterialPaths/MaterialGuids", *text, static_cast<uint64_t>( *value ) } );
+                    materials.push_back( { scene, "MaterialPaths/MaterialGuids", *text, 0, *value } );
                 }
             }
         }
@@ -327,36 +326,12 @@ namespace
         return text.substr( cursor + 1, end - cursor - 1 );
     }
 
-    // The OLD adopted id a `.demat` answers to, or 0. MATL 2 removed `MaterialId` from the file itself —
-    // identity is now the header GUID — so the relation this census protects ("the number the scene
-    // stores for this material IS the number that names this exact file") now goes through the legacy
-    // register: read the file's `Header.Guid` as raw text (same "raw text, not through a struct"
-    // philosophy the old reader used, so a schema change to MaterialData cannot make this census
-    // quietly stop finding the field), then ask `Editor/Resources/LegacyMaterialIds.json` what OLD id
-    // that GUID used to be.
-    uint64_t AdoptedIdOfDemat( const fs::path& demat )
+    // The header GUID text a `.demat` states, read as raw text (not through a struct) so a schema change to
+    // MaterialData cannot make this census quietly stop finding the field.
+    std::string GuidOfDemat( const fs::path& demat )
     {
-        const std::string text = ReadAll( demat );
-        size_t            at   = 0;
-        const std::string guid = QuotedValueAfter( text, "\"Guid\":", 0, at );
-        if ( guid.empty() )
-            return 0;
-
-        const std::string registerText = ReadAll( RepoRoot() + "Editor/Resources/LegacyMaterialIds.json" );
-        const std::string idKey        = "\"MaterialId\":";
-        size_t            pos          = 0;
-        while ( ( pos = registerText.find( idKey, pos ) ) != std::string::npos )
-        {
-            const uint64_t    id = std::strtoull( registerText.c_str() + pos + idKey.size(), nullptr, 10 );
-            size_t            entryGuidAt = 0;
-            const std::string entryGuid   = QuotedValueAfter( registerText, "\"Guid\":", pos, entryGuidAt );
-            if ( entryGuidAt == std::string::npos )
-                break;
-            if ( entryGuid == guid )
-                return id;
-            pos = entryGuidAt + 1;
-        }
-        return 0;
+        size_t at = 0;
+        return QuotedValueAfter( ReadAll( demat ), "\"Guid\":", 0, at );
     }
 } // namespace
 
@@ -487,19 +462,11 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
             continue; // a scene naming a material this checkout does not have is AssetReferenceCensus's job
         ++checked;
 
-        // An ADOPTED id: the number in the scene is the OLD id the legacy register associates with the
-        // GUID inside the named `.demat`'s header, not a derivation of its path. Asserting it against
-        // FromCookedPath would be asserting the wrong thing and would go red on correct content.
-        EXPECT_EQ( AdoptedIdOfDemat( demat ), row.Handle )
-             << row.Scene << " writes '" << row.Path << "' beside " << row.Handle
-             << ", but the legacy register answers " << AdoptedIdOfDemat( demat )
-             << " for that file's header GUID. A material's handle IS its adopted id, so these two must "
-             << "be one number.";
-
-        EXPECT_NE( static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( demat ) ), row.Handle )
-             << row.Path << " happens to derive its own MaterialId. That is not a defect, but this "
-             << "assertion exists to keep the two kinds of identity distinguishable — if it ever fires, "
-             << "the adopted case above has stopped being tested by this row.";
+        // SCNE 27: the scene names the material by the header GUID of the file its path locates.
+        EXPECT_EQ( GuidOfDemat( demat ), row.Guid )
+             << row.Scene << " writes '" << row.Path << "' beside GUID " << row.Guid << ", but that file's header "
+             << "states " << GuidOfDemat( demat ) << ". The GUID is the identity and the path its locator, so "
+             << "they must name one file.";
     }
     std::cout << "[  COUNT   ] " << meshes.size() << " MeshPath/MeshGuid pairs, " << checked << " of "
               << materials.size() << " MaterialPaths/MaterialGuids pairs resolvable in this checkout\n";

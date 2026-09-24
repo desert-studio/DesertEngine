@@ -20,6 +20,7 @@
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/VFS.hpp>
@@ -80,7 +81,7 @@ namespace
     constexpr std::uint64_t kShooterId  = 4;
     constexpr std::uint64_t kTargetId   = 5;
     constexpr std::uint64_t kBystander  = 6;
-    constexpr std::uint64_t kMaterialId = 0x4D41;
+    constexpr const char*   kMaterialGuid = "00000000000000000000000000004d41"; // header GUID text (SCNE 27)
     constexpr std::uint64_t kTextureId  = 0x5445;
 
     EntityData Record( std::uint64_t id, const char* tag, glm::vec3 translation )
@@ -130,7 +131,7 @@ namespace
         records.push_back( Record( kTargetId, "Target", CellCentre( 3, 1 ) ) );
         EntityData bystander = Record( kBystander, "Bystander", CellCentre( 1, 1 ) + glm::vec3( 10.0f, 0, 0 ) );
         With( bystander, "StaticMesh",
-              R"({"Primitive": "Cube", "MaterialGuids": [)" + std::to_string( kMaterialId ) + "]}" );
+              R"({"Primitive": "Cube", "MaterialGuids": [")" + std::string( kMaterialGuid ) + "\"]}" );
         records.push_back( bystander );
         for ( int column = 0; column < 8; ++column )
             records.push_back(
@@ -338,7 +339,9 @@ TEST( WorldCells, AUnitsAssetsAreWhatItsRecordsNameAndWhatThoseDependOn )
     Common::Utils::AssetRegistryEntry material;
     material.Key          = "assets:Materials/M_Brick.demat";
     material.Kind         = "Material";
-    material.Identity     = kMaterialId;
+    const auto materialGuid = Common::Content::AssetGuidFromText( kMaterialGuid );
+    ASSERT_TRUE( materialGuid ) << materialGuid.GetError();
+    material.Identity = static_cast<std::uint64_t>( Common::Content::HandleForGuid( materialGuid.GetValue() ) );
     material.Dependencies = { kTextureId };
     Common::Utils::AssetRegistryEntry texture;
     texture.Key      = "assets:Textures/T_Brick.tex";

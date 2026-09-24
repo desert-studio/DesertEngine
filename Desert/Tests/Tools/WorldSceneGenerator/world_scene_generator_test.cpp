@@ -125,19 +125,6 @@ namespace
         return parsed.value().to_object().value_or( rfl::Generic::Object{} );
     }
 
-    // The handle a scene names this material by, derived from its header GUID. NOT the legacy register:
-    // that bridges OLD, already-committed scenes to the new identity, but `WorldSceneGenerator` writes
-    // FRESH scenes, and `Tools/WorldGen/Source/WorldGenMain.cpp`'s own `LoadMaterial` already assigns
-    // `MaterialRef::Guid` as `HandleForGuid` of the header GUID (not an adopted id) — this mirrors that
-    // exact fold so the test asserts the relation the tool actually holds.
-    uint64_t AdoptedIdForGuid( const std::string& guid )
-    {
-        const auto parsedGuid = Common::Content::AssetGuidFromText( guid );
-        if ( !parsedGuid || parsedGuid.GetValue().IsNull() )
-            return 0;
-        return static_cast<uint64_t>( Common::Content::HandleForGuid( parsedGuid.GetValue() ) );
-    }
-
     // A counting mint, like the corpus suites use: a scene whose records all carry ids must never call it.
     auto CountingMint( size_t& minted )
     {
@@ -559,18 +546,12 @@ TEST( WorldSceneGenerator, EveryMaterialTheSceneNamesResolvesAndItsGuidIsThatFil
             const auto guidText = guid->to_string();
             ASSERT_TRUE( guidText.has_value() ) << *relative << " Header.Guid is not a string";
 
-            const uint64_t adopted = AdoptedIdForGuid( *guidText );
-
-            // Compared as TEXT, because a handle above 2^53 does not survive rfl::Generic's numeric
-            // accessors - which is the defect this suite's own generator hit on its first run, when
-            // to_int() turned 6418972230554417713 into 155908657. `adopted` is read from the legacy
-            // register's own raw text, so it never goes through that lossy accessor either. rfl::Generic
-            // holds an integer as int64, so a handle at or above 2^63 comes back written as its two's-
-            // complement negative; reading that text back as int64 and reinterpreting it as uint64 is exact.
-            const std::string entryText = rfl::json::write( ( *guidList )[i] );
-            EXPECT_EQ( static_cast<uint64_t>( std::stoll( entryText ) ), adopted )
-                 << *relative << ": the scene's MaterialGuids entry does not match the legacy register's "
-                 << "adopted id for this file's header GUID (" << *guidText << ")";
+            // SCNE 27: a slot names the material by its header GUID's TEXT, so the relation is string
+            // equality with the file's own Header.Guid - no number, no register, no lossy accessor.
+            const auto entry = ( *guidList )[i].to_string();
+            ASSERT_TRUE( entry.has_value() ) << *relative << ": the scene's MaterialGuids entry is not a string";
+            EXPECT_EQ( *entry, *guidText )
+                 << *relative << ": the scene's MaterialGuids entry is not this file's header GUID";
             ++checked;
         }
     }
