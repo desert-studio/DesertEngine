@@ -47,7 +47,8 @@ namespace
                 for ( const int w : after.GetTriangle( b[k] ) )
                     close = std::min( close, glm::length( Apply( afterToWorld, after.GetPosition( w ) ) - want ) );
                 if ( close > kTolerance )
-                    return ::testing::AssertionFailure() << "triangle " << k << ": a corner moved by " << close << " cm";
+                    return ::testing::AssertionFailure()
+                           << "triangle " << k << ": a corner moved by " << close << " cm";
             }
         return ::testing::AssertionSuccess();
     }
@@ -74,7 +75,8 @@ namespace
 
     Trs SkewedLocal()
     {
-        return Trs{ glm::vec3( 10.0f, 20.0f, -30.0f ), glm::vec3( 0.3f, 0.5f, -0.2f ), glm::vec3( 2.0f, 0.5f, 1.25f ) };
+        return Trs{ glm::vec3( 10.0f, 20.0f, -30.0f ), glm::vec3( 0.3f, 0.5f, -0.2f ),
+                    glm::vec3( 2.0f, 0.5f, 1.25f ) };
     }
 } // namespace
 
@@ -88,7 +90,7 @@ TEST( EditMeshXform, EditPivotKeepsEveryVertexInTheWorld )
                                         PivotLocation::WorldOrigin, PivotLocation::WorldPoint } )
     {
         const glm::mat4 world = kParent * local.Matrix();
-        auto pivot = ResolvePivot( cube, where, world, glm::vec3( 40.0f, 60.0f, -80.0f ) );
+        auto            pivot = ResolvePivot( cube, where, world, glm::vec3( 40.0f, 60.0f, -80.0f ) );
         ASSERT_TRUE( pivot.IsSuccess() ) << pivot.GetError();
         auto out = EditPivot( cube, local, pivot.GetValue() );
         ASSERT_TRUE( out.IsSuccess() ) << out.GetError();
@@ -151,7 +153,8 @@ TEST( EditMeshXform, BakedNonUniformScaleKeepsNormalsOnTheFaces )
 
     // Faces NOT aligned with the scale's axes: only the inverse transpose keeps their normals on them (for an
     // axis-aligned face the plain linear map points the same way and would pass).
-    auto turned = TransformMesh( MakeCube(), glm::rotate( glm::mat4( 1.0f ), 0.6f, glm::vec3( 0.0f, 1.0f, 0.0f ) ) );
+    auto turned =
+         TransformMesh( MakeCube(), glm::rotate( glm::mat4( 1.0f ), 0.6f, glm::vec3( 0.0f, 1.0f, 0.0f ) ) );
     ASSERT_TRUE( turned.IsSuccess() );
     Trs squash;
     squash.Scale = glm::vec3( 3.0f, 1.0f, 0.5f );
@@ -193,7 +196,7 @@ TEST( EditMeshXform, Refusals )
     const EditMesh cube = MakeCube();
     EXPECT_FALSE( BakeTransform( cube, Trs{}, BakeOptions{ false, false, false } ).IsSuccess() );
     Trs flat;
-    flat.Scale = glm::vec3( 1.0f, 0.0f, 1.0f );
+    flat.Scale           = glm::vec3( 1.0f, 0.0f, 1.0f );
     const auto flattened = BakeTransform( cube, flat, BakeOptions{} );
     ASSERT_FALSE( flattened.IsSuccess() );
     EXPECT_NE( flattened.GetError().find( "singular" ), std::string::npos ) << flattened.GetError();
@@ -212,7 +215,7 @@ TEST( EditMeshXform, MergeThenSplitGivesThePartsBack )
          glm::rotate( glm::translate( glm::mat4( 1.0f ), glm::vec3( 500.0f, 0.0f, 0.0f ) ), 0.4f,
                       glm::vec3( 0.0f, 0.0f, 1.0f ) ) *
          glm::scale( glm::mat4( 1.0f ), glm::vec3( 1.0f, 1.0f, -1.0f ) ); // a mirrored part is re-wound
-    const std::vector<MergePart> parts{ { &a, glm::mat4( 1.0f ), {} }, { &b, bToA, {} } };
+    const std::vector<MergePart> parts{ { a, glm::mat4( 1.0f ), {} }, { b, bToA, {} } };
     auto                         merged = MergeMeshes( parts );
     ASSERT_TRUE( merged.IsSuccess() ) << merged.GetError();
     const EditMesh& m = merged.GetValue().Mesh;
@@ -240,8 +243,9 @@ TEST( EditMeshXform, MergeRemapsMaterialsAndNamesDroppedLayers )
     EditMesh b = MakeCube();
     b.Attributes().DisableColors();
     a.Attributes().EnableColors(); // a layer only one part has cannot be carried
-    const std::vector<MergePart> parts{ { &a, glm::mat4( 1.0f ), { 3 } },
-                                        { &b, glm::translate( glm::mat4( 1.0f ), glm::vec3( 0, 0, 900.0f ) ), { 5 } } };
+    const std::vector<MergePart> parts{
+         { a, glm::mat4( 1.0f ), { 3 } },
+         { b, glm::translate( glm::mat4( 1.0f ), glm::vec3( 0, 0, 900.0f ) ), { 5 } } };
     auto merged = MergeMeshes( parts );
     ASSERT_TRUE( merged.IsSuccess() ) << merged.GetError();
     int threes = 0, fives = 0;
@@ -255,9 +259,9 @@ TEST( EditMeshXform, MergeRemapsMaterialsAndNamesDroppedLayers )
     EXPECT_EQ( merged.GetValue().Mesh.Attributes().Colors(), nullptr );
     EXPECT_NE( merged.GetValue().Report.find( "colours" ), std::string::npos ) << merged.GetValue().Report;
 
-    const std::vector<MergePart> outside{ { &a, glm::mat4( 1.0f ), {} }, { &b, glm::mat4( 1.0f ), { } } };
+    const std::vector<MergePart> outside{ { a, glm::mat4( 1.0f ), {} }, { b, glm::mat4( 1.0f ), {} } };
     EXPECT_TRUE( MergeMeshes( outside ).IsSuccess() );
-    const std::vector<MergePart> badRemap{ { &a, glm::mat4( 1.0f ), { } }, { &b, glm::mat4( 1.0f ), { 1, 2 } } };
+    const std::vector<MergePart> badRemap{ { a, glm::mat4( 1.0f ), {} }, { b, glm::mat4( 1.0f ), { 1, 2 } } };
     b.Attributes().SetMaterialId( *b.TriangleIds().begin(), 7 );
     EXPECT_FALSE( MergeMeshes( badRemap ).IsSuccess() );
 }
@@ -289,13 +293,14 @@ TEST( EditMeshXform, PatternLineAndGridCountsAndDistances )
     ASSERT_EQ( t.GetValue().size(), 5u );
     EXPECT_EQ( t.GetValue()[0], glm::mat4( 1.0f ) );
     for ( size_t i = 1; i < 5; ++i )
-        EXPECT_NEAR( glm::length( Apply( t.GetValue()[i], {} ) - Apply( t.GetValue()[i - 1], {} ) ), 250.0f, 1e-3f );
+        EXPECT_NEAR( glm::length( Apply( t.GetValue()[i], {} ) - Apply( t.GetValue()[i - 1], {} ) ), 250.0f,
+                     1e-3f );
 
     PatternSettings grid;
-    grid.Shape  = PatternShape::Grid;
-    grid.Count  = 3;
-    grid.CountB = 2;
-    grid.AxisB  = 1;
+    grid.Shape    = PatternShape::Grid;
+    grid.Count    = 3;
+    grid.CountB   = 2;
+    grid.AxisB    = 1;
     grid.SpacingB = 400.0f;
     auto g        = PatternTransforms( grid );
     ASSERT_TRUE( g.IsSuccess() ) << g.GetError();
@@ -306,7 +311,7 @@ TEST( EditMeshXform, PatternLineAndGridCountsAndDistances )
     const EditMesh         cube = MakeCube();
     std::vector<MergePart> parts;
     for ( const glm::mat4& m : t.GetValue() )
-        parts.push_back( { &cube, m, {} } );
+        parts.push_back( { cube, m, {} } );
     auto merged = MergeMeshes( parts );
     ASSERT_TRUE( merged.IsSuccess() );
     EXPECT_EQ( merged.GetValue().Mesh.TriangleCount(), 5 * cube.TriangleCount() );

@@ -142,6 +142,7 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
@@ -4471,6 +4472,19 @@ namespace Desert::Editor
                                           return PaletteCommandOutcome( false, "no scene is open" );
                                       return Core::ApplyMeshOperation( *m_MainScene, op,
                                                                        Core::ArgsFromModelingState() );
+                                  } } );
+        }
+        // XForm (UE's XForm tab) on the scene selection's entities, at the panel's values.
+        for ( const Core::XformOperation op :
+              { Core::XformOperation::EditPivot, Core::XformOperation::BakeTransform, Core::XformOperation::Merge,
+                Core::XformOperation::Split, Core::XformOperation::Pattern } )
+        {
+            commands.push_back( { "Modeling", std::string( "XForm: " ) + Core::ToString( op ), [this, op]
+                                  {
+                                      if ( !m_MainScene )
+                                          return PaletteCommandOutcome( false, "no scene is open" );
+                                      return Core::ApplyXformOperation( *m_MainScene, op,
+                                                                        Core::XformArgsFromModelingState() );
                                   } } );
         }
         commands.push_back( { "View", "Toggle 2D UI mode", [this]

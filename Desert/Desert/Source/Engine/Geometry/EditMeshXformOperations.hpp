@@ -67,7 +67,8 @@ namespace Desert::Geometry
     //   * UVs, colours, polygroups, materials: unchanged. Topology: unchanged, IDs compacted.
     // Refused: a transform whose linear part is singular (|det| below 1e-12 of its scale) - it would flatten
     // the mesh; a non-affine matrix (a projective bottom row).
-    [[nodiscard]] Common::ResultStr<TransformedMesh> TransformMesh( const EditMesh& mesh, const glm::mat4& transform );
+    [[nodiscard]] Common::ResultStr<TransformedMesh> TransformMesh( const EditMesh&  mesh,
+                                                                    const glm::mat4& transform );
 
     // ── Edit Pivot ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -91,8 +92,8 @@ namespace Desert::Geometry
 
     struct XformOutcome
     {
-        EditMesh Mesh;
-        Trs      Transform; // the entity's new LOCAL transform
+        EditMesh    Mesh;
+        Trs         Transform; // the entity's new LOCAL transform
         std::string Report;
     };
 
@@ -125,7 +126,8 @@ namespace Desert::Geometry
 
     struct MergePart
     {
-        const EditMesh* Mesh = nullptr;
+        // By reference: a part lives only for the call, and a null part has no meaning.
+        const EditMesh& Mesh;
         // Maps this part's space into the result's (inverse(targetWorld) * partWorld for entities).
         glm::mat4 ToResult{ 1.0f };
         // Material ID i of this part becomes MaterialRemap[i] in the result; empty keeps the IDs. An ID
@@ -135,7 +137,7 @@ namespace Desert::Geometry
 
     struct MergeOutcome
     {
-        EditMesh Mesh;
+        EditMesh    Mesh;
         std::string Report; // layers dropped because some part lacked them
     };
 
@@ -177,10 +179,10 @@ namespace Desert::Geometry
 
     struct PatternSettings
     {
-        PatternShape Shape = PatternShape::Line;
-        int          AxisA = 0; // 0 = X, 1 = Y, 2 = Z (in the entity's local frame)
-        int          AxisB = 2; // Grid only
-        int          Count = 4;
+        PatternShape Shape    = PatternShape::Line;
+        int          AxisA    = 0; // 0 = X, 1 = Y, 2 = Z (in the entity's local frame)
+        int          AxisB    = 2; // Grid only
+        int          Count    = 4;
         int          CountB   = 1; // Grid only
         float        Spacing  = 200.0f;
         float        SpacingB = 200.0f; // Grid only

@@ -4,6 +4,7 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Engine/Geometry/EditMeshModelOperations.hpp>
+#include <Engine/Geometry/EditMeshXformOperations.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>
@@ -186,6 +187,17 @@ namespace Desert::Editor::Core
         // scene selection; Null until picked.
         Common::UUID       ElementTrimCutter;
         Geometry::TrimSide ElementTrimSide = Geometry::TrimSide::RemoveInside;
+
+        // XForm tab (MeshXformOperations.hpp), acting on the scene selection's entities. Edit Pivot moves the
+        // origin to XformPivot (XformPivotWorldPoint for World Point); Bake Transform bakes the XformBake
+        // parts; Split cuts by XformSplit; Pattern lays XformPattern out, merged into the source or - with
+        // XformPatternSeparate - as new entities.
+        Geometry::PivotLocation   XformPivot = Geometry::PivotLocation::BoundsBase;
+        glm::vec3                 XformPivotWorldPoint{ 0.0f };
+        Geometry::BakeOptions     XformBake;
+        Geometry::SplitMethod     XformSplit = Geometry::SplitMethod::ConnectedComponents;
+        Geometry::PatternSettings XformPattern;
+        bool                      XformPatternSeparate = false;
 
         // Create tool: the shape a click places, and a one-shot that places it where the viewport centre
         // looks (the palette's way to place without a mouse).

@@ -485,11 +485,15 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   m_Mesh (shared) - the same immutable EditMesh EditMeshCommand's m_Before/m_After hold, by reference so
     //   a redo puts back exactly that half - and m_Alongside (unique), the companion command it owns, as
     //   EditMeshCommand::m_Alongside. Shared 339+1, Unique 130+1.
+    //   M17 (2026-09-24) added two shared_ptr<const Geometry::EditMesh>, shared for M4's reason: SceneCommands'
+    //   XformEntityState::Mesh (the state an XForm operation puts an entity in, held by the undo step) and
+    //   XformCommand::Gone::Mesh (a merged-away entity's mesh, put back by reference on undo, as
+    //   SplitCopyCommand::m_Mesh). Merge's parts are held by reference, so Raw does not move. Shared 340+2.
     EXPECT_EQ( CountOf( Form::Raw ), 402 );
-    EXPECT_EQ( CountOf( Form::Shared ), 340 );
+    EXPECT_EQ( CountOf( Form::Shared ), 342 );
     EXPECT_EQ( CountOf( Form::Unique ), 131 );
     EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 912 )
+    EXPECT_EQ( (int)Members().size(), 914 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -741,7 +745,7 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // same immutable EditMesh - see TheScanFindsTheCensusedPopulation.
     // 337 -> 339: LS-5's two and M13/M14's two, merged 2026-09-24.
     // 339 -> 340 with M16b: SplitCopyCommand::m_Mesh, the same immutable EditMesh.
-    EXPECT_EQ( CountOf( Form::Shared ), 340 );
+    EXPECT_EQ( CountOf( Form::Shared ), 342 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

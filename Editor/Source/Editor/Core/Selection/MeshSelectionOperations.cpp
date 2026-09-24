@@ -77,9 +77,9 @@ namespace Desert::Editor::Core
             origin[axisIndex] = offset;
             if ( !inWorld )
                 return Common::MakeSuccess( Geometry::CutPlane{ origin, axis } );
-            const glm::mat4 world = entity.HasComponent<ECS::TransformComponent>()
-                                         ? entity.GetComponent<ECS::TransformComponent>().GetTransform()
-                                         : glm::mat4( 1.0f );
+            // The WORLD transform, parent chain included: a child's local one would put the world plane at
+            // its parent-relative image.
+            const glm::mat4 world = entity.GetWorldTransform();
             const glm::mat3 linear( world );
             const glm::mat3 gram = glm::transpose( linear ) * linear;
             const float     s    = ( gram[0][0] + gram[1][1] + gram[2][2] ) / 3.0f;
@@ -286,14 +286,8 @@ namespace Desert::Editor::Core
                     return Common::MakeFormattedError<bool>(
                          "Mesh Trim: the cutter entity {} has no editable mesh",
                          static_cast<uint64_t>( args.TrimCutter ) );
-                // The entities' own transforms, as Mirror's world plane reads them.
-                const auto worldOf = []( ECS::Entity of )
-                {
-                    return of.HasComponent<ECS::TransformComponent>()
-                                ? of.GetComponent<ECS::TransformComponent>().GetTransform()
-                                : glm::mat4( 1.0f );
-                };
-                const glm::mat4 cutterToMesh = glm::inverse( worldOf( e ) ) * worldOf( cutter );
+                // WORLD transforms, parent chains included: either entity may be a child.
+                const glm::mat4 cutterToMesh = glm::inverse( e.GetWorldTransform() ) * cutter.GetWorldTransform();
                 result                       = WholeMesh(
                      Geometry::TrimMesh( *before, *cutter.GetComponent<ECS::StaticMeshComponent>().EditableMesh,
                                                                cutterToMesh, args.TrimSide ),

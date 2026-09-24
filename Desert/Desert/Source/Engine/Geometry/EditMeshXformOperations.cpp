@@ -67,10 +67,10 @@ namespace Desert::Geometry
                      "{}: the transform is not affine (bottom row {:.6f} {:.6f} {:.6f} {:.6f})", what, m[0][3],
                      m[1][3], m[2][3], m[3][3] );
             LinearMap out;
-            out.Linear = glm::mat3( m );
-            out.Det    = glm::determinant( out.Linear );
-            const float s =
-                 std::max( { glm::length( out.Linear[0] ), glm::length( out.Linear[1] ), glm::length( out.Linear[2] ) } );
+            out.Linear    = glm::mat3( m );
+            out.Det       = glm::determinant( out.Linear );
+            const float s = std::max(
+                 { glm::length( out.Linear[0] ), glm::length( out.Linear[1] ), glm::length( out.Linear[2] ) } );
             if ( !std::isfinite( out.Det ) || !( std::abs( out.Det ) > 1e-9f * s * s * s ) )
                 return Common::MakeFormattedError<LinearMap>(
                      "{}: the transform is singular (determinant {:.3g}, largest axis {:.3g}) - it would flatten "
@@ -118,8 +118,8 @@ namespace Desert::Geometry
                 if ( reverse )
                     std::swap( out[1], out[2] );
                 if ( const EditResult r = to->SetTriangle( result, target, out ); r != EditResult::Ok )
-                    return Common::MakeFormattedError<bool>( "the {} of triangle {} could not be carried ({})", name,
-                                                             source, ToString( r ) );
+                    return Common::MakeFormattedError<bool>( "the {} of triangle {} could not be carried ({})",
+                                                             name, source, ToString( r ) );
             }
             return Common::MakeSuccess( true );
         }
@@ -143,7 +143,8 @@ namespace Desert::Geometry
                 {
                     int& v = vertices[static_cast<size_t>( corners[j] )];
                     if ( v == InvalidId )
-                        v = result.AppendVertex( glm::vec3( transform * glm::vec4( source.GetPosition( corners[j] ), 1.0f ) ) );
+                        v = result.AppendVertex(
+                             glm::vec3( transform * glm::vec4( source.GetPosition( corners[j] ), 1.0f ) ) );
                     mapped[j] = v;
                 }
                 if ( reverse )
@@ -151,7 +152,8 @@ namespace Desert::Geometry
                 int added = InvalidId;
                 if ( const EditResult r = result.AppendTriangle( mapped[0], mapped[1], mapped[2], added );
                      r != EditResult::Ok )
-                    return Common::MakeFormattedError<bool>( "triangle {} could not be added ({})", t, ToString( r ) );
+                    return Common::MakeFormattedError<bool>( "triangle {} could not be added ({})", t,
+                                                             ToString( r ) );
                 int material = source.Attributes().GetMaterialId( t );
                 if ( !materialRemap.empty() )
                 {
@@ -166,11 +168,11 @@ namespace Desert::Geometry
                 made.emplace_back( t, added );
             }
 
-            const EditMeshAttributes& from = source.Attributes();
-            EditMeshAttributes&       to   = result.Attributes();
-            auto same2 = []( const glm::vec2& v ) { return v; };
-            auto same4 = []( const glm::vec4& v ) { return v; };
-            auto normal = [&]( const glm::vec3& n ) { return SafeNormalize( linear.NormalMatrix * n ); };
+            const EditMeshAttributes& from  = source.Attributes();
+            EditMeshAttributes&       to    = result.Attributes();
+            auto                      same2 = []( const glm::vec2& v ) { return v; };
+            auto                      same4 = []( const glm::vec4& v ) { return v; };
+            auto normal  = [&]( const glm::vec3& n ) { return SafeNormalize( linear.NormalMatrix * n ); };
             auto tangent = [&]( const glm::vec4& t )
             {
                 const glm::vec3 xyz = SafeNormalize( linear.Linear * glm::vec3( t ) );
@@ -199,7 +201,8 @@ namespace Desert::Geometry
                 for ( const auto& pair : made )
                     added.push_back( pair.second );
                 if ( auto r = ComputeTangentsAt( result, added ); !r.IsSuccess() )
-                    return Common::MakeFormattedError<bool>( "the tangents could not be rebuilt: {}", r.GetError() );
+                    return Common::MakeFormattedError<bool>( "the tangents could not be rebuilt: {}",
+                                                             r.GetError() );
                 tangentsRebuilt = true;
             }
             return Common::MakeSuccess( true );
@@ -334,7 +337,8 @@ namespace Desert::Geometry
 
     // ── Bake Transform ─────────────────────────────────────────────────────────────────────────────────
 
-    Common::ResultStr<XformOutcome> BakeTransform( const EditMesh& mesh, const Trs& local, const BakeOptions& options )
+    Common::ResultStr<XformOutcome> BakeTransform( const EditMesh& mesh, const Trs& local,
+                                                   const BakeOptions& options )
     {
         if ( !options.Rotation && !options.Scale && !options.Translation )
             return Common::MakeError<XformOutcome>( "Bake Transform: nothing is chosen to bake" );
@@ -353,14 +357,14 @@ namespace Desert::Geometry
         if ( !baked.IsSuccess() )
             return Common::MakeFormattedError<XformOutcome>( "Bake Transform: {}", baked.GetError() );
         XformOutcome out;
-        out.Transform          = kept;
-        const bool reversed    = baked.GetValue().WindingReversed;
-        const bool rebuilt     = baked.GetValue().TangentsRebuilt;
-        out.Mesh               = std::move( baked.ExtractValue().Mesh );
-        out.Report             = fmt::format( "baked{}{}{}{}{}", options.Rotation ? " rotation" : "",
-                                              options.Scale ? " scale" : "", options.Translation ? " translation" : "",
-                                              reversed ? "; the winding was reversed (negative scale)" : "",
-                                              rebuilt ? "; the tangents were rebuilt (non-uniform scale)" : "" );
+        out.Transform       = kept;
+        const bool reversed = baked.GetValue().WindingReversed;
+        const bool rebuilt  = baked.GetValue().TangentsRebuilt;
+        out.Mesh            = std::move( baked.ExtractValue().Mesh );
+        out.Report          = fmt::format( "baked{}{}{}{}{}", options.Rotation ? " rotation" : "",
+                                  options.Scale ? " scale" : "", options.Translation ? " translation" : "",
+                                  reversed ? "; the winding was reversed (negative scale)" : "",
+                                  rebuilt ? "; the tangents were rebuilt (non-uniform scale)" : "" );
         return Common::MakeSuccess( std::move( out ) );
     }
 
@@ -374,9 +378,9 @@ namespace Desert::Geometry
         LayerSet any;
         for ( size_t i = 0; i < parts.size(); ++i )
         {
-            if ( parts[i].Mesh == nullptr || parts[i].Mesh->TriangleCount() == 0 )
+            if ( parts[i].Mesh.TriangleCount() == 0 )
                 return Common::MakeFormattedError<MergeOutcome>( "Merge: part {} has no triangle", i );
-            const LayerSet has = LayersOf( *parts[i].Mesh );
+            const LayerSet has = LayersOf( parts[i].Mesh );
             common.Normals &= has.Normals;
             common.Tangents &= has.Tangents;
             common.Colors &= has.Colors;
@@ -396,11 +400,12 @@ namespace Desert::Geometry
             auto linear = Analyse( parts[i].ToResult, "Merge" );
             if ( !linear.IsSuccess() )
                 return Common::MakeFormattedError<MergeOutcome>( "{} (part {})", linear.GetError(), i );
-            if ( auto r = AppendPart( out.Mesh, *parts[i].Mesh, parts[i].ToResult, linear.GetValue(),
-                                      AllTriangles( *parts[i].Mesh ), groupOffset, parts[i].MaterialRemap, rebuilt );
+            if ( auto r =
+                      AppendPart( out.Mesh, parts[i].Mesh, parts[i].ToResult, linear.GetValue(),
+                                  AllTriangles( parts[i].Mesh ), groupOffset, parts[i].MaterialRemap, rebuilt );
                  !r.IsSuccess() )
                 return Common::MakeFormattedError<MergeOutcome>( "Merge: part {}: {}", i, r.GetError() );
-            groupOffset += MaxPolyGroup( *parts[i].Mesh ) + 1;
+            groupOffset += MaxPolyGroup( parts[i].Mesh ) + 1;
         }
         std::vector<std::string> dropped;
         if ( any.Normals && !common.Normals )
@@ -444,7 +449,8 @@ namespace Desert::Geometry
         auto find = [&]( int t )
         {
             while ( parent[static_cast<size_t>( t )] != t )
-                t = parent[static_cast<size_t>( t )] = parent[static_cast<size_t>( parent[static_cast<size_t>( t )] )];
+                t = parent[static_cast<size_t>( t )] =
+                     parent[static_cast<size_t>( parent[static_cast<size_t>( t )] )];
             return t;
         };
         if ( method == SplitMethod::ConnectedComponents )
@@ -511,11 +517,11 @@ namespace Desert::Geometry
 
     Common::ResultStr<std::vector<glm::mat4>> PatternTransforms( const PatternSettings& s )
     {
-        using Out = std::vector<glm::mat4>;
+        using Out        = std::vector<glm::mat4>;
         const char* name = ToString( s.Shape );
         if ( s.AxisA < 0 || s.AxisA > 2 || ( s.Shape == PatternShape::Grid && ( s.AxisB < 0 || s.AxisB > 2 ) ) )
-            return Common::MakeFormattedError<Out>( "Pattern ({}): an axis must be 0 (X), 1 (Y) or 2 (Z), not {}/{}",
-                                                    name, s.AxisA, s.AxisB );
+            return Common::MakeFormattedError<Out>(
+                 "Pattern ({}): an axis must be 0 (X), 1 (Y) or 2 (Z), not {}/{}", name, s.AxisA, s.AxisB );
         if ( s.Shape == PatternShape::Grid && s.AxisA == s.AxisB )
             return Common::MakeFormattedError<Out>( "Pattern (Grid): both axes are {}", s.AxisA );
         const int countB = s.Shape == PatternShape::Grid ? s.CountB : 1;
@@ -532,13 +538,15 @@ namespace Desert::Geometry
         if ( s.Shape == PatternShape::Circle )
         {
             if ( !( s.Radius > 0.0f ) )
-                return Common::MakeFormattedError<Out>( "Pattern (Circle): the radius must be > 0, not {}", s.Radius );
+                return Common::MakeFormattedError<Out>( "Pattern (Circle): the radius must be > 0, not {}",
+                                                        s.Radius );
             if ( s.SweepDegrees == 0.0f || std::abs( s.SweepDegrees ) > 360.0f )
-                return Common::MakeFormattedError<Out>( "Pattern (Circle): the sweep must be in [-360, 360] and not "
-                                                        "0, not {}",
-                                                        s.SweepDegrees );
-            const bool  ring   = std::abs( s.SweepDegrees ) >= 360.0f - 1e-3f;
-            const float step   = glm::radians( s.SweepDegrees ) / static_cast<float>( ring ? s.Count : s.Count - 1 );
+                return Common::MakeFormattedError<Out>(
+                     "Pattern (Circle): the sweep must be in [-360, 360] and not "
+                     "0, not {}",
+                     s.SweepDegrees );
+            const bool  ring = std::abs( s.SweepDegrees ) >= 360.0f - 1e-3f;
+            const float step = glm::radians( s.SweepDegrees ) / static_cast<float>( ring ? s.Count : s.Count - 1 );
             const glm::vec3 centre = -s.Radius * Axis( ( s.AxisA + 1 ) % 3 );
             for ( int i = 0; i < s.Count; ++i )
             {
@@ -558,8 +566,9 @@ namespace Desert::Geometry
         const glm::vec3 b = s.Shape == PatternShape::Grid ? Axis( s.AxisB ) : glm::vec3( 0.0f );
         for ( int j = 0; j < countB; ++j )
             for ( int i = 0; i < s.Count; ++i )
-                out.push_back( glm::translate( glm::mat4( 1.0f ), static_cast<float>( i ) * s.Spacing * a +
-                                                                      static_cast<float>( j ) * s.SpacingB * b ) );
+                out.push_back(
+                     glm::translate( glm::mat4( 1.0f ), static_cast<float>( i ) * s.Spacing * a +
+                                                             static_cast<float>( j ) * s.SpacingB * b ) );
         return Common::MakeSuccess( std::move( out ) );
     }
 } // namespace Desert::Geometry
