@@ -200,8 +200,8 @@ namespace Desert::Graphic
             // MeshRenderer::SetupShadowPass — see kShadowBytesPerTexel.
             const uint32_t s = profile.Shadows.ShadowMapSize;
             const uint32_t n = profile.Shadows.CascadeCount;
-            ViewTarget color{ "ShadowCascades.Color", "MeshRenderer.cpp", ImageFormat::RGBA32F, s, s, 1, n };
-            ViewTarget depth{
+            ViewTarget     color{ "ShadowCascades.Color", "MeshRenderer.cpp", ImageFormat::RGBA32F, s, s, 1, n };
+            ViewTarget     depth{
                  "ShadowCascades.Depth", "MeshRenderer.cpp", ImageFormat::DEPTH24STENCIL8, s, s, 1, n };
             color.ScalesWithView = depth.ScalesWithView = false;
             add( color );

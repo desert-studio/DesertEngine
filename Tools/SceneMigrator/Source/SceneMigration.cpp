@@ -2086,9 +2086,10 @@ namespace Desert::Migration
             RaiseMeshGuids( entity.Components, tag, assetsRoot, report );
             if ( !entity.PrefabOverrides )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                RaiseMeshGuids( ( *entity.PrefabOverrides )[i].Components,
-                                tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, report );
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseMeshGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
+                                assetsRoot, report );
         }
         return report;
     }
@@ -2299,8 +2300,9 @@ namespace Desert::Migration
             RaiseTextureGuids( entity.Components, tag, assetsRoot, index, report );
             if ( !entity.PrefabOverrides )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                RaiseTextureGuids( ( *entity.PrefabOverrides )[i].Components,
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseTextureGuids( overrides[i].Components,
                                    tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, index,
                                    report );
         }
@@ -2388,9 +2390,10 @@ namespace Desert::Migration
             RaiseSpriteGuids( entity.Components, tag, assetsRoot, report );
             if ( !entity.PrefabOverrides )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                RaiseSpriteGuids( ( *entity.PrefabOverrides )[i].Components,
-                                  tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, report );
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseSpriteGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
+                                  assetsRoot, report );
         }
         return report;
     }
