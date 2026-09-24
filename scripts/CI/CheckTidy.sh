@@ -266,8 +266,11 @@ PLATFORM_FOREIGN=""
 TRUE_ORPHANS=""
 for f in $ORPHANS; do
     case "$f" in
-        */Platform/Windows/*|*/Platform/Linux/*) PLATFORM_FOREIGN="$PLATFORM_FOREIGN $f" ;;
-        *)                                       TRUE_ORPHANS="$TRUE_ORPHANS $f" ;;
+        # Any directory named Windows/Linux, not only Platform/: Editor/premake5.lua removes
+        # Source/Editor/Splash/Windows/** off Windows, and the narrower pattern called the splash an
+        # orphan — exit 2 on every push that touched it (SP1), reported as an environment failure.
+        */Windows/*|*/Linux/*) PLATFORM_FOREIGN="$PLATFORM_FOREIGN $f" ;;
+        *)                     TRUE_ORPHANS="$TRUE_ORPHANS $f" ;;
     esac
 done
 
