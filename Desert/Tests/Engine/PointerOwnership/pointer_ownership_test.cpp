@@ -464,11 +464,20 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   LS-4 (2026-09-24) added three: the landscape tile's heightmap as it travels to the terrain pass,
     //   DrawLandscapeTileCommand::Heightmap and TerrainDrawData::Heightmap (raw, frame-scoped, each with a
     //   row), and its owner, LandscapeECSSystem::TileGpu::Heightmap (shared). Raw 389+2, Shared 331+1.
-    EXPECT_EQ( CountOf( Form::Raw ), 393 );
-    EXPECT_EQ( CountOf( Form::Shared ), 335 );
-    EXPECT_EQ( CountOf( Form::Unique ), 125 );
+    //   M13 (2026-09-24) added two shared_ptr<const Geometry::EditMesh>, shared for M4's reason (the mesh is
+    //   immutable once on a component): MeshElementSelection::m_Mesh, the mesh the element selection was
+    //   last checked against - its IDENTITY is how an edit is noticed and the selection pruned - and the
+    //   Select Elements tool's per-frame Target::Mesh. The tool's painter holds its draw list by reference,
+    //   so Raw does not move. Shared 335+2.
+    //   M14 (2026-09-24) added two: EditMeshOperations' LayerRecord::Layer (raw, call-scoped, with a row) -
+    //   an attribute layer of the mesh the operation is building - and EditMeshCommand::m_Alongside
+    //   (unique), the selection change undone and redone with a mesh operation as one step. Raw 391+1,
+    //   Unique 123+1.
+    EXPECT_EQ( CountOf( Form::Raw ), 394 );
+    EXPECT_EQ( CountOf( Form::Shared ), 337 );
+    EXPECT_EQ( CountOf( Form::Unique ), 126 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 891 )
+    EXPECT_EQ( (int)Members().size(), 895 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -714,7 +723,9 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // 331 -> 332 with LS-4: LandscapeECSSystem::TileGpu::Heightmap, a GPU image — the case this test's
     // opening paragraph describes (the cache, the descriptor sets and the deletion queue all hold it).
     // 334 -> 335: M4's three and LS-4's one, merged 2026-09-24.
-    EXPECT_EQ( CountOf( Form::Shared ), 335 );
+    // 335 -> 337 with M13: MeshElementSelection::m_Mesh and the Select Elements tool's Target::Mesh, the
+    // same immutable EditMesh - see TheScanFindsTheCensusedPopulation.
+    EXPECT_EQ( CountOf( Form::Shared ), 337 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

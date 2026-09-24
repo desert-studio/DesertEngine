@@ -19,6 +19,7 @@
 #include "PerfHudOverlay.hpp"
 #include "Tools/FoliagePaintTool.hpp"
 #include "Tools/CubeGridTool.hpp"
+#include "Tools/ElementSelectTool.hpp"
 #include "Tools/PolyEditTool.hpp"
 #include "Tools/TerrainPaintTool.hpp"
 #include "Tools/GizmoController.hpp"
@@ -340,6 +341,7 @@ namespace Desert::Editor
         Tools::FoliagePaintTool               m_FoliageTool;  // UE5-style foliage painting (extracted)
         Tools::CubeGridTool                   m_CubeGridTool; // UE5-style CubeGrid blockout (Modeling mode)
         Tools::PolyEditTool                   m_PolyEditTool; // face select + push/pull (Modeling mode)
+        Tools::ElementSelectTool              m_ElementSelectTool; // mesh element selection (Modeling mode)
         Tools::TerrainPaintTool               m_TerrainTool;  // terrain splat-layer painting (extracted)
         Tools::GizmoController                m_Gizmo;       // object + bone transform gizmos (extracted)
         Tools::PickingController              m_Picking;     // ray-pick + select (extracted)

@@ -35,6 +35,9 @@ namespace Desert::Editor
         }
 
     private:
+        // The Select Elements tool's properties: mode, counts, and the selection operations.
+        void DrawElementSelection();
+
         std::shared_ptr<Desert::Core::Scene> m_Scene;
         int                                  m_Category = 0; // index into the rail: 0 = Create, 1 = Model
     };
