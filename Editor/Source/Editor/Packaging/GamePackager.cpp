@@ -421,7 +421,7 @@ namespace Desert::Editor
             // THE COOKED REGISTRY IS WRITTEN HERE, at packaging, from the registry this process gathered: the
             // packaged game has no content roots to gather from, and nothing in git carries one (AF9a).
             baseBlobs.emplace_back(
-                 ( fs::path( Constants::Path::COOKED_DIR_NAME ) / "AssetRegistry.dreg" ).generic_string(),
+                 ( fs::path( Common::Constants::Path::COOKED_DIR_NAME ) / "AssetRegistry.dreg" ).generic_string(),
                  Assets::ContentRegistry::Get().Serialize() );
             if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
                 return { false, error, "" };
@@ -708,7 +708,7 @@ namespace Desert::Editor
         // THE COOKED REGISTRY IS WRITTEN HERE, at packaging, from the registry this process gathered: the
         // packaged game has no content roots to gather from, and nothing in git carries one (AF9a).
         baseBlobs.emplace_back(
-             ( fs::path( Constants::Path::COOKED_DIR_NAME ) / "AssetRegistry.dreg" ).generic_string(),
+             ( fs::path( Common::Constants::Path::COOKED_DIR_NAME ) / "AssetRegistry.dreg" ).generic_string(),
              Assets::ContentRegistry::Get().Serialize() );
         if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
             return { false, error, "" };
