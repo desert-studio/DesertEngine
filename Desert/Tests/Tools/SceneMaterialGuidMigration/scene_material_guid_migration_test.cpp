@@ -152,14 +152,14 @@ TEST( SceneMaterialGuidMigration, AnIdTheRegisterDoesNotKnowRefusesAndLeavesTheS
 std::string OneUnknownSlotPrefab()
 {
     return std::string( "{" ) + V26Header( kSceneGuid ) +
-           R"(,"Name":"P","Entities":[
+           R"(,"Name":"P","Root":1,"Entities":[
         {"id":1,"Tag":"Bad","StaticMesh":{"MeshPath":"m","MaterialGuids":[999]}}]})";
 }
 
 TEST( SceneMaterialGuidMigration, MigratePrefabRefusesTheSameUnknownId )
 {
     auto parsed = rfl::json::read<Migration::PrefabData>( OneUnknownSlotPrefab() );
-    ASSERT_TRUE( parsed ) << "the prefab fixture does not parse";
+    ASSERT_TRUE( parsed ) << "the prefab fixture does not parse: " << parsed.error().what();
     auto prefab = parsed.value();
 
     const auto legacy  = KnownLegacyIds(); // does not know 999
