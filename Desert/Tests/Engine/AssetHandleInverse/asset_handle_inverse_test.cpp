@@ -12,10 +12,11 @@
 // `AssetHandle.hpp` carried, for a long time, the sentence "nothing in the repository referenced a
 // path-derived handle by number", and that sentence was the licence under which the derivation was once
 // re-stamped project-relative with no migration. It is FALSE, and it is falsifiable by arithmetic:
-// `ANIM_RigWitness_NoRig.desce` stores `"MeshPath":"Cooked/Meshes/IKProbe.skmesh"` beside
-// `"MeshGuid":556331627295699705`, and that number is exactly `FromCookedPath` of that path. Ten such
-// pairs are committed, plus 95 `TextureHandle` numbers and 113 adopted-id entries in `.demat` files
-// (now bridged through the legacy register, since MATL 2 moved material identity to the header GUID).
+// scenes once stored `"MeshPath":"Cooked/Meshes/IKProbe.skmesh"` beside `"MeshGuid":556331627295699705`,
+// and that number was exactly `FromCookedPath` of that path (ten such pairs, retired by SCNE 28, which names
+// a mesh by its header GUID text). Still committed: 95 `TextureHandle` numbers, and 113 adopted-id entries
+// in `.demat` files (bridged through the legacy register, since MATL 2 moved material identity to the
+// header GUID).
 //
 // So the derivation is load-bearing for committed content, and `TestB` below is what makes moving it a RED
 // BUILD naming the file rather than a silent emptying discovered a session later. (`AssetReferenceCensus`
@@ -28,11 +29,10 @@
 // ROW that shipped content already contains — a path and a number written side by side for one reference —
 // and derives the count from the corpus. There is no number typed into this file.
 //
-// And the two kinds of row are deliberately both here, because they fail in opposite directions:
-//   * `MeshPath` + `MeshGuid` is a PATH-DERIVED handle. It breaks if the derivation moves.
-//   * `MaterialPaths` + `MaterialGuids` names the material by its header GUID TEXT (SCNE 27; before, an
-//     adopted legacy id). It breaks if the path and the GUID stop naming one file.
-// An index that only recorded derivations would be empty for exactly the references that exist most.
+// `MaterialPaths` + `MaterialGuids` names the material by its header GUID TEXT (SCNE 27; before, an
+// adopted legacy id), and breaks if the path and the GUID stop naming one file. The former mesh half
+// (`MeshPath` + a path-derived `MeshGuid` number) is gone with SCNE 28: a scene names a mesh by its header
+// GUID text, so no scene row depends on the path derivation any more.
 
 #include <gtest/gtest.h>
 
@@ -186,14 +186,13 @@ namespace
 
     // ── The corpus rows ───────────────────────────────────────────────────────────────────────────────
 
-    // One (path, handle) pair a shipped scene wrote for ONE reference.
-    struct PathAndHandle
+    // One (path, GUID) pair a shipped scene wrote for ONE reference.
+    struct PathAndGuid
     {
         std::string Scene;
         std::string Field; // which pair of fields it came from, for the failure message
         std::string Path;
-        uint64_t    Handle = 0;
-        std::string Guid; // material rows: the header GUID text the scene states (SCNE 27)
+        std::string Guid; // the header GUID text the scene states (SCNE 27)
     };
 
     // Pulls every such pair out of one parsed scene document. The walk is recursive because a component
@@ -205,13 +204,12 @@ namespace
     // to be the LAST comment line before the statement — one more line of prose under it and clang-tidy
     // does not see it, which is how the first attempt at this went red with the comment already written.
     // NOLINTNEXTLINE(misc-no-recursion)
-    void CollectPairs( const rfl::Generic& node, const std::string& scene, std::vector<PathAndHandle>& meshes,
-                       std::vector<PathAndHandle>& materials )
+    void CollectPairs( const rfl::Generic& node, const std::string& scene, std::vector<PathAndGuid>& materials )
     {
         if ( const auto array = node.to_array() )
         {
             for ( const auto& element : array.value() )
-                CollectPairs( element, scene, meshes, materials );
+                CollectPairs( element, scene, materials );
             return;
         }
 
@@ -221,10 +219,7 @@ namespace
 
         const auto& fields = object.value();
 
-        // `rfl::Object::find` returns an INDEX, not an iterator, and `Generic::to_int` is 32-bit — both
-        // of which silently produce a wrong answer here. The pairs are walked instead, and the integer is
-        // read through `to_int64` and reinterpreted, which is exact for the full uint64 range because the
-        // writer emits the same bit pattern.
+        // `rfl::Object::find` returns an INDEX, not an iterator, so the pairs are walked instead.
         const auto valueOf = [&fields]( const char* name ) -> const rfl::Generic*
         {
             for ( const auto& [key, value] : fields )
@@ -234,30 +229,6 @@ namespace
             }
             return nullptr;
         };
-        const auto stringAt = [&valueOf]( const char* name ) -> std::optional<std::string>
-        {
-            const rfl::Generic* found = valueOf( name );
-            if ( found == nullptr )
-                return std::nullopt;
-            const auto text = found->to_string();
-            return text ? std::optional<std::string>( text.value() ) : std::nullopt;
-        };
-        const auto intAt = [&valueOf]( const char* name ) -> std::optional<uint64_t>
-        {
-            const rfl::Generic* found = valueOf( name );
-            if ( found == nullptr )
-                return std::nullopt;
-            if ( const auto value = found->to_int64() )
-                return static_cast<uint64_t>( value.value() );
-            return std::nullopt;
-        };
-
-        if ( const auto meshPath = stringAt( "MeshPath" ) )
-        {
-            if ( const auto guid = intAt( "MeshGuid" ); guid && *guid != 0 && !meshPath->empty() )
-                meshes.push_back( { scene, "MeshPath/MeshGuid", *meshPath, *guid } );
-        }
-
         const rfl::Generic* paths = valueOf( "MaterialPaths" );
         const rfl::Generic* guids = valueOf( "MaterialGuids" );
         if ( paths != nullptr && guids != nullptr )
@@ -274,17 +245,17 @@ namespace
                     const auto value = g[at].to_string();
                     if ( !text || !value || text->empty() || value->empty() )
                         continue;
-                    materials.push_back( { scene, "MaterialPaths/MaterialGuids", *text, 0, *value } );
+                    materials.push_back( { scene, "MaterialPaths/MaterialGuids", *text, *value } );
                 }
             }
         }
 
         for ( const auto& [name, value] : fields )
-            CollectPairs( value, scene, meshes, materials );
+            CollectPairs( value, scene, materials );
     }
 
-    void CollectPairsInScenes( const fs::path& scenesRoot, std::vector<PathAndHandle>& meshes,
-                               std::vector<PathAndHandle>& materials, std::string* parseError )
+    void CollectPairsInScenes( const fs::path& scenesRoot, std::vector<PathAndGuid>& materials,
+                               std::string* parseError )
     {
         for ( const auto& entry : fs::directory_iterator( scenesRoot ) )
         {
@@ -297,7 +268,7 @@ namespace
                     *parseError = entry.path().filename().string() + ": " + parsed.error().what();
                 continue;
             }
-            CollectPairs( parsed.value(), entry.path().filename().string(), meshes, materials );
+            CollectPairs( parsed.value(), entry.path().filename().string(), materials );
         }
     }
 
@@ -403,54 +374,20 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
     const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( root + "Editor", "Resources/Assets" );
 
-    std::vector<PathAndHandle> meshes;
-    std::vector<PathAndHandle> materials;
+    std::vector<PathAndGuid>   materials;
     std::string                parseError;
-    CollectPairsInScenes( scenes, meshes, materials, &parseError );
+    CollectPairsInScenes( scenes, materials, &parseError );
     ASSERT_TRUE( parseError.empty() ) << "a shipped scene did not parse: " << parseError;
 
-    // THE TWO KINDS OF STORED PATH ARE JOINED TO DIFFERENT ROOTS, and each of the two spellings is read
-    // back by the engine exactly this way:
-    //   * `MeshPath` is written as `Cooked/Meshes/X.skmesh` — relative to the PROJECT directory, because
-    //     the cooked tree is a sibling of the assets root and a path relative to the assets root would
-    //     come out as `../Cooked/...`;
-    //   * `MaterialPaths` is written as `Materials/M.demat` — relative to the ASSETS root, and
-    //     `MakeAssetResolver`'s MaterialAsset branch joins it to `ASSETS_PATH` on the way in, saying in
-    //     its own comment that deleting the join breaks the reference.
-    // Using one base for both is what made the material half of this census check ZERO rows on its first
-    // run while still reporting green on the mesh half.
-    const auto expandFromProject = []( const std::string& stored ) -> fs::path
-    {
-        const fs::path asWritten( stored );
-        return asWritten.is_absolute() ? asWritten
-                                       : ( Common::Constants::Path::CurrentProjectRoot().ProjectDir / stored );
-    };
+    // `MaterialPaths` is written as `Materials/M.demat` — relative to the ASSETS root, and
+    // `MakeAssetResolver`'s MaterialAsset branch joins it to `ASSETS_PATH` on the way in. Joining it to
+    // the project directory instead is what made this census check ZERO rows on its first run.
     const auto expandFromAssets = []( const std::string& stored ) -> fs::path
     {
         const fs::path asWritten( stored );
         return asWritten.is_absolute() ? asWritten
                                        : ( Common::Constants::Path::ASSETS_PATH / stored ).lexically_normal();
     };
-
-    ASSERT_FALSE( meshes.empty() ) << "no MeshPath/MeshGuid pair was found in any shipped scene — the "
-                                      "census is looking at nothing, which is how it stays green forever";
-
-    for ( const auto& row : meshes )
-    {
-        const auto derived =
-             static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( expandFromProject( row.Path ) ) );
-        EXPECT_EQ( derived, row.Handle )
-             << row.Scene << " writes '" << row.Path << "' beside " << row.Handle << ", but that path now "
-             << "derives " << derived << ". The stored number is what the scene resolves against, so "
-             << "moving the derivation orphans this reference: the mesh loads as unset with no filename "
-             << "anywhere in the log. Migrate the corpus in the same change.";
-
-        // And the inverse names the file back. This is the half `MakeAssetResolver::ToPath` could not do
-        // without the asset being loaded first.
-        EXPECT_EQ( Common::AssetPathIndex::KeyFor( row.Handle ),
-                   Common::AssetHandle::StableKeyForPath( expandFromProject( row.Path ) ) )
-             << row.Scene << ": handle " << row.Handle << " does not name '" << row.Path << "' back";
-    }
 
     ASSERT_FALSE( materials.empty() ) << "no MaterialPaths/MaterialGuids pair was found in any shipped scene";
 
@@ -468,8 +405,8 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
              << "states " << GuidOfDemat( demat ) << ". The GUID is the identity and the path its locator, so "
              << "they must name one file.";
     }
-    std::cout << "[  COUNT   ] " << meshes.size() << " MeshPath/MeshGuid pairs, " << checked << " of "
-              << materials.size() << " MaterialPaths/MaterialGuids pairs resolvable in this checkout\n";
+    std::cout << "[  COUNT   ] " << checked << " of " << materials.size()
+              << " MaterialPaths/MaterialGuids pairs resolvable in this checkout\n";
     EXPECT_GT( checked, 0u ) << "no named `.demat` exists in this checkout — the material half checked nothing";
 }
 

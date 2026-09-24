@@ -26,7 +26,8 @@
 
 #include <gtest/gtest.h>
 
-#include <Common/Core/AssetHandle.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
@@ -60,12 +61,6 @@ namespace
 
     constexpr const char* kBaseBone = "Base";
     constexpr const char* kArmBone  = "Arm";
-
-    // The handle the shipped scene stores for the shipped witness mesh, derived from the project-relative
-    // cooked path exactly as AssetHandle::StableKeyForPath derives it. Pinned for the same reason the
-    // one-bone probe's is pinned next door: it is a number in a file no compiler reads.
-    constexpr const char*   kWitnessMeshPath   = "Cooked/Meshes/TwoBoneProbe.skmesh";
-    constexpr std::uint64_t kWitnessMeshHandle = 5756835276253557057ull;
 
     std::string RepoRoot()
     {
@@ -376,14 +371,17 @@ TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
                 "would show a bind pose and still render, which is broken evidence, not no evidence.";
     }
 
-    EXPECT_EQ( static_cast<std::uint64_t>( Common::AssetHandle::FromCookedPath( kWitnessMeshPath ) ),
-               kWitnessMeshHandle );
-    const std::string scene = ReadFile( RepoRoot() + kSceneFile );
+    // SCNE 28: the shipped scene names the witness mesh by the GUID its own header states -- read from
+    // the file, not pinned, so re-cooking the mesh with a new GUID fails here until the scene follows.
+    const auto meshGuid =
+         Common::Content::ReadMeshHeaderGuid( ReadFile( RepoRoot() + kCookedDir + "TwoBoneProbe.skmesh" ) );
+    ASSERT_TRUE( meshGuid.has_value() ) << "TwoBoneProbe.skmesh states no header GUID (not a v3 mesh)";
+    const std::string meshGuidText = Common::Content::AssetGuidToText( *meshGuid );
+    const std::string scene        = ReadFile( RepoRoot() + kSceneFile );
     ASSERT_FALSE( scene.empty() ) << "could not read " << kSceneFile;
-    EXPECT_NE( scene.find( "\"MeshGuid\":" + std::to_string( kWitnessMeshHandle ) ), std::string::npos )
-         << kSceneFile
-         << " no longer stores the witness mesh's path-derived handle, so the scene that "
-            "places the rig would resolve to no mesh at all.";
+    EXPECT_NE( scene.find( "\"MeshGuid\": \"" + meshGuidText + "\"" ), std::string::npos )
+         << kSceneFile << " does not name the witness mesh by its header GUID " << meshGuidText
+         << ", so the scene that places the rig would resolve to no mesh at all.";
 }
 
 // THE INSTRUMENT MUST NOT BE DEGENERATE. Each of these is a way the rig could quietly become the one-bone

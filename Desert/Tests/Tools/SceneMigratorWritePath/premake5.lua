@@ -32,6 +32,8 @@ project(test_name)
         -- suite that compiles MigratorMain.cpp has to bring the table with it. It is deliberately not in
         -- SceneMigration.cpp: the fifteen suites that test one schema step each must stay free of it.
         "%{wks.location}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
+        -- The loop's material step (MATL 2) and scene step (SCNE 27) read the legacy-id register.
+        "%{wks.location}/Tools/SceneMigrator/Source/LegacyMaterialIds.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
