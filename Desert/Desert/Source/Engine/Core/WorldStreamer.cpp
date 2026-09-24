@@ -118,9 +118,14 @@ namespace Desert::Core
     {
         using Result = std::unique_ptr<WorldStreamer>;
         Result streamer( new WorldStreamer( scene, assets, world.Index->SceneName ) );
-        auto   begun = Rules::ResidencyExecutor::BeginFromAlwaysLoaded(
-             std::move( world.Indexed.Plan ), world.Index->WorldPartition, Rules::ResidencySettings{},
-             world.Indexed.RecordIds.size(), world.Indexed.Observations );
+        // Every read of `world` is resolved before the plan is moved out of it: an argument list is not
+        // sequenced (clang evaluates it left to right, MSVC right to left).
+        const auto  recordCount  = world.Indexed.RecordIds.size();
+        const auto& partition    = world.Index->WorldPartition;
+        auto&       observations = world.Indexed.Observations;
+        auto        plan         = std::move( world.Indexed.Plan );
+        auto        begun        = Rules::ResidencyExecutor::BeginFromAlwaysLoaded(
+             std::move( plan ), partition, Rules::ResidencySettings{}, recordCount, observations );
         if ( !begun )
             return Common::MakeError<Result>( "world streaming of '" + streamer->m_SceneName +
                                               "': " + begun.GetError() );
