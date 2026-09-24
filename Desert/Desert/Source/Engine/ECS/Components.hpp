@@ -302,11 +302,25 @@ namespace Desert::ECS
     // Rotation and scale of the root entity are not part of the frame: LandscapeFrame has no rotation, as
     // the TES sampling it feeds has none. That is stated here rather than hidden behind a transform the
     // tiles would silently ignore; a landscape that must turn is a new frame field, not a gizmo.
+    // ONE PAINTABLE LAYER OF A LANDSCAPE (UE: a target layer's ULandscapeLayerInfoObject). The root owns the
+    // list because UE's target layers belong to the landscape, not to a component: every tile's weight plane
+    // is keyed by one of these names (LandscapeWeightLayer::Name), and Hardness/NoWeightBlend are what the
+    // paint stroke's normalisation reads (World/Landscape/LandscapePaint.hpp, LandscapeLayerRule).
+    // `Color` is UE's LayerUsageDebugColor: the swatch the panel shows, and what a debug view would tint by.
+    struct LandscapeLayerInfo
+    {
+        std::string Name;
+        float       Hardness      = 0.5f;
+        bool        NoWeightBlend = false;
+        glm::vec3   Color         = glm::vec3( 1.0f );
+    };
+
     struct LandscapeComponent
     {
         uint32_t QuadsPerTile = World::Landscape::kLandscapeDefaultTileQuads; // UE section size, 7..255
         float    SpacingCm    = World::Landscape::kLandscapeDefaultSpacingCm; // cm between neighbouring samples
         float    ZScale       = World::Landscape::kLandscapeDefaultZScale;    // cm per local height unit
+        std::vector<LandscapeLayerInfo> Layers;                               // UE target layers, in panel order
     };
 
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
