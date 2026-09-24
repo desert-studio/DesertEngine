@@ -414,6 +414,36 @@ TEST( AssetEnvelope, WriterRefusesWhatTheReaderWouldRefuse )
     EXPECT_TRUE( Mentions( ErrorOf( WriteAssetEnvelope( noKind ) ), "kind is COUNT" ) );
 }
 
+// AF7b: the GUID -> handle fold is persisted indirectly (cooked data keys by it), so its value is pinned,
+// not only its properties. The pinned GUID is a shipped .demat's header GUID; the value was computed independently
+// in Python.
+TEST( AssetGuidHandle, TheFoldIsPinnedToOneValue )
+{
+    const Common::Content::AssetGuid guid{ 0xb7de7b6da944bdedull, 0x0382e39126712944ull };
+    EXPECT_EQ( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ), 2095883161200703396ull );
+}
+
+TEST( AssetGuidHandle, NullGuidIsNullHandleAndOthersNeverAre )
+{
+    EXPECT_TRUE( Common::Content::HandleForGuid( Common::Content::AssetGuid{} ).IsNull() );
+    for ( int i = 0; i < 1000; ++i )
+        EXPECT_FALSE( Common::Content::HandleForGuid( Common::Content::AssetGuid::Generate() ).IsNull() );
+}
+
+TEST( AssetGuidHandle, EachHalfReachesTheHandle )
+{
+    const Common::Content::AssetGuid base{ 1, 2 };
+    EXPECT_EQ( Common::Content::HandleForGuid( base ),
+               Common::Content::HandleForGuid( Common::Content::AssetGuid{ 1, 2 } ) );
+    EXPECT_NE( Common::Content::HandleForGuid( base ),
+               Common::Content::HandleForGuid( Common::Content::AssetGuid{ 3, 2 } ) );
+    EXPECT_NE( Common::Content::HandleForGuid( base ),
+               Common::Content::HandleForGuid( Common::Content::AssetGuid{ 1, 3 } ) );
+    // Swapping the halves is a different asset, so it must be a different handle.
+    EXPECT_NE( Common::Content::HandleForGuid( base ),
+               Common::Content::HandleForGuid( Common::Content::AssetGuid{ 2, 1 } ) );
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );

@@ -32,6 +32,7 @@
 // the body and the section's content id (the future DDC key), so there is one hash, not two.
 
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <array>
@@ -79,6 +80,15 @@ namespace Common::Content
 
         bool operator==( const AssetGuid& ) const = default;
     };
+
+    // THE ONE FOLD from an asset's identity to the 64-bit handle the runtime keys its maps by (AF7b).
+    // UE references an asset by GUID or path and has no second numeric id; a handle is only this GUID
+    // squeezed to 64 bits so hash maps stay cheap. Every place that needs a handle for a GUID asks here,
+    // so two callers can never derive two different numbers for one asset. FNV-1a over the 16 bytes,
+    // Hi then Lo, big-endian - the same bytes AssetGuidToText prints, so the fold is platform-independent.
+    // A null GUID folds to the null handle (no reference); a non-null GUID never does.
+    // The value is PERSISTED indirectly (cooked data and caches key by it): changing the fold is a format change.
+    AssetHandle HandleForGuid( const AssetGuid& guid ) noexcept;
 
     // One subsystem's serialization version inside an asset: a mesh envelope carries the mesh codec's
     // version AND the material-slot layout's AND the bounds', each owned by a different subsystem.

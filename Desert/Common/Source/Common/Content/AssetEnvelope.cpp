@@ -226,6 +226,22 @@ namespace Common::Content
         return guid;
     }
 
+    AssetHandle HandleForGuid( const AssetGuid& guid ) noexcept
+    {
+        if ( guid.IsNull() )
+            return AssetHandle();
+        uint64_t hash = 1469598103934665603ull;
+        for ( const uint64_t half : { guid.Hi, guid.Lo } )
+        {
+            for ( int shift = 56; shift >= 0; shift -= 8 )
+            {
+                hash ^= ( half >> shift ) & 0xFFu;
+                hash *= 1099511628211ull;
+            }
+        }
+        return AssetHandle( hash != 0 ? hash : 1ull );
+    }
+
     std::optional<EnvelopeTocEntry> EnvelopeHeader::Find( EnvelopeSection tag ) const
     {
         for ( const EnvelopeTocEntry& entry : Toc )
