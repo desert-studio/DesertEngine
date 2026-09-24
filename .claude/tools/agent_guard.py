@@ -124,6 +124,47 @@ def staged_claude_files(cmd, cwd):
     return any(f.startswith(".claude/") for f in staged)
 
 
+REPORT_MAX_LINES = 20
+
+
+def last_report_text(data):
+    """The sub-agent's final message: newer hook inputs carry it, older ones only the transcript path."""
+    text = data.get("last_assistant_message")
+    if isinstance(text, str) and text.strip():
+        return text
+    for key in ("agent_transcript_path", "transcript_path"):
+        p = data.get(key)
+        if not p or not os.path.exists(p):
+            continue
+        last = ""
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    m = json.loads(line).get("message", {})
+                except ValueError:
+                    continue
+                if m.get("role") == "assistant":
+                    parts = [c.get("text", "") for c in m.get("content", []) if isinstance(c, dict) and c.get("type") == "text"]
+                    if any(t.strip() for t in parts):
+                        last = "\n".join(parts)
+        if last:
+            return last
+    return ""
+
+
+def subagent_stop(data):
+    """Owner 2026-09-24: every report line is paid again in every later turn of the lead. One retry only."""
+    if (data.get("agent_type") or "").lower() == "explore" or data.get("stop_hook_active"):
+        sys.exit(0)
+    lines = [l for l in last_report_text(data).splitlines() if l.strip()]
+    if len(lines) > REPORT_MAX_LINES:
+        log(data, data.get("agent_id") or "?", "block", f"report {len(lines)} lines")
+        emit({"decision": "block", "reason":
+              f"[agent_guard] Отчёт {len(lines)} непустых строк, предел {REPORT_MAX_LINES}. Подробности (таблицы, логи, "
+              f"списки файлов) запиши в файл в своей папке и перепиши отчёт: итог, цифры, путь к файлу, остаток."})
+    sys.exit(0)
+
+
 def self_check():
     """SessionStart: prove every rule still bites by replaying known-bad calls; a silent regression of this file
     (2026-09-24: a merge restored an old copy and the build limits vanished) must be loud at the next start."""
@@ -135,6 +176,7 @@ def self_check():
         "editor without cap": {"tool_name": "Bash", "tool_input": {"command": "cd Editor && ../build/Bin/Debug/Editor"}},
         "explore not on haiku": {"tool_name": "Agent", "tool_input": {"subagent_type": "Explore", "prompt": "x"}},
         "agent spawns a worker": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "x"}},
+        "clean the build": {"tool_name": "Bash", "tool_input": {"command": "make -f Desert.make clean"}},
         "code before map": {"tool_name": "Bash", "tool_input": {"command": "grep -n Foo Desert/X.cpp"}},
         "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
@@ -162,6 +204,9 @@ def main():
         data = json.load(sys.stdin)
     except ValueError:
         sys.exit(0)
+
+    if data.get("hook_event_name") == "SubagentStop":
+        subagent_stop(data)  # before the agent-id test: a SubagentStop input may not carry one
 
     # Verified 2026-09-24 on live calls: a sub-agent's input carries agent_id and agent_type.
     agent = data.get("agent_id")
@@ -204,6 +249,12 @@ def main():
         deny("[agent_guard] Помощник допустим, только если он СНИЖАЕТ расход: model: \"sonnet\" или \"haiku\" "
              "(механика, прогоны, правки по списку). На своей модели — делай сам; не влезает — коммит, пуш, отчёт.",
              data, agent)
+
+    # The build tree is shared state and costs a full rebuild (~10 min, a dozen calls of waiting) to recreate.
+    if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\bclean\b|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd):
+        save_state(state, path)
+        deny("[agent_guard] Дерево сборки не чистится: make clean / rm -rf build стоит полной пересборки. Устаревший "
+             "объект — пересобери один файл (touch источника) или удали один .o.", data, agent)
 
     # --- Economy rules measured on the ledger (owner 2026-09-24: «сделай так, чтобы агенты опять не НЕ исполнили») ---
     if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore" and \
