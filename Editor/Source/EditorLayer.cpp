@@ -1,6 +1,8 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
@@ -163,6 +165,43 @@
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        // MESHES COOKED BEFORE THEIR HEADER STATED A BOX (MeshBinaryHeader.hpp): the gather reads headers
+        // only and cannot learn their box, so the editor — which links the mesh reader — reads each body
+        // ONCE and hands the box to the registry, whose local cache keeps it from then on. Said in one line
+        // naming them, because a re-cook is what makes the read unnecessary.
+        void NoteBoundsOfMeshesCookedWithoutThem( const std::vector<std::string>& keys )
+        {
+            if ( keys.empty() )
+                return;
+            std::string named;
+            for ( const std::string& key : keys )
+            {
+                named += named.empty() ? key : ", " + key;
+                const std::filesystem::path file  = Common::AssetHandle::PathForStableKey( key );
+                const auto                  bytes = Common::Utils::FileSystem::ReadFileContent( file );
+                if ( !bytes )
+                {
+                    LOG_ERROR( "[ContentRegistry] '{}' could not be read for its box: {}", key, bytes.GetError() );
+                    continue;
+                }
+                const auto mesh = Assets::Serialization::ReadMeshAssetData( bytes.GetValue(), file.string() );
+                if ( !mesh )
+                {
+                    LOG_ERROR( "[ContentRegistry] '{}' could not be decoded for its box: {}", key,
+                               mesh.GetError() );
+                    continue;
+                }
+                Assets::ContentRegistry::NoteBounds( file,
+                                                     Assets::Serialization::MeshDataBounds( mesh.GetValue() ) );
+            }
+            LOG_WARN( "[ContentRegistry] {} mesh(es) state no box in their header, so their bodies were read once "
+                      "(the local cache keeps the boxes); re-cook them to drop the read: {}",
+                      keys.size(), named );
+        }
+    } // namespace
+
     // THE MENU BAR'S OWN MENUS, named once. Read by DrawMenuBar, which opens whichever one is held, and
     // by BuildPaletteCommands, which offers exactly these as commands. Two readers of one list, so the
     // palette cannot offer a menu the bar does not draw — the shape a hand-copied second list always ends
@@ -659,11 +698,22 @@ namespace Desert::Editor
         // A REFUSAL ENDS THE RUN, on the terms §1.4 sets: an editor that starts with a registry it
         // could not parse is an editor showing an empty Content Browser over a project full of files,
         // and "looks almost right" is the failure mode that costs the most to find.
-        const auto registry = Assets::ContentRegistry::Gather();
+        std::vector<std::string> unboxedMeshes;
+        const auto               registry = Assets::ContentRegistry::Gather( nullptr, &unboxedMeshes );
         if ( !registry )
             return Common::MakeFormattedError( "the cooked asset registry: {}", registry.GetError() );
         LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
                   Assets::ContentRegistry::Get().Count(), registry.GetValue() );
+        NoteBoundsOfMeshesCookedWithoutThem( unboxedMeshes );
+
+        // The committed registry file is gone (AF9): nothing reads it, and a developer tree may still hold
+        // the last copy, untracked. It is harmless — said once so nobody mistakes it for the live registry.
+        if ( const std::filesystem::path stale = Common::Constants::Path::CurrentProjectRoot().ProjectDir /
+                                                 Common::Constants::Path::COOKED_DIR_NAME / "AssetRegistry.dreg";
+             Common::Utils::FileSystem::Exists( stale ) )
+            LOG_WARN( "[ContentRegistry] '{}' is a stale file from before the registry was gathered at start; "
+                      "nothing reads it and it can be deleted",
+                      stale.string() );
 
         // Shaders must exist BEFORE the render systems below are constructed (their default materials
         // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the

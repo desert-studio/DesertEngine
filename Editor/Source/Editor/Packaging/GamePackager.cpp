@@ -58,6 +58,13 @@ namespace Desert::Editor
         // the only function that knows what the files are; now the list is built first and
         // `WriteChunkedPaks` decides which archive each entry belongs to. Nothing else about the
         // traversal changed.
+        // The pak key the cooked registry ships under — the one path the packager writes rather than collects.
+        std::string ShippedRegistryKey()
+        {
+            return ( fs::path( Common::Constants::Path::COOKED_DIR_NAME ) / "AssetRegistry.dreg" )
+                 .generic_string();
+        }
+
         bool CollectTree( const fs::path& from, const std::string& keyPrefix, bool skipRawMeshSources,
                           std::vector<std::pair<std::string, fs::path>>& files, CopyStats& stats,
                           std::string& error )
@@ -86,6 +93,11 @@ namespace Desert::Editor
                     error = "cannot relativize " + src.string() + ": " + ec.message();
                     return false;
                 }
+                // A registry left on the disk from before the registry built itself (AF9) is not packed:
+                // the one the pak carries is written from this process's gather below, under the same key,
+                // and a stale copy would collide with it or, worse, be the one the game read.
+                if ( keyPrefix + "/" + rel.generic_string() == ShippedRegistryKey() )
+                    continue;
                 fs::path packed = src;
                 if ( skipRawMeshSources && src.extension() == Assets::kTextureAssetExtension )
                 {
@@ -253,17 +265,31 @@ namespace Desert::Editor
     std::string GatherShippedRegistry()
     {
         std::vector<std::string> refused;
-        const auto               gathered = Assets::ContentRegistry::Gather( &refused );
+        std::vector<std::string> unboxed;
+        const auto               gathered = Assets::ContentRegistry::Gather( &refused, &unboxed );
         if ( !gathered )
             return "The asset registry could not be gathered: " + gathered.GetError();
-        if ( refused.empty() )
-            return {};
 
-        std::string text = std::to_string( refused.size() ) +
-                           " content file(s) on the disk this package is built from could not enter the "
-                           "asset registry, so the packaged game could not load them:";
-        for ( const std::string& refusal : refused )
-            text += "\n  " + refusal;
+        std::string text;
+        if ( !refused.empty() )
+        {
+            text = std::to_string( refused.size() ) +
+                   " content file(s) on the disk this package is built from could not enter the asset registry, "
+                   "so the packaged game could not load them:";
+            for ( const std::string& refusal : refused )
+                text += "\n  " + refusal;
+        }
+        // A mesh cooked before its header stated its box would ship a row without one, and the game's world
+        // partition would place it by its origin alone. The packager does not decode meshes (the standalone
+        // tool does not link the mesh reader), so it names them instead of shipping them boxless.
+        if ( !unboxed.empty() )
+        {
+            text += ( text.empty() ? "" : "\n" ) + std::to_string( unboxed.size() ) +
+                    " mesh(es) state no box in their header — re-cook them in the editor (Assets > Rebuild "
+                    "Cooked Assets) before packaging:";
+            for ( const std::string& key : unboxed )
+                text += "\n  " + key;
+        }
         return text;
     }
 
@@ -386,9 +412,7 @@ namespace Desert::Editor
 
             // THE COOKED REGISTRY IS WRITTEN HERE, at packaging, from the registry this process gathered: the
             // packaged game has no content roots to gather from, and nothing in git carries one (AF9a).
-            baseBlobs.emplace_back(
-                 ( fs::path( Common::Constants::Path::COOKED_DIR_NAME ) / "AssetRegistry.dreg" ).generic_string(),
-                 Assets::ContentRegistry::Get().Serialize() );
+            baseBlobs.emplace_back( ShippedRegistryKey(), Assets::ContentRegistry::Get().Serialize() );
             if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
                 return { false, error, "" };
 
@@ -673,9 +697,7 @@ namespace Desert::Editor
 
         // THE COOKED REGISTRY IS WRITTEN HERE, at packaging, from the registry this process gathered: the
         // packaged game has no content roots to gather from, and nothing in git carries one (AF9a).
-        baseBlobs.emplace_back(
-             ( fs::path( Common::Constants::Path::COOKED_DIR_NAME ) / "AssetRegistry.dreg" ).generic_string(),
-             Assets::ContentRegistry::Get().Serialize() );
+        baseBlobs.emplace_back( ShippedRegistryKey(), Assets::ContentRegistry::Get().Serialize() );
         if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
             return { false, error, "" };
 

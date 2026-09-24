@@ -1,5 +1,7 @@
 #include "MeshBinary.hpp"
 
+#include <Common/Content/MeshBinaryHeader.hpp>
+
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <rflcpp/rfl.hpp>
@@ -27,19 +29,9 @@ namespace Desert::Assets::Serialization
         // compiler reads every following record shifted, and a mesh made of shifted floats is a mesh
         // that draws — wrongly, silently, and only on the platform that did not write the file.
 
-        struct FileHeader
-        {
-            char     Magic[8];
-            uint32_t ByteOrder;
-            uint32_t Version;
-            uint64_t FileSize; // declared; compared against the bytes actually in hand
-            uint32_t SectionCount;
-            uint32_t Flags;
-            uint64_t SkeletonSignature;
-            uint32_t Reserved[6];
-        };
-        static_assert( sizeof( FileHeader ) == 64 );
-        static_assert( alignof( FileHeader ) == 8 );
+        // The header's layout is Common's (MeshBinaryHeader.hpp): the content scan reads the same 64 bytes
+        // without linking the engine, so there is one description for both readers.
+        using FileHeader = Common::Content::MeshBinaryFileHeader;
 
         struct SectionRow
         {
@@ -107,8 +99,7 @@ namespace Desert::Assets::Serialization
         static_assert( std::is_trivially_copyable_v<IndexData> );
         static_assert( std::is_trivially_copyable_v<glm::vec3> );
 
-        /// Reads back as 0x01020304 on a big-endian host, which is the whole point of writing it.
-        constexpr uint32_t kByteOrderTag = 0x04030201u;
+        constexpr uint32_t kByteOrderTag = Common::Content::kMeshBinaryByteOrderTag;
 
         // THE WRITER REFUSES TO EXIST ON A HOST IT COULD NOT READ ITS OWN FILE BACK ON. The tag above
         // lets the READER name a foreign byte order; these two make the BUILD name it, which is the
@@ -143,8 +134,8 @@ namespace Desert::Assets::Serialization
             return version == 1 ? kSectionCountV1 : kSectionCount;
         }
 
-        constexpr uint32_t kFlagIsSkinned            = 1u << 0;
-        constexpr uint32_t kFlagHasSkeletonSignature = 1u << 1;
+        constexpr uint32_t kFlagIsSkinned            = Common::Content::kMeshFlagIsSkinned;
+        constexpr uint32_t kFlagHasSkeletonSignature = Common::Content::kMeshFlagHasSkeletonSignature;
 
         /// The element size version 1 declares for each section, indexed by id. A reader that finds a
         /// different number in the file stops there: see the header's note on type width.
@@ -358,6 +349,8 @@ namespace Desert::Assets::Serialization
         header.Flags        = ( data.IsSkinned ? kFlagIsSkinned : 0u ) |
                        ( data.SkeletonSignature.has_value() ? kFlagHasSkeletonSignature : 0u );
         header.SkeletonSignature = data.SkeletonSignature.value_or( 0 );
+        // The box goes into the header so the content scan learns it from 64 bytes, without the body.
+        Common::Content::StateMeshBounds( header, MeshDataBounds( data ) );
 
         std::string out;
         out.reserve( static_cast<size_t>( at ) );

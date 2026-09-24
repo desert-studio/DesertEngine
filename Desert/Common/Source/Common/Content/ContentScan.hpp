@@ -2,6 +2,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
@@ -47,6 +48,9 @@ namespace Common::Content
         // claims the file and the header is malformed — never folded into "states none".
         std::optional<AssetHeader> Header;
         std::string                HeaderError;
+        // A cooked mesh's box as its 64-byte header states it (MeshBinaryHeader.hpp); std::nullopt for every
+        // other kind and for a mesh file whose header this host cannot read (the loader names that one).
+        std::optional<MeshHeaderBounds> MeshBounds;
     };
 
     // The file at `file`, of `kind`: its size and its header, read the way the registry cook reads it.
@@ -77,7 +81,8 @@ namespace Common::Content
     //
     // A cached row is reused when its file's size AND modification time are the ones the cache recorded
     // (UE invalidates by the package's timestamp the same way); it keeps the columns only a parse can learn
-    // (identity, dependency edges, bounds). Any other file is described afresh and starts without them.
+    // (identity, dependency edges). Any other file is described afresh and starts without them — except a
+    // mesh's box, which its header states (MeshBinaryHeader.hpp) and the header-only read therefore learns.
     struct RegistryCache
     {
         Utils::AssetRegistry                Registry;
@@ -90,6 +95,10 @@ namespace Common::Content
         std::size_t              FromCache = 0; // rows reused without opening the file
         std::size_t              Read      = 0; // rows whose header was read by this gather
         std::vector<std::string> Refused;       // one sentence per file that could not enter, naming it
+        // Keys of meshes read by this gather whose header states no box (cooked before the header carried
+        // one). Only a body read can learn their box; the gather does not decode meshes (Common does not
+        // link the mesh reader), so the caller that can — the editor — does it once and the cache keeps it.
+        std::vector<std::string> MeshesWithoutHeaderBounds;
     };
 
     // <projectDir>/Intermediate/AssetRegistry.cache — this machine's, never committed (.gitignore).

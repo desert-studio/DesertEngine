@@ -52,7 +52,11 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
+#include <Common/Content/ContentScan.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Constants.hpp>
+#include <Common/Project/ProjectFormat.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -578,35 +582,66 @@ TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
     }
 }
 
-// THE REGISTRY'S BOUNDS COLUMN AGREES WITH THE MESH IT DESCRIBES, for every mesh row the repository
-// commits. The column exists so the world partitioner can place a mesh WITHOUT reading it (WP15), which
-// means nothing downstream ever reads the file to notice a stale box: a re-cooked mesh with its old row is
-// a partition that is wrong in silence. So the relation is held here, bit for bit, against the file.
+namespace
+{
+    // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots resolve
+    // against it) and the project root set from Desert.deproj. Restored on scope exit.
+    class EditorProject
+    {
+    public:
+        explicit EditorProject( const std::filesystem::path& repoRoot )
+             : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
+               m_SavedCwd( std::filesystem::current_path() )
+        {
+            const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot / "Editor" );
+            std::filesystem::current_path( editorDir );
+            const auto project = Common::Project::ReadProjectFile( ReadFile( editorDir / "Desert.deproj" ) );
+            if ( !project )
+                return;
+            Common::Constants::Path::SetProjectRoot( editorDir, project.GetValue().AssetsRoot );
+            m_Opened = true;
+        }
+        ~EditorProject()
+        {
+            Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
+            std::error_code ec;
+            std::filesystem::current_path( m_SavedCwd, ec );
+        }
+        EditorProject( const EditorProject& )            = delete;
+        EditorProject& operator=( const EditorProject& ) = delete;
+        bool           Opened() const
+        {
+            return m_Opened;
+        }
+
+    private:
+        Common::Constants::Path::ProjectRootState m_SavedRoot;
+        std::filesystem::path                     m_SavedCwd;
+        bool                                      m_Opened = false;
+    };
+} // namespace
+
+// THE GATHERED REGISTRY'S BOUNDS COLUMN AGREES WITH THE MESH IT DESCRIBES, for every mesh the repository
+// tracks. The column exists so the world partitioner can place a mesh WITHOUT reading it (WP15), and the
+// gather learns it from the mesh's 64-byte header alone (MeshBinaryHeader.hpp) — so nothing downstream ever
+// reads the body to notice a header box that disagrees with it. The relation is held here, bit for bit.
 //
 // The cook states the box with Serialization::MeshDataBounds and the loaded asset unions the same stored
 // submesh boxes (Geometry::LocalBounds), so one function is the right side of the comparison.
-TEST( MeshBinaryFormat, EveryCommittedMeshRowStatesTheBoundsOfItsFile )
+TEST( MeshBinaryFormat, EveryGatheredMeshRowStatesTheBoundsOfItsFile )
 {
     const std::filesystem::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const auto registry =
-         Common::Utils::AssetRegistry::Parse( ReadFile( root / "Editor" / "Cooked" / "AssetRegistry.dreg" ) );
-    ASSERT_TRUE( registry ) << registry.GetError();
-
-    // Keys resolve against the editor's working directory, as they do in the engine.
-    struct WorkingDirectory
-    {
-        std::filesystem::path Saved = std::filesystem::current_path();
-        ~WorkingDirectory()
-        {
-            std::error_code ec;
-            std::filesystem::current_path( Saved, ec );
-        }
-    } const restore;
-    std::filesystem::current_path( std::filesystem::absolute( root / "Editor" ) );
+    const EditorProject project( root );
+    ASSERT_TRUE( project.Opened() );
+    const Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( {} );
+    ASSERT_TRUE( gathered.Refused.empty() ) << gathered.Refused.front();
+    EXPECT_TRUE( gathered.MeshesWithoutHeaderBounds.empty() )
+         << gathered.MeshesWithoutHeaderBounds.front()
+         << " states no box in its header; the tracked meshes are re-cooked by the commit that added it";
 
     std::size_t meshes = 0;
-    for ( const Common::Utils::AssetRegistryEntry& row : registry.GetValue().Entries() )
+    for ( const Common::Utils::AssetRegistryEntry& row : gathered.Registry.Entries() )
     {
         if ( row.Kind != "StaticMesh" && row.Kind != "SkinnedMesh" )
         {
@@ -623,19 +658,49 @@ TEST( MeshBinaryFormat, EveryCommittedMeshRowStatesTheBoundsOfItsFile )
 
         const std::optional<Common::Math::AABB> box = Ser::MeshDataBounds( read.GetValue() );
         ASSERT_TRUE( box.has_value() ) << row.Key << " has no submesh";
-        char text[256];
-        // NOLINTBEGIN(bugprone-unchecked-optional-access)
-        std::snprintf( text, sizeof( text ), "%.9g %.9g %.9g %.9g %.9g %.9g", box.value().Min.x,
-                       box.value().Min.y, // NOLINT(bugprone-unchecked-optional-access)
-                       box.value().Min.z, box.value().Max.x, box.value().Max.y,
-                       box.value().Max.z ); // NOLINT(bugprone-unchecked-optional-access)
-        // NOLINTEND(bugprone-unchecked-optional-access)
         EXPECT_TRUE( Common::Utils::SameBounds( row.Bounds, box ) )
              << row.Key << " states " << ( row.Bounds.has_value() ? "a different box" : "no box" )
-             << "; the file's is " << text << ". Re-cook the mesh in the editor (its registry row is "
-             << "rewritten with the file) and commit the row.";
+             << " in its header than its body holds. Re-cook the mesh.";
     }
-    EXPECT_GT( meshes, 0u ) << "the committed registry has no mesh row; this test compares nothing";
+    EXPECT_GT( meshes, 0u ) << "the gather found no mesh; this test compares nothing";
+}
+
+// THE HEADER STATES THE BOX THE BODY HOLDS, and says "no extent" and "states nothing" apart: an empty mesh
+// states an inverted box under the flag, a file written before the flag reads as unstated (never as a box
+// at the origin), and neither is the other.
+TEST( MeshBinaryFormat, TheHeaderStatesTheBodysBoxAndTellsNoExtentFromNoStatement )
+{
+    Ser::MeshAssetData data;
+    Ser::SubmeshData   first;
+    first.BoundingBox.Min = { -1.5f, 0.0f, 2.0f };
+    first.BoundingBox.Max = { 1.0f, 3.25f, 4.0f };
+    Ser::SubmeshData second;
+    second.BoundingBox.Min = { -0.5f, -2.0f, 3.0f };
+    second.BoundingBox.Max = { 7.0f, 1.0f, 3.5f };
+    data.Submeshes         = { first, second };
+
+    std::string bytes  = Ser::EncodeMeshBinary( data );
+    const auto  stated = Common::Content::ReadMeshHeaderBounds( bytes );
+    ASSERT_TRUE( stated.has_value() );
+    EXPECT_TRUE( stated->Stated );
+    EXPECT_TRUE( Common::Utils::SameBounds( stated->Bounds, Ser::MeshDataBounds( data ) ) );
+
+    const auto empty = Common::Content::ReadMeshHeaderBounds( Ser::EncodeMeshBinary( Ser::MeshAssetData{} ) );
+    ASSERT_TRUE( empty.has_value() );
+    EXPECT_TRUE( empty->Stated );
+    EXPECT_FALSE( empty->Bounds.has_value() );
+
+    // A file from before the flag: the bit clear and the 24 bytes zero, as the writer left them then.
+    Common::Content::MeshBinaryFileHeader header{};
+    std::memcpy( &header, bytes.data(), sizeof( header ) );
+    header.Flags &= ~Common::Content::kMeshFlagHasBounds;
+    std::memset( header.BoundsMin, 0, sizeof( header.BoundsMin ) );
+    std::memset( header.BoundsMax, 0, sizeof( header.BoundsMax ) );
+    std::memcpy( bytes.data(), &header, sizeof( header ) );
+    const auto old = Common::Content::ReadMeshHeaderBounds( bytes );
+    ASSERT_TRUE( old.has_value() );
+    EXPECT_FALSE( old->Stated );
+    EXPECT_FALSE( old->Bounds.has_value() );
 }
 
 TEST( MeshBinaryFormat, TheImporterWritesTheContainerAndNotJson )

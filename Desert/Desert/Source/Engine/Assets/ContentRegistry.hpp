@@ -208,8 +208,12 @@ namespace Desert::Assets
         // machine's cache (`RegistryCachePath`, outside git) sparing the headers of unchanged files. No cache
         // is the ordinary first start, not a warning. The cache is written back when the gather read anything.
         // `refused`, when given, receives the sentence of every file that could not enter (the packager
-        // refuses on them; the editor only reports them).
-        inline Common::ResultStr<std::size_t> Gather( std::vector<std::string>* refused = nullptr )
+        // refuses on them; the editor only reports them). `meshesWithoutHeaderBounds`, when given, receives
+        // the keys of meshes whose header states no box (cooked before it did): the engine-linking caller
+        // reads those bodies once and hands the boxes back through `NoteBounds`, and the cache keeps them.
+        inline Common::ResultStr<std::size_t>
+        Gather( std::vector<std::string>* refused                   = nullptr,
+                std::vector<std::string>* meshesWithoutHeaderBounds = nullptr )
         {
             Common::Content::RegistryCache cache;
             const std::filesystem::path    cachePath = Common::Content::RegistryCachePath();
@@ -231,6 +235,8 @@ namespace Desert::Assets
                 LOG_ERROR( "[ContentRegistry] a content file could not enter the registry: {}", refusal );
             if ( refused )
                 *refused = gathered.Refused;
+            if ( meshesWithoutHeaderBounds )
+                *meshesWithoutHeaderBounds = gathered.MeshesWithoutHeaderBounds;
             LOG_INFO( "[ContentRegistry] gathered {} row(s): {} from the local cache, {} header(s) read",
                       gathered.Registry.Count(), gathered.FromCache, gathered.Read );
 

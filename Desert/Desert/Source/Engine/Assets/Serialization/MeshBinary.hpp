@@ -63,6 +63,7 @@
 
 #include "Mesh.hpp"
 
+#include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -89,11 +90,9 @@ namespace Desert::Assets::Serialization
     /// cooked mesh storing them would store data nothing reads. A version-1 file IS a version-2 file with
     /// that section absent, so ReadMeshAssetData reads both and a v1 file comes back with no polygroups;
     /// there is no second reader, only a section count that depends on the version.
-    inline constexpr uint32_t kMeshBinaryVersion = 2;
+    using Common::Content::kMeshBinaryVersion; // the header layout lives in Common (MeshBinaryHeader.hpp)
 
-    /// "DESTMESH". Eight ASCII bytes, so the sequence on disk is the same whatever the host's word
-    /// order — a magic written as an integer would itself need a byte-order rule to be read.
-    inline constexpr char kMeshBinaryMagic[8] = { 'D', 'E', 'S', 'T', 'M', 'E', 'S', 'H' };
+    using Common::Content::kMeshBinaryMagic;
 
     /// Does @p bytes begin with the container magic? The one question that routes a file to the binary
     /// reader or to the JSON migration, and the only thing either of them agrees to answer about a

@@ -186,7 +186,14 @@ namespace Common::Content
 
     ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind )
     {
-        ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {} };
+        ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, std::nullopt };
+        if ( kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh )
+        {
+            // The mesh's box, from its 64-byte header and not its body — the reason the box is in the header.
+            const auto head = Utils::FileSystem::ReadFileContentPrefix( file, sizeof( MeshBinaryFileHeader ) );
+            if ( head )
+                described.MeshBounds = ReadMeshHeaderBounds( head.GetValue() );
+        }
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
         const AssetHeaderReadContext context{ {}, true };
         auto                         stated = ReadAssetHeaderIfStated( file, context );
@@ -236,7 +243,8 @@ namespace Common::Content
             return ec ? 0 : static_cast<std::int64_t>( stamp.time_since_epoch().count() );
         }
 
-        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 1";
+        // 2: mesh rows read since carry their header box; a version-1 cache is rebuilt once.
+        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 2";
     } // namespace
 
     std::map<std::string, ContentFile> ScanContentRoots()
@@ -273,6 +281,8 @@ namespace Common::Content
             std::sort( entry.Versions.begin(), entry.Versions.end(),
                        []( const SubsystemVersion& a, const SubsystemVersion& b ) { return a.Tag < b.Tag; } );
         }
+        if ( file.MeshBounds && file.MeshBounds->Stated )
+            entry.Bounds = file.MeshBounds->Bounds;
         return MakeSuccess( std::move( entry ) );
     }
 
@@ -295,16 +305,22 @@ namespace Common::Content
                      return;
                  }
 
-                 auto row = RegistryRowFor( key, DescribeContentFile( file, kind ) );
+                 const ContentFile described = DescribeContentFile( file, kind );
+                 auto              row       = RegistryRowFor( key, described );
                  if ( !row )
                  {
                      gathered.Refused.push_back( row.GetError() );
                      return;
                  }
                  if ( const auto inserted = gathered.Registry.Insert( row.GetValue() ); !inserted )
+                 {
                      gathered.Refused.push_back( inserted.GetError() );
-                 else
-                     ++gathered.Read;
+                     return;
+                 }
+                 ++gathered.Read;
+                 if ( ( kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh ) &&
+                      !( described.MeshBounds && described.MeshBounds->Stated ) )
+                     gathered.MeshesWithoutHeaderBounds.push_back( key );
              } );
         return gathered;
     }
