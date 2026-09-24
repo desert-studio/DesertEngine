@@ -8,8 +8,8 @@
 //      decode -> encode. The reference here is UE's two formulas TRANSCRIBED into this file with their
 //      own literals, not a call back into the code under test — an encoder checked against itself agrees
 //      with any constant.
-//   2. SAMPLING AGREES WITH ANALYTIC SURFACES. A plane is reproduced exactly (bilinear is exact on it),
-//      its normal exactly; a sine is reproduced within the bound bilinear interpolation and quantisation
+//   2. SAMPLING AGREES WITH ANALYTIC SURFACES. A plane is reproduced exactly (both triangles lie in it),
+//      its normal exactly; a sine is reproduced within the bound linear interpolation and quantisation
 //      together allow, and that bound is shown to be TIGHT enough to fail a wrong interpolation.
 //      Placement (origin, base, spacing) moves the answer; both tile edges are inclusive, off the tile is
 //      nullopt, and two tiles sharing an edge answer the seam identically.
@@ -181,25 +181,28 @@ TEST( LandscapeSampling, PlaneIsExactHeightAndNormal )
     }
 }
 
-TEST( LandscapeSampling, InteriorOfACellIsBilinearNotNearestOrTriangle )
+TEST( LandscapeSampling, InteriorOfACellIsJoltsTriangleNotBilinearOrTheOtherSplit )
 {
-    // One cell whose four corners are 0, 0, 0, 128 cm (a saddle-free twist). Bilinear gives 32 at the
-    // centre; either triangle split gives 0 or 64, nearest-sample gives one of the corners. This is the
-    // case the plane cannot tell apart, because every scheme is exact on a plane.
+    // One cell whose four corners are 0, 0, 0, 128 cm. Its centre lies on the (0,0)-(1,1) diagonal, the
+    // split Jolt's heightfield makes: 64 there. Bilinear gives 32, the other split 0, nearest-sample a
+    // corner. This is the case the plane cannot tell apart, because every scheme is exact on a plane.
     LandscapeFrame frame;
     frame.ZScale = 128.0f;
     auto tile    = MakeTile( 2u, 2u );
     tile.SetSample( 1u, 1u, static_cast<uint16_t>( kLandscapeMidSample + 128u ) );
     const auto h = SampleLandscapeHeight( tile, frame, 50.0f, 50.0f );
     ASSERT_TRUE( h.has_value() );
-    EXPECT_FLOAT_EQ( *h, 32.0f );
-    // The raised corner at (1, 1) weighs fx·fz, which is symmetric in the two fractions; a raised corner
-    // at (1, 0) weighs fx·(1 - fz), which is not — so this is the probe that sees X and Z swapped.
+    EXPECT_FLOAT_EQ( *h, 64.0f );
+    // A raised corner at (1, 0) belongs only to the lower triangle (fx > fz): at (0.25, 0.75) the point is
+    // in the upper one and reads 0, at (0.75, 0.25) it reads 128 * (fx - fz) = 64. Swapped fractions trade
+    // the two answers, so this is also the probe that sees X and Z swapped.
     auto skew = MakeTile( 2u, 2u );
     skew.SetSample( 1u, 0u, static_cast<uint16_t>( kLandscapeMidSample + 128u ) );
-    const auto q = SampleLandscapeHeight( skew, frame, 25.0f, 75.0f );
-    ASSERT_TRUE( q.has_value() );
-    EXPECT_FLOAT_EQ( *q, 128.0f * 0.25f * 0.25f ) << "the X and Z fractions must not be swapped or shared";
+    const auto upper = SampleLandscapeHeight( skew, frame, 25.0f, 75.0f );
+    const auto lower = SampleLandscapeHeight( skew, frame, 75.0f, 25.0f );
+    ASSERT_TRUE( upper.has_value() && lower.has_value() );
+    EXPECT_FLOAT_EQ( *upper, 0.0f ) << "the X and Z fractions must not be swapped, and the split is Jolt's";
+    EXPECT_FLOAT_EQ( *lower, 64.0f ) << "the X and Z fractions must not be swapped, and the split is Jolt's";
 }
 
 TEST( LandscapeSampling, SineIsWithinTheInterpolationAndQuantisationBound )

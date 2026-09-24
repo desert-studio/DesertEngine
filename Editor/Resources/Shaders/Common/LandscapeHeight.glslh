@@ -50,6 +50,36 @@ float LandscapeBilinear( float h00, float h10, float h01, float h11, float fx, f
     return LandscapeLerp( LandscapeLerp( h00, h10, fx ), LandscapeLerp( h01, h11, fx ), fz );
 }
 
+// THE landscape surface: two planar triangles per cell, split on the (0, 0)-(1, 1) diagonal — the split
+// Jolt's HeightFieldShape makes (HeightFieldShape.cpp, GetHeight / GetSurfaceNormal: fz >= fx is the
+// triangle (x, z), (x, z+1), (x+1, z+1), the rest is (x, z), (x+1, z+1), (x+1, z)), and Jolt's split is
+// fixed, so the drawn surface, every CPU height query and the ray follow it rather than the reverse. UE
+// cuts its landscape quads the same way for rendering, tracing and collision alike. Bilinear is NOT this
+// surface: inside a cell they differ by up to half the cell's twist |h00 - h10 - h01 + h11|, which on a
+// steep hill put objects centimetres above or below what they were drawn on.
+//
+// Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/LandscapeGrass.cpp:2629-2643 (the
+// barycentric height on the quad's two triangles; UE splits on the same (x,y)-(x+1,y+1) diagonal in its
+// render index buffer, LandscapeRender.cpp:3346-3357, and collision, LandscapeCollision.cpp:639-683).
+// Adapted: the plane is evaluated as nested LandscapeLerps instead of UE's three weighted terms, so every
+// edge of the cell is LandscapeLerp of its own two samples bit for bit, whatever the compiler fuses into
+// multiply-adds. A seam vertex is then the same bits from both tiles (the three-term form differed in the
+// last bit across a seam once the products were contracted differently in the two branches). Upper
+// triangle: from the left edge L = lerp(h00, h01, fz) to the diagonal D = lerp(h00, h11, fz), at fx / fz
+// of the way; the lower triangle is the same with x and z exchanged. On the diagonal both give D.
+bool LandscapeInUpperTriangle( float fx, float fz )
+{
+    return fz >= fx;
+}
+
+float LandscapeTriangle( float h00, float h10, float h01, float h11, float fx, float fz )
+{
+    if ( LandscapeInUpperTriangle( fx, fz ) )
+        return LandscapeLerp( LandscapeLerp( h00, h01, fz ), LandscapeLerp( h00, h11, fz ),
+                              fz > 0.0f ? fx / fz : 0.0f );
+    return LandscapeLerp( LandscapeLerp( h00, h10, fx ), LandscapeLerp( h00, h11, fx ), fz / fx );
+}
+
 // The cell a local sample coordinate g (0 <= g <= samples - 1) falls in: its floor, except that the last
 // sample belongs to the last cell (fraction 1) rather than to a cell that does not exist.
 float LandscapeCellOf( float g, float samples )

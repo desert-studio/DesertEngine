@@ -55,10 +55,15 @@ namespace Desert::Graphic::System
         // it, and every tile of one landscape has the same extent, so the band is the same on both sides
         // of a seam. Params.z is the tile's full height range (UE's +-256 local units), the scale the
         // fragment's height rules normalise by.
-        TerrainInstance LandscapeInstance( const TerrainDrawData& t, float tessLevel )
+        // Params.w, the near tessellation level, is the patch's own quads per side: one segment per cell,
+        // so a near patch's vertices are exactly the samples and its triangles are the cells' triangles,
+        // the surface Jolt collides with. A fixed level (it was 16) cut a 9-quad patch into 16 segments
+        // whose vertices fell between samples and whose triangles chorded across the cells' diagonals.
+        TerrainInstance LandscapeInstance( const TerrainDrawData& t )
         {
             const LandscapeTileDraw& l       = t.Landscape;
             const uint32_t           gridDim = LandscapePatchesPerSide( l.QuadsPerTile );
+            const float tessLevel = gridDim == 0u ? 1.0f : static_cast<float>( l.QuadsPerTile / gridDim );
 
             TerrainInstance instance;
             instance.Params         = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm,
@@ -163,10 +168,6 @@ namespace Desert::Graphic::System
         if ( ( camera == nullptr ) || m_Queue.empty() )
             return;
 
-        // Max (near) tessellation level — the TCS scales each patch edge from this down to ~2 by
-        // view-space distance (Stage 4 LOD).
-        constexpr float kTessLevel = 16.0f;
-
         // Only the program this frame's render path shades with gets its rows; the shadow caster always
         // does (it has no param rows, only the instances).
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
@@ -237,7 +238,7 @@ namespace Desert::Graphic::System
             for ( const auto& [name, value] : t.Overrides.Params )
                 surface->SetParamRaw( name, value );
 
-            const TerrainInstance instance = LandscapeInstance( t, kTessLevel );
+            const TerrainInstance instance = LandscapeInstance( t );
             const auto            gridDim  = static_cast<uint32_t>( instance.Params.y );
 
             FrameDraw draw;
