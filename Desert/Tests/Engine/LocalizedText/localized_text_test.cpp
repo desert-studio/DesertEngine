@@ -18,6 +18,7 @@
 
 #include <map>
 #include <string>
+#include <string_view>
 
 using namespace Desert::Localization;
 
@@ -351,7 +352,7 @@ TEST( LocalizedText, EveryWayATableCanBeWrongIsRefusedByName )
 
     for ( const Case& c : cases )
     {
-        const std::string json = std::string( c.json ).rfind( "{\"Entries\"", 0 ) == 0 ? Headed( c.json ) : c.json;
+        const std::string json = std::string_view( c.json ).starts_with( "{\"Entries\"" ) ? Headed( c.json ) : c.json;
         const auto        parsed = ParseStringTable( json );
         ASSERT_FALSE( parsed ) << "accepted: " << c.json;
         if ( *c.mustMention != '\0' )

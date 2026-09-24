@@ -400,7 +400,8 @@ namespace
         }
         const std::string staleBytes = ReadRaw( stale );
 
-        std::string report, errors;
+        std::string report;
+        std::string errors;
         EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 1 ) << "the v7 file was not a failure";
         EXPECT_NE( errors.find( stale.filename().string() ), std::string::npos ) << errors;
         EXPECT_EQ( ReadRaw( stale ), staleBytes ) << "a refused file was rewritten";

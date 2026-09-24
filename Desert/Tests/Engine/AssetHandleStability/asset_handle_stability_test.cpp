@@ -1346,8 +1346,7 @@ namespace
         const auto row = Common::Content::RegistryRowFor( file.filename().string(), scanned );
         ASSERT_TRUE( row ) << row.GetError();
         EXPECT_EQ( row.GetValue().Kind, Common::Content::KindName( kind ) );
-        ASSERT_TRUE( row.GetValue().Guid.has_value() );
-        EXPECT_EQ( *row.GetValue().Guid, header.GetValue().Guid );
+        EXPECT_EQ( row.GetValue().Guid, std::make_optional( header.GetValue().Guid ) );
         EXPECT_EQ( row.GetValue().Identity, byGuid );
     }
 } // namespace

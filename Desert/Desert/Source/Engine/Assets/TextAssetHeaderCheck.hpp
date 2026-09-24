@@ -57,12 +57,15 @@ namespace Desert::Assets
             return Common::MakeFormattedError<bool>(
                  "format version {} was written by a different build; this one reads version {}", stated,
                  current );
+        if ( !header.has_value() )
+            return Common::MakeFormattedError<bool>( "the file states no header; this build reads version {}",
+                                                     current );
         const Common::Content::AssetHeaderReadContext context{ subsystems };
-        const auto read = Common::Content::TextHeaderToAssetHeader( *header, context );
+        const auto read = Common::Content::TextHeaderToAssetHeader( header.value(), context );
         if ( !read )
             return Common::MakeFormattedError<bool>( "{}", read.GetError() );
         if ( read.GetValue().Kind != kind )
-            return Common::MakeFormattedError<bool>( "the header says kind '{}', not '{}'", header->Kind,
+            return Common::MakeFormattedError<bool>( "the header says kind '{}', not '{}'", header.value().Kind,
                                                      Common::Content::KindName( kind ) );
         return BOOLSUCCESS;
     }

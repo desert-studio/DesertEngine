@@ -288,10 +288,14 @@ namespace
         if ( fields.get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
             return Common::MakeSuccess( std::optional<std::string>{} );
         const auto stated  = fields.get( row.VersionMember );
-        const auto version = stated.has_value()
-                                  ? stated.value().to_int()
-                                  : ( row.AbsentIsFrom ? rfl::Result<int>( row.FromVersion )
-                                                       : rfl::Result<int>( rfl::Error( "absent" ) ) );
+        const auto version = [&]() -> rfl::Result<int>
+        {
+            if ( stated.has_value() )
+                return stated.value().to_int();
+            if ( row.AbsentIsFrom )
+                return row.FromVersion;
+            return rfl::Result<int>( rfl::Error( "absent" ) );
+        }();
         if ( !version || version.value() != row.FromVersion )
             return Common::MakeError<std::optional<std::string>>(
                  std::string( Common::Content::KindName( row.Kind ) ) + " format version " +

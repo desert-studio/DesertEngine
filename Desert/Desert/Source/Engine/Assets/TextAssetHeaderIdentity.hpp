@@ -27,9 +27,11 @@ namespace Desert::Assets
                   Common::Utils::VFS::Exists( filepath ) ? Common::Utils::VFS::ReadFile( filepath ) : std::nullopt;
              packed.has_value() )
             text = packed.value();
-        else if ( auto read = Common::Utils::FileSystem::ReadFileContentIfExists( filepath );
-                  read && read.GetValue().has_value() )
-            text = *read.GetValue();
+        else if ( const auto read = Common::Utils::FileSystem::ReadFileContentIfExists( filepath ); read )
+        {
+            if ( const auto& content = read.GetValue(); content.has_value() )
+                text = content.value();
+        }
         std::istringstream in( text );
         const auto         object = Common::Content::ReadTextHeaderObject( in );
         if ( !object )
