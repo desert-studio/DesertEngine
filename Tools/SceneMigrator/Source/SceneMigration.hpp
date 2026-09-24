@@ -813,7 +813,7 @@ namespace Desert::Migration
     struct CloudMaterialFile
     {
         std::string RelativePath; // e.g. "Materials/M_Clouds_Protocol_Clouds.demat", relative to assets root
-        std::string Json;         // the full MaterialData serialization, ready to write verbatim
+        std::string Json;         // the MATL 2 text (MaterialDataV2); WriteCloudMaterials raises it to 3
     };
 
     // What MigrateCloudMaterialV11ToV12 did, returned rather than logged, like every report above.
@@ -882,7 +882,7 @@ namespace Desert::Migration
     // `LayoutPattern` and `LayoutMask`, both naming the same `.dclayout`, which is exactly the sky the
     // single slot rendered (the container carries both tables and the bake read both from it).
     //
-    // PURE - a MaterialData in, the same struct raised, no filesystem and no global state.
+    // PURE - a MATL 2 material (MaterialDataV2) in, the same struct raised, no filesystem and no global state.
     //
     // WHY IT IS CONTENT-DETECTED AND NOT VERSION-GATED, unlike every step above. A `.demat` carries no
     // version field: it is a bag of names, and a name the shader does not declare is already dropped
@@ -892,7 +892,7 @@ namespace Desert::Migration
     //
     // SHELF LIFE: this raises materials authored before O-4 and nothing else. It is deleted once no
     // `.demat` naming `CloudLayout` remains anywhere it could be run.
-    CloudMaterialLayoutReport MigrateCloudMaterialLayoutInputs( Assets::MaterialData& material );
+    CloudMaterialLayoutReport MigrateCloudMaterialLayoutInputs( MaterialDataV2& material );
 
     // What MigrateCloudMaterialAlbedoToColour did to one `.demat`.
     struct CloudMaterialAlbedoReport
@@ -914,7 +914,7 @@ namespace Desert::Migration
     // convention for a scalar — so `ScatteringAlbedo: [0.98, 0, 0, 0]`, read as a colour, is a cloud whose
     // medium scatters red and absorbs green and blue entirely. Not a subtle drift: a RED sky.
     //
-    // PURE — a MaterialData in, the same struct raised, no filesystem and no global state.
+    // PURE — a MATL 2 material (MaterialDataV2) in, the same struct raised, no filesystem and no global state.
     //
     // CONTENT-DETECTED AND IDEMPOTENT BY SHAPE, not by a version field, for the reason
     // MigrateCloudMaterialLayoutInputs gives: a `.demat` has no version. The trigger is
@@ -930,7 +930,7 @@ namespace Desert::Migration
     // letting the migrator find it once and say so.
     //
     // SHELF LIFE: this raises materials authored before the albedo became a colour, and nothing else.
-    CloudMaterialAlbedoReport MigrateCloudMaterialAlbedoToColour( Assets::MaterialData& material );
+    CloudMaterialAlbedoReport MigrateCloudMaterialAlbedoToColour( MaterialDataV2& material );
 
     // THE TEN KEYS a scene no longer states, in the order they are reported. Stated ONCE, here, because
     // three things have to agree about the set — this migration, the census that keeps them out of

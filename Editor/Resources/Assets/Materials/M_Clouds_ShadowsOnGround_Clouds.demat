@@ -3,25 +3,28 @@
         "Kind": "Material",
         "Guid": "411bbc8457ead6eab594dcb66a246a19",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["a210ced5741f721e9e8fb6a007fd6b76"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
         {
             "Name": "Coverage",
-            "Value": [0.35, 0.0, 0.0, 0.0]
+            "Value": [0.3499999940395355, 0.0, 0.0, 0.0]
         },
         {
             "Name": "WeatherTileSize",
             "Value": [1200000.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 14207433254880240939
+            "Guid": "a210ced5741f721e9e8fb6a007fd6b76",
+            "Path": "assets:Clouds/Types/Cumulus_Congestus.decloudtype"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

@@ -1,9 +1,9 @@
 // EVERY ASSET REFERENCE A SHIPPED `.demat` MAKES MUST NAME A FILE THIS REPOSITORY CONTAINS.
 //
-// A material names its assets by NUMBER and by nothing else: `{"Name":"u_AlbedoTexture",
-// "TextureHandle":4588246833979984450}`. There is no path field to fall back on and no filename anywhere
-// in the record, so a reference that stops resolving produces a surface that is merely untextured. Nobody
-// gets an error naming a file, because no file is named.
+// A material names its assets by header GUID (MATL 3: `{"Name":"u_AlbedoTexture","Guid":"...","Path":
+// "assets:Textures/T_Checker.detex"}`), and the runtime reaches the asset by HandleForGuid of that GUID. The
+// path is a locator only, so a reference whose GUID stops resolving produces a surface that is merely
+// untextured - nobody gets an error naming a file unless this census names it.
 //
 // WHAT THE NUMBER IS. Since AF7 (SCNE 28), for a mesh, a material, a texture, a cloud type and a cloud
 // layout: `Common::Content::HandleForGuid( <the GUID the file's header states> )` — the identity is minted
@@ -133,8 +133,8 @@ namespace
         uint64_t    Handle = 0;
     };
 
-    // Every non-zero reference every `.demat` under `materialsRoot` makes. A zero handle is an authored
-    // "no asset" and is not a reference.
+    // Every reference every `.demat` under `materialsRoot` makes, as the handle its GUID folds to. An empty
+    // GUID is an authored "no asset" and is not a reference.
     std::vector<AssetReference> ReferencesUnder( const fs::path& materialsRoot, std::string* parseError )
     {
         std::vector<AssetReference> out;
@@ -151,13 +151,18 @@ namespace
                 continue;
             }
 
+            // Both GUID lists (samplers and cloud assets). ShaderRefs name shaders by path, which live outside
+            // the content root this census derives, so they are not its question.
             const std::string name = fs::relative( entry.path(), materialsRoot ).generic_string();
-            for ( const auto& texture : parsed.value().Textures )
-            {
-                if ( texture.TextureHandle == 0 )
-                    continue;
-                out.push_back( { name, texture.Name, texture.TextureHandle } );
-            }
+            for ( const auto* list : { &parsed.value().Textures, &parsed.value().CloudAssets } )
+                for ( const auto& ref : *list )
+                {
+                    if ( ref.Guid.empty() )
+                        continue;
+                    out.push_back( { name, ref.Name,
+                                     static_cast<uint64_t>(
+                                          MaterialData::HandleOf( MaterialData::GuidFromText( ref.Guid ) ) ) } );
+                }
         }
         return out;
     }
@@ -335,18 +340,22 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
     const auto good = HandleOfContentFile( content / "Textures" / "T_Checker.detex" );
     ASSERT_NE( derived.find( good ), derived.end() ) << "T_Checker.detex is missing from the checkout";
 
-    uint64_t bad = good ^ 0x5555555555555555ull;
-    while ( derived.find( bad ) != derived.end() )
-        ++bad; // vanishingly unlikely, but a collision would make this test lie
+    const auto goodKey = Desert::Assets::ReadTextureAssetKey( content / "Textures" / "T_Checker.detex" );
+    ASSERT_TRUE( goodKey.IsSuccess() ) << goodKey.GetError();
+    Common::Content::AssetGuid badGuid = goodKey.GetValue().Guid;
+    badGuid.Lo ^= 0x5555555555555555ull; // a GUID no file states
+    const uint64_t bad = static_cast<uint64_t>( Common::Content::HandleForGuid( badGuid ) );
+    ASSERT_EQ( derived.find( bad ), derived.end() ) << "the flipped GUID names a shipped file";
 
     {
         std::ofstream out( scratch / "M_Dangling.demat" );
         ASSERT_TRUE( out.is_open() );
         // No `Header`, on purpose: `ReferencesUnder` reads through `rfl::json::read<MaterialData>` and
-        // `Header` is optional, so this fixture stays the minimal shape the census actually needs — a
-        // `Textures` array — rather than a fabricated MATL 2 document nothing here reads.
-        out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","TextureHandle":)" << good
-            << R"(},{"Name":"u_NormalTexture","TextureHandle":)" << bad << R"(}]})";
+        // `Header` is optional, so this fixture stays the minimal shape the census actually needs.
+        out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","Guid":")"
+            << Common::Content::AssetGuidToText( goodKey.GetValue().Guid )
+            << R"(","Path":""},{"Name":"u_NormalTexture","Guid":")" << Common::Content::AssetGuidToText( badGuid )
+            << R"(","Path":""}],"CloudAssets":[],"ShaderRefs":[]})";
     }
 
     std::string parseError;

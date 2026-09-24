@@ -25,6 +25,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/CanonicalText.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -2766,7 +2767,9 @@ namespace Desert::Migration
 
             ++cloudEntityIndex;
 
-            Assets::MaterialData material;
+            // MATL 2, the shape this step was written against: the material pass raises it to 3 when the file
+            // is written (WriteCloudMaterials), where the content root that translates its numbers is known.
+            MaterialDataV2 material;
             material.ShaderName = "CloudRaymarch"; // = Graphic::kCloudMaterialShaderName; the migration
                                                    // suite pins the two spellings together
 
@@ -2904,7 +2907,7 @@ namespace Desert::Migration
             // suite pin the output and the repository diff show only real change.
             material.Header = ::Common::Content::MakeTextHeader( ::Common::Content::ContentKind::Material,
                                                                  MigrationGuidForPath( "cloudmat:" + relPath ),
-                                                                 ::Desert::Assets::MaterialTextSubsystems() );
+                                                                 MaterialTextSubsystemsV2() );
 
             kept["Material"] = rfl::Generic( relPath );
 
@@ -2921,14 +2924,14 @@ namespace Desert::Migration
             // tool twice.
             MigrateCloudMaterialAlbedoToColour( material );
 
-            // The one .demat writer (MaterialFormat.hpp), so the file opens with its text header like every
-            // other material. Its GUID is the migration's, keyed on the path under the assets root - the same
-            // derivation step 26 gives a headerless file - so re-running the tool writes the same bytes.
+            // Canonical MATL 2 text, header first like every other material. Its GUID is the migration's, keyed on
+            // the path under the assets root - the same derivation step 26 gives a headerless file - so re-running
+            // the tool writes the same bytes.
             material.Header = Assets::StampTextHeader(
                  Common::Content::TextAssetHeaderSerialized{
                       .Guid = Common::Content::AssetGuidToText( MigrationGuidForPath( relPath ) ) },
-                 Common::Content::ContentKind::Material, Assets::MaterialTextSubsystems() );
-            auto text = Assets::WriteMaterialJson( material );
+                 Common::Content::ContentKind::Material, MaterialTextSubsystemsV2() );
+            auto text = Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( material ) );
             if ( !text )
             {
                 report.Rejected += 1;
@@ -2946,7 +2949,7 @@ namespace Desert::Migration
         return report;
     }
 
-    CloudMaterialLayoutReport MigrateCloudMaterialLayoutInputs( Assets::MaterialData& material )
+    CloudMaterialLayoutReport MigrateCloudMaterialLayoutInputs( MaterialDataV2& material )
     {
         CloudMaterialLayoutReport report;
 
@@ -2990,7 +2993,7 @@ namespace Desert::Migration
         return report;
     }
 
-    CloudMaterialAlbedoReport MigrateCloudMaterialAlbedoToColour( Assets::MaterialData& material )
+    CloudMaterialAlbedoReport MigrateCloudMaterialAlbedoToColour( MaterialDataV2& material )
     {
         CloudMaterialAlbedoReport report;
 

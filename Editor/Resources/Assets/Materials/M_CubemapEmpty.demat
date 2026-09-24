@@ -3,11 +3,13 @@
         "Kind": "Material",
         "Guid": "a905758b34fc48a57331fdd92a087920",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
         "Dependencies": []
     },
     "ShaderName": "Skybox",
     "Params": [],
-    "Textures": []
+    "Textures": [],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

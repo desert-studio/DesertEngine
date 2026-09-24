@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "0d7f234fc14e1f8ef95528082a290ebd",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["e6f14c7dc0603759cc564e8e5d57ec27"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
@@ -18,10 +18,13 @@
             "Value": [1200000.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 9213269412652257784
+            "Guid": "e6f14c7dc0603759cc564e8e5d57ec27",
+            "Path": "assets:Clouds/Types/Lenticular.decloudtype"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

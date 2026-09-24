@@ -3,16 +3,19 @@
         "Kind": "Material",
         "Guid": "a01d82f279125104155bb44907dd93a5",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["e0ee3c11f6a10cf2edd3474d72613488"]
     },
     "ShaderName": "Skybox",
     "Params": [],
     "Textures": [
         {
             "Name": "samplerCubeMap",
-            "TextureHandle": 16207958156802854130
+            "Guid": "e0ee3c11f6a10cf2edd3474d72613488",
+            "Path": "assets:Textures/HDR/PreviewCheck.detex"
         }
-    ]
+    ],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

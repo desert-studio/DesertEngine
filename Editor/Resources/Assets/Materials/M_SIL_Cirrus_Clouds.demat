@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "877910cdce38586fe8c854b44c0abba8",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["7d575e2bd31aa9d8cf62bc245172d603"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
@@ -18,10 +18,13 @@
             "Value": [1200000.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 16110842743696886251
+            "Guid": "7d575e2bd31aa9d8cf62bc245172d603",
+            "Path": "assets:Clouds/Types/Cirrus.decloudtype"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

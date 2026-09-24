@@ -175,6 +175,26 @@ namespace
 // THE STAMP. Whatever else happened, a tree that has been through this function is one the engine's gate
 // accepts — which since the migrations left the runtime is the difference between a file that opens and a
 // file that does not.
+
+namespace
+{
+    // The scene step produces MATL 2 (the frozen v2 shape); its two queries, by name.
+    uint64_t SlotNumber( const Desert::Migration::MaterialDataV2& material, std::string_view name )
+    {
+        for ( const auto& t : material.Textures )
+            if ( t.Name == name )
+                return t.TextureHandle;
+        return 0;
+    }
+    float ParamX( const Desert::Migration::MaterialDataV2& material, std::string_view name )
+    {
+        for ( const auto& p : material.Params )
+            if ( p.Name == name )
+                return p.Value.x;
+        return 0.0f;
+    }
+} // namespace
+
 TEST( SceneMigratorEndToEnd, AV1SceneComesOutStampedAtBothHeads )
 {
     SceneSerialized scene  = SceneAtV1();
@@ -235,9 +255,10 @@ TEST( SceneMigratorEndToEnd, TheScalarCloudTypeBecomesAPathInTheFirstSlotOfTheSe
     // statement of the library's spelling and it was wrong the first time it was written. What is NOT
     // tautological here is the index — which of the four presets the scalar chose — and that is the part
     // this test exists for.
-    const auto material = rfl::json::read<Desert::Assets::MaterialData>( report.CloudMaterial.Materials[0].Json );
+    const auto material =
+         rfl::json::read<Desert::Migration::MaterialDataV2>( report.CloudMaterial.Materials[0].Json );
     ASSERT_TRUE( material );
-    EXPECT_EQ( material.value().GetTexture( "CloudType1" ),
+    EXPECT_EQ( SlotNumber( material.value(), "CloudType1" ),
                static_cast<uint64_t>( Common::AssetHandle::FromKey(
                     "assets:" +
                     Desert::Assets::CloudTypeAssetRelativePath( Desert::Assets::kCloudTypeCumulusCongestus ) ) ) );
@@ -245,9 +266,9 @@ TEST( SceneMigratorEndToEnd, TheScalarCloudTypeBecomesAPathInTheFirstSlotOfTheSe
     // The other three slots are ABSENT — from the payload and from the material alike, which is how both
     // formats spell "the empty handle".
     EXPECT_FALSE( HasKey( clouds, "CloudType2" ) );
-    EXPECT_EQ( material.value().GetTexture( "CloudType2" ), 0u );
-    EXPECT_EQ( material.value().GetTexture( "CloudType3" ), 0u );
-    EXPECT_EQ( material.value().GetTexture( "CloudType4" ), 0u );
+    EXPECT_EQ( SlotNumber( material.value(), "CloudType2" ), 0u );
+    EXPECT_EQ( SlotNumber( material.value(), "CloudType3" ), 0u );
+    EXPECT_EQ( SlotNumber( material.value(), "CloudType4" ), 0u );
 }
 
 // The keys with nowhere to go are gone, and the ones that still mean something are untouched.
@@ -269,9 +290,9 @@ TEST( SceneMigratorEndToEnd, TheRetiredCloudKeysAreGoneAndTheSurvivingOnesAreNot
     ASSERT_EQ( report.CloudMaterial.Materials.size(), 1u );
     {
         const auto material =
-             rfl::json::read<Desert::Assets::MaterialData>( report.CloudMaterial.Materials[0].Json );
+             rfl::json::read<Desert::Migration::MaterialDataV2>( report.CloudMaterial.Materials[0].Json );
         ASSERT_TRUE( material );
-        EXPECT_DOUBLE_EQ( material.value().GetFloat( "Coverage" ), 0.5 );
+        EXPECT_DOUBLE_EQ( ParamX( material.value(), "Coverage" ), 0.5 );
     }
 }
 

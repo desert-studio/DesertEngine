@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "a507de677ab8496c6c8ff4347bdb67e1",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
         "Dependencies": []
     },
@@ -56,31 +56,40 @@
     "Textures": [
         {
             "Name": "u_AlbedoTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_NormalTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_OpacityTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_MetallicTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_RoughnessTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_AOTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_EmissiveTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         }
-    ]
+    ],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

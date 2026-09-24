@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "8c72c9c7c64d1367398b8af70ba59284",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["c6ff26d3abf50030251f7dad63b62142"]
     },
     "Params": [
         {
@@ -56,31 +56,40 @@
     "Textures": [
         {
             "Name": "u_AlbedoTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_NormalTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_OpacityTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_MetallicTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_RoughnessTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_AOTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_EmissiveTexture",
-            "TextureHandle": 14339222429135863856
+            "Guid": "c6ff26d3abf50030251f7dad63b62142",
+            "Path": "assets:Meshes/shaded.detex"
         }
-    ]
+    ],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

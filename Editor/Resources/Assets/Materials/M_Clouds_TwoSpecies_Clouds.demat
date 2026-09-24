@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "78427e437fd0857519523929bbc6ae28",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["a76650ee6545b96c752111ed9f32308b", "a210ced5741f721e9e8fb6a007fd6b76"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
@@ -18,14 +18,18 @@
             "Value": [1200000.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 6853231821712990642
+            "Guid": "a76650ee6545b96c752111ed9f32308b",
+            "Path": "assets:Clouds/Types/Stratocumulus.decloudtype"
         },
         {
             "Name": "CloudType2",
-            "TextureHandle": 14207433254880240939
+            "Guid": "a210ced5741f721e9e8fb6a007fd6b76",
+            "Path": "assets:Clouds/Types/Cumulus_Congestus.decloudtype"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

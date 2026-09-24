@@ -294,9 +294,27 @@ namespace
     // Shared by scenes and prefabs since И11 — a prefab can carry a VolumetricCloud entity like any other,
     // and the collision guard below has to see BOTH file classes through ONE `claimed` map, or two files
     // of different classes minting the same material name would overwrite each other unseen.
+    // MATL 2 text -> the MATL 3 canonical text: the frozen v2 shape read, its numbers translated through
+    // `refs` (RaiseMaterialToV3), the header raised and its Dependencies stated by the one .demat writer.
+    Common::ResultStr<std::string> RaiseMaterialV2TextToV3( const std::filesystem::path&                path,
+                                                            const std::string&                          text,
+                                                            const Desert::Migration::LegacyAssetRefMap& refs )
+    {
+        const auto parsed = rfl::json::read<Desert::Migration::MaterialDataV2>( text );
+        if ( !parsed )
+            return Common::MakeError<std::string>( "not a readable MATL 2 material: " +
+                                                   std::string( parsed.error().what() ) );
+        const auto raised = Desert::Migration::RaiseMaterialToV3( path.generic_string(), parsed.value(), refs );
+        if ( !raised )
+            return Common::MakeError<std::string>( raised.GetError() );
+        return Desert::Assets::WriteMaterialJson( raised.GetValue() );
+    }
+
     bool WriteCloudMaterials( const std::vector<Desert::Migration::CloudMaterialFile>& produced,
-                              const std::filesystem::path& assetsRoot, const std::filesystem::path& source,
-                              std::map<std::string, std::string>& claimed, std::ostream& out, std::ostream& err )
+                              const std::filesystem::path&                             assetsRoot,
+                              const Desert::Migration::LegacyAssetRefMap&              refs,
+                              const std::filesystem::path& source, std::map<std::string, std::string>& claimed,
+                              std::ostream& out, std::ostream& err )
     {
         for ( const auto& mat : produced )
         {
@@ -325,9 +343,19 @@ namespace
                 return false;
             }
 
+            // Born MATL 2 by the pure scene step, raised here where the content root is known, so ONE run
+            // leaves a file this build reads.
+            const auto raised = RaiseMaterialV2TextToV3( matPath, mat.Json, refs );
+            if ( !raised )
+            {
+                err << "FAIL   " << source.string() << " — its cloud material " << matPath.string()
+                    << " cannot be raised to MATL 3: " << raised.GetError() << "; neither file is modified\n";
+                return false;
+            }
+
             std::error_code ec;
             std::filesystem::create_directories( matPath.parent_path(), ec );
-            if ( !WriteText( matPath, mat.Json, err ) )
+            if ( !WriteText( matPath, raised.GetValue(), err ) )
             {
                 err << "FAIL   " << matPath.string() << " — the cloud material could not be written; "
                     << source.string() << " is left at its old version\n";
@@ -924,6 +952,23 @@ namespace Desert::Migration
                 }
             return &legacyIds.emplace( root, std::move( loaded.GetValue() ) ).first->second;
         };
+        // THE PATH-DERIVED ASSET NUMBERS MATL 2 named slots by, per assets root, rebuilt from the files on disk
+        // (LoadLegacyAssetRefs) once per run: the material pass and the cloud materials the scene and prefab
+        // passes write both translate through it.
+        std::map<std::filesystem::path, Desert::Migration::LegacyAssetRefMap> legacyAssetRefs;
+        const auto                                                            LegacyAssetRefsFor =
+             [&]( const std::filesystem::path& root ) -> const Desert::Migration::LegacyAssetRefMap*
+        {
+            if ( const auto at = legacyAssetRefs.find( root ); at != legacyAssetRefs.end() )
+                return &at->second;
+            auto loaded = Desert::Migration::LoadLegacyAssetRefs( root );
+            if ( !loaded )
+            {
+                err << "FAIL   " << root.string() << " — " << loaded.GetError() << "\n";
+                return nullptr;
+            }
+            return &legacyAssetRefs.emplace( root, std::move( loaded.GetValue() ) ).first->second;
+        };
         // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
         // second run changes nothing. A mesh under <project>/Cooked/Meshes translates its material numbers
         // through the register of <project>/Resources/Assets; one under an assets root's Meshes/ through
@@ -1144,8 +1189,14 @@ namespace Desert::Migration
                 continue;
             }
 
-            if ( !WriteCloudMaterials( report.CloudMaterial.Materials, assetsRoot, path, writtenMaterials, out,
-                                       err ) )
+            const auto* assetRefs = LegacyAssetRefsFor( assetsRoot );
+            if ( assetRefs == nullptr )
+            {
+                ++failed; // LegacyAssetRefsFor named the file it could not read
+                continue;
+            }
+            if ( !WriteCloudMaterials( report.CloudMaterial.Materials, assetsRoot, *assetRefs, path,
+                                       writtenMaterials, out, err ) )
             {
                 ++failed;
                 continue;
@@ -1207,6 +1258,27 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
+            // A MATL 3 file has nothing left to raise: every step below is for an older shape. Only its layout
+            // is checked, so a second run changes nothing.
+            if ( stated.GetValue().Version >= Desert::Assets::kMaterialSchemaVersion )
+            {
+                if ( stated.GetValue().Version > Desert::Assets::kMaterialSchemaVersion )
+                {
+                    err << "FAIL   " << path.string() << " — states MATL v" << stated.GetValue().Version
+                        << ", newer than this tool's v" << Desert::Assets::kMaterialSchemaVersion << "\n";
+                    ++failed;
+                    continue;
+                }
+                if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
+                     layout != Layout::Canonical )
+                {
+                    ++( layout == Layout::Failed ? failed : relaid );
+                    continue;
+                }
+                out << "ok     " << path.string() << " — MATL v" << Desert::Assets::kMaterialSchemaVersion << "\n";
+                continue;
+            }
+
             std::string text         = source;
             const bool  headerRaised = stated.GetValue().Version == 0;
             if ( headerRaised )
@@ -1243,7 +1315,8 @@ namespace Desert::Migration
                 text = raised.GetValue();
             }
 
-            auto parsed = rfl::json::read<Desert::Assets::MaterialData>( text );
+            // MATL 2 -> 3 (T6c3) is the LAST material step and every step before it reads the frozen v2 shape.
+            auto parsed = rfl::json::read<Desert::Migration::MaterialDataV2>( text );
             if ( !parsed )
             {
                 err << "FAIL   " << path.string() << " — " << parsed.error().what() << "\n";
@@ -1260,16 +1333,25 @@ namespace Desert::Migration
             const Desert::Migration::CloudMaterialAlbedoReport albedo =
                  Desert::Migration::MigrateCloudMaterialAlbedoToColour( parsed.value() );
 
-            if ( !report.Changed() && !albedo.Changed() && !identityRaised )
+            const auto* assetRefs = LegacyAssetRefsFor( root );
+            if ( assetRefs == nullptr )
             {
-                if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
-                     layout != Layout::Canonical )
-                {
-                    ++( layout == Layout::Failed ? failed : relaid );
-                    continue;
-                }
-                out << "ok     " << path.string() << " — no pre-O-4 layout slot, no scalar albedo, MATL v"
-                    << Desert::Assets::kMaterialSchemaVersion << "\n";
+                ++failed; // LegacyAssetRefsFor named the file it could not read
+                continue;
+            }
+            const auto raised =
+                 Desert::Migration::RaiseMaterialToV3( path.generic_string(), parsed.value(), *assetRefs );
+            if ( !raised )
+            {
+                err << "FAIL   " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            const auto v3 = Desert::Assets::WriteMaterialJson( raised.GetValue() );
+            if ( !v3 )
+            {
+                err << "FAIL   " << path.string() << " — " << v3.GetError() << "\n";
+                ++failed;
                 continue;
             }
 
@@ -1286,7 +1368,7 @@ namespace Desert::Migration
                 what << " text header stated;";
             if ( identityRaised )
             {
-                what << " MATL v" << Desert::Assets::kMaterialSchemaVersion;
+                what << " MATL v2";
                 if ( identity.DroppedId )
                     what << ", MaterialId dropped (the header GUID is the identity)";
                 if ( identity.Parented )
@@ -1296,6 +1378,8 @@ namespace Desert::Migration
             if ( albedo.Changed() )
                 what << " " << albedo.Broadcast
                      << " scalar ScatteringAlbedo value(s) broadcast to a neutral colour;";
+            what << " MATL v" << Desert::Assets::kMaterialSchemaVersion << ", " << parsed.value().Textures.size()
+                 << " slot(s) named by header GUID;";
 
             if ( check )
             {
@@ -1304,11 +1388,7 @@ namespace Desert::Migration
                 continue;
             }
 
-            // A raise that only touches identity keeps the file's own text. Round-tripping through
-            // MaterialData would respell every number through float (0.97 -> 0.9700000286102295): the same
-            // value to the engine, but a content change to every reader of the text, for no step.
-            const bool textOnly = !report.Changed() && !albedo.Changed();
-            if ( !WriteText( path, textOnly ? text : rfl::json::write( parsed.value() ), err ) )
+            if ( !WriteText( path, v3.GetValue(), err ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched. It would have been:" << what.str() << "\n";
@@ -1492,8 +1572,14 @@ namespace Desert::Migration
                 continue;
             }
 
-            if ( !WriteCloudMaterials( outcome.Steps.CloudMaterial.Materials, assetsRoot, path, writtenMaterials,
-                                       out, err ) )
+            const auto* assetRefs = LegacyAssetRefsFor( assetsRoot );
+            if ( assetRefs == nullptr )
+            {
+                ++failed; // LegacyAssetRefsFor named the file it could not read
+                continue;
+            }
+            if ( !WriteCloudMaterials( outcome.Steps.CloudMaterial.Materials, assetsRoot, *assetRefs, path,
+                                       writtenMaterials, out, err ) )
             {
                 ++failed;
                 continue;

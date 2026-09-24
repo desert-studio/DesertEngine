@@ -16,9 +16,12 @@
 #include <MigratorMain.hpp>
 #include <SceneMigration.hpp>
 
+#include <Engine/Assets/MaterialFormat.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Core/AssetHandle.hpp>
 
 #include <gtest/gtest.h>
 
@@ -398,4 +401,143 @@ TEST( SceneMigratorWritePath, ACloudLayoutIsWrappedInTheEnvelopeOnceAndASecondRu
     EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a v2 layout (a second GUID?)";
     EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
     fs::remove_all( dir );
+}
+
+// MATL 2 -> 3 (T6c3). A v2 `.demat` names its cloud type and layout by the PATH-DERIVED number
+// (AssetHandle::FromKey of "assets:<relative>"); the raise finds that number among the files under the
+// content root and states the GUID from the file's own header, with the path as a locator. Fixtures made by
+// the tool itself: the cloud type and layout passes give the two assets their header GUIDs first.
+namespace
+{
+    struct CloudRoot
+    {
+        fs::path                   Dir;
+        Common::Content::AssetGuid TypeGuid;
+        Common::Content::AssetGuid LayoutGuid;
+    };
+
+    CloudRoot MakeCloudRoot( const char* name )
+    {
+        CloudRoot root{ MakeTempDir( name ), {}, {} };
+        fs::create_directories( root.Dir / "Clouds" );
+        fs::create_directories( root.Dir / "Materials" );
+        {
+            std::ofstream out( root.Dir / "Clouds" / "Stratus.decloudtype", std::ios::binary );
+            out << R"({"FormatVersion":3,"DisplayName":"Stratus","Shape":{"BaseAltitudeKm":0.3}})";
+        }
+        {
+            std::string v1 = std::string( "DCLY" ) + std::string( "\x01\0\0\0", 4 );
+            v1.resize( 48, '\0' );
+            std::ofstream out( root.Dir / "Clouds" / "Painted.dclayout", std::ios::binary );
+            out.write( v1.data(), static_cast<std::streamsize>( v1.size() ) );
+        }
+        std::string report, errors;
+        EXPECT_EQ( RunTool( { ( root.Dir / "Clouds" ).string() }, report, errors ), 0 ) << report << errors;
+        const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+        const auto                                    type =
+             Common::Content::ReadAssetHeader( root.Dir / "Clouds" / "Stratus.decloudtype", recordOnly );
+        const auto layout =
+             Common::Content::ReadAssetHeader( root.Dir / "Clouds" / "Painted.dclayout", recordOnly );
+        EXPECT_TRUE( type && layout );
+        if ( type )
+            root.TypeGuid = type.GetValue().Guid;
+        if ( layout )
+            root.LayoutGuid = layout.GetValue().Guid;
+        return root;
+    }
+
+    uint64_t OldNumber( const std::string& relative )
+    {
+        return static_cast<uint64_t>( Common::AssetHandle::FromKey( "assets:" + relative ) );
+    }
+
+    void WriteMaterialV2( const fs::path& file, std::vector<Desert::Migration::MaterialTextureV2> slots )
+    {
+        Desert::Migration::MaterialDataV2 material;
+        material.Header = Common::Content::MakeTextHeader(
+             Common::Content::ContentKind::Material, Desert::Migration::MigrationGuidForPath( file.filename() ),
+             Desert::Migration::MaterialTextSubsystemsV2() );
+        material.ShaderName = "CloudRaymarch";
+        material.Params.push_back( { "Coverage", glm::vec4( 0.5f, 0.0f, 0.0f, 0.0f ) } );
+        material.Textures = std::move( slots );
+        std::ofstream out( file, std::ios::binary );
+        out << rfl::json::write( material );
+    }
+
+    const Desert::Assets::MaterialAssetRef* CloudSlot( const Desert::Assets::MaterialData& m,
+                                                       std::string_view                    name )
+    {
+        for ( const auto& ref : m.CloudAssets )
+            if ( ref.Name == name )
+                return &ref;
+        return nullptr;
+    }
+} // namespace
+
+TEST( SceneMigratorWritePath, AMatl2MaterialNamesItsCloudAssetsByHeaderGuidAndASecondRunChangesNothing )
+{
+    const CloudRoot root = MakeCloudRoot( "T6c3MaterialV3" );
+    ASSERT_FALSE( root.TypeGuid.IsNull() );
+    ASSERT_FALSE( root.LayoutGuid.IsNull() );
+    const fs::path file = root.Dir / "Materials" / "M_Sky.demat";
+    WriteMaterialV2( file, { { "CloudType1", OldNumber( "Clouds/Stratus.decloudtype" ) },
+                             { "CloudType2", 0 },
+                             { "LayoutMask", OldNumber( "Clouds/Painted.dclayout" ) } } );
+
+    std::string report, errors;
+    ASSERT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << report << errors;
+    const std::string raised = ReadRaw( file );
+    const auto        parsed = Desert::Assets::ParseMaterialJson( file.string(), raised );
+    ASSERT_TRUE( parsed ) << parsed.GetError() << "\n" << raised;
+    const auto& m = parsed.GetValue();
+    EXPECT_TRUE( m.Textures.empty() ) << "a cloud slot landed among the samplers";
+
+    const auto* type = CloudSlot( m, "CloudType1" );
+    ASSERT_NE( type, nullptr ) << raised;
+    EXPECT_EQ( type->Guid, Common::Content::AssetGuidToText( root.TypeGuid ) );
+    EXPECT_EQ( type->Path, "assets:Clouds/Stratus.decloudtype" );
+    const auto* mask = CloudSlot( m, "LayoutMask" );
+    ASSERT_NE( mask, nullptr ) << raised;
+    EXPECT_EQ( mask->Guid, Common::Content::AssetGuidToText( root.LayoutGuid ) );
+    const auto* empty = CloudSlot( m, "CloudType2" );
+    ASSERT_NE( empty, nullptr ) << "an authored empty slot was dropped instead of stated empty";
+    EXPECT_TRUE( empty->Guid.empty() && empty->Path.empty() );
+    EXPECT_FLOAT_EQ( m.GetFloat( "Coverage" ), 0.5f );
+
+    EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a MATL 3 file";
+    EXPECT_EQ( RunTool( { "--check", ( root.Dir / "Materials" ).string() }, report, errors ), 0 )
+         << report << errors;
+    fs::remove_all( root.Dir );
+}
+
+TEST( SceneMigratorWritePath, AMatl2NumberNoFileReachesIsRefusedByNameAndTheFileIsUntouched )
+{
+    const CloudRoot root = MakeCloudRoot( "T6c3MaterialLost" );
+    const fs::path  file = root.Dir / "Materials" / "M_Lost.demat";
+    WriteMaterialV2( file, { { "CloudType1", 12345 } } );
+    const std::string before = ReadRaw( file );
+
+    std::string report, errors;
+    EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 1 ) << report << errors;
+    EXPECT_NE( errors.find( "M_Lost.demat" ), std::string::npos ) << errors;
+    EXPECT_NE( errors.find( "CloudType1" ), std::string::npos ) << errors;
+    EXPECT_NE( errors.find( "12345" ), std::string::npos ) << errors;
+    EXPECT_EQ( ReadRaw( file ), before ) << "a refused material was rewritten";
+    fs::remove_all( root.Dir );
+}
+
+TEST( SceneMigratorWritePath, AMatl2NumberNamingAnAssetOfAnotherKindIsRefused )
+{
+    const CloudRoot root = MakeCloudRoot( "T6c3MaterialKind" );
+    const fs::path  file = root.Dir / "Materials" / "M_Swapped.demat";
+    // The layout's number in a cloud TYPE slot: the number is known, the slot cannot take it.
+    WriteMaterialV2( file, { { "CloudType1", OldNumber( "Clouds/Painted.dclayout" ) } } );
+    const std::string before = ReadRaw( file );
+
+    std::string report, errors;
+    EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 1 ) << report << errors;
+    EXPECT_NE( errors.find( "cloud layout" ), std::string::npos ) << errors;
+    EXPECT_EQ( ReadRaw( file ), before );
+    fs::remove_all( root.Dir );
 }
