@@ -151,6 +151,9 @@ namespace
            "cores, the includes go with the EditMesh files in P8b" },
          { "Tools/SceneMigrator/Source/SceneMigration.cpp: Engine/Geometry/EditMeshSerialization.hpp",
            "as the row above: the migrator's saved-form writer, removed in P8b" },
+         { "Desert/Desert/Source/Engine/Geometry/DynamicMeshSelection.hpp: Engine/Geometry/EditMeshSelection.hpp",
+           "the ported-core selection (P10) shares ElementSelection and the algorithms with the EditMesh path while "
+           "the operations of P11-P19 still run on it; the types move to the ported core in P8b" },
     };
 
     bool IsKnown( const std::string& violation )

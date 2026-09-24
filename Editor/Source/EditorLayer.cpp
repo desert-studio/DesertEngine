@@ -143,6 +143,7 @@
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
+#include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/ModelingStateProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
@@ -4463,14 +4464,22 @@ namespace Desert::Editor
                                   [op] { return Core::MeshElementSelection::Get().Apply( op ); } } );
         }
         commands.push_back(
-             { "Modeling", "Mesh selection: pick at the viewport centre", []
+             { "Modeling", "Mesh selection: pick at the viewport centre", [this]
                {
-                   auto& state = Core::MeshElementSelection::Get();
-                   if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect ||
-                        !state.HasMesh() )
-                       return PaletteCommandOutcome(
-                            false, "the Select Elements tool is not on an entity with an editable mesh" );
-                   state.ReqPickCentre = true;
+                   if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect )
+                       return PaletteCommandOutcome( false, "the Select Elements tool is not active" );
+                   // The tool's own target rule, not "the tracker has a mesh": the tracker only learns the mesh
+                   // on the tool's next frame, and a static mesh with no EditableMesh is a target too (P9c).
+                   const auto selected = Core::SelectionManager::GetSelected();
+                   if ( !m_MainScene || !selected.has_value() )
+                       return PaletteCommandOutcome( false, "no entity is selected" );
+                   auto ref = m_MainScene->FindEntityByID( *selected );
+                   if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                       return PaletteCommandOutcome( false, "the selected entity has no static mesh" );
+                   auto target = Editor::GetToolTargetMesh( ref->get().GetComponent<ECS::StaticMeshComponent>() );
+                   if ( !target.IsSuccess() )
+                       return PaletteCommandOutcome( false, target.GetError() );
+                   Core::MeshElementSelection::Get().ReqPickCentre = true;
                    return PaletteCommandDone();
                } } );
         // The operations on that selection, at the panel's values (ModelingState). Cut is not here: it needs

@@ -18,6 +18,14 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/GroupTopology.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/MeshRegionBoundaryLoops.cpp",
+        -- the ported-core element selection (P10) and, until P8b, the EditMesh path it shares its algorithms with
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/DynamicMeshSelection.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSelection.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshNormals.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshPolyGroups.cpp",
     }
 
     includedirs {
