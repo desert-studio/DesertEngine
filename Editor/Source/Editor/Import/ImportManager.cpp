@@ -8,6 +8,8 @@
 #include "CookedJsonWrite.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include "LODFold.hpp"
 
 #include <Common/Core/Constants.hpp>
@@ -254,6 +256,14 @@ namespace Desert::Editor
         // than JSON. The sibling cooked kinds beside this one (.skeleton, .anim, .demat, .tex metadata)
         // are unchanged: they are kilobytes of structure, not megabytes of floats, and the argument
         // that moved this one does not reach them.
+        // A RE-IMPORT KEEPS THE MESH'S IDENTITY (UE keeps a package's GUID on reimport): scenes name the
+        // mesh by this GUID, so minting a new one would orphan every reference to the file being replaced.
+        data.Guid = Common::Content::AssetGuid::Generate();
+        if ( const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefix(
+                  cookedPath, Common::Content::kMeshBinaryPrefixV3 ) )
+            if ( const auto kept = Common::Content::ReadMeshHeaderGuid( prefix.GetValue() );
+                 kept && !kept->IsNull() )
+                data.Guid = *kept;
         return WriteCookedBytes( Desert::Assets::Serialization::EncodeMeshBinary( data ), cookedPath,
                                  Desert::Assets::Serialization::MeshDataBounds( data ) );
     }

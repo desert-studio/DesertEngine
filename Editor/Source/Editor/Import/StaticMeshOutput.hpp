@@ -76,7 +76,8 @@ namespace Desert::Editor
         if ( !data.IsSuccess() )
             return Common::MakeFormattedError<std::filesystem::path>( "'{}' was not written as a static mesh: {}",
                                                                       baseName, data.GetError() );
-        const Assets::Serialization::MeshAssetData asset = data.ExtractValue();
+        Assets::Serialization::MeshAssetData asset = data.ExtractValue();
+        asset.Guid = Common::Content::AssetGuid::Generate(); // a new file: a new identity
 
         const std::filesystem::path path = UniqueStaticMeshPath( folder, baseName );
         if ( auto written = WriteCookedBytes( Assets::Serialization::EncodeMeshBinary( asset ), path,

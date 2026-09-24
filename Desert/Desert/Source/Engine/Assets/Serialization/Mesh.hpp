@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <vector>
 #include <array>
 #include <optional>
@@ -68,6 +70,9 @@ namespace Desert::Assets::Serialization
     struct MeshAssetData
     {
         bool                           IsSkinned = false;
+        // The asset's identity (MeshBinary v3): minted at first import, kept across re-imports. Null only
+        // for a mesh read from a v1/v2 file, which stated none.
+        Common::Content::AssetGuid     Guid;
         std::vector<StaticVertexData>  StaticVertices;
         std::vector<SkinnedVertexData> SkinnedVertices;
         std::vector<IndexData>         Indices;

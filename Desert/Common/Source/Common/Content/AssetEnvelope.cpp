@@ -1,5 +1,6 @@
 #include "AssetEnvelope.hpp"
 #include "TextAssetHeader.hpp"
+#include "MeshBinaryHeader.hpp"
 
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -572,6 +573,50 @@ namespace Common::Content
         };
     } // namespace
 
+    namespace
+    {
+        class MeshBinaryFormat final : public IAssetHeaderFormat
+        {
+        public:
+            std::string_view Name() const override
+            {
+                return "mesh binary";
+            }
+
+            // Only a version that states a GUID is claimed: a v1/v2 mesh states no header, as before.
+            bool Recognises( std::span<const std::byte> leading ) const override
+            {
+                return leading.size() >= 16 && std::memcmp( leading.data(), kMeshBinaryMagic, 8 ) == 0 &&
+                       LoadU32( leading, 8 ) == kMeshBinaryByteOrderTag && LoadU32( leading, 12 ) >= 3;
+            }
+
+            ResultStr<AssetHeader> ReadHeader( std::istream& in, const AssetHeaderReadContext& ) const override
+            {
+                std::string prefix( kMeshBinaryPrefixV3, '\0' );
+                in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+                if ( static_cast<std::size_t>( in.gcount() ) != prefix.size() )
+                    return MakeFormattedError<AssetHeader>( "mesh header: {} bytes where the prefix is {}",
+                                                            in.gcount(), kMeshBinaryPrefixV3 );
+                const std::optional<AssetGuid> guid = ReadMeshHeaderGuid( prefix );
+                if ( !guid || guid->IsNull() )
+                    return MakeError<AssetHeader>( "mesh header: a version 3 mesh states a null GUID" );
+                MeshBinaryFileHeader header{};
+                std::memcpy( &header, prefix.data(), sizeof( header ) );
+                AssetHeader stated;
+                stated.Kind = ( header.Flags & kMeshFlagIsSkinned ) != 0 ? ContentKind::SkinnedMesh
+                                                                         : ContentKind::StaticMesh;
+                stated.Guid = *guid;
+                return MakeSuccess( std::move( stated ) );
+            }
+        };
+    } // namespace
+
+    const IAssetHeaderFormat& MeshBinaryHeaderFormat()
+    {
+        static const MeshBinaryFormat format;
+        return format;
+    }
+
     const IAssetHeaderFormat& BinaryEnvelopeHeaderFormat()
     {
         static const BinaryEnvelopeFormat format;
@@ -580,8 +625,8 @@ namespace Common::Content
 
     std::span<const IAssetHeaderFormat* const> AssetHeaderFormats()
     {
-        static const std::array<const IAssetHeaderFormat*, 2> formats = { &BinaryEnvelopeHeaderFormat(),
-                                                                          &TextHeaderFormat() };
+        static const std::array<const IAssetHeaderFormat*, 3> formats = {
+             &BinaryEnvelopeHeaderFormat(), &TextHeaderFormat(), &MeshBinaryHeaderFormat() };
         return formats;
     }
 

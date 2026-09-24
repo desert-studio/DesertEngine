@@ -108,6 +108,7 @@ namespace
     {
         Ser::MeshAssetData data;
         data.IsSkinned = false;
+        data.Guid      = { 0x0123456789abcdefull, 0xfedcba9876543210ull };
 
         for ( uint32_t i = 0; i < 7; ++i )
         {
@@ -186,6 +187,7 @@ namespace
     void ExpectSameMesh( const Ser::MeshAssetData& expected, const Ser::MeshAssetData& actual )
     {
         EXPECT_EQ( expected.IsSkinned, actual.IsSkinned );
+        EXPECT_EQ( expected.Guid, actual.Guid );
         EXPECT_EQ( expected.SkeletonSignature.has_value(), actual.SkeletonSignature.has_value() );
         if ( expected.SkeletonSignature.has_value() && actual.SkeletonSignature.has_value() )
             EXPECT_EQ( expected.SkeletonSignature.value(), actual.SkeletonSignature.value() );
@@ -336,6 +338,28 @@ TEST( MeshBinaryFormat, ATruncatedFileIsRefusedAndAnEmptyOneIsNot )
 // the size 24 smaller, Version 1 and SectionCount 9 - which is also the precise statement of what v2 added.
 namespace
 {
+    // v3 minus its identity: the 16 GUID bytes after the 64-byte header go, and so does every offset's share.
+    std::string AsVersionTwo( const std::string& v3 )
+    {
+        std::string v2       = v3.substr( 0, 64 ) + v3.substr( 80 );
+        uint32_t    version  = 2;
+        uint32_t    sections = 0;
+        uint64_t    fileSize = 0;
+        std::memcpy( &sections, v2.data() + 24, 4 );
+        std::memcpy( &fileSize, v2.data() + 16, 8 );
+        fileSize -= 16;
+        std::memcpy( v2.data() + 12, &version, 4 );
+        std::memcpy( v2.data() + 16, &fileSize, 8 );
+        for ( uint32_t row = 0; row < sections; ++row )
+        {
+            uint64_t offset = 0;
+            std::memcpy( &offset, v2.data() + 64 + row * 24 + 8, 8 );
+            offset -= 16;
+            std::memcpy( v2.data() + 64 + row * 24 + 8, &offset, 8 );
+        }
+        return v2;
+    }
+
     std::string AsVersionOne( const std::string& v2 )
     {
         constexpr size_t kHeader  = 64;
@@ -373,11 +397,54 @@ namespace
     }
 } // namespace
 
+TEST( MeshBinaryFormat, AVersionTwoFileIsReadWithANullGuid )
+{
+    Ser::MeshAssetData source = FullyPopulated();
+    const auto read = Ser::DecodeMeshBinary( AsVersionTwo( Ser::EncodeMeshBinary( source ) ), "v2.stmesh" );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_TRUE( read.GetValue().Guid.IsNull() );
+    source.Guid = {};
+    ExpectSameMesh( source, read.GetValue() );
+}
+
+// THE GATHER LEARNS THE MESH'S IDENTITY FROM ITS PREFIX: the one header entry point states the kind (from
+// the skinned flag) and the GUID the file was written with, and a v2 file states no header at all.
+TEST( MeshBinaryFormat, TheHeaderEntryPointStatesKindAndGuid )
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "af7l_mesh_guid";
+    std::filesystem::create_directories( dir );
+    Ser::MeshAssetData mesh = FullyPopulated();
+    for ( const bool skinned : { false, true } )
+    {
+        mesh.IsSkinned                  = skinned;
+        const std::filesystem::path out = dir / ( skinned ? "m.skmesh" : "m.stmesh" );
+        std::ofstream( out, std::ios::binary ) << Ser::EncodeMeshBinary( mesh );
+        const auto stated = Common::Content::ReadAssetHeaderIfStated( out, { {}, true } );
+        ASSERT_TRUE( stated.IsSuccess() ) << stated.GetError();
+        ASSERT_TRUE( stated.GetValue().has_value() );
+        EXPECT_EQ( stated.GetValue()->Guid, mesh.Guid );
+        EXPECT_EQ( stated.GetValue()->Kind, skinned ? Common::Content::ContentKind::SkinnedMesh
+                                                    : Common::Content::ContentKind::StaticMesh );
+    }
+    const std::filesystem::path v2 = dir / "v2.stmesh";
+    std::ofstream( v2, std::ios::binary ) << AsVersionTwo( Ser::EncodeMeshBinary( mesh ) );
+    const auto none = Common::Content::ReadAssetHeaderIfStated( v2, { {}, true } );
+    ASSERT_TRUE( none.IsSuccess() ) << none.GetError();
+    EXPECT_FALSE( none.GetValue().has_value() );
+
+    mesh.Guid                            = {};
+    const std::filesystem::path nullGuid = dir / "null.stmesh";
+    std::ofstream( nullGuid, std::ios::binary ) << Ser::EncodeMeshBinary( mesh );
+    EXPECT_FALSE( Common::Content::ReadAssetHeaderIfStated( nullGuid, { {}, true } ).IsSuccess() );
+    std::filesystem::remove_all( dir );
+}
+
 TEST( MeshBinaryFormat, AVersionOneFileIsReadWithNoPolyGroups )
 {
     Ser::MeshAssetData source = FullyPopulated();
     source.PolyGroups.clear();
-    const std::string v1 = AsVersionOne( Ser::EncodeMeshBinary( source ) );
+    const std::string v1 = AsVersionOne( AsVersionTwo( Ser::EncodeMeshBinary( source ) ) );
+    source.Guid          = {}; // v1 states no identity
 
     const auto read = Ser::ReadMeshAssetData( v1, "v1.stmesh" );
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();

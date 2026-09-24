@@ -325,9 +325,9 @@ namespace Desert::Assets::Serialization
         // Offsets are computed before anything is written, because the table sits in front of the
         // payloads it describes.
         SectionRow     table[kSectionCount] = {};
-        const uint64_t tableEnd             = sizeof( FileHeader ) + sizeof( table );
+        const uint64_t tableEnd             = Common::Content::kMeshBinaryPrefixV3 + sizeof( table );
         uint64_t       at                   = tableEnd;
-        static_assert( ( sizeof( FileHeader ) + sizeof( SectionRow ) * kSectionCount ) % 8 == 0,
+        static_assert( ( Common::Content::kMeshBinaryPrefixV3 + sizeof( SectionRow ) * kSectionCount ) % 8 == 0,
                        "the first section must start 8-byte aligned without padding after the table" );
         for ( uint32_t i = 0; i < kSectionCount; ++i )
         {
@@ -355,6 +355,8 @@ namespace Desert::Assets::Serialization
         std::string out;
         out.reserve( static_cast<size_t>( at ) );
         Append( out, &header, sizeof( header ) );
+        Append( out, &data.Guid.Hi, sizeof( data.Guid.Hi ) );
+        Append( out, &data.Guid.Lo, sizeof( data.Guid.Lo ) );
         Append( out, table, sizeof( table ) );
         for ( const Payload& payload : payloads )
         {
@@ -394,7 +396,7 @@ namespace Desert::Assets::Serialization
                  who, header.ByteOrder, kByteOrderTag );
         }
 
-        if ( header.Version != kMeshBinaryVersion && header.Version != 1 )
+        if ( header.Version < 1 || header.Version > kMeshBinaryVersion )
         {
             return Common::MakeFormattedError<MeshAssetData>(
                  "'{}' is cooked-mesh format version {}, this build reads version {}. Re-cook it "
@@ -419,7 +421,8 @@ namespace Desert::Assets::Serialization
                  "'{}' declares {} sections, version {} has exactly {}.", who, header.SectionCount, header.Version,
                  sectionCount );
         }
-        if ( bytes.size() < sizeof( FileHeader ) + sizeof( SectionRow ) * sectionCount )
+        const std::size_t prefixSize = Common::Content::MeshHeaderSize( header.Version );
+        if ( bytes.size() < prefixSize + sizeof( SectionRow ) * sectionCount )
         {
             return Common::MakeFormattedError<MeshAssetData>(
                  "'{}' is {} bytes, shorter than its own header and {}-row section table.", who, bytes.size(),
@@ -428,7 +431,7 @@ namespace Desert::Assets::Serialization
 
         // Rows past the version's count stay zero, and read as empty sections below.
         SectionRow table[kSectionCount] = {};
-        std::memcpy( table, bytes.data() + sizeof( FileHeader ), sizeof( SectionRow ) * sectionCount );
+        std::memcpy( table, bytes.data() + prefixSize, sizeof( SectionRow ) * sectionCount );
 
         // THE LAYOUT IS DERIVED, NOT TRUSTED. Version 1 packs the sections in table order, each starting
         // at the next 8-byte boundary after the last, so the offset a row SHOULD carry follows from the
@@ -439,7 +442,7 @@ namespace Desert::Assets::Serialization
         // the file, still 8-aligned and still left room for the declared count. The decode succeeded and
         // handed back a mesh of shifted floats. That is the silent wrong answer §1.4 forbids, produced
         // by a single corrupt byte.
-        uint64_t expectedOffset = sizeof( FileHeader ) + sizeof( SectionRow ) * sectionCount;
+        uint64_t expectedOffset = prefixSize + sizeof( SectionRow ) * sectionCount;
         for ( uint32_t i = 0; i < sectionCount; ++i )
         {
             const SectionRow& row      = table[i];
@@ -502,6 +505,8 @@ namespace Desert::Assets::Serialization
 
         MeshAssetData data;
         data.IsSkinned = ( header.Flags & kFlagIsSkinned ) != 0;
+        if ( const auto guid = Common::Content::ReadMeshHeaderGuid( bytes ) )
+            data.Guid = *guid;
         if ( ( header.Flags & kFlagHasSkeletonSignature ) != 0 )
             data.SkeletonSignature = header.SkeletonSignature;
 
