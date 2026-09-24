@@ -1,5 +1,12 @@
 {
-    "FormatVersion": 3,
+    "Header": {
+        "Kind": "CloudType",
+        "Guid": "e6f14c7dc0603759cc564e8e5d57ec27",
+        "Versions": {
+            "CLTY": 4
+        },
+        "Dependencies": []
+    },
     "DisplayName": "Lenticular (orographic)",
     "Notes": "The lens that stands still over a mountain. Its signature is what it does NOT have: the base ramp is as long as the top taper, so the section is a symmetric lens rather than a flat-bottomed heap, and the erosion is turned almost off because a smooth surface is the whole point. Anisotropy 0.20 - BELOW one, so the stretch is ACROSS the wind and not along it, and that is what separates a wave cloud from everything else in this library. A lenticular stands in a mountain's lee wave with its crest perpendicular to the flow; the altocumulus next door has the same controls set the other way and is a different kind of cloud for it, not a thicker one.",
     "Shape": {

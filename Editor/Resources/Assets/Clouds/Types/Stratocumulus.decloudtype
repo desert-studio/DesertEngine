@@ -1,5 +1,12 @@
 {
-    "FormatVersion": 3,
+    "Header": {
+        "Kind": "CloudType",
+        "Guid": "a76650ee6545b96c752111ed9f32308b",
+        "Versions": {
+            "CLTY": 4
+        },
+        "Dependencies": []
+    },
     "DisplayName": "Stratocumulus",
     "Notes": "A low deck with lumps in it: it covers the sky like stratus but is made of rolls rather than of nothing. EdgeTopFraction 0.80 - the lumps vary the top by a fifth, not by five sixths as a cumulus field does. Placement scale 0.35 AND THE REASON IS A MEASUREMENT: at the layer's own 12 km tile the coarse cell is 3 km, and a 3 km cell under a 1 km deck is one lump filling the zenith - the defect T3 was handed by name. 0.35 puts the cell at about 1.05 km, an aspect near 1, which is what a lumpy low deck looks like from underneath. Anisotropy 1.60 rows the lumps along the wind, which is stratocumulus radiatus.",
     "Shape": {

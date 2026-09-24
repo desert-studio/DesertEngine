@@ -1,5 +1,12 @@
 {
-    "FormatVersion": 3,
+    "Header": {
+        "Kind": "CloudType",
+        "Guid": "a01422c9b7880f416344bc6a17a9161b",
+        "Versions": {
+            "CLTY": 4
+        },
+        "Dependencies": []
+    },
     "DisplayName": "Altocumulus",
     "Notes": "The mid-level sheet of small lumps. Thin (700 m), high (3.2 km) and half as dense as a cumulus, so the sky reads through it - which is what distinguishes it from the stratocumulus it otherwise resembles. Placement scale 0.30 and anisotropy 1.50 - many small cells in rows, which is the 'mackerel sky'. It is the SAME pair of controls that make the lenticular next door a different kind of cloud rather than a thicker version of this one: this stretches ALONG the wind, that one across it. DETAIL FACTOR 0.40, DOWN FROM 1.60, AND IT IS A RE-BASE RATHER THAN A RE-ART-DIRECTION - the same one the cirrus next door needed and for the same arithmetic. The cut's depth is the layer's Detail Strength times this number, and the 1.60 was authored when that strength was 0.10, an effective cut of 0.16. Task DS raised the layer to 0.40 for the march's sake, and at 0.40 the old 1.60 gives 0.64: measured against a cloudless frame at the same camera, this type's contribution to the picture falls from 51.5 per cent of its un-eroded self to 7.5 per cent. Half the density of a cumulus is what makes it read as a mackerel sky and it is also what makes a deep cut dissolve it. 0.40 restores the effective 0.16 this file was authored at, exactly - AND EXACTLY BELONGS TO THE DEPTH ALONE. Detail Tile Size is the LAYER's and task DS also took it from 4 km to 1 km for all nine types, so this file meets an erosion four times finer than it was authored against: measured, its contribution to the frame is up 1.1 per cent while 74.4 per cent of the pixels move by at most 16 of 255 - the lumps are redistributed smaller, not removed. Docs/Clouds/CALIBRATION.md section DS carries the frames. What makes the lumps small is the placement scale of 0.30, not the erosion. AND IT WAS RE-BASED A SECOND TIME, 0.40 -> 0.2461538, BY THE SAME RULE - see Docs/Clouds/CALIBRATION.md section SIL2. Task SIL2 raised the shape of the lump a body is built from (Assets::kCloudLumpVerticalOverHorizontal, 0.45 -> 0.75); a taller lump is optically thicker per metre, so the same cut moves the visible surface less far and the layer's Detail Strength had to go 0.40 -> 0.65 to keep clearing the chord the march can resolve. That multiplies every type's cut by 1.625, which is what dissolves this one. 0.65 x 0.2461538 = 0.160, the same effective depth this file has been authored at since before task DS: the cut has not moved, and Desert/Tests/Engine/CloudType asserts the identity on this asset.",
     "Shape": {
