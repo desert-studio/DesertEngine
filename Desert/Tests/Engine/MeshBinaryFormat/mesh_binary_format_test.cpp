@@ -480,6 +480,48 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointStatesKindAndGuid )
     std::filesystem::remove_all( dir );
 }
 
+// THE MESH'S EDGES ARE STATED BY ITS HEADER READER (T6e2): the registry builds a row's dependencies from the
+// header alone, so the mesh -> material edge exists only if this reader hands the submesh materials over
+// without the body being decoded. Distinct, in submesh order, a null slot dropped; a submesh table that
+// does not fit the declared file is refused rather than read as edges.
+TEST( MeshBinaryFormat, TheHeaderEntryPointStatesTheSubmeshMaterialsAsDependencies )
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "t6e2_mesh_edges";
+    std::filesystem::create_directories( dir );
+    Ser::MeshAssetData mesh   = FullyPopulated();
+    Ser::SubmeshData   repeat = mesh.Submeshes[0]; // the first material again: one edge, not two
+    Ser::SubmeshData   empty  = mesh.Submeshes[1];
+    empty.MaterialGuid        = {}; // no material assigned: no edge
+    mesh.Submeshes.push_back( empty );
+    mesh.Submeshes.push_back( repeat );
+    const std::vector<Common::Content::AssetGuid> expected = { mesh.Submeshes[0].MaterialGuid,
+                                                               mesh.Submeshes[1].MaterialGuid };
+    for ( const bool skinned : { false, true } )
+    {
+        mesh.IsSkinned                  = skinned;
+        const std::filesystem::path out = dir / ( skinned ? "m.skmesh" : "m.stmesh" );
+        std::ofstream( out, std::ios::binary ) << Ser::EncodeMeshBinary( mesh );
+        const auto stated = Common::Content::ReadAssetHeaderIfStated( out, { {}, true } );
+        ASSERT_TRUE( stated.IsSuccess() ) << stated.GetError();
+        ASSERT_TRUE( stated.GetValue().has_value() );
+        EXPECT_EQ( stated.GetValue()->Dependencies, expected ) << ( skinned ? "skinned" : "static" );
+    }
+
+    // The submesh section's count pushed past the declared size: refused by name, not read off the end.
+    std::string           bytes = Ser::EncodeMeshBinary( mesh );
+    const uint64_t        huge  = 1ull << 40;
+    constexpr std::size_t kSubmeshRow =
+         Common::Content::kMeshBinaryPrefixV3 +
+         ( Common::Content::kMeshBinarySubmeshSectionId - 1 ) * Common::Content::kMeshBinarySectionRowSize;
+    std::memcpy( bytes.data() + kSubmeshRow + 16, &huge, 8 );
+    const std::filesystem::path bad = dir / "bad.stmesh";
+    std::ofstream( bad, std::ios::binary ) << bytes;
+    const auto refused = Common::Content::ReadAssetHeaderIfStated( bad, { {}, true } );
+    std::filesystem::remove_all( dir );
+    ASSERT_FALSE( refused.IsSuccess() ) << "a submesh table past the file's end was read as edges";
+    EXPECT_NE( refused.GetError().find( "submesh records" ), std::string::npos ) << refused.GetError();
+}
+
 // A VERSION PAST THIS BUILD'S IS REFUSED BY NAME, not read as a v3 prefix: nothing says a later layout keeps
 // the GUID at byte 64, so claiming one from there would hand the registry an identity the file never stated.
 TEST( MeshBinaryFormat, TheHeaderEntryPointRefusesAVersionPastThisBuilds )

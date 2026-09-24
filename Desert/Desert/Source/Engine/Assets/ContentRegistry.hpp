@@ -346,6 +346,17 @@ namespace Desert::Assets
             const std::lock_guard<std::mutex> lock( state.Mutex );
 
             const Common::Utils::AssetRegistryEntry* existing = state.Registry.FindByKey( key );
+            if ( existing != nullptr && existing->Guid.has_value() )
+            {
+                // A ROW WITH A HEADER GUID IS KNOWN BY THAT GUID'S FOLD, written by the gather; the load
+                // only confirms it. A loaded asset answering to another number is a defect in its loader,
+                // and overwriting the row would spread it to every reference resolved through the registry.
+                if ( effectiveHandle != existing->Identity )
+                    LOG_ERROR( "[ContentRegistry] '{}' loaded as handle {:016x}, but its header GUID folds to "
+                               "{:016x}; the registry keeps the header's",
+                               key, effectiveHandle, existing->Identity );
+                return;
+            }
             if ( existing != nullptr )
             {
                 // THE IDENTITY IS THE ONE THING A KNOWN ROW CAN STILL LEARN. A `.tex` and a `.demat` carry
@@ -362,13 +373,20 @@ namespace Desert::Assets
                 return;
             }
 
-            Common::Utils::AssetRegistryEntry entry;
-            entry.Key  = key;
-            entry.Kind = std::string( Common::Content::KindName( *kind ) );
-            entry.Size = Common::Utils::FileSystem::GetFileSize( file );
-
-            const uint64_t pathHandle = entry.PathHandle();
-            entry.Identity            = effectiveHandle == pathHandle ? 0 : effectiveHandle;
+            auto described =
+                 Common::Content::RegistryRowFor( key, Common::Content::DescribeContentFile( file, *kind ) );
+            if ( !described )
+            {
+                LOG_ERROR( "[ContentRegistry] '{}' could not enter the cooked asset registry: {}", key,
+                           described.GetError() );
+                return;
+            }
+            Common::Utils::AssetRegistryEntry entry = described.GetValue();
+            if ( !entry.Guid.has_value() )
+            {
+                const uint64_t pathHandle = entry.PathHandle();
+                entry.Identity            = effectiveHandle == pathHandle ? 0 : effectiveHandle;
+            }
 
             if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
             {
@@ -393,9 +411,9 @@ namespace Desert::Assets
 
             const std::lock_guard<std::mutex> lock( state.Mutex );
 
-            // A KNOWN ROW KEEPS ITS IDENTITY AND ITS EDGES, AND TAKES THE NEW SIZE. A re-cook rewrites the
-            // bytes of a file whose identity the running session already learned by parsing it; clearing
-            // that here would make the row forget the number every scene reference holds, and it would do
+            // A KNOWN ROW IS RE-DESCRIBED FROM ITS HEADER; A HEADER-LESS ROW KEEPS ITS IDENTITY. A re-cook
+            // rewrites the bytes of a file whose identity the running session already learned by parsing it;
+            // clearing that here would make the row forget the number every scene reference holds, and it would do
             // it on the one path where the file is most likely to be re-read a moment later.
             //
             // THE SIZE IS DIFFERENT: it is a fact about the bytes this call was told were just written,
@@ -407,11 +425,26 @@ namespace Desert::Assets
             if ( const Common::Utils::AssetRegistryEntry* known = state.Registry.FindByKey( key );
                  known != nullptr )
             {
-                const auto size = Common::Utils::FileSystem::GetFileSize( file );
-                if ( known->Size == size )
+                auto described =
+                     Common::Content::RegistryRowFor( key, Common::Content::DescribeContentFile( file, *kind ) );
+                if ( !described )
+                {
+                    LOG_ERROR( "[ContentRegistry] the cook rewrote '{}' and its header refused: {}", key,
+                               described.GetError() );
                     return;
-                Common::Utils::AssetRegistryEntry updated = *known;
-                updated.Size                              = size;
+                }
+                // The header states the GUID and the edges again (a resaved material may name other
+                // textures); a header-less row keeps the identity the session learned, and a mesh keeps
+                // its box until NoteBounds states the new one.
+                Common::Utils::AssetRegistryEntry updated = described.GetValue();
+                if ( !updated.Guid.has_value() )
+                    updated.Identity = known->Identity;
+                if ( !updated.Bounds.has_value() )
+                    updated.Bounds = known->Bounds;
+                if ( updated.Size == known->Size && updated.Guid == known->Guid &&
+                     updated.Identity == known->Identity && updated.Dependencies == known->Dependencies &&
+                     updated.Versions == known->Versions )
+                    return;
                 state.Registry.Remove( key );
                 if ( const auto inserted = state.Registry.Insert( std::move( updated ) ); !inserted )
                 {
@@ -423,12 +456,15 @@ namespace Desert::Assets
                 return;
             }
 
-            Common::Utils::AssetRegistryEntry entry;
-            entry.Key  = key;
-            entry.Kind = std::string( Common::Content::KindName( *kind ) );
-            entry.Size = Common::Utils::FileSystem::GetFileSize( file );
-
-            if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
+            auto described =
+                 Common::Content::RegistryRowFor( key, Common::Content::DescribeContentFile( file, *kind ) );
+            if ( !described )
+            {
+                LOG_ERROR( "[ContentRegistry] the cook wrote '{}' and its header refused: {}", key,
+                           described.GetError() );
+                return;
+            }
+            if ( const auto inserted = state.Registry.Insert( described.GetValue() ); !inserted )
             {
                 LOG_ERROR( "[ContentRegistry] the cook wrote '{}' and it could not enter the registry: {}", key,
                            inserted.GetError() );
