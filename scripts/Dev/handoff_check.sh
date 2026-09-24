@@ -43,6 +43,11 @@ for t in "${bins[@]}"; do
     # (e) stale: the binary must be newer than its own objects and every library it links (Debug LDDEPS).
     newest=$(ls -t "build/Tests/Intermediates/Debug/Debug/$name"/*.o 2>/dev/null | head -1)
     if [ -n "$newest" ] && [ "$newest" -nt "$t" ]; then stale+=("$name<$(basename "$newest")"); continue; fi
+    # BuildVersion compares its baked commit count/hash with git's answer, so every commit after its
+    # build turns it red; say "stale" rather than let an agent debug a correct test.
+    if [ "$name" = BuildVersion ] && [ "$(stat -f %m "$t")" -lt "$(git log -1 --format=%ct HEAD)" ]; then
+        stale+=("$name<HEAD commit"); continue
+    fi
     [ -f "$name.make" ] || continue
     for lib in $(awk '/^ifeq \(\$\(config\),debug\)/{d=1} /^ifeq \(\$\(config\),release\)/{d=0}
                       d && /^LDDEPS \+=/{for(i=3;i<=NF;i++)print $i}' "$name.make"); do
