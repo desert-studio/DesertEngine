@@ -1,4 +1,5 @@
 #include "MaterialsPanelComponent.hpp"
+#include <Common/Content/CanonicalText.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <ImGui/imgui.h>
@@ -310,7 +311,8 @@ namespace Desert::Editor
             // adopts no in-file GUID, so the handle registered here is not the one a later run
             // resolves, and the mesh slot points at a material that will not come back.
             if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(), rfl::json::write( defaults ) );
+                      path.generic_string(),
+                      Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( defaults ) ) );
                  !written )
             {
                 LOG_ERROR( "[Material] '{}' was not created: {}", path.generic_string(), written.GetError() );
@@ -356,7 +358,8 @@ namespace Desert::Editor
                                                 ? *parentMaterialId
                                                 : Common::UUID( static_cast<uint64_t>( parent.GetMetadata().Handle ) );
             if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(), rfl::json::write( data ) );
+                      path.generic_string(),
+                      Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( data ) ) );
                  !written ) // same reason as CreateAndRegisterMaterial above
             {
                 LOG_ERROR( "[Material] instance '{}' was not created: {}", path.generic_string(),

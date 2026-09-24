@@ -1,4 +1,5 @@
 #include <Engine/Assets/Serialization/ControlRig.hpp>
+#include <Common/Content/CanonicalText.hpp>
 
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Animation/Rig/RigGraph.hpp>
@@ -825,7 +826,8 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "refusing to write control rig '{}': {}", path.string(),
                                                      valid.GetError() );
         }
-        return Common::Utils::FileSystem::WriteContentToFileAtomic( path, WriteControlRig( data ) );
+        return Common::Utils::FileSystem::WriteContentToFileAtomic(
+             path, Common::Content::CanonicalJsonTextOfWriterOutput( WriteControlRig( data ) ) );
     }
 
     Common::BoolResultStr BuildControlRig( const ControlRigData& data, const Animation::Skeleton& skeleton,

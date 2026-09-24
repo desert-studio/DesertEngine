@@ -1,6 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Common/Content/CanonicalText.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Core/AssetPathIndex.hpp>
@@ -1363,7 +1364,8 @@ namespace Desert::Editor
                         const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
                                                                               dir.string(), ec.message() )
                                                 : Common::Utils::FileSystem::WriteContentToFileAtomic(
-                                                       path, serializer.SerializeToJson() );
+                                                       path, Common::Content::CanonicalJsonTextOfWriterOutput(
+                                                                  serializer.SerializeToJson() ) );
                         if ( written )
                         {
                             // The revision is marked done ONLY on a write that landed. It used to be
@@ -8157,7 +8159,8 @@ namespace Desert::Editor
                                           std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                 const auto written =
                      ec ? Common::MakeFormattedError( "could not create {}: {}", dir.string(), ec.message() )
-                        : Common::Utils::FileSystem::WriteContentToFileAtomic( path, text );
+                        : Common::Utils::FileSystem::WriteContentToFileAtomic(
+                               path, Common::Content::CanonicalJsonTextOfWriterOutput( text ) );
                 // BRACES ARE REQUIRED ON BOTH ARMS: the LOG_ macros are not single statements, so a
                 // braceless if/else here does not compile. The autosave block above is written the same
                 // way for the same reason.

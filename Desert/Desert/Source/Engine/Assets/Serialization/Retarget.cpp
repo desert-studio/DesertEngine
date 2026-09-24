@@ -1,4 +1,5 @@
 #include <Engine/Assets/Serialization/Retarget.hpp>
+#include <Common/Content/CanonicalText.hpp>
 
 #include <Engine/Animation/Skeleton.hpp>
 
@@ -304,7 +305,8 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "refusing to write retarget '{}': {}", path.string(),
                                                      valid.GetError() );
         }
-        return Common::Utils::FileSystem::WriteContentToFileAtomic( path, WriteRetarget( data ) );
+        return Common::Utils::FileSystem::WriteContentToFileAtomic(
+             path, Common::Content::CanonicalJsonTextOfWriterOutput( WriteRetarget( data ) ) );
     }
 
     Common::ResultStr<RetargetSetup> BuildRetargetSetup( const RetargetAssetData& data )

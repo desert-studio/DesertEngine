@@ -3,6 +3,7 @@
 // reflected component in the editor, copy one line below.
 
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
+#include <Common/Content/CanonicalText.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/UI/UIAnchorControls.hpp>
 #include <Editor/Core/DragPayloads.hpp>
@@ -202,7 +203,8 @@ namespace Desert::Editor
             // means CreateAsset loads defaults, the material is not a Terrain material at all, and the
             // handle is not the one any future run will resolve.
             if ( const auto written = ::Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(), rfl::json::write( data ) );
+                      path.generic_string(),
+                      ::Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( data ) ) );
                  !written )
             {
                 LOG_ERROR( "[Landscape] could not write the landscape material '{}': {} — the landscape's "
@@ -686,7 +688,8 @@ namespace Desert::Editor
             data.MaterialId = ::Common::UUID::Generate();
             // Checked for the same reason CreateLandscapeMaterial checks it, one function above.
             if ( const auto written = ::Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(), rfl::json::write( data ) );
+                      path.generic_string(),
+                      ::Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( data ) ) );
                  !written )
             {
                 LOG_ERROR( "[Clouds] could not write the cloud material '{}': {} — the layer's material "

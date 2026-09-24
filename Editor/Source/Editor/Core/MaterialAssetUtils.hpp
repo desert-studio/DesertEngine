@@ -5,6 +5,7 @@
 // runtime-only script seed, not an authoring surface.
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Common/Content/CanonicalText.hpp>
 #include <Engine/Assets/MaterialParamDiff.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -128,7 +129,8 @@ namespace Desert::Editor::MaterialAssetUtils
             // the authored parameters and no file behind it. The caller (a startup scene builder) would
             // then put that handle into a mesh slot and save it into a .desce.
             if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(), rfl::json::write( data ) );
+                      path.generic_string(),
+                      Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( data ) ) );
                  !written )
             {
                 LOG_ERROR( "[Material] '{}' was not created: {}", path.generic_string(), written.GetError() );

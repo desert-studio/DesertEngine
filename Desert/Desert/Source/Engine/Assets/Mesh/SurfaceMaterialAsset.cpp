@@ -1,4 +1,5 @@
 #include "SurfaceMaterialAsset.hpp"
+#include <Common/Content/CanonicalText.hpp>
 
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
@@ -217,7 +218,7 @@ namespace Desert::Assets
                  param.Value.w );
         }
 
-        return Common::MakeSuccess( rfl::json::write( m_Data ) );
+        return Common::Content::CanonicalJsonText( rfl::json::write( m_Data ) );
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::Unload()

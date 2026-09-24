@@ -1,5 +1,7 @@
 #include "CanonicalText.hpp"
 
+#include <Common/Core/Core.hpp>
+
 #include <rflcpp/rfl/thirdparty/yyjson.h>
 
 #include <cstdlib>
@@ -138,6 +140,13 @@ namespace Common::Content
                                                     json.size() );
         out += '\n';
         return MakeSuccess( std::move( out ) );
+    }
+
+    std::string CanonicalJsonTextOfWriterOutput( std::string_view json )
+    {
+        auto canonical = CanonicalJsonText( json );
+        DESERT_VERIFY( canonical, "a JSON writer produced text that is not JSON: {}", canonical.GetError() );
+        return std::move( canonical.GetValue() );
     }
 
     bool IsCanonicalJsonText( std::string_view json )

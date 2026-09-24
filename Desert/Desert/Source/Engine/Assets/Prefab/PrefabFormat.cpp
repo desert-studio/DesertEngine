@@ -1,4 +1,5 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
+#include <Common/Content/CanonicalText.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -59,7 +60,7 @@ namespace Desert::Assets
     {
         prefab.SceneVersion = Core::kSceneVersion;
         prefab.UnitVersion  = Core::kUnitVersion;
-        return rfl::json::write( prefab );
+        return Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( prefab ) );
     }
 
 } // namespace Desert::Assets

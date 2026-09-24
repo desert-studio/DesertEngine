@@ -37,6 +37,11 @@ namespace Common::Content
     // Re-lays-out any JSON text canonically. Fails, naming the byte offset, if the input is not JSON.
     ResultStr<std::string> CanonicalJsonText( std::string_view json );
 
+    // The same layout for text a JSON WRITER just produced (rfl::json, yyjson). Such text is JSON by
+    // construction, so a failure here is a defect in this engine rather than in any file, and it aborts
+    // naming the byte offset instead of returning an error every save path would have to carry.
+    std::string CanonicalJsonTextOfWriterOutput( std::string_view json );
+
     // True if the text is already byte-identical to its canonical layout.
     bool IsCanonicalJsonText( std::string_view json );
 } // namespace Common::Content

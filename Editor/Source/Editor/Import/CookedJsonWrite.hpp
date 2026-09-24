@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Common/Content/CanonicalText.hpp>
 
 #include <Common/Core/Core.hpp> // BOOLSUCCESS
 #include <Common/Core/ResultStr.hpp>
@@ -84,6 +85,7 @@ namespace Desert::Editor
     template <typename T>
     [[nodiscard]] Common::BoolResultStr WriteCookedJson( const T& data, const std::filesystem::path& path )
     {
-        return WriteCookedBytes( rfl::json::write( data ), path );
+        return WriteCookedBytes( Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( data ) ),
+                                 path );
     }
 } // namespace Desert::Editor
