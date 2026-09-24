@@ -31,7 +31,7 @@ namespace Desert::Assets
         std::optional<std::string>                  MeshPath;
         std::optional<uint64_t>                     MeshGuid;
         std::optional<std::vector<std::string>>     MaterialPaths;
-        std::optional<std::vector<uint64_t>>        MaterialGuids;
+        std::optional<std::vector<std::string>>     MaterialGuids; // material header GUID text (SCNE 27)
         std::optional<Geometry::PrimitiveType>      Primitive;
         // The editor-built mesh, the SOURCE the render mesh is derived from. Schema v22 replaced the v21
         // CustomVertices/CustomIndices render arrays with it (Tools/SceneMigrator, MigrateEditMeshV21ToV22).
@@ -50,7 +50,7 @@ namespace Desert::Assets
         std::optional<std::string>              MeshPath;
         std::optional<uint64_t>                 MeshGuid;
         std::optional<std::vector<std::string>> MaterialPaths;
-        std::optional<std::vector<uint64_t>>    MaterialGuids;
+        std::optional<std::vector<std::string>> MaterialGuids; // material header GUID text (SCNE 27)
         // Rendering controls (absent = component default, so pre-existing scenes stay loadable).
         // Written only when false, like the static twin's flag above.
         std::optional<bool> CastShadows;
@@ -71,7 +71,7 @@ namespace Desert::Assets
         std::optional<std::string>                       MeshPath;
         std::optional<uint64_t>                           MeshGuid;
         std::optional<std::vector<std::string>>          MaterialPaths;
-        std::optional<std::vector<uint64_t>>              MaterialGuids;
+        std::optional<std::vector<std::string>>           MaterialGuids; // material header GUID text (SCNE 27)
         std::optional<Geometry::PrimitiveType>           Primitive;
         std::optional<std::vector<std::array<float, 16>>> InstanceTransforms;
         // Absent = component default (true), and written only when false — the same shape the static

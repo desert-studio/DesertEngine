@@ -6,6 +6,7 @@
 #include <Engine/Core/Serialize/TextureSlot.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -875,16 +876,63 @@ namespace Desert::Core::Serialize
             return handle;
         }
 
-        // The same answer for one slot of a material list, where either list may be absent or shorter.
+        // A MATERIAL SLOT IS NAMED BY THE MATERIAL'S HEADER GUID (SCNE 27, AF7); the path beside it is only a
+        // locator. The GUID's handle (HandleForGuid) is looked up first; on a miss - the material is simply
+        // not loaded yet - the path loads it, and the file found there must BE that material: a path that
+        // now holds a different material leaves the slot empty with both named, instead of silently binding
+        // whatever sits at the old path. "" is an empty slot.
         uint64_t ResolveSlotRef( const Reflection::AssetResolver&               resolver,
-                                 const std::optional<std::vector<uint64_t>>&    guids,
+                                 const std::optional<std::vector<std::string>>& guids,
                                  const std::optional<std::vector<std::string>>& paths, std::size_t slot )
         {
-            const std::optional<uint64_t> guid =
-                 ( guids && slot < guids->size() ) ? std::optional<uint64_t>( ( *guids )[slot] ) : std::nullopt;
-            const std::optional<std::string> path =
-                 ( paths && slot < paths->size() ) ? std::optional<std::string>( ( *paths )[slot] ) : std::nullopt;
-            return ResolveAssetRef( resolver, guid, path, "MaterialAsset" );
+            const std::string text = ( guids && slot < guids->size() ) ? ( *guids )[slot] : std::string();
+            const std::string path = ( paths && slot < paths->size() ) ? ( *paths )[slot] : std::string();
+            if ( text.empty() )
+            {
+                if ( !path.empty() )
+                    LOG_ERROR( "[ComponentRegistry] material slot {0} states no GUID but a path '{1}' - the path "
+                               "is a locator, not an identity, so the slot stays empty",
+                               slot, path );
+                return 0;
+            }
+            const auto guid = Common::Content::AssetGuidFromText( text );
+            if ( !guid )
+            {
+                LOG_ERROR( "[ComponentRegistry] material slot {0} states '{1}', which is not a GUID ({2}) - the "
+                           "slot stays empty",
+                           slot, text, guid.GetError() );
+                return 0;
+            }
+            const uint64_t expected = static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) );
+            if ( const uint64_t known = resolver.FromGuid( expected, "MaterialAsset" ); known != 0 )
+                return known;
+            const uint64_t located = path.empty() ? 0 : resolver.FromPath( path, "MaterialAsset" );
+            if ( located == expected )
+                return located;
+            LOG_ERROR( "[ComponentRegistry] material slot {0} names GUID {1}, but its locator '{2}' {3} - the "
+                       "slot stays empty",
+                       slot, text, path,
+                       located == 0 ? std::string( "loads no material" )
+                                    : "holds a different material (handle " + std::to_string( located ) + ")" );
+            return 0;
+        }
+
+        // The GUID text a slot is saved under: the header GUID of the material the handle names, read from
+        // the loaded material, else from the cooked registry row of its file. A handle with neither is a
+        // material with no identity to save; it is NAMED and saved as an empty slot.
+        std::string MaterialGuidText( const Assets::AssetManager& mgr, uint64_t handle )
+        {
+            if ( handle == 0 )
+                return {};
+            if ( const auto material = mgr.FindByHandle<Assets::SurfaceMaterialAsset>( Common::UUID( handle ) ) )
+                if ( const auto guid = material->Data().Guid(); !guid.IsNull() )
+                    return Common::Content::AssetGuidToText( guid );
+            if ( const auto guid = Assets::ContentRegistry::GuidForHandle( handle ) )
+                return Common::Content::AssetGuidToText( *guid );
+            LOG_ERROR( "[ComponentRegistry] material handle {0} has no header GUID in the loaded material or the "
+                       "content registry - its slot is saved empty",
+                       handle );
+            return {};
         }
     } // namespace
 
@@ -939,12 +987,13 @@ namespace Desert::Core::Serialize
                 if ( !smc.MaterialSlots.empty() )
                 {
                     meshSer.MaterialPaths = std::vector<std::string>{};
-                    meshSer.MaterialGuids = std::vector<uint64_t>{};
+                    meshSer.MaterialGuids = std::vector<std::string>{};
                     for ( auto handle : smc.MaterialSlots )
                     {
                         meshSer.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
-                        meshSer.MaterialGuids->push_back( static_cast<uint64_t>( handle ) );
+                        meshSer.MaterialGuids->push_back(
+                             MaterialGuidText( assetManager, static_cast<uint64_t>( handle ) ) );
                     }
                 }
                 meshSer.Primitive = smc.Primitive;
@@ -998,12 +1047,8 @@ namespace Desert::Core::Serialize
                     smc.MaterialSlots.clear();
                     for ( size_t i = 0; i < slotCount; ++i )
                     {
-                        uint64_t h = 0;
-                        if ( meshData.MaterialGuids && i < meshData.MaterialGuids->size() )
-                            h = resolver.FromGuid( ( *meshData.MaterialGuids )[i], "MaterialAsset" );
-                        if ( h == 0 && meshData.MaterialPaths && i < meshData.MaterialPaths->size() )
-                            h = resolver.FromPath( ( *meshData.MaterialPaths )[i], "MaterialAsset" );
-                        smc.MaterialSlots.push_back( Common::UUID( h ) );
+                        smc.MaterialSlots.push_back( Common::UUID(
+                             ResolveSlotRef( resolver, meshData.MaterialGuids, meshData.MaterialPaths, i ) ) );
                     }
                 }
                 smc.Primitive = meshData.Primitive;
@@ -1068,12 +1113,13 @@ namespace Desert::Core::Serialize
                 if ( !ism.MaterialSlots.empty() )
                 {
                     ser.MaterialPaths = std::vector<std::string>{};
-                    ser.MaterialGuids = std::vector<uint64_t>{};
+                    ser.MaterialGuids = std::vector<std::string>{};
                     for ( auto handle : ism.MaterialSlots )
                     {
                         ser.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
-                        ser.MaterialGuids->push_back( static_cast<uint64_t>( handle ) );
+                        ser.MaterialGuids->push_back(
+                             MaterialGuidText( assetManager, static_cast<uint64_t>( handle ) ) );
                     }
                 }
                 ser.Primitive = ism.Primitive;
@@ -1244,12 +1290,13 @@ namespace Desert::Core::Serialize
                 if ( !smc.MaterialSlots.empty() )
                 {
                     meshSer.MaterialPaths = std::vector<std::string>{};
-                    meshSer.MaterialGuids = std::vector<uint64_t>{};
+                    meshSer.MaterialGuids = std::vector<std::string>{};
                     for ( auto handle : smc.MaterialSlots )
                     {
                         meshSer.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
-                        meshSer.MaterialGuids->push_back( static_cast<uint64_t>( handle ) );
+                        meshSer.MaterialGuids->push_back(
+                             MaterialGuidText( assetManager, static_cast<uint64_t>( handle ) ) );
                     }
                 }
 
@@ -1288,12 +1335,8 @@ namespace Desert::Core::Serialize
                     smc.MaterialSlots.clear();
                     for ( size_t i = 0; i < slotCount; ++i )
                     {
-                        uint64_t h = 0;
-                        if ( meshData.MaterialGuids && i < meshData.MaterialGuids->size() )
-                            h = resolver.FromGuid( ( *meshData.MaterialGuids )[i], "MaterialAsset" );
-                        if ( h == 0 && meshData.MaterialPaths && i < meshData.MaterialPaths->size() )
-                            h = resolver.FromPath( ( *meshData.MaterialPaths )[i], "MaterialAsset" );
-                        smc.MaterialSlots.push_back( Common::UUID( h ) );
+                        smc.MaterialSlots.push_back( Common::UUID(
+                             ResolveSlotRef( resolver, meshData.MaterialGuids, meshData.MaterialPaths, i ) ) );
                     }
                 }
 

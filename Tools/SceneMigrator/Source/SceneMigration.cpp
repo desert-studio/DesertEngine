@@ -1886,6 +1886,82 @@ namespace Desert::Migration
         }
     } // namespace
 
+    MaterialGuidsMigrationReport MigrateMaterialGuidsV26ToV27( std::vector<Assets::EntityData>& entities,
+                                                               const LegacyMaterialIdMap&       legacyIds )
+    {
+        // The three components whose payload states material slots by `MaterialGuids` (PrefabData.hpp).
+        static constexpr auto kSlotComponents =
+             std::to_array<const char*>( { "StaticMesh", "SkinnedMesh", "InstancedStaticMesh" } );
+
+        MaterialGuidsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            for ( const char* component : kSlotComponents )
+            {
+                const auto payload = entity.Components.get( component );
+                if ( !payload.has_value() )
+                    continue;
+                const auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                    continue;
+                const auto slots = fields.value().get( "MaterialGuids" );
+                if ( !slots.has_value() )
+                    continue;
+                const auto rows = slots.value().to_array();
+                if ( !rows.has_value() )
+                {
+                    report.UnknownNames.push_back( tag + " > " + component + ".MaterialGuids is " +
+                                                   Describe( slots.value() ) + ", not an array" );
+                    continue;
+                }
+
+                rfl::Generic::Array rewritten;
+                bool                changed = false;
+                for ( size_t i = 0; i < rows.value().size(); ++i )
+                {
+                    const rfl::Generic& row = rows.value()[i];
+                    const std::string   site =
+                         tag + " > " + component + ".MaterialGuids[" + std::to_string( i ) + "]";
+                    const auto id = row.to_int64();
+                    if ( !id.has_value() )
+                    {
+                        report.UnknownNames.push_back( site + " is " + Describe( row ) +
+                                                       ", not an old material id" );
+                        rewritten.push_back( row );
+                        continue;
+                    }
+                    changed = true;
+                    // The writer stored the u64 through a signed JSON integer; the register keys the u64.
+                    const auto oldId = static_cast<uint64_t>( id.value() );
+                    if ( oldId == 0 )
+                    {
+                        ++report.Emptied;
+                        rewritten.push_back( rfl::Generic( std::string() ) );
+                        continue;
+                    }
+                    const auto at = legacyIds.find( oldId );
+                    if ( at == legacyIds.end() )
+                    {
+                        report.UnknownNames.push_back( site + " = " + std::to_string( oldId ) );
+                        rewritten.push_back( row );
+                        continue;
+                    }
+                    ++report.Rewritten;
+                    rewritten.push_back( rfl::Generic( Common::Content::AssetGuidToText( at->second ) ) );
+                }
+                if ( !changed )
+                    continue;
+
+                rfl::Generic::Object kept;
+                for ( const auto& [key, value] : fields.value() )
+                    kept[key] = key == "MaterialGuids" ? rfl::Generic( std::move( rewritten ) ) : value;
+                entity.Components[component] = rfl::Generic( std::move( kept ) );
+            }
+        }
+        return report;
+    }
+
     TextureAssetRefsMigrationReport MigrateTextureAssetRefsV23ToV24( std::optional<rfl::Generic>&     settings,
                                                                      std::vector<Assets::EntityData>& entities,
                                                                      const std::filesystem::path&     assetsRoot )
@@ -3219,7 +3295,7 @@ namespace Desert::Migration
         void RunSteps( std::vector<Assets::EntityData>& entities, std::optional<rfl::Generic>* settings,
                        const std::string& name, int statedSceneVersion, int statedUnitVersion,
                        const std::filesystem::path& assetsRoot, const std::filesystem::path& sourceFile,
-                       FileMigrationReport& report )
+                       const LegacyMaterialIdMap& legacyIds, FileMigrationReport& report )
         {
             // Stands in for the block a prefab does not have. Never read back by the caller: the two
             // steps below that take it are both guarded on has_value(), so an absent block is a no-op
@@ -3426,6 +3502,24 @@ namespace Desert::Migration
                 report.TextureAssetRefs = MigrateTextureAssetRefsV23ToV24( settingsRef, entities, assetsRoot );
             }
 
+            // Rewrites array VALUES under three component keys; no step above writes MaterialGuids.
+            if ( statedSceneVersion < kSceneVersionMaterialGuids )
+            {
+                report.MaterialGuidsRaised = true;
+                report.MaterialGuids       = MigrateMaterialGuidsV26ToV27( entities, legacyIds );
+                if ( !report.MaterialGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.MaterialGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused =
+                         "'" + name + "': " + std::to_string( report.MaterialGuids.UnknownNames.size() ) +
+                         " material slot(s) state an old material id the register " +
+                         kLegacyMaterialIdRegisterName + " does not know: " + names + ". Nothing was written.";
+                    return;
+                }
+            }
+
             if ( statedSceneVersion < kSceneVersion )
             {
                 report.RetiredKeysRaised = true;
@@ -3546,7 +3640,8 @@ namespace Desert::Migration
     } // namespace
 
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
-                                      const std::filesystem::path& sourceFile )
+                                      const std::filesystem::path& sourceFile,
+                                      const LegacyMaterialIdMap&   legacyIds )
     {
         FileMigrationReport report;
 
@@ -3572,7 +3667,9 @@ namespace Desert::Migration
         }
 
         RunSteps( scene.Entities, &scene.Settings, scene.SceneName, statedSceneVersion, statedUnitVersion,
-                  assetsRoot, sourceFile, report );
+                  assetsRoot, sourceFile, legacyIds, report );
+        if ( !report.Refused.empty() )
+            return report; // unstamped: the file is FAILED by every caller and written by none
 
         // Scene-only, so outside RunSteps (which prefabs share): a prefab keeps its records in hierarchy
         // order. After every entity-level step, because it reorders the records those steps walk.
@@ -3595,7 +3692,8 @@ namespace Desert::Migration
     }
 
     PrefabMigrationOutcome MigratePrefab( PrefabData& prefab, const std::filesystem::path& assetsRoot,
-                                          const std::filesystem::path& sourceFile )
+                                          const std::filesystem::path& sourceFile,
+                                          const LegacyMaterialIdMap&   legacyIds )
     {
         PrefabMigrationOutcome outcome;
         outcome.FoundSceneVersion = prefab.Header ? Assets::StatedVersion( prefab.Header, Assets::kSceneSchemaTag )
@@ -3648,7 +3746,12 @@ namespace Desert::Migration
         }
 
         RunSteps( prefab.Entities, nullptr, prefab.Name, outcome.FoundSceneVersion, outcome.FoundUnitVersion,
-                  assetsRoot, sourceFile, outcome.Steps );
+                  assetsRoot, sourceFile, legacyIds, outcome.Steps );
+        if ( !outcome.Steps.Refused.empty() )
+        {
+            outcome.Refused = outcome.Steps.Refused;
+            return outcome;
+        }
 
         stamp();
 

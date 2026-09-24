@@ -284,6 +284,18 @@ namespace Desert::Assets
             return files;
         }
 
+        // The header GUID the cooked registry row of `handle`'s file states; nullopt when no row or no GUID.
+        inline std::optional<Common::Content::AssetGuid> GuidForHandle( uint64_t handle )
+        {
+            if ( handle == 0 )
+                return std::nullopt;
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+            if ( const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( handle ) )
+                return row->Guid;
+            return std::nullopt;
+        }
+
         inline std::string KeyForHandle( uint64_t handle )
         {
             if ( handle == 0 )

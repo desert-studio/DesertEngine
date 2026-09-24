@@ -826,6 +826,32 @@ namespace Desert::Migration
         // different classes minting one graph name have to be seen through ONE map.
         std::map<std::string, std::string> writtenGraphs;
 
+        // THE OLD MATERIAL NUMBERS, per assets root, loaded once (LegacyMaterialIds.hpp) and - outside
+        // --check - written to the register BEFORE any material is rewritten: once a file is v2 its old
+        // number is stated nowhere else. Loaded ABOVE the scene pass, because the scene step SCNE 27
+        // translates `MaterialGuids` through the same map (and so does the prefab pass).
+        std::map<std::filesystem::path, Desert::Migration::LegacyMaterialIdMap> legacyIds;
+        const auto                                                              LegacyIdsFor =
+             [&]( const std::filesystem::path& root ) -> const Desert::Migration::LegacyMaterialIdMap*
+        {
+            if ( const auto at = legacyIds.find( root ); at != legacyIds.end() )
+                return &at->second;
+            auto loaded = Desert::Migration::LoadLegacyMaterialIds( root );
+            if ( !loaded )
+            {
+                err << "FAIL   " << root.string() << " — " << loaded.GetError() << "\n";
+                return nullptr;
+            }
+            if ( !check )
+                if ( const auto saved = Desert::Migration::SaveLegacyMaterialIds( root, loaded.GetValue() );
+                     !saved )
+                {
+                    err << "FAIL   " << Desert::Migration::LegacyMaterialIdRegisterPath( root ).string() << " — "
+                        << saved.GetError() << "\n";
+                    return nullptr;
+                }
+            return &legacyIds.emplace( root, std::move( loaded.GetValue() ) ).first->second;
+        };
         for ( const auto& path : scenes )
         {
             const std::string source = ReadAll( path );
@@ -850,9 +876,15 @@ namespace Desert::Migration
             // root by construction — the two used to be one global read twice, which is how a path
             // written into the scene could name a place the file was not.
             const std::filesystem::path assetsRoot = SceneOutputRoot( path );
+            const auto*                 sceneIds   = LegacyIdsFor( assetsRoot );
+            if ( sceneIds == nullptr )
+            {
+                ++failed; // LegacyIdsFor named the register it could not read
+                continue;
+            }
 
             const Desert::Migration::FileMigrationReport report =
-                 Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path );
+                 Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path, *sceneIds );
 
             // A scene from a LATER build: nothing ran and nothing was stamped, so this is a FAILED file
             // and not an "ok". It used to be neither — the tree fell through every gate and was stamped
@@ -939,31 +971,6 @@ namespace Desert::Migration
         // are already produced with the current slot names (MigrateCloudMaterialV11ToV12 calls the same
         // step), so this pass finds nothing to do in them and says so. Running it first would depend on
         // whether the file existed yet, which is an ordering nobody should have to know about.
-        // THE OLD MATERIAL NUMBERS, per assets root, loaded once (LegacyMaterialIds.hpp) and - outside
-        // --check - written to the register BEFORE any material is rewritten: once a file is v2 its old
-        // number is stated nowhere else, and the scene step (SCNE 27) still has to translate it.
-        std::map<std::filesystem::path, Desert::Migration::LegacyMaterialIdMap> legacyIds;
-        const auto                                                              LegacyIdsFor =
-             [&]( const std::filesystem::path& root ) -> const Desert::Migration::LegacyMaterialIdMap*
-        {
-            if ( const auto at = legacyIds.find( root ); at != legacyIds.end() )
-                return &at->second;
-            auto loaded = Desert::Migration::LoadLegacyMaterialIds( root );
-            if ( !loaded )
-            {
-                err << "FAIL   " << root.string() << " — " << loaded.GetError() << "\n";
-                return nullptr;
-            }
-            if ( !check )
-                if ( const auto saved = Desert::Migration::SaveLegacyMaterialIds( root, loaded.GetValue() );
-                     !saved )
-                {
-                    err << "FAIL   " << Desert::Migration::LegacyMaterialIdRegisterPath( root ).string() << " — "
-                        << saved.GetError() << "\n";
-                    return nullptr;
-                }
-            return &legacyIds.emplace( root, std::move( loaded.GetValue() ) ).first->second;
-        };
         int materialsChanged = 0;
         int clipsChanged     = 0;
         for ( const auto& path : materials )
@@ -1217,8 +1224,15 @@ namespace Desert::Migration
 
             const std::filesystem::path assetsRoot = PrefabOutputRoot( path );
 
+            const auto* prefabIds = LegacyIdsFor( assetsRoot );
+            if ( prefabIds == nullptr )
+            {
+                ++failed; // LegacyIdsFor named the register it could not read
+                continue;
+            }
+
             const Desert::Migration::PrefabMigrationOutcome outcome =
-                 Desert::Migration::MigratePrefab( parsed.value(), assetsRoot, path );
+                 Desert::Migration::MigratePrefab( parsed.value(), assetsRoot, path, *prefabIds );
 
             if ( !outcome.Refused.empty() )
             {
