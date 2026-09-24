@@ -4,7 +4,10 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/agent_guard.py\"" }
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/agent_guard.py\""
+          }
         ]
       }
     ],
@@ -12,7 +15,20 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/agent_guard.py\"" }
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/agent_guard.py\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/agent_guard.py\" --self-check"
+          }
         ]
       }
     ]
