@@ -9,7 +9,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -28,7 +28,6 @@ namespace Desert::Editor::Tools
         struct Target
         {
             std::shared_ptr<const Geometry::FDynamicMesh3> Source;
-            std::shared_ptr<const Geometry::EditMesh>      Mesh; // Bridge::EditMeshView( Source )
             glm::mat4                                 World{ 1.0f };
         };
 
@@ -47,14 +46,7 @@ namespace Desert::Editor::Tools
             auto target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
             if ( !target.IsSuccess() )
                 return {};
-            const auto mesh = target.GetValue().Mesh;
-            auto       view = Geometry::Bridge::EditMeshView( mesh );
-            if ( !view.IsSuccess() )
-            {
-                LOG_ERROR( "[Select Elements] the entity's mesh cannot be read: {0}", view.GetError() );
-                return {};
-            }
-            return { mesh, view.ExtractValue(),
+            return { target.GetValue().Mesh,
                      e.HasComponent<ECS::TransformComponent>()
                           ? e.GetComponent<ECS::TransformComponent>().GetTransform()
                           : glm::mat4( 1.0f ) };
@@ -62,8 +54,9 @@ namespace Desert::Editor::Tools
 
         struct Painter
         {
-            ImDrawList&               List;
-            const Geometry::EditMesh& Mesh;
+            ImDrawList&                     List;
+            const Geometry::FDynamicMesh3&  Mesh;
+            const Geometry::FGroupTopology& Topology;
             const glm::mat4&          World;
             const glm::mat4&          ViewProj;
             glm::vec2                 Pos;
@@ -72,7 +65,8 @@ namespace Desert::Editor::Tools
             bool Screen( int v, ImVec2& out ) const
             {
                 glm::vec2 px;
-                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( Mesh.GetPosition( v ), 1.0f ) ),
+                const auto q = Mesh.GetVertex( v );
+                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( q.X, q.Y, q.Z, 1.0f ) ),
                                                    ViewProj, Pos, Size, px ) )
                     return false;
                 out = ImVec2( px.x, px.y );
@@ -86,16 +80,16 @@ namespace Desert::Editor::Tools
             }
             void Edge( int e, ImU32 colour, float width ) const
             {
-                const auto& ev = Mesh.GetEdgeVertices( e );
-                ImVec2      a, b;
-                if ( Screen( ev[0], a ) && Screen( ev[1], b ) )
+                const auto ev = Mesh.GetEdgeV( e );
+                ImVec2     a, b;
+                if ( Screen( ev.A, a ) && Screen( ev.B, b ) )
                     List.AddLine( a, b, colour, width );
             }
             void Triangle( int t, ImU32 fill, ImU32 outline ) const
             {
-                const auto& tri = Mesh.GetTriangle( t );
-                ImVec2      a, b, c;
-                if ( !Screen( tri[0], a ) || !Screen( tri[1], b ) || !Screen( tri[2], c ) )
+                const auto tri = Mesh.GetTriangle( t );
+                ImVec2     a, b, c;
+                if ( !Screen( tri.A, a ) || !Screen( tri.B, b ) || !Screen( tri.C, c ) )
                     return;
                 if ( fill != 0 )
                     List.AddTriangleFilled( a, b, c, fill );
@@ -127,7 +121,7 @@ namespace Desert::Editor::Tools
             if ( selection.Mode() == ElementMode::PolyGroup )
             {
                 const Geometry::ElementSelection tris =
-                     Geometry::ConvertSelection( paint.Mesh, selection, ElementMode::Triangle );
+                     Geometry::ConvertSelection( paint.Mesh, paint.Topology, selection, ElementMode::Triangle );
                 for ( const int t : tris.Ids() )
                     paint.Triangle( t, fill, line );
                 return;
@@ -158,12 +152,14 @@ namespace Desert::Editor::Tools
         const Common::UUID entity   = selected.has_value() ? *selected : Common::UUID::Null();
         const Target       target   = FindTarget( scene, entity );
         state.Track( entity, target.Source );
-        if ( !target.Mesh )
+        if ( !target.Source )
         {
             state.ReqPickCentre = false;
             return;
         }
-        const Geometry::EditMesh& mesh = *target.Mesh;
+        // Track built the topology for exactly this mesh (it rebuilds whenever the entity's mesh changes).
+        const Geometry::FDynamicMesh3&  mesh     = *state.Mesh();
+        const Geometry::FGroupTopology& topology = *state.Topology();
 
         Geometry::PickView view;
         view.LocalToWorld    = target.World;
@@ -188,14 +184,14 @@ namespace Desert::Editor::Tools
             view.Cursor                    = viewportPos + viewportSize * 0.5f;
             view.RayOrigin                 = centre.Origin;
             view.RayDirection              = centre.Direction;
-            hover                          = Geometry::PickElement( mesh, state.Mode(), view );
+            hover                          = Geometry::PickElement( mesh, topology, state.Mode(), view );
         }
         else if ( hovered )
         {
             view.Cursor       = glm::vec2( mouse.x, mouse.y );
             view.RayOrigin    = ray.Origin;
             view.RayDirection = ray.Direction;
-            hover             = Geometry::PickElement( mesh, state.Mode(), view );
+            hover             = Geometry::PickElement( mesh, topology, state.Mode(), view );
         }
 
         // THE KNIFE (Alt+K): the next two clicks draw the cut line instead of selecting, and the selected
@@ -303,7 +299,7 @@ namespace Desert::Editor::Tools
         }
 
         const Painter paint{
-             *::ImGui::GetWindowDrawList(), mesh, target.World, viewProj, viewportPos, viewportSize };
+             *::ImGui::GetWindowDrawList(), mesh, topology, target.World, viewProj, viewportPos, viewportSize };
         DrawSelection( paint, state.Selection(), IM_COL32( 255, 150, 30, 70 ), IM_COL32( 255, 170, 40, 255 ) );
         if ( hover.IsHit() && !pickCentre )
         {

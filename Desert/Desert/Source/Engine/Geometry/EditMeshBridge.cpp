@@ -64,10 +64,47 @@ namespace Desert::Geometry::Bridge
         if ( !converted.IsSuccess() )
             return Common::MakeError<std::shared_ptr<const FDynamicMesh3>>( "FromEditMesh: " +
                                                                             converted.GetError() );
-        auto             out = std::make_shared<const FDynamicMesh3>( converted.ExtractValue() );
+        auto out = std::make_shared<const FDynamicMesh3>( converted.ExtractValue() );
+        if ( selection && selection->Mode() == ElementMode::Edge )
+        {
+            ElementSelection edges( ElementMode::Edge );
+            for ( const int e : selection->Ids() )
+            {
+                const auto& ev   = mesh.GetEdgeVertices( e );
+                const int   edge = out->FindEdge( ev[0], ev[1] );
+                if ( edge < 0 )
+                    return Common::MakeFormattedError<std::shared_ptr<const FDynamicMesh3>>(
+                         "FromEditMesh: selected edge {} ({}, {}) has no edge in the converted mesh", e, ev[0],
+                         ev[1] );
+                if ( auto added = edges.Add( *out, edge ); !added.IsSuccess() )
+                    return Common::MakeError<std::shared_ptr<const FDynamicMesh3>>( "FromEditMesh: " +
+                                                                                    added.GetError() );
+            }
+            *selection = std::move( edges );
+        }
         std::scoped_lock lock( g_Mutex );
         RememberLocked( out, std::make_shared<const EditMesh>( std::move( mesh ) ) );
         return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::ResultStr<ElementSelection> ToEditMeshSelection( const FDynamicMesh3& mesh, const EditMesh& view,
+                                                             const ElementSelection& selection )
+    {
+        if ( selection.Mode() != ElementMode::Edge )
+            return Common::MakeSuccess( selection );
+        ElementSelection edges( ElementMode::Edge );
+        for ( const int e : selection.Ids() )
+        {
+            const FIndex2i ev   = mesh.GetEdgeV( e );
+            const int      edge = view.FindEdge( ev.A, ev.B );
+            if ( edge < 0 )
+                return Common::MakeFormattedError<ElementSelection>(
+                     "ToEditMeshSelection: selected edge {} ({}, {}) has no edge in the EditMesh view", e, ev.A,
+                     ev.B );
+            if ( auto added = edges.Add( view, edge ); !added.IsSuccess() )
+                return Common::MakeError<ElementSelection>( "ToEditMeshSelection: " + added.GetError() );
+        }
+        return Common::MakeSuccess( std::move( edges ) );
     }
 
     Common::BoolResultStr SetEditableMeshFromEditMesh( ECS::StaticMeshComponent& component, EditMesh mesh )

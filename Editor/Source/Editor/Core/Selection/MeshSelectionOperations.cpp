@@ -198,41 +198,46 @@ namespace Desert::Editor::Core
         if ( !view.IsSuccess() )
             return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ), view.GetError() );
         const Geometry::EditMesh& beforeMesh = *view.GetValue();
+        // The operations still run on the EditMesh (P11-P19): the selection in its edge IDs.
+        auto inEditIds = Geometry::Bridge::ToEditMeshSelection( *before, beforeMesh, selection );
+        if ( !inEditIds.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ), inEditIds.GetError() );
+        const Geometry::ElementSelection editSelection = inEditIds.ExtractValue();
 
         Common::ResultStr<Geometry::MeshEditOutcome> result;
         std::shared_ptr<const Geometry::FDynamicMesh3> otherHalf; // Plane Cut, Keep Both Halves
         switch ( operation )
         {
             case MeshOperation::Delete:
-                result = Geometry::DeleteSelection( beforeMesh, selection );
+                result = Geometry::DeleteSelection( beforeMesh, editSelection );
                 break;
             case MeshOperation::Extrude:
-                result = Geometry::ExtrudeSelection( beforeMesh, selection, distance,
+                result = Geometry::ExtrudeSelection( beforeMesh, editSelection, distance,
                                                      Geometry::ExtrudeDirection::VertexNormals );
                 break;
             case MeshOperation::PushPull:
-                result = Geometry::PushPullSelection( beforeMesh, selection, distance );
+                result = Geometry::PushPullSelection( beforeMesh, editSelection, distance );
                 break;
             case MeshOperation::Offset:
-                result = Geometry::OffsetSelection( beforeMesh, selection, distance );
+                result = Geometry::OffsetSelection( beforeMesh, editSelection, distance );
                 break;
             case MeshOperation::Inset:
-                result = Geometry::InsetSelection( beforeMesh, selection, distance );
+                result = Geometry::InsetSelection( beforeMesh, editSelection, distance );
                 break;
             case MeshOperation::Outset:
-                result = Geometry::OutsetSelection( beforeMesh, selection, distance );
+                result = Geometry::OutsetSelection( beforeMesh, editSelection, distance );
                 break;
             case MeshOperation::Bevel:
-                result = Geometry::BevelSelection( beforeMesh, selection, distance );
+                result = Geometry::BevelSelection( beforeMesh, editSelection, distance );
                 break;
             case MeshOperation::InsertEdgeLoop:
-                result = Geometry::InsertEdgeLoop( beforeMesh, selection, args.LoopPosition );
+                result = Geometry::InsertEdgeLoop( beforeMesh, editSelection, args.LoopPosition );
                 break;
             case MeshOperation::Cut:
                 if ( !args.CutPlane )
                     return Common::MakeError<bool>( "Mesh Cut: no cut line - draw it in the viewport with the "
                                                     "knife (Alt+K, then two clicks)" );
-                result = Geometry::CutSelection( beforeMesh, selection, *args.CutPlane );
+                result = Geometry::CutSelection( beforeMesh, editSelection, *args.CutPlane );
                 break;
             case MeshOperation::Clean:
             {
@@ -241,7 +246,7 @@ namespace Desert::Editor::Core
                 if ( cleaned.IsSuccess() )
                 {
                     Geometry::CleanOutcome clean = cleaned.ExtractValue();
-                    clean.Edit.Selection         = Geometry::ElementSelection( selection.Mode() );
+                    clean.Edit.Selection         = Geometry::ElementSelection( editSelection.Mode() );
                     result                       = Common::MakeSuccess( std::move( clean.Edit ) );
                 }
                 else
@@ -251,7 +256,7 @@ namespace Desert::Editor::Core
             case MeshOperation::Subdivide:
                 result =
                      WholeMesh( Geometry::SubdivideMesh( beforeMesh, args.SubdivideLevels, args.SubdivideScheme ),
-                                selection.Mode() );
+                                editSelection.Mode() );
                 break;
             case MeshOperation::Mirror:
             {
@@ -261,7 +266,7 @@ namespace Desert::Editor::Core
                     return Common::MakeError<bool>( plane.GetError() );
                 result = WholeMesh(
                      Geometry::MirrorMesh( beforeMesh, plane.GetValue(), args.MirrorMode, args.WeldTolerance ),
-                     selection.Mode() );
+                     editSelection.Mode() );
                 break;
             }
             case MeshOperation::PlaneCut:
@@ -311,7 +316,7 @@ namespace Desert::Editor::Core
                 const glm::mat4 cutterToMesh = glm::inverse( e.GetWorldTransform() ) * cutter.GetWorldTransform();
                 result                       = WholeMesh(
                      Geometry::TrimMesh( beforeMesh, *cutterView.GetValue(), cutterToMesh, args.TrimSide ),
-                     selection.Mode() );
+                     editSelection.Mode() );
                 break;
             }
         }

@@ -4,7 +4,9 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
+#include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp>
 
 #include <memory>
 #include <string>
@@ -59,6 +61,17 @@ namespace Desert::Editor::Core
         {
             return m_TotalDropped;
         }
+        // The mesh the selection's IDs name and its polygroup topology, built together by Track (null when no
+        // mesh is tracked). Picking and every selection operation read these two.
+        [[nodiscard]] const std::shared_ptr<const Geometry::FDynamicMesh3>& Mesh() const
+        {
+            return m_Mesh;
+        }
+        [[nodiscard]] const Geometry::FGroupTopology* Topology() const
+        {
+            return m_Topology.get();
+        }
+
         [[nodiscard]] bool HasMesh() const
         {
             return m_Mesh != nullptr;
@@ -93,6 +106,10 @@ namespace Desert::Editor::Core
     private:
         Common::UUID                              m_Entity = Common::UUID::Null();
         std::shared_ptr<const Geometry::FDynamicMesh3> m_Mesh;
+        // Built from m_Mesh whenever m_Mesh changes. No other invalidation exists or is needed: the component's
+        // mesh is immutable (every edit puts a NEW FDynamicMesh3 on the entity), and m_Mesh keeps the one this
+        // topology was built from alive, so pointer identity cannot be reused under it.
+        std::unique_ptr<const Geometry::FGroupTopology> m_Topology;
         Geometry::ElementSelection                m_Selection{ Geometry::ElementMode::PolyGroup };
         Geometry::PruneReport                     m_LastDropped;
         int                                       m_TotalDropped = 0;

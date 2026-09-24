@@ -48,13 +48,22 @@ namespace Desert::Geometry::Bridge
     EditMeshView( const std::shared_ptr<const FDynamicMesh3>& mesh );
 
     // An operation's result back onto the ported core. The EditMesh is compacted first and @p selection (the
-    // operation's output selection, if the caller keeps one) is renumbered through the same maps, so its IDs
-    // name the returned mesh's elements. Refused when the converted mesh is refused by the FDynamicMesh3
+    // operation's output selection, if the caller keeps one) is renumbered through the same maps and its edges
+    // are then carried onto the FDynamicMesh3's edge IDs by vertex pair, so its IDs name the returned mesh's
+    // elements. Refused when the converted mesh is refused by the FDynamicMesh3
     // reader. removed by the last of the cards whose operations call it: P11 Extrude / Offset / Inset, P12 Edge
     // Loop / Weld / Hole Fill / Clean, P13a/b Bevel, P14 Plane Cut / Mirror, P15 Subdivide, P17 Boolean / Trim,
     // P19 (or its own card) the XForm tab; the function itself by P8b.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const FDynamicMesh3>>
     FromEditMesh( EditMesh mesh, ElementSelection* selection = nullptr );
+
+    // @p selection (IDs of @p mesh) in the IDs of @p view = EditMeshView( mesh ), for an operation that still runs
+    // on the EditMesh. Vertex, triangle and group IDs agree between the two (see EditMeshView); EDGE IDs are the
+    // one kind the cores number differently, so an edge is carried over as its vertex pair. Refused, naming the
+    // edge, when the view has no edge between those vertices (then @p view is not @p mesh's view). removed by
+    // the same cards as FromEditMesh; the function itself by P8b.
+    [[nodiscard]] Common::ResultStr<ElementSelection>
+    ToEditMeshSelection( const FDynamicMesh3& mesh, const EditMesh& view, const ElementSelection& selection );
 
     // FromEditMesh, then ECS::SetEditableMesh: what a tool that still BUILDS an EditMesh (Create Shape, the
     // CubeGrid blockout, a PolyEdit drag step) puts on the entity. Refused with either step's reason.
