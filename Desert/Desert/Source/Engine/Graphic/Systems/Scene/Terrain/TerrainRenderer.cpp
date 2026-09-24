@@ -174,7 +174,7 @@ namespace Desert::Graphic::System
         m_FrameGroups.clear();
         m_FrameDraws.clear();
         const auto* camera = m_SceneRenderer->GetMainCamera();
-        if ( !camera || m_Queue.empty() )
+        if ( ( camera == nullptr ) || m_Queue.empty() )
             return;
 
         // Max (near) tessellation level — the TCS scales each patch edge from this down to ~2 by
@@ -232,17 +232,21 @@ namespace Desert::Graphic::System
                     if ( handle == 0 )
                         continue;
                     auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
-                    if ( !tex )
+                    if ( tex == nullptr )
                         continue;
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this
+                    // exact type
+                    // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                    if ( img )
+                    // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+                    if ( img != nullptr )
                         surface->SetTexture( name, img );
                 }
                 // Per-terrain painted splat map (Manual layers). Null -> white fallback stays.
-                if ( t.SplatMap )
+                if ( t.SplatMap != nullptr )
                     surface->SetTexture( "u_SplatMap", t.SplatMap );
-                if ( t.Heightmap )
+                if ( t.Heightmap != nullptr )
                 {
                     surface->SetTexture( "u_Heightmap", t.Heightmap );
                     materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap );
@@ -255,8 +259,9 @@ namespace Desert::Graphic::System
             for ( const auto& [name, value] : t.Overrides.Params )
                 surface->SetParamRaw( name, value );
 
-            const TerrainInstance instance = t.Heightmap ? LandscapeInstance( t, kTessLevel )
-                                                         : ProceduralInstance( t, kTessLevel, kMaxGridDim );
+            const TerrainInstance instance = ( t.Heightmap != nullptr )
+                                                  ? LandscapeInstance( t, kTessLevel )
+                                                  : ProceduralInstance( t, kTessLevel, kMaxGridDim );
             const auto            gridDim  = static_cast<uint32_t>( instance.Params.y );
 
             FrameDraw draw;
@@ -278,14 +283,18 @@ namespace Desert::Graphic::System
 
         for ( const auto& group : m_FrameGroups )
         {
-            ProgramMaterials&   materials = m_Materials[group.Key];
+            ProgramMaterials const& materials = m_Materials[group.Key];
             DataDrivenMaterial* surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
             for ( DataDrivenMaterial* material : { surface, materials.Shadow.get() } )
             {
                 // The shadow program reads View too: its control stage measures LOD from the MAIN camera, so a
                 // cascade tessellates exactly as the camera does (TerrainShadow.shader).
                 if ( auto* terrainUB = material->Get<UniformBufferProperty>( "TerrainUB" ) )
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
+                    // bytes
+                    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
                     terrainUB->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
+                // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
                 if ( auto* rows = material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) )
                     if ( !group.ParamRows.empty() )
@@ -341,7 +350,7 @@ namespace Desert::Graphic::System
                              if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
                                  return;
                              const auto* camera = m_SceneRenderer->GetMainCamera();
-                             if ( !camera || m_FrameDraws.empty() )
+                             if ( ( camera == nullptr ) || m_FrameDraws.empty() )
                                  return;
                              RecordDraws( m_Pipeline.get(), &ProgramMaterials::Forward,
                                           camera->GetProjectionMatrix() * camera->GetViewMatrix() );
@@ -354,7 +363,7 @@ namespace Desert::Graphic::System
     {
         const auto& gbuffer = m_SceneRenderer->GetGBuffer();
         const auto* camera  = m_SceneRenderer->GetMainCamera();
-        if ( !gbuffer || !camera || !m_GBufferPipeline || m_FrameDraws.empty() )
+        if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_FrameDraws.empty() )
             return;
 
         // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it (MeshRenderer::

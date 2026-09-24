@@ -40,8 +40,11 @@ namespace Desert::ECS
                  .Height     = tile.SamplesZ() + 2u,
                  .Format     = Core::Formats::ImageFormat::R16_UNORM,
                  .Mips       = 1,
+                 .Samples    = 1,
+                 .Data       = Core::Formats::EmptyPixelData{},
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::ImageProperties::Sample,
+                 .MipLevels  = {},
             };
             spec.Data = std::move( bytes );
 
@@ -121,7 +124,7 @@ namespace Desert::ECS
             const Drawable* north = neighbourAt( tileComp, 0, 1 );
 
             const auto heightsOf = [&]( const Drawable* n ) -> const Landscape::LandscapeTileData*
-            { return n ? &*registry.get<LandscapeTileComponent>( n->Entity ).Heights : nullptr; };
+            { return ( n != nullptr ) ? &*registry.get<LandscapeTileComponent>( n->Entity ).Heights : nullptr; };
             Landscape::LandscapeTileNeighbours neighbours;
             neighbours.West     = heightsOf( west );
             neighbours.East     = heightsOf( east );
@@ -133,7 +136,7 @@ namespace Desert::ECS
             // this tile's copy stale as surely as its own edit does.
             bool neighbourDirty = false;
             for ( const Drawable* n : { west, east, south, north } )
-                neighbourDirty = neighbourDirty || ( n && n->Dirty );
+                neighbourDirty = neighbourDirty || ( ( n != nullptr ) && n->Dirty );
 
             TileGpu& gpu = m_Tiles[d.Entity];
             if ( d.Dirty || neighbourDirty || !gpu.Heightmap || gpu.SamplesX != heights.SamplesX() ||

@@ -295,7 +295,7 @@ namespace Desert::Editor::Commands
             {
             }
 
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return m_Label;
             }

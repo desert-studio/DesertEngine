@@ -284,8 +284,12 @@ namespace Desert::Editor
                              return {};
 
                          Graphic::SampledCube source;
+                         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names
+                         // this exact type
+                         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
                          source.Cube = static_cast<Graphic::ImageCube*>(
                               Runtime::ResourceRegistry::GetImageService()->Resolve( environment.RadianceMap ) );
+                         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                          if ( m_Scene )
                              if ( const auto owner = m_Scene->FindEntityByID( entityId );
                                   owner && owner->get().HasComponent<ECS::SkyboxComponent>() )

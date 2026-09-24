@@ -111,7 +111,7 @@ namespace Desert::Editor::Tools
         for ( size_t f = 0; f < face.size(); ++f )
             for ( const int e : mesh.GetTriangleEdges( face[f] ) )
                 for ( const int nb : mesh.GetEdgeTriangles( e ) )
-                    if ( nb != Geometry::InvalidId && !seen[nb] &&
+                    if ( nb != Geometry::InvalidId && ( seen[nb] == 0 ) &&
                          glm::dot( Geometry::TriangleNormal( mesh, nb ), hN ) > 0.99f )
                     {
                         seen[nb] = 1;

@@ -57,8 +57,9 @@ namespace
         attr.EnableColors();
         EXPECT_TRUE( attr.SetUVLayerCount( 2 ) );
 
-        std::vector<int> tangentOf( mesh.MaxVertexId() ), colorOf( mesh.MaxVertexId() ),
-             uv1Of( mesh.MaxVertexId() );
+        std::vector<int> tangentOf( mesh.MaxVertexId() );
+        std::vector<int> colorOf( mesh.MaxVertexId() );
+        std::vector<int> uv1Of( mesh.MaxVertexId() );
         for ( const int v : mesh.VertexIds() )
         {
             const glm::vec3 p = mesh.GetPosition( v );
@@ -86,7 +87,9 @@ namespace
             // UV 0: its own three elements per triangle (a seam on every edge, like a per-face projection).
             std::array<int, 3> uv0{};
             for ( int j = 0; j < 3; ++j )
-                uv0[j] = attr.UV( 0 )->AppendElement( { 0.25f * j + 0.01f * t, 0.5f - 0.03f * t } );
+                uv0[j] = attr.UV( 0 )->AppendElement(
+                     { 0.25f * static_cast<float>( j ) + 0.01f * static_cast<float>( t ),
+                       0.5f - 0.03f * static_cast<float>( t ) } );
             EXPECT_EQ( attr.UV( 0 )->SetTriangle( mesh, t, uv0 ), EditResult::Ok );
             EXPECT_EQ( attr.UV( 1 )->SetTriangle( mesh, t, { uv1Of[tri[0]], uv1Of[tri[1]], uv1Of[tri[2]] } ),
                        EditResult::Ok );
@@ -129,6 +132,7 @@ namespace
             return ::testing::AssertionFailure()
                    << a.Vertices.size() << " vs " << b.Vertices.size() << " vertices";
         for ( size_t i = 0; i < a.Vertices.size(); ++i )
+            // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison): byte identity is the claim
             if ( std::memcmp( &a.Vertices[i], &b.Vertices[i], sizeof( Desert::Vertex ) ) != 0 )
                 return ::testing::AssertionFailure() << "render vertex " << i << " differs";
         if ( a.Indices.size() != b.Indices.size() )
@@ -142,7 +146,8 @@ namespace
                    << a.Submeshes.size() << " vs " << b.Submeshes.size() << " submeshes";
         for ( size_t i = 0; i < a.Submeshes.size(); ++i )
         {
-            const auto &sa = a.Submeshes[i], &sb = b.Submeshes[i];
+            const auto& sa = a.Submeshes[i];
+            const auto& sb = b.Submeshes[i];
             if ( sa.Name != sb.Name || sa.VertexOffset != sb.VertexOffset || sa.VertexCount != sb.VertexCount ||
                  sa.IndexOffset != sb.IndexOffset || sa.IndexCount != sb.IndexCount ||
                  sa.BoundingBox.Min != sb.BoundingBox.Min || sa.BoundingBox.Max != sb.BoundingBox.Max )
@@ -186,13 +191,15 @@ TEST( EditMeshSaved, PolyGroupsAndMaterialIdsFollowTheirTriangles )
 
     // Compaction renumbers the triangles after the hole (ID 5), in ascending order; each keeps its own
     // polygroup and material across that renumbering.
-    std::vector<int> groups, materials;
+    std::vector<int> groups;
+    std::vector<int> materials;
     for ( const int t : original.TriangleIds() )
     {
         groups.push_back( original.Attributes().GetPolyGroup( t ) );
         materials.push_back( original.Attributes().GetMaterialId( t ) );
     }
-    std::vector<int> loadedGroups, loadedMaterials;
+    std::vector<int> loadedGroups;
+    std::vector<int> loadedMaterials;
     for ( const int t : loaded.TriangleIds() )
     {
         loadedGroups.push_back( loaded.Attributes().GetPolyGroup( t ) );
@@ -233,11 +240,15 @@ TEST( EditMeshSaved, ASavedFormNoWriterProducesIsRefusedByName )
     EXPECT_NE( refusal( outOfRange ).find( "names vertex 99" ), std::string::npos ) << refusal( outOfRange );
 
     EditMeshSer partlySet           = good;
-    partlySet.Normals->Triangles[1] = -1;
+    partlySet.Normals.value().Triangles[1] = -1; // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_NE( refusal( partlySet ).find( "only partly set" ), std::string::npos ) << refusal( partlySet );
 
     EditMeshSer unusedElement = good;
-    unusedElement.Colors->Values.insert( unusedElement.Colors->Values.end(), { 1.0f, 0.0f, 0.0f, 1.0f } );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    unusedElement.Colors.value().Values.insert(
+         unusedElement.Colors.value().Values.end(), // NOLINT(bugprone-unchecked-optional-access)
+         { 1.0f, 0.0f, 0.0f, 1.0f } );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_NE( refusal( unusedElement ).find( "not valid" ), std::string::npos ) << refusal( unusedElement );
 
     EditMeshSer duplicate = good;

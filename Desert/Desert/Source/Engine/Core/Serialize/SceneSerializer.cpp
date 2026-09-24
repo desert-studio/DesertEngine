@@ -78,7 +78,9 @@ namespace Desert::Core
                 if ( entity.HasComponent<ECS::LandscapeComponent>() )
                 {
                     const glm::mat4 world = entity.GetWorldTransform();
-                    const glm::vec3 x( world[0] ), y( world[1] ), z( world[2] );
+                    const glm::vec3 x( world[0] );
+                    const glm::vec3 y( world[1] );
+                    const glm::vec3 z( world[2] );
                     const bool      axisAligned = std::abs( x.y ) + std::abs( x.z ) + std::abs( y.x ) +
                                                   std::abs( y.z ) + std::abs( z.x ) + std::abs( z.y ) <
                                              1e-5f;
@@ -146,7 +148,7 @@ namespace Desert::Core
                 if ( !entity.HasComponent<ECS::UUIDComponent>() )
                     return Common::MakeFormattedError( "tile ({}, {}) has no entity id to name its file by",
                                                        tile.TileX, tile.TileZ );
-                const uint64_t id = static_cast<uint64_t>( entity.GetComponent<ECS::UUIDComponent>().UUID );
+                const auto id = static_cast<uint64_t>( entity.GetComponent<ECS::UUIDComponent>().UUID );
                 const std::filesystem::path file = World::Landscape::LandscapeTileBlobPath( relative, id );
                 if ( const auto written = World::Landscape::WriteLandscapeTileFile( file, *tile.Heights );
                      !written )

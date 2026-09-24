@@ -548,6 +548,7 @@ namespace Desert::Editor
             return {};
 
         // A cubemap MATERIAL has no scene look of its own: the asset as authored, identity.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         return { static_cast<const Graphic::ImageCube*>( imageService->Resolve( radiance ) ), {} };
     }
 

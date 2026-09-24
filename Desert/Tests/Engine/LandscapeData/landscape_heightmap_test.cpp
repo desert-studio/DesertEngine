@@ -95,7 +95,7 @@ namespace
     // TerrainTessEval.glslh, NeighbourPresent.
     float NeighbourPresent( const GpuTile& t, int bit )
     {
-        return static_cast<float>( ( static_cast<int>( t.Mask + 0.5f ) >> bit ) & 1 );
+        return static_cast<float>( ( static_cast<int>( std::lround( t.Mask ) ) >> bit ) & 1 );
     }
 
     // TerrainTessEval.glslh, TileGradient.
@@ -233,7 +233,9 @@ TEST( LandscapeHeightmap, TheTessellatedSurfaceIsTheCpuSampling )
             const float gz  = static_cast<float>( iz ) * 0.25f;
             const auto  cpu = SampleLandscapeHeight( tile, frame, gx, gz );
             ASSERT_TRUE( cpu.has_value() );
-            ASSERT_EQ( Bits( TesHeight( gpu, gx, gz ) ), Bits( *cpu ) ) << "at (" << gx << ", " << gz << ")";
+            ASSERT_EQ( Bits( TesHeight( gpu, gx, gz ) ),
+                       Bits( cpu.value() ) ) // NOLINT(bugprone-unchecked-optional-access)
+                 << "at (" << gx << ", " << gz << ")";
         }
 }
 
@@ -353,12 +355,12 @@ namespace
         std::array<LandscapeTileData, 4> Tiles = { CutTile( kQuads, 0, 0 ), CutTile( kQuads, 1, 0 ),
                                                    CutTile( kQuads, 0, 1 ), CutTile( kQuads, 1, 1 ) };
 
-        const LandscapeTileData& At( uint32_t tx, uint32_t tz ) const
+        [[nodiscard]] const LandscapeTileData& At( uint32_t tx, uint32_t tz ) const
         {
             return Tiles[tz * 2u + tx];
         }
 
-        LandscapeTileNeighbours NeighboursOf( uint32_t tx, uint32_t tz ) const
+        [[nodiscard]] LandscapeTileNeighbours NeighboursOf( uint32_t tx, uint32_t tz ) const
         {
             LandscapeTileNeighbours n;
             n.West  = tx == 1u ? &At( 0u, tz ) : nullptr;
@@ -369,7 +371,7 @@ namespace
         }
 
         // Tile frames on a unit spacing at the origin, so world -> grid is exact on the CPU side.
-        LandscapeFrame FrameOf( uint32_t tx, uint32_t tz ) const
+        [[nodiscard]] static LandscapeFrame FrameOf( uint32_t tx, uint32_t tz )
         {
             LandscapeFrame f;
             f.OriginX   = static_cast<float>( tx * kQuads );
@@ -379,7 +381,7 @@ namespace
             return f;
         }
 
-        GpuTile Gpu( uint32_t tx, uint32_t tz, bool withNeighbours ) const
+        [[nodiscard]] GpuTile Gpu( uint32_t tx, uint32_t tz, bool withNeighbours ) const
         {
             return MakeGpuTile( At( tx, tz ), withNeighbours ? NeighboursOf( tx, tz ) : LandscapeTileNeighbours{},
                                 static_cast<float>( tx * kQuads ), static_cast<float>( tz * kQuads ),
@@ -461,14 +463,18 @@ TEST( LandscapeHeightmap, TheNormalOnASeamIsOneValueFromBothTilesCpuAndGpu )
     {
         const glm::vec3 gpuA = TesNormal( land.Gpu( p.ax, p.az, true ), p.G.x, p.G.y, 1.0f );
         const glm::vec3 gpuB = TesNormal( land.Gpu( p.bx, p.bz, true ), p.G.x, p.G.y, 1.0f );
-        const auto      cpuA = SampleLandscapeNormal( land.At( p.ax, p.az ), land.FrameOf( p.ax, p.az ),
+        const auto      cpuA = SampleLandscapeNormal( land.At( p.ax, p.az ), TwoByTwo::FrameOf( p.ax, p.az ),
                                                       land.NeighboursOf( p.ax, p.az ), p.G.x, p.G.y );
-        const auto      cpuB = SampleLandscapeNormal( land.At( p.bx, p.bz ), land.FrameOf( p.bx, p.bz ),
+        const auto      cpuB = SampleLandscapeNormal( land.At( p.bx, p.bz ), TwoByTwo::FrameOf( p.bx, p.bz ),
                                                       land.NeighboursOf( p.bx, p.bz ), p.G.x, p.G.y );
         ASSERT_TRUE( cpuA.has_value() && cpuB.has_value() ) << p.G.x << ", " << p.G.y;
         ASSERT_TRUE( SameBits( gpuA, gpuB ) ) << "GPU seam normal differs at (" << p.G.x << ", " << p.G.y << ")";
-        ASSERT_TRUE( SameBits( *cpuA, *cpuB ) ) << "CPU seam normal differs at (" << p.G.x << ", " << p.G.y << ")";
-        ASSERT_TRUE( SameBits( *cpuA, gpuA ) ) << "CPU != GPU at (" << p.G.x << ", " << p.G.y << ")";
+        ASSERT_TRUE( SameBits( cpuA.value(), cpuB.value() ) ) // NOLINT(bugprone-unchecked-optional-access)
+             << "CPU seam normal differs at (" << p.G.x << ", " << p.G.y << ")";
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        ASSERT_TRUE( SameBits( cpuA.value(), gpuA ) )
+             << "CPU != GPU at (" << p.G.x << ", " << p.G.y << ")"; // NOLINT(bugprone-unchecked-optional-access)
+        // NOLINTEND(bugprone-unchecked-optional-access)
         ++compared;
     }
     EXPECT_EQ( compared, 2u * ( 2u * TwoByTwo::kQuads * 4u + 1u ) + 2u );
@@ -490,10 +496,13 @@ TEST( LandscapeHeightmap, TheCpuNormalIsTheGpuNormalOverEveryTile )
                          static_cast<float>( tx * TwoByTwo::kQuads ) + static_cast<float>( ix ) * 0.25f;
                     const float gz =
                          static_cast<float>( tz * TwoByTwo::kQuads ) + static_cast<float>( iz ) * 0.25f;
-                    const auto cpu = SampleLandscapeNormal( land.At( tx, tz ), land.FrameOf( tx, tz ),
+                    const auto cpu = SampleLandscapeNormal( land.At( tx, tz ), TwoByTwo::FrameOf( tx, tz ),
                                                             land.NeighboursOf( tx, tz ), gx, gz );
                     ASSERT_TRUE( cpu.has_value() );
-                    ASSERT_TRUE( SameBits( *cpu, TesNormal( gpu, gx, gz, 1.0f ) ) ) << gx << ", " << gz;
+                    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+                    ASSERT_TRUE( SameBits( cpu.value(), TesNormal( gpu, gx, gz, 1.0f ) ) )
+                         << gx << ", " << gz; // NOLINT(bugprone-unchecked-optional-access)
+                    // NOLINTEND(bugprone-unchecked-optional-access)
                 }
         }
 }
@@ -536,6 +545,6 @@ TEST( LandscapeHeightmap, OnTheLandscapesOwnEdgeTheGradientIsOneSided )
         ASSERT_TRUE( cpuN.has_value() );
         EXPECT_NEAR( gpuN.x, expected.x, 1e-6f ) << g;
         EXPECT_NEAR( gpuN.y, expected.y, 1e-6f ) << g;
-        EXPECT_TRUE( SameBits( *cpuN, gpuN ) ) << g;
+        EXPECT_TRUE( SameBits( cpuN.value(), gpuN ) ) << g; // NOLINT(bugprone-unchecked-optional-access)
     }
 }
