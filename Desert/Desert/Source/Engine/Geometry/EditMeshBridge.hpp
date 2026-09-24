@@ -6,10 +6,10 @@
 // and nothing else: outside Geometry/EditMesh* and this bridge no source includes an EditMesh header
 // (EditMeshBridgeCensus pins it), so the day the last card lands, deleting this pair is the whole cleanup (P8b).
 //
-// Which card removes which crossing: element selection and picking -> P10; Extrude / Offset / Inset -> P11;
-// Edge Loop / Weld / Hole Fill / Clean -> P12; Bevel -> P13a/b; Plane Cut / Mirror -> P14; Subdivide -> P15;
-// Create Shape and the shape generators -> P16; Boolean / Trim -> P17; the CubeGrid bake -> P18; the XForm tab
-// (our own, no UE counterpart) -> P19 or a card of its own. The bridge as a whole -> P8b.
+// Which card removes which crossing: element selection and picking -> P10; Offset (ours, no UE counterpart) -> P11
+// left it here; Edge Loop / Weld / Hole Fill / Clean -> P12; Bevel -> P13a/b; Plane Cut / Mirror -> P14; Subdivide
+// -> P15; Create Shape and the shape generators -> P16; Boolean / Trim -> P17; the CubeGrid bake -> P18; the XForm
+// tab (our own, no UE counterpart) -> P19 or a card of its own. The bridge as a whole -> P8b.
 //
 // The editor sees the EditMesh types (selection, operation arguments, the operations themselves) only through
 // the includes below, which is why they are here and not in the callers.
@@ -51,9 +51,9 @@ namespace Desert::Geometry::Bridge
     // operation's output selection, if the caller keeps one) is renumbered through the same maps and its edges
     // are then carried onto the FDynamicMesh3's edge IDs by vertex pair, so its IDs name the returned mesh's
     // elements. Refused when the converted mesh is refused by the FDynamicMesh3
-    // reader. removed by the last of the cards whose operations call it: P11 Extrude / Offset / Inset, P12 Edge
-    // Loop / Weld / Hole Fill / Clean, P13a/b Bevel, P14 Plane Cut / Mirror, P15 Subdivide, P17 Boolean / Trim,
-    // P19 (or its own card) the XForm tab; the function itself by P8b.
+    // reader. removed by the last of the cards whose operations call it: Offset (ours; P11 ported Extrude /
+    // Inset), P12 Edge Loop / Weld / Hole Fill / Clean, P13a/b Bevel, P14 Plane Cut / Mirror, P15 Subdivide, P17
+    // Boolean / Trim, P19 (or its own card) the XForm tab; the function itself by P8b.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const FDynamicMesh3>>
     FromEditMesh( EditMesh mesh, ElementSelection* selection = nullptr );
 

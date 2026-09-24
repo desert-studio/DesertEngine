@@ -10,7 +10,10 @@
 
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/UECore/Operations/InsetMeshRegion.hpp>
+#include <Engine/Geometry/UECore/Operations/OffsetMeshRegion.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -114,6 +117,108 @@ namespace Desert::Editor::Core
             outcome.Selection                 = Geometry::ElementSelection( mode );
             return Common::MakeSuccess( std::move( outcome ) );
         }
+
+        bool IsRegionOperation( MeshOperation operation )
+        {
+            return operation == MeshOperation::Extrude || operation == MeshOperation::PushPull ||
+                   operation == MeshOperation::Inset || operation == MeshOperation::Outset;
+        }
+
+        struct RegionOutcome
+        {
+            std::shared_ptr<const Geometry::FDynamicMesh3> Mesh;
+            Geometry::ElementSelection                     Selection{ Geometry::ElementMode::Triangle };
+        };
+
+        // Extrude / Push-Pull / Inset / Outset, as UE's PolyEdit runs them on a copy of the mesh:
+        // FExtrudeOp (ModelingOperators/Private/DeformationOps/ExtrudeOp.cpp:94-146) drives FOffsetMeshRegion,
+        // UPolyEditInsetOutsetActivity (PolyEditInsetOutsetActivity.cpp:181) drives FInsetMeshRegion with the
+        // distance negated for Outset. The result's selection is the moved region (OffsetTids) or the inset
+        // region (InitialTriangles), in the mode the user selected in.
+        Common::ResultStr<RegionOutcome> RunRegionOperation( MeshOperation                     operation,
+                                                             const Geometry::FDynamicMesh3&    before,
+                                                             const Geometry::ElementSelection& selection,
+                                                             float                             distance )
+        {
+            const char* name = ToString( operation );
+            if ( distance == 0.0f )
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: distance 0 cm changes nothing", name );
+            if ( distance < 0.0f && operation != MeshOperation::PushPull )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh {}: distance {} cm is negative - {}", name, distance,
+                     operation == MeshOperation::Extrude ? "Push/Pull takes a signed distance"
+                     : operation == MeshOperation::Inset ? "use Outset"
+                                                         : "use Inset" );
+            const Geometry::FGroupTopology   topology( &before, true );
+            const Geometry::ElementSelection triangles =
+                 Geometry::ConvertSelection( before, topology, selection, Geometry::ElementMode::Triangle );
+            if ( triangles.Empty() )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh {}: the {} selected {} cover no whole triangle", name, selection.Size(),
+                     Geometry::ToString( selection.Mode() ) );
+            Geometry::TArray<Geometry::int32> regionTriangles;
+            for ( const int t : triangles.Ids() )
+                regionTriangles.Add( t );
+
+            auto                              mesh = std::make_shared<Geometry::FDynamicMesh3>( before );
+            Geometry::TArray<Geometry::int32> resultTriangles;
+            if ( operation == MeshOperation::Extrude || operation == MeshOperation::PushPull )
+            {
+                Geometry::FOffsetMeshRegion extruder( mesh.get() );
+                extruder.Triangles = regionTriangles;
+                // UE's Extrude default (SelectedTriangleNormalsEven): every selected face moves by the full
+                // distance. Push/Pull is FExtrudeOp's SingleDirection: one direction, the region's area-weighted
+                // normal, so the walls are parallel and a push into a solid cannot fold them.
+                extruder.ExtrusionVectorType = Geometry::FOffsetMeshRegion::EVertexExtrusionVectorType::
+                     SelectionTriNormalsAngleWeightedAdjusted;
+                extruder.DefaultOffsetDistance = distance;
+                if ( operation == MeshOperation::PushPull )
+                {
+                    Geometry::FVector3d direction( 0.0, 0.0, 0.0 );
+                    for ( const int t : triangles.Ids() )
+                        direction += before.GetTriNormal( t ) * before.GetTriArea( t );
+                    if ( direction.Length() <= 0.0 )
+                        return Common::MakeFormattedError<RegionOutcome>(
+                             "Mesh {}: the {} selected triangles have no average normal (they cancel out)", name,
+                             triangles.Size() );
+                    Geometry::Normalize( direction );
+                    const double signedDistance = distance;
+                    extruder.OffsetPositionFunc = [direction, signedDistance]( const Geometry::FVector3d& position,
+                                                                               const Geometry::FVector3d&, int )
+                    { return position + direction * signedDistance; };
+                }
+                extruder.bIsPositiveOffset = distance > 0.0f;
+                if ( !extruder.Apply() )
+                    return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name,
+                                                                      extruder.FailureReason );
+                for ( const auto& region : extruder.OffsetRegions )
+                    for ( const Geometry::int32 t : region.OffsetTids )
+                        resultTriangles.Add( t );
+            }
+            else
+            {
+                Geometry::FInsetMeshRegion inset( mesh.get() );
+                inset.Triangles     = regionTriangles;
+                inset.InsetDistance = operation == MeshOperation::Outset ? -distance : distance;
+                if ( !inset.Apply() )
+                    return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, inset.FailureReason );
+                for ( const auto& region : inset.InsetRegions )
+                    for ( const Geometry::int32 t : region.InitialTriangles )
+                        resultTriangles.Add( t );
+            }
+
+            Geometry::ElementSelection result( Geometry::ElementMode::Triangle );
+            for ( const Geometry::int32 t : resultTriangles )
+                if ( auto added = result.Add( *mesh, t ); !added.IsSuccess() )
+                    return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: result triangle {}: {}", name, t,
+                                                                      added.GetError() );
+            if ( selection.Mode() != Geometry::ElementMode::Triangle )
+            {
+                const Geometry::FGroupTopology afterTopology( mesh.get(), true );
+                result = Geometry::ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
+            }
+            return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
+        }
     } // namespace
 
     bool TakesDistance( MeshOperation operation )
@@ -194,140 +299,153 @@ namespace Desert::Editor::Core
         // What undo restores: null for a lifted asset, so one undo removes the lift and the edit together.
         const std::shared_ptr<const Geometry::FDynamicMesh3> committed = target.GetValue().Committed;
         const Geometry::ElementSelection                     selection = state.Selection();
-        auto                                                 view      = Geometry::Bridge::EditMeshView( before );
-        if ( !view.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ), view.GetError() );
-        const Geometry::EditMesh& beforeMesh = *view.GetValue();
-        // The operations still run on the EditMesh (P11-P19): the selection in its edge IDs.
-        auto inEditIds = Geometry::Bridge::ToEditMeshSelection( *before, beforeMesh, selection );
-        if ( !inEditIds.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ), inEditIds.GetError() );
-        const Geometry::ElementSelection editSelection = inEditIds.ExtractValue();
-
-        Common::ResultStr<Geometry::MeshEditOutcome> result;
-        std::shared_ptr<const Geometry::FDynamicMesh3> otherHalf; // Plane Cut, Keep Both Halves
-        switch ( operation )
+        std::shared_ptr<const Geometry::FDynamicMesh3>       otherHalf; // Plane Cut, Keep Both Halves
+        std::shared_ptr<const Geometry::FDynamicMesh3>       after;
+        Geometry::MeshEditOutcome                            outcome;
+        if ( IsRegionOperation( operation ) )
         {
-            case MeshOperation::Delete:
-                result = Geometry::DeleteSelection( beforeMesh, editSelection );
-                break;
-            case MeshOperation::Extrude:
-                result = Geometry::ExtrudeSelection( beforeMesh, editSelection, distance,
-                                                     Geometry::ExtrudeDirection::VertexNormals );
-                break;
-            case MeshOperation::PushPull:
-                result = Geometry::PushPullSelection( beforeMesh, editSelection, distance );
-                break;
-            case MeshOperation::Offset:
-                result = Geometry::OffsetSelection( beforeMesh, editSelection, distance );
-                break;
-            case MeshOperation::Inset:
-                result = Geometry::InsetSelection( beforeMesh, editSelection, distance );
-                break;
-            case MeshOperation::Outset:
-                result = Geometry::OutsetSelection( beforeMesh, editSelection, distance );
-                break;
-            case MeshOperation::Bevel:
-                result = Geometry::BevelSelection( beforeMesh, editSelection, distance );
-                break;
-            case MeshOperation::InsertEdgeLoop:
-                result = Geometry::InsertEdgeLoop( beforeMesh, editSelection, args.LoopPosition );
-                break;
-            case MeshOperation::Cut:
-                if ( !args.CutPlane )
-                    return Common::MakeError<bool>( "Mesh Cut: no cut line - draw it in the viewport with the "
-                                                    "knife (Alt+K, then two clicks)" );
-                result = Geometry::CutSelection( beforeMesh, editSelection, *args.CutPlane );
-                break;
-            case MeshOperation::Clean:
-            {
-                // Clean is mesh-wide: it takes no selection and leaves none (every ID may change).
-                auto cleaned = Geometry::CleanMesh( beforeMesh, args.WeldTolerance );
-                if ( cleaned.IsSuccess() )
-                {
-                    Geometry::CleanOutcome clean = cleaned.ExtractValue();
-                    clean.Edit.Selection         = Geometry::ElementSelection( editSelection.Mode() );
-                    result                       = Common::MakeSuccess( std::move( clean.Edit ) );
-                }
-                else
-                    result = Common::MakeError<Geometry::MeshEditOutcome>( cleaned.GetError() );
-                break;
-            }
-            case MeshOperation::Subdivide:
-                result =
-                     WholeMesh( Geometry::SubdivideMesh( beforeMesh, args.SubdivideLevels, args.SubdivideScheme ),
-                                editSelection.Mode() );
-                break;
-            case MeshOperation::Mirror:
-            {
-                auto plane = AxisPlane( e, args.MirrorAxis, args.MirrorWorld, args.MirrorKeepNegative, 0.0f,
-                                        "Mesh Mirror" );
-                if ( !plane.IsSuccess() )
-                    return Common::MakeError<bool>( plane.GetError() );
-                result = WholeMesh(
-                     Geometry::MirrorMesh( beforeMesh, plane.GetValue(), args.MirrorMode, args.WeldTolerance ),
-                     editSelection.Mode() );
-                break;
-            }
-            case MeshOperation::PlaneCut:
-            {
-                auto plane = AxisPlane( e, args.PlaneCutAxis, args.PlaneCutWorld, args.PlaneCutKeepNegative,
-                                        args.PlaneCutOffset, "Mesh Plane Cut" );
-                if ( !plane.IsSuccess() )
-                    return Common::MakeError<bool>( plane.GetError() );
-                auto cut =
-                     Geometry::PlaneCutMesh( beforeMesh, plane.GetValue(), args.PlaneCutMode, args.PlaneCutFill );
-                if ( !cut.IsSuccess() )
-                    return Common::MakeError<bool>( cut.GetError() );
-                Geometry::PlaneCutOutcome halves = cut.ExtractValue();
-                if ( halves.OtherHalf )
-                {
-                    auto other = Geometry::Bridge::FromEditMesh( std::move( *halves.OtherHalf ) );
-                    if ( !other.IsSuccess() )
-                        return Common::MakeError<bool>( "Mesh Plane Cut, other half: " + other.GetError() );
-                    otherHalf = other.ExtractValue();
-                }
-                result = Common::MakeSuccess( std::move( halves.Kept ) );
-                break;
-            }
-            case MeshOperation::Trim:
-            {
-                if ( args.TrimCutter.IsNull() )
-                    return Common::MakeError<bool>( "Mesh Trim: no cutter - select the cutter entity (a closed "
-                                                    "convex mesh) and press Pick Cutter in the Modeling panel" );
-                if ( args.TrimCutter == entity )
-                    return Common::MakeError<bool>( "Mesh Trim: the cutter is the mesh being edited - a mesh "
-                                                    "cannot trim itself" );
-                auto cutterRef = scene.FindEntityByID( args.TrimCutter );
-                if ( !cutterRef )
-                    return Common::MakeFormattedError<bool>( "Mesh Trim: the cutter entity {} is not in the scene",
-                                                             static_cast<uint64_t>( args.TrimCutter ) );
-                ECS::Entity cutter = cutterRef->get();
-                if ( !cutter.HasComponent<ECS::StaticMeshComponent>() )
-                    return Common::MakeFormattedError<bool>( "Mesh Trim: the cutter entity {} has no static mesh",
-                                                             static_cast<uint64_t>( args.TrimCutter ) );
-                auto cutterTarget = GetToolTargetMesh( cutter.GetComponent<ECS::StaticMeshComponent>() );
-                if ( !cutterTarget.IsSuccess() )
-                    return Common::MakeError<bool>( "Mesh Trim, cutter: " + cutterTarget.GetError() );
-                // WORLD transforms, parent chains included: either entity may be a child.
-                auto cutterView = Geometry::Bridge::EditMeshView( cutterTarget.GetValue().Mesh );
-                if ( !cutterView.IsSuccess() )
-                    return Common::MakeError<bool>( "Mesh Trim, cutter: " + cutterView.GetError() );
-                const glm::mat4 cutterToMesh = glm::inverse( e.GetWorldTransform() ) * cutter.GetWorldTransform();
-                result                       = WholeMesh(
-                     Geometry::TrimMesh( beforeMesh, *cutterView.GetValue(), cutterToMesh, args.TrimSide ),
-                     editSelection.Mode() );
-                break;
-            }
+            auto region = RunRegionOperation( operation, *before, selection, distance );
+            if ( !region.IsSuccess() )
+                return Common::MakeError<bool>( region.GetError() );
+            RegionOutcome done = region.ExtractValue();
+            after              = std::move( done.Mesh );
+            outcome.Selection  = std::move( done.Selection );
         }
-        if ( !result.IsSuccess() )
-            return Common::MakeError<bool>( result.GetError() );
-        Geometry::MeshEditOutcome outcome = result.ExtractValue();
+        else
+        {
+            auto view = Geometry::Bridge::EditMeshView( before );
+            if ( !view.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ), view.GetError() );
+            const Geometry::EditMesh& beforeMesh = *view.GetValue();
+            // The operations still run on the EditMesh (P11-P19): the selection in its edge IDs.
+            auto inEditIds = Geometry::Bridge::ToEditMeshSelection( *before, beforeMesh, selection );
+            if ( !inEditIds.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ),
+                                                         inEditIds.GetError() );
+            const Geometry::ElementSelection editSelection = inEditIds.ExtractValue();
 
-        auto converted = Geometry::Bridge::FromEditMesh( std::move( outcome.Mesh ), &outcome.Selection );
-        if ( !converted.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ), converted.GetError() );
-        std::shared_ptr<const Geometry::FDynamicMesh3> after = converted.ExtractValue();
+            Common::ResultStr<Geometry::MeshEditOutcome> result;
+            switch ( operation )
+            {
+                case MeshOperation::Delete:
+                    result = Geometry::DeleteSelection( beforeMesh, editSelection );
+                    break;
+                case MeshOperation::Extrude:
+                case MeshOperation::PushPull:
+                case MeshOperation::Inset:
+                case MeshOperation::Outset:
+                    return Common::MakeFormattedError<bool>( "Mesh {}: runs on FDynamicMesh3, not the EditMesh",
+                                                             ToString( operation ) );
+                case MeshOperation::Offset:
+                    result = Geometry::OffsetSelection( beforeMesh, editSelection, distance );
+                    break;
+                case MeshOperation::Bevel:
+                    result = Geometry::BevelSelection( beforeMesh, editSelection, distance );
+                    break;
+                case MeshOperation::InsertEdgeLoop:
+                    result = Geometry::InsertEdgeLoop( beforeMesh, editSelection, args.LoopPosition );
+                    break;
+                case MeshOperation::Cut:
+                    if ( !args.CutPlane )
+                        return Common::MakeError<bool>( "Mesh Cut: no cut line - draw it in the viewport with the "
+                                                        "knife (Alt+K, then two clicks)" );
+                    result = Geometry::CutSelection( beforeMesh, editSelection, *args.CutPlane );
+                    break;
+                case MeshOperation::Clean:
+                {
+                    // Clean is mesh-wide: it takes no selection and leaves none (every ID may change).
+                    auto cleaned = Geometry::CleanMesh( beforeMesh, args.WeldTolerance );
+                    if ( cleaned.IsSuccess() )
+                    {
+                        Geometry::CleanOutcome clean = cleaned.ExtractValue();
+                        clean.Edit.Selection         = Geometry::ElementSelection( editSelection.Mode() );
+                        result                       = Common::MakeSuccess( std::move( clean.Edit ) );
+                    }
+                    else
+                        result = Common::MakeError<Geometry::MeshEditOutcome>( cleaned.GetError() );
+                    break;
+                }
+                case MeshOperation::Subdivide:
+                    result = WholeMesh(
+                         Geometry::SubdivideMesh( beforeMesh, args.SubdivideLevels, args.SubdivideScheme ),
+                         editSelection.Mode() );
+                    break;
+                case MeshOperation::Mirror:
+                {
+                    auto plane = AxisPlane( e, args.MirrorAxis, args.MirrorWorld, args.MirrorKeepNegative, 0.0f,
+                                            "Mesh Mirror" );
+                    if ( !plane.IsSuccess() )
+                        return Common::MakeError<bool>( plane.GetError() );
+                    result = WholeMesh(
+                         Geometry::MirrorMesh( beforeMesh, plane.GetValue(), args.MirrorMode, args.WeldTolerance ),
+                         editSelection.Mode() );
+                    break;
+                }
+                case MeshOperation::PlaneCut:
+                {
+                    auto plane = AxisPlane( e, args.PlaneCutAxis, args.PlaneCutWorld, args.PlaneCutKeepNegative,
+                                            args.PlaneCutOffset, "Mesh Plane Cut" );
+                    if ( !plane.IsSuccess() )
+                        return Common::MakeError<bool>( plane.GetError() );
+                    auto cut = Geometry::PlaneCutMesh( beforeMesh, plane.GetValue(), args.PlaneCutMode,
+                                                       args.PlaneCutFill );
+                    if ( !cut.IsSuccess() )
+                        return Common::MakeError<bool>( cut.GetError() );
+                    Geometry::PlaneCutOutcome halves = cut.ExtractValue();
+                    if ( halves.OtherHalf )
+                    {
+                        auto other = Geometry::Bridge::FromEditMesh( std::move( *halves.OtherHalf ) );
+                        if ( !other.IsSuccess() )
+                            return Common::MakeError<bool>( "Mesh Plane Cut, other half: " + other.GetError() );
+                        otherHalf = other.ExtractValue();
+                    }
+                    result = Common::MakeSuccess( std::move( halves.Kept ) );
+                    break;
+                }
+                case MeshOperation::Trim:
+                {
+                    if ( args.TrimCutter.IsNull() )
+                        return Common::MakeError<bool>(
+                             "Mesh Trim: no cutter - select the cutter entity (a closed "
+                             "convex mesh) and press Pick Cutter in the Modeling panel" );
+                    if ( args.TrimCutter == entity )
+                        return Common::MakeError<bool>( "Mesh Trim: the cutter is the mesh being edited - a mesh "
+                                                        "cannot trim itself" );
+                    auto cutterRef = scene.FindEntityByID( args.TrimCutter );
+                    if ( !cutterRef )
+                        return Common::MakeFormattedError<bool>(
+                             "Mesh Trim: the cutter entity {} is not in the scene",
+                             static_cast<uint64_t>( args.TrimCutter ) );
+                    ECS::Entity cutter = cutterRef->get();
+                    if ( !cutter.HasComponent<ECS::StaticMeshComponent>() )
+                        return Common::MakeFormattedError<bool>(
+                             "Mesh Trim: the cutter entity {} has no static mesh",
+                             static_cast<uint64_t>( args.TrimCutter ) );
+                    auto cutterTarget = GetToolTargetMesh( cutter.GetComponent<ECS::StaticMeshComponent>() );
+                    if ( !cutterTarget.IsSuccess() )
+                        return Common::MakeError<bool>( "Mesh Trim, cutter: " + cutterTarget.GetError() );
+                    // WORLD transforms, parent chains included: either entity may be a child.
+                    auto cutterView = Geometry::Bridge::EditMeshView( cutterTarget.GetValue().Mesh );
+                    if ( !cutterView.IsSuccess() )
+                        return Common::MakeError<bool>( "Mesh Trim, cutter: " + cutterView.GetError() );
+                    const glm::mat4 cutterToMesh =
+                         glm::inverse( e.GetWorldTransform() ) * cutter.GetWorldTransform();
+                    result = WholeMesh(
+                         Geometry::TrimMesh( beforeMesh, *cutterView.GetValue(), cutterToMesh, args.TrimSide ),
+                         editSelection.Mode() );
+                    break;
+                }
+            }
+            if ( !result.IsSuccess() )
+                return Common::MakeError<bool>( result.GetError() );
+            outcome = result.ExtractValue();
+
+            auto converted = Geometry::Bridge::FromEditMesh( std::move( outcome.Mesh ), &outcome.Selection );
+            if ( !converted.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ),
+                                                         converted.GetError() );
+            after = converted.ExtractValue();
+        }
         if ( auto set = ECS::SetEditableMesh( smc, after ); !set.IsSuccess() )
             return Common::MakeFormattedError<bool>( "Mesh {}: the result could not be put on the entity: {}",
                                                      ToString( operation ), set.GetError() );
