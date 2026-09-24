@@ -363,7 +363,8 @@ def main():
         for rx in TREE_SEARCH:
             if rx.search(cmd):
                 save_state(state, path)
-                deny("[agent_guard] Поиск по дереву в своём контексте запрещён (контракт §7.3). Отдай вопрос "
+                deny("[agent_guard] Поиск по дереву в своём контексте запрещён (контракт §7.3). Где определено имя — "
+                     "scripts/Dev/sym.sh <Имя> (1–2 с), где используется — sym.sh --refs <Имя>. Вопрос шире — "
                      "субагенту: Agent(subagent_type: \"Explore\", prompt: \"<что найти, ответ ≤60 строк>\"). "
                      "Сам ищи только внутри уже известных файлов: grep -n <шаблон> <файл>.", data, agent)
         if FIND.search(cmd) and "-maxdepth" not in cmd:
