@@ -68,7 +68,7 @@ namespace Desert::WorldGen
         // SceneSerializer.cpp:159 names for SplashSprite, met again on the way in.
         struct MaterialIdentityOnly
         {
-            uint64_t MaterialId = 0;
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         };
 
         // The material's own file is the only place its identity is written down, so the generator READS
@@ -84,12 +84,16 @@ namespace Desert::WorldGen
 
             const auto parsed = rfl::json::read<MaterialIdentityOnly>( text.GetValue() );
             if ( !parsed.has_value() )
-                return Common::MakeError<MaterialRef>( "material '" + relative +
-                                                       "' states no readable MaterialId" );
-            if ( parsed.value().MaterialId == 0 )
-                return Common::MakeError<MaterialRef>( "material '" + relative + "' has MaterialId 0" );
+                return Common::MakeError<MaterialRef>( "material '" + relative + "' states no readable header" );
+            if ( !parsed.value().Header )
+                return Common::MakeError<MaterialRef>( "material '" + relative + "' has no header" );
+            const auto guid = Common::Content::AssetGuidFromText( parsed.value().Header->Guid );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeError<MaterialRef>( "material '" + relative + "' states no GUID" );
 
-            return Common::MakeSuccess<MaterialRef>( { relative, parsed.value().MaterialId } );
+            // The handle a scene names it by: its GUID through the one fold the engine uses.
+            return Common::MakeSuccess<MaterialRef>(
+                 { relative, static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) } );
         }
 
         // THE WORLD'S PALETTE. Four untextured colours for the buildings and the one textured material

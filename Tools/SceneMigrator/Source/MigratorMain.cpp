@@ -45,6 +45,7 @@
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
 #include <Engine/Assets/MaterialFormat.hpp>
+#include "LegacyMaterialIds.hpp"
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
 #include "SettingsCanonical.hpp"
@@ -938,6 +939,31 @@ namespace Desert::Migration
         // are already produced with the current slot names (MigrateCloudMaterialV11ToV12 calls the same
         // step), so this pass finds nothing to do in them and says so. Running it first would depend on
         // whether the file existed yet, which is an ordering nobody should have to know about.
+        // THE OLD MATERIAL NUMBERS, per assets root, loaded once (LegacyMaterialIds.hpp) and - outside
+        // --check - written to the register BEFORE any material is rewritten: once a file is v2 its old
+        // number is stated nowhere else, and the scene step (SCNE 27) still has to translate it.
+        std::map<std::filesystem::path, Desert::Migration::LegacyMaterialIdMap> legacyIds;
+        const auto                                                              LegacyIdsFor =
+             [&]( const std::filesystem::path& root ) -> const Desert::Migration::LegacyMaterialIdMap*
+        {
+            if ( const auto at = legacyIds.find( root ); at != legacyIds.end() )
+                return &at->second;
+            auto loaded = Desert::Migration::LoadLegacyMaterialIds( root );
+            if ( !loaded )
+            {
+                err << "FAIL   " << root.string() << " — " << loaded.GetError() << "\n";
+                return nullptr;
+            }
+            if ( !check )
+                if ( const auto saved = Desert::Migration::SaveLegacyMaterialIds( root, loaded.GetValue() );
+                     !saved )
+                {
+                    err << "FAIL   " << Desert::Migration::LegacyMaterialIdRegisterPath( root ).string() << " — "
+                        << saved.GetError() << "\n";
+                    return nullptr;
+                }
+            return &legacyIds.emplace( root, std::move( loaded.GetValue() ) ).first->second;
+        };
         int materialsChanged = 0;
         int clipsChanged     = 0;
         for ( const auto& path : materials )
@@ -950,7 +976,53 @@ namespace Desert::Migration
                 continue;
             }
 
-            auto parsed = rfl::json::read<Desert::Assets::MaterialData>( source );
+            // MATL 0 -> 1: a file without a header gets one at v1 FIRST, its GUID derived from its path under
+            // the content root (MigrationGuidForPath), so the v1 -> v2 step below has one input shape to read.
+            const std::filesystem::path root   = MaterialOutputRoot( path );
+            const auto                  stated = Desert::Migration::ReadStatedMaterialIds( path.string(), source );
+            if ( !stated )
+            {
+                err << "FAIL   " << path.string() << " — " << stated.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            std::string text         = source;
+            const bool  headerRaised = stated.GetValue().Version == 0;
+            if ( headerRaised )
+            {
+                const std::array<Common::Content::SubsystemVersion, 1> v1 = {
+                     Common::Content::SubsystemVersion{ Desert::Assets::kMaterialSchemaTag, 1 } };
+                text = PrependHeaderMember(
+                     text,
+                     rfl::json::write( Common::Content::MakeTextHeader(
+                          Common::Content::ContentKind::Material,
+                          Desert::Migration::MigrationGuidForPath( path.lexically_relative( root ) ), v1 ) ) );
+            }
+
+            // MATL 1 -> 2 (AF7c): MaterialId dropped, ParentMaterialId named by GUID. Spliced into the text,
+            // not round-tripped through MaterialData, whose v2 shape no longer has either member.
+            Desert::Migration::MaterialV2Report identity;
+            const bool                          identityRaised = headerRaised || stated.GetValue().Version == 1;
+            if ( identityRaised )
+            {
+                const auto* ids = LegacyIdsFor( root );
+                if ( ids == nullptr )
+                {
+                    ++failed;
+                    continue;
+                }
+                const auto raised =
+                     Desert::Migration::RaiseMaterialTextToV2( path.string(), text, *ids, identity );
+                if ( !raised )
+                {
+                    err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                text = raised.GetValue();
+            }
+
+            auto parsed = rfl::json::read<Desert::Assets::MaterialData>( text );
             if ( !parsed )
             {
                 err << "FAIL   " << path.string() << " — " << parsed.error().what() << "\n";
@@ -967,19 +1039,7 @@ namespace Desert::Migration
             const Desert::Migration::CloudMaterialAlbedoReport albedo =
                  Desert::Migration::MigrateCloudMaterialAlbedoToColour( parsed.value() );
 
-            // AF6h: a .demat opens with the text header (kind Material, GUID, MATL v1). A file without one
-            // gets it here, its GUID derived from its path under the content root (MigrationGuidForPath).
-            const bool headerRaised = !parsed.value().Header.has_value();
-            if ( headerRaised )
-            {
-                parsed.value().Header = Desert::Assets::StampTextHeader(
-                     Common::Content::TextAssetHeaderSerialized{
-                          .Guid = Common::Content::AssetGuidToText( Desert::Migration::MigrationGuidForPath(
-                               path.lexically_relative( MaterialOutputRoot( path ) ) ) ) },
-                     Common::Content::ContentKind::Material, Desert::Assets::MaterialTextSubsystems() );
-            }
-
-            if ( !report.Changed() && !albedo.Changed() && !headerRaised )
+            if ( !report.Changed() && !albedo.Changed() && !identityRaised )
             {
                 if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
                      layout != Layout::Canonical )
@@ -987,7 +1047,8 @@ namespace Desert::Migration
                     ++( layout == Layout::Failed ? failed : relaid );
                     continue;
                 }
-                out << "ok     " << path.string() << " — no pre-O-4 layout slot, no scalar albedo\n";
+                out << "ok     " << path.string() << " — no pre-O-4 layout slot, no scalar albedo, MATL v"
+                    << Desert::Assets::kMaterialSchemaVersion << "\n";
                 continue;
             }
 
@@ -1001,7 +1062,16 @@ namespace Desert::Migration
                      << " CloudLayout binding(s) split into LayoutPattern + LayoutMask, both naming the "
                         "same painting;";
             if ( headerRaised )
-                what << " text header stated (MATL v" << Desert::Assets::kMaterialSchemaVersion << ");";
+                what << " text header stated;";
+            if ( identityRaised )
+            {
+                what << " MATL v" << Desert::Assets::kMaterialSchemaVersion;
+                if ( identity.DroppedId )
+                    what << ", MaterialId dropped (the header GUID is the identity)";
+                if ( identity.Parented )
+                    what << ", ParentMaterialId -> Parent GUID";
+                what << ";";
+            }
             if ( albedo.Changed() )
                 what << " " << albedo.Broadcast
                      << " scalar ScatteringAlbedo value(s) broadcast to a neutral colour;";
@@ -1013,14 +1083,11 @@ namespace Desert::Migration
                 continue;
             }
 
-            // A raise that only STATES the header splices it into the file's own text. Round-tripping
-            // through MaterialData would respell every number through float (0.97 -> 0.9700000286102295):
-            // the same value to the engine, but a content change to every reader of the text, for no step.
-            const bool headerOnly = headerRaised && !report.Changed() && !albedo.Changed();
-            if ( !WriteText( path,
-                             headerOnly ? PrependHeaderMember( source, rfl::json::write( *parsed.value().Header ) )
-                                        : rfl::json::write( parsed.value() ),
-                             err ) )
+            // A raise that only touches identity keeps the file's own text. Round-tripping through
+            // MaterialData would respell every number through float (0.97 -> 0.9700000286102295): the same
+            // value to the engine, but a content change to every reader of the text, for no step.
+            const bool textOnly = !report.Changed() && !albedo.Changed();
+            if ( !WriteText( path, textOnly ? text : rfl::json::write( parsed.value() ), err ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched. It would have been:" << what.str() << "\n";

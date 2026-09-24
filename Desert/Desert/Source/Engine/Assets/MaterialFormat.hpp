@@ -13,6 +13,7 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <span>
@@ -36,6 +37,9 @@ namespace Desert::Assets
     {
         material.Header =
              StampTextHeader( material.Header, Common::Content::ContentKind::Material, MaterialTextSubsystems() );
+        // An instance's one outgoing reference, stated where a reader of the header alone finds it.
+        if ( material.IsInstance() )
+            material.Header->Dependencies = { *material.Parent };
         return material;
     }
 
@@ -72,7 +76,8 @@ namespace Desert::Assets
             return Common::MakeError<MaterialData>(
                  "[Material] '" + std::string( source ) + "' states material schema v" + std::to_string( stated ) +
                  " and this engine reads v" + std::to_string( kMaterialSchemaVersion ) +
-                 " only (v0 = no header: run Tools/SceneMigrator over it once)" );
+                 " only (v0 = no header, v1 = a MaterialId beside the GUID: run Tools/SceneMigrator over it "
+                 "once)" );
         const Common::Content::AssetHeaderReadContext context{ MaterialTextSubsystems() };
         const auto header = Common::Content::TextHeaderToAssetHeader( *parsed.value().Header, context );
         if ( !header )
@@ -82,6 +87,18 @@ namespace Desert::Assets
             return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
                                                     "': the header says kind '" + parsed.value().Header->Kind +
                                                     "', not 'Material'" );
+        if ( parsed.value().IsInstance() )
+        {
+            const std::string& parentText = *parsed.value().Parent;
+            const auto         parent     = Common::Content::AssetGuidFromText( parentText );
+            if ( !parent || parent.GetValue().IsNull() )
+                return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) + "': Parent '" +
+                                                        parentText + "' is not a material GUID" );
+            const auto& deps = header.GetValue().Dependencies;
+            if ( std::find( deps.begin(), deps.end(), parent.GetValue() ) == deps.end() )
+                return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) + "': Parent '" +
+                                                        parentText + "' is not among the header's Dependencies" );
+        }
         return Common::MakeSuccess( std::move( parsed.value() ) );
     }
 } // namespace Desert::Assets

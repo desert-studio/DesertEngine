@@ -122,7 +122,6 @@ namespace Desert::Editor::MaterialAssetUtils
         if ( !onDisk )
         {
             Assets::MaterialData data;
-            data.MaterialId = Common::UUID::Generate(); // a brand-new material's stable, file-borne GUID
             for ( const auto& param : params )
                 data.SetParam( param.Name, param.Value );
             // REFUSED rather than carried on: the CreateAsset below would load the file that was not

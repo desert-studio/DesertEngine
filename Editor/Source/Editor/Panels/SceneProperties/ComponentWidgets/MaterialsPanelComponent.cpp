@@ -302,12 +302,11 @@ namespace Desert::Editor
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
             path = dir / ( base + "_" + std::to_string( n ) + ext );
 
-        // Write the file FIRST (defaults + freshly stamped MaterialId), then create-with-load: the
+        // Write the file FIRST (defaults + a freshly minted header GUID), then create-with-load: the
         // asset adopts its stable in-file GUID as the internal handle during Load, so the handle the
         // AssetManager/MaterialService register under is the same one every future editor run gets.
         {
             Assets::MaterialData defaults;
-            defaults.MaterialId = Common::UUID::Generate();
             // Checked because the create-with-load below DEPENDS on the file: without it the asset
             // adopts no in-file GUID, so the handle registered here is not the one a later run
             // resolves, and the mesh slot points at a material that will not come back.
@@ -346,15 +345,17 @@ namespace Desert::Editor
 
         {
             Assets::MaterialData data;
-            data.MaterialId = Common::UUID::Generate();
-            // Reference the parent by its STABLE in-file id (falls back to the asset handle,
-            // which file materials adopt from that id anyway).
-            // ONE read of the parent's id. It used to be asked for three times in one expression, so the
-            // guard and the two uses were three separate questions to three separately returned objects.
-            const auto& parentMaterialId = parent.Data().MaterialId;
-            data.ParentMaterialId        = ( parentMaterialId && !parentMaterialId->IsNull() )
-                                                ? *parentMaterialId
-                                                : Common::UUID( static_cast<uint64_t>( parent.GetMetadata().Handle ) );
+            // The parent is named by its header GUID, the one identity a material has. A parent that was
+            // never written has none, and an instance naming it could not be resolved after a restart.
+            const auto parentGuid = parent.Data().Guid();
+            if ( parentGuid.IsNull() )
+            {
+                LOG_ERROR( "[Material] instance '{}' was not created: its parent '{}' has no GUID (never saved)",
+                           path.generic_string(),
+                           std::filesystem::path( parent.GetMetadata().Filepath ).generic_string() );
+                return Common::UUID::Null();
+            }
+            data.SetParent( parentGuid );
             if ( const auto written = Assets::WriteMaterialFile( path, data );
                  !written ) // same reason as CreateAndRegisterMaterial above
             {

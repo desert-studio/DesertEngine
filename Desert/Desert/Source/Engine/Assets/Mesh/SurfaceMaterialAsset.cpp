@@ -34,13 +34,12 @@ namespace Desert::Assets
 
         // Generated, and named as generated. A random id here is the one thing that keeps this copy out of
         // every map the subject is in — see the header for what a shared one would do to the mesh ->
-        // material link. All three are written from ONE value because Load() maintains exactly that
-        // equality (m_MaterialUUID = m_Metadata.Handle, adopted from Data().MaterialId), and a copy that
+        // material link. Both are written from ONE value because Load() maintains exactly that
+        // equality (m_MaterialUUID = m_Metadata.Handle, adopted from the header GUID), and a copy that
         // broke it would resolve differently depending on which of the three a caller happened to ask.
         const Common::UUID identity = Common::UUID::Generate();
         copy->m_Metadata.Handle     = identity;
         copy->m_MaterialUUID        = identity;
-        copy->m_Data.MaterialId     = identity;
         // Not the same asset either: a copy that kept the source's header GUID would state its identity.
         copy->m_Data.Header = std::nullopt;
 
@@ -98,11 +97,10 @@ namespace Desert::Assets
         //
         // THROUGH AdoptHandleFromFile so the handle->path inverse learns the adopted number too. The
         // path-derived one the constructor installed is already in the index; this one replaces it as the
-        // material's identity, and it is the number 113 `MaterialId`/`ParentMaterialId` occurrences in
-        // shipped content actually name — so an index that knew only the derived one would be empty for
-        // exactly the references that exist.
-        if ( m_Data.MaterialId )
-            AdoptHandleFromFile( *m_Data.MaterialId,
+        // material's identity, and it is the number every `Parent` GUID in shipped content folds to — so an index
+        // that knew only the derived one would be empty for exactly the references that exist.
+        if ( const auto guid = m_Data.Guid(); !guid.IsNull() )
+            AdoptHandleFromFile( MaterialData::HandleOf( guid ),
                                  Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
@@ -114,7 +112,7 @@ namespace Desert::Assets
         {
             AdoptStableHandle();
 
-            // The EXTERNAL id is the handle, always. When the file carries a MaterialId the two are the
+            // The EXTERNAL id is the handle, always. When the file carries a header GUID the two are the
             // same value by AdoptStableHandle; when it does not, they are the same path-derived value. The
             // external id used to be left unset in that second case, which under the old random default
             // meant MaterialService keyed such a material under a number that changed every launch — the
@@ -230,7 +228,7 @@ namespace Desert::Assets
         // asset that was never `Load()`ed, sets `m_ReadyForUse` by hand and mints a FRESH identity so it
         // stays out of every map the subject is in. Unloading one would flip that flag, and the next
         // `EnsureLoaded` would run `Load()` against the SOURCE's filepath — which calls
-        // `AdoptStableHandle()` and would reassign the copy's handle from the file's MaterialId, i.e. the
+        // `AdoptStableHandle()` and would reassign the copy's handle from the file's header GUID, i.e. the
         // working copy would silently take over the subject's identity in MaterialService's maps. That is
         // precisely the defect the fresh id exists to prevent, arrived at from the other direction.
         if ( !IsReloadableFromFile() )

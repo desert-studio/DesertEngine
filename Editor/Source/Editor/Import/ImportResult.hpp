@@ -12,7 +12,7 @@
 namespace Desert::Editor
 {
     // A material extracted from a source file, ready to cook into a .demat. Name is the human-readable
-    // source material name (-> the .demat filename, no handle in it). Data.MaterialId is the stable external
+    // source material name (-> the .demat filename, no handle in it). Data.Header's GUID is the stable external
     // handle the mesh submeshes reference.
     struct ImportedMaterial
     {

@@ -249,19 +249,14 @@ namespace Desert::Editor
                 const std::string key = "meshes/" + SanitizeName( mat.Name ) +
                                         std::string( Common::Constants::Extensions::MATERIAL_EXTENSION );
 
-                // THE COOK HAS TO BE DETERMINISTIC OR THE COMPARISON MEANS NOTHING. MaterialId is a random
-                // UUID, so re-cooking a material with a fresh one would produce different bytes every run
-                // and read as "the source changed it" for ever — and would renumber an identity that
-                // meshes and scenes already reference. The existing file's own id is therefore reused.
-                // The header GUID likewise: a random one per cook would be a new asset every run.
-                std::optional<Common::UUID>                               identity;
+                // THE COOK HAS TO BE DETERMINISTIC OR THE COMPARISON MEANS NOTHING. The header GUID is a
+                // material's identity, so re-cooking with a fresh one would produce different bytes every run,
+                // read as "the source changed it" for ever, and renumber an identity that meshes and scenes
+                // already reference. The existing file's own header is therefore reused.
                 std::optional<Common::Content::TextAssetHeaderSerialized> header;
                 if ( const auto at = diskBytes.find( key ); at != diskBytes.end() )
                     if ( const auto parsed = Assets::ParseMaterialJson( key, at->second ); parsed )
-                    {
-                        identity = parsed.GetValue().MaterialId;
-                        header   = parsed.GetValue().Header;
-                    }
+                        header = parsed.GetValue().Header;
 
                 Assets::PBRSurfaceParams p;
                 p.AlbedoTexture    = albedo;
@@ -271,7 +266,6 @@ namespace Desert::Editor
                 p.AOTexture        = ao;
                 p.OpacityTexture   = opacity;
                 p.AlphaCutoff      = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f );
-                p.MaterialId       = identity ? *identity : Common::UUID::Generate();
 
                 Assets::MaterialData data = p.ToMaterialData();
                 data.Header               = header;

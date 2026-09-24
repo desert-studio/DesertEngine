@@ -2697,11 +2697,12 @@ namespace Desert::Migration
             const std::string suffix  = cloudEntityIndex > 1 ? "_" + std::to_string( cloudEntityIndex ) : "";
             const std::string relPath = "Materials/M_" + base + "_Clouds" + suffix + ".demat";
 
-            // DERIVED, NOT GENERATED: the MaterialId is the FNV of the file's own relative path, so two
-            // runs of this migration produce byte-identical files and byte-identical scenes - which is
-            // what lets the suite pin the output and the repository diff show only real change.
-            material.MaterialId = ::Common::UUID(
-                 static_cast<uint64_t>( ::Common::AssetHandle::FromKey( "cloudmat:" + relPath ) ) );
+            // DERIVED, NOT GENERATED: the GUID comes from the file's own relative path, so two runs of this
+            // migration produce byte-identical files and byte-identical scenes - which is what lets the
+            // suite pin the output and the repository diff show only real change.
+            material.Header = ::Common::Content::MakeTextHeader( ::Common::Content::ContentKind::Material,
+                                                                 MigrationGuidForPath( "cloudmat:" + relPath ),
+                                                                 ::Desert::Assets::MaterialTextSubsystems() );
 
             kept["Material"] = rfl::Generic( relPath );
 

@@ -38,9 +38,6 @@ namespace Desert::Assets
 
         std::optional<glm::vec2> UVTiling;
 
-        // Importer convenience: carried into MaterialData by ToMaterialData().
-        std::optional<Common::UUID> MaterialId;
-
         static PBRSurfaceParams FromMaterialData( const MaterialData& m )
         {
             PBRSurfaceParams p;
@@ -65,7 +62,6 @@ namespace Desert::Assets
             p.EmissiveTexture  = AssetHandle( m.GetTexture( "u_EmissiveTexture" ) );
             p.OpacityTexture   = AssetHandle( m.GetTexture( "u_OpacityTexture" ) );
 
-            p.MaterialId = m.MaterialId;
             return p;
         }
 
@@ -92,7 +88,6 @@ namespace Desert::Assets
             m.SetTexture( "u_AOTexture", static_cast<uint64_t>( AOTexture ) );
             m.SetTexture( "u_EmissiveTexture", static_cast<uint64_t>( EmissiveTexture ) );
 
-            m.MaterialId = MaterialId;
             return m;
         }
     };

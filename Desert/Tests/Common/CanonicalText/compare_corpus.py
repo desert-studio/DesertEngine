@@ -14,6 +14,7 @@ The base ref defaults to origin/task/AF2-cells-envelope, the last tree before AF
 It is a script and not a gtest because the answer needs the git history, which a CI checkout at depth 1 lacks.
 """
 import json
+import os
 import subprocess
 import sys
 
@@ -43,6 +44,38 @@ def normalise(doc, ext, raised):
     return doc
 
 
+_LEGACY_IDS = None
+
+
+def legacy_material_ids():
+    """The MATL 1 -> 2 register (Tools/SceneMigrator LegacyMaterialIds): old MaterialId -> GUID text."""
+    global _LEGACY_IDS
+    if _LEGACY_IDS is None:
+        root = git("rev-parse", "--show-toplevel").decode().strip()
+        with open(os.path.join(root, "Editor", "Resources", "LegacyMaterialIds.json")) as f:
+            _LEGACY_IDS = {row["MaterialId"]: row["Guid"] for row in json.load(f)["Ids"]}
+    return _LEGACY_IDS
+
+
+def strip_material_identity(old, new, header):
+    """MATL 2 (AF7c): the old file's MaterialId is gone and is the register's name for this file's GUID; its
+    ParentMaterialId is now `Parent`, the register's GUID for it, stated again as the one Dependency. True when
+    exactly that changed, with the identity members removed from both sides."""
+    ids = legacy_material_ids()
+    old_header = old.pop("Header", None)
+    if old_header is not None and old_header.get("Guid") != header.get("Guid"):
+        return False
+    if "MaterialId" in new or "ParentMaterialId" in new:
+        return False
+    if "MaterialId" in old and ids.get(old.pop("MaterialId")) != header.get("Guid"):
+        return False
+    parent = old.pop("ParentMaterialId", None)
+    if parent is None:
+        return "Parent" not in new and header.get("Dependencies") == []
+    guid = ids.get(parent)
+    return guid is not None and new.pop("Parent", None) == guid and header.get("Dependencies") == [guid]
+
+
 def strip_text_header(old, new, ext):
     """Removes the text header AF6g/AF6h added (scene v26, .demat MATL 1) when it states exactly what the old
     file did: kind by extension, SCNE 26 with the old UnitVersion carried as UNIT, MATL 1. True when stripped."""
@@ -57,7 +90,9 @@ def strip_text_header(old, new, ext):
             return False
         old.pop("UnitVersion", None)
     elif ext == ".demat":
-        if header.get("Kind") != "Material" or versions != {"MATL": 1}:
+        if header.get("Kind") != "Material" or versions not in ({"MATL": 1}, {"MATL": 2}):
+            return False
+        if versions == {"MATL": 2} and not strip_material_identity(old, new, header):
             return False
     else:
         return False
