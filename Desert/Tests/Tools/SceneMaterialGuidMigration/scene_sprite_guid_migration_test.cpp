@@ -93,10 +93,9 @@ namespace
         const std::string v = Quoted( value );
         return std::string( R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000001",)" ) +
                R"("Versions":{"SCNE":)" + std::to_string( kBeforeSpriteGuids ) +
-               R"(,"UNIT":1},"Dependencies":[]},"SceneName":"S",)" +
-               R"("Settings":{"SplashSprite":)" + v + R"(,"SplashDuration":1.0},"Entities":[)" +
-               R"({"id":1,"Tag":"Canvas","UICanvas":{"Sprite":)" + v + R"(}},)" +
-               R"({"id":2,"Tag":"Panel","UIPanel":{"Sprite":)" + v + R"(,"Opacity":1.0}},)" +
+               R"(,"UNIT":1},"Dependencies":[]},"SceneName":"S",)" + R"("Settings":{"SplashSprite":)" + v +
+               R"(,"SplashDuration":1.0},"Entities":[)" + R"({"id":1,"Tag":"Canvas","UICanvas":{"Sprite":)" + v +
+               R"(}},)" + R"({"id":2,"Tag":"Panel","UIPanel":{"Sprite":)" + v + R"(,"Opacity":1.0}},)" +
                R"({"id":3,"Tag":"Image","UIImage":{"Sprite":)" + v + R"(}},)" +
                R"({"id":4,"Tag":"Button","UIButton":{"Sprite":)" + v + R"(,"HoverSprite":)" + v +
                R"(,"PressedSprite":)" + v + R"(}},)" +
@@ -162,9 +161,10 @@ TEST( SceneSpriteGuidMigration, ANonexistentFileRefusesNamingEverySlotAndLeavesT
     const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
 
     ASSERT_FALSE( report.Refused.empty() );
-    for ( const char* site : { "Settings > SplashSprite", "Canvas > UICanvas.Sprite", "Panel > UIPanel.Sprite",
-                               "Image > UIImage.Sprite", "Button > UIButton.Sprite", "Button > UIButton.HoverSprite",
-                               "Button > UIButton.PressedSprite", "Inst > PrefabOverrides[0] > UIPanel.Sprite" } )
+    for ( const char* site :
+          { "Settings > SplashSprite", "Canvas > UICanvas.Sprite", "Panel > UIPanel.Sprite",
+            "Image > UIImage.Sprite", "Button > UIButton.Sprite", "Button > UIButton.HoverSprite",
+            "Button > UIButton.PressedSprite", "Inst > PrefabOverrides[0] > UIPanel.Sprite" } )
         EXPECT_NE( report.Refused.find( site ), std::string::npos ) << site << " in " << report.Refused;
     EXPECT_NE( report.Refused.find( "Gone.detex" ), std::string::npos ) << report.Refused;
     EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kBeforeSpriteGuids )
@@ -257,7 +257,7 @@ TEST( SpriteReferenceWriter, AnAssignedButtonSpriteIsWrittenAsItsGuidAndReadBack
 TEST( SpriteReferenceWriter, TheSplashSpriteIsWrittenAsItsGuid )
 {
     Desert::Core::SceneSettings settings;
-    settings.SplashSprite = Desert::Assets::AssetHandle( SpriteHandle() );
+    settings.SplashSprite      = Desert::Assets::AssetHandle( SpriteHandle() );
     const auto        resolver = SpriteResolver();
     const std::string text     = rfl::json::write(
          Desert::Reflection::SerializeReflected( TypeNamed( "SceneSettings" ), &settings, &resolver ) );

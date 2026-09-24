@@ -2147,7 +2147,7 @@ namespace Desert::Migration
 
         // A stable key or path (a v28 skybox, a v29 sprite) -> the {Guid, Path} reference object.
         Common::ResultStr<rfl::Generic> KeyToTextureRef( const std::string&           value,
-                                                      const std::filesystem::path& assetsRoot )
+                                                         const std::filesystem::path& assetsRoot )
         {
             if ( value.empty() )
                 return Common::MakeSuccess( TextureRef( "", "" ) );
@@ -2316,10 +2316,10 @@ namespace Desert::Migration
             std::initializer_list<const char*> Fields;
         };
         const SpriteSlots kSpriteSlots[] = {
-            { "UICanvas", { "Sprite" } },
-            { "UIPanel", { "Sprite" } },
-            { "UIImage", { "Sprite" } },
-            { "UIButton", { "Sprite", "HoverSprite", "PressedSprite" } },
+             { "UICanvas", { "Sprite" } },
+             { "UIPanel", { "Sprite" } },
+             { "UIImage", { "Sprite" } },
+             { "UIButton", { "Sprite", "HoverSprite", "PressedSprite" } },
         };
 
         // Raises the named string fields of one object to {Guid, Path}; true when any was rewritten.
@@ -2366,8 +2366,8 @@ namespace Desert::Migration
                 auto fields = payload.value().to_object();
                 if ( !fields.has_value() )
                     continue;
-                if ( RaiseSpriteFields( fields.value(), slots.Fields,
-                                        tag + " > " + slots.Component + ".", assetsRoot, report ) )
+                if ( RaiseSpriteFields( fields.value(), slots.Fields, tag + " > " + slots.Component + ".",
+                                        assetsRoot, report ) )
                     components[slots.Component] = rfl::Generic( std::move( fields.value() ) );
             }
         }

@@ -116,7 +116,7 @@ namespace
         {
             const auto parsed = Common::Content::AssetGuidFromText( kResolvedGuidText );
             return type == "TextureAsset" &&
-                           guid == static_cast<uint64_t>( Common::Content::HandleForGuid( parsed.GetValue() ) )
+                             guid == static_cast<uint64_t>( Common::Content::HandleForGuid( parsed.GetValue() ) )
                         ? kResolvedHandle
                         : 0ull;
         };

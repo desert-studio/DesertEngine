@@ -297,11 +297,10 @@ namespace Desert::Reflection
                         }
                         else if ( ref.has_value() ||
                                   ( g.to_string().has_value() && !g.to_string().value().empty() ) )
-                            LOG_ERROR(
-                                 "[Reflection] Field '{0}' is a {1} reference in a form this build does not "
-                                 "read (a {{Guid, Path}} object with no resolver, or a pre-SCNE-30 bare "
-                                 "string - run the SceneMigrator); the field keeps its default.",
-                                 field.Name, field.Meta.AssetType );
+                            LOG_ERROR( "[Reflection] Field '{0}' is a {1} reference in a form this build does not "
+                                       "read (a {{Guid, Path}} object with no resolver, or a pre-SCNE-30 bare "
+                                       "string - run the SceneMigrator); the field keeps its default.",
+                                       field.Name, field.Meta.AssetType );
                         break;
                     }
                     if ( auto s = g.to_string(); s.has_value() )

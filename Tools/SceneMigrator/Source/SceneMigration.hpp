@@ -1665,8 +1665,7 @@ namespace Desert::Migration
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
                    TextureAssetRefsRaised || SiblingOrderRaised || TextHeaderRaised || RetiredKeysRaised ||
-                   MaterialGuidsRaised || MeshGuidsRaised || TextureGuidsRaised ||
-                   SpriteGuidsRaised;
+                   MaterialGuidsRaised || MeshGuidsRaised || TextureGuidsRaised || SpriteGuidsRaised;
         }
     };
 

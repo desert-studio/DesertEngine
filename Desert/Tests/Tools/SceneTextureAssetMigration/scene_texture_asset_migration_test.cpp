@@ -75,7 +75,7 @@ TEST( SceneTextureAssetMigration, EveryCookedTextureStringNamesItsAssetAndNothin
 {
     const Fixture fixture;
     auto          scene  = Parse( kV23Scene );
-    const auto    report = Migration::MigrateTextureAssetRefsV23ToV24( scene.Settings, scene.Entities, fixture.Root );
+    const auto report = Migration::MigrateTextureAssetRefsV23ToV24( scene.Settings, scene.Entities, fixture.Root );
 
     EXPECT_EQ( Field( scene, 0, "UICanvas", "Sprite" ), "assets:Textures/T_Checker.detex" );
     EXPECT_EQ( Field( scene, 1, "UIPanel", "Sprite" ), "assets:Textures/Sub/T_Gone.detex" );
@@ -110,7 +110,7 @@ TEST( SceneTextureAssetMigration, TheStepRunTwiceChangesNothingTheSecondTime )
     auto          scene = Parse( kV23Scene );
     Migration::MigrateTextureAssetRefsV23ToV24( scene.Settings, scene.Entities, fixture.Root );
     const std::string once  = rfl::json::write( scene );
-    const auto        again = Migration::MigrateTextureAssetRefsV23ToV24( scene.Settings, scene.Entities, fixture.Root );
+    const auto again = Migration::MigrateTextureAssetRefsV23ToV24( scene.Settings, scene.Entities, fixture.Root );
     EXPECT_EQ( again.Rewritten, 0 );
     EXPECT_EQ( rfl::json::write( scene ), once );
 }
