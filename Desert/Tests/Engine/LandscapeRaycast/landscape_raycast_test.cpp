@@ -26,6 +26,7 @@
 #include <functional>
 #include <optional>
 #include <random>
+#include <tuple>
 #include <vector>
 
 using namespace Desert;
