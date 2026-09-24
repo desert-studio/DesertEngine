@@ -5,12 +5,15 @@
 // in the record, so a reference that stops resolving produces a surface that is merely untextured. Nobody
 // gets an error naming a file, because no file is named.
 //
-// WHAT THE NUMBER IS. `Common::AssetHandle::FromCookedPath( <the asset's SOURCE file> )` — FNV-1a over the
-// file's place inside the project behind its root's tag (`assets:Textures/T_Checker.detex`). That is one
-// derivation with one owner, so a material's reference and the file it means are two statements of one
-// quantity, and this suite asserts the agreement rather than either side. It is the shape the taxonomy in
-// the `desert-engine-verify` skill keeps naming: both sides individually plausible, the defect living only
-// in the disagreement.
+// WHAT THE NUMBER IS. For most kinds, `Common::AssetHandle::FromCookedPath( <the asset's file> )` — FNV-1a
+// over the file's place inside the project behind its root's tag (`assets:CloudTypes/X.decloudtype`). A
+// texture is the exception since AF3: a `.detex` carries its handle in its header (Guid.Hi), frozen at
+// import to the number its SOURCE image's path derived (`assets:Textures/T_Checker.png`), and the engine
+// reads it through ReadTextureAssetKey — the same function TextureAsset::Load uses. So a `.detex` is known
+// by its header, never by its own path. Either way one owner states the number, so a material's reference
+// and the file it means are two statements of one quantity, and this suite asserts the agreement rather
+// than either side. It is the shape the taxonomy in the `desert-engine-verify` skill keeps naming: both
+// sides individually plausible, the defect living only in the disagreement.
 //
 // WHY A CENSUS AND NOT A LIST. Four references in this repository were stale — written before the
 // derivation became project-relative — and the way that was found was somebody counting by hand. They
@@ -22,7 +25,7 @@
 // WHY IT LOOKS UNDER `Resources/Assets/` AND NOT UNDER `Cooked/`. Because a cooked file is not evidence:
 // `Cooked/` is gitignored, so a fresh checkout and CI have almost none of it, and a machine that HAS one
 // can have a stale one — which is precisely the state that hid this defect. Every handle a material can
-// legitimately name derives from a SOURCE file: a texture's from its `.png`, a cloud type's from its
+// legitimately name is stated by a SOURCE file: a texture's by its `.detex` header, a cloud type's by its
 // `.decloudtype`, a layout's from its `.dclayout`. Deriving from the sources is what makes this suite mean
 // the same thing in CI as on a developer's machine.
 //
@@ -41,6 +44,7 @@
 #include <Common/Core/Constants.hpp>
 
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: the glm/UUID adapters plus the json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -151,10 +155,24 @@ namespace
         return out;
     }
 
-    // handle -> the file that derives it, for every file under `contentRoot`.
-    //
-    // Through AssetHandle::FromCookedPath, not through a re-spelling of the key format here. A test that
-    // hashes its own idea of `assets:<rel>` would agree with itself forever while the engine moved.
+    // The handle a content file is found by: a texture asset's is the one frozen into its header (read by
+    // the engine's own ReadTextureAssetKey, as TextureAsset::Load reads it), every other file's is its path
+    // through AssetHandle::FromCookedPath. Not a re-spelling of either rule here: a test that hashes its own
+    // idea of `assets:<rel>` or parses its own idea of the header would agree with itself forever while the
+    // engine moved.
+    uint64_t HandleOfContentFile( const fs::path& file )
+    {
+        if ( Desert::Assets::IsTextureSourceAssetFile( file ) )
+        {
+            const auto key = Desert::Assets::ReadTextureAssetKey( file );
+            EXPECT_TRUE( key.IsSuccess() ) << key.GetError();
+            if ( key.IsSuccess() )
+                return static_cast<uint64_t>( key.GetValue().Handle );
+        }
+        return static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( file ) );
+    }
+
+    // handle -> the file that states it, for every file under `contentRoot`.
     std::map<uint64_t, std::string> DerivedHandlesUnder( const fs::path& contentRoot )
     {
         std::map<uint64_t, std::string> out;
@@ -162,8 +180,7 @@ namespace
         {
             if ( !entry.is_regular_file() )
                 continue;
-            const auto handle = Common::AssetHandle::FromCookedPath( entry.path() );
-            out.emplace( static_cast<uint64_t>( handle ),
+            out.emplace( HandleOfContentFile( entry.path() ),
                          fs::relative( entry.path(), contentRoot ).generic_string() );
         }
         return out;
@@ -229,10 +246,10 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
          << " asset references in the shipped materials name no file in the project:" << report
          << "\n\nA material names its assets by number alone — there is no path in the record — so each of "
             "these draws as an unassigned slot with no filename anywhere in the log. The number is "
-            "AssetHandle::FromCookedPath of the asset's SOURCE file (`assets:Textures/T.png`), so a "
-            "reference stops resolving when the source is renamed, moved, or deleted, or when a `.tex` "
-            "cooked before the derivation changed hands out an old id. Fix the material to name the "
-            "derived number; do not add the missing file's old id back.";
+            "the handle in a `.detex` header for a texture and AssetHandle::FromCookedPath of the file "
+            "for every other kind, so a reference stops resolving when a path-keyed asset is renamed, "
+            "moved, or deleted, or when a texture is re-imported under a new handle. Fix the material to "
+            "name the file's number; do not add the missing file's old id back.";
 }
 
 // ── The census must be able to fail ────────────────────────────────────────────────────────────────
@@ -256,11 +273,10 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
     const auto derived = DerivedHandlesUnder( content );
 
     // One reference that resolves and one that does not, in one file, so the test also shows the checker
-    // does not simply reject everything. The good one is T_Checker's derived id, taken from the derivation
-    // rather than written down — a literal here would be a second copy of the number this suite exists to
-    // stop having two of.
-    const auto good =
-         static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( content / "Textures" / "T_Checker.detex" ) );
+    // does not simply reject everything. The good one is T_Checker's id, taken from its file rather than
+    // written down — a literal here would be a second copy of the number this suite exists to stop having
+    // two of.
+    const auto good = HandleOfContentFile( content / "Textures" / "T_Checker.detex" );
     ASSERT_NE( derived.find( good ), derived.end() ) << "T_Checker.detex is missing from the checkout";
 
     uint64_t bad = good ^ 0x5555555555555555ull;
@@ -453,7 +469,7 @@ TEST( AssetReferenceCensus, NoTwoShippedContentFilesDeriveTheSameHandle )
         if ( !entry.is_regular_file() )
             continue;
         ++files;
-        const auto        handle  = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( entry.path() ) );
+        const auto        handle  = HandleOfContentFile( entry.path() );
         const std::string name    = fs::relative( entry.path(), content ).generic_string();
         const auto [it, inserted] = claimed.emplace( handle, name );
         EXPECT_TRUE( inserted ) << "'" << it->second << "' and '" << name << "' both derive handle " << handle

@@ -8,10 +8,14 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- The test cpp alone. Everything it needs is header-only: MaterialData is the `.demat` aggregate,
-    -- AssetHandle carries the derivation, and Constants::Path the root table. Nothing here touches the
-    -- renderer, so the suite runs on a checkout with no cooked tree at all -- which is the point of it.
-    files { test_files }
+    -- The test cpp plus TextureSourceAsset.cpp: a `.detex` states its handle in its header (AF3), read by
+    -- ReadTextureAssetKey. The rest is header-only: MaterialData is the `.demat` aggregate, AssetHandle
+    -- carries the path derivation, and Constants::Path the root table. Nothing here touches the renderer,
+    -- so the suite runs on a checkout with no cooked tree at all -- which is the point of it.
+    files {
+        test_files,
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
+    }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
@@ -37,6 +41,11 @@ project(test_name)
 
     filter "system:not windows"
         links { "ReflectCpp" }
+
+    -- ReadTextureAssetKey reads through Common::Utils::FileSystem, whose macOS half is Objective-C
+    -- (MacOSFileSystem's file dialog), so the ObjC runtime + AppKit link as well.
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
