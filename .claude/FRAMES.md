@@ -53,6 +53,9 @@ $C quit 0
   меш — `run Modeling "Create shape tool: Box"` + `run Modeling "Create shape: place at the viewport centre"`
   (выделяет созданное). Оверлей выделения рисуется ImGui — `shot-viewport` его НЕ видит: `shot-window` + обрезка.
   `~/.claude/...` пиши абсолютным путём: после смены HOME тильда раскрывается в scratch.
+- **Моделинг TriEdit (диагональ):** `P=0,150,200 bash /private/tmp/claude-501/mui4/frames.sh`. Бокс из «place at the
+  viewport centre» с камеры 0,300,600 встаёт центром в (0,150,200), НЕ в начало координат. Обрезка окна 4112x2578:
+  вьюпорт `crop=1430:1580:732:288`, панель Modeling `crop=720:1440:0:180`.
 - **Моделинг (старое):** стартовый «Cube» — ПРИМИТИВ, инструментам не годится (пик отказывает «no editable mesh»).
   Сначала создать меш: `run Scene "Add shape: Cube"` или Create shape → «place at the viewport centre»;
   затем Select Elements tool, режим, `run ... "Mesh selection: pick at the viewport centre"`. Кадры P10e:
