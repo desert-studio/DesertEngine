@@ -12,6 +12,8 @@
 - Бинарь должен быть свежее твоего последнего коммита кода: `stat -f %Sm <TREE>/build/Bin/Debug/Editor`.
 - **HOME — СВЕЖИЙ на каждый запуск** (`/private/tmp/claude-501/<T>/home-$(date +%s)`): после падения в том же HOME
   следующий старт закрывает всё окно диалогом «Recover unsaved work?» (LUI1: 7 кадров одного диалога).
+- **Диалог «Recover unsaved work?» живёт НЕ в HOME**: метка падения — `<TREE>/Editor/Resources/Assets/Scenes/Autosave/.session.lock` в ДЕРЕВЕ. Свежий HOME его не снимает (L8d: кадр целиком из диалога, а команды палитры при этом отвечали ok). Перед запуском в СВОЁМ дереве: `rm -f <TREE>/Editor/Resources/Assets/Scenes/Autosave/.session.lock`. В главном дереве (владельца) не трогать. После снимка — открой кадр целиком, уменьшенным (`ffmpeg -vf scale=1400:-1`), ДО обрезки.
+- Скрипты с `C="DesertCtl --socket …"; $C …` — только под `/bin/bash`: zsh не делит `$C` на аргументы.
 - В macOS нет `timeout` — не оборачивай им запуск; ограничение времени — `run_in_background` + `DesertCtl quit`.
 - **НИКОГДА не снимай весь экран** (`screencapture -x` без `-l`): на нём почта, встречи и прочее владельца (SPL2
   снял именно так). Только окно редактора/заставки: id окна через `CGWindowListCopyWindowInfo` (python3 + Quartz,
