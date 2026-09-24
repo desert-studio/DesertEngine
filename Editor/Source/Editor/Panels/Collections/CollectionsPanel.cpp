@@ -275,12 +275,14 @@ namespace Desert::Editor
                 {
                     if ( static_cast<uint64_t>( handle ) == 0 )
                         return;
-                    if ( const auto tex = mgr.FindByHandle<Assets::TextureAsset>( handle ); tex && !tex->Guid().IsNull() )
+                    if ( const auto tex = mgr.FindByHandle<Assets::TextureAsset>( handle );
+                         tex && !tex->Guid().IsNull() )
                         data.SetTexture( sampler, tex->Guid(),
                                          Common::AssetHandle::StableKeyForPath( tex->GetMetadata().Filepath ) );
                     else
-                        LOG_ERROR( "[Collections] texture {} for slot '{}' states no header GUID; the slot stays empty",
-                                   static_cast<uint64_t>( handle ), sampler );
+                        LOG_ERROR(
+                             "[Collections] texture {} for slot '{}' states no header GUID; the slot stays empty",
+                             static_cast<uint64_t>( handle ), sampler );
                 };
                 stateTexture( "u_AlbedoTexture", albedo );
                 stateTexture( "u_NormalTexture", normal );

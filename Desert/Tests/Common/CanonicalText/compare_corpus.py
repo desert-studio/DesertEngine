@@ -8,7 +8,12 @@ and the version integer raised; and the text header (AF6g/AF6h): scene v26, pref
 with a Header stating kind, GUID and versions in place of the two integers. Scene v27 (AF7h) states each
 material slot as the material's GUID text in place of the 64-bit handle; against a base that already carries
 the header, that is normalised away only when the handle -> GUID pairing is one-to-one across the whole corpus
-and every GUID is a .demat header's. Those are normalised away below - nothing else is.
+and every GUID is a .demat header's. MATL 2 -> 3 (T6c3) replaces each Textures slot number by a GUID and a
+locator, routed by slot name into Textures / CloudAssets / ShaderRefs, states those GUIDs as Dependencies, and
+re-spells Params through MaterialData's float storage; that is normalised away only when every slot number pairs
+one-to-one with a (GUID, locator) across the corpus and every locator names a tracked file whose text header, if
+it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v) swaps FormatVersion for the header alone.
+Those are normalised away below - nothing else is.
 
 Run from anywhere inside the repository:
     python3 Desert/Tests/Common/CanonicalText/compare_corpus.py [base-ref]
@@ -17,6 +22,7 @@ It is a script and not a gtest because the answer needs the git history, which a
 """
 import json
 import os
+import struct
 import subprocess
 import sys
 
@@ -169,6 +175,104 @@ def strip_scene_v28(old, new, ext):
     return swap_mesh_guids(old, new)
 
 
+_REF_PAIRS = {}  # MATL 2 slot number -> {(GUID text, locator)}, gathered over every MATL 2 -> 3 file
+_MATL3_LISTS = ("Textures", "CloudAssets", "ShaderRefs")
+
+
+def as_float32(value):
+    """`value` with every float rounded to the float32 MaterialData stores it as."""
+    if isinstance(value, float):
+        return struct.unpack("f", struct.pack("f", value))[0]
+    if isinstance(value, list):
+        return [as_float32(v) for v in value]
+    if isinstance(value, dict):
+        return {k: as_float32(v) for k, v in value.items()}
+    return value
+
+
+def strip_material_v3(old, new, ext):
+    """MATL 2 -> 3 (T6c3): every old Textures slot {Name, TextureHandle} is the new slot of the same name in
+    exactly one of Textures / CloudAssets / ShaderRefs, in the old order; number 0 is the empty slot (empty GUID
+    and locator); the Dependencies are the old ones plus every slot GUID; Params differ only past float32. True
+    when normalised; the pairing itself is judged once the corpus is read."""
+    if ext != ".demat" or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_h, new_h = old.get("Header", {}), new.get("Header", {})
+    if old_h.get("Versions") != {"MATL": 2} or new_h.get("Versions") != {"MATL": 3}:
+        return False
+    if any(key in old for key in _MATL3_LISTS[1:]) or not all(isinstance(new.get(k), list) for k in _MATL3_LISTS):
+        return False
+    old_slots = old.get("Textures", [])
+    slots = {}
+    for key in _MATL3_LISTS:
+        names = [ref.get("Name") for ref in new[key]]
+        if names != [s.get("Name") for s in old_slots if s.get("Name") in names]:
+            return False  # a slot missing from the old list, or moved
+        for ref in new[key]:
+            if ref.get("Name") in slots or set(ref) != {"Name", "Guid", "Path"}:
+                return False
+            slots[ref["Name"]] = ref
+    if len(slots) != len(old_slots):
+        return False
+    guids = []
+    for slot in old_slots:
+        ref = slots[slot.get("Name")]
+        if set(slot) != {"Name", "TextureHandle"}:
+            return False
+        if slot["TextureHandle"] == 0:
+            if ref["Guid"] or ref["Path"]:
+                return False
+            continue
+        if not ref["Guid"] or not ref["Path"]:
+            return False
+        _REF_PAIRS.setdefault(slot["TextureHandle"], set()).add((ref["Guid"], ref["Path"]))
+        guids.append(ref["Guid"])
+    deps = new_h.get("Dependencies", [])
+    if len(deps) != len(set(deps)) or set(deps) != set(old_h.get("Dependencies", [])) | set(guids):
+        return False
+    old_h["Versions"], old_h["Dependencies"] = {"MATL": 3}, deps
+    for key in _MATL3_LISTS:
+        old[key] = new[key]
+    for doc in (old, new):
+        doc["Params"] = as_float32(doc.get("Params"))
+    return True
+
+
+_CLOUD_TYPE_GUIDS = {}  # .decloudtype header GUID -> paths, gathered over every format 3 -> CLTY 4 file
+
+
+def strip_cloud_type_header(old, new, ext, path):
+    """.decloudtype format 3 -> CLTY 4 (AF7v): FormatVersion 3 is gone and the header states kind CloudType,
+    CLTY 4 and no Dependencies - nothing else. True when stripped; GUID uniqueness is judged over the corpus."""
+    if ext != ".decloudtype" or not isinstance(old, dict) or not isinstance(new, dict) or "Header" in old:
+        return False
+    header = new.get("Header", {})
+    if old.get("FormatVersion") != 3 or "FormatVersion" in new or header.get("Kind") != "CloudType" or \
+            header.get("Versions") != {"CLTY": 4} or header.get("Dependencies") != [] or not header.get("Guid"):
+        return False
+    _CLOUD_TYPE_GUIDS.setdefault(header["Guid"], []).append(path)
+    old.pop("FormatVersion")
+    new.pop("Header")
+    return True
+
+
+def locator_file(root, locator):
+    """The tracked file an `assets:` / `engine:` locator names."""
+    scheme, _, rel = locator.partition(":")
+    base = {"assets": "Editor/Resources/Assets", "engine": "Editor/Resources"}.get(scheme)
+    return None if base is None or not rel else f"{root}/{base}/{rel}"
+
+
+def locator_header_guid(file):
+    """The GUID a text asset's header states; None for a file without a JSON header (a binary .detex)."""
+    with open(file, "rb") as f:
+        head = f.read(1)
+        if head != b"{":
+            return None
+        doc = json.loads(head + f.read())
+    return doc.get("Header", {}).get("Guid") if isinstance(doc, dict) else None
+
+
 def material_header_guids(root, files):
     guids = set()
     for path in files:
@@ -197,10 +301,12 @@ def main():
             # The base is past AF6: both sides state the header, and only AF7h's slot spelling may differ.
             strip_scene_v27(old, new, ext)
             strip_scene_v28(old, new, ext)
+            strip_material_v3(old, new, ext)
             if old != new:
                 differ.append(path)
             compared += 1
             continue
+        strip_cloud_type_header(old, new, ext, path)
         header_ok = strip_text_header(old, new, ext)
         stated = isinstance(new, dict) and new.get("SceneVersion", 26 if header_ok else None)
         raised = isinstance(old, dict) and isinstance(new, dict) and old.get("SceneVersion") == 24 and \
@@ -227,12 +333,32 @@ def main():
         for guid in guids:
             mesh_by_guid.setdefault(guid, set()).add(handle)
     differ += [f"mesh GUID {g} came from {len(h)} handles" for g, h in mesh_by_guid.items() if len(h) != 1]
+    ref_by_guid, ref_by_locator = {}, {}
+    for handle, refs in sorted(_REF_PAIRS.items()):
+        if len(refs) != 1:
+            differ.append(f"material slot number {handle} became {len(refs)} refs: {sorted(refs)}")
+        for guid, locator in refs:
+            ref_by_guid.setdefault(guid, set()).add(handle)
+            ref_by_locator.setdefault(locator, set()).add(guid)
+            file = locator_file(root, locator)
+            if file is None or not os.path.isfile(file):
+                differ.append(f"material slot number {handle} -> {locator}: names no file")
+            elif locator_header_guid(file) not in (None, guid):
+                differ.append(f"material slot number {handle} -> {locator}: its header states another GUID "
+                              f"than {guid}")
+    differ += [f"material ref GUID {g} came from {len(h)} slot numbers" for g, h in ref_by_guid.items()
+               if len(h) != 1]
+    differ += [f"material ref locator {loc} named by {len(g)} GUIDs: {sorted(g)}"
+               for loc, g in ref_by_locator.items() if len(g) != 1]
+    differ += [f"cloud type GUID {g} stated by {len(p)} files: {p}" for g, p in _CLOUD_TYPE_GUIDS.items()
+               if len(p) != 1]
 
     for path in differ:
         print(f"DIFFERS {path}")
     print(f"compare_corpus: {compared} file(s) compared against {base}, {len(differ)} differ, "
           f"{fresh} new since it; {len(_SLOT_PAIRS)} slot handle(s) paired to a GUID, "
-          f"{len(_MESH_PAIRS)} mesh handle(s) paired to a GUID")
+          f"{len(_MESH_PAIRS)} mesh handle(s) paired to a GUID, {len(_REF_PAIRS)} material slot number(s) "
+          f"paired to a GUID and locator, {len(_CLOUD_TYPE_GUIDS)} cloud type header(s)")
     return 1 if differ else 0
 
 

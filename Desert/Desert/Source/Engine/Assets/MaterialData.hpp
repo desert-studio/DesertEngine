@@ -268,7 +268,8 @@ namespace Desert::Assets
         /// Every slot of all three lists as (name, runtime handle), in list order - the in-memory view a
         /// consumer that binds by slot name reads (MaterialService::ResolveOverrides). It never carries a
         /// GUID or a path, and it never carries a number the file stated: every handle is folded here.
-        template <typename TSink> void ForEachSlotHandle( TSink&& sink ) const
+        template <typename TSink>
+        void ForEachSlotHandle( TSink&& sink ) const
         {
             for ( const auto& r : Textures )
                 sink( r.Name, HandleOfRef( &r ) );
@@ -321,7 +322,7 @@ namespace Desert::Assets
         static void SetRef( std::vector<MaterialAssetRef>& refs, std::string_view name,
                             const Common::Content::AssetGuid& guid, std::string_view path )
         {
-            std::string text = guid.IsNull() ? std::string() : Common::Content::AssetGuidToText( guid );
+            std::string text  = guid.IsNull() ? std::string() : Common::Content::AssetGuidToText( guid );
             std::string where = guid.IsNull() ? std::string() : std::string( path );
             for ( auto& r : refs )
                 if ( r.Name == name )

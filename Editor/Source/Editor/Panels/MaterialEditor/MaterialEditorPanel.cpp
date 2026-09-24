@@ -1300,8 +1300,9 @@ namespace Desert::Editor
                             }
                         }
                         // By the panorama's header GUID (MATL 3): a skybox that states none cannot be named.
-                        const auto sky = m_AssetManager ? m_AssetManager->FindByHandle<Assets::SkyboxAsset>( handle )
-                                                        : nullptr;
+                        const auto sky = m_AssetManager
+                                              ? m_AssetManager->FindByHandle<Assets::SkyboxAsset>( handle )
+                                              : nullptr;
                         if ( !sky || sky->Guid().IsNull() )
                         {
                             LOG_ERROR( "[MaterialEditor] skybox {} states no header GUID, so the '{}' slot cannot "
@@ -1398,13 +1399,15 @@ namespace Desert::Editor
                         {
                             const auto resolved =
                                  ::Desert::Editor::TextureDnD::ResolveOrImport( *m_AssetManager, path );
-                            if ( const auto tex = static_cast<uint64_t>( resolved ) != 0
-                                                       ? m_AssetManager->FindByHandle<Assets::TextureAsset>( resolved )
-                                                       : nullptr;
+                            if ( const auto tex =
+                                      static_cast<uint64_t>( resolved ) != 0
+                                           ? m_AssetManager->FindByHandle<Assets::TextureAsset>( resolved )
+                                           : nullptr;
                                  tex && !tex->Guid().IsNull() )
                             {
-                                data.SetTexture( p.Name, tex->Guid(),
-                                                 Common::AssetHandle::StableKeyForPath( tex->GetMetadata().Filepath ) );
+                                data.SetTexture(
+                                     p.Name, tex->Guid(),
+                                     Common::AssetHandle::StableKeyForPath( tex->GetMetadata().Filepath ) );
                                 changed = true;
                             }
                         }
@@ -1446,9 +1449,9 @@ namespace Desert::Editor
                             if ( ImGui::Selectable( name.c_str(), static_cast<uint64_t>( handle ) == bound ) &&
                                  !texture->Guid().IsNull() )
                             {
-                                data.SetTexture( p.Name, texture->Guid(),
-                                                 Common::AssetHandle::StableKeyForPath(
-                                                      texture->GetMetadata().Filepath ) );
+                                data.SetTexture(
+                                     p.Name, texture->Guid(),
+                                     Common::AssetHandle::StableKeyForPath( texture->GetMetadata().Filepath ) );
                                 changed = true;
                             }
                             if ( static_cast<uint64_t>( handle ) == bound )
@@ -1610,8 +1613,8 @@ namespace Desert::Editor
                         const auto label    = name;
                         if ( ImGui::Selectable( label.c_str(), selected ) )
                         {
-                            data.SetShaderRef( p.Name,
-                                               Common::AssetHandle::StableKeyForPath( shader->GetMetadata().Filepath ) );
+                            data.SetShaderRef(
+                                 p.Name, Common::AssetHandle::StableKeyForPath( shader->GetMetadata().Filepath ) );
                             changed = true;
                         }
                         if ( selected )
@@ -1688,8 +1691,9 @@ namespace Desert::Editor
                     const bool selected = ( static_cast<uint64_t>( h ) == handle );
                     if ( ImGui::Selectable( type->GetDisplayName().c_str(), selected ) && !type->Guid().IsNull() )
                     {
-                        data.SetCloudAsset( p.Name, type->Guid(),
-                                            Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
+                        data.SetCloudAsset(
+                             p.Name, type->Guid(),
+                             Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
                         changed = true;
                     }
                     if ( selected )
@@ -1705,8 +1709,9 @@ namespace Desert::Editor
                                             selected ) &&
                          !painting->Guid().IsNull() )
                     {
-                        data.SetCloudAsset( p.Name, painting->Guid(),
-                                            Common::AssetHandle::StableKeyForPath( painting->GetMetadata().Filepath ) );
+                        data.SetCloudAsset(
+                             p.Name, painting->Guid(),
+                             Common::AssetHandle::StableKeyForPath( painting->GetMetadata().Filepath ) );
                         changed = true;
                     }
                     if ( selected )
@@ -1799,8 +1804,9 @@ namespace Desert::Editor
                                  !registered )
                                 LOG_ERROR( "[Clouds] Dropped cloud type '{}' could not be registered: {}", path,
                                            registered.GetError() );
-                            data.SetCloudAsset( p.Name, type->Guid(),
-                                                Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
+                            data.SetCloudAsset(
+                                 p.Name, type->Guid(),
+                                 Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
                             changed = true;
                         }
                     }

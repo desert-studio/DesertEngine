@@ -67,7 +67,6 @@ namespace Desert::Assets
         MaterialData&       Data()       { return m_Data; }
         const MaterialData& Data() const { return m_Data; }
 
-
         static AssetTypeID GetTypeID()
         {
             return AssetTypeID::Material;
@@ -84,7 +83,6 @@ namespace Desert::Assets
         }
 
     private:
-
         // Upgrades the path-derived handle AssetBase installed to the in-file MaterialId when the file has
         // one — asset-database identity that survives renames as well as restarts.
         void AdoptStableHandle();

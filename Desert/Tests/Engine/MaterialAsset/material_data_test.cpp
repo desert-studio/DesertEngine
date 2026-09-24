@@ -8,9 +8,9 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <rflcpp/rfl/json.hpp>
 
+using Desert::Assets::MaterialAssetRef;
 using Desert::Assets::MaterialData;
 using Desert::Assets::MaterialShaderParam;
-using Desert::Assets::MaterialAssetRef;
 using Desert::Assets::PBRSurfaceParams;
 
 // ─── The unified protocol: MaterialData is the ONLY material storage ─────────────────────
@@ -146,7 +146,6 @@ TEST( Migration, LegacyTypedJsonIsNotValidCanon )
     EXPECT_FALSE( asCanon.has_value() );
 }
 
-
 // ─── MATL 3: every asset slot by header GUID + a path locator ────────────────────────────
 
 namespace
@@ -194,10 +193,10 @@ TEST( MaterialFormatV3, AWrittenMaterialReadsBackWithEverySlotByGuidAndEveryGuid
 
 TEST( MaterialFormatV3, AVersion2FileIsRefusedByNameAndPointsAtTheMigrator )
 {
-    const std::string v2 = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
-                           R"("Versions":{"MATL":2},"Dependencies":[]},"Params":[],)"
-                           R"("Textures":[{"Name":"CloudType1","TextureHandle":14207433254880240939}]})";
-    const auto parsed = Desert::Assets::ParseMaterialJson( "M_Old.demat", v2 );
+    const std::string v2     = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
+                               R"("Versions":{"MATL":2},"Dependencies":[]},"Params":[],)"
+                               R"("Textures":[{"Name":"CloudType1","TextureHandle":14207433254880240939}]})";
+    const auto        parsed = Desert::Assets::ParseMaterialJson( "M_Old.demat", v2 );
     ASSERT_FALSE( parsed );
     EXPECT_NE( parsed.GetError().find( "M_Old.demat" ), std::string::npos ) << parsed.GetError();
     EXPECT_NE( parsed.GetError().find( "schema v2" ), std::string::npos ) << parsed.GetError();
@@ -211,11 +210,12 @@ TEST( MaterialFormatV3, ASlotGuidTheHeaderDoesNotStateOrAPathWithoutAGuidIsRefus
     const std::string slot = R"("Params":[],"Textures":[],"ShaderRefs":[],)"
                              R"("CloudAssets":[{"Name":"CloudType1","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
                              R"("Path":"assets:Clouds/Types/Cu.decloudtype"}]})";
-    EXPECT_TRUE( Desert::Assets::ParseMaterialJson( "ok", head + R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},)" + slot ) );
+    EXPECT_TRUE(
+         Desert::Assets::ParseMaterialJson( "ok", head + R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},)" + slot ) );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "undeclared", head + "]}," + slot ) );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
          "pathonly", head + R"(]},"Params":[],"CloudAssets":[],"ShaderRefs":[],)"
-                                R"("Textures":[{"Name":"u_AlbedoTexture","Guid":"","Path":"assets:T.detex"}]})" ) );
+                            R"("Textures":[{"Name":"u_AlbedoTexture","Guid":"","Path":"assets:T.detex"}]})" ) );
 }
 
 // The relation, not either end: a type registers under HandleForGuid of its header GUID (CloudTypeAsset's

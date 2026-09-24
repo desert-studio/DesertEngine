@@ -79,8 +79,8 @@ namespace Desert::Assets
         {
             const auto refuse = [&]( const std::string& why )
             {
-                return Common::MakeError<bool>( "[Material] '" + std::string( source ) + "': " +
-                                                std::string( list ) + " slot '" + ref.Name + "' " + why );
+                return Common::MakeError<bool>( "[Material] '" + std::string( source ) +
+                                                "': " + std::string( list ) + " slot '" + ref.Name + "' " + why );
             };
             if ( ref.Guid.empty() )
             {
@@ -107,9 +107,8 @@ namespace Desert::Assets
     {
         const auto probe = rfl::json::read<Detail::MaterialHeaderProbe>( json );
         if ( !probe )
-            return Common::MakeError<MaterialData>(
-                 "[Material] '" + std::string( source ) +
-                 "' is not a readable material file: " + probe.error().what() );
+            return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
+                                                    "' is not a readable material file: " + probe.error().what() );
         const auto wrongSchema = [&source]( int stated )
         {
             return Common::MakeError<MaterialData>(
