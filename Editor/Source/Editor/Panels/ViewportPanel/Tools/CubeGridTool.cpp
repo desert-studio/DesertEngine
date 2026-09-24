@@ -138,8 +138,10 @@ namespace Desert::Editor::Tools
         // layer first (it keeps its own Block Size forever). Resizing the grid afterwards then only ever
         // re-scales the new volume — the geometry built before never moves or re-subdivides again.
         // (m_HoverValid = last frame's targeting, so a click on empty sky doesn't commit anything.)
-        if ( interact && !m_CornerMode && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && m_HoverValid &&
-             !m_Volume.Cells.empty() )
+        // A palette selection (ReqCubeGridSelectBlocks) is a marquee too, and commits the same way.
+        const bool marqueeStarts = ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) ) ||
+                                   ( toolActive && ms.ReqCubeGridSelectBlocks > 0 );
+        if ( marqueeStarts && !m_CornerMode && m_HoverValid && !m_Volume.Cells.empty() )
             FreezeActive();
 
         // Re-initialising the grid frame commits the current piece too: cells are indices into a lattice,
@@ -515,43 +517,47 @@ namespace Desert::Editor::Tools
         // --- Keyboard / mouse shortcuts (UE's "Shortcut Info" block). The camera hands over the bare keys
         //     while a modeling tool is active (EditorCamera::SetKeyboardRequiresLook), so it only flies
         //     during an RMB look — holding RMB therefore means "I'm driving the camera", not editing. ---
+        // In Corner Mode E/Q raise / lower the SELECTED posts by one snap step instead of extruding. One
+        // step for the keys and for the palette's E / Q (ModelingState::ReqCubeGridStep).
+        const int snapDiv     = std::max( 2, ms.CornerSnapDiv );
+        const int cornerStep  = std::max( 1, K * CornerDen / snapDiv );
+        auto      moveCorners = [&]( int dir )
+        {
+            bool any = false;
+            for ( int k = 0; k < 4; ++k )
+                if ( m_CornerSel[k] )
+                {
+                    m_CornerH[k] += dir * cornerStep;
+                    any = true;
+                }
+            if ( any )
+                ApplyCornerHeights( scene );
+        };
+        auto step = [&]( int dir )
+        {
+            if ( m_CornerMode )
+                moveCorners( dir );
+            else
+                PushPull( scene, dir, K );
+        };
+
         if ( interact && !::ImGui::IsMouseDown( ImGuiMouseButton_Right ) )
         {
             const bool ctrl = ::ImGui::GetIO().KeyCtrl;
 
-            // In Corner Mode E/Q raise / lower the SELECTED posts by one snap step instead of extruding.
-            const int snapDiv     = std::max( 2, ms.CornerSnapDiv );
-            const int cornerStep  = std::max( 1, K * CornerDen / snapDiv );
-            auto      moveCorners = [&]( int dir )
-            {
-                bool any = false;
-                for ( int k = 0; k < 4; ++k )
-                    if ( m_CornerSel[k] )
-                    {
-                        m_CornerH[k] += dir * cornerStep;
-                        any = true;
-                    }
-                if ( any )
-                    ApplyCornerHeights( scene );
-            };
-
             if ( ::ImGui::IsKeyPressed( ImGuiKey_E, false ) )
             {
                 if ( ctrl ) // Ctrl+E — coarser grid
-                    ms.CellSize = std::min( ms.CellSize * 2.0f, 100000.0f );
-                else if ( m_CornerMode )
-                    moveCorners( +1 );
+                    ms.DoubleBlockSize();
                 else
-                    PushPull( scene, +1, K );
+                    step( +1 );
             }
             if ( ::ImGui::IsKeyPressed( ImGuiKey_Q, false ) )
             {
                 if ( ctrl ) // Ctrl+Q — finer grid
-                    ms.CellSize = std::max( ms.CellSize * 0.5f, Core::ModelingState::MinCellSize );
-                else if ( m_CornerMode )
-                    moveCorners( -1 );
+                    ms.HalveBlockSize();
                 else
-                    PushPull( scene, -1, K );
+                    step( -1 );
             }
             // Z starts / completes Corner Mode (UE's binding). It needs a selection on a horizontal
             // work-plane — corners move along the grid's up axis.
@@ -582,6 +588,46 @@ namespace Desert::Editor::Tools
                     m_GroundY = gray.Origin.y + gray.Direction.y * bestT;
                 m_GroundY = std::round( m_GroundY / u ) * u;
             }
+        }
+
+        // --- The palette's E / Q and its N x N marquee: the step above, and the rectangle a drag from the
+        //     aimed block N blocks along each axis would leave. A request the tool cannot honour says why in
+        //     the log - the palette entry has already returned by the frame that reads it. ---
+        if ( ms.ReqCubeGridStep != 0 && toolActive )
+            step( ms.ReqCubeGridStep > 0 ? +1 : -1 );
+        ms.ReqCubeGridStep = 0;
+        if ( ms.ReqCubeGridSelectBlocks > 0 && toolActive )
+        {
+            if ( m_CornerMode )
+                LOG_WARN( "CubeGrid: leave Corner Mode (Z) before selecting {0}x{0} blocks",
+                          ms.ReqCubeGridSelectBlocks );
+            else if ( !tHas )
+                LOG_WARN( "CubeGrid: nothing under the aim to select {0}x{0} blocks on",
+                          ms.ReqCubeGridSelectBlocks );
+            else
+            {
+                const int n  = ms.ReqCubeGridSelectBlocks;
+                m_Selecting  = false;
+                m_HasSel     = true;
+                m_Plane.Na   = tNa;
+                m_Plane.Sign = tSign;
+                m_Plane.Cell = tPlaneCell;
+                m_Anchor     = { tU, tV };
+                m_Sel.UMin   = FloorDiv( tU, K ) * K;
+                m_Sel.UMax   = m_Sel.UMin + n * K - 1;
+                m_Sel.VMin   = FloorDiv( tV, K ) * K;
+                m_Sel.VMax   = m_Sel.VMin + n * K - 1;
+            }
+        }
+        ms.ReqCubeGridSelectBlocks = 0;
+        if ( ms.ReqCornerPosts >= 0 )
+        {
+            if ( toolActive && m_CornerMode )
+                for ( int k = 0; k < 4; ++k )
+                    m_CornerSel[k] = ( ms.ReqCornerPosts >> k ) & 1;
+            else
+                LOG_WARN( "CubeGrid: corner posts are picked in Corner Mode (Z) on a selection" );
+            ms.ReqCornerPosts = -1;
         }
 
         // --- Marquee selection (Block-aligned): LMB drag a rectangle; start requires hover, the drag is

@@ -40,6 +40,18 @@ namespace Desert::Editor
         // assembled from parts.
         const ImVec4 sel = ThemeManager::GetSelectedColor();
 
+        // The rail follows a tool chosen from outside the panel (the palette, the control channel), so the
+        // properties of the tool that is active are the ones on screen. A person's own click on the rail
+        // still wins until the tool changes again.
+        if ( static_cast<int>( ms.ActiveTool ) != m_ShownTool )
+        {
+            m_ShownTool = static_cast<int>( ms.ActiveTool );
+            if ( ms.ActiveTool == MS::Tool::CubeGrid || ms.ActiveTool == MS::Tool::CreateShape )
+                m_Category = 0;
+            else if ( ms.ActiveTool == MS::Tool::PolyEdit || ms.ActiveTool == MS::Tool::ElementSelect )
+                m_Category = 1;
+        }
+
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 6.0f ) );
 
@@ -201,13 +213,10 @@ namespace Desert::Editor
 
                 // Grid Power: block size = 1 m >> power (Power 2 = 25 cm), like UE's slider. Typing a free
                 // Current Block Size below still wins — the power just snaps to the nearest step.
-                int power = 0;
-                for ( float sz = MS::BaseBlockSize; power < MS::MaxGridPower && sz > ms.CellSize + 0.01f; ++power )
-                    sz *= 0.5f;
+                int power = ms.GridPower();
                 ImGui::SetNextItemWidth( 120.0f );
                 if ( ImGui::SliderInt( "Grid Power", &power, 0, MS::MaxGridPower ) )
-                    ms.CellSize =
-                         std::max( MS::MinCellSize, MS::BaseBlockSize / static_cast<float>( 1 << power ) );
+                    ms.SetGridPower( power );
             }
             if ( Utils::ImGuiUtilities::SectionHeader( "Corner Mode" ) )
             {
@@ -265,10 +274,10 @@ namespace Desert::Editor
                     ms.CellSize = std::max( kMinBlock, ms.CellSize );
                 ImGui::SameLine();
                 if ( ImGui::SmallButton( "/2##bs" ) )
-                    ms.CellSize = std::max( ms.CellSize * 0.5f, kMinBlock );
+                    ms.HalveBlockSize();
                 ImGui::SameLine();
                 if ( ImGui::SmallButton( "x2##bs" ) )
-                    ms.CellSize = std::min( ms.CellSize * 2.0f, 100000.0f );
+                    ms.DoubleBlockSize();
                 // Blocks Per Step: how many cells one Push/Pull moves (UE multiplier).
                 ImGui::SetNextItemWidth( 120.0f );
                 if ( ImGui::SliderInt( "Blocks / Step", &ms.BlocksPerStep, 1, 32 ) )
@@ -401,6 +410,24 @@ namespace Desert::Editor
     }
 
     // UE's "Output Type" section (UCreateMeshObjectTypeProperties), shared by the creating tools.
+    Common::BoolResultStr ModelingPanel::PickTrimCutterFromSelection()
+    {
+        // The first selected entity that is not the one being edited.
+        Core::ModelingState::Get().ElementTrimCutter = Common::UUID::Null();
+        for ( const Common::UUID& id : Core::SelectionManager::GetSelection() )
+            if ( id != Core::MeshElementSelection::Get().Entity() )
+                return PickTrimCutter( id );
+        return Common::MakeError<bool>( "select the cutter entity (besides the edited one) before Pick Cutter" );
+    }
+
+    Common::BoolResultStr ModelingPanel::PickTrimCutter( const Common::UUID& cutter )
+    {
+        if ( cutter == Core::MeshElementSelection::Get().Entity() )
+            return Common::MakeError<bool>( "the entity being edited cannot be its own Trim cutter" );
+        Core::ModelingState::Get().ElementTrimCutter = cutter;
+        return Common::MakeSuccess( true );
+    }
+
     void ModelingPanel::DrawOutputType()
     {
         using MS  = Core::ModelingState;
@@ -569,16 +596,8 @@ namespace Desert::Editor
         // Trim (UE's Trim tool): another entity's closed convex mesh cuts this one; the cut stays open.
         if ( ImGui::Button( "Pick Cutter", ImVec2( half, 0.0f ) ) )
         {
-            // The first selected entity that is not the one being edited.
-            ms.ElementTrimCutter = Common::UUID::Null();
-            for ( const Common::UUID& id : Core::SelectionManager::GetSelection() )
-                if ( id != Core::MeshElementSelection::Get().Entity() )
-                {
-                    ms.ElementTrimCutter = id;
-                    break;
-                }
-            if ( ms.ElementTrimCutter.IsNull() )
-                LOG_WARN( "Mesh Trim: select the cutter entity (besides the edited one) before Pick Cutter" );
+            if ( const auto picked = PickTrimCutterFromSelection(); !picked )
+                LOG_WARN( "Mesh Trim: {}", picked.GetError() );
         }
         ImGui::SameLine();
         if ( ms.ElementTrimCutter.IsNull() )

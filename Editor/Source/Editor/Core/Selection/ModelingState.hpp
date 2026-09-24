@@ -119,6 +119,32 @@ namespace Desert::Editor::Core
         // Grid Power 0 is a one-metre block; each step halves it (Power 2 = 25 cm), like UE's Grid Power.
         static constexpr float BaseBlockSize = 100.0f;
         static constexpr int   MaxGridPower  = 6;
+        static constexpr float MaxCellSize   = 100000.0f;
+
+        // Grid Power, the step the block size is nearest to: the slider shows it, and a free Current Block
+        // Size still wins because only a write through SetGridPower snaps the size.
+        [[nodiscard]] int GridPower() const
+        {
+            int power = 0;
+            for ( float sz = BaseBlockSize; power < MaxGridPower && sz > CellSize + 0.01f; ++power )
+                sz *= 0.5f;
+            return power;
+        }
+        void SetGridPower( int power )
+        {
+            power    = power < 0 ? 0 : ( power > MaxGridPower ? MaxGridPower : power );
+            CellSize = BaseBlockSize / static_cast<float>( 1 << power );
+            CellSize = CellSize < MinCellSize ? MinCellSize : CellSize;
+        }
+        // The panel's /2 and x2, the Ctrl+Q / Ctrl+E shortcuts and the palette entries are these two.
+        void HalveBlockSize()
+        {
+            CellSize = CellSize * 0.5f < MinCellSize ? MinCellSize : CellSize * 0.5f;
+        }
+        void DoubleBlockSize()
+        {
+            CellSize = CellSize * 2.0f > MaxCellSize ? MaxCellSize : CellSize * 2.0f;
+        }
 
         // Panel -> tool
         // No Output Type here on purpose: Accept has exactly one output today (a StaticMeshComponent carrying
@@ -152,6 +178,17 @@ namespace Desert::Editor::Core
         bool ReqCancel         = false; // one-shot: delete the in-progress blockout
         bool ReqClear          = false; // one-shot: clear the cells (keep editing)
         bool ReqResetFromActor = false; // one-shot: put the grid origin on the selected entity
+
+        // --- The mouse's part of CubeGrid, for the command palette and the control channel (which have no
+        //     cursor). Each lands in the same code the mouse and E/Q reach inside CubeGridTool::Update. ---
+        // Aim the tool from the viewport centre instead of the cursor: the hover grid, the selection a
+        // request makes and Push/Pull all follow the centre while it is set.
+        bool CubeGridAimCentre       = false;
+        int  ReqCubeGridSelectBlocks = 0; // one-shot: select an N x N block square starting at the aim
+        int  ReqCubeGridStep         = 0; // one-shot: +1 = E, -1 = Q (Push/Pull, or the corner posts)
+        // One-shot: which of the selection's four corner posts Corner Mode picks, one bit per post in the
+        // order of CubeGridTool's kPosts (bit k = post k); -1 = no request.
+        int ReqCornerPosts = -1;
 
         // Select Elements: the distance Extrude / Push-Pull / Offset / Inset / Outset / Bevel use, in centimetres
         // (the panel's field, the Alt hotkeys and the palette entries all read this one value). Push/Pull and

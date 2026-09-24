@@ -154,7 +154,7 @@ TOOLS = [
             "properties": {
                 "subject": {
                     "type": "string",
-                    "description": "'document' (the focused one, the default) or 'viewport'",
+                    "description": "'document' (the focused one, the default), 'viewport', or 'modeling' (the Modeling panel's dragged values)",
                 },
             },
         },
@@ -178,7 +178,7 @@ TOOLS = [
             "properties": {
                 "subject": {
                     "type": "string",
-                    "description": "'document' (the focused one, the default) or 'viewport'",
+                    "description": "'document' (the focused one, the default), 'viewport', or 'modeling' (the Modeling panel's dragged values)",
                 },
                 "name": {"type": "string", "description": "the property name exactly as list_properties reports it"},
                 "value": {
