@@ -27,8 +27,8 @@ import sys
 import time
 
 STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
-TURN_WARN = 60
-TURN_LIMIT = 80
+TURN_WARN = 40
+TURN_LIMIT = 55
 MAX_SLEEP = 270
 MAX_EDITOR_BUILDS = 2
 
@@ -40,11 +40,12 @@ TREE_SEARCH = [
 ]
 FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
-EDITOR_BUILD = re.compile(r"(^|[;&|(]\s*|\s)make\s[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
+EDITOR_BUILD = re.compile(r"((^|[;&|(]\s*|\s)make\s|build_quiet\.sh\s)[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
+SINGLE_TU = re.compile(r"\.o\b|\s-n\b|--dry-run")
 MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
 MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
 MAX_MAKE_JOBS = 4
-SELF_WAIT = re.compile(r"pgrep\s+-x\s+make")  # a command that waits for the other build itself is allowed
+SELF_WAIT = re.compile(r"pgrep\s+-x\s+make|build_quiet\.sh")  # a command that waits for the other build itself is allowed
 GIT_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b")
 CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
 CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")
@@ -124,6 +125,47 @@ def staged_claude_files(cmd, cwd):
     return any(f.startswith(".claude/") for f in staged)
 
 
+REPORT_MAX_LINES = 20
+
+
+def last_report_text(data):
+    """The sub-agent's final message: newer hook inputs carry it, older ones only the transcript path."""
+    text = data.get("last_assistant_message")
+    if isinstance(text, str) and text.strip():
+        return text
+    for key in ("agent_transcript_path", "transcript_path"):
+        p = data.get(key)
+        if not p or not os.path.exists(p):
+            continue
+        last = ""
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    m = json.loads(line).get("message", {})
+                except ValueError:
+                    continue
+                if m.get("role") == "assistant":
+                    parts = [c.get("text", "") for c in m.get("content", []) if isinstance(c, dict) and c.get("type") == "text"]
+                    if any(t.strip() for t in parts):
+                        last = "\n".join(parts)
+        if last:
+            return last
+    return ""
+
+
+def subagent_stop(data):
+    """Owner 2026-09-24: every report line is paid again in every later turn of the lead. One retry only."""
+    if (data.get("agent_type") or "").lower() == "explore" or data.get("stop_hook_active"):
+        sys.exit(0)
+    lines = [l for l in last_report_text(data).splitlines() if l.strip()]
+    if len(lines) > REPORT_MAX_LINES:
+        log(data, data.get("agent_id") or "?", "block", f"report {len(lines)} lines")
+        emit({"decision": "block", "reason":
+              f"[agent_guard] Отчёт {len(lines)} непустых строк, предел {REPORT_MAX_LINES}. Подробности (таблицы, логи, "
+              f"списки файлов) запиши в файл в своей папке и перепиши отчёт: итог, цифры, путь к файлу, остаток."})
+    sys.exit(0)
+
+
 def self_check():
     """SessionStart: prove every rule still bites by replaying known-bad calls; a silent regression of this file
     (2026-09-24: a merge restored an old copy and the build limits vanished) must be loud at the next start."""
@@ -134,6 +176,8 @@ def self_check():
         "make -j8": {"tool_name": "Bash", "tool_input": {"command": "make Editor -j8"}},
         "editor without cap": {"tool_name": "Bash", "tool_input": {"command": "cd Editor && ../build/Bin/Debug/Editor"}},
         "explore not on haiku": {"tool_name": "Agent", "tool_input": {"subagent_type": "Explore", "prompt": "x"}},
+        "agent spawns a worker": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "x"}},
+        "clean the build": {"tool_name": "Bash", "tool_input": {"command": "make -f Desert.make clean"}},
         "code before map": {"tool_name": "Bash", "tool_input": {"command": "grep -n Foo Desert/X.cpp"}},
         "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
@@ -162,6 +206,9 @@ def main():
     except ValueError:
         sys.exit(0)
 
+    if data.get("hook_event_name") == "SubagentStop":
+        subagent_stop(data)  # before the agent-id test: a SubagentStop input may not carry one
+
     # Verified 2026-09-24 on live calls: a sub-agent's input carries agent_id and agent_type.
     agent = data.get("agent_id")
     agent_type = (data.get("agent_type") or "").lower()
@@ -171,12 +218,16 @@ def main():
     event = data.get("hook_event_name", "PreToolUse")
     state, path = load_state(agent)
 
+    # A continued agent (the lead resumed it with SendMessage for the next step in the same code) gets a larger
+    # budget from ~/.claude/tools/agent_extend.py: re-reading the same files in a fresh agent was 40-60 % of a step.
+    limit = state.get("limit", TURN_LIMIT)
     if event == "PostToolUse":
         calls = state.get("calls", 0)
-        if calls >= TURN_WARN:
+        if calls >= limit - (TURN_LIMIT - TURN_WARN):
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-                  f"[agent_guard] Вызов {calls}/{TURN_LIMIT}. Остановись на границе шага: коммит, пуш, отчёт "
-                  f"тимлиду. После {TURN_LIMIT} разрешены только git, SendMessage и отчёт."}})
+                  f"[agent_guard] Вызов {calls}/{limit}, осталось {limit - calls}. Доделай ТЕКУЩИЙ шаг, "
+                  f"новый крупный не начинай; закоммить, запушь и отчитайся до {limit}. Не останавливайся "
+                  f"раньше времени: каждый новый агент платит ~10 вызовов за вход в задачу."}})
         sys.exit(0)
 
     tool = data.get("tool_name", "")
@@ -186,12 +237,29 @@ def main():
     state["calls"] = state.get("calls", 0) + 1
     calls = state["calls"]
 
-    if calls > TURN_LIMIT:
+    if calls > limit:
         allowed = tool in ("SendMessage", "Write") or (tool == "Bash" and ALWAYS_ALLOWED_AFTER_LIMIT.match(cmd))
         if not allowed:
             save_state(state, path)
-            deny(f"[agent_guard] Лимит {TURN_LIMIT} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, "
+            deny(f"[agent_guard] Лимит {limit} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, "
                  f"отчитайся тимлиду; остаток он отдаст свежему агенту.", data, agent)
+
+    # Owner's rule: at most three programme agents. A sub-agent that spawns a general worker is a fourth
+    # (2026-09-24: P10e spawned "P10e code" and the machine ran five). Only Explore (discovery) is allowed.
+    # Owner 2026-09-24 refined it: the limit exists for ECONOMY — a helper is fine when it LOWERS spend. So a worker
+    # is allowed only on a cheaper model than the caller (sonnet or haiku), never on the inherited expensive one.
+    if tool == "Agent" and (tin.get("subagent_type") or "general-purpose").lower() != "explore" and \
+            (tin.get("model") or "").lower() not in ("sonnet", "haiku"):
+        save_state(state, path)
+        deny("[agent_guard] Помощник допустим, только если он СНИЖАЕТ расход: model: \"sonnet\" или \"haiku\" "
+             "(механика, прогоны, правки по списку). На своей модели — делай сам; не влезает — коммит, пуш, отчёт.",
+             data, agent)
+
+    # The build tree is shared state and costs a full rebuild (~10 min, a dozen calls of waiting) to recreate.
+    if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\sclean(\s|$|;|&)|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd):
+        save_state(state, path)
+        deny("[agent_guard] Дерево сборки не чистится: make clean / rm -rf build стоит полной пересборки. Устаревший "
+             "объект — пересобери один файл (touch источника) или удали один .o.", data, agent)
 
     # --- Economy rules measured on the ledger (owner 2026-09-24: «сделай так, чтобы агенты опять не НЕ исполнили») ---
     if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore" and \
@@ -263,7 +331,7 @@ def main():
                      "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
                      "done; make ...",
                      data, agent)
-        if EDITOR_RUN.search(cmd) and "run_capped.sh" not in cmd and not re.search(r"\bpkill\b|\bpgrep\b|\bls\b|\bfile\b", cmd):
+        if EDITOR_RUN.search(cmd) and "run_capped.sh" not in cmd and not re.search(r"\bpkill\b|\bpgrep\b|\bls\b|\bfile\b|\bstat\b|\bshasum\b|\botool\b|\bnm\b", cmd):
             save_state(state, path)
             deny("[agent_guard] Редактор/рантайм запускается только через ограничитель памяти: "
                  "~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... "
@@ -275,7 +343,9 @@ def main():
                  "2026-09-24 несколько редакторов повесили WindowServer, ядро ушло в panic. Подожди в той же команде: "
                  "for i in $(seq 27); do pgrep -x Editor >/dev/null || pgrep -x Runtime >/dev/null || break; "
                  "sleep 10; done; <запуск>", data, agent)
-        if EDITOR_BUILD.search(cmd):
+        # a single translation unit (`make -f Editor.make .../EditorLayer.o`) is the cheap check the brief asks for
+        # BEFORE a full build; counting it made the rule punish its own advice (AF9k, 2026-09-24)
+        if EDITOR_BUILD.search(cmd) and not SINGLE_TU.search(cmd):
             if state.get("editor_builds", 0) >= MAX_EDITOR_BUILDS:
                 save_state(state, path)
                 deny(f"[agent_guard] Editor уже собирался {MAX_EDITOR_BUILDS} раза в этой задаче. Итерации — на "
