@@ -19,6 +19,32 @@
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        const char* ShapeIcon( Core::ModelingState::Shape shape )
+        {
+            using S = Core::ModelingState::Shape;
+            switch ( shape )
+            {
+                case S::Box:
+                    return ICON_MDI_CUBE_OUTLINE;
+                case S::Sphere:
+                    return ICON_MDI_SPHERE;
+                case S::Cylinder:
+                    return ICON_MDI_CYLINDER;
+                case S::Cone:
+                    return ICON_MDI_CONE;
+                case S::Capsule:
+                    return ICON_MDI_PILL;
+                case S::Pyramid:
+                    return ICON_MDI_TRIANGLE_OUTLINE;
+                case S::Stairs:
+                    return ICON_MDI_STAIRS;
+            }
+            return ICON_MDI_SHAPE_PLUS;
+        }
+    } // namespace
+
     ModelingPanel::ModelingPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
          : IPanel( "Modeling", /*showPanel=*/false ), m_Scene( scene ) // contextual: Modeling mode opens it
     {
@@ -64,7 +90,8 @@ namespace Desert::Editor
             const char* Icon;
             const char* Name;
         };
-        const Cat cats[] = { { ICON_MDI_SHAPE_PLUS, "Create" }, { ICON_MDI_VECTOR_SQUARE, "Model" } };
+        // UE 5.8 ModelingToolsEditorModeToolkit.cpp PaletteNames_Standard names: Shapes, then PolyModel.
+        const Cat cats[] = { { ICON_MDI_SHAPE_PLUS, "Shapes" }, { ICON_MDI_VECTOR_SQUARE, "PolyModel" } };
 
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 6.0f, 8.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 8.0f ) );
@@ -159,7 +186,11 @@ namespace Desert::Editor
                     ImGui::PushStyleColor( ImGuiCol_Button, sel );
                 if ( column % 2 == 1 )
                     ImGui::SameLine();
-                if ( ImGui::Button( MS::ShapeName( shape ), ImVec2( half, 26.0f ) ) )
+                // UE's Shapes palette: an icon over each primitive's name (ModelingToolsEditorModeStyle).
+                char shapeLabel[64];
+                std::snprintf( shapeLabel, sizeof( shapeLabel ), "%s  %s", ShapeIcon( shape ),
+                               MS::ShapeName( shape ) );
+                if ( ImGui::Button( shapeLabel, ImVec2( half, 26.0f ) ) )
                 {
                     ms.ActiveTool       = MS::Tool::CreateShape;
                     ms.CreateShape.Kind = shape;
@@ -483,9 +514,23 @@ namespace Desert::Editor
                 report( state.SetMode( mode ) );
         }
         // UE's TriEdit: Vertex / Edge picks every mesh vertex and edge instead of group corners and edges.
-        bool triangles = state.Level() == Geometry::TopologyLevel::Triangle;
-        if ( ImGui::Checkbox( "Triangle level (TriEdit)", &triangles ) )
-            state.SetLevel( triangles ? Geometry::TopologyLevel::Triangle : Geometry::TopologyLevel::Group );
+        // Two buttons, as UE's PolyEd / TriSel pair on its Selection palette, instead of a checkbox.
+        const bool   triangles = state.Level() == Geometry::TopologyLevel::Triangle;
+        const float  levelW    = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+        const ImVec4 on        = ThemeManager::GetSelectedColor();
+        if ( !triangles )
+            ImGui::PushStyleColor( ImGuiCol_Button, on );
+        if ( ImGui::Button( ICON_MDI_VECTOR_POLYGON " PolyEdit##level", ImVec2( levelW, 0.0f ) ) )
+            state.SetLevel( Geometry::TopologyLevel::Group );
+        if ( !triangles )
+            ImGui::PopStyleColor();
+        ImGui::SameLine();
+        if ( triangles )
+            ImGui::PushStyleColor( ImGuiCol_Button, on );
+        if ( ImGui::Button( ICON_MDI_VECTOR_TRIANGLE " TriEdit##level", ImVec2( levelW, 0.0f ) ) )
+            state.SetLevel( Geometry::TopologyLevel::Triangle );
+        if ( triangles )
+            ImGui::PopStyleColor();
         ImGui::Spacing();
         if ( !state.HasMesh() )
         {

@@ -4455,6 +4455,18 @@ namespace Desert::Editor
             commands.push_back( { "Modeling", std::string( "Mesh selection mode: " ) + Geometry::ToString( mode ),
                                   [mode] { return Core::MeshElementSelection::Get().SetMode( mode ); } } );
         }
+        // UE's PolyEdit / TriEdit: which topology Vertex and Edge pick (group corners and borders, or every mesh
+        // vertex and edge). The panel's two level buttons; without this a TriEdit frame cannot be taken.
+        for ( const auto& [label, level] :
+              { std::pair{ "Mesh selection level: PolyEdit", Geometry::TopologyLevel::Group },
+                std::pair{ "Mesh selection level: TriEdit", Geometry::TopologyLevel::Triangle } } )
+        {
+            commands.push_back( { "Modeling", label, [level]
+                                  {
+                                      Core::MeshElementSelection::Get().SetLevel( level );
+                                      return PaletteCommandDone();
+                                  } } );
+        }
         using SelectionOp = Core::MeshElementSelection::Op;
         for ( const SelectionOp op : { SelectionOp::SelectAll, SelectionOp::SelectConnected, SelectionOp::Grow,
                                        SelectionOp::Shrink, SelectionOp::Clear } )

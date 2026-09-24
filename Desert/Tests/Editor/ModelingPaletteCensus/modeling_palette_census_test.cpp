@@ -54,7 +54,7 @@ namespace
         { "Button", "ICON_MDI_VECTOR_SQUARE \" PolyEdit\"", Reach::Palette, { "\"PolyEdit tool\"" } },
         { "Button", "ICON_MDI_VECTOR_SELECTION \" Select Elements\"", Reach::Palette, { "\"Select Elements tool\"" } },
         { "Button", "ICON_MDI_GRID \" CubeGrid\"", Reach::Palette, { "\"CubeGrid tool\"" } },
-        { "Button", "MS::ShapeName( shape )", Reach::Palette, { "\"Create shape tool: \"" } },
+        { "Button", "shapeLabel", Reach::Palette, { "\"Create shape tool: \"" } },
         // CubeGrid
         { "Button", "\"Accept and Start New\"", Reach::Palette, { "{ \"Accept and Start New\", &MS::ReqAccept }" } },
         { "Button", "\"Reset Grid from Actor\"", Reach::Palette, { "{ \"Reset Grid from Actor\", &MS::ReqResetFromActor }" } },
@@ -86,6 +86,8 @@ namespace
         { "InputTextWithHint", "\"##OutputName\"", Reach::Exempt, { "text: `set` carries numbers" } },
         // Select Elements
         { "RadioButton", "Geometry::ToString( mode )", Reach::Palette, { "\"Mesh selection mode: \"" } },
+        { "Button", "ICON_MDI_VECTOR_POLYGON \" PolyEdit##level\"", Reach::Palette, { "\"Mesh selection level: PolyEdit\"" } },
+        { "Button", "ICON_MDI_VECTOR_TRIANGLE \" TriEdit##level\"", Reach::Palette, { "\"Mesh selection level: TriEdit\"" } },
         { "Button", "\"Grow\"", Reach::Palette, { "SelectionOp::Grow" } },
         { "Button", "\"Shrink\"", Reach::Palette, { "SelectionOp::Shrink" } },
         { "Button", "\"Connected\"", Reach::Palette, { "SelectionOp::SelectConnected" } },
