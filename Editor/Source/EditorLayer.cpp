@@ -8,6 +8,7 @@
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
@@ -5742,6 +5743,10 @@ namespace Desert::Editor
         // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
         LOG_INFO( "[Startup] the editor is on screen and the splash is closed" );
+        // The counters are cumulative since process start, so this is every shader and pipeline cost paid before
+        // the first real frame, including the pipelines the renderers build after the preload.
+        LOG_INFO( "[Startup] shader work before the first frame: {}",
+                  ::Desert::Core::FormatShaderPhaseTimes( ::Desert::Core::ReadShaderPhaseTimes() ) );
     }
 
     void EditorLayer::UpdateContentSettling()
