@@ -22,6 +22,7 @@ BINARY="$DEV_ROOT/build/Bin/Debug/SceneMigrator"
 OBJ="build/Intermediates/Debug/Debug/SceneMigrator"
 
 waited=0
+dev_regen_makefiles "$LOG" || exit 2
 while pgrep -x make >/dev/null; do sleep 10; waited=$((waited + 10)); [ $waited -ge 1800 ] && { echo "migrate.sh: another make ran 30 min"; exit 3; }; done
 export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime" CCACHE_COMPRESS=1 CCACHE_BASEDIR=/Users/daniilsavcenko/Desktop/Programming/C++
 for mk in Common SceneMigrator; do

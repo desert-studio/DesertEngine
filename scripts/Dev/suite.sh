@@ -9,6 +9,7 @@ source "$(dirname "$0")/_common.sh"
 case "${1:-}" in -h|--help|"") dev_help "$0"; exit 0 ;; esac
 cd "$DEV_ROOT" || exit 2
 LOG=$(dev_logdir suite)
+dev_regen_makefiles "$LOG" || exit 2
 for s in "$@"; do [ -f "$s.make" ] || { echo "suite.sh: $s.make not found (CI=true premake5 gmake?)"; exit 2; }; done
 QUIET="$HOME/.claude/tools/build_quiet.sh"
 if [ -x "$QUIET" ]; then
