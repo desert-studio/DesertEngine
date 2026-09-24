@@ -27,6 +27,11 @@
 
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
+#include <Engine/Assets/MaterialData.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
+#include <rflcpp/rfl/json.hpp>
 #include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
 
 // The LAYER's Detail Strength, for the one relation that is between the library and the layer: the cut's
@@ -1517,6 +1522,59 @@ TEST( CloudTypeLibrary, TheCheapBakeGridIsKeptForEveryTypeThatFitsOnIt )
                  raised );
     EXPECT_EQ( kept, 7 );
     EXPECT_EQ( raised, 2 );
+}
+
+// WITNESS (AF7y, before T6c): A SHIPPED CLOUD MATERIAL'S TYPE SLOT NAMES A TYPE THE SERVICE KNOWS.
+//
+// Since format 4 (T6b1) a type registers in Runtime::CloudTypeService under HandleForGuid of its header
+// GUID (CloudTypeAsset's constructor), and the slot is looked up by the bare number the `.demat` stores
+// (CloudMaterialValues ApplyCloudAssetRef -> CloudTypeService::GetShape). This joins those two ends on the
+// shipped files. EXPECTED RED UNTIL T6c: the `.demat` slots still carry the path-derived numbers minted
+// before the header existed, and a miss renders the built-in default rather than failing anything - the
+// AssetReferenceCensus stays green on it because its own handle rule hashes a `.decloudtype` by path.
+// M_Clouds_Demo_Clouds rather than M_CloudDefault: the default material authors no slot at all.
+TEST( CloudTypeLibrary, AShippedCloudMaterialsTypeSlotNamesARegisteredType )
+{
+    const std::filesystem::path types = LibraryDirectory();
+    ASSERT_FALSE( types.empty() );
+    const std::filesystem::path material =
+         types.parent_path().parent_path() / "Materials" / "M_Clouds_Demo_Clouds.demat";
+
+    std::ifstream in( material );
+    ASSERT_TRUE( in.good() ) << material.string() << " could not be opened";
+    const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    const auto        parsed = rfl::json::read<MaterialData>( text );
+    ASSERT_TRUE( parsed ) << parsed.error().what();
+
+    uint64_t slot = 0;
+    for ( const auto& texture : parsed.value().Textures )
+        if ( texture.Name == "CloudType1" )
+            slot = texture.TextureHandle;
+    ASSERT_NE( slot, 0u ) << material.string() << " no longer authors CloudType1; pick a material that does";
+
+    // The handles the service would hold: one per shipped type, derived as the asset derives it.
+    std::map<uint64_t, std::string> registered;
+    for ( const auto& entry : std::filesystem::directory_iterator( types ) )
+    {
+        if ( entry.path().extension() != kCloudTypeExtension )
+            continue;
+        std::ifstream     file( entry.path() );
+        const std::string body( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        const auto        type = ParseCloudType( body );
+        ASSERT_TRUE( type ) << entry.path().string() << ": " << type.GetError();
+        ASSERT_TRUE( type.GetValue().Header.has_value() ) << entry.path().string();
+        const auto guid = Common::Content::AssetGuidFromText( type.GetValue().Header->Guid );
+        ASSERT_TRUE( guid ) << entry.path().string();
+        registered[static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) )] =
+             entry.path().filename().string();
+    }
+    ASSERT_EQ( registered.size(), 9u );
+
+    EXPECT_TRUE( registered.count( slot ) )
+         << "M_Clouds_Demo_Clouds.demat CloudType1 = " << slot
+         << " names no shipped cloud type: every type registers under HandleForGuid of its header GUID, so "
+            "CloudTypeService::GetShape misses and the layer silently renders the built-in default. The "
+            "slot still holds the pre-format-4 path-derived number; T6c (MATL 3) re-points it by GUID.";
 }
 
 int main( int argc, char** argv )
