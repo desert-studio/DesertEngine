@@ -207,7 +207,8 @@ namespace
          //      factory that seven allocation sites bypass, so it was blind to 2.79 GB of what it exists
          //      to count.
          { "VulkanAllocator.cpp", "vmaGetAllocationInfo", 2, "void" },
-         // FOUR SITES, the count derived from them: device selection (scoring + the chosen GPU), the device name read at logical-device
+         // FOUR SITES, the count derived from them: device selection (scoring + the chosen GPU), the device name
+         // read at logical-device
          // creation, and AF7's PipelineCacheKey — the GPU/driver identity that keys the pipeline-cache DDC entry.
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceProperties", 4, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFeatures", 1, "void" },

@@ -23,7 +23,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
-#include <fmt/format.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <glm/gtc/epsilon.hpp>
 

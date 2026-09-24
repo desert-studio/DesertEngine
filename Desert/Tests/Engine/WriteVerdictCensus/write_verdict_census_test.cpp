@@ -353,10 +353,10 @@ namespace
     constexpr std::array<KnownSite, 0> kRegister{};
 
     // THE SAME REGISTER WITH NO ROWS IN IT, and it is not decoration: it is the compile-time half of the
-    // paragraph above. It is what `kRegister` would be again if a new KEEP is ever added and retired, and this line
-    // is what proves today — on every compiler the suite builds on, MSVC included — that the empty case
-    // is a legal C++ type and that the two gates below still work over it. The tests use it; it is not a
-    // declaration nobody reads.
+    // paragraph above. It is what `kRegister` would be again if a new KEEP is ever added and retired, and this
+    // line is what proves today — on every compiler the suite builds on, MSVC included — that the empty case is a
+    // legal C++ type and that the two gates below still work over it. The tests use it; it is not a declaration
+    // nobody reads.
     constexpr std::array<KnownSite, 0> kEmptyRegister{};
 
     std::string Norm( std::string p )
