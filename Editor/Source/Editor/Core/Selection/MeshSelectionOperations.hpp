@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/UUID.hpp>
 
 #include <Engine/Geometry/EditMeshModelOperations.hpp>
 #include <Engine/Geometry/EditMeshTopologyOperations.hpp>
@@ -34,6 +35,8 @@ namespace Desert::Editor::Core
         Clean,
         Subdivide, // mesh-wide, like Clean: no selection in, none out
         Mirror,    // mesh-wide
+        PlaneCut,  // mesh-wide; Keep Both Halves splits the entity in two
+        Trim,      // mesh-wide, by another entity's mesh
     };
 
     // What an operation reads besides the selection. The panel, the hotkeys and the palette build it from
@@ -49,6 +52,14 @@ namespace Desert::Editor::Core
         bool                      MirrorWorld     = false; // the world's axis through its origin, not the entity's
         bool                      MirrorKeepNegative = false;
         Geometry::MirrorMode      MirrorMode         = Geometry::MirrorMode::CutAndMirror;
+        int                       PlaneCutAxis         = 0;    // 0 = X, 1 = Y, 2 = Z
+        float                     PlaneCutOffset       = 0.0f; // cm along the axis from the origin
+        bool                      PlaneCutWorld        = false;
+        bool                      PlaneCutKeepNegative = false;
+        bool                      PlaneCutFill         = true;
+        Geometry::PlaneCutMode    PlaneCutMode         = Geometry::PlaneCutMode::DiscardNegativeSide;
+        Common::UUID              TrimCutter; // Null: no cutter picked, Trim is refused
+        Geometry::TrimSide        TrimSide = Geometry::TrimSide::RemoveInside;
         // Cut only: the plane in the MESH's space (the knife maps its screen line through the entity's
         // transform). Absent, Cut is refused - it has no line to cut along.
         std::optional<Geometry::CutPlane> CutPlane;

@@ -73,6 +73,15 @@ namespace Desert::Editor::Commands
                                std::shared_ptr<const Geometry::EditMesh> before,
                                std::unique_ptr<ICommand>                 alongside = nullptr );
 
+    // Record a mesh operation that SPLIT the entity in two (Plane Cut, Keep Both Halves): the entity's CURRENT
+    // EditableMesh is one half; a copy of the entity alone (not its children), named "<name> Half", is created
+    // and given @p otherHalf. The mesh change, the copy and @p alongside are ONE undo step. Refused - nothing
+    // left created or recorded - when the copy cannot be made or cannot take the mesh; the caller then puts
+    // @p before back on the source.
+    [[nodiscard]] Common::ResultStr<Common::UUID> RecordEditMeshSplit(
+         const Common::UUID& uuid, const std::string& label, std::shared_ptr<const Geometry::EditMesh> before,
+         std::shared_ptr<const Geometry::EditMesh> otherHalf, std::unique_ptr<ICommand> alongside = nullptr );
+
     // Record a finished transform edit (gizmo drag): oldT/R/S = values before the drag; the entity's
     // CURRENT transform is captured as the "new" state. No-ops if nothing actually changed.
     void RecordTransformEdit( const Common::UUID& uuid, const glm::vec3& oldTranslation,

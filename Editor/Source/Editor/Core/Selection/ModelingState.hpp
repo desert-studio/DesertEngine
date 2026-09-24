@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include <Common/Core/UUID.hpp>
 #include <Engine/Geometry/EditMeshModelOperations.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
@@ -171,6 +172,20 @@ namespace Desert::Editor::Core
         bool                 ElementMirrorWorld        = false;
         bool                 ElementMirrorKeepNegative = false;
         Geometry::MirrorMode ElementMirrorMode         = Geometry::MirrorMode::CutAndMirror;
+        // Plane Cut: the plane is perpendicular to ElementPlaneCutAxis, ElementPlaneCutOffset cm along that axis
+        // from the entity's origin (or, ElementPlaneCutWorld, the world's). The positive side of the axis is
+        // kept, the negative one with ElementPlaneCutKeepNegative; Keep Both Halves puts the other half on a
+        // new entity. ElementPlaneCutFill closes the cut with a flat cap.
+        int                    ElementPlaneCutAxis         = 0;
+        float                  ElementPlaneCutOffset       = 0.0f;
+        bool                   ElementPlaneCutWorld        = false;
+        bool                   ElementPlaneCutKeepNegative = false;
+        bool                   ElementPlaneCutFill         = true;
+        Geometry::PlaneCutMode ElementPlaneCutMode         = Geometry::PlaneCutMode::DiscardNegativeSide;
+        // Trim: the entity whose mesh (closed and convex) trims the edited one, picked in the panel from the
+        // scene selection; Null until picked.
+        Common::UUID       ElementTrimCutter;
+        Geometry::TrimSide ElementTrimSide = Geometry::TrimSide::RemoveInside;
 
         // Create tool: the shape a click places, and a one-shot that places it where the viewport centre
         // looks (the palette's way to place without a mouse).

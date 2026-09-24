@@ -6,6 +6,8 @@
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
+#include <vector>
+
 namespace Desert::Geometry
 {
     // OPERATIONS THAT RE-CUT THE SURFACE - the second half of UE's PolyEdit verbs: Bevel (FMeshBevel), Insert
@@ -73,6 +75,36 @@ namespace Desert::Geometry
     // halves of every cut group, in PolyGroup mode.
     [[nodiscard]] Common::ResultStr<MeshEditOutcome>
     CutSelection( const EditMesh& mesh, const ElementSelection& selection, const CutPlane& plane );
+
+    // ── the plane-cut core, shared with the Model tab's Plane Cut and Trim ──────────────────────────────
+
+    // Splits every edge of the working triangles (`inSet`, indexed by triangle ID; it grows with the splits)
+    // whose ends lie strictly on opposite sides of `plane`, until none does. A split triangle's halves stay in
+    // the set; a neighbour outside it is split too (its halves stay outside). Every attribute layer is
+    // interpolated at the new vertices (EditMesh::SplitEdge).
+    [[nodiscard]] Common::BoolResultStr SplitMeshAlongPlane( EditMesh& mesh, std::vector<char>& inSet,
+                                                             const CutPlane& plane, const char* what );
+
+    struct PlaneCutCap
+    {
+        int Group            = InvalidId; // the cap's new polygroup; InvalidId when no cap was built
+        int RemovedTriangles = 0;
+        int CapTriangles     = 0;
+        int CapLoops         = 0; // separate outlines capped (a U shape cut across its arms has two)
+    };
+
+    // Splits the working triangles along `plane` (as SplitMeshAlongPlane), then REMOVES the ones on its
+    // positive side - and a triangle lying in the plane that faces against the normal (the removed side's
+    // wall). With `fillHole`, each outline the removal opens is closed by a flat cap: one new polygroup for
+    // all of them, ear-clipped, facing along the normal, UVs a planar projection at the neighbouring faces'
+    // texel density, colours and material from the kept faces along the rim, normals rebuilt per polygroup
+    // at the rim, tangents on the cap. Refused while capping: an outline left open by the mesh's own open
+    // border, one that passes a vertex twice, and a HOLE inside another outline (a tube cut across: its
+    // outline runs clockwise) - a cap with holes is not built. The mesh is left mid-edit on a refusal; the
+    // callers work on a copy.
+    [[nodiscard]] Common::ResultStr<PlaneCutCap> CutAwayPositiveSide( EditMesh& mesh, std::vector<char>& inSet,
+                                                                      const CutPlane& plane, bool fillHole,
+                                                                      const char* what );
 
     struct CleanCounts
     {
