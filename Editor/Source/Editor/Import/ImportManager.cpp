@@ -319,8 +319,8 @@ namespace Desert::Editor
         // IMPORT, NOT COOK (AF3c). A loose image dropped under `LooseTextureRoots()` becomes its `.detex`
         // asset here; its platform data is derived on first use (Assets::LoadTexturePlatformData -> the
         // builder this editor registers) or by the packager, and lives in the DDC, never beside the asset.
-        size_t imported = 0;
-        const std::vector<std::filesystem::path> sources = LooseTextureSources();
+        size_t                                   imported = 0;
+        const std::vector<std::filesystem::path> sources  = LooseTextureSources();
         for ( std::size_t i = 0; i < sources.size(); ++i )
         {
             const std::filesystem::path& source = sources[i];

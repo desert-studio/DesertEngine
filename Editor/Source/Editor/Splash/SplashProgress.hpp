@@ -178,7 +178,7 @@ namespace Desert::Editor::Splash
     private:
         struct Stage
         {
-            std::string Name;
+            std::string         Name;
             double              UnitCost  = 1.0;
             std::size_t         Units     = 0;
             std::size_t         Done      = 0;

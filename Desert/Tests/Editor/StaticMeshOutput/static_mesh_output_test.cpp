@@ -193,7 +193,7 @@ TEST_F( ScratchProject, ATakenNameGetsASuffixAndTheFirstFileIsUntouched )
     auto target = Editor::StaticMeshOutputFolder( "Modeling" );
     ASSERT_TRUE( target.IsSuccess() ) << target.GetError();
     const fs::path& folder = target.GetValue();
-    auto           first  = Editor::WriteStaticMeshAsset( *Dyn( TwoMaterialBox() ), kSlots, folder, "Box" );
+    auto            first  = Editor::WriteStaticMeshAsset( *Dyn( TwoMaterialBox() ), kSlots, folder, "Box" );
     ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
     const auto firstTime = fs::last_write_time( first.GetValue() );
 

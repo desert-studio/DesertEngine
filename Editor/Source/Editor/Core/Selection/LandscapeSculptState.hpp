@@ -245,7 +245,7 @@ namespace Desert::Editor::Core
         LandscapeSculptSettings Settings;
         /// The Paint tool's settings; the brush (Settings.Brush) is shared with the sculpt tools, as in UE.
         World::Landscape::LandscapePaintSettings Paint;
-        LandscapeStrokeRequest  Request = LandscapeStrokeRequest::None;
+        LandscapeStrokeRequest                   Request = LandscapeStrokeRequest::None;
         /// UE's FLandscapeToolRamp::Points, in world cm; applying keeps them, as UE does until the tool is reset.
         std::optional<glm::vec3> RampStart;
         std::optional<glm::vec3> RampEnd;

@@ -229,7 +229,7 @@ namespace Desert::World::Landscape
         const int32_t         width = rect.X2 - rect.X1 + 1;
         // The paste gizmo's Z (LandscapeEdModeComponentTools.cpp:1501, GetLandscapeHeight): the height under the
         // paste point, so the copy's lowest sample lands there and the rest stand above it.
-        const int32_t         base  = data[static_cast<size_t>( ( cz - rect.Z1 ) * width + ( cx - rect.X1 ) )];
+        const int32_t base = data[static_cast<size_t>( ( cz - rect.Z1 ) * width + ( cx - rect.X1 ) )];
         for ( int32_t z = rect.Z1; z <= rect.Z2; ++z )
             for ( int32_t x = rect.X1; x <= rect.X2; ++x )
             {

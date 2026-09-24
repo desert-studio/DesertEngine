@@ -171,7 +171,7 @@ namespace Desert::Editor
 
     void LandscapePanel::DrawToolStrip()
     {
-        auto&        settings = Core::LandscapeSculptState::Get().Settings;
+        auto& settings = Core::LandscapeSculptState::Get().Settings;
         // Every button is as wide as the widest name, so "Hydro Erosion" and "Copy/Paste" are not clipped.
         float widest = 0.0f;
         for ( const auto& button : kSculptTools )

@@ -230,8 +230,8 @@ namespace Desert::Editor::Core
             if ( !region.IsSuccess() )
                 return Common::MakeError<bool>( region.GetError() );
             Geometry::RegionOutcome done = region.ExtractValue();
-            after              = std::move( done.Mesh );
-            outcome.Selection  = std::move( done.Selection );
+            after                        = std::move( done.Mesh );
+            outcome.Selection            = std::move( done.Selection );
         }
         else if ( operation == MeshOperation::FillHole || operation == MeshOperation::WeldEdges )
         {

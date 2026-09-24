@@ -345,7 +345,7 @@ namespace Desert::Editor
         std::unique_ptr<Editor::UI::UIHelper> m_UIHelper;
         std::unique_ptr<LightGizmoRenderer>   m_LightGizmoRenderer;
         PerfHudOverlay                        m_PerfHud; // View -> Perf HUD viewport overlay
-        Tools::LandscapeSculptTool            m_LandscapeTool; // UE-style landscape Sculpt / Smooth
+        Tools::LandscapeSculptTool            m_LandscapeTool;      // UE-style landscape Sculpt / Smooth
         Tools::LandscapePaintTool             m_LandscapePaintTool; // Landscape mode Paint (weight layers)
         Tools::FoliagePaintTool               m_FoliageTool;  // UE5-style foliage painting (extracted)
         Tools::CubeGridTool                   m_CubeGridTool; // UE5-style CubeGrid blockout (Modeling mode)

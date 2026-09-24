@@ -46,10 +46,9 @@ namespace Desert::Editor::Tools
             auto target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
             if ( !target.IsSuccess() )
                 return {};
-            return { target.GetValue().Mesh,
-                     e.HasComponent<ECS::TransformComponent>()
-                          ? e.GetComponent<ECS::TransformComponent>().GetTransform()
-                          : glm::mat4( 1.0f ) };
+            return { target.GetValue().Mesh, e.HasComponent<ECS::TransformComponent>()
+                                                  ? e.GetComponent<ECS::TransformComponent>().GetTransform()
+                                                  : glm::mat4( 1.0f ) };
         }
 
         struct Painter
@@ -66,8 +65,8 @@ namespace Desert::Editor::Tools
             {
                 glm::vec2 px;
                 const auto q = Mesh.GetVertex( v );
-                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( q.X, q.Y, q.Z, 1.0f ) ),
-                                                   ViewProj, Pos, Size, px ) )
+                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( q.X, q.Y, q.Z, 1.0f ) ), ViewProj,
+                                                   Pos, Size, px ) )
                     return false;
                 out = ImVec2( px.x, px.y );
                 return true;

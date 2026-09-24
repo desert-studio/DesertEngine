@@ -464,7 +464,8 @@ namespace Desert::Editor
         // automatic path could clear. Both directories are `LooseTextureRoots()`, the list the packager
         // cooks too. (This stage used to walk `Assets/Meshes/` twice; the second walk found everything
         // fresh.)
-        m_StartupStages.push_back( { "Importing textures...", [this]
+        m_StartupStages.push_back( { "Importing textures...",
+                                     [this]
                                      {
                                          // The editor derives texture platform data on a DDC miss; a packaged game
                                          // has no builder.
