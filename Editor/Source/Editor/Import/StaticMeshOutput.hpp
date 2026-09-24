@@ -60,7 +60,8 @@ namespace Desert::Editor
     StaticMeshOutputFolder( std::string_view relative )
     {
         const std::filesystem::path rel = std::filesystem::path( relative ).lexically_normal();
-        if ( rel.is_absolute() || rel.has_root_directory() || rel.has_root_name() || ( !rel.empty() && *rel.begin() == ".." ) )
+        if ( rel.is_absolute() || rel.has_root_directory() || rel.has_root_name() ||
+             ( !rel.empty() && *rel.begin() == ".." ) )
             return Common::MakeFormattedError<std::filesystem::path>(
                  "the asset folder '{}' is outside the cooked mesh folder; name a folder inside it", relative );
         return Common::MakeSuccess( ( Common::Constants::Path::MESH_PATH_COOKED / rel ).lexically_normal() );
