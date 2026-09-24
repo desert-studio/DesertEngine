@@ -20,6 +20,12 @@ project "GamePackager"
         "Source/**.cpp",
         "%{wks.location}/Editor/Source/Editor/Packaging/GamePackager.cpp",
         "%{wks.location}/Editor/Source/Editor/Packaging/PackageCook.cpp",
+        -- The packager cuts a partitioned world into its cells (WP9): the world cook and what it reads with.
+        -- The same four files Tests/Editor/PackagedContent compiles, so the suite links what the tool links.
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCacheKey.cpp",
@@ -51,6 +57,8 @@ project "GamePackager"
 
     externalincludedirs {
         "%{wks.location}/ThirdParty/stb/include", -- <stb_image/stb_image.h>, for the texture cook
+        -- <Common/LandscapeHeight.glslh>: LandscapeData.cpp decodes heights with the shader's own maths.
+        "%{wks.location}/Editor/Resources/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

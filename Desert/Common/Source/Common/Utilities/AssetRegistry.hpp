@@ -4,7 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
-#include <cstring>
+#include <bit>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -114,7 +114,8 @@ namespace Common::Utils
             return false;
         if ( !a.has_value() )
             return true;
-        const auto same = []( float x, float y ) { return std::memcmp( &x, &y, sizeof( float ) ) == 0; };
+        const auto bits = []( float v ) { return std::bit_cast<uint32_t>( v ); };
+        const auto same = [&bits]( float x, float y ) { return bits( x ) == bits( y ); };
         return same( a->Min.x, b->Min.x ) && same( a->Min.y, b->Min.y ) && same( a->Min.z, b->Min.z ) &&
                same( a->Max.x, b->Max.x ) && same( a->Max.y, b->Max.y ) && same( a->Max.z, b->Max.z );
     }
