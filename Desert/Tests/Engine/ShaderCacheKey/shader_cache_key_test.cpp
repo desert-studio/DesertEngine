@@ -46,6 +46,7 @@
 #include <iostream>
 
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <cstdio>
 #include <filesystem>
@@ -2486,4 +2487,85 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+namespace
+{
+    // What counts as a change of the map's producer: the code, not its layout. Line endings (a Windows
+    // checkout converts them), whitespace (clang-format) and comments are dropped, so re-formatting or
+    // re-wording does not demand a new fingerprint; anything the compiler sees does.
+    std::string ProducerCodeOnly( const std::string& text )
+    {
+        std::string out;
+        out.reserve( text.size() );
+        for ( size_t i = 0; i < text.size(); ++i )
+        {
+            if ( text.compare( i, 2, "//" ) == 0 )
+            {
+                i = text.find( '\n', i );
+                if ( i == std::string::npos )
+                    break;
+                continue;
+            }
+            if ( text.compare( i, 2, "/*" ) == 0 )
+            {
+                i = text.find( "*/", i + 2 );
+                if ( i == std::string::npos )
+                    break;
+                ++i;
+                continue;
+            }
+            if ( !std::isspace( static_cast<unsigned char>( text[i] ) ) )
+                out += text[i];
+        }
+        return out;
+    }
+
+    void MixFnv( uint64_t& hash, std::string_view bytes )
+    {
+        for ( const char c : bytes )
+            hash = ( hash ^ static_cast<unsigned char>( c ) ) * 0x100000001b3ULL;
+    }
+
+    uint64_t ProducerFingerprint( const std::filesystem::path& repoRoot, std::string& missing )
+    {
+        uint64_t hash = 0xcbf29ce484222325ULL;
+        for ( const std::string_view relative : Desert::Core::kShaderMapProducerSources )
+        {
+            const auto file = repoRoot / relative;
+            if ( !std::filesystem::exists( file ) )
+                missing += std::string( relative ) + " ";
+            MixFnv( hash, relative );
+            MixFnv( hash, std::string_view( "\0", 1 ) );
+            MixFnv( hash, ProducerCodeOnly( ReadFile( file ) ) );
+            MixFnv( hash, std::string_view( "\0", 1 ) );
+        }
+        return hash;
+    }
+} // namespace
+
+// The shader map key hashes the program's text, so a change to the parser, the preprocessor or the metadata
+// types would otherwise keep serving maps the OLD code produced — on every machine with a warm cache and
+// nowhere the change was tested. The recorded fingerprint is part of the deriver's version: re-recording it
+// is what moves the keys, so the only way to make this test green again is also the migration.
+TEST_F( ShaderRootFixture, TheShaderMapProducerFingerprintIsRecorded )
+{
+    std::string    missing;
+    const uint64_t actual = ProducerFingerprint( s_RepoRoot, missing );
+    ASSERT_TRUE( missing.empty() ) << "kShaderMapProducerSources names files that do not exist: " << missing;
+    EXPECT_EQ( actual, Desert::Core::kShaderMapProducerFingerprint ) << std::format(
+         "the code that produces a shader map changed; every cached map was produced by the old code. Set "
+         "kShaderMapProducerFingerprint = 0x{:016x}ULL in ShaderMapCache.hpp (it moves every shader map key); "
+         "bump kShaderMapFormatVersion as well if the byte layout changed.",
+         actual );
+}
+
+// The normalisation is what keeps the pin quiet on a reformat and on a Windows checkout; if it stopped
+// dropping those, the test above would be red on the platform nobody ran it on.
+TEST( ShaderMapProducerFingerprint, LineEndingsWhitespaceAndCommentsDoNotCount )
+{
+    const std::string unixText    = "int a = 1; // one\n/* block */ int b;\n";
+    const std::string windowsText = "int a = 1; // one, reworded\r\n/* other */\tint   b;\r\n";
+    EXPECT_EQ( ProducerCodeOnly( unixText ), ProducerCodeOnly( windowsText ) );
+    EXPECT_NE( ProducerCodeOnly( unixText ), ProducerCodeOnly( "int a = 2; // one\nint b;\n" ) );
 }

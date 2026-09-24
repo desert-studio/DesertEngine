@@ -16,6 +16,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -40,10 +41,26 @@ namespace Desert::Core
         bool operator==( const ShaderMap& ) const = default;
     };
 
-    // The blob's own version. Bump it when the byte layout changes OR when DShaderParser starts producing
-    // different metadata from the same text — the key hashes the text, not the parser, so a parser change
-    // without a bump serves the OLD metadata.
+    // The blob's own version: the reader refuses any other. Bump it when the byte layout changes.
     inline constexpr uint32_t kShaderMapFormatVersion = 1;
+
+    // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
+    // the preprocessor or the metadata types would keep serving maps the old code produced. This is the
+    // fingerprint of that code (kShaderMapProducerSources, whitespace and comments stripped); it is part of
+    // the deriver's version, so re-recording it moves every key. ShaderCacheKey's
+    // TheShaderMapProducerFingerprintIsRecorded computes it from the files and prints the value to paste.
+    inline constexpr uint64_t kShaderMapProducerFingerprint = 0xbe74aa9d73afa845ULL;
+
+    // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself.
+    inline constexpr std::array<std::string_view, 8> kShaderMapProducerSources{
+         "Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp",
+         "Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
+         "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp",
+         "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp",
+         "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderMapCache.cpp",
+         "Desert/Desert/Source/Engine/Core/Formats/ShaderProgramMeta.hpp",
+         "Desert/Desert/Source/Engine/Core/Formats/Shader.hpp",
+         "Desert/Desert/Source/Engine/Core/Formats/DefaultTexture.hpp" };
 
     std::string                  SerializeShaderMap( const ShaderMap& map );
     Common::ResultStr<ShaderMap> DeserializeShaderMap( std::string_view bytes );

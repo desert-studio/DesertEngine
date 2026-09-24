@@ -15,8 +15,10 @@ namespace Desert::Core
 
         constexpr uint32_t kMagic = 0x504d5344u; // "DSMP"
 
-        constexpr Common::DDC::Deriver kShaderMapDeriver{
-             "ShaderMap", ".dsmap", { 0x3b8e51d0c4a27f19ULL, 0x9d06e2b75a1c48f3ULL + kShaderMapFormatVersion } };
+        constexpr Common::DDC::Deriver kShaderMapDeriver{ "ShaderMap",
+                                                          ".dsmap",
+                                                          { 0x3b8e51d0c4a27f19ULL ^ kShaderMapProducerFingerprint,
+                                                            0x9d06e2b75a1c48f3ULL + kShaderMapFormatVersion } };
 
         // ONE field list per struct, used by the writer AND the reader, written as a structured binding so
         // a field added to the struct is a compile error here instead of a value the cache silently drops.
