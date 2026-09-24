@@ -249,7 +249,7 @@ namespace
         if ( !gathered.Refused.empty() )
             return Common::MakeFormattedError<AssetRegistry>( "the project registry refused {} file(s), first: {}",
                                                               gathered.Refused.size(), gathered.Refused.front() );
-        return std::move( gathered.Registry );
+        return Common::MakeSuccess( std::move( gathered.Registry ) );
     }
 
     fs::path MakeTempDir( const std::string& name )
