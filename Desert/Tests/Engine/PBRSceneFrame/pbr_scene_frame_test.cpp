@@ -29,6 +29,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
@@ -224,6 +225,8 @@ namespace
              MaterialPBRBase::kEnvIrradianceName,
              MaterialPBRBase::kEnvSpecularName,
              MaterialPBRBase::kBrdfLutName,
+             // The look the two environment cubes are read with; SceneEnvironmentBind writes it with them.
+             Desert::Graphic::kSkyLookBlockName,
         };
         for ( uint32_t c = 0; c < MaterialPBRBase::kMaxCascades; ++c )
             names.emplace_back( MaterialPBRBase::kShadowMapNames[c] );
