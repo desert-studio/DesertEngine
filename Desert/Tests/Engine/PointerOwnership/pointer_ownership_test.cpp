@@ -512,11 +512,45 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   L8d +1 Raw (LandscapePaintCommand::m_Scene) +2 Weak (LandscapeLayersCommand and LandscapePanel hold the
     //   scene weakly: a closed scene refuses the edit instead of dangling): 407 / 343 / 131 / 41 = 922.
     //   Merged with P8a (L8 +7 Raw +2 Weak on top of 412 / 348 / 138 / 40): 419 / 348 / 138 / 42 = 947.
-    EXPECT_EQ( CountOf( Form::Raw ), 419 );
-    EXPECT_EQ( CountOf( Form::Shared ), 348 );
-    EXPECT_EQ( CountOf( Form::Unique ), 138 );
+    //   The 0924 batch merge (AF7-refs-by-guid, P12-weld-holefill-edges, L8-weight-layers,
+    //   SPL2-splash-progress, UI1-asset-info-popup) landed on top of the 419/348/138/42 baseline above and
+    //   moved the count without anyone updating this file, because the pointer_ownership_test.cpp conflict
+    //   in that merge was resolved by keeping ONE side's numbers. AF7 and L8 add nothing to this census.
+    //   P12 (porting UE's mesh-operation classes for Weld Edges / Fill Hole) is the bulk of it:
+    //     +14 Raw, each with a register row -- FGroupTopology::Mesh, TMeshTangents::Mesh,
+    //     FInsetMeshRegion::Mesh, FMergeCoincidentMeshEdges::Mesh and ::EdgesToMerge, FOffsetMeshRegion::Mesh,
+    //     FSimpleHoleFiller::Mesh, FDynamicMeshEditor::Mesh, FMeshBoundaryLoops::Mesh,
+    //     FMeshRegionBoundaryLoops::Mesh, FMeshConnectedComponents::Mesh (all UECore/DynamicMesh operation
+    //     classes, non-owning Mesh built at the call site over the caller's FDynamicMesh3 -- same HostOutlivesUs
+    //     shape as P8a's FMeshNormals::Mesh), plus DynamicMeshSelection.cpp's FDynamicMeshElements::m_Topology
+    //     (CallScoped, an argument pack) and the new ActiveToolBar.hpp's ActiveToolLabel::Icon/::Name (two
+    //     string literals per active tool, StaticStorage).
+    //     -1 Raw: EditMeshOperations.cpp's LayerRecord struct was deleted whole when the CutAndStitch path
+    //     moved into DynamicMeshSelection.cpp; its register row is removed rather than left stale.
+    //     +0 net Raw from a rename: ModelingPanel.cpp's palette rail entry struct went from Cat to
+    //     PaletteEntry (same two string-literal fields, same StaticStorage guard) -- the register rows are
+    //     renamed in place, not added and removed, so TheRegisterDescribesMembersThatStillExist stays honest
+    //     about what actually happened.
+    //     +2 Shared: the new ModelingToolTarget.hpp's ToolTargetMesh::Mesh and ::Committed, which replaced a
+    //     single ad-hoc Target::Mesh (the Select Elements tool's ElementSelectTool.cpp now calls it
+    //     Target::Source, the same pre-existing M13 member relocated behind the new abstraction -- that
+    //     rename moves no count, same rule as a retype).
+    //     +1 Unique: MeshElementSelection::m_Topology (unique_ptr<const FGroupTopology>), the polygroup
+    //     topology the element selection now builds and owns for itself, read via m_Topology.get(). Shared
+    //     and Unique need no register row (only a raw pointer answers neither ownership question).
+    //   SPL2 (splash progress) adds +1 Raw: AssetPreloader.cpp's RowProgress::Report, a CallScoped argument
+    //   pack -- `rows{ &progress, ... }` on the stack in PreloadCookedAssetsAndMaterials, passed by pointer to
+    //   each synchronous ProcessAssetKind call and dead when that function returns.
+    //   UI1 (asset info popup) adds +1 Raw: FileExplorerPanel::m_TooltipEntry, OwnedByThisObject like the
+    //   panel's other DirectoryInformation views -- it names a node in m_Directories and is cleared to
+    //   nullptr the same frame its tile stops being hovered.
+    //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw):
+    //   434 / 350 / 139 / 42 = 965.
+    EXPECT_EQ( CountOf( Form::Raw ), 434 );
+    EXPECT_EQ( CountOf( Form::Shared ), 350 );
+    EXPECT_EQ( CountOf( Form::Unique ), 139 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 947 )
+    EXPECT_EQ( (int)Members().size(), 965 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
