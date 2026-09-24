@@ -71,6 +71,35 @@ namespace
         return buffer.str();
     }
 
+    // The MATL 2 writer pretty-prints (indent + "Key": value); membership by text is about the JSON's
+    // tokens, not its layout, so whitespace outside string literals is dropped before any find.
+    std::string CompactJson( const std::string& json )
+    {
+        std::string out;
+        out.reserve( json.size() );
+        bool inString = false;
+        bool escaped  = false;
+        for ( const char c : json )
+        {
+            if ( inString )
+            {
+                out += c;
+                if ( escaped )
+                    escaped = false;
+                else if ( c == '\\' )
+                    escaped = true;
+                else if ( c == '"' )
+                    inString = false;
+                continue;
+            }
+            if ( c == '"' )
+                inString = true;
+            if ( std::isspace( static_cast<unsigned char>( c ) ) == 0 )
+                out += c;
+        }
+        return out;
+    }
+
     // Parsed ONCE for the whole suite: the file on disk is the thing under test, and every test reads
     // the same parse of it.
     const ShaderProgramMeta& Schema()
@@ -712,7 +741,7 @@ TEST( CloudMaterialSchema, TheProtocolScenesMaterialsStateEveryValueParameter )
 TEST( CloudMaterialSchema, TheSharedDefaultMaterialStatesNoOverridesAndSoCannotDriftFromTheSchema )
 {
     const std::string path = RepoRoot() + "Editor/Resources/Assets/Materials/M_CloudDefault.demat";
-    const std::string json = ReadAll( path );
+    const std::string json = CompactJson( ReadAll( path ) );
     ASSERT_FALSE( json.empty() ) << path << " is missing — every scene the migration points at it "
                                  << "(D-37) fails to resolve a material at load";
 

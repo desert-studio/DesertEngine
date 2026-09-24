@@ -3,13 +3,13 @@
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
+#include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/EditMesh.hpp>
-#include <Engine/Geometry/EditMeshSelection.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -27,12 +27,11 @@ namespace Desert::Editor::Tools
 
         struct Target
         {
-            std::shared_ptr<const Geometry::EditMesh> Mesh;
+            std::shared_ptr<const Geometry::FDynamicMesh3> Source;
             glm::mat4                                 World{ 1.0f };
         };
 
-        // The selected entity's editable mesh and world transform; none for an entity drawn from an asset or
-        // a primitive (it has no EditMesh to select in).
+        // The selected entity's tool target mesh and world transform; none for a primitive (nothing to lift).
         Target FindTarget( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             if ( static_cast<uint64_t>( id ) == 0 )
@@ -40,21 +39,23 @@ namespace Desert::Editor::Tools
             auto ref = scene.FindEntityByID( id );
             if ( !ref )
                 return {};
-            ECS::Entity e = ref->get();
+            const ECS::Entity e = ref->get();
             if ( !e.HasComponent<ECS::StaticMeshComponent>() )
                 return {};
-            const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
-            if ( !smc.EditableMesh )
+            // Any static mesh is a target (UE ToolTarget): its EditableMesh, or its asset lifted.
+            auto target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
+            if ( !target.IsSuccess() )
                 return {};
-            return { smc.EditableMesh, e.HasComponent<ECS::TransformComponent>()
-                                            ? e.GetComponent<ECS::TransformComponent>().GetTransform()
-                                            : glm::mat4( 1.0f ) };
+            return { target.GetValue().Mesh, e.HasComponent<ECS::TransformComponent>()
+                                                  ? e.GetComponent<ECS::TransformComponent>().GetTransform()
+                                                  : glm::mat4( 1.0f ) };
         }
 
         struct Painter
         {
-            ImDrawList&               List;
-            const Geometry::EditMesh& Mesh;
+            ImDrawList&                     List;
+            const Geometry::FDynamicMesh3&  Mesh;
+            const Geometry::FGroupTopology& Topology;
             const glm::mat4&          World;
             const glm::mat4&          ViewProj;
             glm::vec2                 Pos;
@@ -63,8 +64,9 @@ namespace Desert::Editor::Tools
             bool Screen( int v, ImVec2& out ) const
             {
                 glm::vec2 px;
-                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( Mesh.GetPosition( v ), 1.0f ) ),
-                                                   ViewProj, Pos, Size, px ) )
+                const auto q = Mesh.GetVertex( v );
+                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( q.X, q.Y, q.Z, 1.0f ) ), ViewProj,
+                                                   Pos, Size, px ) )
                     return false;
                 out = ImVec2( px.x, px.y );
                 return true;
@@ -77,54 +79,89 @@ namespace Desert::Editor::Tools
             }
             void Edge( int e, ImU32 colour, float width ) const
             {
-                const auto& ev = Mesh.GetEdgeVertices( e );
-                ImVec2      a, b;
-                if ( Screen( ev[0], a ) && Screen( ev[1], b ) )
+                const auto ev = Mesh.GetEdgeV( e );
+                ImVec2     a;
+                ImVec2     b;
+                if ( Screen( ev.A, a ) && Screen( ev.B, b ) )
                     List.AddLine( a, b, colour, width );
             }
             void Triangle( int t, ImU32 fill, ImU32 outline ) const
             {
-                const auto& tri = Mesh.GetTriangle( t );
-                ImVec2      a, b, c;
-                if ( !Screen( tri[0], a ) || !Screen( tri[1], b ) || !Screen( tri[2], c ) )
+                const auto tri = Mesh.GetTriangle( t );
+                ImVec2     a;
+                ImVec2     b;
+                ImVec2     c;
+                if ( !Screen( tri.A, a ) || !Screen( tri.B, b ) || !Screen( tri.C, c ) )
                     return;
                 if ( fill != 0 )
                     List.AddTriangleFilled( a, b, c, fill );
-                List.AddTriangle( a, b, c, outline, 1.5f );
+                if ( outline != 0 )
+                    List.AddTriangle( a, b, c, outline, 1.5f );
             }
-            // A whole element of any mode; a polygroup is drawn as its triangles.
-            void Element( ElementMode mode, int id, ImU32 fill, ImU32 line ) const
+            // A mesh edge lies on a group edge when it is open or its two triangles are in different groups
+            // (FGroupTopology's own definition), so a polygroup's triangulation diagonals are not group edges.
+            bool IsGroupEdge( int e ) const
             {
-                switch ( mode )
-                {
-                    case ElementMode::Vertex:
-                        Vertex( id, line, 4.5f );
-                        break;
-                    case ElementMode::Edge:
-                        Edge( id, line, 3.0f );
-                        break;
-                    case ElementMode::Triangle:
-                        Triangle( id, fill, line );
-                        break;
-                    case ElementMode::PolyGroup:
-                        break;
-                }
+                const auto et = Mesh.GetEdgeT( e );
+                return et.B < 0 || Topology.GetGroupID( et.A ) != Topology.GetGroupID( et.B );
             }
         };
 
+        // Colours and widths of UE's UMeshTopologySelectionMechanic::Initialize: PolyEdgesRenderer (every group
+        // edge, red, 2), SelectionRenderer (Gold3f, 4) and HilightRenderer (green, 4). The face fill stands for
+        // UE's DrawnTriangleSetComponent; the entity's own selection outline stays orange, so neither the
+        // selection nor the wire can be confused with it.
+        constexpr ImU32 kGroupEdgeColour = IM_COL32( 255, 0, 0, 255 );
+        constexpr float kGroupEdgeWidth  = 2.0f;
+        constexpr ImU32 kSelectionColour = IM_COL32( 255, 215, 0, 255 );
+        constexpr ImU32 kSelectionFill   = IM_COL32( 255, 215, 0, 60 );
+        constexpr ImU32 kHilightColour   = IM_COL32( 0, 255, 0, 255 );
+        constexpr float kElementWidth    = 4.0f;
+
+        // UMeshTopologySelectionMechanic::Render, bShowEdges: every group edge of the target, drawn as its mesh
+        // edges (TopologyProvider->GetGroupEdgeEdges).
+        void DrawGroupEdges( const Painter& paint )
+        {
+            for ( int g = 0; g < paint.Topology.Edges.Num(); ++g )
+                for ( const int e : paint.Topology.GetGroupEdgeEdges( g ) )
+                    paint.Edge( e, kGroupEdgeColour, kGroupEdgeWidth );
+        }
+
+        // FGroupTopologySelector::DrawSelection. A polygroup is its triangles filled (no triangle outlines - the
+        // diagonals of the triangulation are not drawn) plus the group edges around it (UE ForGroupSetEdges).
         void DrawSelection( const Painter& paint, const Geometry::ElementSelection& selection, ImU32 fill,
                             ImU32 line )
         {
-            if ( selection.Mode() == ElementMode::PolyGroup )
+            switch ( selection.Mode() )
             {
-                const Geometry::ElementSelection tris =
-                     Geometry::ConvertSelection( paint.Mesh, selection, ElementMode::Triangle );
-                for ( const int t : tris.Ids() )
-                    paint.Triangle( t, fill, line );
-                return;
+                case ElementMode::PolyGroup:
+                {
+                    const Geometry::ElementSelection tris = Geometry::ConvertSelection(
+                         paint.Mesh, paint.Topology, selection, ElementMode::Triangle );
+                    for ( const int t : tris.Ids() )
+                        paint.Triangle( t, fill, 0 );
+                    for ( const int t : tris.Ids() )
+                    {
+                        const auto edges = paint.Mesh.GetTriEdges( t );
+                        for ( int k = 0; k < 3; ++k )
+                            if ( paint.IsGroupEdge( edges[k] ) )
+                                paint.Edge( edges[k], line, kElementWidth );
+                    }
+                    return;
+                }
+                case ElementMode::Triangle:
+                    for ( const int t : selection.Ids() )
+                        paint.Triangle( t, fill, line );
+                    return;
+                case ElementMode::Edge:
+                    for ( const int e : selection.Ids() )
+                        paint.Edge( e, line, kElementWidth );
+                    return;
+                case ElementMode::Vertex:
+                    for ( const int v : selection.Ids() )
+                        paint.Vertex( v, line, 5.0f );
+                    return;
             }
-            for ( const int id : selection.Ids() )
-                paint.Element( selection.Mode(), id, fill, line );
         }
 
         // The ray through the viewport's centre, from the cursor ray's origin (the camera) - what a click in
@@ -148,13 +185,15 @@ namespace Desert::Editor::Tools
         const auto&        selected = Core::SelectionManager::GetSelected();
         const Common::UUID entity   = selected.has_value() ? *selected : Common::UUID::Null();
         const Target       target   = FindTarget( scene, entity );
-        state.Track( entity, target.Mesh );
-        if ( !target.Mesh )
+        state.Track( entity, target.Source );
+        if ( !target.Source )
         {
             state.ReqPickCentre = false;
             return;
         }
-        const Geometry::EditMesh& mesh = *target.Mesh;
+        // Track built the topology for exactly this mesh (it rebuilds whenever the entity's mesh changes).
+        const Geometry::FDynamicMesh3&  mesh     = *state.Mesh();
+        const Geometry::FGroupTopology& topology = *state.Topology();
 
         Geometry::PickView view;
         view.LocalToWorld    = target.World;
@@ -179,14 +218,14 @@ namespace Desert::Editor::Tools
             view.Cursor                    = viewportPos + viewportSize * 0.5f;
             view.RayOrigin                 = centre.Origin;
             view.RayDirection              = centre.Direction;
-            hover                          = Geometry::PickElement( mesh, state.Mode(), view );
+            hover = Geometry::PickElement( mesh, topology, state.Mode(), view, state.Level() );
         }
         else if ( hovered )
         {
             view.Cursor       = glm::vec2( mouse.x, mouse.y );
             view.RayOrigin    = ray.Origin;
             view.RayDirection = ray.Direction;
-            hover             = Geometry::PickElement( mesh, state.Mode(), view );
+            hover             = Geometry::PickElement( mesh, topology, state.Mode(), view, state.Level() );
         }
 
         // THE KNIFE (Alt+K): the next two clicks draw the cut line instead of selecting, and the selected
@@ -242,19 +281,24 @@ namespace Desert::Editor::Tools
             const char* label = "Mesh Selection: Select";
             if ( hover.IsHit() )
             {
+                // A group edge is all of its mesh edges (HitElements), added or removed together.
+                const std::vector<int> picked =
+                     Geometry::HitElements( topology, state.Mode(), state.Level(), hover );
                 if ( !pickCentre && io.KeyCtrl )
                 {
-                    next.Remove( hover.Id );
+                    for ( const int id : picked )
+                        next.Remove( id );
                     label = "Mesh Selection: Deselect";
                 }
-                else if ( auto added = next.Add( mesh, hover.Id ); !added.IsSuccess() )
+                else
                 {
-                    // PickElement returned it from this very mesh; a refusal here is a defect worth seeing.
-                    LOG_ERROR( "[Mesh Selection] {0}", added.GetError() );
-                }
-                else if ( !pickCentre && io.KeyShift )
-                {
-                    label = "Mesh Selection: Add";
+                    for ( const int id : picked )
+                        if ( auto added = next.Add( mesh, id ); !added.IsSuccess() )
+                            // PickElement returned it from this very mesh; a refusal here is a defect worth
+                            // seeing.
+                            LOG_ERROR( "[Mesh Selection] {0}", added.GetError() );
+                    if ( !pickCentre && io.KeyShift )
+                        label = "Mesh Selection: Add";
                 }
             }
             state.Commit( std::move( next ), label );
@@ -294,13 +338,15 @@ namespace Desert::Editor::Tools
         }
 
         const Painter paint{
-             *::ImGui::GetWindowDrawList(), mesh, target.World, viewProj, viewportPos, viewportSize };
-        DrawSelection( paint, state.Selection(), IM_COL32( 255, 150, 30, 70 ), IM_COL32( 255, 170, 40, 255 ) );
+             *::ImGui::GetWindowDrawList(), mesh, topology, target.World, viewProj, viewportPos, viewportSize };
+        DrawGroupEdges( paint );
+        DrawSelection( paint, state.Selection(), kSelectionFill, kSelectionColour );
         if ( hover.IsHit() && !pickCentre )
         {
             Geometry::ElementSelection one( state.Mode() );
-            if ( one.Add( mesh, hover.Id ).IsSuccess() )
-                DrawSelection( paint, one, 0, IM_COL32( 120, 220, 255, 200 ) );
+            for ( const int id : Geometry::HitElements( topology, state.Mode(), state.Level(), hover ) )
+                (void)one.Add( mesh, id );
+            DrawSelection( paint, one, 0, kHilightColour );
         }
     }
 } // namespace Desert::Editor::Tools

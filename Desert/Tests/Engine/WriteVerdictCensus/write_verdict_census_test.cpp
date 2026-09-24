@@ -347,18 +347,13 @@ namespace
     // Д35 closed all fifteen and deleted their rows, which is what the backwards gate below obliges: a
     // row whose site is fixed is a false statement and goes red until it is removed.
     //
-    // clang-format off
-    constexpr auto kRegister = std::to_array<KnownSite>( {
-        // --- deliberately left. The row states the argument, so the next reader does not re-derive it.
-        { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp", "VulkanLogicalDevice::SavePipelineCache",
-          "Д31-D/KEEP: returns void and claims nothing. The site already says why — a read-only install "
-          "cannot write the cache and the cache is best-effort — and a lost cache costs a warm-up, not "
-          "correctness. This row exists so the KEEP is a decision on the record rather than an omission." },
-    } );
-    // clang-format on
+    // The last KEEP went with AF7: VulkanLogicalDevice::SavePipelineCache (void, best-effort ofstream) became
+    // WritePipelineCache, which returns a BoolResultStr and stores the blob through Common::DDC::Put, so there
+    // is no unchecked stream left to keep and the register has reached its success condition — zero rows.
+    constexpr std::array<KnownSite, 0> kRegister{};
 
     // THE SAME REGISTER WITH NO ROWS IN IT, and it is not decoration: it is the compile-time half of the
-    // paragraph above. If the last KEEP is ever retired, `kRegister` becomes exactly this, and this line
+    // paragraph above. It is what `kRegister` would be again if a new KEEP is ever added and retired, and this line
     // is what proves today — on every compiler the suite builds on, MSVC included — that the empty case
     // is a legal C++ type and that the two gates below still work over it. The tests use it; it is not a
     // declaration nobody reads.
@@ -447,7 +442,7 @@ TEST( WriteVerdictCensus, NoNewWriteDecidesBeforeItHasFlushed )
             "close() explicitly and test the stream AFTER the close, as Tools/FbxMeshSplitter's "
             "WriteWholeFile does and says why."
          << "\n  If the site genuinely claims nothing to anybody, add it to kRegister with the argument "
-            "spelled out — see the VulkanDevice row.";
+            "spelled out: file, enclosing function, and a verdict naming the owning task and FIX or KEEP.";
 }
 
 // --- The gate, backwards: a debt register that cannot rot ------------------------------------------------
@@ -503,8 +498,10 @@ TEST( WriteVerdictCensus, TheRegisterCanBeEmptyAndBothGatesStillWork )
     // do to the next unchecked write somebody adds.
     const Finding anything{ "Editor/Source/Whatever.cpp", "Save", "out", 1 };
     EXPECT_FALSE( InRegister( kEmptyRegister, anything ) );
-    EXPECT_TRUE( InRegister( kRegister, Finding{ "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp",
-                                                 "VulkanLogicalDevice::SavePipelineCache", "out", 1 } ) )
+    // A one-row register built here, because the real one is empty: the lookup must still see a row.
+    constexpr auto oneRow = std::to_array<KnownSite>(
+         { { "Editor/Source/Whatever.cpp", "Save", "Д31-D/KEEP: fixture row for the lookup itself" } } );
+    EXPECT_TRUE( InRegister( oneRow, anything ) )
          << "the same lookup must still recognise a row that IS there — an always-false InRegister would "
             "pass the line above for the wrong reason";
 }

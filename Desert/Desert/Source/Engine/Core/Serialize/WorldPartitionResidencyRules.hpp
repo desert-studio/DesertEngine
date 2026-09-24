@@ -233,7 +233,7 @@ namespace Desert::Core::Rules
             { return std::isfinite( value ) && value >= low; };
             if ( !finiteAtLeast( s.ActivationBudgetMs, 0.0 ) || !finiteAtLeast( s.MsPerRecord, 0.0 ) ||
                  !finiteAtLeast( s.UnloadMargin, 0.0 ) || s.MaxConcurrentLoads == 0 ||
-                 !( std::isfinite( s.RetryDelaySeconds ) && s.RetryDelaySeconds > 0.0 ) ||
+                 !std::isfinite( s.RetryDelaySeconds ) || s.RetryDelaySeconds <= 0.0 ||
                  !finiteAtLeast( s.RetryBackoff, 1.0 ) ||
                  !finiteAtLeast( s.MaxRetryDelaySeconds, s.RetryDelaySeconds ) )
             {
@@ -375,9 +375,9 @@ namespace Desert::Core::Rules
         }
 
         // 4. Loads, in priority order, up to the number in flight.
-        std::size_t inFlight = static_cast<std::size_t>(
-             std::count_if( state.Units.begin(), state.Units.end(),
-                            []( const UnitResidency& unit ) { return unit.State == Residency::Loading; } ) );
+        auto inFlight = static_cast<std::size_t>( std::count_if( state.Units.begin(), state.Units.end(),
+                                                                 []( const UnitResidency& unit )
+                                                                 { return unit.State == Residency::Loading; } ) );
         for ( const std::size_t index : wanted )
         {
             if ( inFlight >= settings.MaxConcurrentLoads )

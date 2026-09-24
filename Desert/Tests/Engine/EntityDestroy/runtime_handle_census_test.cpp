@@ -45,7 +45,7 @@ namespace
 
     std::string ReadAll( const fs::path& path )
     {
-        std::ifstream      in( path );
+        const std::ifstream in( path );
         std::ostringstream ss;
         ss << in.rdbuf();
         return ss.str();
@@ -58,7 +58,7 @@ namespace
 
     std::string Trim( std::string s )
     {
-        const auto notSpace = []( unsigned char c ) { return !std::isspace( c ); };
+        const auto notSpace = []( unsigned char c ) { return std::isspace( c ) == 0; };
         s.erase( s.begin(), std::find_if( s.begin(), s.end(), notSpace ) );
         s.erase( std::find_if( s.rbegin(), s.rend(), notSpace ).base(), s.end() );
         return s;
@@ -76,7 +76,7 @@ namespace
     std::vector<Field> ComponentFields( const std::string& src )
     {
         std::vector<Field> out;
-        for ( std::size_t at : ConsumerText::WordPositions( src, "struct" ) )
+        for ( const std::size_t at : ConsumerText::WordPositions( src, "struct" ) )
         {
             std::size_t       i    = ConsumerText::SkipSpace( src, at + 6 );
             const std::string name = ConsumerText::IdentAt( src, i );
@@ -98,8 +98,7 @@ namespace
                     {
                         // A brace initialiser `T name{...}` is a member; a nested type or a body is not.
                         const std::string t = Trim( stmt );
-                        if ( t.rfind( "struct", 0 ) == 0 || t.rfind( "enum", 0 ) == 0 ||
-                             t.rfind( "class", 0 ) == 0 )
+                        if ( t.starts_with( "struct" ) || t.starts_with( "enum" ) || t.starts_with( "class" ) )
                             stmt += "\x01"; // poison: nested type
                     }
                     ++depth;
@@ -127,7 +126,8 @@ namespace
                              !head.empty() &&
                              std::all_of( head.begin(), head.end(),
                                           []( char h ) {
-                                              return std::isupper( static_cast<unsigned char>( h ) ) || h == '_';
+                                              return ( std::isupper( static_cast<unsigned char>( h ) ) != 0 ) ||
+                                                     h == '_';
                                           } );
                         if ( macro )
                             stmt.clear();
@@ -141,14 +141,14 @@ namespace
                     // Drop an initialiser: `T name = v` / `T name{ v }` / `T name( v )` is not legal for members.
                     const std::size_t eq  = t.find( '=' );
                     const std::size_t br  = t.find( '{' );
-                    std::size_t       cut = std::min( eq, br );
+                    const std::size_t cut = std::min( eq, br );
                     if ( cut != std::string::npos )
                         t = Trim( t.substr( 0, cut ) );
-                    if ( t.empty() || t.find( '(' ) != std::string::npos || t.rfind( "using", 0 ) == 0 ||
-                         t.rfind( "static", 0 ) == 0 || t.rfind( "friend", 0 ) == 0 ||
+                    if ( t.empty() || t.find( '(' ) != std::string::npos || t.starts_with( "using" ) ||
+                         t.starts_with( "static" ) || t.starts_with( "friend" ) ||
                          t.find( '\x01' ) != std::string::npos )
                         continue;
-                    std::size_t end = t.size();
+                    const std::size_t end = t.size();
                     std::size_t beg = end;
                     while ( beg > 0 && ConsumerText::IsIdentChar( t[beg - 1] ) )
                         --beg;
@@ -157,7 +157,7 @@ namespace
                     out.push_back( { name, Trim( t.substr( 0, beg ) ), t.substr( beg ) } );
                     continue;
                 }
-                if ( depth == 1 && ( c == ':' ) && Trim( stmt ).rfind( "public", 0 ) == 0 )
+                if ( depth == 1 && ( c == ':' ) && Trim( stmt ).starts_with( "public" ) )
                 {
                     stmt.clear();
                     continue;
@@ -178,9 +178,9 @@ namespace
 
     bool HoldsSystemHandle( const Field& f )
     {
-        const bool physicsHandle = f.Type.rfind( "Physics::", 0 ) == 0 && f.Type.size() > 6 &&
+        const bool physicsHandle = f.Type.starts_with( "Physics::" ) && f.Type.size() > 6 &&
                                    f.Type.compare( f.Type.size() - 6, 6, "Handle" ) == 0;
-        const bool runtimeNumber = f.Name.rfind( "Runtime", 0 ) == 0 && !OwnsItsResource( f.Type );
+        const bool runtimeNumber = f.Name.starts_with( "Runtime" ) && !OwnsItsResource( f.Type );
         return physicsHandle || runtimeNumber;
     }
 
@@ -197,8 +197,8 @@ namespace
     std::string Collapse( const std::string& s )
     {
         std::string out;
-        for ( char c : s )
-            if ( !std::isspace( static_cast<unsigned char>( c ) ) )
+        for ( const char c : s )
+            if ( std::isspace( static_cast<unsigned char>( c ) ) == 0 )
                 out += c;
         return out;
     }

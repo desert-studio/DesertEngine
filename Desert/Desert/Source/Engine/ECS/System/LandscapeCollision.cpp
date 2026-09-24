@@ -58,7 +58,7 @@ namespace Desert::ECS
 
     void LandscapeCollision::Detach()
     {
-        if ( !m_Registry )
+        if ( m_Registry == nullptr )
             return;
         m_Registry->on_destroy<LandscapeTileComponent>().disconnect( this );
         m_Registry = nullptr;

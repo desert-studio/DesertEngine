@@ -7,6 +7,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <Engine/World/Landscape/LandscapePaint.hpp>
 
 #include <entt/entt.hpp>
 
@@ -27,6 +28,31 @@ namespace Desert::ECS
         root.SpacingCm    = component.SpacingCm;
         root.ZScale       = component.ZScale;
         return root;
+    }
+
+    /// The paint stroke's layer rules, in the component's order — the one conversion from the authored
+    /// layer list, so the panel's Hardness and the stroke's normalisation cannot read two different lists.
+    inline std::vector<World::Landscape::LandscapeLayerRule> LandscapeLayerRulesOf( const LandscapeComponent& c )
+    {
+        std::vector<World::Landscape::LandscapeLayerRule> rules;
+        rules.reserve( c.Layers.size() );
+        for ( const auto& layer : c.Layers )
+            rules.push_back( { layer.Name, layer.Hardness, layer.NoWeightBlend } );
+        return rules;
+    }
+
+    /// The root entity (the one holding the LandscapeComponent) whose UUID is @p id; entt::null when none is
+    /// loaded.
+    inline entt::entity FindLandscapeRootEntity( entt::registry& registry, const Common::UUID& id )
+    {
+        if ( id == Common::UUID::Null() )
+            return entt::null;
+        for ( const auto entity : registry.view<LandscapeComponent, UUIDComponent>() )
+        {
+            if ( registry.get<UUIDComponent>( entity ).UUID == id )
+                return entity;
+        }
+        return entt::null;
     }
 
     /// The root entity whose UUID is @p id, or nullopt when no loaded entity with a LandscapeComponent has it.

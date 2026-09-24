@@ -103,8 +103,8 @@ namespace Desert::Core
         streamer->m_Executor = begun.ExtractValue();
         streamer->m_Snapshot = snapshot;
         streamer->m_Loader   = std::make_unique<WorldCellLoader>(
-             std::make_shared<Rules::MemoryCellSource>( streamer->m_Executor->Plan(), snapshot->Entities ) );
-        streamer->m_MostResident = streamer->m_Executor->LiveRecords();
+             std::make_shared<Rules::MemoryCellSource>( streamer->Executor().Plan(), snapshot->Entities ) );
+        streamer->m_MostResident = streamer->Executor().LiveRecords();
         LOG_INFO( "[WorldPartition] '{0}': Play streams {1} record(s); {2} resident at the start around ({3:.0f}, "
                   "{4:.0f}) cm, the rest destroyed until their cell is wanted ({5:.1f} ms to parse, plan and "
                   "destroy).",
@@ -136,7 +136,7 @@ namespace Desert::Core
         streamer->m_Index  = world.Index;
         streamer->m_Loader = std::make_unique<WorldCellLoader>(
              std::make_shared<WorldCells::CookedCellSource>( *world.Index, VfsReader( world.Directory ) ) );
-        streamer->m_MostResident = streamer->m_Executor->LiveRecords();
+        streamer->m_MostResident = streamer->Executor().LiveRecords();
         LOG_INFO( "[WorldPartition] '{0}': a cooked world of {1} record(s) in {2} unit(s) from '{3}'; {4} "
                   "always-loaded record(s) are entities, every cell is read on a worker when first wanted.",
                   streamer->m_SceneName, world.Indexed.RecordIds.size(), world.Index->Units.size(),
@@ -162,13 +162,13 @@ namespace Desert::Core
         const Rules::StreamingSource source = where.GetValue();
 
         m_LastTick = TickReport{};
-        auto tick  = m_Executor->Tick( std::span( &source, 1 ), nowSeconds, *this );
+        auto tick  = Executor().Tick( std::span( &source, 1 ), nowSeconds, *this );
         if ( !tick )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + tick.GetError() );
 
         const Rules::ResidencyTick& done = tick.GetValue();
         m_LastTick.Tick                  = done;
-        m_LastTick.LiveRecords           = m_Executor->LiveRecords();
+        m_LastTick.LiveRecords           = Executor().LiveRecords();
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
         // A reference across a cell boundary is legal and its reader handles the absence — but it is SAID.
@@ -203,7 +203,7 @@ namespace Desert::Core
         for ( const Rules::LoadOutcome& outcome : finished )
             if ( !outcome.Ok )
                 LOG_ERROR( "[WorldPartition] '{0}': reading {1} failed, it is retried: {2}", m_SceneName,
-                           Rules::DescribeResidencyUnit( m_Executor->Plan(), outcome.Unit ), outcome.Reason );
+                           Rules::DescribeResidencyUnit( Executor().Plan(), outcome.Unit ), outcome.Reason );
         return finished;
     }
 
@@ -231,7 +231,7 @@ namespace Desert::Core
         m_WorstUnitMs = std::max( m_WorstUnitMs, ms );
         m_LastTick.ActivationMs += ms;
         m_LastTick.ActivatedUnits += ( m_LastTick.ActivatedUnits.empty() ? "" : " " ) +
-                                     Rules::DescribeResidencyUnit( m_Executor->Plan(), unit );
+                                     Rules::DescribeResidencyUnit( Executor().Plan(), unit );
         return made;
     }
 

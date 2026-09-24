@@ -224,7 +224,9 @@ namespace Desert::Geometry
         // Side 0 remembers what it made so side 1 can reuse it: when both triangles agree about the elements
         // at both ends (no seam along the edge) the new vertex gets ONE element, otherwise the split would
         // open a seam where there was none.
-        int sharedP = InvalidId, sharedQ = InvalidId, sharedF = InvalidId;
+        int sharedP = InvalidId;
+        int sharedQ = InvalidId;
+        int sharedF = InvalidId;
         for ( int side = 0; side < 2; ++side )
         {
             const Detail::SplitSide& s = sides[side];

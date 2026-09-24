@@ -1,9 +1,16 @@
-// Terrain patch stage bodies, shared by the three Terrain programs (Terrain = forward, TerrainGBuffer =
-// deferred, TerrainShadow = cascade depth): ONE statement of where a terrain vertex is, so the surface a
-// cascade sees is the surface the camera sees — same patches, same tessellation, same displacement.
-        // GPU terrain — vertexless patch grid. A draw of (gridDim*gridDim*4) vertices synthesizes a grid of
-        // quad patches purely from gl_VertexIndex (no vertex buffer). This stage emits each patch corner as a
-        // world-space control point at the root's base height; the TES displaces and projects it.
+// Terrain vertex stage, shared by the three Terrain programs (Terrain = forward, TerrainGBuffer = deferred,
+// TerrainShadow = cascade depth): ONE statement of where a terrain vertex is, so the surface a cascade sees
+// is the surface the camera sees — same grid, same LOD (chosen on the CPU from the main camera), same morph.
+        // A landscape tile is a grid of cells over its samples, two triangles per cell on Jolt's diagonal,
+        // decoded from gl_VertexIndex (LandscapeLod.glslh; UE's FLandscapeVertexFactory, ported). The tile
+        // is drawn at the grid of its own LOD, and every vertex morphs between that grid and the next coarser
+        // one by its continuous LOD — UE's geomorph, so a LOD change never pops. At LOD 0 the vertices are
+        // the samples and the triangles are the cells Jolt collides with.
+        //
+        // WHY NOT TESSELLATION: the tile used to be quad patches the hardware tessellated. A patch had to
+        // span a whole number of samples, so a prime tile size (127, UE's default section) degraded to one
+        // patch per quad, 16 129 per tile — and MoltenVK emulates tessellation with per-draw buffers sized by
+        // the patch count, which took the editor past 8 GB on a 5 x 5 landscape (LS-7c).
 
         #include <Common/MaterialTransport.glslh>
 
@@ -14,28 +21,91 @@
         };
         #define u_T u_Terrains[m_PushConstants.MaterialIndex]
 
-        Out(0) vec2 v_WorldXZ;
-        Out(1) vec2 v_SampleXZ; // the corner's global sample index
+        // A landscape tile's heights: the R16_UNORM copy of its uint16 samples (LandscapeECSSystem). Read
+        // ONLY by texelFetch — a filtered read would blend samples the CPU never blends, and the decode
+        // recovers the exact integer each texel was uploaded from.
+        Uniform(9) sampler2D u_Heightmap;
 
+        #include <Common/LandscapeHeight.glslh>
+        #include <Common/LandscapeLod.glslh>
+
+        // A caster writes depth and nothing else: the shading outputs exist only for the programs that shade.
+#ifndef TERRAIN_DEPTH_ONLY
+        Out(0) vec3 v_WorldPos;
+        Out(1) vec3 v_Normal;
+        Out(2) float v_Height01; // normalized height [0..1] for slope/height tinting
+#endif
+
+        // One sample of this tile in centimetres above the root's base, x and z in [-1, last + 1]. The
+        // heightmap carries a one-sample ring from the four neighbouring tiles (LandscapeBorderedSamples in
+        // LandscapeData.hpp), so texel (x + 1, z + 1) is sample (x, z).
+        float TileHeightCm( int x, int z )
+        {
+            return LandscapeHeightCmFromSample(
+                 LandscapeSampleFromUnorm( texelFetch( u_Heightmap, ivec2( x + 1, z + 1 ), 0 ).r ),
+                 u_T.LandscapeTile.w );
+        }
+
+        // 1 when this tile's neighbour on a side is loaded (its row is in the ring), 0 on the landscape's
+        // own edge. Params2.w is LandscapeNeighbourMask: West, East, South, North in bits 0..3.
+        float NeighbourPresent( int bit )
+        {
+            return float( ( int( u_T.Params2.w + 0.5 ) >> bit ) & 1 );
+        }
+
+        // dh/dx, dh/dz at a sample — the CPU's GradientAt (LandscapeData.cpp), the same .glslh functions on
+        // the same bordered samples. Central on a seam, so both tiles give it the same bits.
+        vec2 TileGradient( int x, int z )
+        {
+            float last    = u_T.LandscapeTile.z;
+            float xa      = LandscapeGradientLow( float( x ), NeighbourPresent( 0 ) );
+            float xb      = LandscapeGradientHigh( float( x ), last, NeighbourPresent( 1 ) );
+            float za      = LandscapeGradientLow( float( z ), NeighbourPresent( 2 ) );
+            float zb      = LandscapeGradientHigh( float( z ), last, NeighbourPresent( 3 ) );
+            float spacing = u_T.LandscapeFrame.w;
+            return vec2( LandscapeGradient( TileHeightCm( int( xa ), z ), TileHeightCm( int( xb ), z ), xb - xa, spacing ),
+                         LandscapeGradient( TileHeightCm( x, int( za ) ), TileHeightCm( x, int( zb ) ), zb - za, spacing ) );
+        }
+
+        // Everything that decides a vertex on a shared tile edge is exact and symmetric: the tile-local
+        // coordinate is an integer, the edge's LOD is the same max() on both sides, the snap keeps the last
+        // sample, the far column of one tile is the near column of the next, decoded by the same function.
+        // So both tiles place the vertex at the same bits, and no crack can open between LODs either.
         void main()
         {
-            int gridDim = int( u_T.Params.y );
-            int patchId = gl_VertexIndex / 4;
-            int corner  = gl_VertexIndex % 4;
+            int   iquads  = int( u_T.LandscapeTile.z + 0.5 );
+            float quads   = float( iquads );
+            int   gridLod = int( u_T.Params.w + 0.5 );
+            int   ix      = LandscapeLodGridCoord( gl_VertexIndex, iquads, gridLod, 0 );
+            int   iz      = LandscapeLodGridCoord( gl_VertexIndex, iquads, gridLod, 1 );
 
-            int gx = patchId % gridDim;
-            int gz = patchId / gridDim;
+            float lod    = LandscapeCalcLod( float( ix ), float( iz ), quads, u_T.Params.y, u_T.LodEdges, u_T.LodCorners,
+                                             u_T.Params2.x );
+            int   lodLo  = int( floor( lod ) );
+            float morph  = lod - float( lodLo );
+            int   stride = LandscapeLodStride( lodLo );
+            int   x0     = LandscapeLodSnap( ix, stride, iquads );
+            int   z0     = LandscapeLodSnap( iz, stride, iquads );
+            int   x1     = LandscapeLodSnap( ix, stride * 2, iquads );
+            int   z1     = LandscapeLodSnap( iz, stride * 2, iquads );
+            float h0     = TileHeightCm( x0, z0 );
+            float h1     = TileHeightCm( x1, z1 );
 
-            // Unit-quad corner offsets in CCW order: (0,0) (1,0) (1,1) (0,1).
-            vec2 off = vec2( ( corner == 1 || corner == 2 ) ? 1.0 : 0.0, ( corner == 2 || corner == 3 ) ? 1.0 : 0.0 );
+            // Morph toward the next LOD's vertex. At morph 0 this is the sample itself, bit for bit — the
+            // vertex Jolt's heightfield has there.
+            vec2  local   = vec2( LandscapeLodMorph( float( x0 ), float( x1 ), morph ), LandscapeLodMorph( float( z0 ), float( z1 ), morph ) );
+            float h       = LandscapeLodMorph( h0, h1, morph );
+            vec2  g       = u_T.LandscapeTile.xy + local;
+            vec2  worldXZ = u_T.LandscapeFrame.xz + g * u_T.LandscapeFrame.w;
+            vec4  worldPos = vec4( worldXZ.x, u_T.LandscapeFrame.y + h, worldXZ.y, 1.0 );
+            gl_Position    = m_PushConstants.Transform * worldPos;
 
-            // The corner is a GLOBAL sample index (integers, exact in float), and its world position is the
-            // root's origin plus index * spacing. A corner on a shared tile edge is the same index seen from
-            // both tiles, so both compute the same bits here — which is what gives the TCS the same edge, and
-            // the same edge tessellation, on both sides.
-            float quadsPerPatch = u_T.LandscapeTile.z / float( gridDim );
-            vec2  g = u_T.LandscapeTile.xy + ( vec2( float( gx ), float( gz ) ) + off ) * quadsPerPatch;
-            v_SampleXZ  = g;
-            v_WorldXZ   = u_T.LandscapeFrame.xz + g * u_T.LandscapeFrame.w;
-            gl_Position = vec4( v_WorldXZ.x, u_T.LandscapeFrame.y, v_WorldXZ.y, 1.0 );
+#ifndef TERRAIN_DEPTH_ONLY
+            v_WorldPos = worldPos.xyz;
+            vec2 d0    = TileGradient( x0, z0 );
+            vec2 d1    = TileGradient( x1, z1 );
+            vec2 d     = vec2( LandscapeLodMorph( d0.x, d1.x, morph ), LandscapeLodMorph( d0.y, d1.y, morph ) );
+            v_Normal   = normalize( vec3( -d.x, 1.0, -d.y ) ); // the surface y = h(x, z)
+            v_Height01 = clamp( h / max( u_T.Params.z, 0.0001 ) * 0.5 + 0.5, 0.0, 1.0 );
+#endif
         }

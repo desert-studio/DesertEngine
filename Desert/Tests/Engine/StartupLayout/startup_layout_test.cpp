@@ -370,15 +370,16 @@ namespace
              << " now ships Templates/, which would make a drop look like a checkout to the "
                 "launcher while still carrying no way for it to start this editor";
 
-        // THE DROP'S OWN ASSET REGISTRY. Since T2.4 neither host walks the content roots at boot,
-        // so a packaged editor with no registry preloads zero shaders and dies at the first
-        // material ("Could not find the shader: StaticMeshPBR"), measured on a real drop. A cook,
-        // not a copy: the drop carries one scene's closure and the dev tree's registry describes
-        // the whole repository.
-        EXPECT_NE( text.find( "AssetRegistryTool" ), std::string::npos )
+        // NO REGISTRY TRAVELS (AF9). Until AF7 the packager cooked the drop's own registry, because a
+        // drop with none preloaded zero shaders and died at the first material. Since AF9 the packaged
+        // editor GATHERS its registry on first start from the headers of the files the drop carries
+        // (Common::Content::GatherContentRegistry) into Intermediate/AssetRegistry.cache. A registry
+        // cooked here would be a second answer to the same question, and one that goes stale the
+        // moment the drop's content differs from what was cooked — so the census now asserts its absence.
+        EXPECT_EQ( text.find( "AssetRegistryTool" ), std::string::npos )
              << what
-             << " no longer cooks the drop's asset registry, so the packaged editor would "
-                "start with zero shaders and abort before its first frame";
+             << " cooks an asset registry again; the packaged editor gathers its own at first start "
+                "(AF9), and a cooked one would be a second, stale-able source for the same rows";
     }
 } // namespace
 
@@ -396,4 +397,26 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( StartupLayout, ABinaryStartedWhereItWasBuiltWorksFromItsCheckoutsEditor )
+{
+    // Visual Studio's F5 with per-user debugger settings that are not the generated ones: the working
+    // directory is the solution root, the binary is in build/Bin/<config>. Measured on Windows
+    // 2026-09-24 - the editor refused with "no Resources/Shaders" and nothing on screen said why.
+    const fs::path root = MakeCheckout( "started_where_built" );
+    fs::create_directories( root / "Editor" / "Resources" / "Shaders" );
+    const fs::path bin = root / "build" / "Bin" / "Debug";
+    fs::create_directories( bin );
+
+    const auto lookup = ResolveResourceRoot( root, bin );
+    EXPECT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
+    EXPECT_TRUE( lookup.FromCheckout );
+    EXPECT_EQ( fs::path( lookup.WorkingDirectory ), root / "Editor" );
+
+    // ...and only by that shape: Bin/<config> outside build/ is not the checkout's build output.
+    const fs::path notBuild = root / "dist" / "Bin" / "Debug";
+    fs::create_directories( notBuild );
+    fs::create_directories( root / "dist" / "Editor" / "Resources" / "Shaders" );
+    EXPECT_FALSE( ResolveResourceRoot( root / "dist", notBuild ).FromCheckout );
 }

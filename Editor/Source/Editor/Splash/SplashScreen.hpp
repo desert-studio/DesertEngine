@@ -21,10 +21,12 @@
 //     (the arrangement UE's FWindowsPlatformSplash uses), so it paints however long the main thread is
 //     away.
 //
-// ONE INTERFACE, THREE CALLS, and the callers never know which platform answered. `SetStatus` never blocks
-// on the window system: it records the newest status and wakes the splash's thread, which applies it.
+// ONE INTERFACE, THREE CALLS, and the callers never know which platform answered. `SetProgress` never
+// blocks on the window system: it records the newest snapshot and wakes the splash's thread, which applies
+// it. What the snapshot says — stage, item, weighted percentage — is `ProgressModel` (SplashProgress.hpp).
 
-#include <cstddef>
+#include <Editor/Splash/SplashProgress.hpp>
+
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -48,9 +50,9 @@ namespace Desert::Editor::Splash
     public:
         virtual ~SplashScreen() = default;
 
-        /// What the start is doing now. @p index is the step being run (0-based) out of @p total;
-        /// `total == 0` means the plan is not known yet and draws no counter (SplashLayout.hpp).
-        virtual void SetStatus( const std::string& label, std::size_t index, std::size_t total ) = 0;
+        /// What the start is doing now: the stage, the item inside it and the share done. An empty stage
+        /// (the plan is not made yet) draws no percentage.
+        virtual void SetProgress( const ProgressSnapshot& progress ) = 0;
 
         /// Starts taking the window down — a kFadeOutSeconds crossfade into whatever is under it, the
         /// editor's window by then — and RETURNS AT ONCE: the editor is on screen and must not freeze for

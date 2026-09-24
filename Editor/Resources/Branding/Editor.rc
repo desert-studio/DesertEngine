@@ -1,0 +1,3 @@
+// The Desert Engine application icon for Windows. GLFW looks up an icon resource named GLFW_ICON for the
+// window class it registers, so this one entry is both the .exe icon in Explorer and every window's icon.
+GLFW_ICON ICON "Desert.ico"

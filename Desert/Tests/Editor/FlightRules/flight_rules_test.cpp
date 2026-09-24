@@ -8,6 +8,7 @@
 #include <Editor/Core/FlightRules.hpp>
 
 #include <cmath>
+#include <numbers>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -33,7 +34,7 @@ namespace
         bool        quoted = false;
         for ( const char c : line )
         {
-            quoted ^= c == '"';
+            quoted ^= static_cast<int>( c == '"' );
             commas += c == ',' && !quoted ? 1 : 0;
         }
         return commas + 1;
@@ -61,7 +62,7 @@ TEST( FlightRules, ALineIsItsTwoPointsAndACircleIsOneLapOfItsRadius )
     const auto circle = Flight::ParseRouteSpec( "circle:1000,300,-500:25600" );
     ASSERT_TRUE( circle.IsSuccess() ) << circle.GetError();
     EXPECT_TRUE( circle.GetValue().Closed );
-    const double lap = 2.0 * 3.14159265358979323846 * 25600.0;
+    const double lap = 2.0 * std::numbers::pi * 25600.0;
     EXPECT_NEAR( Flight::RouteLength( circle.GetValue() ), lap, lap * 1e-5 );
     // Starts at +X of the centre, at the centre's height, and turns towards +Z.
     const auto start = Flight::PoseAt( circle.GetValue(), 0.0 );

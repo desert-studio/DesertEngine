@@ -1762,7 +1762,9 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
         EXPECT_EQ( reader.EntryCodec( entryKey ), Common::Utils::PakCodec::Store );
         const std::optional<std::string> entry = reader.Read( entryKey );
         ASSERT_TRUE( entry.has_value() ) << entryKey << " -- the checker's platform data is not in the archive";
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
         const auto header = TexSer::DecodeTextureHeader( entry.value(), "T_Checker.tex" );
+        // NOLINTEND(bugprone-unchecked-optional-access)
         ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
         EXPECT_LT( header.GetValue().StoredPayloadBytes, header.GetValue().PayloadBytes )
              << "the cook is no longer compressing the levels of what it ships";

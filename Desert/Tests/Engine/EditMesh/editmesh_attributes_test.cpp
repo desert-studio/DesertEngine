@@ -31,7 +31,8 @@ namespace
     {
         EditMesh mesh;
         for ( int i = 0; i < 8; ++i )
-            mesh.AppendVertex( { ( i & 1 ) ? size : 0.0f, ( i & 2 ) ? size : 0.0f, ( i & 4 ) ? size : 0.0f } );
+            mesh.AppendVertex( { ( ( i & 1 ) != 0 ) ? size : 0.0f, ( ( i & 2 ) != 0 ) ? size : 0.0f,
+                                 ( ( i & 4 ) != 0 ) ? size : 0.0f } );
         // Quads (a, b, c, d) counter-clockwise seen from outside.
         const int quads[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
                                   { 2, 6, 7, 3 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 } };
@@ -281,7 +282,8 @@ TEST( EditMeshAttributes, MaterialIdsBecomeSubmeshesAndComeBack )
     const RenderMeshData render = Render( mesh );
     ASSERT_EQ( render.Submeshes.size(), 2u );
     EXPECT_EQ( render.SubmeshMaterialIds, ( std::vector<int>{ 3, 7 } ) ); // ascending MaterialID
-    uint32_t vertexEnd = 0, indexEnd = 0;
+    uint32_t vertexEnd = 0;
+    uint32_t indexEnd  = 0;
     for ( const auto& sub : render.Submeshes )
     {
         EXPECT_EQ( sub.VertexOffset, vertexEnd );
@@ -380,7 +382,7 @@ TEST( EditMeshAttributes, SplitSharesTheNewElementUnlessTheEdgeIsASeam )
         Quad q = MakeQuad();
         SetQuadUVs( q, seamed );
         ASSERT_TRUE( Valid( q.Mesh ) );
-        UVOverlay& uv     = *q.Mesh.Attributes().UV( 0 );
+        UVOverlay const& uv     = *q.Mesh.Attributes().UV( 0 );
         const int  before = uv.ElementCount();
 
         SplitEdgeInfo info;

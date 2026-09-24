@@ -757,8 +757,9 @@ namespace Desert::Core::Rules
         {
             for ( int corner = 0; corner < 8; ++corner )
             {
-                const glm::vec4 local( ( corner & 1 ) ? half.x : -half.x, ( corner & 2 ) ? half.y : -half.y,
-                                       ( corner & 4 ) ? half.z : -half.z, 1.0f );
+                const glm::vec4 local( ( ( corner & 1 ) != 0 ) ? half.x : -half.x,
+                                       ( ( corner & 2 ) != 0 ) ? half.y : -half.y,
+                                       ( ( corner & 4 ) != 0 ) ? half.z : -half.z, 1.0f );
                 const glm::vec4 placed = world * local;
                 out.emplace_back( placed.x, placed.z );
             }

@@ -163,7 +163,7 @@ namespace Desert::WorldCook
             const std::string name = entry.path().filename().string();
             const bool        ours = entry.path().extension() == Core::WorldCells::kCellExtension ||
                               name == Core::WorldCells::kIndexFileName;
-            if ( ours && names.count( name ) == 0 )
+            if ( ours && !names.contains( name ) )
             {
                 std::error_code gone;
                 removed += fs::remove( entry.path(), gone ) ? 1 : 0;

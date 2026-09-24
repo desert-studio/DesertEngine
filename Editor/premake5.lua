@@ -6,6 +6,11 @@ local engineDeps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 project "Editor"
     kind "ConsoleApp"
 
+    -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
+    -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.
+    debugdir "%{wks.location}/Editor"
+    debugargs { "--project Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
+
     files { 
         -- Engine 
         "Source/**.cpp", 
@@ -135,6 +140,13 @@ project "Editor"
         -- physical-atmosphere fields pushed its Debug object file past COFF's 65k-section limit
         -- (error C1128). /bigobj lifts the format cap and costs nothing at runtime.
         buildoptions { "/bigobj" }
+        -- No console window at start: a Windows-subsystem program that keeps main() as its entry point.
+        -- `--console` opens one on demand (Engine/EntryPoint.hpp).
+        kind "WindowedApp"
+        linkoptions { "/ENTRY:mainCRTStartup" }
+        -- The application icon: the .exe's icon in Explorer and, because the resource is named GLFW_ICON,
+        -- the icon GLFW gives every window it creates (Resources/Branding/README.md).
+        files { "Resources/Branding/Editor.rc" }
 
     -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The
     -- Source/** glob above picks the Windows one up everywhere, so it is dropped where it cannot build;

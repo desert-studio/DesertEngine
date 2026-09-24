@@ -134,7 +134,7 @@ namespace Desert::Geometry
             std::array<int, 3> next{};
             for ( int j = 0; j < 3; ++j )
             {
-                if ( inSet[corners[j]] )
+                if ( inSet[corners[j]] != 0 )
                     next[j] = element.at( { corners[j], mesh.Attributes().GetPolyGroup( t ) } );
                 else if ( wasSet )
                     next[j] = normals->GetTriangle( t )[j];

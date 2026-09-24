@@ -4,6 +4,7 @@
 #include <Engine/EntryPoint.hpp>
 
 #include <Editor/Core/CommandLine.hpp>
+#include <Editor/Core/StartupRefusal.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Editor/Core/ProjectContext.hpp>
 #include <Engine/Project/EngineRegistration.hpp>
@@ -14,6 +15,7 @@
 #include <Editor/Splash/SplashScreen.hpp>
 #include <Common/Core/Version.hpp>
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -67,8 +69,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     {
         // stderr and a non-zero status, before any engine subsystem exists. There is no logger yet and no
         // frame to spoil, and a caller that reads the exit code learns the truth on the first byte.
-        std::fprintf( stderr, "%s\n", parsed.GetError().c_str() );
-        std::exit( 2 );
+        Desert::Editor::RefuseToStart( 2, parsed.GetError() );
     }
 
     // NOT const: the project is RESOLVED below -- made absolute before the working directory can
@@ -97,8 +98,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                     : Common::MakeError<Desert::Editor::Flight::Route>( text.GetError() );
             if ( !route )
             {
-                std::fprintf( stderr, "--flight: %s\n", route.GetError().c_str() );
-                std::exit( 2 );
+                Desert::Editor::RefuseToStart( 2, "--flight: " + route.GetError() );
             }
             shot.FlightRoute = route.ExtractValue();
             Desert::Editor::ArmFlight( shot );
@@ -119,6 +119,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     const std::filesystem::path executable   = Common::Utils::FileSystem::ExecutablePath();
     const std::filesystem::path executableIn = executable.parent_path();
 
+    bool startedInCheckout = false;
+
     // 1. THE ENGINE RESOURCES, BEFORE ANYTHING READS ONE. Every engine resource is a path relative
     //    to the WORKING DIRECTORY (Common::Constants::Path), so this either leaves the working
     //    directory alone — which is what every `scripts/*/RunEditor.*` launch gets, because it has
@@ -132,9 +134,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         {
             // A REFUSAL, not a half-start. An editor that opens a window it cannot draw into costs
             // whoever downloaded it an afternoon of looking at the wrong thing.
-            std::fprintf( stderr, "[Engine] %s\n", resources.Explanation.c_str() );
-            std::exit( 1 );
+            Desert::Editor::RefuseToStart( 1, "[Engine] " + resources.Explanation );
         }
+        startedInCheckout = resources.FromCheckout;
         if ( !resources.WorkingDirectory.empty() )
         {
             // Absolute FIRST. The caller's `--project` (and anything else spelled relatively) was
@@ -143,7 +145,14 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             if ( !options.Project.empty() )
             {
                 std::error_code             absError;
-                const std::filesystem::path resolved = std::filesystem::absolute( options.Project, absError );
+                std::filesystem::path       resolved = std::filesystem::absolute( options.Project, absError );
+                // ...EXCEPT a binary started where it was built: an IDE passes the run scripts'
+                // `--project Desert.deproj` but starts in the solution root, where no such file is. The
+                // name then means the one in the checkout's Editor/, which is where the scripts start.
+                std::error_code existsError;
+                if ( resources.FromCheckout && std::filesystem::path( options.Project ).is_relative() &&
+                     !std::filesystem::exists( resolved, existsError ) )
+                    resolved = std::filesystem::path( resources.WorkingDirectory ) / options.Project;
                 if ( !absError )
                     options.Project = resolved.string();
             }
@@ -151,12 +160,11 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             std::filesystem::current_path( resources.WorkingDirectory, moveError );
             if ( moveError )
             {
-                std::fprintf( stderr,
-                              "[Engine] the engine resources are in '%s' but this process could "
-                              "not work from there: %s\n",
-                              resources.WorkingDirectory.c_str(), moveError.message().c_str() );
-                std::exit( 1 );
+                Desert::Editor::RefuseToStart(
+                     1, "[Engine] the engine resources are in '" + resources.WorkingDirectory +
+                             "' but this process could not work from there: " + moveError.message() );
             }
+            Common::Logger::RelocateLogFile( resources.WorkingDirectory );
         }
     }
 
@@ -170,10 +178,18 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     if ( options.Project.empty() )
     {
         auto beside = Desert::Project::ProjectBesideExecutable( executableIn );
+        // A binary started where it was built (an IDE's F5) has already moved into its checkout's
+        // Editor/, and the development project lives there - the same one the run scripts pass.
+        if ( !beside.IsSuccess() && startedInCheckout )
+        {
+            std::error_code cwdError;
+            if ( const auto here = std::filesystem::current_path( cwdError ); !cwdError )
+                if ( auto inEditor = Desert::Project::ProjectBesideExecutable( here ); inEditor.IsSuccess() )
+                    beside = std::move( inEditor );
+        }
         if ( !beside.IsSuccess() )
         {
-            std::fprintf( stderr, "%s\n", beside.GetError().c_str() );
-            std::exit( 1 );
+            Desert::Editor::RefuseToStart( 1, beside.GetError() );
         }
         options.Project = beside.ExtractValue();
     }
@@ -190,9 +206,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                        : Desert::Editor::ProjectContext::RecordInRecent::Yes;
         if ( !Desert::Editor::ProjectContext::Open( options.Project, record ) )
         {
-            std::fprintf( stderr, "Could not open project '%s' (missing or corrupt .deproj).\n",
-                          options.Project.c_str() );
-            std::exit( 1 );
+            Desert::Editor::RefuseToStart( 1, "Could not open project '" + options.Project +
+                                                   "' (missing or corrupt .deproj)." );
         }
     }
 
@@ -246,8 +261,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     {
         if ( const auto set = Desert::Localization::Localization::Get().SetLanguage( options.Language ); !set )
         {
-            std::fprintf( stderr, "%s\n", set.GetError().c_str() );
-            std::exit( 2 );
+            Desert::Editor::RefuseToStart( 2, set.GetError() );
         }
     }
 
@@ -263,8 +277,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     auto splash = Desert::Editor::Splash::SplashScreen::Show( { Desert::Editor::ProjectContext::Current().Name,
                                                                 Common::Version::Base(),
                                                                 Desert::Editor::Splash::kSplashTexture } );
-    // The plan is not known yet — the editor layer that owns the stage list does not exist — so no count.
-    splash->SetStatus( "Starting the renderer...", 0, 0 );
+    // The plan is not made yet — the editor layer that owns it does not exist — so the bar is empty; the
+    // renderer's start is not weighed, and the first weighed stage is the shader preload.
+    splash->SetProgress( { "Starting the renderer...", "", 0.0 } );
 
     ApplicationInfo appInfo;
     appInfo.Title = "Desert Engine — " + Desert::Editor::ProjectContext::Current().Name;

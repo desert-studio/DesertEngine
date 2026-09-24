@@ -602,8 +602,8 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     EXPECT_FALSE( rfl::json::read<SceneSerialized>( plain )->WorldPartition.has_value() );
 
     const auto               out = Scratch() / "partitioned.desce";
-    std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),
-                                   "--preset", "smoke",      "--partition" };
+    const std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),
+                                         "--preset", "smoke",      "--partition" };
     std::ostringstream       reported;
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
@@ -611,11 +611,15 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
-    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u );
+    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].CellSize, 25600.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     namespace Rules          = Desert::Core::Rules;
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto  plan         = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     const auto  per          = Rules::CellsPerLevel( plan );
     const auto  why          = Rules::AlwaysLoadedByReason( plan );
     std::size_t sunSkyCamera = 0;
@@ -651,7 +655,9 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
 
     // And the tool printed the same plan, in the same words the loader logs.
     EXPECT_NE(
+         // NOLINTBEGIN(bugprone-unchecked-optional-access)
          reported.str().find( "partition    : " + Rules::SummarisePartition( plan, *scene->WorldPartition ) ),
+         // NOLINTEND(bugprone-unchecked-optional-access)
          std::string::npos )
          << reported.str();
 }
@@ -664,8 +670,8 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
 TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
 {
     const auto               out = Scratch() / "fits.desce";
-    std::vector<std::string> args{ "--out",   out.string(), "--assets",   AssetsRoot(),
-                                   "--cells", "8",          "--partition" };
+    const std::vector<std::string> args{ "--out",   out.string(), "--assets",   AssetsRoot(),
+                                         "--cells", "8",          "--partition" };
     std::ostringstream       reported;
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
@@ -679,7 +685,9 @@ TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
     }
 
     namespace Rules = Desert::Core::Rules;
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( plan.MaxLevel, 0 ) << reported.str();
     EXPECT_EQ( plan.AlwaysLoaded.size(), 3u ) << reported.str();
     EXPECT_EQ( plan.Cells.size(), 64u );
@@ -692,9 +700,9 @@ TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
 TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartition )
 {
     const auto               out = Scratch() / "partitioned_fine.desce";
-    std::vector<std::string> args{ "--out",    out.string(),      "--assets",    AssetsRoot(),
-                                   "--preset", "smoke",           "--partition", "--partition-cell",
-                                   "12800",    "--loading-range", "51200" };
+    const std::vector<std::string> args{ "--out",    out.string(),      "--assets",    AssetsRoot(),
+                                         "--preset", "smoke",           "--partition", "--partition-cell",
+                                         "12800",    "--loading-range", "51200" };
     std::ostringstream       reported;
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
@@ -702,12 +710,18 @@ TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartit
     const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
-    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u );
+    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].CellSize, 12800.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].LoadingRange, 51200.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     namespace Rules = Desert::Core::Rules;
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     for ( std::size_t record = 0; record < scene->Entities.size(); ++record )
     {
         const auto& tag = scene->Entities[record].Tag.value_or( "" );
@@ -720,10 +734,10 @@ TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartit
 
     for ( const char* flag : { "--partition-cell", "--loading-range" } )
     {
-        std::vector<std::string> alone{ "--out",    ( Scratch() / "refused.desce" ).string(),
-                                        "--assets", AssetsRoot(),
-                                        "--preset", "smoke",
-                                        flag,       "12800" };
+        const std::vector<std::string> alone{ "--out",    ( Scratch() / "refused.desce" ).string(),
+                                              "--assets", AssetsRoot(),
+                                              "--preset", "smoke",
+                                              flag,       "12800" };
         std::ostringstream       quiet;
         std::ostringstream       why;
         EXPECT_EQ( Desert::WorldGen::RunWorldGen( alone, quiet, why ), 2 ) << flag;

@@ -104,7 +104,7 @@ namespace Desert::Geometry
         using Common::MakeFormattedError;
         if ( payloadSize != Alive.size() )
             return MakeFormattedError<bool>( "{}: {} payload slots for {} IDs", kind, payloadSize, Alive.size() );
-        const auto live = static_cast<int>( std::count( Alive.begin(), Alive.end(), uint8_t( 1 ) ) );
+        const auto live = static_cast<int>( std::count( Alive.begin(), Alive.end(), static_cast<uint8_t>( 1 ) ) );
         if ( live != Live )
             return MakeFormattedError<bool>( "{}: {} live IDs but the count says {}", kind, live, Live );
         if ( static_cast<size_t>( live ) + Free.size() != Alive.size() )
@@ -808,6 +808,8 @@ namespace Desert::Geometry
                 const int t = tris[side];
                 if ( t == InvalidId )
                     continue;
+                // An iterator, not a pointer: libc++ makes std::array's iterator a raw pointer, MSVC does not.
+                // NOLINTNEXTLINE(readability-qualified-auto)
                 const auto slot = std::find( m_TriangleEdges[t].begin(), m_TriangleEdges[t].end(), e );
                 if ( slot == m_TriangleEdges[t].end() )
                     return MakeFormattedError<bool>( "edge {} lists triangle {} which does not use it", e, t );

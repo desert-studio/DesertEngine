@@ -24,9 +24,17 @@ namespace Desert::Editor::Splash
 
     inline constexpr float kProjectFontSize = 14.0f; // semibold, white
     inline constexpr float kStageFontSize   = 12.0f; // regular, white at 62 %
-    inline constexpr float kCounterFontSize = 12.0f; // monospaced digits, white at 62 %
+    inline constexpr float kPercentFontSize = 12.0f; // monospaced digits, white at 62 %
+    inline constexpr float kItemFontSize    = 11.0f; // regular, white at 45 %
     inline constexpr float kVersionFontSize = 12.0f; // regular, white at 62 %
     inline constexpr float kStageAlpha      = 0.62f;
+    inline constexpr float kItemAlpha       = 0.45f;
+
+    // The three text lines, bottom edges from the bottom of the splash: the project over the stage over
+    // the item the stage is working on, all above the bar and all below the wordmark.
+    inline constexpr float kProjectY = 70.0f;
+    inline constexpr float kStageY   = 52.0f;
+    inline constexpr float kItemY    = 36.0f;
 
     inline constexpr float kBarY          = 22.0f;
     inline constexpr float kBarHeight     = 2.0f;
@@ -49,7 +57,8 @@ namespace Desert::Editor::Splash
     {
         Rect Project; // left-aligned
         Rect Stage;   // left-aligned
-        Rect Counter; // right-aligned, on the stage's line
+        Rect Percent; // right-aligned, on the stage's line
+        Rect Item;    // left-aligned, the whole width: "Cooking texture T_Rock_Albedo (37 / 212)"
         Rect Version; // right-aligned, on the project's line
         Rect BarTrack;
         Rect BarFill; // same origin as the track, width = track * fraction
@@ -62,42 +71,30 @@ namespace Desert::Editor::Splash
         return fontSize * 1.3f;
     }
 
-    /// How much of the start is done, in [0, 1]. @p index is the step NOW RUNNING (0-based), so the
-    /// first step shows an empty bar and the last one shows (total-1)/total: the bar never claims a step
-    /// is finished while its label is still on screen. `total == 0` means the editor does not know its
-    /// plan yet (the renderer is still coming up), and that is an empty bar, not a division.
-    [[nodiscard]] constexpr double ProgressFraction( const std::size_t index, const std::size_t total )
-    {
-        if ( total == 0 )
-            return 0.0;
-        return static_cast<double>( std::min( index, total ) ) / static_cast<double>( total );
-    }
-
-    /// "N / M   P%" — the step being run (1-based, so the last step reads M / M) and the share of the
-    /// start that is done. Empty while the plan is unknown: a counter reading "1 / 0" or "0 / 0   0%"
-    /// would be a number that says nothing, drawn where a person looks for progress.
-    [[nodiscard]] inline std::string FormatProgress( const std::size_t index, const std::size_t total )
-    {
-        if ( total == 0 )
-            return {};
-        const std::size_t step    = std::min( index + 1, total );
-        const int         percent = static_cast<int>( ProgressFraction( index, total ) * 100.0 );
-        return std::to_string( step ) + " / " + std::to_string( total ) + "   " + std::to_string( percent ) + "%";
-    }
+    // WHERE THE PICTURE'S "ENGINE" IS, which no live line may reach: its glyphs, measured off the pixels
+    // of `Resources/Splash/Splash.jpg` (drawn by `Tools/SplashBake/Compose.swift` at x 52, y 94), span
+    // x 53.5..194 and y 99.5..113.5. The project line at y 80 sat 1.3 points under them with the glow on
+    // top, and read as one block with the wordmark.
+    inline constexpr Rect kWordmarkEngine = { 53.0f, 99.0f, 142.0f, 15.0f };
+    // The clear space kept under it: the glyphs' glow (radius 12, most of it faint) is not part of the
+    // measured box.
+    inline constexpr float kWordmarkClearance = 8.0f;
 
     [[nodiscard]] constexpr Layout ComputeLayout( const double fraction )
     {
         const double clamped = fraction < 0.0 ? 0.0 : ( fraction > 1.0 ? 1.0 : fraction );
         const float  inner   = kWidth - 2.0f * kMargin;
-        // Half of each text column: the stage label takes the left, the counter the right. A label longer
-        // than its half is truncated by the platform, never drawn under the counter.
+        // Half of each text column: the stage label takes the left, the percentage the right. A label
+        // longer than its half is truncated by the platform, never drawn under the percentage. The item
+        // line has no right-hand neighbour and takes the whole width: asset names are long.
         const float half = inner * 0.5f;
 
         Layout layout;
-        layout.Project  = { kMargin, 58.0f, half, LineHeight( kProjectFontSize ) };
-        layout.Stage    = { kMargin, 36.0f, half, LineHeight( kStageFontSize ) };
-        layout.Counter  = { kMargin + half, 36.0f, half, LineHeight( kCounterFontSize ) };
-        layout.Version  = { kMargin + half, 58.0f, half, LineHeight( kVersionFontSize ) };
+        layout.Project  = { kMargin, kProjectY, half, LineHeight( kProjectFontSize ) };
+        layout.Stage    = { kMargin, kStageY, half, LineHeight( kStageFontSize ) };
+        layout.Percent  = { kMargin + half, kStageY, half, LineHeight( kPercentFontSize ) };
+        layout.Item     = { kMargin, kItemY, inner, LineHeight( kItemFontSize ) };
+        layout.Version  = { kMargin + half, kProjectY, half, LineHeight( kVersionFontSize ) };
         layout.BarTrack = { kMargin, kBarY, inner, kBarHeight };
         layout.BarFill  = { kMargin, kBarY, static_cast<float>( inner * clamped ), kBarHeight };
         return layout;
@@ -105,7 +102,7 @@ namespace Desert::Editor::Splash
 
     /// HOW MUCH THE DESIGN IS SHRUNK TO FIT A SMALL SCREEN, never enlarged. The design is 1200x675 points,
     /// which is most of a 13-inch laptop's screen; a splash wider than the screen would lose its right-hand
-    /// counter off the edge, so it is scaled as ONE picture (text, bar and image together) to at most
+    /// percentage off the edge, so it is scaled as ONE picture (text, bar and image together) to at most
     /// @p screenShare of the usable area in each direction.
     [[nodiscard]] constexpr float FitScale( const float screenWidth, const float screenHeight,
                                             const float screenShare = 0.8f )
@@ -120,12 +117,9 @@ namespace Desert::Editor::Splash
 
     // ===== The only motion on the splash =====
     //
-    // A SLOW PUSH-IN ON THE PICTURE (Ken Burns), a fade in at the start and a crossfade into the editor at
-    // the end. The push-in is not decoration only: it runs on the splash's side (Core Animation's render
-    // server on macOS, the splash thread's timer on Windows), never on the main thread, so a picture that
-    // keeps moving while the start is inside one long call is visible proof the splash is alive.
-    inline constexpr float kKenBurnsZoom    = 1.02f; // +2 % over the push-in
-    inline constexpr float kKenBurnsSeconds = 10.0f; // about as long as a Debug start; then it holds
+    // A fade in at the start and a crossfade into the editor at the end. The picture itself holds still
+    // (owner, 2026-09-24: the push-in was removed); the live stage text and the bar are what show the
+    // start is alive.
     inline constexpr float kFadeInSeconds   = 0.2f;
     inline constexpr float kFadeOutSeconds  = 0.2f;
 
@@ -134,15 +128,6 @@ namespace Desert::Editor::Splash
         return v < 0.0f ? 0.0f : ( v > 1.0f ? 1.0f : v );
     }
 
-    /// The picture's scale @p seconds after the splash appeared: 1 at the start, kKenBurnsZoom at
-    /// kKenBurnsSeconds and after, eased OUT (cubic) so the motion is fastest when it begins and settles
-    /// rather than stopping abruptly. About the centre of the picture.
-    [[nodiscard]] constexpr float KenBurnsScale( const float seconds )
-    {
-        const float u    = Clamp01( seconds / kKenBurnsSeconds );
-        const float rest = 1.0f - u;
-        return 1.0f + ( kKenBurnsZoom - 1.0f ) * ( 1.0f - rest * rest * rest );
-    }
 
     /// Opacity of the whole splash @p seconds after it appeared (fade in), or @p seconds after it was
     /// asked to close when @p closing (fade out).

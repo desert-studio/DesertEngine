@@ -224,10 +224,11 @@ namespace
     // walk finds 1514 files in the main checkout and 458 in a fresh worktree. An instrument whose
     // verdict depends on which machine ran it is not an instrument.
     //
-    // The committed project registry is the list that IS the same in every clone, so the walk is held
-    // against it: every row it carries must name a file the walk found. A root that silently stopped
-    // being walked then fails here with the key it lost, on any machine.
-    void WalkAndProveItCoveredTheCommittedRegistry( const AssetRegistry& registry, std::vector<fs::path>& out )
+    // The project registry is no longer a committed file (AF7): it builds itself from each file's header
+    // (GatherContentRegistry, UE's FAssetDataGatherer). The walk is held against THAT enumeration, which is
+    // the engine's own and shares no code with this suite's walk: every row it gathers must name a file the
+    // walk found. A root that silently stopped being walked then fails here with the key it lost.
+    void WalkAndProveItCoveredTheGatheredRegistry( const AssetRegistry& registry, std::vector<fs::path>& out )
     {
         out = WalkContentTree();
         std::set<std::string> found;
@@ -236,18 +237,19 @@ namespace
 
         for ( const AssetRegistryEntry& row : registry.Entries() )
             ASSERT_EQ( found.count( row.Key ), 1u )
-                 << row.Key << " is in the committed registry but the content walk did not find it";
+                 << row.Key << " is in the gathered registry but the content walk did not find it";
         ASSERT_GE( out.size(), registry.Count() );
     }
 
-    Common::ResultStr<AssetRegistry> LoadCommittedRegistry()
+    // Built here, from an empty cache, so every row comes from a header read by this run and none from a
+    // machine's Intermediate/ cache. A file whose header cannot enter is a refusal, not a skipped row.
+    Common::ResultStr<AssetRegistry> GatherProjectRegistry()
     {
-        const auto text =
-             Common::Utils::FileSystem::ReadFileContent( Common::Utils::AssetRegistry::DefaultPath().string() );
-        if ( !text )
-            return Common::MakeFormattedError<AssetRegistry>( "the project registry could not be read: {}",
-                                                              text.GetError() );
-        return AssetRegistry::Parse( text.GetValue() );
+        Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( {} );
+        if ( !gathered.Refused.empty() )
+            return Common::MakeFormattedError<AssetRegistry>( "the project registry refused {} file(s), first: {}",
+                                                              gathered.Refused.size(), gathered.Refused.front() );
+        return Common::MakeSuccess( std::move( gathered.Registry ) );
     }
 
     fs::path MakeTempDir( const std::string& name )
@@ -447,11 +449,11 @@ TEST( PakChunks, EveryFileOfEveryContentKindLandsInExactlyOneArchiveAndNoneInZer
     const SandboxProject project( repo );
     ASSERT_TRUE( project.Opened() ) << "Editor/Desert.deproj could not be read";
 
-    const auto registry = LoadCommittedRegistry();
+    const auto registry = GatherProjectRegistry();
     ASSERT_TRUE( registry ) << registry.GetError();
 
     std::vector<fs::path> tree;
-    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheCommittedRegistry( registry.GetValue(), tree ) );
+    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheGatheredRegistry( registry.GetValue(), tree ) );
 
     std::map<std::string, fs::path> byKind;
     const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
@@ -520,11 +522,11 @@ TEST( PakChunks, TheWholeContentTreeIsAssignedAndTheAssignmentIsAFunction )
     const SandboxProject project( repo );
     ASSERT_TRUE( project.Opened() );
 
-    const auto registry = LoadCommittedRegistry();
+    const auto registry = GatherProjectRegistry();
     ASSERT_TRUE( registry ) << registry.GetError();
 
     std::vector<fs::path> tree;
-    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheCommittedRegistry( registry.GetValue(), tree ) );
+    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheGatheredRegistry( registry.GetValue(), tree ) );
 
     const auto plan = BuildChunkPlan( registry.GetValue(), ChunkScheme{} );
     ASSERT_TRUE( plan ) << plan.GetError();
@@ -557,11 +559,11 @@ TEST( PakChunks, APatchOverridesBaseAndChunkAndTheSourceArchiveIsAnAnswerNotAnIn
     const SandboxProject project( repo );
     ASSERT_TRUE( project.Opened() );
 
-    const auto registry = LoadCommittedRegistry();
+    const auto registry = GatherProjectRegistry();
     ASSERT_TRUE( registry ) << registry.GetError();
 
     std::vector<fs::path> tree;
-    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheCommittedRegistry( registry.GetValue(), tree ) );
+    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheGatheredRegistry( registry.GetValue(), tree ) );
     std::map<std::string, fs::path> byKind;
     const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
     ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount );
@@ -655,11 +657,11 @@ TEST( PakChunks, EveryContentKindSurvivesTheDivisionByteForByte )
     const SandboxProject project( repo );
     ASSERT_TRUE( project.Opened() );
 
-    const auto registry = LoadCommittedRegistry();
+    const auto registry = GatherProjectRegistry();
     ASSERT_TRUE( registry ) << registry.GetError();
 
     std::vector<fs::path> tree;
-    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheCommittedRegistry( registry.GetValue(), tree ) );
+    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheGatheredRegistry( registry.GetValue(), tree ) );
     std::map<std::string, fs::path> byKind;
     const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
     ASSERT_EQ( byKind.size(), CONTENT_KIND_COUNT - kCookOnlyKindCount );

@@ -37,7 +37,7 @@ namespace Desert::Editor
         // Start piloting @p entity from @p camera. Refuses with the reason when the entity is missing or
         // is not a camera. Starting on another entity while one is piloted moves the session over
         // without losing the pose to eject to.
-        [[nodiscard]] Common::BoolResultStr Begin( const ::Desert::Core::Scene& scene, const Common::UUID& entity,
+        [[nodiscard]] Common::BoolResultStr Begin( const ::Desert::Core::Scene& scene, const Common::UUID& uuid,
                                                    ::Desert::Core::EditorCamera& camera );
 
         // End the session and restore the pose the editor camera had before it. @p camera may be null

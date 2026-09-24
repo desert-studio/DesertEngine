@@ -32,7 +32,7 @@ namespace Desert::Geometry
             explicit PositionWelder( float tolerance ) : m_Tolerance( tolerance )
             {
             }
-            int Find( const EditMesh& mesh, const glm::vec3& p ) const
+            [[nodiscard]] int Find( const EditMesh& mesh, const glm::vec3& p ) const
             {
                 const auto base = Cell( p );
                 for ( int dx = -1; dx <= 1; ++dx )
@@ -54,7 +54,7 @@ namespace Desert::Geometry
             }
 
         private:
-            std::array<int64_t, 3> Cell( const glm::vec3& p ) const
+            [[nodiscard]] std::array<int64_t, 3> Cell( const glm::vec3& p ) const
             {
                 // A zero tolerance still needs a finite cell; 1 cm cells then hold exact matches only.
                 const float size = m_Tolerance > 0.0f ? m_Tolerance : 1.0f;
@@ -122,8 +122,8 @@ namespace Desert::Geometry
                 {
                     const int                v  = tri[j];
                     const int                en = normals->GetTriangle( t )[j];
-                    const int                et = tangents ? tangents->GetTriangle( t )[j] : InvalidId;
-                    const int                eu = uvs ? uvs->GetTriangle( t )[j] : InvalidId;
+                    const int et = ( tangents != nullptr ) ? tangents->GetTriangle( t )[j] : InvalidId;
+                    const int eu = ( uvs != nullptr ) ? uvs->GetTriangle( t )[j] : InvalidId;
                     const std::array<int, 4> key{ v, en, et, eu };
                     auto                     found = corners.find( key );
                     if ( found == corners.end() )
@@ -131,13 +131,13 @@ namespace Desert::Geometry
                         Vertex vertex{};
                         vertex.Position = mesh.GetPosition( v );
                         vertex.Normal   = normals->GetElement( en );
-                        if ( tangents )
+                        if ( tangents != nullptr )
                         {
                             const glm::vec4 tangent = tangents->GetElement( et );
                             vertex.Tangent          = glm::vec3( tangent );
                             vertex.Bitangent        = glm::cross( vertex.Normal, vertex.Tangent ) * tangent.w;
                         }
-                        if ( uvs )
+                        if ( uvs != nullptr )
                             vertex.TexCoord = uvs->GetElement( eu );
                         const auto local = static_cast<uint32_t>( out.Vertices.size() - submesh.VertexOffset );
                         out.Vertices.push_back( vertex );
@@ -152,7 +152,8 @@ namespace Desert::Geometry
 
             submesh.VertexCount = static_cast<uint32_t>( out.Vertices.size() ) - submesh.VertexOffset;
             submesh.IndexCount  = static_cast<uint32_t>( out.Indices.size() * 3 ) - submesh.IndexOffset;
-            glm::vec3 lo( 0.0f ), hi( 0.0f );
+            glm::vec3 lo( 0.0f );
+            glm::vec3 hi( 0.0f );
             for ( uint32_t i = 0; i < submesh.VertexCount; ++i )
             {
                 const glm::vec3& p = out.Vertices[submesh.VertexOffset + i].Position;
@@ -188,8 +189,8 @@ namespace Desert::Geometry
             const Range r{ s.VertexOffset, s.VertexCount, s.IndexOffset / 3, s.IndexCount / 3,
                            i < render.SubmeshMaterialIds.size() ? render.SubmeshMaterialIds[i]
                                                                 : static_cast<int>( i ) };
-            if ( uint64_t( r.VertexOffset ) + r.VertexCount > render.Vertices.size() ||
-                 uint64_t( r.FirstTriangle ) + r.TriangleCount > render.Indices.size() )
+            if ( static_cast<uint64_t>( r.VertexOffset ) + r.VertexCount > render.Vertices.size() ||
+                 static_cast<uint64_t>( r.FirstTriangle ) + r.TriangleCount > render.Indices.size() )
                 return MakeFormattedError<ImportedEditMesh>(
                      "FromRenderMesh: submesh {} spans vertices [{}, +{}) and triangles [{}, +{}) of {} / {}", i,
                      r.VertexOffset, r.VertexCount, r.FirstTriangle, r.TriangleCount, render.Vertices.size(),
@@ -220,7 +221,9 @@ namespace Desert::Geometry
         };
         // Per overlay and vertex, the elements already made there; a vertex has a handful, so a scan is the
         // whole lookup. A detached copy of a vertex is a different vertex and gets its own elements.
-        std::vector<std::vector<int>> normalAt, tangentAt, uvAt;
+        std::vector<std::vector<int>> normalAt;
+        std::vector<std::vector<int>> tangentAt;
+        std::vector<std::vector<int>> uvAt;
         const auto element = [&]( auto& overlay, std::vector<std::vector<int>>& at, int v, const auto& value )
         {
             if ( static_cast<int>( at.size() ) <= v )
@@ -280,7 +283,9 @@ namespace Desert::Geometry
                 }
                 attributes.SetMaterialId( t, range.Material );
 
-                std::array<int, 3> en{}, et{}, eu{};
+                std::array<int, 3> en{};
+                std::array<int, 3> et{};
+                std::array<int, 3> eu{};
                 for ( int j = 0; j < 3; ++j )
                 {
                     const Vertex& s = *source[j];

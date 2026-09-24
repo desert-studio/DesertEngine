@@ -734,7 +734,7 @@ namespace Desert::Core
     {
         const auto enttID = m_Registry.create();
 
-        ECS::Entity entity( enttID, m_Registry );
+        const ECS::Entity entity( enttID, m_Registry );
 
         entity.AddComponent<ECS::TagComponent>( std::move( entityName ) );
         entity.AddComponent<ECS::UUIDComponent>();
@@ -748,7 +748,7 @@ namespace Desert::Core
     {
         const auto enttID = m_Registry.create();
 
-        ECS::Entity entity( enttID, m_Registry );
+        const ECS::Entity entity( enttID, m_Registry );
 
         entity.AddComponent<ECS::TagComponent>( name );
         entity.AddComponent<ECS::UUIDComponent>( uuid );

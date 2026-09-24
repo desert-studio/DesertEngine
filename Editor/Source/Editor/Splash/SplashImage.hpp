@@ -25,6 +25,10 @@ namespace Desert::Editor::Splash
     // (Tools/SplashBake/README.md). Relative to the working directory, as every engine resource is.
     inline const std::filesystem::path kSplashTexture = "Resources/Splash/Splash.tex";
 
+    // The application icon (Resources/Branding/README.md). macOS takes it from here for the Dock at the
+    // first moment the process is an app, which is the splash; Windows takes it from the Editor.rc resource.
+    inline const std::filesystem::path kAppIcon = "Resources/Branding/DesertIcon1024.png";
+
     struct SplashPixels
     {
         uint32_t Width  = 0;

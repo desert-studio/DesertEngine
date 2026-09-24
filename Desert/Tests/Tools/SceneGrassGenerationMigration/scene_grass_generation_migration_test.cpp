@@ -208,7 +208,9 @@ TEST( SceneGrassGenerationMigration, GrassOnBecomesTheAutoGroundLayer )
     ASSERT_TRUE( terrain.has_value() );
 
     ASSERT_TRUE( ModeOf( *terrain ).has_value() ) << "a terrain that had grass came back with no GrassMode";
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( *ModeOf( *terrain ), FileLayerMode( "Auto" ).value_or( -1 ) );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     ASSERT_EQ( report.CarriedNames.size(), 1u );
     EXPECT_EQ( report.CarriedNames[0], std::string( "Terrain.GrassMode=Auto (was EnableGrass=true)" ) );
 }
@@ -224,7 +226,9 @@ TEST( SceneGrassGenerationMigration, GrassOffBecomesTheOffGroundLayer )
     ASSERT_TRUE( terrain.has_value() );
 
     ASSERT_TRUE( ModeOf( *terrain ).has_value() );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( *ModeOf( *terrain ), FileLayerMode( "Off" ).value_or( -1 ) );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     ASSERT_EQ( report.CarriedNames.size(), 1u );
     EXPECT_EQ( report.CarriedNames[0], std::string( "Terrain.GrassMode=Off (was EnableGrass=false)" ) );
 }
@@ -240,7 +244,9 @@ TEST( SceneGrassGenerationMigration, AnAuthoredGrassModeWinsOverTheCarry )
 
     const auto out = TerrainOf( entities[0] );
     ASSERT_TRUE( out.has_value() );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( *ModeOf( *out ), FileLayerMode( "Manual" ).value_or( 1 ) );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_TRUE( report.CarriedNames.empty() ) << "the migration overwrote a mode the file stated";
 }
 
@@ -277,7 +283,9 @@ TEST( SceneGrassGenerationMigration, AnEnableGrassOfTheWrongTypeReadsAsOff )
 
     EXPECT_FALSE( terrain->get( "EnableGrass" ).has_value() );
     ASSERT_TRUE( ModeOf( *terrain ).has_value() );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( *ModeOf( *terrain ), FileLayerMode( "Off" ).value_or( -1 ) );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     ASSERT_EQ( report.CarriedNames.size(), 1u );
     EXPECT_NE( report.CarriedNames[0].find( "Off" ), std::string::npos );
 }
@@ -339,8 +347,12 @@ TEST( SceneGrassGenerationMigration, TheCarriedIntegersAreTheFileFormats )
     std::vector<Assets::EntityData> off{ TerrainEntity( V17Terrain( false ) ) };
     Migration::MigrateGrassGenerationV17ToV18( on );
     Migration::MigrateGrassGenerationV17ToV18( off );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( ModeOf( *TerrainOf( on[0] ) ), FileLayerMode( "Auto" ) );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( ModeOf( *TerrainOf( off[0] ) ), FileLayerMode( "Off" ) );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 }
 
 // THE HEAD ASSERTION TRAVELS WITH THE NEWEST STEP, and it left here when Г26 added v19. It was

@@ -10,7 +10,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -138,8 +138,10 @@ namespace Desert::Editor::Tools
         // layer first (it keeps its own Block Size forever). Resizing the grid afterwards then only ever
         // re-scales the new volume — the geometry built before never moves or re-subdivides again.
         // (m_HoverValid = last frame's targeting, so a click on empty sky doesn't commit anything.)
-        if ( interact && !m_CornerMode && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && m_HoverValid &&
-             !m_Volume.Cells.empty() )
+        // A palette selection (ReqCubeGridSelectBlocks) is a marquee too, and commits the same way.
+        const bool marqueeStarts = ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) ) ||
+                                   ( toolActive && ms.ReqCubeGridSelectBlocks > 0 );
+        if ( marqueeStarts && !m_CornerMode && m_HoverValid && !m_Volume.Cells.empty() )
             FreezeActive();
 
         // Re-initialising the grid frame commits the current piece too: cells are indices into a lattice,
@@ -515,43 +517,47 @@ namespace Desert::Editor::Tools
         // --- Keyboard / mouse shortcuts (UE's "Shortcut Info" block). The camera hands over the bare keys
         //     while a modeling tool is active (EditorCamera::SetKeyboardRequiresLook), so it only flies
         //     during an RMB look — holding RMB therefore means "I'm driving the camera", not editing. ---
+        // In Corner Mode E/Q raise / lower the SELECTED posts by one snap step instead of extruding. One
+        // step for the keys and for the palette's E / Q (ModelingState::ReqCubeGridStep).
+        const int snapDiv     = std::max( 2, ms.CornerSnapDiv );
+        const int cornerStep  = std::max( 1, K * CornerDen / snapDiv );
+        auto      moveCorners = [&]( int dir )
+        {
+            bool any = false;
+            for ( int k = 0; k < 4; ++k )
+                if ( m_CornerSel[k] )
+                {
+                    m_CornerH[k] += dir * cornerStep;
+                    any = true;
+                }
+            if ( any )
+                ApplyCornerHeights( scene );
+        };
+        auto step = [&]( int dir )
+        {
+            if ( m_CornerMode )
+                moveCorners( dir );
+            else
+                PushPull( scene, dir, K );
+        };
+
         if ( interact && !::ImGui::IsMouseDown( ImGuiMouseButton_Right ) )
         {
             const bool ctrl = ::ImGui::GetIO().KeyCtrl;
 
-            // In Corner Mode E/Q raise / lower the SELECTED posts by one snap step instead of extruding.
-            const int snapDiv     = std::max( 2, ms.CornerSnapDiv );
-            const int cornerStep  = std::max( 1, K * CornerDen / snapDiv );
-            auto      moveCorners = [&]( int dir )
-            {
-                bool any = false;
-                for ( int k = 0; k < 4; ++k )
-                    if ( m_CornerSel[k] )
-                    {
-                        m_CornerH[k] += dir * cornerStep;
-                        any = true;
-                    }
-                if ( any )
-                    ApplyCornerHeights( scene );
-            };
-
             if ( ::ImGui::IsKeyPressed( ImGuiKey_E, false ) )
             {
                 if ( ctrl ) // Ctrl+E — coarser grid
-                    ms.CellSize = std::min( ms.CellSize * 2.0f, 100000.0f );
-                else if ( m_CornerMode )
-                    moveCorners( +1 );
+                    ms.DoubleBlockSize();
                 else
-                    PushPull( scene, +1, K );
+                    step( +1 );
             }
             if ( ::ImGui::IsKeyPressed( ImGuiKey_Q, false ) )
             {
                 if ( ctrl ) // Ctrl+Q — finer grid
-                    ms.CellSize = std::max( ms.CellSize * 0.5f, Core::ModelingState::MinCellSize );
-                else if ( m_CornerMode )
-                    moveCorners( -1 );
+                    ms.HalveBlockSize();
                 else
-                    PushPull( scene, -1, K );
+                    step( -1 );
             }
             // Z starts / completes Corner Mode (UE's binding). It needs a selection on a horizontal
             // work-plane — corners move along the grid's up axis.
@@ -582,6 +588,54 @@ namespace Desert::Editor::Tools
                     m_GroundY = gray.Origin.y + gray.Direction.y * bestT;
                 m_GroundY = std::round( m_GroundY / u ) * u;
             }
+        }
+
+        // --- The palette's E / Q and its N x N marquee: the step above, and the rectangle a drag from the
+        //     aimed block N blocks along each axis would leave. A request the tool cannot honour says why in
+        //     the log - the palette entry has already returned by the frame that reads it. ---
+        if ( ms.ReqCubeGridStep != 0 && toolActive )
+            step( ms.ReqCubeGridStep > 0 ? +1 : -1 );
+        ms.ReqCubeGridStep = 0;
+        if ( ms.ReqCubeGridSelectBlocks > 0 && toolActive )
+        {
+            if ( m_CornerMode )
+            {
+                LOG_WARN( "CubeGrid: leave Corner Mode (Z) before selecting {0}x{0} blocks",
+                          ms.ReqCubeGridSelectBlocks );
+            }
+            else if ( !tHas )
+            {
+                LOG_WARN( "CubeGrid: nothing under the aim to select {0}x{0} blocks on",
+                          ms.ReqCubeGridSelectBlocks );
+            }
+            else
+            {
+                const int n  = ms.ReqCubeGridSelectBlocks;
+                m_Selecting  = false;
+                m_HasSel     = true;
+                m_Plane.Na   = tNa;
+                m_Plane.Sign = tSign;
+                m_Plane.Cell = tPlaneCell;
+                m_Anchor     = { tU, tV };
+                m_Sel.UMin   = FloorDiv( tU, K ) * K;
+                m_Sel.UMax   = m_Sel.UMin + n * K - 1;
+                m_Sel.VMin   = FloorDiv( tV, K ) * K;
+                m_Sel.VMax   = m_Sel.VMin + n * K - 1;
+            }
+        }
+        ms.ReqCubeGridSelectBlocks = 0;
+        if ( ms.ReqCornerPosts >= 0 )
+        {
+            if ( toolActive && m_CornerMode )
+            {
+                for ( int k = 0; k < 4; ++k )
+                    m_CornerSel[k] = ( ms.ReqCornerPosts >> k ) & 1;
+            }
+            else
+            {
+                LOG_WARN( "CubeGrid: corner posts are picked in Corner Mode (Z) on a selection" );
+            }
+            ms.ReqCornerPosts = -1;
         }
 
         // --- Marquee selection (Block-aligned): LMB drag a rectangle; start requires hover, the drag is
@@ -669,8 +723,8 @@ namespace Desert::Editor::Tools
             float        bestD   = 14.0f;
             for ( int k = 0; k < 4; ++k )
             {
-                const float lu = static_cast<float>( kPosts[k].AtUMax ? m_Sel.UMax + 1 : m_Sel.UMin );
-                const float lv = static_cast<float>( kPosts[k].AtVMax ? m_Sel.VMax + 1 : m_Sel.VMin );
+                const auto  lu = static_cast<float>( kPosts[k].AtUMax ? m_Sel.UMax + 1 : m_Sel.UMin );
+                const auto  lv = static_cast<float>( kPosts[k].AtVMax ? m_Sel.VMax + 1 : m_Sel.VMin );
                 const float hW = planeW + static_cast<float>( m_CornerH[k] ) / CornerDen * u;
                 ok[k] = WorldToScreen( worldPt( lu, lv, m_Plane.Na, hW ), viewProj, viewportPos, viewportSize,
                                        sp[k] );
@@ -715,12 +769,13 @@ namespace Desert::Editor::Tools
         for ( const Layer& l : m_Volume.Frozen )
             ms.Cubes += static_cast<int>( l.Cells.size() );
 
-        // --- Viewport bottom bar: tool + Level shift + Push/Pull + Resize Grid + Accept/Cancel. ---
+        // --- Viewport bar: Level shift + Push/Pull + Corner + Resize Grid. It sits one row above the shared
+        // tool bar (ActiveToolBar), which carries the tool's name and Accept/Cancel for every tool. ---
         if ( toolActive )
         {
             ::ImGui::SetNextWindowPos(
-                 ImVec2( viewportPos.x + viewportSize.x * 0.5f, viewportPos.y + viewportSize.y - 58.0f ),
-                 ImGuiCond_Always, ImVec2( 0.5f, 0.0f ) );
+                 ImVec2( viewportPos.x + viewportSize.x * 0.5f, viewportPos.y + viewportSize.y - 66.0f ),
+                 ImGuiCond_Always, ImVec2( 0.5f, 1.0f ) );
             ::ImGui::SetNextWindowBgAlpha( 0.92f );
             ::ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 12.0f, 8.0f ) );
             ::ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 10.0f, 6.0f ) );
@@ -730,12 +785,8 @@ namespace Desert::Editor::Tools
                                       ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
                                       ImGuiWindowFlags_NoNav ) )
             {
-                ::ImGui::AlignTextToFramePadding();
-                ::ImGui::TextUnformatted( ICON_MDI_GRID "  CubeGrid" );
-
                 // Level: shift the ground work-plane one block up/down (the hover preview follows it), and
                 // carry a selection that sits on that plane along with it.
-                ::ImGui::SameLine( 0.0f, 14.0f );
                 const bool onGround = m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0;
                 if ( ::ImGui::Button( ICON_MDI_ARROW_UP "##lvlup" ) )
                 {
@@ -802,19 +853,6 @@ namespace Desert::Editor::Tools
                 ::ImGui::SameLine();
                 if ( ::ImGui::Button( ICON_MDI_PLUS "##grid_up" ) )
                     ms.CellSize = std::min( ms.CellSize * 2.0f, 100000.0f );
-
-                ::ImGui::SameLine( 0.0f, 16.0f );
-                ::ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.20f, 0.55f, 0.30f, 1.0f ) );
-                ::ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.26f, 0.68f, 0.38f, 1.0f ) );
-                if ( ::ImGui::Button( ICON_MDI_CHECK "  Accept" ) )
-                    ms.ReqAccept = true;
-                ::ImGui::PopStyleColor( 2 );
-                ::ImGui::SameLine();
-                ::ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.55f, 0.22f, 0.22f, 1.0f ) );
-                ::ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.70f, 0.28f, 0.28f, 1.0f ) );
-                if ( ::ImGui::Button( ICON_MDI_CLOSE "  Cancel" ) )
-                    ms.ReqCancel = true;
-                ::ImGui::PopStyleColor( 2 );
             }
             ::ImGui::End();
             ::ImGui::PopStyleVar( 3 );
@@ -946,8 +984,9 @@ namespace Desert::Editor::Tools
             LOG_ERROR( "[CubeGrid] the blockout could not become an editable mesh: {0}", imported.GetError() );
             return;
         }
-        auto mesh = std::make_shared<const Geometry::EditMesh>( std::move( imported.ExtractValue().Mesh ) );
-        if ( auto set = ECS::SetEditableMesh( smc, std::move( mesh ) ); !set.IsSuccess() )
+        if ( auto set =
+                  Geometry::Bridge::SetEditableMeshFromEditMesh( smc, std::move( imported.ExtractValue().Mesh ) );
+             !set.IsSuccess() )
             LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );
     }
 

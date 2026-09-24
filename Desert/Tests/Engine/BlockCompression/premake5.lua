@@ -19,6 +19,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- the source image lives inside the .detex (AF7)
         "%{wks.location}/ThirdParty/stb/stb_image.cpp",
     }
 

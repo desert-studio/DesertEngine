@@ -3137,7 +3137,7 @@ namespace Desert::Migration
     float ProceduralTerrainHeightV22( float x, float z, float noiseFrequency, int seed, float heightScale )
     {
         const float freq  = std::max( noiseFrequency, 0.0001f );
-        const float seedF = static_cast<float>( seed );
+        const auto  seedF = static_cast<float>( seed );
         const float sx    = seedF * 0.137f;
         const float sz    = seedF * 0.911f;
         const float px    = x * freq;
@@ -3285,7 +3285,7 @@ namespace Desert::Migration
                          World::Landscape::LandscapeSampleFromLocal( h / zScale );
                 }
 
-            const uint64_t                  rootId = static_cast<uint64_t>( entity.id.value() );
+            const auto                      rootId = static_cast<uint64_t>( entity.id.value() );
             bool                            failed = false;
             std::vector<Assets::EntityData> tiles;
             std::vector<LandscapeTileFile>  files;

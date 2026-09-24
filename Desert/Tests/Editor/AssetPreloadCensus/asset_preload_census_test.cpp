@@ -267,7 +267,10 @@ TEST( AssetPreloadCensus, EveryPreloadIsCalledByBothLayers )
         ASSERT_FALSE( source.empty() ) << "could not read " << layer;
 
         for ( const std::string& name : declared )
-            EXPECT_NE( source.find( name + "()" ), std::string::npos )
+            // A CALL, arguments or not: SPL2 passes the splash's progress rows (`SplashItems()`), so the
+            // census looks for a member call `->Name(` / `.Name(`, which a declaration cannot satisfy.
+            EXPECT_TRUE( source.find( "->" + name + "(" ) != std::string::npos ||
+                         source.find( "." + name + "(" ) != std::string::npos )
                  << layer << " never calls AssetPreloader::" << name
                  << "(). A preload nothing calls is content that silently never loads: the scenes that "
                     "reference it log one line and render without it, and no test of the asset, the "

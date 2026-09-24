@@ -88,6 +88,8 @@ namespace Desert::Platform::Windows
         } m_Data;
 
         GLFWwindow*                         m_GLFWWindow;
+        // A window created hidden is maximized when it is SHOWN, never before: see Show().
+        bool                                m_MaximizeOnShow = false;
         std::shared_ptr<Graphic::SwapChain> m_SwapChain;
     };
 } // namespace Desert::Platform::Windows

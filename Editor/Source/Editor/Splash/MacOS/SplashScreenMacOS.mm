@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include <condition_variable>
+#include <cstddef>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -70,7 +71,7 @@ namespace Desert::Editor::Splash
         NSString* ToNS( const std::string& text )
         {
             NSString* string = [NSString stringWithUTF8String:text.c_str()];
-            return string ? string : @"";
+            return ( string != nullptr ) ? string : @"";
         }
     } // namespace
 
@@ -83,10 +84,18 @@ namespace Desert::Editor::Splash
             // The same policy GLFW sets a moment later. Without it a process started from a terminal is a
             // background app, and its first window is ordered in behind the terminal.
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+            // A bare executable has no bundle, so the Dock would show the generic "exec" icon. A missing
+            // file keeps that generic icon and says so once; it is not a reason to stop the start.
+            if ( NSImage* icon = [[NSImage alloc] initWithContentsOfFile:ToNS( kAppIcon.string() )] )
+                [NSApp setApplicationIconImage:icon];
+            else
+                LOG_WARN( "[Splash] application icon '{}' not found; the Dock keeps the generic icon",
+                          kAppIcon.string() );
 
             NSScreen*     screen  = [NSScreen mainScreen];
-            const NSRect  visible = screen ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );
-            const CGFloat backing = screen ? screen.backingScaleFactor : 2.0;
+            const NSRect  visible =
+                 ( screen != nullptr ) ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );
+            const CGFloat backing = ( screen != nullptr ) ? screen.backingScaleFactor : 2.0;
             const CGFloat fit     = FitScale( (float)visible.size.width, (float)visible.size.height );
             const CGFloat w       = kWidth * fit;
             const CGFloat h       = kHeight * fit;
@@ -142,10 +151,12 @@ namespace Desert::Editor::Splash
                                 kStageAlpha, kCAAlignmentRight, scale );
             m_Stage   = MakeTextLayer( m_Root, [NSFont systemFontOfSize:kStageFontSize weight:NSFontWeightRegular],
                                        kStageAlpha, kCAAlignmentLeft, scale );
-            m_Counter = MakeTextLayer( m_Root,
-                                       [NSFont monospacedDigitSystemFontOfSize:kCounterFontSize
+            m_Percent = MakeTextLayer( m_Root,
+                                       [NSFont monospacedDigitSystemFontOfSize:kPercentFontSize
                                                                         weight:NSFontWeightRegular],
                                        kStageAlpha, kCAAlignmentRight, scale );
+            m_Item    = MakeTextLayer( m_Root, [NSFont systemFontOfSize:kItemFontSize weight:NSFontWeightRegular],
+                                       kItemAlpha, kCAAlignmentLeft, scale );
 
             m_Track                 = [[CALayer alloc] init];
             CGColorRef track        = MakeColour( 1, 1, 1, kBarTrackAlpha );
@@ -161,21 +172,9 @@ namespace Desert::Editor::Splash
 
             m_Project.string = ToNS( content.ProjectName );
             m_Version.string = ToNS( content.Version );
-            ApplyStatus( Status{} );
+            ApplyStatus( ProgressSnapshot{} );
 
-            // THE MOTION, handed to Core Animation whole. An explicit animation committed once is run by
-            // the render server frame by frame on its own clock, so nothing in this process — neither the
-            // main thread nor the splash thread — has to wake up for the picture to keep moving. The
-            // model values are the END values, so a removed animation would leave the picture where the
-            // motion ends rather than snapping back.
-            CABasicAnimation* push = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
-            push.fromValue         = @1.0;
-            push.toValue           = @( kKenBurnsZoom );
-            push.duration          = kKenBurnsSeconds;
-            push.timingFunction    = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
-            m_Image.transform      = CATransform3DMakeScale( kKenBurnsZoom, kKenBurnsZoom, 1.0 );
-            [m_Image addAnimation:push forKey:@"push-in"];
-
+            // The fade is handed to Core Animation whole: its render server runs it on its own clock.
             CABasicAnimation* fadeIn = [CABasicAnimation animationWithKeyPath:@"opacity"];
             fadeIn.fromValue         = @0.0;
             fadeIn.toValue           = @1.0;
@@ -212,11 +211,11 @@ namespace Desert::Editor::Splash
             Close();
         }
 
-        void SetStatus( const std::string& label, const std::size_t index, const std::size_t total ) override
+        void SetProgress( const ProgressSnapshot& progress ) override
         {
             {
-                std::lock_guard<std::mutex> lock( m_Mutex );
-                m_Pending = Status{ label, index, total };
+                const std::lock_guard<std::mutex> lock( m_Mutex );
+                m_Pending = progress;
             }
             m_Wake.notify_one();
         }
@@ -228,7 +227,7 @@ namespace Desert::Editor::Splash
             m_Closed = true;
 
             {
-                std::lock_guard<std::mutex> lock( m_Mutex );
+                const std::lock_guard<std::mutex> lock( m_Mutex );
                 m_Stop = true;
             }
             m_Wake.notify_one();
@@ -252,32 +251,28 @@ namespace Desert::Editor::Splash
             [m_Window performSelector:@selector( orderOut: ) withObject:nil afterDelay:kFadeOutSeconds];
 
             for ( CALayer* layer : { (CALayer*)m_Project, (CALayer*)m_Version, (CALayer*)m_Stage,
-                                     (CALayer*)m_Counter, m_Track, m_Fill, m_Image, m_Root } )
+                                     (CALayer*)m_Percent, (CALayer*)m_Item, m_Track, m_Fill, m_Image, m_Root } )
                 [layer release];
             [m_Window release];
             m_Window = nil;
         }
 
     private:
-        struct Status
-        {
-            std::string Label;
-            std::size_t Index = 0;
-            std::size_t Total = 0;
-        };
-
         // Called inside a transaction the caller owns.
-        void ApplyStatus( const Status& status )
+        void ApplyStatus( const ProgressSnapshot& status )
         {
-            const Layout layout = ComputeLayout( ProgressFraction( status.Index, status.Total ) );
+            const Layout layout = ComputeLayout( status.Fraction );
             m_Project.frame     = ToCG( layout.Project );
             m_Version.frame     = ToCG( layout.Version );
             m_Stage.frame       = ToCG( layout.Stage );
-            m_Counter.frame     = ToCG( layout.Counter );
+            m_Percent.frame     = ToCG( layout.Percent );
+            m_Item.frame        = ToCG( layout.Item );
             m_Track.frame       = ToCG( layout.BarTrack );
             m_Fill.frame        = ToCG( layout.BarFill );
-            m_Stage.string      = ToNS( status.Label );
-            m_Counter.string    = ToNS( FormatProgress( status.Index, status.Total ) );
+            m_Stage.string      = ToNS( status.Stage );
+            m_Item.string       = ToNS( status.Item );
+            // No stage yet means no plan yet: a "0%" there would be a number that says nothing.
+            m_Percent.string = ToNS( status.Stage.empty() ? std::string{} : FormatPercent( status.Fraction ) );
         }
 
         void Run()
@@ -292,9 +287,9 @@ namespace Desert::Editor::Splash
                 CGDataProviderRef   provider = CGDataProviderCreateWithCFData( data );
                 CGColorSpaceRef     space    = CGColorSpaceCreateWithName( kCGColorSpaceSRGB );
                 CGImageRef          picture =
-                     CGImageCreate( image.Width, image.Height, 8, 32, image.Width * 4u, space,
-                                    (CGBitmapInfo)kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault, provider,
-                                    nullptr, false, kCGRenderingIntentDefault );
+                     CGImageCreate( image.Width, image.Height, 8, 32, static_cast<size_t>( image.Width ) * 4u,
+                                    space, (CGBitmapInfo)kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault,
+                                    provider, nullptr, false, kCGRenderingIntentDefault );
                 [CATransaction begin];
                 [CATransaction setDisableActions:YES];
                 m_Image.contents = (__bridge id)picture;
@@ -315,7 +310,7 @@ namespace Desert::Editor::Splash
 
             for ( ;; )
             {
-                Status status;
+                ProgressSnapshot status;
                 {
                     std::unique_lock<std::mutex> lock( m_Mutex );
                     m_Wake.wait( lock, [this] { return m_Stop || m_Pending.has_value(); } );
@@ -340,14 +335,15 @@ namespace Desert::Editor::Splash
         CATextLayer* m_Project = nil;
         CATextLayer* m_Version = nil;
         CATextLayer* m_Stage   = nil;
-        CATextLayer* m_Counter = nil;
+        CATextLayer* m_Percent = nil;
+        CATextLayer* m_Item    = nil;
         CALayer*     m_Track   = nil;
         CALayer*     m_Fill    = nil;
 
         std::thread             m_Thread;
         std::mutex              m_Mutex;
         std::condition_variable m_Wake;
-        std::optional<Status>   m_Pending;
+        std::optional<ProgressSnapshot> m_Pending;
         bool                    m_Stop   = false;
         bool                    m_Closed = false;
     };

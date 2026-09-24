@@ -30,8 +30,11 @@ namespace Desert::Assets
         if ( key.GetValue().Guid.IsNull() )
             return;
         m_Guid = key.GetValue().Guid;
+        // The handle is indexed under THIS file, not the image it was imported from: SourceFile is provenance
+        // only and is gone from the tree after import, so indexing the handle under it would make every
+        // reference written through the index (TextureSlotToPath) name a file nothing can open.
         AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Guid ) ) ),
-                             key.GetValue().SourceFile );
+                             Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
     Common::BoolResultStr TextureAsset::LoadFromFile()
