@@ -4,7 +4,7 @@
 //
 // The decisions are pure and tested (Serialize/WorldPartitionResidencyExecutor.hpp, suite WorldPartitionStreamer);
 // this is the Scene side of them — the ResidencyWorld whose Activate is SceneSerializer::InstantiateRecords on
-// one unit's records and whose Destroy is Scene::DestroyEntity.
+// one unit's records — asked of a WorldCellSource — and whose Destroy is Scene::DestroyEntity.
 //
 // PLAY ONLY (analysis A8). In Edit the whole world is in the ECS, because saving writes the ECS and a world
 // saved with half its cells missing would lose them. The editor takes its Play snapshot BEFORE this starts and
@@ -16,6 +16,7 @@
 // too (a cell's actors are re-loaded from the package, not from their last runtime state).
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldCellSource.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -74,7 +75,8 @@ namespace Desert::Core
         WorldStreamer( const WorldStreamer& )            = delete;
         WorldStreamer& operator=( const WorldStreamer& ) = delete;
 
-        [[nodiscard]] Common::BoolResultStr Activate( std::span<const std::size_t> records ) override;
+        [[nodiscard]] Common::BoolResultStr Activate( std::size_t                  unit,
+                                                      std::span<const std::size_t> records ) override;
         void                                Destroy( std::span<const std::size_t> records ) override;
 
     private:
@@ -86,6 +88,9 @@ namespace Desert::Core
         Assets::AssetManager*                   m_Assets;
         SceneSerialized                         m_Records;
         std::optional<Rules::ResidencyExecutor> m_Executor;
+        // What a unit's records are read from. The snapshot in memory today; WP9 swaps in the cooked cell
+        // files without this class changing (Serialize/WorldCellSource.hpp).
+        std::unique_ptr<Rules::WorldCellSource> m_Source;
 
         // What activation actually cost, measured around InstantiateRecords.
         std::size_t m_Activations      = 0;

@@ -482,11 +482,14 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   the procedural terrain component's SplatMap (shared, the component owned the map), and the two
     //   non-owning Image2D* SplatMap that carried it to the draw (the deleted terrain draw command and
     //   the terrain batch key's). Raw 401-2, Shared 339-1.
-    EXPECT_EQ( CountOf( Form::Raw ), 399 );
+    //   WP8 (2026-09-24) added two: CookedCellSource::m_Index (raw, with a row) - the world index a cooked cell
+    //   source reads against - and WorldStreamer::m_Source (unique), where a unit's records are read from.
+    //   Raw 401+1, Unique 129+1.
+    EXPECT_EQ( CountOf( Form::Raw ), 400 );
     EXPECT_EQ( CountOf( Form::Shared ), 338 );
-    EXPECT_EQ( CountOf( Form::Unique ), 129 );
+    EXPECT_EQ( CountOf( Form::Unique ), 130 );
     EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 905 )
+    EXPECT_EQ( (int)Members().size(), 907 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <Engine/Geometry/EditMeshModelOperations.hpp>
 #include <Engine/Geometry/EditMeshTopologyOperations.hpp>
 
 #include <cstdint>
@@ -31,6 +32,8 @@ namespace Desert::Editor::Core
         InsertEdgeLoop,
         Cut,
         Clean,
+        Subdivide, // mesh-wide, like Clean: no selection in, none out
+        Mirror,    // mesh-wide
     };
 
     // What an operation reads besides the selection. The panel, the hotkeys and the palette build it from
@@ -39,7 +42,13 @@ namespace Desert::Editor::Core
     {
         float Distance      = 0.0f;  // Extrude .. Outset (cm, signed for Push/Pull and Offset); Bevel's width
         float LoopPosition  = 0.5f;  // Insert Edge Loop, in (0, 1) along each ring edge
-        float WeldTolerance = 0.01f; // Clean, cm
+        float WeldTolerance   = 0.01f; // Clean, and Mirror's seam, cm
+        int   SubdivideLevels = 1;
+        Geometry::SubdivideScheme SubdivideScheme = Geometry::SubdivideScheme::Loop;
+        int                       MirrorAxis      = 0;     // 0 = X, 1 = Y, 2 = Z
+        bool                      MirrorWorld     = false; // the world's axis through its origin, not the entity's
+        bool                      MirrorKeepNegative = false;
+        Geometry::MirrorMode      MirrorMode         = Geometry::MirrorMode::CutAndMirror;
         // Cut only: the plane in the MESH's space (the knife maps its screen line through the entity's
         // transform). Absent, Cut is refused - it has no line to cut along.
         std::optional<Geometry::CutPlane> CutPlane;
@@ -49,7 +58,8 @@ namespace Desert::Editor::Core
     // Extrude .. Outset and Bevel read MeshOperationArgs::Distance; the others do not.
     [[nodiscard]] bool TakesDistance( MeshOperation operation );
 
-    // ModelingState's ElementOpDistance / ElementLoopPosition / ElementWeldTolerance, no cut plane.
+    // ModelingState's ElementOpDistance / ElementLoopPosition / ElementWeldTolerance and the Subdivide / Mirror
+    // knobs, no cut plane.
     [[nodiscard]] MeshOperationArgs ArgsFromModelingState();
 
     [[nodiscard]] Common::BoolResultStr ApplyMeshOperation( ::Desert::Core::Scene& scene, MeshOperation operation,

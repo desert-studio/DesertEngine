@@ -518,6 +518,32 @@ namespace Desert::Editor
         ImGui::SameLine();
         if ( ImGui::Button( Core::ToString( MO::Clean ), ImVec2( half, 0.0f ) ) )
             operate( MO::Clean );
+
+        // Whole-mesh operations (UE's Model tab): no selection needed.
+        ImGui::SetNextItemWidth( half );
+        ImGui::SliderInt( "##ElementSubdivideLevels", &ms.ElementSubdivideLevels, 1, Geometry::kMaxSubdivideLevels,
+                          "Levels %d" );
+        ImGui::SameLine();
+        bool loop = ms.ElementSubdivideScheme == Geometry::SubdivideScheme::Loop;
+        if ( ImGui::Checkbox( "Smooth (Loop)", &loop ) )
+            ms.ElementSubdivideScheme =
+                 loop ? Geometry::SubdivideScheme::Loop : Geometry::SubdivideScheme::Uniform;
+        if ( ImGui::Button( Core::ToString( MO::Subdivide ), ImVec2( -1.0f, 0.0f ) ) )
+            operate( MO::Subdivide );
+
+        const char* axes[] = { "X", "Y", "Z" };
+        ImGui::SetNextItemWidth( half );
+        ImGui::Combo( "##ElementMirrorAxis", &ms.ElementMirrorAxis, axes, 3 );
+        ImGui::SameLine();
+        ImGui::Checkbox( "World", &ms.ElementMirrorWorld );
+        ImGui::SameLine();
+        ImGui::Checkbox( "Keep -", &ms.ElementMirrorKeepNegative );
+        bool cut = ms.ElementMirrorMode == Geometry::MirrorMode::CutAndMirror;
+        if ( ImGui::Checkbox( "Cut the far half first", &cut ) )
+            ms.ElementMirrorMode =
+                 cut ? Geometry::MirrorMode::CutAndMirror : Geometry::MirrorMode::AddMirroredCopy;
+        if ( ImGui::Button( Core::ToString( MO::Mirror ), ImVec2( -1.0f, 0.0f ) ) )
+            operate( MO::Mirror );
         ImGui::Spacing();
         ImGui::TextDisabled( "LMB select, Shift+LMB add, Ctrl+LMB remove" );
         ImGui::TextDisabled( "Del delete, Alt+E extrude, Alt+I inset, Alt+O offset" );

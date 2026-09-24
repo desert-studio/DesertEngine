@@ -36,6 +36,8 @@ namespace Desert::Core
             return Common::MakeSuccess( std::unique_ptr<WorldStreamer>() );
 
         streamer->m_Executor     = begun.ExtractValue();
+        streamer->m_Source       = std::make_unique<Rules::MemoryCellSource>( streamer->m_Executor->Plan(),
+                                                                              streamer->m_Records.Entities );
         streamer->m_MostResident = streamer->m_Executor->LiveRecords();
         const double ms =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count();
@@ -84,15 +86,24 @@ namespace Desert::Core
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr WorldStreamer::Activate( std::span<const std::size_t> records )
+    Common::BoolResultStr WorldStreamer::Activate( std::size_t unit, std::span<const std::size_t> records )
     {
         const auto start = std::chrono::steady_clock::now();
 
-        std::vector<Assets::EntityData> unit;
-        unit.reserve( records.size() );
-        for ( const std::size_t record : records )
-            unit.push_back( m_Records.Entities.at( record ) );
-        auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( unit, m_Records.SceneName, nullptr );
+        // Begin activates nothing (it keeps what is there), so every call reaching here has a source.
+        auto read = m_Source->UnitRecords( unit );
+        if ( !read )
+            return Common::MakeError( "world streaming of '" + m_Records.SceneName + "': " + read.GetError() );
+        const std::vector<Assets::EntityData>& unitRecords = read.GetValue();
+        if ( unitRecords.size() != records.size() )
+        {
+            return Common::MakeError( "world streaming of '" + m_Records.SceneName + "': unit " +
+                                      std::to_string( unit ) + " came back with " +
+                                      std::to_string( unitRecords.size() ) + " record(s), the plan holds " +
+                                      std::to_string( records.size() ) );
+        }
+        auto made =
+             SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( unitRecords, m_Records.SceneName, nullptr );
 
         const double ms =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count();
@@ -100,14 +111,9 @@ namespace Desert::Core
         m_RecordsActivated += records.size();
         m_ActivationMs += ms;
         m_WorstUnitMs = std::max( m_WorstUnitMs, ms );
-        // Begin activates nothing (it keeps what is there), so every call reaching here has an executor.
-        if ( m_Executor.has_value() && !records.empty() )
-        {
-            m_LastTick.ActivationMs += ms;
-            m_LastTick.ActivatedUnits +=
-                 ( m_LastTick.ActivatedUnits.empty() ? "" : " " ) +
-                 Rules::DescribeResidencyUnit( m_Executor->Plan(), m_Executor->UnitOf( records.front() ) );
-        }
+        m_LastTick.ActivationMs += ms;
+        m_LastTick.ActivatedUnits += ( m_LastTick.ActivatedUnits.empty() ? "" : " " ) +
+                                     Rules::DescribeResidencyUnit( m_Executor->Plan(), unit );
         return made;
     }
 

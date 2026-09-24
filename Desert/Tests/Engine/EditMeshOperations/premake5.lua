@@ -18,6 +18,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSelection.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshOperations.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshTopologyOperations.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshModelOperations.cpp",
     }
 
     includedirs {

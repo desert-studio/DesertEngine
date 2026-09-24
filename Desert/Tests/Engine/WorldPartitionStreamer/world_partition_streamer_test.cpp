@@ -135,7 +135,7 @@ namespace
                 Live.insert( record );
         }
 
-        Common::BoolResultStr Activate( std::span<const std::size_t> records ) override
+        Common::BoolResultStr Activate( std::size_t /*unit*/, std::span<const std::size_t> records ) override
         {
             ++ActivateCalls;
             if ( !FailWith.empty() )

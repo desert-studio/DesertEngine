@@ -14,6 +14,9 @@
 
 #include <fmt/format.h>
 
+#include <glm/matrix.hpp>
+
+#include <cmath>
 #include <memory>
 
 namespace Desert::Editor::Core
@@ -42,9 +45,66 @@ namespace Desert::Editor::Core
                 return "Cut";
             case MeshOperation::Clean:
                 return "Clean";
+            case MeshOperation::Subdivide:
+                return "Subdivide";
+            case MeshOperation::Mirror:
+                return "Mirror";
         }
         return "Unknown";
     }
+
+    namespace
+    {
+        // The mirror plane in the MESH's space. A plane through the entity's origin along its own axis is that
+        // axis's coordinate plane whatever the transform. A world plane is mapped through the inverse
+        // transform; the mesh-space reflection equals the world one only when the transform is a similarity
+        // (rotation and uniform scale), so a sheared or non-uniformly scaled AND rotated entity is refused
+        // rather than mirrored across a plane the user did not pick.
+        Common::ResultStr<Geometry::CutPlane> MirrorPlane( ECS::Entity entity, const MeshOperationArgs& args )
+        {
+            if ( args.MirrorAxis < 0 || args.MirrorAxis > 2 )
+                return Common::MakeFormattedError<Geometry::CutPlane>(
+                     "Mesh Mirror: the axis must be 0 (X), 1 (Y) or 2 (Z), not {}", args.MirrorAxis );
+            glm::vec3 axis( 0.0f );
+            axis[args.MirrorAxis] = args.MirrorKeepNegative ? -1.0f : 1.0f;
+            if ( !args.MirrorWorld )
+                return Common::MakeSuccess( Geometry::CutPlane{ glm::vec3( 0.0f ), axis } );
+            const glm::mat4 world = entity.HasComponent<ECS::TransformComponent>()
+                                         ? entity.GetComponent<ECS::TransformComponent>().GetTransform()
+                                         : glm::mat4( 1.0f );
+            const glm::mat3 linear( world );
+            const glm::mat3 gram = glm::transpose( linear ) * linear;
+            const float     s    = ( gram[0][0] + gram[1][1] + gram[2][2] ) / 3.0f;
+            for ( int i = 0; i < 3; ++i )
+                for ( int j = 0; j < 3; ++j )
+                    if ( std::abs( gram[i][j] - ( i == j ? s : 0.0f ) ) > 1e-4f * s )
+                        return Common::MakeFormattedError<Geometry::CutPlane>(
+                             "Mesh Mirror: the entity's transform is not a rotation with a uniform scale (column "
+                             "lengths {:.4f}, {:.4f}, {:.4f}) - a world plane has no mirror image in its mesh; "
+                             "mirror in local space or reset the scale",
+                             std::sqrt( gram[0][0] ), std::sqrt( gram[1][1] ), std::sqrt( gram[2][2] ) );
+            if ( !( s > 0.0f ) )
+                return Common::MakeError<Geometry::CutPlane>(
+                     "Mesh Mirror: the entity's transform has zero scale" );
+            const glm::mat4 toMesh = glm::inverse( world );
+            // Normals map by the inverse transpose; for a similarity that is the inverse's rotation part.
+            const glm::vec3 point  = glm::vec3( toMesh * glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) );
+            const glm::vec3 normal = glm::transpose( linear ) * axis;
+            return Common::MakeSuccess( Geometry::CutPlane{ point, normal } );
+        }
+
+        // A mesh-wide operation takes no selection and leaves none (every ID may change), in the mode the
+        // user is selecting in.
+        Common::ResultStr<Geometry::MeshEditOutcome>
+        WholeMesh( Common::ResultStr<Geometry::MeshEditOutcome> result, Geometry::ElementMode mode )
+        {
+            if ( !result.IsSuccess() )
+                return result;
+            Geometry::MeshEditOutcome outcome = result.ExtractValue();
+            outcome.Selection                 = Geometry::ElementSelection( mode );
+            return Common::MakeSuccess( std::move( outcome ) );
+        }
+    } // namespace
 
     bool TakesDistance( MeshOperation operation )
     {
@@ -54,6 +114,8 @@ namespace Desert::Editor::Core
             case MeshOperation::InsertEdgeLoop:
             case MeshOperation::Cut:
             case MeshOperation::Clean:
+            case MeshOperation::Subdivide:
+            case MeshOperation::Mirror:
                 return false;
             case MeshOperation::Extrude:
             case MeshOperation::PushPull:
@@ -73,6 +135,12 @@ namespace Desert::Editor::Core
         args.Distance      = ms.ElementOpDistance;
         args.LoopPosition  = ms.ElementLoopPosition;
         args.WeldTolerance = ms.ElementWeldTolerance;
+        args.SubdivideLevels    = ms.ElementSubdivideLevels;
+        args.SubdivideScheme    = ms.ElementSubdivideScheme;
+        args.MirrorAxis         = ms.ElementMirrorAxis;
+        args.MirrorWorld        = ms.ElementMirrorWorld;
+        args.MirrorKeepNegative = ms.ElementMirrorKeepNegative;
+        args.MirrorMode         = ms.ElementMirrorMode;
         return args;
     }
 
@@ -150,6 +218,20 @@ namespace Desert::Editor::Core
                     result = Common::MakeError<Geometry::MeshEditOutcome>( cleaned.GetError() );
                 break;
             }
+            case MeshOperation::Subdivide:
+                result = WholeMesh( Geometry::SubdivideMesh( *before, args.SubdivideLevels, args.SubdivideScheme ),
+                                    selection.Mode() );
+                break;
+            case MeshOperation::Mirror:
+            {
+                auto plane = MirrorPlane( e, args );
+                if ( !plane.IsSuccess() )
+                    return Common::MakeError<bool>( plane.GetError() );
+                result = WholeMesh(
+                     Geometry::MirrorMesh( *before, plane.GetValue(), args.MirrorMode, args.WeldTolerance ),
+                     selection.Mode() );
+                break;
+            }
         }
         if ( !result.IsSuccess() )
             return Common::MakeError<bool>( result.GetError() );
@@ -167,6 +249,12 @@ namespace Desert::Editor::Core
             label = fmt::format( "Mesh {} at {:.2f}", ToString( operation ), args.LoopPosition );
         else if ( operation == MeshOperation::Clean )
             label = fmt::format( "Mesh {} {} cm", ToString( operation ), args.WeldTolerance );
+        else if ( operation == MeshOperation::Subdivide )
+            label = fmt::format( "Mesh {} {} x{}", ToString( operation ),
+                                 Geometry::ToString( args.SubdivideScheme ), args.SubdivideLevels );
+        else if ( operation == MeshOperation::Mirror )
+            label = fmt::format( "Mesh {} {} {}{}", ToString( operation ), Geometry::ToString( args.MirrorMode ),
+                                 args.MirrorWorld ? "world " : "", "XYZ"[args.MirrorAxis] );
         // Selection first, then the mesh: Track prunes the NEW selection against the new mesh (nothing to
         // drop), instead of the old one against it (every re-created triangle reported as lost).
         state.Restore( entity, outcome.Selection );

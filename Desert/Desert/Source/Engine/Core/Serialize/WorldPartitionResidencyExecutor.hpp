@@ -62,9 +62,11 @@ namespace Desert::Core::Rules
     public:
         virtual ~ResidencyWorld() = default;
 
-        // Makes entities of these records, whole: every record of a unit in one call, so a parent and its
-        // child always meet in the same stitch.
-        [[nodiscard]] virtual Common::BoolResultStr Activate( std::span<const std::size_t> records ) = 0;
+        // Makes entities of unit @p unit, whole: every record of a unit in one call, so a parent and its child
+        // always meet in the same stitch. @p records are ResidencyUnitMembers( plan, unit ) — the unit is named
+        // as well because a world that reads its records from somewhere (a cell source) asks by unit.
+        [[nodiscard]] virtual Common::BoolResultStr Activate( std::size_t                  unit,
+                                                              std::span<const std::size_t> records ) = 0;
 
         // Destroys the entities of these records. A record whose entity is already gone (a child taken with
         // its parent's tree) is not an error.
@@ -116,20 +118,10 @@ namespace Desert::Core::Rules
             executor.m_UnitOfRecord.assign( records.size(), kNoRecord );
             for ( std::size_t unit = 0; unit < unitCount; ++unit )
             {
-                const auto take = [&]( std::size_t composite )
-                {
-                    for ( const std::size_t record : p.Composites.at( composite ).Members )
-                    {
-                        executor.m_UnitRecords[unit].push_back( record );
-                        if ( record < records.size() )
-                            executor.m_UnitOfRecord[record] = unit;
-                    }
-                };
-                if ( unit < p.AlwaysLoaded.size() )
-                    take( p.AlwaysLoaded[unit] );
-                else
-                    for ( const std::size_t composite : p.Cells.at( unit - p.AlwaysLoaded.size() ).Composites )
-                        take( composite );
+                executor.m_UnitRecords[unit] = ResidencyUnitMembers( p, unit );
+                for ( const std::size_t record : executor.m_UnitRecords[unit] )
+                    if ( record < records.size() )
+                        executor.m_UnitOfRecord[record] = unit;
                 for ( const std::size_t record : executor.m_UnitRecords[unit] )
                     if ( record >= records.size() )
                         return Common::MakeError<ResidencyExecutor>(
@@ -233,7 +225,7 @@ namespace Desert::Core::Rules
                         // ever cancelled by a later step), so there is nothing to take back.
                         break;
                     case ResidencyActionKind::Activate:
-                        if ( auto made = world.Activate( records ); !made.IsSuccess() )
+                        if ( auto made = world.Activate( action.Unit, records ); !made.IsSuccess() )
                         {
                             return Common::MakeError<ResidencyTick>(
                                  "ResidencyExecutor: activating unit " + std::to_string( action.Unit ) + " (" +
@@ -287,11 +279,6 @@ namespace Desert::Core::Rules
         [[nodiscard]] const WorldPartitionPlan& Plan() const
         {
             return m_Plan;
-        }
-
-        [[nodiscard]] std::size_t UnitOf( std::size_t record ) const
-        {
-            return m_UnitOfRecord.at( record );
         }
 
     private:
