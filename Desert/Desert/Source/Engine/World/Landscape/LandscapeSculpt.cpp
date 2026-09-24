@@ -1065,10 +1065,26 @@ namespace Desert::World::Landscape
         // it came from, the pair swaps with a larger step each iteration and the stroke grows spikes up to the
         // height limit, so the strength that reaches the shed is capped at 1, as Smooth caps its own.
         strength = std::clamp( strength, 0.0f, 1.0f );
-        const FieldIndex       ix{ field };
-        std::vector<uint16_t>& h      = field.Heights;
-        const uint16_t         thresh = static_cast<uint16_t>( s.Threshold );
-        int32_t                ran    = 0;
+        const FieldIndex            ix{ field };
+        std::vector<uint16_t>&      h        = field.Heights;
+        const std::vector<uint16_t> original = h;
+        const uint16_t              thresh   = static_cast<uint16_t>( s.Threshold );
+        const auto                  weight   = [&]( int32_t x, int32_t z ) -> float
+        {
+            const bool inside =
+                 x >= field.Inner.X1 && x <= field.Inner.X2 && z >= field.Inner.Z1 && z <= field.Inner.Z2;
+            return inside ? ix.Brush( x, z ) : 0.0f;
+        };
+        // Deviation from UE (LandscapeEdModeErosionTools.cpp:141-257), which weighs the gate (Slope * BrushValue
+        // > Thresh) and the shed by the brush and lets every neighbour receive. That loop conserves the height
+        // inside the brush, and a sample of weight w only sheds above Thresh / w: everything the hill loses
+        // stops in the falloff ring, where the allowed slope grows without bound, so a stroke held over a hill
+        // steeper than the threshold turns it into a plateau with a wall at the brush edge (25 strokes, 25000
+        // step hill, default brush: steepest step 1914 -> 8769), with a spike wherever the circle's samples
+        // differ in weight. Here the loop runs at full weight over the brush's samples, height shed onto a
+        // sample the brush does not touch leaves the field (the ground outside is not part of the stroke), and
+        // the brush weight blends the result in, as every other height tool applies its weight.
+        int32_t ran = 0;
         for ( int32_t i = 0; i < s.Iterations; ++i )
         {
             ++ran;
@@ -1076,19 +1092,20 @@ namespace Desert::World::Landscape
             for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
                 for ( int32_t x = field.Inner.X1; x <= field.Inner.X2; ++x )
                 {
-                    const float brushValue = ix.Brush( x, z );
-                    if ( !( brushValue > 0.0f ) )
+                    if ( !( ix.Brush( x, z ) > 0.0f ) )
                         continue;
-                    const size_t                center     = ix.At( x, z );
-                    const std::array<size_t, 4> neighbour  = { ix.At( x - 1, z ), ix.At( x + 1, z ),
-                                                               ix.At( x, z - 1 ), ix.At( x, z + 1 ) };
+                    const size_t                center    = ix.At( x, z );
+                    const std::array<size_t, 4> neighbour = { ix.At( x - 1, z ), ix.At( x + 1, z ),
+                                                              ix.At( x, z - 1 ), ix.At( x, z + 1 ) };
+                    const std::array<bool, 4>   receives  = { weight( x - 1, z ) > 0.0f, weight( x + 1, z ) > 0.0f,
+                                                              weight( x, z - 1 ) > 0.0f, weight( x, z + 1 ) > 0.0f };
                     uint32_t                    slopeTotal = 0;
                     uint16_t                    slopeMax   = thresh;
                     for ( const size_t n : neighbour )
                         if ( h[center] > h[n] )
                         {
                             const uint16_t slope = static_cast<uint16_t>( h[center] - h[n] );
-                            if ( static_cast<float>( slope ) * brushValue > static_cast<float>( thresh ) )
+                            if ( slope > thresh )
                             {
                                 slopeTotal += slope;
                                 slopeMax = std::max( slopeMax, slope );
@@ -1098,29 +1115,35 @@ namespace Desert::World::Landscape
                         continue;
                     // UE's Softness stays 1: layer hardness needs paint layers the heightmap target lacks.
                     float totalHeightDiff = 0.0f;
-                    for ( const size_t n : neighbour )
-                        if ( h[center] > h[n] )
-                        {
-                            const uint16_t slope = static_cast<uint16_t>( h[center] - h[n] );
-                            if ( slope > thresh )
-                            {
-                                const float weightDiff =
-                                     strength *
-                                     ( static_cast<float>( slope ) / static_cast<float>( slopeTotal ) ) *
-                                     brushValue;
-                                const float heightDiff = static_cast<float>( slopeMax - thresh ) * weightDiff;
-                                h[n] = ClampValue( static_cast<int64_t>( h[n] ) + ToSample( heightDiff ) );
-                                totalHeightDiff += heightDiff;
-                            }
-                        }
-                    // UE's uint16 subtraction wraps when a strength above 1 sheds more than the sample holds;
-                    // ours stops at 0.
+                    for ( size_t k = 0; k < neighbour.size(); ++k )
+                    {
+                        const size_t n = neighbour[k];
+                        if ( h[center] <= h[n] )
+                            continue;
+                        const uint16_t slope = static_cast<uint16_t>( h[center] - h[n] );
+                        if ( slope <= thresh )
+                            continue;
+                        const float heightDiff =
+                             static_cast<float>( slopeMax - thresh ) * strength *
+                             ( static_cast<float>( slope ) / static_cast<float>( slopeTotal ) );
+                        if ( receives[k] )
+                            h[n] = ClampValue( static_cast<int64_t>( h[n] ) + ToSample( heightDiff ) );
+                        totalHeightDiff += heightDiff;
+                    }
                     h[center] = ClampValue( static_cast<int64_t>( h[center] ) - ToSample( totalHeightDiff ) );
                     changed   = true;
                 }
             if ( !changed )
                 break;
         }
+        for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
+            for ( int32_t x = field.Inner.X1; x <= field.Inner.X2; ++x )
+            {
+                const size_t c    = ix.At( x, z );
+                const float  from = static_cast<float>( original[c] );
+                h[c] =
+                     ClampValue( std::lround( from + ix.Brush( x, z ) * ( static_cast<float>( h[c] ) - from ) ) );
+            }
         return ran;
     }
 
