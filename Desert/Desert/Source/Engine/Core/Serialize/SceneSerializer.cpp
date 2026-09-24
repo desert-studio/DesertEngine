@@ -414,27 +414,6 @@ namespace Desert::Core
                 }
         }
 
-        // WHICH entity each record becomes, which one its payload lands on and what it hangs off is a pure
-        // function of the parsed tree, and it lives in Rules::PlanSceneStitch so a test can call it: this
-        // file cannot be compiled without the renderer, so for as long as the stitch was written out here
-        // it was unreachable by every suite in the repository and a defect planted in it stayed green.
-        // What remains below is the part only the loader can do — make the entities and feed the payloads.
-        // InstantiatedLater: in a .desce a PrefabPath record names another FILE, and the entity it becomes
-        // is made by pass 3 below out of that file - so it is listed here, not created.
-        const Rules::StitchPlan plan = Rules::PlanSceneStitch( scene.Entities, &Common::UUID::Generate,
-                                                               Rules::PrefabRecordPolicy::InstantiatedLater );
-
-        // DC 1.4: a file that names one id twice, or names a parent that is not in it, loads as a scene
-        // that is quietly missing pieces. Say which, once, instead of leaving it to be found in the viewport.
-        if ( plan.Shadowed > 0 || plan.UnresolvedParents > 0 )
-        {
-            LOG_WARN( "[SceneSerializer] '{0}': {1} entity record(s) claim an id another record already "
-                      "claimed (their payload is written onto the first claimant and their own entity stays "
-                      "bare), and {2} parent link(s) name an entity this file does not contain. {3} id(s) "
-                      "were minted for records that carried none.",
-                      scene.SceneName, plan.Shadowed, plan.UnresolvedParents, plan.Minted );
-        }
-
         // IF THIS WORLD SAYS IT IS PARTITIONED, SAY WHAT THE PARTITION IS AND WHAT IT COST.
         //
         // Nothing here can stop a load: a composite wider than a cell goes up a level, and one no level
@@ -445,18 +424,8 @@ namespace Desert::Core
         // world (every `.desce` in the repository today) does none of it.
         if ( scene.WorldPartition.has_value() )
         {
-            // A mesh asset's box comes from the cooked registry's Bounds column: read without loading the
-            // mesh, which is the point — a partition that had to load every mesh to place it would be the
-            // eager boot this engine removed.
-            const Rules::AssetBoundsSource meshBounds =
-                 []( uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
-            {
-                const Common::Utils::AssetRegistryEntry* row =
-                     Assets::ContentRegistry::Get().FindByReference( handle, path );
-                return row != nullptr ? row->Bounds : std::nullopt;
-            };
             const Rules::WorldPartitionPlan partition =
-                 Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition, meshBounds );
+                 Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition, RegistryMeshBounds() );
 
             if ( !partition.Dangling.empty() )
             {
@@ -509,6 +478,39 @@ namespace Desert::Core
             }
         }
 
+        if ( auto made = InstantiateRecords( scene.Entities, scene.SceneName ); !made )
+            return made;
+
+        // After every pass: a tile is checked against its root, and a root may be in a prefab instance.
+        CheckLandscapeTiles( *m_Scene, scene.SceneName );
+
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SceneSerializer::InstantiateRecords( std::span<const Assets::EntityData> records,
+                                                               std::string_view sceneName ) const
+    {
+        // WHICH entity each record becomes, which one its payload lands on and what it hangs off is a pure
+        // function of the parsed tree, and it lives in Rules::PlanSceneStitch so a test can call it: this
+        // file cannot be compiled without the renderer, so for as long as the stitch was written out here
+        // it was unreachable by every suite in the repository and a defect planted in it stayed green.
+        // What remains below is the part only the loader can do — make the entities and feed the payloads.
+        // InstantiatedLater: in a .desce a PrefabPath record names another FILE, and the entity it becomes
+        // is made by pass 3 below out of that file - so it is listed here, not created.
+        const Rules::StitchPlan plan = Rules::PlanSceneStitch( records, &Common::UUID::Generate,
+                                                               Rules::PrefabRecordPolicy::InstantiatedLater );
+
+        // DC 1.4: a file that names one id twice, or names a parent that is not in it, loads as a scene
+        // that is quietly missing pieces. Say which, once, instead of leaving it to be found in the viewport.
+        if ( plan.Shadowed > 0 || plan.UnresolvedParents > 0 )
+        {
+            LOG_WARN( "[SceneSerializer] '{0}': {1} entity record(s) claim an id another record already "
+                      "claimed (their payload is written onto the first claimant and their own entity stays "
+                      "bare), and {2} parent link(s) name an entity this file does not contain. {3} id(s) "
+                      "were minted for records that carried none.",
+                      sceneName, plan.Shadowed, plan.UnresolvedParents, plan.Minted );
+        }
+
         std::unordered_map<Common::UUID, ECS::Entity> entityMap;
 
         // Pass 1 — create normal entities
@@ -516,7 +518,7 @@ namespace Desert::Core
         created.reserve( plan.Created.size() );
         for ( const auto& plannedEntity : plan.Created )
         {
-            const Assets::EntityData& entityData = scene.Entities[plannedEntity.Record];
+            const Assets::EntityData& entityData = records[plannedEntity.Record];
             ECS::Entity               entity =
                  m_Scene->CreateEntityWithUUID( plannedEntity.Id, entityData.Tag.value_or( "Entity" ) );
             created.push_back( entity );
@@ -527,7 +529,7 @@ namespace Desert::Core
         for ( const auto& load : plan.Loads )
         {
             ECS::Entity entity = created[load.Target];
-            Serialize::EntitySerializer::DeserializeEntity( scene.Entities[load.Record], entity, *m_AssetManager );
+            Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, *m_AssetManager );
 
             if ( load.Parent != Rules::kNoSlot )
                 m_Scene->Attach( created[load.Parent], entity );
@@ -536,7 +538,7 @@ namespace Desert::Core
         // Pass 3 — instantiate prefab roots and apply their saved transforms
         for ( const auto& plannedPrefab : plan.PrefabRecords )
         {
-            const Assets::EntityData* entityData = &scene.Entities[plannedPrefab.Record];
+            const Assets::EntityData* entityData = &records[plannedPrefab.Record];
 
             auto prefabAsset = m_AssetManager->FindByPath<Assets::PrefabAsset>( *entityData->PrefabPath );
             if ( !prefabAsset )
@@ -607,10 +609,17 @@ namespace Desert::Core
             }
         }
 
-        // After every pass: a tile is checked against its root, and a root may be in a prefab instance.
-        CheckLandscapeTiles( *m_Scene, scene.SceneName );
-
         return BOOLSUCCESS;
+    }
+
+    Rules::AssetBoundsSource RegistryMeshBounds()
+    {
+        return []( uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
+        {
+            const Common::Utils::AssetRegistryEntry* row =
+                 Assets::ContentRegistry::Get().FindByReference( handle, path );
+            return row != nullptr ? row->Bounds : std::nullopt;
+        };
     }
 
     Common::BoolResultStr SceneSerializer::SaveToFile( const Common::Filepath& path ) const

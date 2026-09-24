@@ -1,12 +1,15 @@
 #include "ModelingPanel.hpp"
 
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/Selection/MeshElementSelection.hpp>
+#include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Common/Core/Units.hpp>
+#include <Common/Core/Logger.hpp>
 #include <ImGui/imgui.h>
 
 #include <algorithm>
@@ -84,6 +87,17 @@ namespace Desert::Editor
             }
             if ( active )
                 ImGui::PopStyleColor();
+
+            const bool selecting = ms.ActiveTool == MS::Tool::ElementSelect;
+            if ( selecting )
+                ImGui::PushStyleColor( ImGuiCol_Button, sel );
+            if ( ImGui::Button( ICON_MDI_VECTOR_SELECTION "  Select Elements", ImVec2( -1.0f, 30.0f ) ) )
+            {
+                ms.ActiveTool = MS::Tool::ElementSelect;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( selecting )
+                ImGui::PopStyleColor();
             ImGui::Separator();
             if ( active )
             {
@@ -94,9 +108,14 @@ namespace Desert::Editor
                 ImGui::TextDisabled( "LMB a face -> highlights green" );
                 ImGui::TextDisabled( "LMB-drag the face -> push / pull" );
             }
+            else if ( selecting )
+            {
+                DrawElementSelection();
+            }
             else
             {
-                ImGui::TextDisabled( "Pick PolyEdit to edit a mesh's faces." );
+                ImGui::TextDisabled( "Pick PolyEdit to edit a mesh's faces," );
+                ImGui::TextDisabled( "or Select Elements to pick its parts." );
             }
             ImGui::EndChild();
             ImGui::PopStyleVar( 2 );
@@ -264,5 +283,87 @@ namespace Desert::Editor
         }
         ImGui::EndChild();
         ImGui::PopStyleVar( 2 );
+    }
+
+    void ModelingPanel::DrawElementSelection()
+    {
+        using Geometry::ElementMode;
+        using Op          = Core::MeshElementSelection::Op;
+        auto&      state  = Core::MeshElementSelection::Get();
+        const auto report = []( const Common::BoolResultStr& result )
+        {
+            if ( !result.IsSuccess() )
+                LOG_WARN( "{0}", result.GetError() );
+        };
+
+        ImGui::TextUnformatted( "Select Elements" );
+        ImGui::Spacing();
+        constexpr ElementMode modes[] = { ElementMode::Vertex, ElementMode::Edge, ElementMode::Triangle,
+                                          ElementMode::PolyGroup };
+        for ( const ElementMode mode : modes )
+        {
+            if ( mode != modes[0] )
+                ImGui::SameLine();
+            if ( ImGui::RadioButton( Geometry::ToString( mode ), state.Mode() == mode ) )
+                report( state.SetMode( mode ) );
+        }
+        ImGui::Spacing();
+        if ( !state.HasMesh() )
+        {
+            ImGui::TextDisabled( "Select an entity with an editable mesh" );
+            ImGui::TextDisabled( "(e.g. a CubeGrid blockout) first." );
+            return;
+        }
+        ImGui::Text( "Selected: %d %s(s)", state.Selection().Size(), Geometry::ToString( state.Mode() ) );
+        if ( state.TotalDropped() > 0 )
+            ImGui::TextColored( ImVec4( 1.0f, 0.75f, 0.3f, 1.0f ),
+                                "Dropped by edits: %d (last: %d gone, %d changed)", state.TotalDropped(),
+                                state.LastDropped().Missing, state.LastDropped().Changed );
+        ImGui::Spacing();
+        const float half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+        if ( ImGui::Button( "Grow", ImVec2( half, 0.0f ) ) )
+            report( state.Apply( Op::Grow ) );
+        ImGui::SameLine();
+        if ( ImGui::Button( "Shrink", ImVec2( half, 0.0f ) ) )
+            report( state.Apply( Op::Shrink ) );
+        if ( ImGui::Button( "Connected", ImVec2( half, 0.0f ) ) )
+            report( state.Apply( Op::SelectConnected ) );
+        ImGui::SameLine();
+        if ( ImGui::Button( "All", ImVec2( half, 0.0f ) ) )
+            report( state.Apply( Op::SelectAll ) );
+        if ( ImGui::Button( "Clear", ImVec2( -1.0f, 0.0f ) ) )
+            report( state.Apply( Op::Clear ) );
+
+        // Operations on the selection: one click = one undo step (mesh + the selection it leaves).
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::TextUnformatted( "Operations" );
+        auto& ms = Core::ModelingState::Get();
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::DragFloat( "##ElementOpDistance", &ms.ElementOpDistance, 0.5f, -10000.0f, 10000.0f,
+                          "Distance %.1f cm" );
+        using MO           = Core::MeshOperation;
+        const auto operate = [&]( MO op )
+        {
+            if ( !m_Scene )
+            {
+                LOG_WARN( "Mesh {0}: the Modeling panel has no scene", Core::ToString( op ) );
+                return;
+            }
+            report( Core::ApplyMeshOperation( *m_Scene, op, ms.ElementOpDistance ) );
+        };
+        const MO grid[3][2] = {
+             { MO::Extrude, MO::PushPull }, { MO::Inset, MO::Outset }, { MO::Offset, MO::Delete } };
+        for ( const auto& row : grid )
+        {
+            if ( ImGui::Button( Core::ToString( row[0] ), ImVec2( half, 0.0f ) ) )
+                operate( row[0] );
+            ImGui::SameLine();
+            if ( ImGui::Button( Core::ToString( row[1] ), ImVec2( half, 0.0f ) ) )
+                operate( row[1] );
+        }
+        ImGui::Spacing();
+        ImGui::TextDisabled( "LMB select, Shift+LMB add, Ctrl+LMB remove" );
+        ImGui::TextDisabled( "Del delete, Alt+E extrude, Alt+I inset, Alt+O offset" );
     }
 } // namespace Desert::Editor

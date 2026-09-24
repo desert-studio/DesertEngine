@@ -10,6 +10,7 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/EditMesh.hpp>
 #include <Engine/Geometry/EditMeshNormals.hpp>
+#include <Engine/Geometry/EditMeshSelection.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -17,7 +18,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cfloat>
 #include <cmath>
 #include <memory>
 #include <optional>
@@ -27,27 +27,6 @@ namespace Desert::Editor::Tools
 {
     namespace
     {
-        // Möller–Trumbore ray/triangle (front+back). Returns the ray parameter t (>0) on hit.
-        bool RayTri( const glm::vec3& o, const glm::vec3& d, const glm::vec3& a, const glm::vec3& b,
-                     const glm::vec3& c, float& t )
-        {
-            const glm::vec3 e1 = b - a, e2 = c - a, p = glm::cross( d, e2 );
-            const float     det = glm::dot( e1, p );
-            if ( std::abs( det ) < 1e-9f )
-                return false;
-            const float     inv = 1.0f / det;
-            const glm::vec3 tv  = o - a;
-            const float     u   = glm::dot( tv, p ) * inv;
-            if ( u < 0.0f || u > 1.0f )
-                return false;
-            const glm::vec3 q = glm::cross( tv, e1 );
-            const float     v = glm::dot( d, q ) * inv;
-            if ( v < 0.0f || u + v > 1.0f )
-                return false;
-            t = glm::dot( e2, q ) * inv;
-            return t > 1e-4f;
-        }
-
         // The ENTITY, not the component's address: entt moves components when a pool grows, so a pointer
         // into one is only as good as the next structural change (A8-3). The component is looked up where
         // it is used.
@@ -84,18 +63,6 @@ namespace Desert::Editor::Tools
         }
     } // namespace
 
-    bool PolyEditTool::WorldToScreen( const glm::vec3& world, const glm::mat4& vp, const glm::vec2& pos,
-                                      const glm::vec2& size, glm::vec2& out )
-    {
-        const glm::vec4 clip = vp * glm::vec4( world, 1.0f );
-        if ( clip.w <= 0.0001f )
-            return false;
-        const glm::vec3 ndc = glm::vec3( clip ) / clip.w;
-        out.x               = pos.x + ( ndc.x * 0.5f + 0.5f ) * size.x;
-        out.y               = pos.y + ( 1.0f - ( ndc.y * 0.5f + 0.5f ) ) * size.y;
-        return true;
-    }
-
     void PolyEditTool::ClearSelection()
     {
         FinishDrag();
@@ -122,22 +89,12 @@ namespace Desert::Editor::Tools
         const Geometry::EditMesh& mesh  = *target->Mesh().EditableMesh;
         const glm::mat4&          world = target->World;
 
-        // Nearest triangle under the ray (world space).
-        int   hit   = Geometry::InvalidId;
-        float bestT = FLT_MAX;
-        for ( const int t : mesh.TriangleIds() )
-        {
-            const auto&     tri = mesh.GetTriangle( t );
-            const glm::vec3 a   = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[0] ), 1.0f ) );
-            const glm::vec3 b   = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[1] ), 1.0f ) );
-            const glm::vec3 c   = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[2] ), 1.0f ) );
-            float           hitT;
-            if ( RayTri( ray.Origin, ray.Direction, a, b, c, hitT ) && hitT < bestT )
-            {
-                bestT = hitT;
-                hit   = t;
-            }
-        }
+        // Nearest triangle under the ray - the same pick the Select Elements tool makes in Triangle mode.
+        Geometry::PickView view;
+        view.LocalToWorld = world;
+        view.RayOrigin    = ray.Origin;
+        view.RayDirection = ray.Direction;
+        const int hit     = Geometry::PickElement( mesh, Geometry::ElementMode::Triangle, view ).Id;
         if ( hit == Geometry::InvalidId )
         {
             ClearSelection();
@@ -288,9 +245,9 @@ namespace Desert::Editor::Tools
                 const glm::vec3 a  = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[0] ), 1.0f ) );
                 const glm::vec3 bb = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[1] ), 1.0f ) );
                 const glm::vec3 c  = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[2] ), 1.0f ) );
-                if ( WorldToScreen( a, viewProj, viewportPos, viewportSize, s0 ) &&
-                     WorldToScreen( bb, viewProj, viewportPos, viewportSize, s1 ) &&
-                     WorldToScreen( c, viewProj, viewportPos, viewportSize, s2 ) )
+                if ( Geometry::ProjectToViewport( a, viewProj, viewportPos, viewportSize, s0 ) &&
+                     Geometry::ProjectToViewport( bb, viewProj, viewportPos, viewportSize, s1 ) &&
+                     Geometry::ProjectToViewport( c, viewProj, viewportPos, viewportSize, s2 ) )
                 {
                     dl->AddTriangleFilled( ImVec2( s0.x, s0.y ), ImVec2( s1.x, s1.y ), ImVec2( s2.x, s2.y ),
                                            IM_COL32( 60, 220, 90, 90 ) );

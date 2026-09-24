@@ -3,6 +3,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Assets/ContentGate.hpp>
 #include <Engine/Core/BootTimeline.hpp>
+#include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/UI/UICanvasContext.hpp>
 
@@ -72,6 +73,10 @@ namespace Desert::Player
         std::unique_ptr<Assets::AssetPreloader>      m_AssetPreloader;
         std::unique_ptr<Graphic::SceneRenderer>      m_SceneRenderer;
         std::shared_ptr<Core::Scene>                 m_Scene;
+        // A partitioned world keeps only the camera's neighbourhood in the ECS (WorldStreamer.hpp); null for a
+        // world without a WorldPartition block. Reset before the scene it streams is cleared.
+        std::unique_ptr<Core::WorldStreamer> m_WorldStreamer;
+        double                               m_WorldStreamClock = 0.0; // seconds of play, for retries
 
         // The present path: the runtime opens the swapchain pass itself, blits the scene's final image with
         // a fullscreen quad, then draws the UI + splash with the engine's own Render2D batcher. Lazily

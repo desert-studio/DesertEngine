@@ -35,6 +35,7 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include "Editor/Core/CommandLine.hpp"
 #include "Editor/Core/Control/ControlChannelOptions.hpp"
@@ -139,6 +140,9 @@
 #include <Engine/ECS/System/TerrainECSSystem.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
+#include <Editor/Core/Selection/MeshElementSelection.hpp>
+#include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
@@ -2563,6 +2567,20 @@ namespace Desert::Editor
         if ( registry )
             registry->Render();
 
+        // BEFORE the systems run, so no system sees an entity whose cell has just left.
+        if ( m_WorldStreamer && m_WorldStreamer->Streams( scene ) )
+        {
+            DESERT_PROFILE_SCOPE( "WorldStreamer::Tick" );
+            m_WorldStreamClock += ts.GetSeconds();
+            if ( auto streamed = m_WorldStreamer->Tick( m_WorldStreamClock ); !streamed )
+            {
+                // The world stays as it is now, and Play goes on in it; streaming does not.
+                LOG_ERROR( "[Scene] world streaming stopped: {0}", streamed.GetError() );
+                Editor::ToastManager::Push( "World streaming stopped — see the log", Editor::ToastLevel::Error );
+                m_WorldStreamer.reset();
+            }
+        }
+
         {
             DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
             if ( auto frame = scene.OnUpdate( ts ); !frame )
@@ -2641,6 +2659,7 @@ namespace Desert::Editor
             m_EditorState      = EditorState::Paused;
             m_PendingSceneStop = false;
             m_PlaySnapshot.clear();
+            m_WorldStreamer.reset();
         }
 
         // The editor must not stay bound to a scene that is about to stop existing. Rebinding BEFORE the
@@ -4297,6 +4316,53 @@ namespace Desert::Editor
         {
             commands.push_back( { "View", std::string( "Viewport mode: " ) + Core::AuthoringModeName( mode ),
                                   [mode] { return Editor::ViewportPanel::RequestAuthoringMode( mode ); } } );
+        }
+        // MESH ELEMENT SELECTION (Modeling Mode). Palette entries for the same reason as the modes above: the
+        // selection a later Extrude / Delete works on must be reachable - and photographable - unattended.
+        commands.push_back( { "Modeling", "Select Elements tool", []
+                              {
+                                  Core::ModelingState::Get().ActiveTool = Core::ModelingState::Tool::ElementSelect;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::ElementMode mode :
+              { Geometry::ElementMode::Vertex, Geometry::ElementMode::Edge, Geometry::ElementMode::Triangle,
+                Geometry::ElementMode::PolyGroup } )
+        {
+            commands.push_back( { "Modeling", std::string( "Mesh selection mode: " ) + Geometry::ToString( mode ),
+                                  [mode] { return Core::MeshElementSelection::Get().SetMode( mode ); } } );
+        }
+        using SelectionOp = Core::MeshElementSelection::Op;
+        for ( const SelectionOp op : { SelectionOp::SelectAll, SelectionOp::SelectConnected, SelectionOp::Grow,
+                                       SelectionOp::Shrink, SelectionOp::Clear } )
+        {
+            commands.push_back( { "Modeling",
+                                  std::string( "Mesh selection: " ) + Core::MeshElementSelection::ToString( op ),
+                                  [op] { return Core::MeshElementSelection::Get().Apply( op ); } } );
+        }
+        commands.push_back(
+             { "Modeling", "Mesh selection: pick at the viewport centre", []
+               {
+                   auto& state = Core::MeshElementSelection::Get();
+                   if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect ||
+                        !state.HasMesh() )
+                       return PaletteCommandOutcome(
+                            false, "the Select Elements tool is not on an entity with an editable mesh" );
+                   state.ReqPickCentre = true;
+                   return PaletteCommandDone();
+               } } );
+        // The operations on that selection, at the panel's distance (ModelingState::ElementOpDistance).
+        for ( const Core::MeshOperation op :
+              { Core::MeshOperation::Delete, Core::MeshOperation::Extrude, Core::MeshOperation::PushPull,
+                Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset } )
+        {
+            commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
+                                  {
+                                      if ( !m_MainScene )
+                                          return PaletteCommandOutcome( false, "no scene is open" );
+                                      return Core::ApplyMeshOperation(
+                                           *m_MainScene, op, Core::ModelingState::Get().ElementOpDistance );
+                                  } } );
         }
         commands.push_back( { "View", "Toggle 2D UI mode", [this]
                               {
@@ -7500,6 +7566,20 @@ namespace Desert::Editor
         // Snapshot the authored scene so Stop can restore it exactly (play-time edits are discarded).
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
         m_PlaySnapshot = serializer.SerializeToJson();
+        // AFTER the snapshot: streaming destroys every cell outside the camera's neighbourhood, and Stop
+        // restores what the snapshot holds. A world that cannot stream does not play half-loaded - it does not
+        // play, and says why.
+        auto streamer = Desert::Core::WorldStreamer::Begin( *m_MainScene, *m_AssetManager, m_PlaySnapshot );
+        if ( !streamer )
+        {
+            LOG_ERROR( "[Scene] Play refused: {0}", streamer.GetError() );
+            Editor::ToastManager::Push( "Play refused: the world could not stream — see the log",
+                                        Editor::ToastLevel::Error );
+            m_PlaySnapshot.clear();
+            return;
+        }
+        m_WorldStreamer    = streamer.ExtractValue();
+        m_WorldStreamClock = 0.0;
         // Play-time changes are discarded on Stop anyway, and the Stop restore recreates every entity —
         // an undo stack recorded against the authored scene must not fire into either state.
         CommandHistory::Get().Clear();
@@ -7515,6 +7595,7 @@ namespace Desert::Editor
 
         EngineContext::GetInstance().GetDevice()->WaitIdle();
         CommandHistory::Get().Clear(); // anything recorded during Play targets entities about to be rebuilt
+        m_WorldStreamer.reset();       // before Clear: the snapshot below brings every cell back
         m_MainScene->Clear();
 
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );

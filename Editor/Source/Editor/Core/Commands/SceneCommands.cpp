@@ -289,9 +289,9 @@ namespace Desert::Editor::Commands
         public:
             EditMeshCommand( const Common::UUID& entity, std::string label,
                              std::shared_ptr<const Geometry::EditMesh> before,
-                             std::shared_ptr<const Geometry::EditMesh> after )
+                             std::shared_ptr<const Geometry::EditMesh> after, std::unique_ptr<ICommand> alongside )
                  : m_Entity( entity ), m_Label( std::move( label ) ), m_Before( std::move( before ) ),
-                   m_After( std::move( after ) )
+                   m_After( std::move( after ) ), m_Alongside( std::move( alongside ) )
             {
             }
 
@@ -300,13 +300,21 @@ namespace Desert::Editor::Commands
                 return m_Label;
             }
 
+            // The mesh first, then its companion: a selection restored after its mesh is pruned against the
+            // mesh it was made on.
             bool Undo() override
             {
-                return Apply( m_Before );
+                const bool applied = Apply( m_Before );
+                if ( applied && m_Alongside )
+                    m_Alongside->Undo();
+                return applied;
             }
             bool Redo() override
             {
-                return Apply( m_After );
+                const bool applied = Apply( m_After );
+                if ( applied && m_Alongside )
+                    m_Alongside->Redo();
+                return applied;
             }
 
         private:
@@ -334,6 +342,7 @@ namespace Desert::Editor::Commands
             Common::UUID                              m_Entity;
             std::string                               m_Label;
             std::shared_ptr<const Geometry::EditMesh> m_Before, m_After;
+            std::unique_ptr<ICommand>                 m_Alongside; // part of the same step (may be null)
         };
 
         class ReparentCommand final : public ICommand
@@ -801,7 +810,8 @@ namespace Desert::Editor::Commands
     }
 
     void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
-                               std::shared_ptr<const Geometry::EditMesh> before )
+                               std::shared_ptr<const Geometry::EditMesh> before,
+                               std::unique_ptr<ICommand>                 alongside )
     {
         if ( !Ready() )
             return;
@@ -811,8 +821,8 @@ namespace Desert::Editor::Commands
         std::shared_ptr<const Geometry::EditMesh> after = e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
         if ( after == before )
             return;
-        CommandHistory::Get().PushCommand(
-             std::make_unique<EditMeshCommand>( uuid, label, std::move( before ), std::move( after ) ) );
+        CommandHistory::Get().PushCommand( std::make_unique<EditMeshCommand>(
+             uuid, label, std::move( before ), std::move( after ), std::move( alongside ) ) );
     }
 
     void RecordTransformEdit( const Common::UUID& uuid, const glm::vec3& oldTranslation,

@@ -8,13 +8,12 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- Header-only rules (Engine/Core/Serialize/WorldPartitionStreamingRules.hpp over WorldPartitionRules.hpp):
-    -- the streaming query is a pure function of a plan, the grid and the sources, so nothing but Common is
-    -- linked, and that is the proof it is pure. The planner is compiled too, because one case holds the
-    -- query to the planner's own output rather than a hand-built plan. The planner places a landscape tile
-    -- by its root's frame, so the two pure landscape files it calls are compiled with it.
+    -- Header-only (Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp): the executor that performs
+    -- StepResidency's actions against a world behind an interface. The engine's world is a Scene, which no test
+    -- project can compile; here it is a set of live record indices, and plans are made by the real planner.
     files {
         test_files,
+        -- The planner places a landscape tile by its root's frame; both files are pure and link only Common.
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
@@ -55,6 +54,7 @@ project(test_name)
 
     filter "system:not windows"
         links { "ReflectCpp" }
+    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
