@@ -24,6 +24,7 @@
 
 #include <gtest/gtest.h>
 
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
@@ -432,33 +433,33 @@ namespace
     const std::vector<CorpusRow>& Corpus()
     {
         static const std::vector<CorpusRow> rows = {
-        { "Editor/Resources/Assets/Textures/T_Checker.png", Verdict::Compressed,
+        { "Editor/Resources/Assets/Textures/T_Checker.detex", Verdict::Compressed,
           "the one texture actually referenced by shipped scenes (M_CheckerFloor, 41 of them); flat "
           "colours in large runs, which is the easy case for a single-subset mode" },
-        { "Editor/Resources/Assets/Textures/1k_Dissolve_Noise_Texture.png", Verdict::RefusedForQuality,
+        { "Editor/Resources/Assets/Textures/1k_Dissolve_Noise_Texture.detex", Verdict::RefusedForQuality,
           "NOISE. T1 measured 29.29 dB for BC4 on it and called it the one substitution visible in a "
           "frame; this encoder reaches 37.55 dB, which is better and still the worst in the corpus. It "
           "fails the PSNR gate and passes the delta gate, which is why there are two" },
-        { "Editor/Resources/Assets/Meshes/texture_diffuse.png", Verdict::Compressed,
+        { "Editor/Resources/Assets/Meshes/texture_diffuse.detex", Verdict::Compressed,
           "albedo, the case BC7 exists for; T1 measured 52.35 dB with a reference encoder and this one "
           "reaches 51.82 on the same file. The 52.46 this row used to quote is the WHOLE-CHAIN figure "
           "the cook's own measurement produces; this suite measures the base level, and the two are "
           "not the same number" },
-        { "Editor/Resources/Assets/Meshes/texture_normal.png", Verdict::RefusedForQuality,
+        { "Editor/Resources/Assets/Meshes/texture_normal.detex", Verdict::RefusedForQuality,
           "A NORMAL MAP, and T1's most load-bearing rule: BC7 on normals is WORSE than BC5 and 106x "
           "more expensive. Measured here at 46.35 dB against T1's 46.48 for a reference encoder -- and "
           "a worst texel off by 130, which is what the delta gate is for" },
-        { "Editor/Resources/Assets/Meshes/texture_pbr.png", Verdict::RefusedForQuality,
+        { "Editor/Resources/Assets/Meshes/texture_pbr.detex", Verdict::RefusedForQuality,
           "a PACKED map -- three unrelated channels in one image, so no single line through RGB can fit "
           "them. Its average is respectable and its worst texel is off by 84" },
-        { "Editor/Resources/Assets/Meshes/texture_roughness.png", Verdict::Compressed,
+        { "Editor/Resources/Assets/Meshes/texture_roughness.detex", Verdict::Compressed,
           "a single-channel mask replicated across RGB. T1 would rather have BC4 here, for twice the "
           "saving -- and it now gets it: `texture_roughness.detex` marks it Mask. This row still "
           "records what the MEASUREMENT alone concludes about it, which is the thing this suite is "
           "for" },
-        { "Editor/Resources/Assets/Meshes/texture_metallic.png", Verdict::Compressed,
+        { "Editor/Resources/Assets/Meshes/texture_metallic.detex", Verdict::Compressed,
           "the same shape as roughness and the easiest image in the corpus" },
-        { "Editor/Resources/Assets/Meshes/shaded.png", Verdict::Compressed,
+        { "Editor/Resources/Assets/Meshes/shaded.detex", Verdict::Compressed,
           "baked shading, smooth gradients" },
         { "Editor/Resources/Assets/Clouds/Layouts/O4_MaskAddRemove.png", Verdict::Compressed,
           "a cloud layout mask; the alpha channel carries the signal and BC7 is the only format here "
@@ -486,8 +487,21 @@ namespace
     /// to keep come back as the zeros a sampler returns.
     Fidelity MeasureFile( const std::string& path, Fmt::ImageFormat blockFormat = Fmt::ImageFormat::BC7_UNORM )
     {
+        // A texture's source image lives INSIDE its `.detex` since AF3/AF7 (the loose png is gone from the tree),
+        // so a `.detex` row is measured on the bytes the cook itself encodes from; a plain image is read as is.
         int      width = 0, height = 0, channels = 0;
-        stbi_uc* pixels = stbi_load( path.c_str(), &width, &height, &channels, 4 );
+        stbi_uc* pixels = nullptr;
+        if ( std::filesystem::path( path ).extension() == ".detex" )
+        {
+            const auto asset = Desert::Assets::ReadTextureSourceAssetFile( path );
+            if ( !asset.IsSuccess() )
+                return {};
+            const std::vector<std::byte>& bytes = asset.GetValue().Source;
+            pixels = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( bytes.data() ),
+                                            static_cast<int>( bytes.size() ), &width, &height, &channels, 4 );
+        }
+        else
+            pixels = stbi_load( path.c_str(), &width, &height, &channels, 4 );
         if ( pixels == nullptr )
             return {};
 
@@ -615,29 +629,29 @@ namespace
     const std::vector<AuthoredRow>& AuthoredCorpus()
     {
         static const std::vector<AuthoredRow> rows = {
-        { "Editor/Resources/Assets/Meshes/texture_normal.png", "NormalMap", Verdict::Compressed,
+        { "Editor/Resources/Assets/Meshes/texture_normal.detex", "NormalMap", Verdict::Compressed,
           "T1'S RULE, AND THE WHOLE POINT OF THE FIELD. The measured register above REFUSES this file "
           "(46.35 dB, worst texel 130) because BC7 is the wrong format for it, and BC5 reaches 53.08 / "
           "14 on the same pixels -- against T1's 52.51 / 14 for a reference encoder, which is as close "
           "as two different encoders get. Without the authored word it is stored uncompressed; with it, "
           "at a quarter" },
-        { "Editor/Resources/Assets/Meshes/texture_metallic.png", "Mask", Verdict::Compressed,
+        { "Editor/Resources/Assets/Meshes/texture_metallic.detex", "Mask", Verdict::Compressed,
           "one channel replicated across RGB. BC4 reaches 56.49 / 8 -- T1's reference encoder reached "
           "56.49 / 8, the SAME numbers, which is what a format with no encoder freedom looks like -- and "
           "costs an EIGHTH of the source instead of BC7's quarter" },
-        { "Editor/Resources/Assets/Meshes/texture_roughness.png", "Mask", Verdict::Compressed,
+        { "Editor/Resources/Assets/Meshes/texture_roughness.detex", "Mask", Verdict::Compressed,
           "the same shape; 47.98 / 18 here and 47.98 / 18 in T1. It is the narrowest margin in this "
           "register and the row to watch if the encoder moves -- over the WHOLE chain, which is what the "
           "cook grades, it comes to 45.64 dB against a floor of 45" },
-        { "Editor/Resources/Assets/Meshes/texture_diffuse.png", "Colour", Verdict::Compressed,
+        { "Editor/Resources/Assets/Meshes/texture_diffuse.detex", "Colour", Verdict::Compressed,
           "albedo: the author and the measurement agree, and the authored word costs nothing -- the cook "
           "measures the format it was going to reach for anyway" },
-        { "Editor/Resources/Assets/Meshes/shaded.png", "Colour", Verdict::Compressed,
+        { "Editor/Resources/Assets/Meshes/shaded.detex", "Colour", Verdict::Compressed,
           "baked shading, smooth gradients; agreement again" },
-        { "Editor/Resources/Assets/Meshes/texture_pbr.png", "Data", Verdict::RefusedForQuality,
+        { "Editor/Resources/Assets/Meshes/texture_pbr.detex", "Data", Verdict::RefusedForQuality,
           "a PACKED map. The author refuses a block format outright and the measurement agrees (47.97 "
           "dB with a worst texel off by 84), so this row is where the two sources CONFIRM each other" },
-        { "Editor/Resources/Assets/Textures/1k_Dissolve_Noise_Texture.png", "Data", Verdict::RefusedForQuality,
+        { "Editor/Resources/Assets/Textures/1k_Dissolve_Noise_Texture.detex", "Data", Verdict::RefusedForQuality,
           "NOISE, and T1's third rule. Both sources refuse it, for different reasons -- the author "
           "because noise has no shared endpoint line and the measurement because 37.55 dB is below the "
           "floor" },
@@ -662,14 +676,12 @@ TEST( BlockCompression, EveryAuthoredSourceReachesTheVerdictItsRowRecordsInTheFo
         ASSERT_NE( dot, std::string::npos ) << row.Path;
         detex.replace( dot, std::string::npos, ".detex" );
 
-        std::ifstream      in( detex, std::ios::binary );
-        std::ostringstream buffer;
-        buffer << in.rdbuf();
-        const std::string authored = buffer.str();
-        ASSERT_FALSE( authored.empty() ) << detex << " does not exist; the row names an intent nobody "
-                                         << "authored";
-        EXPECT_NE( authored.find( std::string( "\"" ) + row.Intent + "\"" ), std::string::npos )
-             << detex << " does not say " << row.Intent << "; it says:\n  " << authored;
+        // The intent is IMPT's field since AF7 (binary envelope), not a JSON word; read it the way the cook does.
+        const auto authored = Desert::Assets::ReadTextureSourceAssetFile( detex );
+        ASSERT_TRUE( authored.IsSuccess() )
+             << detex << ": " << authored.GetError() << "; the row names an intent nobody authored";
+        EXPECT_EQ( authored.GetValue().Import.Settings.Intent, Fmt::TextureIntentFromName( row.Intent ) )
+             << detex << " does not say " << row.Intent;
 
         const Fmt::TextureIntent intent = Fmt::TextureIntentFromName( row.Intent );
         ASSERT_NE( intent, Fmt::TextureIntent::Count ) << row.Intent;
@@ -718,7 +730,7 @@ TEST( BlockCompression, TheAuthoredWordChangesTheOutcomeForAtLeastOneSourceInThi
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string normal = root + "Editor/Resources/Assets/Meshes/texture_normal.png";
+    const std::string normal = root + "Editor/Resources/Assets/Meshes/texture_normal.detex";
 
     const Fidelity measured = MeasureFile( normal, Fmt::ImageFormat::BC7_UNORM );
     ASSERT_TRUE( measured.Read );
