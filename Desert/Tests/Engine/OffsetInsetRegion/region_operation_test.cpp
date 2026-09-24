@@ -329,3 +329,18 @@ TEST( RegionOperation, WeldEdgesClosesAnImportedHardCube )
     EXPECT_TRUE( ToRenderMesh( *welded.GetValue().Mesh ).IsSuccess() );
     EXPECT_FALSE( WeldEdges( *welded.GetValue().Mesh, ElementMode::Edge ).IsSuccess() );
 }
+
+// An open box (top face deleted) has four boundary edges and no coincident partner for any of them: the merge
+// "succeeds" with nothing merged. A command without an effect must refuse by name rather than leave an empty undo
+// step (P12d found the editor reporting +0/+0).
+TEST( RegionOperation, WeldEdgesRefusesAnOpenBoxWithNoCoincidentPair )
+{
+    FDynamicMesh3 before = TangentCube();
+    before.RemoveTriangle( 2 * kPlusZ );
+    before.RemoveTriangle( 2 * kPlusZ + 1 );
+    ASSERT_FALSE( before.IsClosed() );
+    auto welded = WeldEdges( before, ElementMode::Edge );
+    ASSERT_FALSE( welded.IsSuccess() ) << "nothing was welded, yet the operation succeeded";
+    EXPECT_NE( welded.GetError().find( "no coincident edge pair" ), std::string::npos ) << welded.GetError();
+    EXPECT_NE( welded.GetError().find( "the 4 boundary edges" ), std::string::npos ) << welded.GetError();
+}

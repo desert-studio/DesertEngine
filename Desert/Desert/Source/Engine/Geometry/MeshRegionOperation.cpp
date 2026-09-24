@@ -173,6 +173,13 @@ namespace Desert::Geometry
                  merger.FinalNumBoundaryEdges, merger.InitialNumBoundaryEdges );
         if ( merger.InitialNumBoundaryEdges == 0 )
             return Common::MakeError<RegionOutcome>( "Mesh Weld Edges: the mesh has no boundary edge to weld" );
+        // UE's Weld Edges tool accepts a merge that welded nothing (WeldMeshEdgesTool.cpp:336 CanAccept checks
+        // only a valid result) and commits an unchanged mesh; here a command without an effect leaves no undo
+        // step.
+        if ( merger.FinalNumBoundaryEdges == merger.InitialNumBoundaryEdges )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Weld Edges: no coincident edge pair within tolerance {} cm among the {} boundary edges",
+                 merger.MergeVertexTolerance, merger.InitialNumBoundaryEdges );
         if ( auto tangents = RecomputeTangents( *mesh, "Weld Edges" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
