@@ -481,11 +481,11 @@ TEST( LandscapeBlob, LayoutIsPinnedByteByByte )
     const auto bytes = EncodeLandscapeTile( tile );
     ASSERT_EQ( kLandscapeTileHeaderSize, 28u );
     ASSERT_EQ( kLandscapeTileTrailerSize, 4u );
-    ASSERT_EQ( bytes.size(), 28u + 2u * 6u + 4u );
+    ASSERT_EQ( bytes.size(), 28u + 2u * 6u + 4u + 4u ); // + the v2 weight-layer count (zero)
 
     const unsigned char header[28] = {
          'D', 'L', 'H', 'T',             //
-         1,   0,   0,   0,               // container version
+         2,   0,   0,   0,               // container version
          2,   0,   0,   0,               // samplesX
          3,   0,   0,   0,               // samplesZ
          0,   0,   0,   0,               // edit layers
@@ -497,10 +497,14 @@ TEST( LandscapeBlob, LayoutIsPinnedByteByByte )
     const unsigned char payload[12] = { 0x00, 0x80, 0x34, 0x12, 0x00, 0x80, 0x00, 0x80, 0xCD, 0xAB, 0x00, 0x80 };
     EXPECT_EQ( std::memcmp( bytes.data() + 28, payload, sizeof( payload ) ), 0 );
 
-    // Trailer: CRC-32C over header AND payload, little-endian.
-    const uint32_t crc = Common::Utils::Crc32c( bytes.data(), 40u );
+    // v2 weight section: a zero layer count.
     for ( size_t i = 0; i < 4u; ++i )
-        EXPECT_EQ( bytes[40u + i], static_cast<unsigned char>( ( crc >> ( 8u * i ) ) & 0xFFu ) ) << "byte " << i;
+        EXPECT_EQ( bytes[40u + i], 0u ) << "weight count byte " << i;
+
+    // Trailer: CRC-32C over header, payload AND weight section, little-endian.
+    const uint32_t crc = Common::Utils::Crc32c( bytes.data(), 44u );
+    for ( size_t i = 0; i < 4u; ++i )
+        EXPECT_EQ( bytes[44u + i], static_cast<unsigned char>( ( crc >> ( 8u * i ) ) & 0xFFu ) ) << "byte " << i;
 }
 
 TEST( LandscapeBlob, RoundTripIsByteIdentical )
@@ -516,7 +520,7 @@ TEST( LandscapeBlob, RoundTripIsByteIdentical )
         ASSERT_TRUE( made.IsSuccess() );
         const auto tile  = made.ExtractValue();
         const auto first = EncodeLandscapeTile( tile );
-        ASSERT_EQ( first.size(), kLandscapeTileHeaderSize + 2u * samples.size() + kLandscapeTileTrailerSize );
+        ASSERT_EQ( first.size(), kLandscapeTileHeaderSize + 2u * samples.size() + 4u + kLandscapeTileTrailerSize );
 
         auto decoded = DecodeLandscapeTile( first );
         ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
@@ -540,7 +544,7 @@ TEST( LandscapeBlob, EveryWrongBlobIsRefusedWithItsNumber )
     auto tile = MakeTile( 4u, 3u );
     tile.SetSample( 2u, 1u, 777u );
     const auto good = EncodeLandscapeTile( tile );
-    ASSERT_EQ( good.size(), 56u );
+    ASSERT_EQ( good.size(), 60u );
     ASSERT_TRUE( DecodeLandscapeTile( good ).IsSuccess() );
     ASSERT_TRUE( DecodeLandscapeTile( Reseal( good ) ).IsSuccess() ) << "Reseal must be a no-op on a good blob";
 
@@ -557,7 +561,7 @@ TEST( LandscapeBlob, EveryWrongBlobIsRefusedWithItsNumber )
         b[0]   = 'X';
         refuse( b, "58", "bad magic" ); // 'X' = 0x58
     }
-    refuse( Reseal( PatchU32( good, 4, 2u ) ), "version 2", "future version" );
+    refuse( Reseal( PatchU32( good, 4, 3u ) ), "version 3", "future version" );
 
     // Field checks, each reached past a valid checksum.
     refuse( Reseal( PatchU32( good, 8, 1u ) ), "1 x 3", "one-sample side" );
@@ -568,13 +572,13 @@ TEST( LandscapeBlob, EveryWrongBlobIsRefusedWithItsNumber )
         std::vector<unsigned char> b( good.begin(), good.end() - 4 );
         b.pop_back(); // one payload byte short
         b.insert( b.end(), 4u, 0u );
-        refuse( Reseal( b ), "55 bytes", "truncated payload" );
+        refuse( Reseal( b ), "59 bytes", "truncated payload" );
     }
     {
         std::vector<unsigned char> b( good.begin(), good.end() - 4 );
         b.push_back( 0u ); // one payload byte over
         b.insert( b.end(), 4u, 0u );
-        refuse( Reseal( b ), "57 bytes", "trailing byte" );
+        refuse( Reseal( b ), "1 bytes after", "trailing byte" );
     }
 
     // Corruption: refused by the checksum, wherever it lands.

@@ -207,8 +207,8 @@ TEST( LandscapeScene, SaveLoadSaveIsByteIdenticalForTheSceneAndEveryTileFile )
         EXPECT_EQ( fs::path( entity.Tile.HeightFile ).parent_path(), dir / "Hills_Landscape" );
         EXPECT_EQ( fs::path( entity.Tile.HeightFile ).extension(), ".dlht" );
         firstTiles.push_back( ReadText( entity.Tile.HeightFile ) );
-        EXPECT_EQ( firstTiles.back().size(),
-                   kLandscapeTileHeaderSize + std::size_t{ 2 } * 32u * 32u + kLandscapeTileTrailerSize );
+        EXPECT_EQ( firstTiles.back().size(), kLandscapeTileHeaderSize + std::size_t{ 2 } * 32u * 32u +
+                                                  4u /* v2 weight count */ + kLandscapeTileTrailerSize );
     }
     EXPECT_LT( firstScene.size(), 4096u ) << "the samples must not be in the scene text";
 
