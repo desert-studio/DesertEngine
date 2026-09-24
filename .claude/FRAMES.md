@@ -59,6 +59,8 @@ $C quit 0
 - **Моделинг TriEdit (диагональ):** `P=0,150,200 bash /private/tmp/claude-501/mui4/frames.sh`. Бокс из «place at the
   viewport centre» с камеры 0,300,600 встаёт центром в (0,150,200), НЕ в начало координат. Обрезка окна 4112x2578:
   вьюпорт `crop=1430:1580:732:288`, панель Modeling `crop=720:1440:0:180`.
+- **Ландшафт, панель:** `bash /private/tmp/claude-501/lui2/shots.sh` (свежий HOME, LS7e_Bright, `run Landscape "Sculpt mode"`
+  + `"Tool: <name>"`, shot-window). Обрезка: панель `crop=720:1400:0:180`, вьюпорт `crop=1430:1580:732:288`.
 - **Моделинг (старое):** стартовый «Cube» — ПРИМИТИВ, инструментам не годится (пик отказывает «no editable mesh»).
   Сначала создать меш: `run Scene "Add shape: Cube"` или Create shape → «place at the viewport centre»;
   затем Select Elements tool, режим, `run ... "Mesh selection: pick at the viewport centre"`. Кадры P10e:
