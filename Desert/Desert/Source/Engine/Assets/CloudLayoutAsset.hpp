@@ -23,11 +23,22 @@ namespace Desert::Assets
      * consumed on the CPU by Assets::BakeCloudProceduralVolume and never reaches a sampler. That is the
      * whole cost argument of the phase — the march reads the baked volume it already read, and the painting
      * costs the hottest pass of the frame nothing.
+     *
+     * ITS HANDLE IS HandleForGuid OF ITS ENVELOPE GUID (container 2), adopted in the constructor like a
+     * mesh's: the asset manager keys its handle lookup at creation. A file whose header cannot be read
+     * (absent: Save is about to create it; or a bare version-1 file) keeps the path-derived handle
+     * AssetBase gives it, and its load is refused by name.
      */
     class CloudLayoutAsset final : public AssetBase
     {
     public:
         CloudLayoutAsset( AssetPriority priority, const Common::Filepath& filepath );
+
+        /// The envelope GUID this layout was created from; null when the file states none.
+        [[nodiscard]] const Common::Content::AssetGuid& Guid() const
+        {
+            return m_Guid;
+        }
 
         /// Reads and decodes the container. A file that is missing, truncated, corrupt or from an unknown
         /// version is an ERROR carrying the reason and the numbers — never a quietly empty layout, because
@@ -60,6 +71,7 @@ namespace Desert::Assets
         static Common::BoolResultStr Save( const Common::Filepath& filepath, const CloudLayoutData& layout );
 
     private:
+        Common::Content::AssetGuid m_Guid;
         CloudLayoutData m_Layout;
         bool            m_Ready = false;
     };

@@ -46,11 +46,13 @@
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/CloudLayout.hpp>
 #include "LegacyMaterialIds.hpp"
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
 #include "SettingsCanonical.hpp"
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -72,6 +74,7 @@
 #include <string>
 #include <cstring>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace
@@ -104,7 +107,8 @@ namespace
     // THE OTHER TEXT ASSETS ARE COLLECTED FOR THEIR LAYOUT ONLY (AF6e). Their content has no step in this
     // tool - each is versioned by its own loader - but their text is written by the canonical writer, so a
     // file in the tree that predates it is re-laid-out here, version untouched, and the next save of it
-    // diffs only in what the save changed. `.dclayout` is not here: it is binary (a "DCLY" header).
+    // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
+    // (container 1 -> 2, IsCloudLayout).
     constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",  ".decloudtype",
                                                 ".destrings",  ".detheme", ".skeleton" };
 
@@ -125,10 +129,17 @@ namespace
                ext == Common::Constants::Extensions::SKINNED_MESH;
     }
 
+    // CLOUD LAYOUTS ARE COLLECTED TOO, since AF7y (T6b2): version 1 was a bare "DCLY" container with no
+    // identity; version 2 is the same bytes inside the AF1 binary envelope, with a GUID minted HERE, once.
+    bool IsCloudLayout( const std::filesystem::path& path )
+    {
+        return path.extension() == Desert::Assets::kCloudLayoutExtension;
+    }
+
     void Collect( const std::filesystem::path& root, std::vector<std::filesystem::path>& scenes,
                   std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
                   std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
-                  std::vector<std::filesystem::path>& meshes )
+                  std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -151,6 +162,8 @@ namespace
                     texts.push_back( entry.path() );
                 else if ( IsCookedMesh( entry.path() ) )
                     meshes.push_back( entry.path() );
+                else if ( IsCloudLayout( entry.path() ) )
+                    layouts.push_back( entry.path() );
             }
             return;
         }
@@ -167,6 +180,8 @@ namespace
             texts.push_back( root );
         else if ( IsCookedMesh( root ) )
             meshes.push_back( root );
+        else if ( IsCloudLayout( root ) )
+            layouts.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -853,14 +868,15 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> clips;
         std::vector<std::filesystem::path> texts;
         std::vector<std::filesystem::path> meshes;
+        std::vector<std::filesystem::path> layouts;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs, clips, texts, meshes );
+            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
-             meshes.empty() )
+             meshes.empty() && layouts.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
-                << kPrefabExtension << ", " << kClipExtension << ", cooked mesh or other text asset files found\n";
+                << kPrefabExtension << ", " << kClipExtension << ", cooked mesh, cloud layout or other text asset files found\n";
             return 2;
         }
 
@@ -961,6 +977,85 @@ namespace Desert::Migration
                 continue;
             if ( const auto written =
                       Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+                --changed;
+            }
+        }
+
+        // THE CLOUD LAYOUTS (container 1 -> 2). The version-1 bytes after magic and version ARE the
+        // version-2 payload, so the pass only wraps them: kind CloudLayout, a fresh GUID, the layout version
+        // under its own tag. The wrapped file is read back and its payload compared before anything is
+        // written. A version-2 file is left byte-for-byte as it is, so a second run changes nothing.
+        for ( const auto& path : layouts )
+        {
+            namespace CC                        = Common::Content;
+            const CC::SubsystemVersion kKnown[] = { { Desert::Assets::kCloudLayoutSubsystemTag,
+                                                      Desert::Assets::kCloudLayoutContainerVersion } };
+            const std::string          bytes    = ReadAll( path );
+            const auto*                first    = reinterpret_cast<const std::byte*>( bytes.data() );
+            constexpr size_t           kV1Prefix = sizeof( Desert::Assets::kCloudLayoutVersion1Magic ) + 4u;
+            if ( bytes.size() >= kV1Prefix &&
+                 std::memcmp( bytes.data(), Desert::Assets::kCloudLayoutVersion1Magic,
+                              sizeof( Desert::Assets::kCloudLayoutVersion1Magic ) ) != 0 )
+            {
+                const auto header = CC::ReadEnvelopeHeader( std::span( first, bytes.size() ),
+                                                            CC::AssetHeaderReadContext{ kKnown } );
+                if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudLayout )
+                {
+                    err << "FAIL   " << path.string() << " — neither a version-1 'DCLY' layout nor a cloud layout "
+                        << "envelope: " << ( header ? "the envelope's kind is not CloudLayout" : header.GetError() )
+                        << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << "ok     " << path.string() << " — already at layout v"
+                    << Desert::Assets::kCloudLayoutContainerVersion << "\n";
+                continue;
+            }
+            if ( bytes.size() < kV1Prefix )
+            {
+                err << "FAIL   " << path.string() << " — " << bytes.size() << " bytes, too short for any layout\n";
+                ++failed;
+                continue;
+            }
+            uint32_t version = 0;
+            std::memcpy( &version, bytes.data() + 4, sizeof( version ) );
+            if ( version != 1u )
+            {
+                err << "FAIL   " << path.string() << " — a bare 'DCLY' container version " << version
+                    << "; this tool raises version 1 only\n";
+                ++failed;
+                continue;
+            }
+
+            CC::AssetEnvelope envelope;
+            envelope.Asset.Kind       = CC::ContentKind::CloudLayout;
+            envelope.Asset.Guid       = CC::AssetGuid::Generate();
+            envelope.Asset.Subsystems = { kKnown[0] };
+            envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
+                                           std::vector<std::byte>( first + kV1Prefix, first + bytes.size() ) } );
+            const auto wrapped = CC::WriteAssetEnvelope( envelope );
+            const auto reread  = wrapped ? CC::ReadAssetEnvelope( wrapped.GetValue(), CC::AssetHeaderReadContext{ kKnown } )
+                                         : Common::MakeFormattedError<CC::AssetEnvelope>( "{}", wrapped.GetError() );
+            if ( !reread || !( reread.GetValue().Asset == envelope.Asset ) ||
+                 reread.GetValue().Sections != envelope.Sections )
+            {
+                err << "FAIL   " << path.string() << " — the wrapped layout does not read back: "
+                    << ( reread ? std::string( "its header or payload differs" ) : reread.GetError() ) << "\n";
+                ++failed;
+                continue;
+            }
+            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — layout v1 -> v"
+                << Desert::Assets::kCloudLayoutContainerVersion << ", GUID "
+                << CC::AssetGuidToText( envelope.Asset.Guid ) << "\n";
+            ++changed;
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, wrapped.GetValue() );
                  !written )
             {
                 err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
