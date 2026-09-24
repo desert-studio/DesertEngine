@@ -139,15 +139,23 @@ TEST( UIComponentRoundTrip, ACanvasBackgroundSurvivesTheTripAndIsStoredByProject
 
     const auto stored = object.get( "Sprite" );
     ASSERT_TRUE( stored.has_value() ) << "the canvas wrote no Sprite field at all";
-    const auto asString = stored.value().to_string();
-    ASSERT_TRUE( asString.has_value() ) << "the sprite was written as something other than a reference "
-                                           "string — a raw id names nothing after a restart";
-    EXPECT_EQ( asString.value(), kResolvedKey );
-    EXPECT_NE( asString.value().find( ':' ), std::string::npos )
-         << "the stored form carries no root tag, so it is a bare path and the reader cannot tell which "
+    const auto ref = stored.value().to_object();
+    ASSERT_TRUE( ref.has_value() ) << "the sprite was written as something other than a {Guid, Path} "
+                                      "reference (SCNE 30) - a bare key or a raw id is not an identity";
+    const auto field = [&]( const char* key ) -> std::string
+    {
+        const auto v = ref.value().get( key );
+        return v.has_value() ? v.value().to_string().value_or( std::string() ) : std::string();
+    };
+    EXPECT_EQ( field( "Guid" ), kResolvedGuidText ) << "the identity half of the reference is not the GUID";
+    const std::string path = field( "Path" );
+    ASSERT_FALSE( path.empty() ) << "the locator half of the reference is empty";
+    EXPECT_EQ( path, kResolvedKey );
+    EXPECT_NE( path.find( ':' ), std::string::npos )
+         << "the stored locator carries no root tag, so it is a bare path and the reader cannot tell which "
             "of the project's roots it is relative to";
-    EXPECT_NE( asString.value().front(), '/' )
-         << "the stored form is an absolute path, i.e. a directory that exists on one machine only";
+    EXPECT_NE( path.front(), '/' )
+         << "the stored locator is an absolute path, i.e. a directory that exists on one machine only";
 
     ECS::UICanvasData read;
     DeserializeReflected( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &resolver );
@@ -338,14 +346,33 @@ TEST( UIComponentRoundTrip, AReferenceThatResolvesToNothingReachesTheResolverRat
 {
     int asked = 0;
 
+    int located = 0;
+
+    // A texture that HAS an identity but is gone from the registry: ToGuid answers its GUID (the handle
+    // as the low half, so every handle has one), FromGuid knows nothing, FromPath finds no file.
     AssetResolver counting;
-    counting.ToPath = []( uint64_t, const std::string& type ) -> std::string
-    { return type == "TextureAsset" ? "cooked:Textures/Gone.tex" : std::string(); };
-    counting.FromPath = [&asked]( const std::string& key, const std::string& type ) -> uint64_t
+    counting.ToGuid = []( uint64_t handle, const std::string& type ) -> std::string
+    {
+        return type == "TextureAsset" && handle != 0
+                    ? Common::Content::AssetGuidToText( Common::Content::AssetGuid{ 0ull, handle } )
+                    : std::string();
+    };
+    counting.FromGuid = [&asked]( uint64_t guid, const std::string& type ) -> uint64_t
     {
         if ( type != "TextureAsset" )
             return 0ull;
         ++asked;
+        EXPECT_EQ( guid, static_cast<uint64_t>( Common::Content::HandleForGuid(
+                              Common::Content::AssetGuid{ 0ull, kMeasuredHandle } ) ) );
+        return 0ull;
+    };
+    counting.ToPath = []( uint64_t, const std::string& type ) -> std::string
+    { return type == "TextureAsset" ? "cooked:Textures/Gone.tex" : std::string(); };
+    counting.FromPath = [&located]( const std::string& key, const std::string& type ) -> uint64_t
+    {
+        if ( type != "TextureAsset" )
+            return 0ull;
+        ++located;
         EXPECT_EQ( key, "cooked:Textures/Gone.tex" );
         return 0ull;
     };
@@ -360,6 +387,8 @@ TEST( UIComponentRoundTrip, AReferenceThatResolvesToNothingReachesTheResolverRat
 
     EXPECT_EQ( asked, 1 ) << "the stored reference never reached the resolver, so nothing could report "
                              "that it did not resolve";
+    EXPECT_EQ( located, 1 ) << "an unknown GUID was not followed to its locator, so a moved texture could "
+                               "never be told apart from a deleted one";
     EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), 0ull );
 }
 

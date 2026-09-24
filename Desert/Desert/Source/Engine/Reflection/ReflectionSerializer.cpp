@@ -278,7 +278,9 @@ namespace Desert::Reflection
                     break;
                 case FieldType::AssetHandle:
                 {
-                    if ( IsStoredByGuid( field.Meta.AssetType ) )
+                    // A raw integer is what the writer emits with no resolver, for every type alike, so
+                    // it takes the raw-handle route below; only a reference form reaches the GUID branch.
+                    if ( IsStoredByGuid( field.Meta.AssetType ) && !AsInteger( g ) )
                     {
                         const auto ref = g.to_object();
                         if ( ref.has_value() && resolver )

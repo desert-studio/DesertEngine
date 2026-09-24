@@ -84,12 +84,16 @@ namespace
         return rfl::json::write( rfl::Generic( s ) );
     }
 
+    // The version the fixtures state: the one step before the sprite-GUID step.
+    constexpr int kBeforeSpriteGuids = Migration::kSceneVersionSpriteGuids - 1;
+
     // Every sprite slot SCNE 30 raises holds `value`: four components, a prefab override and the settings.
     std::string V29Scene( const std::string& value )
     {
         const std::string v = Quoted( value );
         return std::string( R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000001",)" ) +
-               R"("Versions":{"SCNE":29,"UNIT":1},"Dependencies":[]},"SceneName":"S",)" +
+               R"("Versions":{"SCNE":)" + std::to_string( kBeforeSpriteGuids ) +
+               R"(,"UNIT":1},"Dependencies":[]},"SceneName":"S",)" +
                R"("Settings":{"SplashSprite":)" + v + R"(,"SplashDuration":1.0},"Entities":[)" +
                R"({"id":1,"Tag":"Canvas","UICanvas":{"Sprite":)" + v + R"(}},)" +
                R"({"id":2,"Tag":"Panel","UIPanel":{"Sprite":)" + v + R"(,"Opacity":1.0}},)" +
@@ -129,7 +133,7 @@ TEST( SceneSpriteGuidMigration, EverySpriteSlotAndTheSplashBecomeTheHeaderGuidAn
 
     ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
     EXPECT_TRUE( report.SpriteGuidsRaised );
-    EXPECT_FALSE( report.TextureGuidsRaised ) << "the file was already past SCNE 29";
+    EXPECT_FALSE( report.TextureGuidsRaised ) << "the file was already past the texture-GUID step";
     EXPECT_EQ( report.SpriteGuids.Rewritten, 8 );
     const std::string text = rfl::json::write( scene );
     EXPECT_EQ( Count( text, SpriteRef() ), 8u ) << text;
@@ -163,7 +167,8 @@ TEST( SceneSpriteGuidMigration, ANonexistentFileRefusesNamingEverySlotAndLeavesT
                                "Button > UIButton.PressedSprite", "Inst > PrefabOverrides[0] > UIPanel.Sprite" } )
         EXPECT_NE( report.Refused.find( site ), std::string::npos ) << site << " in " << report.Refused;
     EXPECT_NE( report.Refused.find( "Gone.detex" ), std::string::npos ) << report.Refused;
-    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), 29 );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kBeforeSpriteGuids )
+         << "a refused file was restamped";
 }
 
 TEST( SceneSpriteGuidMigration, AFileThatIsNotATextureRefuses )
