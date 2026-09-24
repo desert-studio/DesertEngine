@@ -20,6 +20,7 @@
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/DocumentWell.hpp"
+#include "Editor/Core/FlightRules.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
@@ -213,6 +214,11 @@ namespace Desert::Editor
         void DrawProfilerWindow();
         /// The profiler's CPU+GPU table as log lines — the panel's button and --gpu-profile share it.
         void DumpProfilerToLog();
+        /// --flight: times the previous frame's row and appends this frame's (Editor/Core/FlightRules.hpp).
+        /// @p counted is whether the capture counts this frame; an uncounted one is a Settling row.
+        void RecordFlightFrame( bool counted );
+        /// --flight, on the last frame: writes the CSV and logs the summary. False when either failed.
+        [[nodiscard]] bool FinishFlight();
 
         // ===== Popups =====
         void DrawPopups();
@@ -752,6 +758,8 @@ namespace Desert::Editor
         bool m_ShotCameraPlaced = false;
         // Set when any PNG of this capture could not be written; becomes the process exit status.
         bool m_ShotFailed = false;
+        // --flight: one row per frame of Play, written as the CSV when the capture ends.
+        Flight::FlightLog m_FlightLog;
 
         // ===== Control channel =====
         // Present only when `--control-socket` named one; silent otherwise. See

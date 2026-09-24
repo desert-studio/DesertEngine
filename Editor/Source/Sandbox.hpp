@@ -84,6 +84,28 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // throwaway worktree in the developer's registries. See CommandLine.hpp::IsUnattendedSession.
     const bool unattended = Desert::Editor::IsUnattendedSession( options.Shot, !options.ControlSocket.empty() );
 
+    // A FLIGHT'S TWO PATHS ARE THE CALLER'S, resolved against where the caller stood: the working directory
+    // moves below, and a route file or a CSV named relative to the shell would otherwise be looked for, or
+    // written, inside the engine's resources. The route file is read here, before any frame, because the
+    // frame count is its length — a flight that learned its route late would already have counted frames.
+    if ( auto& shot = options.Shot; shot.FlightRoute.has_value() )
+    {
+        shot.FlightCsv = std::filesystem::absolute( shot.FlightCsv ).string();
+        if ( !shot.FlightRoute->FilePath.empty() )
+        {
+            const auto text  = Common::Utils::FileSystem::ReadFileContent( shot.FlightRoute->FilePath );
+            auto       route = text ? Desert::Editor::Flight::ParseRouteFile( *shot.FlightRoute, text.GetValue() )
+                                    : Common::MakeError<Desert::Editor::Flight::Route>( text.GetError() );
+            if ( !route )
+            {
+                std::fprintf( stderr, "--flight: %s\n", route.GetError().c_str() );
+                std::exit( 2 );
+            }
+            shot.FlightRoute = route.ExtractValue();
+            Desert::Editor::ArmFlight( shot );
+        }
+    }
+
     // ── WHERE THIS PROCESS IS, AND WHAT THAT ANSWERS ────────────────────────────────────────────────
     //
     // A DOWNLOADED BUILD MUST START BY BEING DOUBLE-CLICKED. It did not: the CI artifact is COMPLETE

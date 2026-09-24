@@ -8,24 +8,18 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
+    -- FlightRules.hpp is pure; the suite also drives the command line that arms a flight, and
+    -- CommandLine.hpp checks --language against the locale table, which these two units provide.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshNormals.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshPolyGroups.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSelection.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshOperations.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshTopologyOperations.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",        -- <Engine/Geometry/EditMeshOperations.hpp>
-        "%{wks.location}/Desert/Tests/Engine/EditMesh", -- EditMeshTestSupport.hpp
-    }
-    externalincludedirs {
+        "%{wks.location}/Desert/Desert/Source", -- <Engine/Localization/LocaleFormat.hpp>
+        "%{wks.location}/Editor/Source",        -- <Editor/Core/FlightRules.hpp>, <Editor/Core/CommandLine.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

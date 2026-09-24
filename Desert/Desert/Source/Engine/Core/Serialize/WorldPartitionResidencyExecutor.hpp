@@ -284,6 +284,11 @@ namespace Desert::Core::Rules
             return static_cast<std::size_t>( std::count( m_Live.begin(), m_Live.end(), true ) );
         }
 
+        [[nodiscard]] const WorldPartitionPlan& Plan() const
+        {
+            return m_Plan;
+        }
+
         [[nodiscard]] std::size_t UnitOf( std::size_t record ) const
         {
             return m_UnitOfRecord.at( record );

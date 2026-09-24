@@ -1,8 +1,11 @@
 #pragma once
 
+#include <Editor/Core/FlightRules.hpp>
+
 #include <glm/glm.hpp>
 
 #include <cmath>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -166,6 +169,15 @@ namespace Desert::Editor
         // what a plain `--shot` does would invalidate the whole existing corpus at once.
         bool Play = false;
 
+        // --flight <route> --flight-speed <cm/s> --flight-csv <out.csv>: the camera flies the route during
+        // Play and every frame's cost is written to the CSV (Editor/Core/FlightRules.hpp). The route
+        // replaces --camera/--look for the whole run, and it sets Frames: the flight is as long as the
+        // route at that speed, not as long as somebody guessed. A `file:` route has its points read by the
+        // process (Sandbox.hpp) before any frame is drawn.
+        std::optional<Flight::Route> FlightRoute;
+        double                       FlightSpeed = 0.0;
+        std::string                  FlightCsv;
+
         // --- The pointer a headless capture has, and does not otherwise have (Ю12) -------------------
         //
         // WHY THIS EXISTS. `--shot` runs with no human and therefore with no cursor, so everything the UI
@@ -208,11 +220,12 @@ namespace Desert::Editor
         //     imitating runs at. Simulate longer by rendering more frames — `--shot-frames`, whose meaning
         //     ("how many frames are drawn") is left exactly as it was.
         static constexpr float PlayStepSeconds = 1.0f / 60.0f;
-        // Headless capture mode at all — either flavour of output activates it. `--shot-sequence` alone is
-        // a legitimate run: a motion study wants the frames and has no use for a designated last one.
+        // Headless capture mode at all — any flavour of output activates it. `--shot-sequence` alone is
+        // a legitimate run: a motion study wants the frames and has no use for a designated last one, and a
+        // flight's output is its CSV.
         bool Active() const
         {
-            return !Output.empty() || !Sequence.empty();
+            return !Output.empty() || !Sequence.empty() || FlightRoute.has_value();
         }
 
         // Whether THIS run advances gameplay time. `--play` outside a capture is not a mode: the editor's

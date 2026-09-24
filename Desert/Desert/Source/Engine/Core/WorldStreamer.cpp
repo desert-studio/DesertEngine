@@ -64,12 +64,15 @@ namespace Desert::Core
         if ( !where )
             return Common::MakeError( where.GetError() );
         const Rules::StreamingSource source = where.GetValue();
+        m_LastTick                          = TickReport{};
         auto                         tick   = m_Executor->Tick( std::span( &source, 1 ), nowSeconds, *this );
         if ( !tick )
             return Common::MakeError( "world streaming of '" + m_Records.SceneName + "': " + tick.GetError() );
 
         const Rules::ResidencyTick& done = tick.GetValue();
-        m_MostResident                   = std::max( m_MostResident, m_Executor->LiveRecords() );
+        m_LastTick.Tick                  = done;
+        m_LastTick.LiveRecords           = m_Executor->LiveRecords();
+        m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
         // A reference across a cell boundary is legal and its reader handles the absence — but it is SAID.
         if ( done.DeferredReferences > 0 || done.UnboundReferences > 0 )
         {
@@ -97,6 +100,14 @@ namespace Desert::Core
         m_RecordsActivated += records.size();
         m_ActivationMs += ms;
         m_WorstUnitMs = std::max( m_WorstUnitMs, ms );
+        // Begin activates nothing (it keeps what is there), so every call reaching here has an executor.
+        if ( m_Executor.has_value() && !records.empty() )
+        {
+            m_LastTick.ActivationMs += ms;
+            m_LastTick.ActivatedUnits +=
+                 ( m_LastTick.ActivatedUnits.empty() ? "" : " " ) +
+                 Rules::DescribeResidencyUnit( m_Executor->Plan(), m_Executor->UnitOf( records.front() ) );
+        }
         return made;
     }
 

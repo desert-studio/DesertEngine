@@ -1457,6 +1457,18 @@ namespace Desert::Editor
             if ( m_MainScene->GetActiveCamera() )
             {
                 m_MainScene->PinActiveCamera( m_MainScene->GetActiveCamera() );
+                if ( shot.FlightRoute.has_value() )
+                {
+                    // A ZERO AVERAGING WINDOW makes the profiler publish every frame, so the numbers read
+                    // on frame k are exactly frame k-1's (FlightLog). The window is a display setting; a
+                    // headless flight has no panel to smooth for, and one source of timing serves both.
+                    Common::Profiling::Profiler::Get().AvgWindowSeconds() = 0.0f;
+                    LOG_INFO( "[Flight] '{}': {:.0f} m at {:.0f} cm/s, {} warm-up frame(s) then {} frame(s); "
+                              "CSV to '{}'",
+                              shot.FlightRoute->Spec, Flight::RouteLength( *shot.FlightRoute ) / 100.0,
+                              shot.FlightSpeed, Flight::kWarmupFrames, shot.Frames - Flight::kWarmupFrames,
+                              shot.FlightCsv );
+                }
                 OnScenePlay();
                 LOG_INFO( "[Shot] --play: gameplay running at a fixed {} s step; the {} captured frames are "
                           "{} s of simulated time",
@@ -1488,9 +1500,18 @@ namespace Desert::Editor
         // exactly the warm-up frames. Without them `HasMotion()` is false, the placement happens once at
         // parameter 0, and the pose it computes is (Position, Forward) to the bit.
         if ( auto& shot = ShotOptions::Get(); shot.Active() && shot.HasCamera && !m_SceneLoadRequested &&
-                                              !StartupLoading() && ( !m_ShotCameraPlaced || shot.HasMotion() ) )
+                                              !StartupLoading() &&
+                                              ( !m_ShotCameraPlaced || shot.HasMotion() || shot.FlightRoute ) )
         {
-            if ( ::Desert::Core::EditorCamera* cam = ActiveEditorCamera() )
+            if ( ::Desert::Core::EditorCamera* cam = ActiveEditorCamera(); cam && shot.FlightRoute )
+            {
+                const Flight::Pose pose =
+                     Flight::PoseAt( *shot.FlightRoute, Flight::DistanceAt( m_ShotFrame, shot.FlightSpeed,
+                                                                            ShotOptions::PlayStepSeconds ) );
+                PlaceEditorCamera( *cam, pose.Position, pose.Forward );
+                cam->SetInputEnabled( false );
+            }
+            else if ( cam )
             {
                 // THE SAME PLACEMENT THE CONTROL CHANNEL USES. It used to be spelled out here, with the
                 // framing distance written twice on one line as a bare 500.0f — and it was the ONLY way to
@@ -1538,6 +1559,11 @@ namespace Desert::Editor
         // the sky, so a low-frame capture would photograph a scene with no clouds in it and file it as
         // the picture of the scene -- the same shape as the blank-PNG trap the verification skill warns
         // about, and just as invisible in a diff of two such frames.
+        if ( const auto& shot = ShotOptions::Get();
+             shot.FlightRoute && m_MainScene && !m_SceneLoadRequested && !StartupLoading() &&
+             m_MainScene->GetState() == ::Desert::Core::Scene::SceneState::Play )
+            RecordFlightFrame( !ContentSettling() );
+
         if ( auto& shot = ShotOptions::Get();
              shot.Active() && !m_SceneLoadRequested && !StartupLoading() && !ContentSettling() )
         {
@@ -1568,6 +1594,8 @@ namespace Desert::Editor
                 }
                 if ( shot.GpuProfile )
                     DumpProfilerToLog();
+                if ( shot.FlightRoute && !FinishFlight() )
+                    m_ShotFailed = true;
 
                 // WHAT THE CAPTURE COST ON THE DEVICE, AT THE ONE INSTANT THE PICTURE DESCRIBES.
                 //
@@ -4174,6 +4202,22 @@ namespace Desert::Editor
                                   Commands::NotifyCreated( { uuid } );
                                   return PaletteCommandDone();
                               } } );
+        // UE's Convert to Static Mesh: the selected EditMesh entity's geometry becomes a new .stmesh asset,
+        // written where the modeling tools' Output settings say (Modeling panel, "Output Type").
+        commands.push_back(
+             { "Entity", "Convert to Static Mesh", []
+               {
+                   const auto& selection = Core::SelectionManager::GetSelection();
+                   if ( selection.size() != 1 )
+                       return Common::MakeFormattedError<bool>(
+                            "select exactly one object to convert ({} selected)", selection.size() );
+                   const auto& out     = Core::ModelingState::Get().Output;
+                   const auto  written = Commands::ConvertToStaticMesh( selection.front(), out.Folder, out.Name );
+                   if ( !written.IsSuccess() )
+                       return Common::MakeError<bool>( written.GetError() );
+                   LOG_INFO( "[Modeling] converted to static mesh '{}'", written.GetValue().generic_string() );
+                   return Common::MakeSuccess( true );
+               } } );
         commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh", []
                               {
                                   const auto folded = Commands::CollapseIntoInstancedMesh(
@@ -4411,17 +4455,19 @@ namespace Desert::Editor
                    state.ReqPickCentre = true;
                    return PaletteCommandDone();
                } } );
-        // The operations on that selection, at the panel's distance (ModelingState::ElementOpDistance).
+        // The operations on that selection, at the panel's values (ModelingState). Cut is not here: it needs
+        // a line drawn in the viewport (the knife, Alt+K).
         for ( const Core::MeshOperation op :
               { Core::MeshOperation::Delete, Core::MeshOperation::Extrude, Core::MeshOperation::PushPull,
-                Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset } )
+                Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
+                Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
                                   {
                                       if ( !m_MainScene )
                                           return PaletteCommandOutcome( false, "no scene is open" );
-                                      return Core::ApplyMeshOperation(
-                                           *m_MainScene, op, Core::ModelingState::Get().ElementOpDistance );
+                                      return Core::ApplyMeshOperation( *m_MainScene, op,
+                                                                       Core::ArgsFromModelingState() );
                                   } } );
         }
         commands.push_back( { "View", "Toggle 2D UI mode", [this]
@@ -6355,6 +6401,66 @@ namespace Desert::Editor
     //
     // The GPU column comes from the backend's timestamp queries, so it is device time, not the CPU's wait
     // for it; the two columns disagreeing is the interesting case rather than a fault.
+    void EditorLayer::RecordFlightFrame( bool counted )
+    {
+        const ShotOptions&           shot     = ShotOptions::Get();
+        Common::Profiling::Profiler& profiler = Common::Profiling::Profiler::Get();
+
+        double gpuMs    = Flight::kNotMeasured;
+        double streamMs = 0.0;
+        for ( const Common::Profiling::ScopeResult& scope : profiler.LastFrame() )
+        {
+            if ( scope.Name == Common::Profiling::kGpuFrameTotalScope && profiler.GpuEnabled() )
+                gpuMs = scope.GpuMs;
+            else if ( scope.Name == "WorldStreamer::Tick" )
+                streamMs = scope.TotalMs;
+        }
+        m_FlightLog.TimeLast( profiler.LastFrameMs(), gpuMs, streamMs );
+
+        Flight::FrameRow row;
+        row.Frame    = m_ShotFrame;
+        row.Kind     = m_ShotFrame < Flight::kWarmupFrames ? Flight::Phase::Warmup
+                       : counted                           ? Flight::Phase::Flight
+                                                           : Flight::Phase::Settling;
+        row.Distance = Flight::DistanceAt( m_ShotFrame, shot.FlightSpeed, ShotOptions::PlayStepSeconds );
+        row.Position = Flight::PoseAt( *shot.FlightRoute, row.Distance ).Position;
+        row.Entities = m_MainScene->GetAllEntities().size();
+        if ( m_WorldStreamer && m_WorldStreamer->Streams( *m_MainScene ) )
+        {
+            const auto& report   = m_WorldStreamer->LastTick();
+            row.ResidentRecords  = report.LiveRecords;
+            row.UnitsActivated   = report.Tick.UnitsActivated;
+            row.UnitsDeactivated = report.Tick.UnitsDeactivated;
+            row.RecordsActivated = report.Tick.RecordsActivated;
+            row.RecordsDestroyed = report.Tick.RecordsDestroyed;
+            row.ActivationMs     = report.ActivationMs;
+            row.ActivatedUnits   = report.ActivatedUnits;
+        }
+        m_FlightLog.Append( std::move( row ) );
+    }
+
+    bool EditorLayer::FinishFlight()
+    {
+        const ShotOptions& shot = ShotOptions::Get();
+        const auto         rows = m_FlightLog.Rows();
+        const auto         written =
+             Common::Utils::FileSystem::WriteContentToFileAtomic( shot.FlightCsv, Flight::Csv( rows ) );
+        if ( !written.IsSuccess() )
+        {
+            LOG_ERROR( "[Flight] the CSV was not written to '{}': {}", shot.FlightCsv, written.GetError() );
+            return false;
+        }
+        const auto summary = Flight::Summarise( rows );
+        if ( !summary.IsSuccess() )
+        {
+            LOG_ERROR( "[Flight] '{}': {}", shot.FlightRoute->Spec, summary.GetError() );
+            return false;
+        }
+        LOG_INFO( "[Flight] '{}' at {:.0f} cm/s, {} row(s) in '{}': {}", shot.FlightRoute->Spec, shot.FlightSpeed,
+                  rows.size(), shot.FlightCsv, Flight::Describe( summary.GetValue(), rows ) );
+        return true;
+    }
+
     void EditorLayer::DumpProfilerToLog()
     {
         auto& prof = ::Common::Profiling::Profiler::Get();

@@ -13,6 +13,7 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <array>
 
 namespace Desert::Editor
 {
@@ -179,6 +180,7 @@ namespace Desert::Editor
                     ImGui::SetTooltip( "Keep what you built as a mesh and start a fresh grid.\n"
                                        "The grid frame and Block Size carry over." );
             }
+            DrawOutputType();
             if ( Utils::ImGuiUtilities::SectionHeader( "Grid Reinitialization" ) )
             {
                 if ( ImGui::Button( "Reset Grid from Actor", ImVec2( -1.0f, 0.0f ) ) )
@@ -390,9 +392,43 @@ namespace Desert::Editor
                 ImGui::SetTooltip( "On: the click lands on the object under the cursor (its bounding box),\n"
                                    "or on the ground where there is none. Off: always the ground, Y = 0." );
         }
+        DrawOutputType();
         ImGui::Spacing();
         ImGui::TextDisabled( "LMB in the viewport places the shape." );
         ImGui::TextDisabled( "Ctrl+Z removes it again." );
+    }
+
+    // UE's "Output Type" section (UCreateMeshObjectTypeProperties), shared by the creating tools.
+    void ModelingPanel::DrawOutputType()
+    {
+        using MS  = Core::ModelingState;
+        auto& out = MS::Get().Output;
+        if ( !Utils::ImGuiUtilities::SectionHeader( "Output Type" ) )
+            return;
+        static constexpr std::array<const char*, 2> kTypes = { "Static Mesh", "Dynamic Mesh" };
+        int                                         type   = out.Type == MS::OutputType::StaticMesh ? 0 : 1;
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##OutputType", &type, kTypes.data(), static_cast<int>( kTypes.size() ) ) )
+            out.Type = type == 0 ? MS::OutputType::StaticMesh : MS::OutputType::Dynamic;
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Static Mesh: Accept writes a new .stmesh asset and the object draws it.\n"
+                               "Dynamic Mesh: the mesh stays on the object, editable, saved in the scene." );
+        if ( out.Type != MS::OutputType::StaticMesh )
+            return;
+
+        // Plain buffers round-tripped through the settings' strings: the panel has no std::string input.
+        std::array<char, 128> folder{};
+        std::array<char, 128> name{};
+        out.Folder.copy( folder.data(), folder.size() - 1 );
+        out.Name.copy( name.data(), name.size() - 1 );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::InputTextWithHint( "##OutputFolder", "Asset folder", folder.data(), folder.size() ) )
+            out.Folder = folder.data();
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Folder inside Cooked/Meshes. A taken name gets _1, _2, ... - never overwritten." );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::InputTextWithHint( "##OutputName", "Asset name (object name)", name.data(), name.size() ) )
+            out.Name = name.data();
     }
 
     void ModelingPanel::DrawElementSelection()
@@ -460,10 +496,12 @@ namespace Desert::Editor
                 LOG_WARN( "Mesh {0}: the Modeling panel has no scene", Core::ToString( op ) );
                 return;
             }
-            report( Core::ApplyMeshOperation( *m_Scene, op, ms.ElementOpDistance ) );
+            report( Core::ApplyMeshOperation( *m_Scene, op, Core::ArgsFromModelingState() ) );
         };
-        const MO grid[3][2] = {
-             { MO::Extrude, MO::PushPull }, { MO::Inset, MO::Outset }, { MO::Offset, MO::Delete } };
+        const MO grid[4][2] = { { MO::Extrude, MO::PushPull },
+                                { MO::Inset, MO::Outset },
+                                { MO::Offset, MO::Delete },
+                                { MO::Bevel, MO::InsertEdgeLoop } };
         for ( const auto& row : grid )
         {
             if ( ImGui::Button( Core::ToString( row[0] ), ImVec2( half, 0.0f ) ) )
@@ -472,8 +510,17 @@ namespace Desert::Editor
             if ( ImGui::Button( Core::ToString( row[1] ), ImVec2( half, 0.0f ) ) )
                 operate( row[1] );
         }
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::SliderFloat( "##ElementLoopPosition", &ms.ElementLoopPosition, 0.01f, 0.99f, "Loop at %.2f" );
+        ImGui::SetNextItemWidth( half );
+        ImGui::DragFloat( "##ElementWeldTolerance", &ms.ElementWeldTolerance, 0.001f, 0.0f, 10.0f,
+                          "Weld %.3f cm" );
+        ImGui::SameLine();
+        if ( ImGui::Button( Core::ToString( MO::Clean ), ImVec2( half, 0.0f ) ) )
+            operate( MO::Clean );
         ImGui::Spacing();
         ImGui::TextDisabled( "LMB select, Shift+LMB add, Ctrl+LMB remove" );
         ImGui::TextDisabled( "Del delete, Alt+E extrude, Alt+I inset, Alt+O offset" );
+        ImGui::TextDisabled( "Alt+B bevel, Alt+L edge loop, Alt+K knife (two clicks)" );
     }
 } // namespace Desert::Editor

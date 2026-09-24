@@ -171,6 +171,17 @@ namespace Desert::Core::Rules
         return plan.AlwaysLoaded.size() + plan.Cells.size();
     }
 
+    // A unit's name for a report: "L1(3,-2)" for the level-1 cell at X 3, Z -2, "A5" for the sixth
+    // always-loaded composite. Short, because a flight's CSV writes one per activation.
+    [[nodiscard]] inline std::string DescribeResidencyUnit( const WorldPartitionPlan& plan, std::size_t unit )
+    {
+        if ( unit < plan.AlwaysLoaded.size() )
+            return "A" + std::to_string( unit );
+        const PlannedCell& cell = plan.Cells.at( unit - plan.AlwaysLoaded.size() );
+        return "L" + std::to_string( cell.Level ) + "(" + std::to_string( cell.Cell.X ) + "," +
+               std::to_string( cell.Cell.Z ) + ")";
+    }
+
     // Records a unit brings into the world: the members of every composite it holds.
     [[nodiscard]] inline std::size_t ResidencyUnitRecords( const WorldPartitionPlan& plan, std::size_t unit )
     {

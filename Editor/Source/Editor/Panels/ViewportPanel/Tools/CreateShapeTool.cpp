@@ -85,9 +85,10 @@ namespace Desert::Editor::Tools
         return ray.Origin + ray.Direction * t;
     }
 
-    Common::ResultStr<Common::UUID> CreateShapeTool::Place( ::Desert::Core::Scene&   scene,
-                                                            const MS::ShapeSettings& settings,
-                                                            const glm::vec3&         position )
+    Common::ResultStr<Common::UUID> CreateShapeTool::Place( ::Desert::Core::Scene&    scene,
+                                                            const MS::ShapeSettings&  settings,
+                                                            const MS::OutputSettings& output,
+                                                            const glm::vec3&          position )
     {
         auto mesh = Geometry::ShapeToEditMesh( Build( settings ) );
         if ( !mesh.IsSuccess() )
@@ -105,9 +106,20 @@ namespace Desert::Editor::Tools
             return Common::MakeFormattedError<Common::UUID>( "the {} was not placed: {}",
                                                              MS::ShapeName( settings.Kind ), set.GetError() );
         }
-        // ONE undo step: undo removes the entity (snapshotting it, EditMesh included, through the scene
-        // serializer), redo brings it back under the same UUID.
         const Common::UUID id = entity.GetComponent<ECS::UUIDComponent>().UUID;
+        // Output: Static Mesh swaps the EditMesh for a new asset BEFORE the creation is recorded, so the one
+        // step below creates the finished static-mesh entity. A refused write takes the entity back out:
+        // the tool placed nothing rather than something other than what the Output setting asked for.
+        if ( output.Type == MS::OutputType::StaticMesh )
+            if ( auto written = Commands::OutputStaticMesh( id, output.Folder, output.Name );
+                 !written.IsSuccess() )
+            {
+                scene.DestroyEntity( entity );
+                return Common::MakeFormattedError<Common::UUID>(
+                     "the {} was not placed: {}", MS::ShapeName( settings.Kind ), written.GetError() );
+            }
+        // ONE undo step: undo removes the entity (snapshotting it through the scene serializer - the EditMesh
+        // or the mesh reference), redo brings it back under the same UUID.
         Commands::NotifyCreated( { id } );
         Core::SelectionManager::SetSelected( id );
         return Common::MakeSuccess( id );
@@ -130,7 +142,7 @@ namespace Desert::Editor::Tools
             ms.ReqPlaceCentre = false;
             if ( const auto point = PlacementPoint( scene, CentreRay( ray, viewProj ), settings.Place ) )
             {
-                if ( auto placed = Place( scene, settings, *point ); !placed.IsSuccess() )
+                if ( auto placed = Place( scene, settings, ms.Output, *point ); !placed.IsSuccess() )
                     LOG_ERROR( "[CreateShape] {0}", placed.GetError() );
             }
             else
@@ -191,7 +203,7 @@ namespace Desert::Editor::Tools
         const ImGuiIO& io = ::ImGui::GetIO();
         if ( !::ImGui::IsAnyItemActive() && !io.KeyAlt && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
         {
-            if ( auto placed = Place( scene, settings, *point ); !placed.IsSuccess() )
+            if ( auto placed = Place( scene, settings, ms.Output, *point ); !placed.IsSuccess() )
                 LOG_ERROR( "[CreateShape] {0}", placed.GetError() );
         }
     }

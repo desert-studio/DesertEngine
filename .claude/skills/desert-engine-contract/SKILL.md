@@ -342,15 +342,20 @@ contract, for agents and for the lead alike:
    of 7–12k tokens were the single largest item in the measured sessions.
 2. **Long output goes to a file**, and only its tail or a `grep` of it enters the context: builds, suite runs,
    logs, `gh run view --log`.
-3. **Broad discovery is delegated** to a sub-agent (Explore): what it reads stays in its disposable context and
-   only the conclusion comes back. Read yourself only what you are about to change.
+3. **Broad discovery is delegated — and the first step of every task is one Explore call** that returns the
+   map (files:lines to change, suites and censuses touched). After it, no tree-wide `grep -r`/`rg`/`find` in the
+   working context; a wider question is another Explore call. Measured 2026-09-24: no agent had used Explore,
+   and shell search alone was 25–38 % of every task.
 4. **Batch independent calls** into one; every call is a turn and every turn re-reads everything.
-5. **Wait in chunks under 5 minutes** (a counted loop) up to ~50 minutes; a CI run is one background wait.
+5. **No pause between calls longer than 5 minutes** — an expired cache rewrites the whole context (up to
+   566k tokens in one measured task). Long builds run in the background and are polled in chunks under
+   5 minutes; the editor is built at most twice per task, iterations run on suites.
 6. **Proof is proportionate**: 3–5 mutations that attack the main invariant, a frame only when the change is
    visible, the suites the change reaches plus the censuses — the full sweep only per the lead's batch rule.
 7. **Reports are short** (~40 lines): done, proven by (numbers), builds, what the brief got wrong, remainder.
-8. **Tasks are sized to ≤ ~120–150 turns.** A task that grows beyond ×1.5 is reported at once and split —
-   cost grows roughly with the square of the turns, because context grows while it is re-read.
+8. **Tasks are sized to ≤ 80 turns.** At turn 60 with no end in sight, stop at a step boundary, push, report;
+   the rest goes to a fresh agent. Cost grows roughly with the square of the turns (two 60-turn tasks cost
+   about half of one 120-turn task). Measured 2026-09-24: 95–180-turn tasks cost 200–310k tokens each.
 9. **Build through the shared ccache** and never rename a lane's worktree (the PCH pins absolute paths).
 
 ## Related
