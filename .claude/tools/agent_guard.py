@@ -251,7 +251,7 @@ def main():
              data, agent)
 
     # The build tree is shared state and costs a full rebuild (~10 min, a dozen calls of waiting) to recreate.
-    if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\bclean\b|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd):
+    if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\sclean(\s|$|;|&)|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd):
         save_state(state, path)
         deny("[agent_guard] Дерево сборки не чистится: make clean / rm -rf build стоит полной пересборки. Устаревший "
              "объект — пересобери один файл (touch источника) или удали один .o.", data, agent)
