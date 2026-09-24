@@ -689,7 +689,11 @@ namespace Desert::Graphic
         // DepthPrePass, the forward pass in Geometry, the G-buffer fill after the graph).
         {
             DESERT_PROFILE_PASS( "Terrain: PrepareFrame" );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
+            // type
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
             UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame();
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
 
         {
@@ -736,7 +740,11 @@ namespace Desert::Graphic
                 // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is
                 // the graph's "TerrainPass").
                 DESERT_PROFILE_PASS( "TerrainGBuffer" );
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
+                // type
+                // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
                 UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->RenderGBufferManual();
+                // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
             }
 
             // Resolve the G-buffer depth (static opaque geometry) into the scene target depth. The deferred
@@ -1111,6 +1119,7 @@ namespace Desert::Graphic
         BindRecordingSlot(); // same reason as OnUpdate: the phases interleave across views
 
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->ClearQueue();
 
         m_PointLight.PointLights.clear();
@@ -1344,6 +1353,7 @@ namespace Desert::Graphic
                                        float noiseFrequency, int seed, const glm::vec3& layerModes,
                                        Image2D* splatMap, const MaterialOverrides& overrides )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Transform      = transform,
                          .Size           = size,
@@ -1358,8 +1368,9 @@ namespace Desert::Graphic
 
     void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile )
     {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-             ->Submit( { .Heightmap = heightmap, .Landscape = tile } );
+             ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Overrides = {} } );
     }
 
     void SceneRenderer::SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform,

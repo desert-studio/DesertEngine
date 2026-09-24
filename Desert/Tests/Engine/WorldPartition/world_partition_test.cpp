@@ -179,10 +179,18 @@ namespace
         std::vector<std::filesystem::path> scenes;
         std::error_code                    ec;
         const std::filesystem::path        root = RepoRoot() + "Editor/Resources/Assets/Scenes";
-        for ( const auto& entry : std::filesystem::recursive_directory_iterator( root, ec ) )
+        for ( auto it = std::filesystem::recursive_directory_iterator( root, ec );
+              it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
         {
-            if ( entry.is_regular_file() && entry.path().extension() == ".desce" )
-                scenes.push_back( entry.path() );
+            // Scenes/Autosave is .gitignore'd: the editor writes it on THIS machine only, so a census that
+            // walked it would pin numbers no clean clone can reproduce (it moved the corpus by 17 records).
+            if ( it->is_directory() && it->path().filename() == "Autosave" )
+            {
+                it.disable_recursion_pending();
+                continue;
+            }
+            if ( it->is_regular_file() && it->path().extension() == ".desce" )
+                scenes.push_back( it->path() );
         }
         return scenes;
     }
@@ -624,8 +632,9 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheCommitte
             std::error_code ec;
             std::filesystem::current_path( Saved, ec );
         }
-    } restore;
+    } const restore;
     std::vector<std::filesystem::path> absolute;
+    absolute.reserve( scenes.size() );
     for ( const auto& scene : scenes )
         absolute.push_back( std::filesystem::absolute( scene ) );
     std::filesystem::current_path( std::filesystem::absolute( root + "Editor" ) );
@@ -840,17 +849,26 @@ TEST( WorldPartitionLevels, ASphereAndAPlaneHaveTheBoxesTheFactoryStamps )
     With( records[0], "StaticMesh", R"({"Primitive":"Sphere"})" );
     const WorldPartitionPlan ball = PlanWorldPartition( records, Cells( 10000.0f ) );
     ASSERT_TRUE( ball.Composites[0].Footprint.has_value() );
-    EXPECT_NEAR( ball.Composites[0].Footprint->MaxX, 10010.0f, 0.01f );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( ball.Composites[0].Footprint.value().MaxX, 10010.0f,
+                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( ball.Composites[0].Level, 1 ) << "the ball crosses the 10000 edge";
     EXPECT_EQ( ball.PointOnlyRecords, 0u );
 
     With( records[0], "StaticMesh", R"({"Primitive":"Plane"})" );
     const WorldPartitionPlan card = PlanWorldPartition( records, Cells( 10000.0f ) );
     ASSERT_TRUE( card.Composites[0].Footprint.has_value() );
-    EXPECT_NEAR( card.Composites[0].Footprint->MinX, 9910.0f, 0.01f );
-    EXPECT_NEAR( card.Composites[0].Footprint->MaxX, 10010.0f, 0.01f );
-    EXPECT_NEAR( card.Composites[0].Footprint->MinZ, 500.0f, 0.01f );
-    EXPECT_NEAR( card.Composites[0].Footprint->MaxZ, 500.0f, 0.01f );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( card.Composites[0].Footprint.value().MinX, 9910.0f,
+                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( card.Composites[0].Footprint.value().MaxX, 10010.0f,
+                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( card.Composites[0].Footprint.value().MinZ, 500.0f,
+                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( card.Composites[0].Footprint.value().MaxZ, 500.0f,
+                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( card.PointOnlyRecords, 0u );
 
     // The unknown spelling is not a shape, and is its position.
@@ -863,9 +881,10 @@ TEST( WorldPartitionLevels, ASphereAndAPlaneHaveTheBoxesTheFactoryStamps )
 namespace
 {
     // A registry of one mesh, the way the loader's source answers: by handle, else by path.
-    Desert::Core::Rules::AssetBoundsSource OneMesh( std::uint64_t handle, std::string path,
+    Desert::Core::Rules::AssetBoundsSource OneMesh( std::uint64_t handle, const std::string& path,
                                                     Common::Math::AABB box )
     {
+        // NOLINTNEXTLINE(bugprone-exception-escape): test fixture
         return [=]( std::uint64_t asked, std::string_view named ) -> std::optional<Common::Math::AABB>
         {
             if ( ( asked != 0 && asked == handle ) || ( !named.empty() && named == path ) )
@@ -896,8 +915,8 @@ TEST( WorldPartitionMeshAssets, AKilometreBridgeModelGoesToTheLevelThatHoldsIt )
     const WorldPartitionPlan seen   = PlanWorldPartition( records, Cells( 12800.0f ), source );
     const PlannedComposite&  bridge = HeldBy( seen, 0 );
     ASSERT_TRUE( bridge.Footprint.has_value() );
-    EXPECT_NEAR( bridge.Footprint->MaxX, 101000.0f, 0.5f );
-    EXPECT_NEAR( bridge.Footprint->MinZ, 700.0f, 0.5f );
+    EXPECT_NEAR( bridge.Footprint.value().MaxX, 101000.0f, 0.5f ); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( bridge.Footprint.value().MinZ, 700.0f, 0.5f );    // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_EQ( bridge.Level, 3 );
     EXPECT_EQ( seen.PointOnlyRecords, 1u ) << "only the rock, which names no mesh, is still a point";
 }
@@ -923,10 +942,10 @@ TEST( WorldPartitionMeshAssets, TheBoxIsCarriedByTheWorldMatrixNotJustThePositio
     // Pivot turns +X onto -Z. Beam at local (500, 0, 500) -> world (500, 0, -500); its box runs 2000 along
     // local X -> world -Z, from -500 to -2500, and is 40 wide in X around 500. The pivot's own position,
     // the origin, is the composite's other corner.
-    EXPECT_NEAR( held.Footprint->MinZ, -2500.0f, 0.5f );
-    EXPECT_NEAR( held.Footprint->MaxZ, 0.0f, 0.5f );
-    EXPECT_NEAR( held.Footprint->MaxX, 520.0f, 0.5f );
-    EXPECT_NEAR( held.Footprint->MinX, 0.0f, 0.5f );
+    EXPECT_NEAR( held.Footprint.value().MinZ, -2500.0f, 0.5f ); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( held.Footprint.value().MaxZ, 0.0f, 0.5f );     // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( held.Footprint.value().MaxX, 520.0f, 0.5f );   // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( held.Footprint.value().MinX, 0.0f, 0.5f );     // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_EQ( plan.PointOnlyRecords, 1u ) << "the pivot names nothing and stays a point";
 }
 
@@ -943,7 +962,10 @@ TEST( WorldPartitionMeshAssets, ASkinnedMeshIsAskedByItsExactHandle )
          OneMesh( kHandle, "", Common::Math::AABB{ glm::vec3( -30.0f, 0.0f, -20000.0f ), glm::vec3( 30.0f ) } );
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
     ASSERT_TRUE( plan.Composites[0].Footprint.has_value() );
-    EXPECT_NEAR( plan.Composites[0].Footprint->MinZ, -20000.0f, 0.5f );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( plan.Composites[0].Footprint.value().MinZ, -20000.0f,
+                 0.5f ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( plan.PointOnlyRecords, 0u ) << "the exact handle was not found - read through a double?";
 }
 
@@ -1185,10 +1207,16 @@ TEST( WorldPartitionLandscape, EveryTileIsItsOwnCompositeAtLevelZeroInItsOwnCell
         EXPECT_EQ( held.Cell.Z, tile.Z ) << "tile record " << tile.Record;
         // The tile's footprint IS its rectangle: all four corners, nothing of its far-away entity position.
         ASSERT_TRUE( held.Footprint.has_value() );
-        EXPECT_FLOAT_EQ( held.Footprint->MinX, tile.X * kTileCm );
-        EXPECT_FLOAT_EQ( held.Footprint->MaxX, ( tile.X + 1 ) * kTileCm );
-        EXPECT_FLOAT_EQ( held.Footprint->MinZ, tile.Z * kTileCm );
-        EXPECT_FLOAT_EQ( held.Footprint->MaxZ, ( tile.Z + 1 ) * kTileCm );
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        EXPECT_FLOAT_EQ( held.Footprint.value().MinX,
+                         tile.X * kTileCm ); // NOLINT(bugprone-unchecked-optional-access)
+        EXPECT_FLOAT_EQ( held.Footprint.value().MaxX,
+                         ( tile.X + 1 ) * kTileCm ); // NOLINT(bugprone-unchecked-optional-access)
+        EXPECT_FLOAT_EQ( held.Footprint.value().MinZ,
+                         tile.Z * kTileCm ); // NOLINT(bugprone-unchecked-optional-access)
+        EXPECT_FLOAT_EQ( held.Footprint.value().MaxZ,
+                         ( tile.Z + 1 ) * kTileCm ); // NOLINT(bugprone-unchecked-optional-access)
+        // NOLINTEND(bugprone-unchecked-optional-access)
     }
 
     EXPECT_EQ( plan.Cells.size(), 4u );

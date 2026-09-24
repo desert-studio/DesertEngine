@@ -244,6 +244,7 @@ TEST( WorldPartitionStreaming, TwoSourcesAreAUnionAndEachCellGoesToItsNearestSou
     // Overlapping: sources 3 cells apart share cells; each shared one is listed once, at its nearer source.
     const StreamingWish overlap = Query( plan, settings, { At( 6400.0f, 6400.0f ), At( 44800.0f, 6400.0f ) } );
     std::vector<std::size_t> seen;
+    seen.reserve( overlap.Cells.size() );
     for ( const WantedCell& wanted : overlap.Cells )
         seen.push_back( wanted.Cell );
     std::sort( seen.begin(), seen.end() );
@@ -368,6 +369,7 @@ TEST( WorldPartitionStreaming, RandomPlansAgreeWithAWalkOverEveryCell )
         std::uniform_real_distribution<float> where( -30.0f * size, 30.0f * size );
         const std::array<float, 5>            scales      = { 0.0f, 0.5f, 1.0f, 2.0f, 40.0f };
         const int                             sourceCount = std::uniform_int_distribution<int>( 1, 3 )( random );
+        sources.reserve( sourceCount );
         for ( int index = 0; index < sourceCount; ++index )
             sources.push_back( At( where( random ), where( random ),
                                    scales[std::uniform_int_distribution<std::size_t>( 0, 4 )( random )] ) );
@@ -435,6 +437,7 @@ TEST( WorldPartitionStreaming, OneQueryOnAFiftyThousandCellWorldMeasuresAFewDoze
     std::mt19937                              random( 11u );
     std::uniform_real_distribution<float>     where( -1.4e6f, 1.4e6f );
     std::vector<std::vector<StreamingSource>> probes;
+    probes.reserve( 1000 );
     for ( int index = 0; index < 1000; ++index )
         probes.push_back( { At( where( random ), where( random ) ) } );
 
@@ -449,7 +452,7 @@ TEST( WorldPartitionStreaming, OneQueryOnAFiftyThousandCellWorldMeasuresAFewDoze
     }
     const double perQuery =
          std::chrono::duration<double, std::micro>( std::chrono::steady_clock::now() - start ).count() /
-         probes.size();
+         static_cast<double>( probes.size() );
 
     const auto  referenceStart  = std::chrono::steady_clock::now();
     std::size_t referenceWanted = 0;
@@ -460,7 +463,8 @@ TEST( WorldPartitionStreaming, OneQueryOnAFiftyThousandCellWorldMeasuresAFewDoze
          100.0;
 
     std::cout << "[ streaming ] " << plan.Cells.size() << " cells, 1 source: " << perQuery << " us/query, at most "
-              << examined << " squares measured, " << static_cast<double>( wanted ) / probes.size()
+              << examined << " squares measured, "
+              << static_cast<double>( wanted ) / static_cast<double>( probes.size() )
               << " cells wanted on average; walk over every cell " << perReference << " us/query ("
               << referenceWanted << " wanted over 100)\n";
 

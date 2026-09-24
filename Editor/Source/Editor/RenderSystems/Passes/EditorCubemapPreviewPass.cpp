@@ -53,7 +53,7 @@ namespace Desert::Editor::Render
             // cubemap dropped onto (or cleared from) the subject shows next frame with no
             // invalidation protocol. The closure is two map lookups; see the header.
             const Graphic::SampledCube source = m_ResolveCube();
-            if ( !source.Cube )
+            if ( source.Cube == nullptr )
                 return;
 
             m_Material->Update( ctx.Camera, source.Cube, source.Look, m_Radius );

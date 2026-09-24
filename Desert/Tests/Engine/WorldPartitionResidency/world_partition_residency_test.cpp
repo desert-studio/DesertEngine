@@ -156,7 +156,7 @@ namespace
             return step;
         }
 
-        std::set<std::size_t> In( Residency residency ) const
+        [[nodiscard]] std::set<std::size_t> In( Residency residency ) const
         {
             std::set<std::size_t> units;
             for ( std::size_t unit = 0; unit < State.Units.size(); ++unit )
@@ -315,7 +315,7 @@ TEST( WorldPartitionResidency, PacingAcrossALoadBoundaryDoesNotFlicker )
 
     const auto [churn, activated] = pace( 0.25f );
     EXPECT_EQ( churn, 0u );
-    EXPECT_TRUE( activated.count( 1 + 1 ) && activated.count( 1 + 5 ) ) << "both edge cells stay activated";
+    EXPECT_TRUE( activated.contains( 1 + 1 ) && activated.contains( 1 + 5 ) ) << "both edge cells stay activated";
 
     const std::size_t churnWithoutMargin = pace( 0.0f ).first;
     EXPECT_GT( churnWithoutMargin, 20u )

@@ -100,7 +100,7 @@ namespace
 
     std::string ReadText( const fs::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
+        std::ifstream const in( path, std::ios::binary );
         std::ostringstream ss;
         ss << in.rdbuf();
         return ss.str();
@@ -125,7 +125,8 @@ namespace
         for ( TileEntity& entity : scene.Tiles )
         {
             const fs::path blob    = LandscapeTileBlobPath( scenePath, entity.Id );
-            const auto     written = WriteLandscapeTileFile( blob, *entity.Tile.Heights );
+            const auto     written = WriteLandscapeTileFile(
+                 blob, entity.Tile.Heights.value() ); // NOLINT(bugprone-unchecked-optional-access)
             ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
             entity.Tile.HeightFile = blob.generic_string();
 
@@ -157,7 +158,8 @@ namespace
             if ( const auto block = record.Components.get( "LandscapeTile" ); block.has_value() )
             {
                 TileEntity entity;
-                entity.Id = static_cast<uint64_t>( record.id.value() );
+                entity.Id =
+                     static_cast<uint64_t>( record.id.value() ); // NOLINT(bugprone-unchecked-optional-access)
                 ReadComponent( block.value().to_object().value(), entity.Tile );
                 auto loaded = ReadLandscapeTileFile( entity.Tile.HeightFile );
                 EXPECT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
@@ -206,7 +208,7 @@ TEST( LandscapeScene, SaveLoadSaveIsByteIdenticalForTheSceneAndEveryTileFile )
         EXPECT_EQ( fs::path( entity.Tile.HeightFile ).extension(), ".dlht" );
         firstTiles.push_back( ReadText( entity.Tile.HeightFile ) );
         EXPECT_EQ( firstTiles.back().size(),
-                   kLandscapeTileHeaderSize + 2u * 32u * 32u + kLandscapeTileTrailerSize );
+                   kLandscapeTileHeaderSize + std::size_t{ 2 } * 32u * 32u + kLandscapeTileTrailerSize );
     }
     EXPECT_LT( firstScene.size(), 4096u ) << "the samples must not be in the scene text";
 
@@ -224,7 +226,11 @@ TEST( LandscapeScene, SaveLoadSaveIsByteIdenticalForTheSceneAndEveryTileFile )
         EXPECT_EQ( after.Tile.TileX, before.Tile.TileX );
         EXPECT_EQ( after.Tile.TileZ, before.Tile.TileZ );
         ASSERT_TRUE( after.Tile.Heights.has_value() );
-        EXPECT_EQ( after.Tile.Heights->Samples(), before.Tile.Heights->Samples() ) << "tile " << index;
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        EXPECT_EQ( after.Tile.Heights.value().Samples(),
+                   before.Tile.Heights.value().Samples() ) // NOLINT(bugprone-unchecked-optional-access)
+             << "tile " << index;
+        // NOLINTEND(bugprone-unchecked-optional-access)
     }
 
     Save( loaded, scenePath );
@@ -244,7 +250,7 @@ TEST( LandscapeScene, SavingUnderANewNameWritesNewFilesAndLeavesTheOldSceneAlone
     const fs::path    aPath = scene.Tiles[0].Tile.HeightFile;
 
     // Edit, then Save As: the edit must land in B's file only.
-    scene.Tiles[0].Tile.Heights->SetSample( 3, 4, 12345 );
+    scene.Tiles[0].Tile.Heights.value().SetSample( 3, 4, 12345 ); // NOLINT(bugprone-unchecked-optional-access)
     Save( scene, dir / "B.desce" );
 
     EXPECT_EQ( fs::path( scene.Tiles[0].Tile.HeightFile ).parent_path(), dir / "B_Landscape" );
@@ -333,7 +339,10 @@ TEST( LandscapeScene, NeighbouringTilesAnswerTheSameHeightOnTheirSharedSeam )
         const auto  fromW  = SampleLandscapeHeight( west, westFrame, seamX, worldZ );
         const auto  fromE  = SampleLandscapeHeight( east, eastFrame, seamX, worldZ );
         ASSERT_TRUE( fromW.has_value() && fromE.has_value() ) << dz;
-        EXPECT_FLOAT_EQ( *fromW, *fromE ) << "seam at z offset " << dz;
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        EXPECT_FLOAT_EQ( fromW.value(), fromE.value() )
+             << "seam at z offset " << dz; // NOLINT(bugprone-unchecked-optional-access)
+        // NOLINTEND(bugprone-unchecked-optional-access)
     }
 
     // And the rectangles the partitioner uses share the SAME edge number.
