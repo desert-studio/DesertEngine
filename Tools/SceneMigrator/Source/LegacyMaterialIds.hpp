@@ -97,6 +97,13 @@ namespace Desert::Migration
     Common::ResultStr<std::string> UpgradeMeshBytesToV3( std::string_view source, std::string_view bytes,
                                                          const Common::Content::AssetGuid& meshGuid,
                                                          const LegacyMaterialIdMap&        map );
+
+    // The cooked-mesh version `bytes` states, 1..kMeshBinaryVersion - the mesh pass's first question, asked
+    // BEFORE it decides between "ok" and "raise". The signature is checked before the version is read: a
+    // JSON-era mesh read as a header states "version" 1818322490 and was once reported "ok - already at v3".
+    // Refuses by name: a file opening with `{` (a pre-binary JSON mesh, re-imported from source), any other
+    // foreign or truncated file ("unknown mesh format"), the other byte order, and a version outside 1..current.
+    Common::ResultStr<uint32_t> CookedMeshVersion( std::string_view source, std::string_view bytes );
     // ---- MATL 2 -> 3 (T6c3): a material's asset slots named by the referenced asset's header GUID ----------
     //
     // MATL 2 named every texture, cloud type, cloud layout and shader slot by a u64 derived from the asset's

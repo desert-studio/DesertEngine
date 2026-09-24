@@ -597,11 +597,17 @@ namespace Common::Content
                 if ( static_cast<std::size_t>( in.gcount() ) != prefix.size() )
                     return MakeFormattedError<AssetHeader>( "mesh header: {} bytes where the prefix is {}",
                                                             in.gcount(), kMeshBinaryPrefixV3 );
+                MeshBinaryFileHeader header{};
+                std::memcpy( &header, prefix.data(), sizeof( header ) );
+                // Recognises() claims every version from 3 up, so that a later mesh is REFUSED here by name
+                // rather than passed over as "states no header": nothing says a later layout keeps the GUID
+                // at byte 64, and reading it from there would state an identity the file never wrote.
+                if ( header.Version > kMeshBinaryVersion )
+                    return MakeFormattedError<AssetHeader>( "mesh header: mesh version {}, this build reads 1..{}",
+                                                            header.Version, kMeshBinaryVersion );
                 const std::optional<AssetGuid> guid = ReadMeshHeaderGuid( prefix );
                 if ( !guid || guid->IsNull() )
                     return MakeError<AssetHeader>( "mesh header: a version 3 mesh states a null GUID" );
-                MeshBinaryFileHeader header{};
-                std::memcpy( &header, prefix.data(), sizeof( header ) );
                 AssetHeader stated;
                 stated.Kind = ( header.Flags & kMeshFlagIsSkinned ) != 0 ? ContentKind::SkinnedMesh
                                                                          : ContentKind::StaticMesh;

@@ -146,3 +146,64 @@ TEST( MeshBytesUpgrade, AVersionThreeFileAndANullGuidAreRefused )
     EXPECT_FALSE(
          Migration::UpgradeMeshBytesToV3( "v2.stmesh", Downgrade( v3, { 0, 0 }, 2 ), {}, {} ).IsSuccess() );
 }
+
+// THE PASS'S FIRST QUESTION IS "IS THIS A COOKED MESH AT ALL", NOT "WHICH VERSION". Four of the owner's
+// meshes were JSON-era files (`{"IsSkinned":false,"Stat...`); read as a header, bytes 12..15 of that text
+// (":fal") are version 1818322490, which is >= 3, so the pass reported them "ok - already at mesh
+// v1818322490" and left them. The signature now gates the version, and a version past this build's is a
+// refusal too - never "ok".
+TEST( MeshBytesUpgrade, APreBinaryJsonMeshIsRefusedByNameAndNotReadAsAVersion )
+{
+    std::string json = R"({"IsSkinned":false,"StaticVertices":[{"Position":[0.5,-0.5,1.0]}],"Submeshes":[)";
+    json.resize( 1024, ' ' );
+    const auto version = Migration::CookedMeshVersion( "base.stmesh", json );
+    ASSERT_FALSE( version.IsSuccess() ) << "read as mesh v" << version.GetValue();
+    EXPECT_NE( version.GetError().find( "base.stmesh" ), std::string::npos ) << version.GetError();
+    EXPECT_NE( version.GetError().find( "JSON mesh (pre-binary format) — re-import from source" ),
+               std::string::npos )
+         << version.GetError();
+}
+
+TEST( MeshBytesUpgrade, BytesWithNoMeshSignatureAreAnUnknownMeshFormat )
+{
+    std::string junk( 1024, '\0' );
+    for ( size_t i = 0; i < junk.size(); ++i )
+        junk[i] = static_cast<char>( ( i * 37 + 11 ) & 0xff );
+    const uint32_t looksCurrent = Common::Content::kMeshBinaryVersion;
+    std::memcpy( junk.data() + 12, &looksCurrent, 4 ); // a plausible version where a header keeps one
+    const auto version = Migration::CookedMeshVersion( "junk.skmesh", junk );
+    ASSERT_FALSE( version.IsSuccess() ) << "read as mesh v" << version.GetValue();
+    EXPECT_NE( version.GetError().find( "junk.skmesh" ), std::string::npos ) << version.GetError();
+    EXPECT_NE( version.GetError().find( "unknown mesh format" ), std::string::npos ) << version.GetError();
+
+    const auto tiny = Migration::CookedMeshVersion( "tiny.stmesh", "DESTM" );
+    ASSERT_FALSE( tiny.IsSuccess() );
+    EXPECT_NE( tiny.GetError().find( "tiny.stmesh" ), std::string::npos ) << tiny.GetError();
+}
+
+TEST( MeshBytesUpgrade, AVersionPastThisBuildsIsRefusedNotOk )
+{
+    Ser::MeshAssetData mesh = TwoSubmeshMesh();
+    mesh.Guid               = kMeshGuid;
+    std::string    future   = Ser::EncodeMeshBinary( mesh );
+    const uint32_t v99      = 99;
+    std::memcpy( future.data() + 12, &v99, 4 );
+    const auto version = Migration::CookedMeshVersion( "future.stmesh", future );
+    ASSERT_FALSE( version.IsSuccess() ) << "read as mesh v" << version.GetValue();
+    EXPECT_NE( version.GetError().find( "future.stmesh" ), std::string::npos ) << version.GetError();
+    EXPECT_NE( version.GetError().find( "version 99" ), std::string::npos ) << version.GetError();
+}
+
+TEST( MeshBytesUpgrade, ARealCookedMeshStatesItsVersion )
+{
+    Ser::MeshAssetData mesh = TwoSubmeshMesh();
+    mesh.Guid               = kMeshGuid;
+    const std::string v3    = Ser::EncodeMeshBinary( mesh );
+    const auto        now   = Migration::CookedMeshVersion( "v3.stmesh", v3 );
+    ASSERT_TRUE( now.IsSuccess() ) << now.GetError();
+    EXPECT_EQ( now.GetValue(), Common::Content::kMeshBinaryVersion ) << "the pass reports this one ok";
+
+    const auto old = Migration::CookedMeshVersion( "v2.stmesh", Downgrade( v3, { 0, 0 }, 2 ) );
+    ASSERT_TRUE( old.IsSuccess() ) << old.GetError();
+    EXPECT_EQ( old.GetValue(), 2u ) << "the pass raises this one";
+}
