@@ -49,7 +49,11 @@ $C quit 0
   Erosion, Copy/Paste на возвышенность; сцена `LS7e_Bright.desce` (неотслеживаемая, в дереве LS3), точка X=Z=-12000.
   Ловушки: сила кисти ОДНА на все инструменты; команда режима — `run Landscape "Sculpt mode"`;
   Undo сверх истории — «nothing left to undo», режим не выключает.
-- **Моделинг (выделение):** стартовый «Cube» — ПРИМИТИВ, инструментам не годится (пик отказывает «no editable mesh»).
+- **Моделинг (выделение) — РАБОЧИЙ скрипт `/private/tmp/claude-501/p10h/frames.sh`** (`P=0,150,200 bash frames.sh`):
+  меш — `run Modeling "Create shape tool: Box"` + `run Modeling "Create shape: place at the viewport centre"`
+  (выделяет созданное). Оверлей выделения рисуется ImGui — `shot-viewport` его НЕ видит: `shot-window` + обрезка.
+  `~/.claude/...` пиши абсолютным путём: после смены HOME тильда раскрывается в scratch.
+- **Моделинг (старое):** стартовый «Cube» — ПРИМИТИВ, инструментам не годится (пик отказывает «no editable mesh»).
   Сначала создать меш: `run Scene "Add shape: Cube"` или Create shape → «place at the viewport centre»;
   затем Select Elements tool, режим, `run ... "Mesh selection: pick at the viewport centre"`. Кадры P10e:
   `/private/tmp/claude-501/p10e/` (скрипт в `agent/`).
