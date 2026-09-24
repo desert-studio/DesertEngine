@@ -26,6 +26,8 @@ namespace Desert::Editor
     {
         const std::filesystem::path* Tree;   // the live constant — follows SetProjectRoot remaps
         const char*                  PakKey; // archive key prefix the tree's files are stored under
+        // The project's asset tree: raw mesh sources are dropped and every texture asset is packed in its
+        // cooked form (StageCookedTextureAsset) -- the editor-only sources stay on the packaging machine.
         bool                         StripRawMeshSources;
         // Where the files are READ from when packing. Equal to *Tree for every tree but one: the packager's
         // own cook output (Saved/Cooked/<Platform>) is packed under the key of the directory the runtime

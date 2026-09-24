@@ -15,13 +15,13 @@ namespace Desert::Assets
 
     Common::BoolResultStr TextureAsset::LoadFromFile()
     {
-        // THE METADATA READ IS A PREFIX OF THE ASSET: header + TOC + ImportInfo, never the source bytes it
+        // THE METADATA READ IS A PREFIX OF THE ASSET: header + TOC + key section, never the source bytes it
         // carries. The handle is the one frozen into the header at import (AF3) -- the number every `.demat`
         // names -- and the provenance key is ImportInfo's.
         const auto key = ReadTextureAssetKey( m_Metadata.Filepath );
         if ( !key.IsSuccess() )
             return Common::MakeError<bool>( key.GetError() );
-        const std::string& sourceKey = key.GetValue().Import.SourceFile;
+        const std::string& sourceKey = key.GetValue().SourceFile;
         m_SourcePath                 = Common::AssetHandle::PathForStableKey( sourceKey ).string();
         AdoptHandleFromFile( key.GetValue().Handle, sourceKey );
         m_IsReadyForUse = true;

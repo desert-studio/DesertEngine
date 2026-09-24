@@ -1,6 +1,9 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstddef>
+#include <filesystem>
 #include <string>
 
 namespace Desert::Editor
@@ -14,7 +17,7 @@ namespace Desert::Editor
         size_t FontsCached     = 0;
         size_t IconsBaked      = 0;
         size_t IconsCached     = 0;
-        size_t TexturesCooked  = 0; // `.tex` containers written this pass
+        size_t TexturesCooked  = 0; // platform data built into the DDC this pass
         size_t TexturesCached  = 0; // already cooked from the same source bytes by the same rules
         size_t Failures        = 0; // parse/compile/bake failures (each logged where it happened)
         // Artifacts that were produced and then did NOT reach the disk. Counted apart from Failures
@@ -52,4 +55,12 @@ namespace Desert::Editor
     // editor's: a Debug editor packaging a Release game must cook Release keys, or the shipped cache
     // is dead on arrival.
     CookStats CookContentCaches( bool spirvDebugInfo );
+
+    // A PACKAGE CARRIES NO TEXTURE SOURCE (AM0). The editor's `.detex` holds the imported image (SRCE) and
+    // its import record (IMPT); both are the editor's alone, so the archive gets the cooked form instead
+    // (Assets::CookTextureAssetForRuntime: header + Meta + the key record), written here under the asset's
+    // relative path. CookContentCaches wipes this directory first, like Saved/Cooked/<Platform>.
+    std::filesystem::path                    CookedTextureAssetStage();
+    Common::ResultStr<std::filesystem::path> StageCookedTextureAsset( const std::filesystem::path& editorAsset,
+                                                                      const std::filesystem::path& relative );
 } // namespace Desert::Editor

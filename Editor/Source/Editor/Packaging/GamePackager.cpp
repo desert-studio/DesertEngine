@@ -16,6 +16,7 @@
 #include <Common/Content/ContentChunks.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -50,7 +51,7 @@ namespace Desert::Editor
         };
 
         // Lists every file under `from` as ("<keyPrefix>/<relative>", source), skipping raw mesh
-        // sources when asked.
+        // sources and packing texture assets in their cooked form when asked (the project asset tree).
         //
         // IT COLLECTS INSTEAD OF WRITING, and that is the whole seam the chunked layout needed. It
         // used to stream straight into one `PakWriter`, which fixed the number of archives at one in
@@ -85,7 +86,18 @@ namespace Desert::Editor
                     error = "cannot relativize " + src.string() + ": " + ec.message();
                     return false;
                 }
-                files.emplace_back( keyPrefix + "/" + rel.generic_string(), src );
+                fs::path packed = src;
+                if ( skipRawMeshSources && src.extension() == Assets::kTextureAssetExtension )
+                {
+                    auto staged = StageCookedTextureAsset( src, rel );
+                    if ( !staged.IsSuccess() )
+                    {
+                        error = staged.GetError();
+                        return false;
+                    }
+                    packed = staged.GetValue();
+                }
+                files.emplace_back( keyPrefix + "/" + rel.generic_string(), packed );
                 ++stats.Files;
                 // The error_code overload returns uintmax_t(-1) on failure, so an unchecked add here
                 // does not report a slightly wrong size — it reports 16 exabytes, and the package's own
@@ -95,7 +107,7 @@ namespace Desert::Editor
                 // directory walk failed", and letting a size query write into that slot would report a
                 // walk failure for a file that was read perfectly well.
                 std::error_code sizeEc;
-                const auto      size = fs::file_size( src, sizeEc );
+                const auto      size = fs::file_size( packed, sizeEc );
                 if ( !sizeEc )
                     stats.Bytes += size;
             }

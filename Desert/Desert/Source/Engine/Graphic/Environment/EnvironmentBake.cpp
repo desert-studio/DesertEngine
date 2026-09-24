@@ -98,7 +98,7 @@ namespace Desert::Graphic
 
     Common::ResultStr<CookedPanorama> FindCookedPanorama( const std::filesystem::path& hdr )
     {
-        // THE ASSET IS WHERE THE PANORAMA IS FOUND (AF3c). Its IMPT carries the source's content hash,
+        // THE ASSET IS WHERE THE PANORAMA IS FOUND (AF3c). Its key (IMPT, or PAYL cooked) has the source hash,
         // which is both the bake's key and the input of the panorama's own DDC entry; one prefix read.
         const auto key = Assets::ReadTextureAssetKey( hdr );
         if ( !key.IsSuccess() )
@@ -106,12 +106,12 @@ namespace Desert::Graphic
                                                                key.GetError() );
         // A ZERO SIGNATURE IS NOT A SIGNATURE. It is what the cache key would be built from, and a key
         // built from "unknown" would let every panorama that lacks one share a single cache entry.
-        if ( key.GetValue().Import.SourceHash == 0 )
+        if ( key.GetValue().SourceHash == 0 )
             return Common::MakeFormattedError<CookedPanorama>(
                  "the panorama asset '{}' records no source hash, so its bake cannot be keyed.", hdr.string() );
         CookedPanorama panorama;
         panorama.Path            = hdr;
-        panorama.SourceSignature = key.GetValue().Import.SourceHash;
+        panorama.SourceSignature = key.GetValue().SourceHash;
         return Common::MakeSuccess( std::move( panorama ) );
     }
 

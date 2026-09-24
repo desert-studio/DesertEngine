@@ -14,27 +14,27 @@
 //      derivation itself, so an importer that invented its own copy of the hash would not agree.
 //   2. Re-importing after wiping Cooked/ yields the SAME handle. That is the property in 1 stated as the
 //      thing an artist actually does.
-//   3. The cooked .tex says what the image is, and the handle written INTO the file is the handle Import
-//      returned. Two places obliged to agree, which is the defect class this programme keeps finding.
-//   4. The up-to-date branch: a .tex at least as new as its source is left ALONE (bytes unchanged), and a
-//      source newer than its .tex is re-cooked. Getting this backwards means either "edits never take" or
-//      "every launch re-cooks the whole project".
-//   5. CookedMetaPath is the shared formula, including for a texture OUTSIDE the Textures/ directory -
-//      the case whose drift is what put the formula in CookPaths in the first place.
+//   3. The platform data (the DDC entry under the key the asset names) says what the image is, and the
+//      handle written INTO it is the handle Import returned. Two places obliged to agree.
+//   4. Freshness is the DDC key: an unchanged source is Fresh (entry untouched) and a changed one is
+//      re-derived. Getting this backwards means either "edits never take" or "every launch re-cooks".
+//   5. The platform data lives in the DDC and nowhere else: no Cooked/Textures tree, and two assets of the
+//      same image share one entry (the key is the source's bytes + settings, never a path).
 //
 // A three-pixel BMP written by the test is the input: stb_image reads BMP, and a file the test authors byte
 // by byte cannot go stale the way a checked-in fixture can.
 
 #include <Editor/Import/TextureImporter.hpp>
-#include <Editor/Import/CookPaths.hpp>
 
 #include <Editor/Import/TextureIntentFile.hpp>
 
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 
@@ -284,6 +284,17 @@ namespace
 // `"Width":4` would be asserting about a spelling rather than about a value.
 namespace
 {
+    // Where the platform data of `source`'s asset lives NOW: the DDC entry under the key its `.detex`
+    // header names. Recomputed per call on purpose -- a changed source is a different key.
+    fs::path PlatformData( const fs::path& source )
+    {
+        const auto key = Desert::Assets::ReadTextureAssetKey( TextureImporter::AssetPathFor( source ) );
+        EXPECT_TRUE( key.IsSuccess() ) << key.GetError();
+        return key.IsSuccess()
+                    ? Common::DDC::PathFor( Desert::Assets::kTextureDeriver, key.GetValue().DerivedDataKey )
+                    : fs::path( "<no texture asset>" );
+    }
+
     Desert::Assets::Serialization::TextureBinaryHeaderInfo CookedHeader( const fs::path& meta )
     {
         const std::string bytes = ReadAll( meta );
@@ -313,7 +324,7 @@ TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCooked
     // it. Asserted on the string because a failure here says WHAT leaked.
     EXPECT_EQ( Common::AssetHandle::StableKeyForPath( source ), "assets:Textures/T_Test.bmp" );
 
-    const fs::path meta = TextureImporter::CookedMetaPath( source );
+    const fs::path meta = PlatformData( source );
     ASSERT_TRUE( fs::exists( meta ) );
 
     const std::string text   = ReadAll( meta );
@@ -340,9 +351,9 @@ TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCooked
     EXPECT_EQ( text.find( "CookedPath" ), std::string::npos );
 }
 
-// 2. Wipe Cooked/ and cook again: the same handle comes back. This is the property that keeps every
+// 2. Wipe the DDC and cook again: the same handle comes back. This is the property that keeps every
 // material and every scene resolving after a clean re-cook.
-TEST_F( TextureImport, HandleSurvivesWipingTheCookedTree )
+TEST_F( TextureImport, HandleSurvivesWipingTheDerivedDataCache )
 {
     const fs::path source = TexturesDir() / "T_Test.bmp";
     WriteBmp( source, 2, 2, 0x11 );
@@ -350,8 +361,8 @@ TEST_F( TextureImport, HandleSurvivesWipingTheCookedTree )
     TextureImporter    first;
     const Common::UUID before = first.Import( source );
 
-    fs::remove_all( Common::Constants::Path::COOKED_PATH );
-    ASSERT_FALSE( fs::exists( TextureImporter::CookedMetaPath( source ) ) );
+    fs::remove_all( Common::DDC::Root() );
+    ASSERT_FALSE( fs::exists( PlatformData( source ) ) );
 
     TextureImporter    second; // a fresh importer, so the in-memory cache cannot be what answers
     const Common::UUID after = second.Import( source );
@@ -391,26 +402,23 @@ TEST_F( TextureImport, TheHandleIsTheSameForTheSameProjectInTwoDifferentPlaces )
             "on it empties on the first re-cook.";
 }
 
-// 4a. A .tex at least as new as its source is up to date: the file is left byte for byte alone. Re-cooking
-// it anyway would mean every project launch rewrites every texture it has.
-TEST_F( TextureImport, CookedMetadataNewerThanTheSourceIsLeftUntouched )
+// 4a. An unchanged source is Fresh: the DDC already holds its key, and the entry is left byte for byte
+// alone. Re-deriving it anyway would mean every project launch re-encodes every texture it has.
+TEST_F( TextureImport, AnUnchangedSourceIsFreshAndItsEntryIsLeftUntouched )
 {
     const fs::path source = TexturesDir() / "T_Test.bmp";
     WriteBmp( source, 4, 3, 0xF0 );
 
-    TextureImporter    first;
-    const Common::UUID handle = first.Import( source );
+    TextureImporter first;
+    ASSERT_EQ( first.Cook( source ).Outcome, Desert::Editor::TextureCookOutcome::Cooked );
 
-    const fs::path    meta   = TextureImporter::CookedMetaPath( source );
+    const fs::path    meta   = PlatformData( source );
     const std::string cooked = ReadAll( meta );
 
-    // Mark the metadata as newer than its source, which is the state a just-cooked file is in.
-    fs::last_write_time( meta, fs::last_write_time( source ) + std::chrono::seconds( 10 ) );
+    TextureImporter second; // a fresh importer, so the in-memory cache cannot be what answers
+    const auto      again = second.Cook( source );
 
-    TextureImporter    second;
-    const Common::UUID again = second.Import( source );
-
-    EXPECT_EQ( (uint64_t)again, (uint64_t)handle );
+    EXPECT_EQ( again.Outcome, Desert::Editor::TextureCookOutcome::Fresh );
     EXPECT_EQ( ReadAll( meta ), cooked );
 }
 
@@ -424,7 +432,7 @@ TEST_F( TextureImport, SourceNewerThanTheCookedMetadataIsRecooked )
     TextureImporter first;
     first.Import( source );
 
-    const fs::path meta = TextureImporter::CookedMetaPath( source );
+    const fs::path meta = PlatformData( source );
     ASSERT_EQ( CookedHeader( meta ).Width, 4u );
 
     // The artist edits the texture: same path, different image, later timestamp.
@@ -434,8 +442,8 @@ TEST_F( TextureImport, SourceNewerThanTheCookedMetadataIsRecooked )
     TextureImporter second;
     second.Import( source );
 
-    EXPECT_EQ( CookedHeader( meta ).Width, 7u );
-    EXPECT_EQ( CookedHeader( meta ).Height, 5u );
+    EXPECT_EQ( CookedHeader( PlatformData( source ) ).Width, 7u );
+    EXPECT_EQ( CookedHeader( PlatformData( source ) ).Height, 5u );
 }
 
 // 4c. FRESHNESS IS ABOUT BYTES, AND THESE ARE THE TWO CASES A TIMESTAMP GETS WRONG. Both are ordinary,
@@ -448,7 +456,7 @@ TEST_F( TextureImport, AChangedSourceIsRecookedEvenWhenItsTimestampDidNotMove )
 
     TextureImporter first;
     first.Import( source );
-    const fs::path meta = TextureImporter::CookedMetaPath( source );
+    const fs::path meta = PlatformData( source );
     const auto     when = fs::last_write_time( meta );
 
     // A different image at the same path, with the cook still stamped newer. Under an mtime comparison
@@ -459,7 +467,7 @@ TEST_F( TextureImport, AChangedSourceIsRecookedEvenWhenItsTimestampDidNotMove )
     TextureImporter second;
     second.Import( source );
 
-    EXPECT_EQ( CookedHeader( meta ).Width, 7u )
+    EXPECT_EQ( CookedHeader( PlatformData( source ) ).Width, 7u )
          << "a changed source was declared up to date because its timestamp was older than the cook";
 }
 
@@ -470,7 +478,7 @@ TEST_F( TextureImport, AnUnchangedSourceIsNotRecookedWhenOnlyItsTimestampMoved )
 
     TextureImporter first;
     first.Import( source );
-    const fs::path    meta   = TextureImporter::CookedMetaPath( source );
+    const fs::path    meta   = PlatformData( source );
     const std::string cooked = ReadAll( meta );
 
     // Exactly what `git checkout` does: it stamps every file it writes with "now", in an order nobody
@@ -485,23 +493,28 @@ TEST_F( TextureImport, AnUnchangedSourceIsNotRecookedWhenOnlyItsTimestampMoved )
          << "an untouched image was re-cooked because a checkout moved its timestamp";
 }
 
-// 5. The cooked path is the SHARED formula, for a texture in Textures/ and for one outside it. The second
-// case is the one that used to escape Cooked/Textures with "../" and silently never get discovered.
-TEST_F( TextureImport, CookedMetaPathIsTheSharedFormulaInsideAndOutsideTheTextureDirectory )
+// 5. THE PLATFORM DATA IS IN THE DDC AND NOWHERE ELSE, keyed by content: the same image imported at two
+// places (inside and outside Textures/) is one entry, while each asset keeps its own handle. And the tree
+// the retired cook wrote per asset -- Cooked/Textures -- is never created.
+TEST_F( TextureImport, TwoAssetsOfTheSameImageShareOneDerivedDataEntry )
 {
     const fs::path inside  = TexturesDir() / "Sub" / "T_Test.bmp";
     const fs::path outside = m_Root / "Resources" / "Assets" / "Collections" / "Pack" / "T_Other.bmp";
+    WriteBmp( inside, 4, 4, 0x42 );
+    WriteBmp( outside, 4, 4, 0x42 );
 
-    EXPECT_EQ( TextureImporter::CookedMetaPath( inside ),
-               Desert::Editor::CookPaths::CookedTexture( inside, ".tex" ) );
-    EXPECT_EQ( TextureImporter::CookedMetaPath( outside ),
-               Desert::Editor::CookPaths::CookedTexture( outside, ".tex" ) );
+    TextureImporter importer;
+    const auto      a = importer.Cook( inside );
+    const auto      b = importer.Cook( outside );
+    ASSERT_EQ( a.Outcome, Desert::Editor::TextureCookOutcome::Cooked );
+    EXPECT_EQ( b.Outcome, Desert::Editor::TextureCookOutcome::Fresh ) << "the same bytes were derived twice";
+    EXPECT_NE( (uint64_t)a.Handle, (uint64_t)b.Handle );
 
-    // And it really is under the cooked texture tree in both cases - the relation the formula exists for.
-    const std::string cookedRoot = Common::Constants::Path::TEXTURE_PATH_COOKED.string();
-    EXPECT_EQ( TextureImporter::CookedMetaPath( inside ).string().rfind( cookedRoot, 0 ), 0u );
-    EXPECT_EQ( TextureImporter::CookedMetaPath( outside ).string().rfind( cookedRoot, 0 ), 0u );
-    EXPECT_EQ( TextureImporter::CookedMetaPath( inside ).extension().string(), ".tex" );
+    EXPECT_EQ( PlatformData( inside ), PlatformData( outside ) );
+    const std::string ddcRoot = Common::DDC::Root().string();
+    EXPECT_EQ( PlatformData( inside ).string().rfind( ddcRoot, 0 ), 0u );
+    EXPECT_FALSE( fs::exists( Common::Constants::Path::COOKED_PATH / "Textures" ) )
+         << "a per-asset cooked texture tree was written beside the DDC";
 }
 
 // The importer's own cache answers the second call for the same path, and answers it with the same id.
@@ -517,81 +530,68 @@ TEST_F( TextureImport, SecondImportOfTheSamePathReturnsTheSameHandle )
     EXPECT_EQ( (uint64_t)first, (uint64_t)second );
 }
 
-// THE ROUND TRIP THE .tex IN THE REPOSITORY HAS TO SURVIVE: cooked in one checkout, committed, and the
-// PIXELS load in another checkout that shares no directory with the first and does not even call its
-// assets folder the same thing. Modelled on TextureSlotRoundTrip, which proved the same relation for the
-// scene's reference TO the .tex; this is the .tex's own reference to its source image.
-TEST_F( TextureImport, ATexCookedInOneCheckoutLoadsItsPixelsInAnother )
+// THE ROUND TRIP THE `.detex` IN THE REPOSITORY HAS TO SURVIVE: imported in one checkout, committed, and
+// its PIXELS load in another checkout that shares no directory (and no DDC) with the first and does not
+// even call its assets folder the same thing. Only the asset travels -- not the source image beside it,
+// not the DDC -- so the other checkout's DDC miss is answered by the editor's builder from the SRCE the
+// asset carries.
+TEST_F( TextureImport, AnAssetImportedInOneCheckoutLoadsItsPixelsInAnother )
 {
-    // --- the machine that cooks and commits -------------------------------------------------------
+    // --- the machine that imports and commits -----------------------------------------------------
     const fs::path source = TexturesDir() / "T_Test.bmp";
     WriteBmp( source, 4, 3, 0xF0 );
 
     TextureImporter    importer;
-    const Common::UUID cookedAs = importer.Import( source );
-
-    const std::string texBytes = ReadAll( TextureImporter::CookedMetaPath( source ) );
+    const Common::UUID cookedAs   = importer.Import( source );
+    const std::string  assetBytes = ReadAll( TextureImporter::AssetPathFor( source ) );
+    const std::string  imageBytes = ReadAll( source );
 
     // --- the machine that checks it out -----------------------------------------------------------
-    // Only the COMMITTED bytes travel: the .tex verbatim, and the source image at its place in the
-    // project. The assets root is named differently on purpose.
     const fs::path other = fs::temp_directory_path() / "desert_texture_import_checkout_b";
     fs::remove_all( other );
-    WriteBmp( other / "Content" / "Textures" / "T_Test.bmp", 4, 3, 0xF0 );
-    const fs::path otherTex = other / "Cooked" / "Textures" / "T_Test.tex";
-    fs::create_directories( otherTex.parent_path() );
+    const fs::path otherAsset = other / "Content" / "Textures" / "T_Test.detex";
+    fs::create_directories( otherAsset.parent_path() );
     {
-        std::ofstream out( otherTex, std::ios::binary );
-        out << texBytes;
+        std::ofstream out( otherAsset, std::ios::binary );
+        out << assetBytes;
     }
-
     Common::Constants::Path::SetProjectRoot( other, "Content" );
+    Desert::Assets::SetTexturePlatformDataBuilder( &TextureImporter::BuildPlatformData );
 
-    Desert::Assets::TextureAsset asset( Desert::Assets::AssetPriority::Medium, Common::Filepath( otherTex ) );
+    Desert::Assets::TextureAsset asset( Desert::Assets::AssetPriority::Medium, Common::Filepath( otherAsset ) );
     ASSERT_TRUE( asset.Load().IsSuccess() );
+    const auto platform = Desert::Assets::LoadTexturePlatformData( otherAsset );
+    Desert::Assets::SetTexturePlatformDataBuilder( nullptr );
+    ASSERT_TRUE( platform.IsSuccess() ) << platform.GetError();
 
-    // The resolved path is THIS checkout's copy of the image — asserted as a value, because in this test
-    // the writing checkout still exists on the same disk, so "some file opened" would also be true of the
-    // old absolute-path behaviour reading the OTHER machine's file.
-    const fs::path resolved = fs::path( asset.GetSourcePath() ).lexically_normal();
-    EXPECT_EQ( resolved, ( other / "Content" / "Textures" / "T_Test.bmp" ).lexically_normal() );
+    // The provenance resolves into THIS checkout, and the file it names was never copied here: the
+    // pixels below can only have come out of the asset.
+    EXPECT_EQ( fs::path( asset.GetSourcePath() ).lexically_normal(),
+               ( other / "Content" / "Textures" / "T_Test.bmp" ).lexically_normal() );
+    EXPECT_FALSE( fs::exists( asset.GetSourcePath() ) );
 
-    // AND THE PIXELS COME OUT OF THE `.tex` ITSELF. This assertion used to decode the SOURCE image with
-    // stb_image, which since B17 proves the opposite of what the test is named after: the container was
-    // built precisely so that nothing on this path opens the source. The pixels checked here are the
-    // ones the GPU upload reads, and they travelled in the committed bytes.
-    const auto carried = Desert::Assets::Serialization::DecodeTextureBinary( texBytes, "carried" );
+    const auto carried = Desert::Assets::Serialization::DecodeTextureBinary( platform.GetValue(), "carried" );
     ASSERT_TRUE( carried.IsSuccess() ) << carried.GetError();
     EXPECT_EQ( carried.GetValue().Width, 4u );
     EXPECT_EQ( carried.GetValue().Height, 3u );
     EXPECT_EQ( carried.GetValue().Levels.size(), 3u ); // 4x3 -> 2x1 -> 1x1
 
-    // Against what the decoder makes of the source on THIS machine, level for level, so a container
-    // that carried the right count of the wrong bytes is not mistaken for a working one.
+    // Against what the decoder makes of the ORIGINAL image, through the format the container declares
+    // (the cook encodes an LDR texture to BC7 when it holds up) -- exact, so a container carrying
+    // somebody else's cook is not mistaken for a working one. (Exact rather than approximate because
+    // BC7 mode 6 is off by one LSB on an even colour by construction; BlockCompression pins that.)
     int      w = 0, h = 0, ch = 0;
-    stbi_uc* pixels = stbi_load( asset.GetSourcePath().c_str(), &w, &h, &ch, 4 );
-    ASSERT_NE( pixels, nullptr ) << "the source path the .tex resolved to does not decode: "
-                                 << asset.GetSourcePath();
+    stbi_uc* pixels = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( imageBytes.data() ),
+                                             static_cast<int>( imageBytes.size() ), &w, &h, &ch, 4 );
+    ASSERT_NE( pixels, nullptr );
     ASSERT_EQ( w, 4 );
     ASSERT_EQ( h, 3 );
-    //
-    // THROUGH THE FORMAT THE CONTAINER DECLARES, which is no longer always RGBA8: the cook encodes an
-    // LDR texture to BC7 when it can show the result holds up. So the equality asserted is not "these
-    // bytes are the source's pixels" but "these bytes are what THIS CHECKOUT'S copy of the source
-    // encodes to" — which is the claim the test is named after, is still an exact comparison, and is
-    // STRONGER than a decode-and-compare would be: it would catch an encoder that reconstructed the
-    // right pixels out of different blocks, i.e. a container carrying somebody else's cook.
-    //
-    // (It has to be exact rather than approximate for a second reason: BC7's mode 6 spends ONE p-bit on
-    // all four channels of an endpoint, so an opaque block of an even colour is off by one LSB in
-    // colour by construction. `BlockCompression`'s suite pins that trade; a tolerance here would only
-    // be hiding it.)
     const auto&                base0 = carried.GetValue().Levels[0];
     std::vector<unsigned char> carriedLevel0(
          carried.GetValue().Pixels.begin() + static_cast<std::ptrdiff_t>( base0.ByteOffset ),
          carried.GetValue().Pixels.begin() + static_cast<std::ptrdiff_t>( base0.ByteOffset + base0.ByteSize ) );
-
     std::vector<unsigned char> expectedLevel0( pixels, pixels + static_cast<size_t>( w ) * h * 4 );
+    stbi_image_free( pixels );
     if ( Desert::Core::Formats::IsBlockCompressed( carried.GetValue().Format ) )
     {
         auto encoded = Desert::Core::Formats::BlockCompressImage(
@@ -601,18 +601,16 @@ TEST_F( TextureImport, ATexCookedInOneCheckoutLoadsItsPixelsInAnother )
         expectedLevel0 = encoded.ExtractValue();
     }
     EXPECT_EQ( carriedLevel0, expectedLevel0 )
-         << "the committed container's base level is not this checkout's source image, encoded";
-    stbi_image_free( pixels );
+         << "the committed asset's base level is not the imported image, encoded";
 
-    // One identity across the trip: the handle the loader reads out of the file is the handle the cook
-    // returned, because both derive from the same project-relative key.
+    // One identity across the trip: the handle in the asset's header is the handle the import returned.
     EXPECT_EQ( (uint64_t)asset.GetHandle(), (uint64_t)cookedAs );
 
     fs::remove_all( other );
     Common::Constants::Path::SetProjectRoot( m_Root, "Resources/Assets" ); // TearDown removes m_Root
 }
 
-// DC §1.4: a source that does not decode produces NO cooked file, a null handle, and a log line with the
+// DC §1.4: a source that does not decode produces NO platform data, a null handle, and a log line with the
 // path and stb's reason. It used to fall through and freeze the uninitialized width/height into a .tex
 // that mtime then declared up to date for ever, in silence.
 TEST_F( TextureImport, AFileThatDoesNotDecodeCooksNothingAndSaysWhy )
@@ -634,7 +632,7 @@ TEST_F( TextureImport, AFileThatDoesNotDecodeCooksNothingAndSaysWhy )
     }
 
     EXPECT_EQ( (uint64_t)handle, 0u );
-    EXPECT_FALSE( fs::exists( TextureImporter::CookedMetaPath( source ) ) )
+    EXPECT_FALSE( fs::exists( PlatformData( source ) ) )
          << "a cooked file was written for an image that never decoded";
     EXPECT_NE( text.find( "T_Bad.bmp" ), std::string::npos )
          << "the failure did not name the file that failed.\nlogged: " << text;
@@ -643,41 +641,7 @@ TEST_F( TextureImport, AFileThatDoesNotDecodeCooksNothingAndSaysWhy )
     WriteBmp( source, 2, 2, 0x77 );
     const Common::UUID fixed = importer.Import( source );
     EXPECT_EQ( (uint64_t)fixed, (uint64_t)Common::AssetHandle::FromCookedPath( source ) );
-    EXPECT_TRUE( fs::exists( TextureImporter::CookedMetaPath( source ) ) );
-}
-
-// THE RELATION THE mtime BRANCH USED TO SKIP: the handle Import returns must be the handle the cooked
-// file STORES, because the runtime takes its identity from the file (TextureAsset::Load), not from this
-// return value. A stale .tex newer than its source is exactly what git manufactures — checkout stamps
-// both files with "now" — so under the old branch a wrong stored handle was up to date for ever.
-TEST_F( TextureImport, AStaleCookedFileNewerThanItsSourceIsRestampedToAgreeWithTheReturnedHandle )
-{
-    const fs::path source = TexturesDir() / "T_Test.bmp";
-    WriteBmp( source, 4, 3, 0xF0 );
-
-    const fs::path meta = Desert::Editor::CookPaths::CookedTexture( source, ".tex" );
-    fs::create_directories( meta.parent_path() );
-    {
-        // The retired JSON manifest, byte for byte the shape that shipped in this repository, carrying a
-        // machine-bound SourcePath and a handle nothing derives. It is now ALSO the stale-cook case, so
-        // one fixture drives both: a container reader must not parse it and the importer must replace it.
-        std::ofstream out( meta, std::ios::binary );
-        out << R"({"Handle":12345,"SourcePath":")" << source.generic_string()
-            << R"(","Width":4,"Height":3,"Channels":4,"Format":"RGBA8F"})";
-    }
-    fs::last_write_time( meta, fs::last_write_time( source ) + std::chrono::seconds( 10 ) );
-
-    TextureImporter    importer;
-    const Common::UUID returned = importer.Import( source );
-
-    const auto stored = CookedHeader( meta );
-    EXPECT_EQ( (uint64_t)stored.Handle, (uint64_t)returned )
-         << "Import returned one handle and left another one in the file; every reference minted from the "
-            "return value now misses.";
-    EXPECT_NE( (uint64_t)stored.Handle, 12345u );
-
-    // The machine-bound SourcePath went with it: one re-cook replaces a pre-portability `.tex` in place.
-    EXPECT_EQ( stored.SourcePath, "assets:Textures/T_Test.bmp" );
+    EXPECT_TRUE( fs::exists( PlatformData( source ) ) );
 }
 
 // ── THE AUTHORED INTENT, AND THE FOUR THINGS THAT CAN HAPPEN WHEN IT MEETS THE MEASUREMENT ───────
@@ -707,7 +671,7 @@ TEST_F( TextureImport, AnUnmarkedTextureBehavesExactlyAsItDidBeforeTheFieldExist
     LogCapture      log;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
-    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    const auto header = CookedHeader( PlatformData( source ) );
     EXPECT_EQ( header.Intent, Fmt::TextureIntent::Unspecified );
     EXPECT_EQ( header.Format, Fmt::ImageFormat::BC7_UNORM ) << "a flat image clears both gates";
     EXPECT_NE( log.Text().find( "on a measurement alone" ), std::string::npos )
@@ -725,7 +689,7 @@ TEST_F( TextureImport, AnAuthoredColourTextureIsStoredAsBC7AndTheContainerRecord
     LogCapture      log;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
-    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    const auto header = CookedHeader( PlatformData( source ) );
     EXPECT_EQ( header.Intent, Fmt::TextureIntent::Colour );
     EXPECT_EQ( header.Format, Fmt::ImageFormat::BC7_UNORM );
     EXPECT_NE( log.Text().find( "authored as Colour" ), std::string::npos ) << log.Text();
@@ -748,7 +712,7 @@ TEST_F( TextureImport, AnAuthoredRefusalStandsOverAPassingMeasurementAndTheDisag
     LogCapture      log;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
-    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    const auto header = CookedHeader( PlatformData( source ) );
     EXPECT_EQ( header.Intent, Fmt::TextureIntent::Data );
     EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA8F ) << "the authored refusal stands";
     EXPECT_NE( log.Text().find( "DISAGREE" ), std::string::npos ) << log.Text();
@@ -769,7 +733,7 @@ TEST_F( TextureImport, AFailingMeasurementStandsOverAnAuthoredRequestAndTheDisag
     LogCapture      log;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
-    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    const auto header = CookedHeader( PlatformData( source ) );
     EXPECT_EQ( header.Intent, Fmt::TextureIntent::Colour );
     EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA8F ) << "the measurement stands";
     EXPECT_NE( log.Text().find( "DISAGREE" ), std::string::npos ) << log.Text();
@@ -788,7 +752,7 @@ TEST_F( TextureImport, ANormalMapIsStoredAsBC5AndNeverAsBC7 )
     TextureImporter importer;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
-    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    const auto header = CookedHeader( PlatformData( source ) );
     EXPECT_EQ( header.Intent, Fmt::TextureIntent::NormalMap );
     EXPECT_EQ( header.Format, Fmt::ImageFormat::BC5_UNORM );
     EXPECT_NE( header.Format, Fmt::ImageFormat::BC7_UNORM ) << "BC7 on a normal map is forbidden by T1";
@@ -803,7 +767,7 @@ TEST_F( TextureImport, AMaskIsStoredAsBC4AndCostsHalfOfWhatBC7Would )
     TextureImporter importer;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
-    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    const auto header = CookedHeader( PlatformData( source ) );
     EXPECT_EQ( header.Intent, Fmt::TextureIntent::Mask );
     EXPECT_EQ( header.Format, Fmt::ImageFormat::BC4_UNORM );
 
@@ -813,7 +777,7 @@ TEST_F( TextureImport, AMaskIsStoredAsBC4AndCostsHalfOfWhatBC7Would )
     WriteBmp( colourSource, 8, 8, 0x80 );
     WriteIntent( colourSource, "Colour" );
     ASSERT_NE( (uint64_t)importer.Import( colourSource ), 0ull );
-    const auto colour = CookedHeader( TextureImporter::CookedMetaPath( colourSource ) );
+    const auto colour = CookedHeader( PlatformData( colourSource ) );
     ASSERT_EQ( colour.Format, Fmt::ImageFormat::BC7_UNORM );
     EXPECT_EQ( header.PayloadBytes * 2u, colour.PayloadBytes );
 }
@@ -831,7 +795,7 @@ TEST_F( TextureImport, AnIntentFileThatCannotBeUnderstoodStopsTheCookGuessingPas
     LogCapture      log;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
-    const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
+    const auto header = CookedHeader( PlatformData( source ) );
     // AF3: the sidecar is replaced by the asset, so "do not guess" is written down as the intent that
     // forbids a block format (Data) instead of being re-derived from a file that no longer exists.
     EXPECT_EQ( header.Intent, Fmt::TextureIntent::Data );
@@ -854,8 +818,7 @@ TEST_F( TextureImport, EditingTheIntentRecooksASourceWhoseOwnBytesDidNotMove )
 
     TextureImporter importer;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
-    const fs::path meta = TextureImporter::CookedMetaPath( source );
-    ASSERT_EQ( CookedFormat( meta ), Fmt::ImageFormat::BC7_UNORM );
+    ASSERT_EQ( CookedFormat( PlatformData( source ) ), Fmt::ImageFormat::BC7_UNORM );
 
     // A SECOND IMPORTER, because the first one caches by path in memory and this test is about what is
     // on the disk — which is what the next session sees.
@@ -863,7 +826,7 @@ TEST_F( TextureImport, EditingTheIntentRecooksASourceWhoseOwnBytesDidNotMove )
     TextureImporter second;
     ASSERT_NE( (uint64_t)second.Import( source ), 0ull );
 
-    const auto header = CookedHeader( meta );
+    const auto header = CookedHeader( PlatformData( source ) );
     EXPECT_EQ( header.Intent, Fmt::TextureIntent::Data );
     EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA8F ) << "the edited intent did not reach the cook";
 
@@ -871,7 +834,7 @@ TEST_F( TextureImport, EditingTheIntentRecooksASourceWhoseOwnBytesDidNotMove )
     WriteIntent( source, "Colour" );
     TextureImporter third;
     ASSERT_NE( (uint64_t)third.Import( source ), 0ull );
-    EXPECT_EQ( CookedFormat( meta ), Fmt::ImageFormat::BC7_UNORM );
+    EXPECT_EQ( CookedFormat( PlatformData( source ) ), Fmt::ImageFormat::BC7_UNORM );
 }
 
 TEST_F( TextureImport, AnUnauthoredSourceIsStillNotRecookedWhenNothingChanged )
@@ -884,7 +847,7 @@ TEST_F( TextureImport, AnUnauthoredSourceIsStillNotRecookedWhenNothingChanged )
 
     TextureImporter importer;
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
-    const fs::path    meta  = TextureImporter::CookedMetaPath( source );
+    const fs::path    meta  = PlatformData( source );
     const std::string first = ReadAll( meta );
 
     TextureImporter second;
@@ -927,7 +890,7 @@ TEST_F( TextureImport, AnExtendedRangeSourceIsOfferedNoBlockFormatWhateverTheInt
          << "an extended-range source was graded against a block format\n"
          << unmarkedLog;
 
-    const auto header = CookedHeader( TextureImporter::CookedMetaPath( unmarked ) );
+    const auto header = CookedHeader( PlatformData( unmarked ) );
     EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA32F )
          << "an extended-range source must keep its range; a cook that stored it as a block format "
             "clamped or re-encoded the one property the file exists for";
@@ -941,7 +904,7 @@ TEST_F( TextureImport, AnExtendedRangeSourceIsOfferedNoBlockFormatWhateverTheInt
     WriteIntent( marked, "Colour" );
     ASSERT_NE( (uint64_t)importer.Import( marked ), 0ull );
 
-    const auto markedHeader = CookedHeader( TextureImporter::CookedMetaPath( marked ) );
+    const auto markedHeader = CookedHeader( PlatformData( marked ) );
     EXPECT_EQ( markedHeader.Format, Fmt::ImageFormat::RGBA32F );
     EXPECT_EQ( markedHeader.Intent, Fmt::TextureIntent::Colour );
 }

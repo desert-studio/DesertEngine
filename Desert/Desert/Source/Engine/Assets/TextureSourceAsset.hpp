@@ -15,6 +15,10 @@
 // Everything derived from it — mip chain, BC7/BC5/BC4 levels — is PLATFORM DATA and lives in the
 // DerivedDataCache (AF5) under `TextureDerivedDataKey`, never beside the asset and never in git.
 //
+// THE COOKED FORM (AM0: IMPT and SRCE are the editor's and are cut at cook). A package carries the same
+// header and Meta and, instead of IMPT + SRCE, one PAYL section holding exactly what the runtime reads:
+// the DDC key, the source's content hash (the environment bake's signature) and its stable key.
+//
 // WHY THE HANDLE IS IN THE HEADER AND NOT DERIVED. Before AF3 the handle was `FromCookedPath(<source
 // image>)`, a function of a PATH; the migration froze that number into the asset, so the 116 `.demat`
 // files keep resolving without being rewritten, and a later rename/move of the asset changes nothing.
@@ -114,17 +118,24 @@ namespace Desert::Assets
     // not in the editor that runs the encoder: the runtime computes the same key to find the entry.
     inline constexpr uint32_t kTextureBlockEncoderVersion = 1;
 
-    // What the runtime needs from a `.detex` to find its platform data: the header and the IMPT section,
-    // never the SRCE bytes (UE: the package summary + FTextureSource id, not the bulk data).
+    // What the runtime needs from a `.detex` to reach its platform data (UE: the package summary + the
+    // FTextureSource id, not the bulk data). Read from IMPT in an editor asset, from PAYL in a cooked one;
+    // import SETTINGS are not here because the cooked form has none -- they are already in the key.
     struct TextureAssetKey
     {
         Common::Content::ContentKind Kind = Common::Content::ContentKind::Texture;
         Common::UUID                 Handle;
-        TextureImportInfo            Import;
+        std::string                  SourceFile;         // TextureImportInfo::SourceFile
+        uint64_t                     SourceHash     = 0; // TextureImportInfo::SourceHash
         uint64_t                     DerivedDataKey = 0;
     };
-    // Reads a prefix of the file (header + TOC + IMPT), not the source it carries.
+    // Reads a prefix of the file (header + TOC + IMPT or PAYL), never the source an editor asset carries.
     Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset );
+
+    // The cooked form of an editor `.detex` (see the top of this file): header and Meta kept, IMPT and
+    // SRCE replaced by the PAYL key record. Refuses anything that is not an editor texture asset, so a
+    // package cannot carry a half-cooked or foreign file under a texture's name.
+    Common::ResultStr<std::vector<std::byte>> CookTextureAssetForRuntime( std::span<const std::byte> editorAsset );
 
     // -- ASSET -> DDC -> GPU ------------------------------------------------------------------------
     // UE FTexturePlatformData::Cache: the runtime asks the DDC for the key the asset describes. A miss is

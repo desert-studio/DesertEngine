@@ -10,6 +10,7 @@
 #include <Engine/Vector/IconBake.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
 
@@ -21,6 +22,8 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -322,6 +325,8 @@ namespace Desert::Editor
     CookStats CookContentCaches( bool spirvDebugInfo )
     {
         CookStats stats;
+        std::error_code wipe;
+        fs::remove_all( CookedTextureAssetStage(), wipe );
         CookShaders( spirvDebugInfo, stats );
         CookFonts( stats );
         CookIcons( stats );
@@ -342,5 +347,33 @@ namespace Desert::Editor
                        stats.StoreFailures );
         }
         return stats;
+    }
+
+    fs::path CookedTextureAssetStage()
+    {
+        return Common::Constants::Path::CurrentProjectRoot().ProjectDir / "Saved" / "CookedAssets" /
+               std::string( Common::DDC::CookPlatformName() );
+    }
+
+    Common::ResultStr<fs::path> StageCookedTextureAsset( const fs::path& editorAsset, const fs::path& relative )
+    {
+        const auto raw = Common::Utils::FileSystem::ReadFileContent( editorAsset );
+        if ( !raw.IsSuccess() )
+            return Common::MakeError<fs::path>( raw.GetError() );
+        const auto cooked = Assets::CookTextureAssetForRuntime( std::span<const std::byte>(
+             reinterpret_cast<const std::byte*>( raw.GetValue().data() ), raw.GetValue().size() ) );
+        if ( !cooked.IsSuccess() )
+            return Common::MakeFormattedError<fs::path>( "texture asset '{}' cannot be cooked for the package: {}",
+                                                         editorAsset.string(), cooked.GetError() );
+        const fs::path  target = CookedTextureAssetStage() / relative;
+        std::error_code ec;
+        fs::create_directories( target.parent_path(), ec );
+        std::ofstream out( target, std::ios::binary | std::ios::trunc );
+        out.write( reinterpret_cast<const char*>( cooked.GetValue().data() ),
+                   static_cast<std::streamsize>( cooked.GetValue().size() ) );
+        if ( !out )
+            return Common::MakeFormattedError<fs::path>( "the cooked texture asset '{}' was not written",
+                                                         target.string() );
+        return Common::MakeSuccess( target );
     }
 } // namespace Desert::Editor

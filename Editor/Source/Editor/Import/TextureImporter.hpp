@@ -12,11 +12,11 @@
 
 namespace Desert::Editor
 {
-    // What one cook of one source did. `Fresh` and `Cooked` both leave a correct `.tex` on the disk; the
+    // What one cook of one source did. `Fresh` and `Cooked` both leave the platform data in the DDC; the
     // difference is whether this call paid for it, which is what an incremental cook has to be able to
     // report. `Unwritten` is kept apart from `Failed` for the reason `CookStats::StoreFailures` gives: a
     // source that cannot be decoded is broken content, a container that did not reach the disk is a cook
-    // that silently produced nothing under a path the runtime will ask for.
+    // that silently produced nothing under a key the runtime will ask for.
     enum class TextureCookOutcome
     {
         Cooked,
@@ -50,9 +50,8 @@ namespace Desert::Editor
     public:
         Common::UUID Import( const std::filesystem::path& path );
 
-        // `Import`, plus what the call did. Freshness is decided exactly as `Import` decides it — from the
-        // source's bytes, the cook signature and the two identity fields (see the .cpp) — so an up-to-date
-        // `.tex` is `Fresh` and is not rewritten.
+        // `Import`, plus what the call did. Fresh == the DDC already holds the asset's key (source bytes +
+        // settings + deriver), so nothing is decoded or encoded.
         TextureCookResult Cook( const std::filesystem::path& path );
 
         // Imports a raw image (png, jpg, hdr, ...) into its texture asset `<stem>.detex` beside it (AF3):
@@ -60,11 +59,11 @@ namespace Desert::Editor
         // the asset's path. `Cook` calls it for any non-asset path; the migration calls it directly.
         static Common::ResultStr<std::filesystem::path> ImportSourceAsset( const std::filesystem::path& source );
 
-        // The editor's platform-data builder (registered with Assets::SetTexturePlatformDataBuilder): cooks
-        // the asset into the DDC and returns the entry. The runtime calls it on a DDC miss.
         // The texture asset a source image is imported into (`<stem>.detex` beside it); an asset path is its own.
         static std::filesystem::path AssetPathFor( const std::filesystem::path& source );
 
+        // The editor's platform-data builder (registered with Assets::SetTexturePlatformDataBuilder): cooks
+        // the asset into the DDC and returns the entry. The runtime calls it on a DDC miss.
         static Common::ResultStr<std::string> BuildPlatformData( const std::filesystem::path& asset );
 
     private:

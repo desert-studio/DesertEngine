@@ -108,6 +108,34 @@ namespace Desert::Assets
             return Common::MakeSuccess( std::move( info ) );
         }
 
+        // PAYL of a COOKED texture asset: the key record, nothing the editor rebuilds from.
+        constexpr uint32_t kCookedKeyVersion = 1;
+
+        std::vector<std::byte> EncodeCookedKey( const TextureAssetKey& key )
+        {
+            std::vector<std::byte> out;
+            PutU32( out, kCookedKeyVersion );
+            PutU64( out, key.DerivedDataKey );
+            PutU64( out, key.SourceHash );
+            PutString( out, key.SourceFile );
+            return out;
+        }
+
+        Common::BoolResultStr DecodeCookedKey( std::span<const std::byte> bytes, TextureAssetKey& key )
+        {
+            Reader     r{ bytes };
+            const auto version = static_cast<uint32_t>( r.Get( 4 ) );
+            if ( r.Ok && version != kCookedKeyVersion )
+                return Common::MakeFormattedError<bool>(
+                     "cooked texture key version {} is not the {} this build reads", version, kCookedKeyVersion );
+            key.DerivedDataKey = r.Get( 8 );
+            key.SourceHash     = r.Get( 8 );
+            key.SourceFile     = r.String();
+            if ( !r.Ok || r.At != bytes.size() )
+                return Common::MakeError<bool>( "cooked texture key is truncated or has trailing bytes" );
+            return Common::MakeSuccess( true );
+        }
+
         const CC::SubsystemVersion kKnown[] = { { kTextureAssetSubsystemTag, kTextureAssetSubsystemVersion } };
     } // namespace
 
@@ -261,8 +289,8 @@ namespace Desert::Assets
 
     Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset )
     {
-        // THE PREFIX, NOT THE FILE: a `.detex` is mostly its SRCE section (megabytes of png), and the key
-        // needs the header, the TOC and the ~100-byte IMPT that precedes the source.
+        // THE PREFIX, NOT THE FILE: an editor `.detex` is mostly its SRCE section (megabytes of png), and the
+        // key needs the header, the TOC and the ~100-byte IMPT that precedes the source (or, cooked, PAYL).
         constexpr std::size_t kPrefixBytes = 4096;
         auto                  prefix = Common::Utils::FileSystem::ReadFileContentPrefix( asset, kPrefixBytes );
         if ( !prefix.IsSuccess() )
@@ -276,11 +304,14 @@ namespace Desert::Assets
         if ( h.Asset.Kind != CC::ContentKind::Texture && h.Asset.Kind != CC::ContentKind::Skybox )
             return Common::MakeFormattedError<TextureAssetKey>( "'{}' is kind '{}', not a texture", asset.string(),
                                                                 CC::KindName( h.Asset.Kind ) );
-        const auto impt = h.Find( CC::EnvelopeSection::ImportInfo );
-        if ( !impt || impt->Codec != CC::EnvelopeCodec::Stored )
+        const auto impt   = h.Find( CC::EnvelopeSection::ImportInfo );
+        const auto cooked = h.Find( CC::EnvelopeSection::Payload );
+        const auto keyed  = impt ? impt : cooked;
+        if ( !keyed || keyed->Codec != CC::EnvelopeCodec::Stored )
             return Common::MakeFormattedError<TextureAssetKey>(
-                 "'{}' has no stored ImportInfo section, so its platform data has no key", asset.string() );
-        const uint64_t end = impt->Offset + impt->Size;
+                 "'{}' has neither a stored ImportInfo nor a cooked key section, so its platform data has no key",
+                 asset.string() );
+        const uint64_t end = keyed->Offset + keyed->Size;
         if ( end > prefix.GetValue().size() )
         {
             prefix = Common::Utils::FileSystem::ReadFileContentPrefix( asset, static_cast<std::size_t>( end ) );
@@ -288,26 +319,60 @@ namespace Desert::Assets
                 return Common::MakeError<TextureAssetKey>( prefix.GetError() );
             if ( end > prefix.GetValue().size() )
                 return Common::MakeFormattedError<TextureAssetKey>(
-                     "'{}' is truncated: its ImportInfo ends at byte {} of {}", asset.string(), end,
+                     "'{}' is truncated: its key section ends at byte {} of {}", asset.string(), end,
                      prefix.GetValue().size() );
         }
         const auto bytes =
              asBytes( prefix.GetValue() )
-                  .subspan( static_cast<std::size_t>( impt->Offset ), static_cast<std::size_t>( impt->Size ) );
-        if ( Common::Utils::PakContentHash( bytes.data(), bytes.size() ) != impt->Hash )
-            return Common::MakeFormattedError<TextureAssetKey>( "'{}': the ImportInfo section fails its hash",
+                  .subspan( static_cast<std::size_t>( keyed->Offset ), static_cast<std::size_t>( keyed->Size ) );
+        if ( Common::Utils::PakContentHash( bytes.data(), bytes.size() ) != keyed->Hash )
+            return Common::MakeFormattedError<TextureAssetKey>( "'{}': the key section fails its hash",
                                                                 asset.string() );
-        auto info = DecodeImportInfo( bytes );
-        if ( !info.IsSuccess() )
-            return Common::MakeFormattedError<TextureAssetKey>( "'{}': {}", asset.string(), info.GetError() );
 
         TextureAssetKey key;
-        key.Kind           = h.Asset.Kind;
-        key.Handle         = Common::UUID( h.Asset.Guid.Hi );
-        key.Import         = info.ExtractValue();
-        key.DerivedDataKey = TextureDerivedDataKey(
-             key.Import.SourceHash, TextureBuildSettings{ key.Import.Settings, kTextureBlockEncoderVersion } );
+        key.Kind   = h.Asset.Kind;
+        key.Handle = Common::UUID( h.Asset.Guid.Hi );
+        if ( impt )
+        {
+            auto info = DecodeImportInfo( bytes );
+            if ( !info.IsSuccess() )
+                return Common::MakeFormattedError<TextureAssetKey>( "'{}': {}", asset.string(), info.GetError() );
+            key.SourceFile     = info.GetValue().SourceFile;
+            key.SourceHash     = info.GetValue().SourceHash;
+            key.DerivedDataKey = TextureDerivedDataKey(
+                 key.SourceHash, TextureBuildSettings{ info.GetValue().Settings, kTextureBlockEncoderVersion } );
+        }
+        else if ( auto decoded = DecodeCookedKey( bytes, key ); !decoded.IsSuccess() )
+        {
+            return Common::MakeFormattedError<TextureAssetKey>( "'{}': {}", asset.string(), decoded.GetError() );
+        }
         return Common::MakeSuccess( std::move( key ) );
+    }
+
+    Common::ResultStr<std::vector<std::byte>> CookTextureAssetForRuntime( std::span<const std::byte> editorAsset )
+    {
+        auto source = DecodeTextureSourceAsset( editorAsset );
+        if ( !source.IsSuccess() )
+            return Common::MakeError<std::vector<std::byte>>( source.GetError() );
+        const TextureSourceAsset& asset = source.GetValue();
+
+        TextureAssetKey key;
+        key.SourceFile     = asset.Import.SourceFile;
+        key.SourceHash     = asset.Import.SourceHash;
+        key.DerivedDataKey = TextureDerivedDataKey(
+             asset.Import.SourceHash, TextureBuildSettings{ asset.Import.Settings, kTextureBlockEncoderVersion } );
+
+        CC::AssetEnvelope envelope;
+        envelope.Asset.Kind       = asset.Kind;
+        envelope.Asset.Guid       = asset.Guid;
+        envelope.Asset.Subsystems = { kKnown[0] };
+        CC::EnvelopeMeta meta;
+        meta.Name = asset.Name;
+        envelope.Sections.push_back(
+             { CC::EnvelopeSection::Meta, CC::EnvelopeCodec::Stored, CC::EncodeEnvelopeMeta( meta ) } );
+        envelope.Sections.push_back(
+             { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored, EncodeCookedKey( key ) } );
+        return CC::WriteAssetEnvelope( envelope );
     }
 
     namespace
