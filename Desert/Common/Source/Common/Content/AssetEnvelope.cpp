@@ -1,4 +1,5 @@
 #include "AssetEnvelope.hpp"
+#include "TextAssetHeader.hpp"
 
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -558,7 +559,8 @@ namespace Common::Content
 
     std::span<const IAssetHeaderFormat* const> AssetHeaderFormats()
     {
-        static const std::array<const IAssetHeaderFormat*, 1> formats = { &BinaryEnvelopeHeaderFormat() };
+        static const std::array<const IAssetHeaderFormat*, 2> formats = { &BinaryEnvelopeHeaderFormat(),
+                                                                          &TextHeaderFormat() };
         return formats;
     }
 
