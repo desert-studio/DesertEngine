@@ -23,6 +23,10 @@ project(test_name)
         -- The anim graph's JSON round trip: schema step 21 moves the state machine out of the entity and
         -- reads it with the engine's own parser, so every suite that compiles the migration links it too.
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp",
         -- The tool's loop canonicalises the Settings block through the ENGINE'S reflection table, so a
         -- suite that compiles MigratorMain.cpp has to bring the table with it. It is deliberately not in
         -- SceneMigration.cpp: the fifteen suites that test one schema step each must stay free of it.

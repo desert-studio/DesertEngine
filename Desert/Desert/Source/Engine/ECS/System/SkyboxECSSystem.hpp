@@ -23,6 +23,18 @@
 
 namespace Desert::ECS
 {
+    /// THE ONE CONVERSION from the authored component to the look the renderer samples with. The frame
+    /// collector below and the editor's Details preview both call it, so a fourth knob added to the
+    /// component is added here once and cannot reach the scene and miss the preview beside its slider.
+    [[nodiscard]] inline Graphic::SkyLook SkyLookOf( const SkyboxComponent& skybox )
+    {
+        Graphic::SkyLook look;
+        look.RotationDegrees = skybox.Rotation;
+        look.Intensity       = skybox.Intensity;
+        look.Tint            = skybox.Tint;
+        return look;
+    }
+
     class SkyboxECSSystem : public System
     {
     public:
@@ -131,9 +143,7 @@ namespace Desert::ECS
 
                     const auto& skybox = registry.get<ECS::SkyboxComponent>( skyboxEntity );
                     cubemap            = Runtime::ResourceRegistry::GetSkyboxService()->Get( skybox.SkyboxHandle );
-                    look.Intensity       = skybox.Intensity;
-                    look.RotationDegrees = skybox.Rotation;
-                    look.Tint            = skybox.Tint;
+                    look               = SkyLookOf( skybox );
                     break;
                 }
             }

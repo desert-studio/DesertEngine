@@ -8,6 +8,7 @@
 #include "UIHelper/ImGuiUI.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
@@ -348,7 +349,7 @@ namespace Desert::Editor
             if ( floorMesh.Primitive != Geometry::PrimitiveType::Plane )
             {
                 floorMesh.Primitive = Geometry::PrimitiveType::Plane;
-                floorMesh.RuntimeMesh.reset();
+                ECS::ClearEditableMesh( floorMesh );
             }
             floorMesh.CastShadows    = m_Setup.FloorCastsShadow;
             floorMesh.ReceiveShadows = m_Setup.FloorReceivesShadow;
@@ -392,7 +393,7 @@ namespace Desert::Editor
         else if ( floorMesh.Primitive.has_value() )
         {
             floorMesh.Primitive.reset();
-            floorMesh.RuntimeMesh.reset();
+            ECS::ClearEditableMesh( floorMesh );
             floorMesh.RuntimeMaterialInstances.clear();
         }
 
@@ -472,7 +473,7 @@ namespace Desert::Editor
         EnsureInit();
 
         auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        smc.RuntimeMesh.reset();
+        ECS::ClearEditableMesh( smc );
         smc.Primitive.reset();
         smc.RuntimeMaterialInstances.clear();
         smc.MeshHandle    = mesh;
@@ -614,7 +615,7 @@ namespace Desert::Editor
         // Clearing the runtime instances forces a rebuild against the new handle; dropping the runtime mesh
         // makes a shape change rebuild the geometry.
         smc.RuntimeMaterialInstances.clear();
-        smc.RuntimeMesh.reset();
+        ECS::ClearEditableMesh( smc );
         smc.Primitive     = ToPrimitive( shape );
         smc.MaterialSlots = { material };
 
@@ -640,7 +641,7 @@ namespace Desert::Editor
         ResetView();
     }
 
-    void PreviewViewport::SetCubemapMaterial( std::function<const Graphic::ImageCube*()> resolveCube )
+    void PreviewViewport::SetCubemapMaterial( std::function<Graphic::SampledCube()> resolveCube )
     {
         EnsureInit();
 
@@ -651,7 +652,7 @@ namespace Desert::Editor
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
         smc.RuntimeMaterialInstances.clear();
-        smc.RuntimeMesh.reset();
+        ECS::ClearEditableMesh( smc );
 
         if ( !m_CubemapPass )
         {
@@ -698,7 +699,7 @@ namespace Desert::Editor
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
         smc.RuntimeMaterialInstances.clear();
-        smc.RuntimeMesh.reset();
+        ECS::ClearEditableMesh( smc );
 
         if ( m_CubemapPass )
             m_CubemapPass->ClearSource();
@@ -792,7 +793,7 @@ namespace Desert::Editor
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
         smc.RuntimeMaterialInstances.clear();
-        smc.RuntimeMesh.reset();
+        ECS::ClearEditableMesh( smc );
 
         if ( m_CubemapPass )
             m_CubemapPass->ClearSource();

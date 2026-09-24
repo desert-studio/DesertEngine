@@ -52,11 +52,11 @@ namespace Desert::Editor::Render
             // Resolved EVERY frame on purpose — the pass owns no copy of the material's state, so a
             // cubemap dropped onto (or cleared from) the subject shows next frame with no
             // invalidation protocol. The closure is two map lookups; see the header.
-            const Graphic::ImageCube* cube = m_ResolveCube();
-            if ( !cube )
+            const Graphic::SampledCube source = m_ResolveCube();
+            if ( !source.Cube )
                 return;
 
-            m_Material->Update( ctx.Camera, cube, m_Radius );
+            m_Material->Update( ctx.Camera, source.Cube, source.Look, m_Radius );
             Graphic::Renderer::GetInstance().SubmitFullscreenQuad( m_Pipeline.get(),
                                                                    m_Material->GetMaterialExecutor() );
         };

@@ -28,7 +28,7 @@ namespace Desert::Runtime
         // line an empty handle (index 0, generation 0) falls into the stale-handle branch below and is
         // reported as "something is holding an image handle past the image's life" — which would now be
         // printed on every environment rebake, because an Environment's three cubes are released
-        // together, unconditionally, by both `SkyboxRenderer` and `MaterialSkybox::ReleaseEnvironment`,
+        // together, unconditionally, by `SkyboxRenderer`,
         // and the procedural sky's radiance slot is routinely empty by design (SceneEnvironment.cpp).
         // A diagnostic that fires for a legal state is a diagnostic people learn to scroll past, and
         // the one below is load-bearing.

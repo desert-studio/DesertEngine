@@ -250,6 +250,11 @@ namespace Desert::Tests::PointerCensus
           "SceneRenderer gathers ONE of these per frame and hands the same one to the deferred, the PBR "
           "and the terrain materials; the map is owned by the VolumetricCloudRenderer of that same "
           "SceneRenderer, and null is the ordinary state every consumer already tests" },
+        { "Desert/Desert/Source/Engine/Graphic/Environment/SkyLook.hpp",
+          "SampledCube", "Cube", Guard::CallScoped,
+          "the answer of a resolver the editor's cubemap preview calls EVERY frame and consumes in the same "
+          "call (EditorCubemapPreviewPass); the cube is resolved through the image service each time and "
+          "never held, so an asset reload between frames cannot leave it dangling" },
         { "Desert/Desert/Source/Engine/Graphic/ExternalRenderPass.hpp",
           "ExternalPassContext", "Camera", Guard::FrameScoped,
           "per-frame data handed to an editor-registered pass when the render graph executes it; the "
@@ -531,6 +536,9 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawSlotMaterialMeshCommand.hpp",
           "DrawSlotMaterialMeshCommand", "SlotMaterial", Guard::FrameScoped,
           "a Material owned by MaterialService or by the SceneRenderer for longer than the frame" },
+        { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawLandscapeTileCommand.hpp",
+          "DrawLandscapeTileCommand", "Heightmap", Guard::FrameScoped,
+          "the tile's R16 copy, held by LandscapeECSSystem's per-entity cache for longer than the frame; a re-upload drops the old image into the allocator's per-frame deletion queue, never frees it under a recorded frame" },
         { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawTerrainCommand.hpp",
           "DrawTerrainCommand", "SplatMap", Guard::FrameScoped,
           kWhyFramePayload },
@@ -744,6 +752,9 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp",
           "TerrainDrawData", "SplatMap", Guard::FrameScoped,
           kWhyFramePayload },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp",
+          "TerrainDrawData", "Heightmap", Guard::FrameScoped,
+          "copied from DrawLandscapeTileCommand::Heightmap for the same frame; same owner, LandscapeECSSystem's cache" },
 
         // ------------------------------------------------------------------------------------------
         // STAGE 2: Editor/Source. The teamlead called this the harder half and the reason is in the

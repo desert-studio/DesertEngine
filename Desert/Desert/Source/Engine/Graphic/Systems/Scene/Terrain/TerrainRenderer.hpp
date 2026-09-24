@@ -33,6 +33,12 @@ namespace Desert::Graphic::System
         // null => the white fallback is used (Manual layers show everywhere until painted).
         Image2D* SplatMap = nullptr;
 
+        // A landscape tile's R16 heightmap (LandscapeECSSystem's GPU copy of the tile's samples). Non-null
+        // selects the heightmap path: Size/Resolution/HeightScale/NoiseFrequency/Seed/Transform are then
+        // not read, and Landscape says where the tile sits. Null is the procedural TerrainComponent path.
+        Image2D*          Heightmap = nullptr;
+        LandscapeTileDraw Landscape;
+
         // Material param + texture overrides from the entity's MaterialComponent, applied generically to the
         // DataDrivenMaterial by name (params e.g. "Tint"/"DetailTiling"; textures = the splat layers
         // u_GrassTex/u_RockTex/...). Unset samplers keep the backend white fallback.

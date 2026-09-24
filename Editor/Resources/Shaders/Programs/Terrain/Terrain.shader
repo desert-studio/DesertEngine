@@ -48,13 +48,7 @@ Shader "Terrain"
 
         #include <Common/MaterialTransport.glslh>
 
-        struct TerrainInstance
-        {
-            mat4 Model;
-            vec4 Params;     // x = world size, y = gridDim (patches/side), z = heightScale, w = tessLevel
-            vec4 Params2;    // x = noiseFrequency, y = seed, z/w = spare
-            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = std430 padding
-        };
+        #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
             TerrainInstance u_Terrains[];
@@ -62,6 +56,7 @@ Shader "Terrain"
         #define u_T u_Terrains[m_PushConstants.MaterialIndex]
 
         Out(0) vec2 v_WorldXZ;
+        Out(1) vec2 v_SampleXZ; // landscape tiles: the corner's global sample index
 
         void main()
         {
@@ -75,11 +70,26 @@ Shader "Terrain"
             // Unit-quad corner offsets in CCW order: (0,0) (1,0) (1,1) (0,1).
             vec2 off = vec2( ( corner == 1 || corner == 2 ) ? 1.0 : 0.0, ( corner == 2 || corner == 3 ) ? 1.0 : 0.0 );
 
+            if ( u_T.Params2.z > 0.5 )
+            {
+                // Landscape tile: the corner is a GLOBAL sample index (integers, exact in float), and its
+                // world position is the root's origin plus index * spacing. A corner on a shared tile edge
+                // is the same index seen from both tiles, so both compute the same bits here — which is
+                // what gives the TCS the same edge, and the same edge tessellation, on both sides.
+                float quadsPerPatch = u_T.LandscapeTile.z / float( gridDim );
+                vec2  g = u_T.LandscapeTile.xy + ( vec2( float( gx ), float( gz ) ) + off ) * quadsPerPatch;
+                v_SampleXZ  = g;
+                v_WorldXZ   = u_T.LandscapeFrame.xz + g * u_T.LandscapeFrame.w;
+                gl_Position = vec4( v_WorldXZ.x, u_T.LandscapeFrame.y, v_WorldXZ.y, 1.0 );
+                return;
+            }
+
             float size = u_T.Params.x;
             float cell = size / float( gridDim );
             float x    = ( float( gx ) + off.x ) * cell - size * 0.5;
             float z    = ( float( gz ) + off.y ) * cell - size * 0.5;
 
+            v_SampleXZ  = vec2( 0.0 );
             v_WorldXZ   = vec2( x, z );
             gl_Position = vec4( x, 0.0, z, 1.0 ); // world-space control point (projection happens in the TES)
         }
@@ -107,13 +117,7 @@ Shader "Terrain"
 
         #include <Common/MaterialTransport.glslh>
 
-        struct TerrainInstance
-        {
-            mat4 Model;
-            vec4 Params;     // x = size, y = gridDim, z = heightScale, w = tessLevel (used here as MAX/near tess)
-            vec4 Params2;    // x = noiseFrequency, y = seed, z/w = spare
-            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = std430 padding
-        };
+        #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
             TerrainInstance u_Terrains[];
@@ -121,7 +125,9 @@ Shader "Terrain"
         #define u_T u_Terrains[m_PushConstants.MaterialIndex]
 
         In(0) vec2 v_WorldXZ[];
+        In(1) vec2 v_SampleXZ[];
         Out(0) vec2 tc_WorldXZ[];
+        Out(1) vec2 tc_SampleXZ[];
 
         float TessForDistance( float d )
         {
@@ -170,6 +176,7 @@ Shader "Terrain"
 
             gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
             tc_WorldXZ[gl_InvocationID]         = v_WorldXZ[gl_InvocationID];
+            tc_SampleXZ[gl_InvocationID]        = v_SampleXZ[gl_InvocationID];
         }
     }
 
@@ -196,13 +203,7 @@ Shader "Terrain"
 
         #include <Common/MaterialTransport.glslh>
 
-        struct TerrainInstance
-        {
-            mat4 Model;
-            vec4 Params;     // x = size, y = gridDim, z = heightScale, w = tessLevel
-            vec4 Params2;    // x = noiseFrequency, y = seed, z/w = spare
-            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = std430 padding
-        };
+        #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
             TerrainInstance u_Terrains[];
@@ -210,6 +211,14 @@ Shader "Terrain"
         #define u_T u_Terrains[m_PushConstants.MaterialIndex]
 
         In(0) vec2 tc_WorldXZ[];
+        In(1) vec2 tc_SampleXZ[];
+
+        // A landscape tile's heights: the R16_UNORM copy of its uint16 samples (LandscapeECSSystem). Read
+        // ONLY by texelFetch — a filtered read would blend samples the CPU never blends, and the decode
+        // below recovers the exact integer each texel was uploaded from.
+        Uniform(9) sampler2D u_Heightmap;
+
+        #include <Common/LandscapeHeight.glslh>
 
         Out(0) vec3 v_WorldPos;
         Out(1) vec3 v_Normal;
@@ -261,8 +270,80 @@ Shader "Terrain"
             return ( h - 0.5 ) * 2.0 * u_T.Params.z; // center around 0, scale by heightScale
         }
 
+        // One sample of this tile in centimetres above the root's base, clamped into the tile: the
+        // gradient's missing neighbour on the border lives in another tile, and the CPU (GradientAt in
+        // LandscapeData.cpp) takes the one-sided difference there — so does this.
+        float TileHeightCm( int x, int z )
+        {
+            int last = int( u_T.LandscapeTile.z );
+            ivec2 at = ivec2( clamp( x, 0, last ), clamp( z, 0, last ) );
+            return LandscapeHeightCmFromSample( LandscapeSampleFromUnorm( texelFetch( u_Heightmap, at, 0 ).r ),
+                                                u_T.LandscapeTile.w );
+        }
+
+        vec2 TileGradient( int x, int z )
+        {
+            int   last = int( u_T.LandscapeTile.z );
+            int   xa = max( x - 1, 0 );
+            int   xb = min( x + 1, last );
+            int   za = max( z - 1, 0 );
+            int   zb = min( z + 1, last );
+            float spacing = u_T.LandscapeFrame.w;
+            return vec2( LandscapeGradient( TileHeightCm( xa, z ), TileHeightCm( xb, z ), float( xb - xa ), spacing ),
+                         LandscapeGradient( TileHeightCm( x, za ), TileHeightCm( x, zb ), float( zb - za ), spacing ) );
+        }
+
+        // The heightmap path. Everything that decides a vertex on a shared tile edge is exact: the corner
+        // indices are integers, LandscapeLerp returns its endpoints bit for bit, the tile-local index is
+        // an integer difference, and the far column of one tile is evaluated at fraction 1 of its last
+        // cell while the near column of the next is fraction 0 of its first — the same sample, decoded by
+        // the same function. So both tiles place the vertex at the same bits, and no crack can open.
+        void LandscapeMain()
+        {
+            // The patch is an axis-aligned rectangle of samples, so X comes from the u edge alone and Z
+            // from the v edge alone. NOT a bilerp of all four corners: that evaluates lerp(63, 63, t) for
+            // the X of a seam vertex, which is not 63 — a*(1-t) + a*t rounds — and the two tiles then
+            // disagree about which cell the vertex is in (the seam suite found exactly this).
+            vec2 g0 = tc_SampleXZ[0]; // (u, v) = (0, 0)
+            vec2 g1 = tc_SampleXZ[1]; // (1, 0)
+            vec2 g3 = tc_SampleXZ[3]; // (0, 1)
+            vec2 g  = vec2( LandscapeLerp( g0.x, g1.x, gl_TessCoord.x ), LandscapeLerp( g0.y, g3.y, gl_TessCoord.y ) );
+
+            float samples = u_T.LandscapeTile.z + 1.0;
+            vec2  local   = g - u_T.LandscapeTile.xy;
+            float cellX   = LandscapeCellOf( local.x, samples );
+            float cellZ   = LandscapeCellOf( local.y, samples );
+            float fx      = local.x - cellX;
+            float fz      = local.y - cellZ;
+            int   cx      = int( cellX );
+            int   cz      = int( cellZ );
+
+            float h = LandscapeBilinear( TileHeightCm( cx, cz ), TileHeightCm( cx + 1, cz ), TileHeightCm( cx, cz + 1 ),
+                                         TileHeightCm( cx + 1, cz + 1 ), fx, fz );
+
+            vec2 d00 = TileGradient( cx, cz );
+            vec2 d10 = TileGradient( cx + 1, cz );
+            vec2 d01 = TileGradient( cx, cz + 1 );
+            vec2 d11 = TileGradient( cx + 1, cz + 1 );
+            float dx = LandscapeBilinear( d00.x, d10.x, d01.x, d11.x, fx, fz );
+            float dz = LandscapeBilinear( d00.y, d10.y, d01.y, d11.y, fx, fz );
+
+            vec2 worldXZ = u_T.LandscapeFrame.xz + g * u_T.LandscapeFrame.w;
+            vec4 worldPos = vec4( worldXZ.x, u_T.LandscapeFrame.y + h, worldXZ.y, 1.0 );
+            v_WorldPos    = worldPos.xyz;
+            v_Normal      = normalize( vec3( -dx, 1.0, -dz ) ); // the surface y = h(x, z)
+            v_Height01    = clamp( h / max( u_T.Params.z, 0.0001 ) * 0.5 + 0.5, 0.0, 1.0 );
+            gl_Position   = u.Projection * u.View * worldPos;
+        }
+
         void main()
         {
+            if ( u_T.Params2.z > 0.5 )
+            {
+                LandscapeMain();
+                return;
+            }
+
             // Corners stored CCW: p0=(0,0) p1=(1,0) p2=(1,1) p3=(0,1). Bilerp over gl_TessCoord.
             vec4 p0 = gl_in[0].gl_Position;
             vec4 p1 = gl_in[1].gl_Position;
@@ -318,13 +399,7 @@ Shader "Terrain"
         }
         u;
 
-        struct TerrainInstance
-        {
-            mat4 Model;
-            vec4 Params;     // x = size, y = gridDim, z = heightScale, w = tessLevel
-            vec4 Params2;    // x = noiseFrequency, y = seed, z/w = spare
-            vec4 LayerModes; // x = grass, y = rock, z = snow (0=Auto,1=Manual,2=Off), w = std430 padding
-        };
+        #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
             TerrainInstance u_Terrains[];

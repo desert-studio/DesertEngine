@@ -168,6 +168,11 @@ namespace
         data.MorphTargets = { m0, m1 };
 
         data.SkeletonSignature = 0x0123456789ABCDEFull;
+
+        // Version 2: one polygroup per face, not numbered like the faces, so a reader that invented them
+        // from the face index would fail.
+        for ( size_t f = 0; f < data.Indices.size(); ++f )
+            data.PolyGroups.push_back( static_cast<int32_t>( 40 - ( f * 3 ) % 7 ) );
         return data;
     }
 
@@ -239,6 +244,8 @@ namespace
                 }
             }
         }
+
+        EXPECT_EQ( expected.PolyGroups, actual.PolyGroups );
 
         ASSERT_EQ( expected.MorphTargets.size(), actual.MorphTargets.size() );
         for ( size_t i = 0; i < expected.MorphTargets.size(); ++i )
@@ -317,6 +324,72 @@ TEST( MeshBinaryFormat, ATruncatedFileIsRefusedAndAnEmptyOneIsNot )
         EXPECT_FALSE( cutRead.IsSuccess() )
              << "a file cut to " << cut << " of " << full.size() << " bytes was accepted";
     }
+}
+
+// VERSION 1 IS STILL READ, AND IT IS READ AS "NO POLYGROUPS". The v1 bytes are MADE here from a v2 encoding
+// rather than taken from the committed probes, so the test keeps proving the v1 path after those probes are
+// re-cooked: a v1 file is exactly a v2 file without its last table row (24 bytes), every offset 24 lower,
+// the size 24 smaller, Version 1 and SectionCount 9 - which is also the precise statement of what v2 added.
+namespace
+{
+    std::string AsVersionOne( const std::string& v2 )
+    {
+        constexpr size_t kHeader = 64, kRow = 24, kRowsV2 = 10;
+        uint32_t         version = 0, sections = 0;
+        uint64_t         fileSize = 0;
+        std::memcpy( &version, v2.data() + 12, 4 );
+        std::memcpy( &fileSize, v2.data() + 16, 8 );
+        std::memcpy( &sections, v2.data() + 24, 4 );
+        EXPECT_EQ( version, 2u );
+        EXPECT_EQ( sections, kRowsV2 );
+
+        uint64_t lastCount = 0;
+        std::memcpy( &lastCount, v2.data() + kHeader + ( kRowsV2 - 1 ) * kRow + 16, 8 );
+        EXPECT_EQ( lastCount, 0u ) << "only a mesh with no polygroups has a v1 spelling";
+
+        std::string v1 = v2.substr( 0, kHeader + ( kRowsV2 - 1 ) * kRow ) + v2.substr( kHeader + kRowsV2 * kRow );
+        version        = 1;
+        sections       = kRowsV2 - 1;
+        fileSize -= kRow;
+        std::memcpy( v1.data() + 12, &version, 4 );
+        std::memcpy( v1.data() + 16, &fileSize, 8 );
+        std::memcpy( v1.data() + 24, &sections, 4 );
+        for ( size_t row = 0; row < kRowsV2 - 1; ++row )
+        {
+            uint64_t offset = 0;
+            std::memcpy( &offset, v1.data() + kHeader + row * kRow + 8, 8 );
+            offset -= kRow;
+            std::memcpy( v1.data() + kHeader + row * kRow + 8, &offset, 8 );
+        }
+        EXPECT_EQ( v1.size(), fileSize );
+        return v1;
+    }
+} // namespace
+
+TEST( MeshBinaryFormat, AVersionOneFileIsReadWithNoPolyGroups )
+{
+    Ser::MeshAssetData source = FullyPopulated();
+    source.PolyGroups.clear();
+    const std::string v1 = AsVersionOne( Ser::EncodeMeshBinary( source ) );
+
+    const auto read = Ser::ReadMeshAssetData( v1, "v1.stmesh" );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_TRUE( read.GetValue().PolyGroups.empty() );
+    ExpectSameMesh( source, read.GetValue() );
+
+    // And v1 is exactly nine sections: a v1 header over a ten-row table is refused, not half-read.
+    std::string lying = Ser::EncodeMeshBinary( source );
+    lying[12]         = '\x01';
+    EXPECT_FALSE( Ser::DecodeMeshBinary( lying, "v1-with-ten-rows" ).IsSuccess() );
+}
+
+TEST( MeshBinaryFormat, PolyGroupsThatDoNotCoverEveryFaceAreRefused )
+{
+    Ser::MeshAssetData source = FullyPopulated();
+    source.PolyGroups.pop_back();
+    const auto read = Ser::DecodeMeshBinary( Ser::EncodeMeshBinary( source ), "short-groups.stmesh" );
+    ASSERT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "polygroups for" ), std::string::npos ) << read.GetError();
 }
 
 TEST( MeshBinaryFormat, ACorruptHeaderIsRefusedByName )

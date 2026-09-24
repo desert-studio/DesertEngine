@@ -2059,6 +2059,7 @@ namespace Desert::Graphic::System
         auto* imageService = Runtime::ResourceRegistry::GetImageService();
         if ( const auto& env = m_SceneRenderer->GetEnvironment(); env.has_value() )
         {
+            frame.EnvironmentLook = env->Look;
             if ( env->IrradianceMap.IsValid() )
                 frame.IrradianceMap = static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
             if ( env->PreFilteredMap.IsValid() )

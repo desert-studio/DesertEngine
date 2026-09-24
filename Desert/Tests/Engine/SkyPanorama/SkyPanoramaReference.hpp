@@ -1,9 +1,9 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/SkyPanorama.glslh AS C++.
+// Compiles Editor/Resources/Shaders/Common/SkyPanorama.glslh and Common/SkyLook.glslh AS C++.
 //
-// Not a port and not a paraphrase — the same text, the same file, that PanoramaToCubemap and
-// DiffuseIrradiance compile as GLSL. The arrangement is the house one for a shader-maths reference
+// Not a port and not a paraphrase — the same text, the same files, that the two bake programs and every
+// reader of the environment cubes compile as GLSL. The arrangement is the house one for a shader-maths reference
 // (see DepthConvention/ViewRayReference.hpp and CloudNoiseReference.hpp):
 //   * glm supplies vec2/vec3 and the built-ins with GLSL semantics;
 //   * the include sits inside an ANONYMOUS namespace so each translation unit gets its own copy — GLSL
@@ -26,6 +26,7 @@ namespace Desert::Tests::SkyPanoramaRef
 
         DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
 #include <Common/SkyPanorama.glslh>
+#include <Common/SkyLook.glslh>
              DESERT_GLSL_AS_CPP_END
 
     } // namespace

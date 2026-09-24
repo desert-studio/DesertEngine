@@ -17,6 +17,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -702,7 +703,7 @@ namespace Desert::Editor
     void PhotogrammetryPanel::ApplyPreviewMesh()
     {
         auto& smc = m_PreviewTarget.GetComponent<ECS::StaticMeshComponent>();
-        smc.RuntimeMesh.reset();
+        ECS::ClearEditableMesh( smc );
         smc.Primitive.reset();
         smc.RuntimeMaterialInstances.clear();
         smc.MaterialSlots.clear();

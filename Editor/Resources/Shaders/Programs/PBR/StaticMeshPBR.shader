@@ -173,6 +173,13 @@ Shader "StaticMeshPBR"
         // Environment maps
         Uniform(8) samplerCube u_EnvSpecularTex;
         Uniform(9) samplerCube u_EnvIrradianceTex;
+        // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). Slot 22: free in
+        // the whole forward mesh family, which must keep one layout (ShaderCacheKey).
+        Uniform(22) SkyLookUB
+        {
+            vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
+            vec4 Gain;      // rgb = tint * intensity
+        } skyLook;
 
         // BRDF LUT
         Uniform(10) sampler2D u_BRDFLUTTexture;

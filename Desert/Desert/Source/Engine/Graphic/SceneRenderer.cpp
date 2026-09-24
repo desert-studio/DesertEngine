@@ -661,10 +661,6 @@ namespace Desert::Graphic
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.Timestep.GetSeconds() );
-            // The HDR cubemap's own rebake, at the same boundary and under the same settle rule. Both
-            // are called unconditionally: each asks whether it is the sky driving this frame, and a
-            // caller that decided for them would be a second copy of ResolveSkyMode.
-            skyboxSystem->EnsureHdrEnvironment( sceneRenderInfo.Timestep.GetSeconds() );
         }
 
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (intra-phase pass
@@ -829,6 +825,7 @@ namespace Desert::Graphic
                 auto* imageService = Runtime::ResourceRegistry::GetImageService();
                 if ( const auto& env = GetEnvironment(); env.has_value() )
                 {
+                    environment.Look = env->Look;
                     if ( env->IrradianceMap.IsValid() )
                         environment.Irradiance =
                              static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
@@ -1329,6 +1326,12 @@ namespace Desert::Graphic
                          .LayerModes     = layerModes,
                          .SplatMap       = splatMap,
                          .Overrides      = overrides } );
+    }
+
+    void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile )
+    {
+        UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+             ->Submit( { .Heightmap = heightmap, .Landscape = tile } );
     }
 
     void SceneRenderer::SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform,

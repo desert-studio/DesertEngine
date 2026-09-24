@@ -5,6 +5,8 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 
 #include <Engine/Core/SceneSettings.hpp>
+#include <Engine/Geometry/EditMeshConversion.hpp>
+#include <Engine/Geometry/EditMeshSerialization.hpp>
 // For the shipped presets' names and the directory they live in, and nothing else. The v4 -> v5 migration
 // turns the species integer a v4 file carries into the PATH of the preset that holds the same twelve
 // numbers, and spelling that path here as a literal would be a second statement of it — the exact
@@ -2047,6 +2049,131 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // THE v21 SHAPE OF A STATIC MESH'S EDITED GEOMETRY, known here and nowhere else (DEV_CONTRACT §4.3:
+        // the runtime knows nothing about the old format). Exactly what ComponentRegistry wrote before v22.
+        struct LegacyVertexV21
+        {
+            glm::vec3 Position;
+            glm::vec3 Normal;
+            glm::vec2 TexCoord;
+        };
+        struct LegacyStaticMeshGeometryV21
+        {
+            std::optional<std::vector<LegacyVertexV21>> CustomVertices;
+            std::optional<std::vector<uint32_t>>        CustomIndices;
+        };
+    } // namespace
+
+    EditMeshMigrationReport MigrateEditMeshV21ToV22( std::vector<Assets::EntityData>& entities )
+    {
+        EditMeshMigrationReport report;
+
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+
+            const auto payload = entity.Components.get( "StaticMesh" );
+            if ( !payload.has_value() )
+                continue;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+            {
+                LOG_WARN( "[SceneMigration] entity '{0}': the StaticMesh payload is {1}, not an object - an "
+                          "edited mesh in it could not be converted and stays as it is",
+                          tag, Describe( payload.value() ) );
+                continue;
+            }
+            const bool hasVertices = fields.value().get( "CustomVertices" ).has_value();
+            const bool hasIndices  = fields.value().get( "CustomIndices" ).has_value();
+            if ( !hasVertices && !hasIndices )
+                continue; // no edited mesh, or already converted - tree untouched, so this is idempotent
+
+            const auto reject = [&]( const std::string& why )
+            {
+                report.Rejected += 1;
+                report.RejectedNames.push_back( tag + " > StaticMesh: " + why );
+            };
+
+            if ( hasVertices != hasIndices )
+            {
+                reject( std::string( "states " ) + ( hasVertices ? "CustomVertices" : "CustomIndices" ) +
+                        " without the other" );
+                continue;
+            }
+
+            const auto legacy = rfl::json::read<LegacyStaticMeshGeometryV21, rfl::DefaultIfMissing>(
+                 rfl::json::write( payload.value() ) );
+            if ( !legacy.has_value() || !legacy.value().CustomVertices || !legacy.value().CustomIndices )
+            {
+                reject( std::string( "CustomVertices/CustomIndices are not the v21 arrays: " ) +
+                        ( legacy.has_value() ? "missing after the read" : legacy.error().what() ) );
+                continue;
+            }
+            const auto& vertices = *legacy.value().CustomVertices;
+            const auto& indices  = *legacy.value().CustomIndices;
+            if ( indices.size() % 3 != 0 )
+            {
+                reject( std::to_string( indices.size() ) + " CustomIndices is not a whole number of triangles" );
+                continue;
+            }
+
+            Geometry::RenderMeshData render;
+            render.Vertices.reserve( vertices.size() );
+            for ( const auto& v : vertices )
+            {
+                Vertex vertex{};
+                vertex.Position = v.Position;
+                vertex.Normal   = v.Normal;
+                vertex.TexCoord = v.TexCoord;
+                render.Vertices.push_back( vertex );
+            }
+            for ( size_t i = 0; i < indices.size(); i += 3 )
+                render.Indices.push_back( { indices[i], indices[i + 1], indices[i + 2] } );
+
+            auto imported = Geometry::FromRenderMesh( render );
+            if ( !imported.IsSuccess() )
+            {
+                reject( imported.GetError() );
+                continue;
+            }
+            Geometry::ImportedEditMesh result = imported.ExtractValue();
+            result.Mesh.Attributes().DisableTangents();
+
+            rfl::Generic::Object kept;
+            for ( const auto& [key, value] : fields.value() )
+            {
+                if ( key == "CustomVertices" || key == "CustomIndices" )
+                    continue;
+                kept[key] = value;
+            }
+            const auto saved =
+                 rfl::json::read<rfl::Generic>( rfl::json::write( Geometry::ToSerialized( result.Mesh ) ) );
+            if ( !saved.has_value() )
+            {
+                reject( std::string( "the converted mesh could not be written: " ) + saved.error().what() );
+                continue;
+            }
+            kept["EditMesh"]                = saved.value();
+            entity.Components["StaticMesh"] = rfl::Generic( kept );
+
+            report.Entities += 1;
+            std::string line = tag + ": " + std::to_string( vertices.size() ) + " render vertices -> " +
+                               std::to_string( result.Mesh.VertexCount() ) + " vertices / " +
+                               std::to_string( result.Mesh.TriangleCount() ) + " triangles";
+            if ( result.DroppedDegenerate > 0 )
+                line += ", " + std::to_string( result.DroppedDegenerate ) + " degenerate dropped";
+            if ( result.DroppedDuplicate > 0 )
+                line += ", " + std::to_string( result.DroppedDuplicate ) + " duplicate dropped";
+            if ( result.DetachedTriangles > 0 )
+                line += ", " + std::to_string( result.DetachedTriangles ) + " detached (non-manifold edge)";
+            report.ConvertedNames.push_back( std::move( line ) );
+        }
+
+        return report;
+    }
+
     RetiredKeysMigrationReport MigrateRetiredKeys( std::optional<rfl::Generic>&     settings,
                                                    std::vector<Assets::EntityData>& entities )
     {
@@ -2783,6 +2910,12 @@ namespace Desert::Migration
             {
                 report.AnimGraphRaised = true;
                 report.AnimGraph       = MigrateAnimGraphV20ToV21( entities );
+            }
+
+            if ( statedSceneVersion < kSceneVersionEditMesh )
+            {
+                report.EditMeshRaised = true;
+                report.EditMesh       = MigrateEditMeshV21ToV22( entities );
             }
 
             if ( statedSceneVersion < kSceneVersion )

@@ -47,6 +47,41 @@ namespace Desert::Graphic::System
             }
         }
 
+        TerrainInstance ProceduralInstance( const TerrainDrawData& t, float tessLevel, uint32_t maxGridDim )
+        {
+            const uint32_t gridDim = std::clamp<uint32_t>( static_cast<uint32_t>( t.Resolution ), 1u, maxGridDim );
+
+            TerrainInstance instance;
+            instance.Model  = t.Transform;
+            instance.Params = glm::vec4( t.Size, static_cast<float>( gridDim ), t.HeightScale, tessLevel );
+            instance.Params2 =
+                 glm::vec4( t.NoiseFrequency, static_cast<float>( t.Seed ), kTerrainHeightSourceProcedural, 0.0f );
+            instance.LayerModes = glm::vec4( t.LayerModes, 0.0f );
+            return instance;
+        }
+
+        // A landscape tile is placed by its LandscapeTileDraw, not by a Model matrix: the shader builds
+        // world positions from the root's origin and GLOBAL sample indices (see LandscapeTileDraw for why),
+        // so Model stays identity. Params.x is the tile's extent — the TCS scales its LOD distance band by
+        // it, and every tile of one landscape has the same extent, so the band is the same on both sides
+        // of a seam. Params.z is the tile's full height range (UE's +-256 local units), the scale the
+        // fragment's height rules normalise by.
+        TerrainInstance LandscapeInstance( const TerrainDrawData& t, float tessLevel )
+        {
+            const LandscapeTileDraw& l       = t.Landscape;
+            const uint32_t           gridDim = LandscapePatchesPerSide( l.QuadsPerTile );
+
+            TerrainInstance instance;
+            instance.Params         = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm,
+                                                 static_cast<float>( gridDim ), 256.0f * l.ZScale, tessLevel );
+            instance.Params2        = glm::vec4( 0.0f, 0.0f, kTerrainHeightSourceHeightmap, 0.0f );
+            instance.LayerModes     = glm::vec4( t.LayerModes, 0.0f );
+            instance.LandscapeFrame = glm::vec4( l.OriginX, l.BaseY, l.OriginZ, l.SpacingCm );
+            instance.LandscapeTile =
+                 glm::vec4( static_cast<float>( l.FirstSampleX ), static_cast<float>( l.FirstSampleZ ),
+                            static_cast<float>( l.QuadsPerTile ), l.ZScale );
+            return instance;
+        }
     } // namespace
 
     Common::BoolResultStr TerrainRenderer::Initialize()
@@ -136,8 +171,8 @@ namespace Desert::Graphic::System
 
                  for ( const auto& t : m_Queue )
                  {
-                     const auto [it, inserted] =
-                          groupIndex.try_emplace( TerrainTextureKey( t.Overrides, t.SplatMap ), groups.size() );
+                     const auto [it, inserted] = groupIndex.try_emplace(
+                          TerrainTextureKey( t.Overrides, t.SplatMap, t.Heightmap ), groups.size() );
                      if ( inserted )
                      {
                          auto& material = m_Materials[it->first];
@@ -164,6 +199,8 @@ namespace Desert::Graphic::System
                          // Per-terrain painted splat map (Manual layers). Null -> white fallback stays.
                          if ( t.SplatMap )
                              material->SetTexture( "u_SplatMap", t.SplatMap );
+                         if ( t.Heightmap )
+                             material->SetTexture( "u_Heightmap", t.Heightmap );
                      }
                      Group& group = groups[it->second];
 
@@ -171,15 +208,10 @@ namespace Desert::Graphic::System
                      for ( const auto& [name, value] : t.Overrides.Params )
                          group.Material->SetParamRaw( name, value );
 
-                     const uint32_t gridDim =
-                          std::clamp<uint32_t>( static_cast<uint32_t>( t.Resolution ), 1u, kMaxGridDim );
-
-                     TerrainInstance instance;
-                     instance.Model = t.Transform;
-                     instance.Params =
-                          glm::vec4( t.Size, static_cast<float>( gridDim ), t.HeightScale, kTessLevel );
-                     instance.Params2    = glm::vec4( t.NoiseFrequency, static_cast<float>( t.Seed ), 0.0f, 0.0f );
-                     instance.LayerModes = glm::vec4( t.LayerModes, 0.0f );
+                     const TerrainInstance instance = t.Heightmap
+                                                           ? LandscapeInstance( t, kTessLevel )
+                                                           : ProceduralInstance( t, kTessLevel, kMaxGridDim );
+                     const auto            gridDim  = static_cast<uint32_t>( instance.Params.y );
 
                      PendingDraw draw;
                      draw.Group       = it->second;

@@ -780,7 +780,7 @@ TEST_F( ShaderRootFixture, TheCloudParameterBlockIsTheSameNumberOfBytesOnBothSid
     }
 }
 
-TEST_F( ShaderRootFixture, TheDeferredLightingPassDeclaresTwentyDescriptorsInSetZero )
+TEST_F( ShaderRootFixture, TheDeferredLightingPassDeclaresTwentyOneDescriptorsInSetZero )
 {
     // THE CONSUMER, and the pass this repository shares most widely — every deferred scene draws it, and
     // it is the one file the cloud work was told to touch as little as possible. Pinning its descriptor
@@ -791,10 +791,13 @@ TEST_F( ShaderRootFixture, TheDeferredLightingPassDeclaresTwentyDescriptorsInSet
     // four cascade maps (5, 13, 14, 15), four uniform blocks (0, 4, 7, 12), two light SSBOs (6, 16) and
     // the cloud shadow map (11) — plus the three the ambient needs (17, 18, 19). Was seventeen until
     // 2026-09-03, when this pass stopped inventing its ambient out of a flat constant and started reading
-    // the same baked environment the forward mesh shaders read.
+    // the same baked environment the forward mesh shaders read. Twenty-one since 2026-09-24 (ENV1): the
+    // sky's look (20, SkyLookUB) is applied where the environment cubes are sampled instead of being
+    // baked into them, so the composite reads the rotation and gain the backdrop is drawn with.
     const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 20u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 21u );
+    EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) ); // SkyLookUB
 
     EXPECT_TRUE( HasBinding( bindings, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
     EXPECT_TRUE( HasBinding( bindings, 12, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
@@ -1348,7 +1351,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
             const auto& block = compiler.get_type( resource.base_type_id );
             ASSERT_FALSE( block.member_types.empty() );
             const uint32_t stride = compiler.type_struct_member_array_stride( block, 0 );
-            EXPECT_EQ( stride, 112u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
+            EXPECT_EQ( stride, 144u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
             found = true;
         }
         EXPECT_TRUE( found ) << "the tess-eval stage no longer reads TerrainInstances";
@@ -1356,7 +1359,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
 
     // The census, so a binding added or lost anywhere in the four stages is named here first.
     const auto bindings = ShaderReflection::BuildLayoutBindings( set );
-    EXPECT_EQ( bindings.size(), 9u ) << DescribeBindings( bindings );
+    EXPECT_EQ( bindings.size(), 10u ) << DescribeBindings( bindings );
     EXPECT_TRUE( HasBinding( bindings, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // TerrainUB (shared)
     EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // Materials[] rows
     EXPECT_TRUE( HasBinding( bindings, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_GrassTex
@@ -1366,6 +1369,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
     EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
     EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
+    EXPECT_TRUE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap (R16)
 }
 
 // ---- The particle state: one layout, three statements of it, and the dispatch that divides by a fourth --

@@ -8,16 +8,8 @@ Shader "PanoramaToCubemap"
         Uniform(0, 0) sampler2D inputTexture;
         layout(set=0, binding=1, rgba32f) restrict writeonly uniform imageCube outputTexture;
 
-        // THE AUTHORED LOOK OF AN HDR SKY, and the reason it is a push constant rather than a knob in the
-        // frame: this program runs once per bake, not once per frame, and the values are constant across
-        // the whole dispatch. Identity ((1,0) and white) is what the procedural sky's own bake passes, so
-        // that path is byte-for-byte what it was.
-        PushConstant SkyLook
-        {
-            vec4 YawCosSin; // xy = (cos yaw, sin yaw); zw unused
-            vec4 Gain;      // rgb = tint * intensity; a unused
-        } skyLook;
-
+        // NO LOOK HERE. The cube is the panorama as authored; the scene's rotation and gain are applied
+        // where the cube is sampled (Common/SkyLook.glslh), so turning the sky never re-runs this.
         #include <Common/SkyPanorama.glslh>
 
         vec3 getSamplingVector()
@@ -47,14 +39,10 @@ Shader "PanoramaToCubemap"
 
         	vec3 direction = getSamplingVector();
 
-            // The direction->UV mapping AND the sky's authored yaw, out of Common/SkyPanorama.glslh —
-            // the same text DiffuseIrradiance reads the same panorama with. It used to be three lines
-            // written out here and three more written out there.
-            vec2 sampleUV = PanoramaSampleUV(direction, skyLook.YawCosSin.xy);
-            vec4 color = texture(inputTexture, sampleUV);
-
-        	imageStore(outputTexture, ivec3(gl_GlobalInvocationID),
-        	           vec4(ApplySkyGain(color.rgb, skyLook.Gain.rgb), color.a));
+            // The direction->UV mapping, out of Common/SkyPanorama.glslh — the same text DiffuseIrradiance
+            // reads the same panorama with.
+            vec2 sampleUV = PanoramaSampleUV(direction);
+        	imageStore(outputTexture, ivec3(gl_GlobalInvocationID), texture(inputTexture, sampleUV));
         }
     }
 }

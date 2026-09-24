@@ -38,7 +38,7 @@ namespace Desert::Graphic
         SceneShadowBind( material, CascadeViewProj, CascadeMaps, CascadeCount, ShadowBias, ShadowsEnabled,
                          ShadowDebugMode, ShowNormals, CascadeTexelWorld, LightingDebug );
 
-        SceneEnvironmentBind( material, IrradianceMap, PrefilteredMap, BrdfLut );
+        SceneEnvironmentBind( material, IrradianceMap, PrefilteredMap, BrdfLut, EnvironmentLook );
         CloudShadowBind( material, CloudShadow );
     }
 

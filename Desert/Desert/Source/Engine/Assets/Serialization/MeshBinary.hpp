@@ -72,7 +72,7 @@
 
 namespace Desert::Assets::Serialization
 {
-    /// The container's own version sequence. It is NOT `kSceneVersion` (21) and not any of the asset
+    /// The container's own version sequence. It is NOT `kSceneVersion` (22) and not any of the asset
     /// versions beside it (`kCloudTypeFormatVersion`, `kUIThemeFormatVersion`, the registry's and the
     /// manifest's): those count changes to a `.desce`, a `.dcloud`, a `.duitheme`, a `.dreg` and a
     /// `.dman` respectively, and none of them is bumped by anything that happens to a cooked mesh. A
@@ -81,7 +81,15 @@ namespace Desert::Assets::Serialization
     ///
     /// Version 0 is not a value that appears in any file: it is the name this code gives to the JSON
     /// form that predates the container, which is recognised by the ABSENCE of the magic.
-    inline constexpr uint32_t kMeshBinaryVersion = 1;
+    ///
+    /// Version 2 (M4) appends ONE section, `PolyGroups`: one int32 per face, in `Indices` order, or none.
+    /// A polygroup is the one piece of an EditMesh a cooked mesh has no other field for - topology, seams,
+    /// normals, the tangent frame, UV 0 and the material split all come back from the render arrays through
+    /// Geometry::FromRenderMesh, while colours and UV layers 1..7 have no render field to be drawn from, so a
+    /// cooked mesh storing them would store data nothing reads. A version-1 file IS a version-2 file with
+    /// that section absent, so ReadMeshAssetData reads both and a v1 file comes back with no polygroups;
+    /// there is no second reader, only a section count that depends on the version.
+    inline constexpr uint32_t kMeshBinaryVersion = 2;
 
     /// "DESTMESH". Eight ASCII bytes, so the sequence on disk is the same whatever the host's word
     /// order — a magic written as an integer would itself need a byte-order rule to be read.

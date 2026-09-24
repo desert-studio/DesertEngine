@@ -43,13 +43,10 @@ namespace Desert::Graphic
         /// The bake's own signature is a hash over a byte image of everything it depends on. FNV-1a, the
         /// same primitive `IconBake` keys with — this is an identity, not an integrity check, and the
         /// integrity of the bytes is the container's own problem.
-        struct LookImage
+        struct SignatureImage
         {
             uint32_t Version;
             uint32_t Which;
-            float    RotationDegrees;
-            float    Intensity;
-            float    TintR, TintG, TintB;
             uint32_t FaceSize;
             uint32_t Mips;
         };
@@ -71,23 +68,20 @@ namespace Desert::Graphic
 
     } // namespace
 
-    uint64_t EnvironmentBakeSignature( const SkyLook& look, const BakedEnvironmentCube which,
-                                       const uint32_t faceSize, const uint32_t mips )
+    uint64_t EnvironmentBakeSignature( const BakedEnvironmentCube which, const uint32_t faceSize,
+                                       const uint32_t mips )
     {
-        // THE SHAPE GOES IN AS WELL AS THE LOOK. A face size or a mip count changed in `SkyRules.hpp` is
+        // THE SHAPE GOES IN. A face size or a mip count changed in `SkyRules.hpp` is
         // a different cube out of the same file and the same sky, and a cache that did not notice would
         // hand a 256-face prefilter to an image created at 512 — which is not a wrong picture, it is a
         // refused upload, on a path where "no environment" is already a legal state and says nothing.
-        LookImage image{};
-        image.Version         = kEnvironmentBakeVersion;
-        image.Which           = static_cast<uint32_t>( which );
-        image.RotationDegrees = look.RotationDegrees;
-        image.Intensity       = look.Intensity;
-        image.TintR           = look.Tint.x;
-        image.TintG           = look.Tint.y;
-        image.TintB           = look.Tint.z;
-        image.FaceSize        = faceSize;
-        image.Mips            = mips;
+        // THE LOOK DOES NOT: it is applied where the cubes are sampled (Environment/SkyLook.hpp), so a
+        // rotation dragged through twenty values addresses the same three files twenty times.
+        SignatureImage image{};
+        image.Version  = kEnvironmentBakeVersion;
+        image.Which    = static_cast<uint32_t>( which );
+        image.FaceSize = faceSize;
+        image.Mips     = mips;
         return Fnv1a( &image, sizeof( image ) );
     }
 
@@ -174,8 +168,8 @@ namespace Desert::Graphic
         if ( data.EncoderHash != bakeSignature )
         {
             return Common::MakeFormattedError<std::shared_ptr<ImageCube>>(
-                 "'{}' was baked with settings {:#018x} and this scene asks for {:#018x} (the sky's look or "
-                 "the bake's shape changed).",
+                 "'{}' was baked with settings {:#018x} and this scene asks for {:#018x} (the bake's version or "
+                 "shape changed).",
                  path.string(), data.EncoderHash, bakeSignature );
         }
         if ( data.Kind != Ser::TextureKind::Cube )

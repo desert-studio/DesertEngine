@@ -453,11 +453,22 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   and WP5b (2026-09-24) added WorldStreamer::m_Scene and ::m_Assets (two rows) and two unique_ptrs,
     //   EditorLayer::m_WorldStreamer and RuntimeLayer::m_WorldStreamer, each the one owner of the streamer of
     //   the world it plays. Raw 388+2, Unique 123+2.
-    EXPECT_EQ( CountOf( Form::Raw ), 390 );
-    EXPECT_EQ( CountOf( Form::Shared ), 331 );
+    //     ENV1 (2026-09-24) added one raw member, SampledCube::Cube, with its row: the cubemap preview's
+    //     resolver now answers the cube AND the look it is read with. Raw 388+1.
+    //     M4 (2026-09-23) added three shared_ptr<const Geometry::EditMesh> members, and each is shared ON
+    //     PURPOSE: the mesh is IMMUTABLE once on a component, so the undo record holding the old one by
+    //     reference IS the snapshot, with no copy. StaticMeshComponent::EditableMesh (the entity's source of
+    //     truth), PolyEditTool::m_DragBefore (the mesh a drag started from) and the EditMeshCommand's
+    //     m_Before/m_After declaration. Shared 331+3. PolyEdit's picking target holds the ENTITY, not a
+    //     StaticMeshComponent*, so Raw does not move: that pointer would have been into an entt pool.
+    //   LS-4 (2026-09-24) added three: the landscape tile's heightmap as it travels to the terrain pass,
+    //   DrawLandscapeTileCommand::Heightmap and TerrainDrawData::Heightmap (raw, frame-scoped, each with a
+    //   row), and its owner, LandscapeECSSystem::TileGpu::Heightmap (shared). Raw 389+2, Shared 331+1.
+    EXPECT_EQ( CountOf( Form::Raw ), 393 );
+    EXPECT_EQ( CountOf( Form::Shared ), 335 );
     EXPECT_EQ( CountOf( Form::Unique ), 125 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 884 )
+    EXPECT_EQ( (int)Members().size(), 891 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -696,7 +707,14 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // material variant. Shared because MaterialInstancePtr is the engine's one spelling of an instance
     // handle and every other holder of one is a shared_ptr too; what makes it safe is not the count but
     // the stamp check that empties the map when MaterialService retires the materials they point at.
-    EXPECT_EQ( CountOf( Form::Shared ), 331 );
+    // 331 -> 334 with M4: StaticMeshComponent::EditableMesh, PolyEditTool::m_DragBefore and the
+    // EditMeshCommand's m_Before/m_After. Shared BY DESIGN: the EditMesh is immutable once set on a
+    // component, so the undo record keeping the old one by reference is the snapshot, with no copy and
+    // nothing able to change it under the history. See TheScanFindsTheCensusedPopulation.
+    // 331 -> 332 with LS-4: LandscapeECSSystem::TileGpu::Heightmap, a GPU image — the case this test's
+    // opening paragraph describes (the cache, the descriptor sets and the deletion queue all hold it).
+    // 334 -> 335: M4's three and LS-4's one, merged 2026-09-24.
+    EXPECT_EQ( CountOf( Form::Shared ), 335 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

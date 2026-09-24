@@ -591,7 +591,9 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
 //
 //   * 2543 before WP15 - only the Cube, the Terrain and instanced meshes had an extent;
 //   * 2462 with no registry - the 81 Spheres now have the factory's box (Geometry::PrimitiveBounds);
-//   * with the committed registry, every mesh-asset record whose row carries Bounds leaves as well.
+//   * with the committed registry, every mesh-asset record whose row carries Bounds leaves as well;
+//   * +4 with M4 (2466 / 2434): M4_RampNormalMap.desce, whose static meshes carry their geometry as an
+//     in-scene EditMesh with no asset, so neither the registry nor a primitive box answers for them yet.
 //
 // The mesh references are resolved as the loader resolves them - handle, else path - and a path is
 // relative to the editor's working directory, so the walk runs from there.
@@ -600,7 +602,7 @@ namespace
     // How many mesh-asset records (StaticMesh or SkinnedMesh naming a file) the corpus has, and how many
     // records stay point-only once the committed registry answers for them.
     constexpr std::size_t kCorpusMeshReferences        = 32;
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2430;
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2434;
 } // namespace
 
 TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheCommittedRegistry )
@@ -652,7 +654,7 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheCommitte
         seen += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ), source ).PointOnlyRecords;
     }
 
-    EXPECT_EQ( blind, 2462u );
+    EXPECT_EQ( blind, 2466u );
     EXPECT_EQ( asked, kCorpusMeshReferences ) << "every mesh-asset record of the corpus is asked once";
     EXPECT_EQ( seen, blind - answers ) << "each answered mesh must take exactly one record off the count";
     EXPECT_EQ( seen, kCorpusPointOnlyWithRegistry );

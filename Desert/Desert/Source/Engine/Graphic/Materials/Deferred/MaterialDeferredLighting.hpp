@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
+#include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 
 #include <Engine/Graphic/Clouds/CloudShadowBinding.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
@@ -50,6 +51,7 @@ namespace Desert::Graphic
         ImageCube* Irradiance  = nullptr; // cosine-convolved sky -> the diffuse half
         ImageCube* Prefiltered = nullptr; // GGX-prefiltered radiance, roughness across mips
         Image2D*   BrdfLut     = nullptr; // split-sum BRDF integration (cosLo, roughness)
+        SkyLook    Look{};                // how the two cubes are read (Environment::Look)
 
         bool IsComplete() const
         {
@@ -118,6 +120,7 @@ namespace Desert::Graphic
                 m_EnvIrradiance->SetTexture( environment.Irradiance );
             if ( m_EnvSpecular )
                 m_EnvSpecular->SetTexture( environment.Prefiltered );
+            SceneSkyLookBind( this, environment.Look );
             // Same asymmetry as SceneEnvironmentBind: the LUT is a renderer-global that is never
             // legitimately absent, so a null is a fault to leave visible rather than a state to bind.
             if ( m_BrdfLut && environment.BrdfLut )

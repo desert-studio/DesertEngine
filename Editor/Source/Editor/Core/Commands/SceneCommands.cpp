@@ -11,6 +11,7 @@
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
@@ -278,6 +279,61 @@ namespace Desert::Editor::Commands
 
             Common::UUID m_Entity;
             std::string  m_OldName, m_NewName;
+        };
+
+        // An edit of an entity's EditMesh (EditableMesh.hpp): the two meshes BY REFERENCE. They are immutable
+        // once set on a component - an edit builds a new one - so holding the old pointer IS the snapshot,
+        // with no copy and no serialization, and nothing can change it under the history.
+        class EditMeshCommand final : public ICommand
+        {
+        public:
+            EditMeshCommand( const Common::UUID& entity, std::string label,
+                             std::shared_ptr<const Geometry::EditMesh> before,
+                             std::shared_ptr<const Geometry::EditMesh> after )
+                 : m_Entity( entity ), m_Label( std::move( label ) ), m_Before( std::move( before ) ),
+                   m_After( std::move( after ) )
+            {
+            }
+
+            std::string GetLabel() const override
+            {
+                return m_Label;
+            }
+
+            bool Undo() override
+            {
+                return Apply( m_Before );
+            }
+            bool Redo() override
+            {
+                return Apply( m_After );
+            }
+
+        private:
+            bool Apply( const std::shared_ptr<const Geometry::EditMesh>& mesh )
+            {
+                auto e = FindEntity( m_Entity );
+                if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
+                    return false;
+                auto& smc = e->GetComponent<ECS::StaticMeshComponent>();
+                if ( !mesh )
+                {
+                    ECS::ClearEditableMesh( smc );
+                    return true;
+                }
+                // Both states were on the component once, so a refusal here means the device refused the
+                // upload; the entry is dropped (false) rather than claiming a state the screen does not show.
+                if ( auto set = ECS::SetEditableMesh( smc, mesh ); !set.IsSuccess() )
+                {
+                    LOG_ERROR( "[Undo] '{0}' could not restore the mesh: {1}", m_Label, set.GetError() );
+                    return false;
+                }
+                return true;
+            }
+
+            Common::UUID                              m_Entity;
+            std::string                               m_Label;
+            std::shared_ptr<const Geometry::EditMesh> m_Before, m_After;
         };
 
         class ReparentCommand final : public ICommand
@@ -744,6 +800,21 @@ namespace Desert::Editor::Commands
         tag = newName;
     }
 
+    void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
+                               std::shared_ptr<const Geometry::EditMesh> before )
+    {
+        if ( !Ready() )
+            return;
+        auto e = FindEntity( uuid );
+        if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
+            return;
+        std::shared_ptr<const Geometry::EditMesh> after = e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
+        if ( after == before )
+            return;
+        CommandHistory::Get().PushCommand(
+             std::make_unique<EditMeshCommand>( uuid, label, std::move( before ), std::move( after ) ) );
+    }
+
     void RecordTransformEdit( const Common::UUID& uuid, const glm::vec3& oldTranslation,
                               const glm::vec3& oldRotation, const glm::vec3& oldScale )
     {
@@ -1033,8 +1104,9 @@ namespace Desert::Editor::Commands
                 candidate.Blockers.emplace_back( "receive-shadows off" );
             if ( mesh.HiddenSubmeshes != 0 )
                 candidate.Blockers.emplace_back( "hidden submeshes" );
-            if ( mesh.RuntimeMesh )
-                candidate.Blockers.emplace_back( "a mesh edited in the editor and not yet saved" );
+            if ( mesh.EditableMesh )
+                candidate.Blockers.emplace_back( "a mesh built in the editor (an instanced mesh names an asset or "
+                                                 "a primitive)" );
 
             if ( entity.HasComponent<ECS::RelationshipComponent>() &&
                  !entity.GetComponent<ECS::RelationshipComponent>().Children.empty() )

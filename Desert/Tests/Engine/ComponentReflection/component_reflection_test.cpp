@@ -1312,9 +1312,9 @@ TEST( VolumetricCloudReflection, DistancesAreLengthsExceptTheTwoThatCarryTheirOw
 TEST( SkyboxReflection, KeepsOnlyTheHdrCubemapPath )
 {
     const TypeInfo& skybox = Type( "SkyboxComponent" );
-    // Rotation and Tint joined Intensity, and all three are BAKED into the environment cubes rather
-    // than applied per frame (Engine/Graphic/Environment/SkyLook.hpp) — which is what makes them reach
-    // the ambient and the reflections and not only the backdrop.
+    // Rotation and Tint joined Intensity, and all three are applied wherever the environment cubes are
+    // sampled (Engine/Graphic/Environment/SkyLook.hpp) — the ambient and the reflections as well as the
+    // backdrop.
     EXPECT_EQ( FieldNames( skybox ),
                ( std::vector<std::string>{ "SkyboxHandle", "Intensity", "Rotation", "Tint" } ) );
 

@@ -2,7 +2,6 @@
 
 #include "Image.hpp"
 #include <Engine/Graphic/Clouds/CloudEnvironmentBake.hpp>
-#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Runtime/ImageHandle.hpp>
 
 #include <glm/glm.hpp>
@@ -36,29 +35,7 @@ namespace Desert::Graphic
         // names. Callers state the face they want; nothing downstream multiplies or divides by the 4x3
         // cross unwrap any more (that arithmetic produced three defects — see ImageCubeSpecification).
         uint32_t FaceSize;
-
-        // The authored sky this cube is built for. DEFAULTS TO IDENTITY, which is what the procedural
-        // sky's own bake passes — that path's output is unchanged by this field existing. Only the two
-        // panorama-reading programs consume it (PanoramaToCubemap, DiffuseIrradiance); the GGX prefilter
-        // convolves a cube that already carries the look, so giving it one too would apply it twice.
-        SkyLook Look{};
     };
-
-    // The push-constant block PanoramaToCubemap and DiffuseIrradiance declare, in C++. std140-free: a
-    // push-constant block of two vec4s has the same layout in every rule set, and the pair exists as a
-    // named type so the two shaders and this file cannot disagree about its size.
-    struct SkyLookPush
-    {
-        glm::vec4 YawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
-        glm::vec4 Gain{ 1.0f, 1.0f, 1.0f, 1.0f };
-    };
-
-    [[nodiscard]] inline SkyLookPush MakeSkyLookPush( const SkyLook& look )
-    {
-        const glm::vec2 cs   = look.YawCosSin();
-        const glm::vec3 gain = look.Gain();
-        return SkyLookPush{ glm::vec4( cs.x, cs.y, 0.0f, 0.0f ), glm::vec4( gain, 1.0f ) };
-    }
 
     class ComputeImages final
     {
