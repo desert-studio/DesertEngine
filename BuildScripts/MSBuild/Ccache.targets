@@ -14,8 +14,8 @@
   `None` (Shipping) is left alone: it generates no debug information, and turning it INTO /Z7 would
   change what the Shipping leg proves.
 
-  This is an ItemDefinitionGroup imported through /p:ForceImportAfterCppTargets on purpose: that
-  import comes after the project body, so these definitions win over the per-configuration ones premake wrote;
+  This is an ItemDefinitionGroup imported through /p:CustomAfterMicrosoftCommonTargets on purpose, the
+  position a root Directory.Build.targets had: that import comes after the project body, so these definitions win over the per-configuration ones premake wrote;
   explicit per-file metadata, if a project ever sets any, still wins over both.
 -->
 <Project>
