@@ -3480,13 +3480,64 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // FNV-1a, 64 bit. Chosen for being specified in four lines and identical on every platform and
+        // compiler - the GUID it feeds is written into files and must not depend on a library's version.
+        uint64_t Fnv1a64( std::string_view bytes, uint64_t basis )
+        {
+            uint64_t hash = basis;
+            for ( const char c : bytes )
+            {
+                hash ^= static_cast<uint8_t>( c );
+                hash *= 0x100000001b3ull;
+            }
+            return hash;
+        }
+    } // namespace
+
+    Common::Content::AssetGuid MigrationGuidForPath( const std::filesystem::path& relativeToContentRoot )
+    {
+        const std::string key = relativeToContentRoot.generic_string();
+        Common::Content::AssetGuid guid;
+        guid.Hi = Fnv1a64( key, 0xcbf29ce484222325ull );
+        guid.Lo = Fnv1a64( key, 0x84222325cbf29ce4ull );
+        if ( guid.IsNull() )
+            guid.Lo = 1;
+        return guid;
+    }
+
+    namespace
+    {
+        // The v26 header a migrated file leaves with: its own GUID when it already states one, else the
+        // migration's (MigrationGuidForPath, keyed on the path under the content root). A tree built in
+        // memory has no path to key on, so it is a new asset and gets a fresh GUID, as a new file would.
+        Common::Content::TextAssetHeaderSerialized
+        MigrationHeader( const std::optional<Common::Content::TextAssetHeaderSerialized>& stated,
+                         Common::Content::ContentKind kind, const std::filesystem::path& assetsRoot,
+                         const std::filesystem::path& sourceFile )
+        {
+            Common::Content::AssetGuid guid;
+            if ( stated )
+                if ( const auto parsed = Common::Content::AssetGuidFromText( stated->Guid ); parsed )
+                    guid = parsed.GetValue();
+            if ( guid.IsNull() )
+                guid = sourceFile.empty() ? Common::Content::AssetGuid::Generate()
+                                          : MigrationGuidForPath( sourceFile.lexically_relative( assetsRoot ) );
+            return Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+        }
+    } // namespace
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
         FileMigrationReport report;
 
-        const int statedSceneVersion = scene.SceneVersion.value_or( 0 );
-        const int statedUnitVersion  = scene.UnitVersion.value_or( 0 );
+        // Since v26 the header states the generations; before it, the two top-level integers did.
+        const int statedSceneVersion = scene.Header ? Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag )
+                                                    : scene.SceneVersion.value_or( 0 );
+        const int statedUnitVersion  = scene.Header ? Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag )
+                                                    : scene.UnitVersion.value_or( 0 );
 
         // A file from a LATER build is refused, not stamped down. Every gate in RunSteps is
         // `stated < step`, so a v18 tree matched no step and fell through to the unconditional stamp
@@ -3515,20 +3566,32 @@ namespace Desert::Migration
 
         // Stamped whether or not anything moved: an empty scene at version 0 is still a scene at version 0,
         // and leaving it unstamped is how every load ends up re-running a migration that already happened.
-        scene.SceneVersion = kSceneVersion;
-        scene.UnitVersion  = kUnitVersion;
+        if ( statedSceneVersion < kSceneVersionTextHeader )
+            report.TextHeaderRaised = true;
+        scene.Header       = MigrationHeader( scene.Header, Common::Content::ContentKind::Scene, assetsRoot, sourceFile );
+        scene.SceneVersion = std::nullopt;
+        scene.UnitVersion  = std::nullopt;
 
         return report;
     }
 
-    PrefabMigrationOutcome MigratePrefab( Assets::PrefabData& prefab, const std::filesystem::path& assetsRoot,
+    PrefabMigrationOutcome MigratePrefab( PrefabData& prefab, const std::filesystem::path& assetsRoot,
                                           const std::filesystem::path& sourceFile )
     {
         PrefabMigrationOutcome outcome;
-        outcome.FoundSceneVersion = prefab.SceneVersion.value_or( 0 );
-        outcome.FoundUnitVersion  = prefab.UnitVersion.value_or( 0 );
+        outcome.FoundSceneVersion = prefab.Header ? Assets::StatedVersion( prefab.Header, Assets::kSceneSchemaTag )
+                                                  : prefab.SceneVersion.value_or( 0 );
+        outcome.FoundUnitVersion  = prefab.Header ? Assets::StatedVersion( prefab.Header, Assets::kUnitSchemaTag )
+                                                  : prefab.UnitVersion.value_or( 0 );
+        const auto stamp          = [&]()
+        {
+            prefab.Header = MigrationHeader( prefab.Header, Common::Content::ContentKind::Prefab, assetsRoot,
+                                             sourceFile );
+            prefab.SceneVersion = std::nullopt;
+            prefab.UnitVersion  = std::nullopt;
+        };
 
-        if ( Assets::PrefabIsAtCurrentVersion( prefab ) )
+        if ( outcome.FoundSceneVersion == kSceneVersion && outcome.FoundUnitVersion == kUnitVersion )
         {
             outcome.AlreadyCurrent = true;
             return outcome;
@@ -3547,9 +3610,8 @@ namespace Desert::Migration
         // and unit steps are not safe to re-run.
         if ( outcome.FoundSceneVersion == 0 && outcome.FoundUnitVersion == 0 )
         {
-            prefab.SceneVersion = kSceneVersion;
-            prefab.UnitVersion  = kUnitVersion;
-            outcome.StampOnly   = true;
+            stamp();
+            outcome.StampOnly = true;
             return outcome;
         }
 
@@ -3569,8 +3631,7 @@ namespace Desert::Migration
         RunSteps( prefab.Entities, nullptr, prefab.Name, outcome.FoundSceneVersion, outcome.FoundUnitVersion,
                   assetsRoot, sourceFile, outcome.Steps );
 
-        prefab.SceneVersion = kSceneVersion;
-        prefab.UnitVersion  = kUnitVersion;
+        stamp();
 
         return outcome;
     }

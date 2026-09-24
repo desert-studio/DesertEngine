@@ -44,6 +44,7 @@
 //                                    only, the other text assets), or directories searched recursively
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
+#include <Engine/Assets/MaterialFormat.hpp>
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
 #include "SettingsCanonical.hpp"
@@ -586,6 +587,9 @@ namespace
                 out << "; NO ASSET under the assets root: " << name;
             out << ")";
         }
+        if ( report.TextHeaderRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionSiblingOrder << "->v"
+                << Desert::Migration::kSceneVersionTextHeader << " (text header stated: kind, GUID, SCNE/UNIT)";
         if ( report.SiblingOrderRaised )
         {
             out << " scene v" << Desert::Migration::kSceneVersionTextureAssetRefs << "->v"
@@ -748,6 +752,11 @@ namespace Desert::Migration
     std::filesystem::path PrefabOutputRoot( const std::filesystem::path& prefabPath )
     {
         return OutputRootFor( Common::Constants::Path::ContentDir::Prefab, prefabPath );
+    }
+
+    std::filesystem::path MaterialOutputRoot( const std::filesystem::path& materialPath )
+    {
+        return OutputRootFor( Common::Constants::Path::ContentDir::Material, materialPath );
     }
 
     int RunSceneMigrator( const std::vector<std::string>& args, std::ostream& out, std::ostream& err )
@@ -944,7 +953,19 @@ namespace Desert::Migration
             const Desert::Migration::CloudMaterialAlbedoReport albedo =
                  Desert::Migration::MigrateCloudMaterialAlbedoToColour( parsed.value() );
 
-            if ( !report.Changed() && !albedo.Changed() )
+            // AF6h: a .demat opens with the text header (kind Material, GUID, MATL v1). A file without one
+            // gets it here, its GUID derived from its path under the content root (MigrationGuidForPath).
+            const bool headerRaised = !parsed.value().Header.has_value();
+            if ( headerRaised )
+            {
+                parsed.value().Header = Desert::Assets::StampTextHeader(
+                     Common::Content::TextAssetHeaderSerialized{
+                          .Guid = Common::Content::AssetGuidToText( Desert::Migration::MigrationGuidForPath(
+                               path.lexically_relative( MaterialOutputRoot( path ) ) ) ) },
+                     Common::Content::ContentKind::Material, Desert::Assets::MaterialTextSubsystems() );
+            }
+
+            if ( !report.Changed() && !albedo.Changed() && !headerRaised )
             {
                 if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
                      layout != Layout::Canonical )
@@ -965,6 +986,8 @@ namespace Desert::Migration
                 what << " " << report.Split
                      << " CloudLayout binding(s) split into LayoutPattern + LayoutMask, both naming the "
                         "same painting;";
+            if ( headerRaised )
+                what << " text header stated (MATL v" << Desert::Assets::kMaterialSchemaVersion << ");";
             if ( albedo.Changed() )
                 what << " " << albedo.Broadcast
                      << " scalar ScatteringAlbedo value(s) broadcast to a neutral colour;";
@@ -1096,7 +1119,7 @@ namespace Desert::Migration
             // rfl::json::read and NOT the engine's ParseLoadablePrefab: that gate REFUSES everything but
             // the head, which is precisely the population this tool exists to convert. The gate is
             // applied to the OUTPUT instead, below, where it belongs.
-            auto parsed = rfl::json::read<Desert::Assets::PrefabData>( source );
+            auto parsed = rfl::json::read<Desert::Migration::PrefabData>( source );
             if ( !parsed )
             {
                 err << "FAIL   " << path.string() << " — " << parsed.error().what() << "\n";
@@ -1178,7 +1201,7 @@ namespace Desert::Migration
             // write itself is the shared atomic primitive — the original is byte-identical on any
             // failure, which is the guarantee И2 had to add after this tool truncated a file it then
             // reported as raised.
-            const auto written = Desert::Assets::WritePrefabJson( parsed.value() );
+            const auto written = Desert::Assets::WritePrefabJson( Desert::Migration::ToEnginePrefab( parsed.value() ) );
             if ( !written )
             {
                 err << "FAIL   " << path.string() << " — " << written.GetError() << " (original untouched)\n";

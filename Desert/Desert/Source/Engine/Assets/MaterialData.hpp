@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/UUID.hpp>
 
 namespace Desert::Assets
@@ -34,6 +35,10 @@ namespace Desert::Assets
     // these values (PBRSurfaceParams) — an implementation detail, not part of the protocol.
     struct MaterialData
     {
+        // First member: the text header (kind Material, GUID, MATL schema version). Stamped and checked
+        // only through MaterialFormat.hpp.
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+
         // Shader driving this material. Absent/empty -> "StaticMeshPBR" (the standard surface
         // shader with the batched backend).
         std::optional<std::string> ShaderName;

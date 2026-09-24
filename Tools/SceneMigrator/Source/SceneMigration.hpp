@@ -51,7 +51,49 @@ namespace Desert::Migration
 {
     using Core::kSceneVersion;
     using Core::kUnitVersion;
-    using Core::SceneSerialized;
+
+    // THE TREE THIS TOOL READS AND WRITES: the engine's Core::SceneSerialized, member for member, PLUS the two
+    // top-level integers every file before v26 stated its generations in. The engine's struct lost them to
+    // the text header (AF6g), so it cannot say what generation an old file is - and a migrator that cannot
+    // read the generation runs every step on every file. They are read, never written: MigrateScene clears
+    // them when it stamps the header, and rfl omits an empty optional, so the file this tool writes is the
+    // file the engine reads. A deliberate second copy of the shape; the static_assert below is what keeps
+    // it from forking (a member added to the engine's struct and not here fails to compile).
+    struct SceneSerialized
+    {
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::string                                               SceneName;
+        std::vector<Assets::EntityData>                           Entities;
+        std::optional<rfl::Generic>                               Settings;
+        std::optional<Core::WorldPartitionSerialized>             WorldPartition;
+        // v25 and earlier only.
+        std::optional<int> UnitVersion;
+        std::optional<int> SceneVersion;
+    };
+    static_assert( rfl::named_tuple_t<SceneSerialized>::size() == rfl::named_tuple_t<Core::SceneSerialized>::size() + 2,
+                   "Core::SceneSerialized gained or lost a member: mirror it in Migration::SceneSerialized, or "
+                   "this tool drops it from every scene it rewrites" );
+
+    // The same for a .deprefab: Assets::PrefabData plus the two pre-v26 integers.
+    struct PrefabData
+    {
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::string                                               Name;
+        std::vector<Assets::EntityData>                           Entities;
+        Common::UUID                                              Root;
+        // v25 and earlier only.
+        std::optional<int> SceneVersion;
+        std::optional<int> UnitVersion;
+    };
+    static_assert( rfl::named_tuple_t<PrefabData>::size() == rfl::named_tuple_t<Assets::PrefabData>::size() + 2,
+                   "Assets::PrefabData gained or lost a member: mirror it in Migration::PrefabData" );
+
+    // The engine's prefab, for the engine's writer (Assets::WritePrefabJson): everything but the two
+    // pre-v26 integers, which a migrated prefab no longer states.
+    [[nodiscard]] inline Assets::PrefabData ToEnginePrefab( const PrefabData& prefab )
+    {
+        return Assets::PrefabData{ prefab.Header, prefab.Name, prefab.Entities, prefab.Root };
+    }
 
     // Schema generation of a .desce file, and what each step of it means:
     //
@@ -264,12 +306,18 @@ namespace Desert::Migration
     //                   the v24 loader produced so no hierarchy moves (MigrateSiblingOrderV24ToV25). Scenes
     //                   only: a .deprefab keeps hierarchy order and is untouched by this step.
     inline constexpr int kSceneVersionSiblingOrder = 25;
+    //  26             - THE TEXT HEADER (AF6g). A .desce / .deprefab opens with the text asset header
+    //                   (Common/Content/TextAssetHeader.hpp): kind, GUID, and the two generations as SCNE /
+    //                   UNIT - the top-level SceneVersion / UnitVersion integers are gone. A file without a
+    //                   GUID gets one derived from its path (MigrationGuidForPath), so re-running the tool
+    //                   over the same tree states the same identities. No payload changes.
+    inline constexpr int kSceneVersionTextHeader = 26;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionSiblingOrder == kSceneVersion,
+    static_assert( kSceneVersionTextHeader == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1498,6 +1546,7 @@ namespace Desert::Migration
         bool                             TextureAssetRefsRaised = false; // below kSceneVersionTextureAssetRefs
         TextureAssetRefsMigrationReport  TextureAssetRefs;
         bool                             SiblingOrderRaised = false; // below kSceneVersionSiblingOrder
+        bool                             TextHeaderRaised   = false; // below kSceneVersionTextHeader
         SiblingOrderMigrationReport      SiblingOrder;
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
@@ -1509,9 +1558,17 @@ namespace Desert::Migration
                    GravityUnitsRaised || UIVisibilityRaised || SSRUnitsRaised || CloudMaterialRaised ||
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
-                   TextureAssetRefsRaised || SiblingOrderRaised || RetiredKeysRaised;
+                   TextureAssetRefsRaised || SiblingOrderRaised || TextHeaderRaised || RetiredKeysRaised;
         }
     };
+
+    // THE MIGRATION'S GUID for a file that has none: derived from the file's path relative to the content
+    // root it belongs to (generic form), so a re-run over the same tree - on any machine - states the same
+    // identity, and a scene migrated on two branches is the same asset on both. This is the ONLY place a
+    // GUID is derived from anything: everywhere else it is minted once and then kept (StampTextHeader), and
+    // AssetEnvelope.hpp deliberately has no path constructor - a moved file keeps its GUID, so after
+    // migration the path this was derived from is history, not a key. Never null.
+    Common::Content::AssetGuid MigrationGuidForPath( const std::filesystem::path& relativeToContentRoot );
 
     // Raises a parsed scene file to the current generation of BOTH version integers and stamps them, so a
     // tree that has been through this function is one nothing will migrate again. This is the single entry
@@ -1592,7 +1649,7 @@ namespace Desert::Migration
                    "(0,0) stamp-only case has to be re-argued at the same time" );
 
     PrefabMigrationOutcome
-    MigratePrefab( Assets::PrefabData&          prefab,
+    MigratePrefab( PrefabData&                  prefab,
                    const std::filesystem::path& assetsRoot = Common::Constants::Path::ASSETS_PATH,
                    const std::filesystem::path& sourceFile = {} );
 

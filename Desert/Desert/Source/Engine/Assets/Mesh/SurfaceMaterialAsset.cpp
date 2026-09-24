@@ -1,4 +1,5 @@
 #include "SurfaceMaterialAsset.hpp"
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
@@ -40,6 +41,8 @@ namespace Desert::Assets
         copy->m_Metadata.Handle     = identity;
         copy->m_MaterialUUID        = identity;
         copy->m_Data.MaterialId     = identity;
+        // Not the same asset either: a copy that kept the source's header GUID would state its identity.
+        copy->m_Data.Header = std::nullopt;
 
         // Never Load()ed, so nothing else would set this — and an asset that is not ready for use is
         // skipped by everything that would draw it.
@@ -148,9 +151,10 @@ namespace Desert::Assets
 
         // The unified MaterialData protocol is the ONLY on-disk format (pre-protocol migration
         // readers were removed with the rest of the legacy paths).
-        if ( const auto parsed = rfl::json::read<MaterialData>( raw.GetValue() ); parsed.has_value() )
+        const auto parsed = ParseMaterialJson( m_Metadata.Filepath.generic_string(), raw.GetValue() );
+        if ( parsed )
         {
-            m_Data                         = parsed.value();
+            m_Data                         = parsed.GetValue();
             m_RunningOnSubstitutedDefaults = false; // a reload that parses clears a previous failure
             finalize();
             return BOOLSUCCESS;
@@ -168,10 +172,9 @@ namespace Desert::Assets
         // that is now refused by Save() below. Whether an unloadable asset should additionally mark
         // the whole SCENE as degraded is a larger change to the load path (audit Д31-8) and is not
         // decided here.
-        LOG_ERROR( "[SurfaceMaterialAsset] '{}' is corrupted/unparseable — rendering with DEFAULTS; "
-                   "authored parameters are NOT applied and this material will refuse to save over "
-                   "the file.",
-                   m_Metadata.Filepath.string() );
+        LOG_ERROR( "[SurfaceMaterialAsset] {} — rendering with DEFAULTS; authored parameters are NOT "
+                   "applied and this material will refuse to save over the file.",
+                   parsed.GetError() );
         m_Data                         = MaterialData{};
         m_RunningOnSubstitutedDefaults = true;
         finalize();
@@ -218,7 +221,7 @@ namespace Desert::Assets
                  param.Value.w );
         }
 
-        return Common::Content::CanonicalJsonText( rfl::json::write( m_Data ) );
+        return WriteMaterialJson( m_Data );
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::Unload()
