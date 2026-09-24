@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Graphic::System
@@ -49,32 +51,68 @@ namespace Desert::Graphic::System
             }
         }
 
-        // A landscape tile is placed by its LandscapeTileDraw, not by a Model matrix: the shader builds
-        // world positions from the root's origin and GLOBAL sample indices (see LandscapeTileDraw for why),
-        // so Model stays identity. Params.x is the tile's extent — the TCS scales its LOD distance band by
-        // it, and every tile of one landscape has the same extent, so the band is the same on both sides
-        // of a seam. Params.z is the tile's full height range (UE's +-256 local units), the scale the
-        // fragment's height rules normalise by.
-        // Params.w, the near tessellation level, is the patch's own quads per side: one segment per cell,
-        // so a near patch's vertices are exactly the samples and its triangles are the cells' triangles,
-        // the surface Jolt collides with. A fixed level (it was 16) cut a 9-quad patch into 16 segments
-        // whose vertices fell between samples and whose triangles chorded across the cells' diagonals.
-        TerrainInstance LandscapeInstance( const TerrainDrawData& t )
+        // A landscape tile is placed by its LandscapeTileDraw: the shader builds world positions from the
+        // root's origin and GLOBAL sample indices (see LandscapeTileDraw for why). Params.z is the tile's full
+        // height range (UE's +-256 local units), the scale the fragment's height rules normalise by. The LOD
+        // half is the tile's LandscapeTileLods; the grid it is drawn with is the floor of its own LOD, and
+        // every vertex morphs from there by its blended one (LandscapeLod.glslh).
+        TerrainInstance LandscapeInstance( const TerrainDrawData& t, const LandscapeTileLod& lod )
         {
-            const LandscapeTileDraw& l       = t.Landscape;
-            const uint32_t           gridDim = LandscapePatchesPerSide( l.QuadsPerTile );
-            const float tessLevel = gridDim == 0u ? 1.0f : static_cast<float>( l.QuadsPerTile / gridDim );
+            const LandscapeTileDraw& l = t.Landscape;
 
             TerrainInstance instance;
-            instance.Params         = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm,
-                                                 static_cast<float>( gridDim ), 256.0f * l.ZScale, tessLevel );
-            instance.Params2        = glm::vec4( 0.0f, 0.0f, 0.0f, static_cast<float>( l.NeighbourMask ) );
+            instance.Params         = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center,
+                                                 256.0f * l.ZScale, std::floor( lod.Center ) );
+            instance.Params2        = glm::vec4( 1.0f / std::max( 0.01f, kLandscapeLodBlendRange ), 0.0f, 0.0f,
+                                                 static_cast<float>( l.NeighbourMask ) );
             instance.LayerModes     = glm::vec4( t.LayerModes, 0.0f );
             instance.LandscapeFrame = glm::vec4( l.OriginX, l.BaseY, l.OriginZ, l.SpacingCm );
             instance.LandscapeTile =
                  glm::vec4( static_cast<float>( l.FirstSampleX ), static_cast<float>( l.FirstSampleZ ),
                             static_cast<float>( l.QuadsPerTile ), l.ZScale );
+            instance.LodEdges   = lod.Edges;
+            instance.LodCorners = lod.Corners;
             return instance;
+        }
+
+        // Which landscape and which tile of it: tiles of one root share its origin, and a tile's index is its
+        // first sample over the tile size. Two roots at one origin would be one landscape drawn twice.
+        struct TileKey
+        {
+            float   OriginX = 0.0f;
+            float   OriginZ = 0.0f;
+            int32_t X       = 0;
+            int32_t Z       = 0;
+            bool    operator==( const TileKey& ) const = default;
+        };
+
+        struct TileKeyHash
+        {
+            size_t operator()( const TileKey& k ) const
+            {
+                const size_t h = std::hash<float>{}( k.OriginX ) ^ ( std::hash<float>{}( k.OriginZ ) << 1u );
+                return h ^ ( std::hash<int64_t>{}( ( static_cast<int64_t>( k.X ) << 32 ) ^ k.Z ) << 2u );
+            }
+        };
+
+        TileKey KeyOf( const LandscapeTileDraw& l, int32_t dx, int32_t dz )
+        {
+            const auto quads = static_cast<int32_t>( std::max( l.QuadsPerTile, 1u ) );
+            return { l.OriginX, l.OriginZ, l.FirstSampleX / quads + dx, l.FirstSampleZ / quads + dz };
+        }
+
+        // The tile's continuous LOD for the main camera: its bounding sphere's screen size, UE's way. The
+        // sphere holds the tile's full height range, not its actual heights — a taller sphere only means
+        // finer detail sooner.
+        float TileLod( const LandscapeTileDraw& l, const glm::vec3& viewOrigin, const glm::mat4& projection )
+        {
+            const float     extent = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
+            const glm::vec3 center( l.OriginX + ( static_cast<float>( l.FirstSampleX ) * l.SpacingCm ) + 0.5f * extent,
+                                    l.BaseY,
+                                    l.OriginZ + ( static_cast<float>( l.FirstSampleZ ) * l.SpacingCm ) + 0.5f * extent );
+            const float radius = glm::length( glm::vec3( 0.5f * extent, 256.0f * l.ZScale, 0.5f * extent ) );
+            return LandscapeLodFromScreenSize( MakeLandscapeLodSettings( l.QuadsPerTile ),
+                                               LandscapeScreenRadiusSquared( center, radius, viewOrigin, projection ) );
         }
     } // namespace
 
@@ -98,7 +136,7 @@ namespace Desert::Graphic::System
             spec.Framebuffer = framebuffer;
             spec.BlendEnable = false;
 
-            // Render-state (patch-list topology + control points, cull, depth) is declared by the shader's
+            // Render-state (topology, cull, depth) is declared by the shader's
             // `#pragma state` — no longer hardcoded here. The pipeline comes from the shared cache.
             ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
 
@@ -193,6 +231,12 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, size_t> groupIndex;
         m_FrameDraws.reserve( m_Queue.size() );
 
+        // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
+        const glm::vec3 viewOrigin = glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] );
+        std::unordered_map<TileKey, float, TileKeyHash> tileLods;
+        for ( const auto& t : m_Queue )
+            tileLods[KeyOf( t.Landscape, 0, 0 )] = TileLod( t.Landscape, viewOrigin, camera->GetProjectionMatrix() );
+
         for ( const auto& t : m_Queue )
         {
             const auto [it, inserted] =
@@ -238,13 +282,19 @@ namespace Desert::Graphic::System
             for ( const auto& [name, value] : t.Overrides.Params )
                 surface->SetParamRaw( name, value );
 
-            const TerrainInstance instance = LandscapeInstance( t );
-            const auto            gridDim  = static_cast<uint32_t>( instance.Params.y );
+            const LandscapeTileLod lod = LandscapeTileLods(
+                 tileLods.at( KeyOf( t.Landscape, 0, 0 ) ),
+                 [&]( int dx, int dz ) -> std::optional<float>
+                 {
+                     const auto n = tileLods.find( KeyOf( t.Landscape, dx, dz ) );
+                     return n == tileLods.end() ? std::nullopt : std::optional<float>( n->second );
+                 } );
+            const TerrainInstance instance = LandscapeInstance( t, lod );
 
             FrameDraw draw;
             draw.Group       = it->second;
             draw.Row         = static_cast<uint32_t>( group.Instances.size() );
-            draw.VertexCount = gridDim * gridDim * 4u; // patches * control points
+            draw.VertexCount = LandscapeLodVertexCount( t.Landscape.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ) );
             m_FrameDraws.push_back( draw );
 
             group.ParamRows.insert( group.ParamRows.end(), surface->GetParamRow().begin(),
@@ -264,8 +314,7 @@ namespace Desert::Graphic::System
             DataDrivenMaterial* surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
             for ( DataDrivenMaterial* material : { surface, materials.Shadow.get() } )
             {
-                // The shadow program reads View too: its control stage measures LOD from the MAIN camera, so a
-                // cascade tessellates exactly as the camera does (TerrainShadow.shader).
+                // The shadow program has no TerrainUB: its vertices are the camera's (the LOD rides in the row).
                 if ( auto* terrainUB = material->Get<UniformBufferProperty>( "TerrainUB" ) )
                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
                     // bytes

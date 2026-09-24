@@ -11,6 +11,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
@@ -35,12 +36,19 @@ using namespace Desert::World::Landscape;
 
 namespace
 {
-    // The shader's surface functions, compiled here as they are in LandscapeData.cpp, so the drawn-chord
-    // measurement below evaluates the tessellation stage's own arithmetic.
+    // The shader's surface and grid functions, compiled here as LandscapeData.cpp compiles the first, so the
+    // drawn-grid checks below evaluate the vertex stage's own arithmetic.
+    using glm::clamp;
     using glm::floor;
+    using glm::max;
     using glm::min;
+    using glm::vec4;
+    using std::abs;
+    using std::ceil;
+    using std::exp2;
     DESERT_GLSL_AS_CPP_BEGIN
 #include <Common/LandscapeHeight.glslh>
+#include <Common/LandscapeLod.glslh>
     DESERT_GLSL_AS_CPP_END
 } // namespace
 
@@ -658,73 +666,173 @@ TEST( LandscapeOneSurface, RayHeightQueryAndJoltAreOneSurfaceOnASteepHill )
 
 namespace
 {
-    // What the GPU draws between tessellated vertices, measured against the surface Jolt collides with.
-    // A patch of `quads` cells per side cut into `level` equal segments (equal_spacing, integer level),
-    // each vertex displaced by `vertexHeight` (the TES), each micro-quad drawn as two triangles split on
-    // (0,0)-(1,1) when `joltDiagonal`, else on the other diagonal — the tessellator picks that split and
-    // Vulkan leaves the choice to the implementation, so both are measured.
-    using VertexHeightFn = float ( * )( float, float, float, float, float, float );
+    using Graphic::System::LandscapeTileLod;
 
-    float WorstDrawnChordCm( const Landscape2x2& land, uint32_t quads, float level, VertexHeightFn vertexHeight,
-                             bool joltDiagonal )
+    // One drawn vertex: global sample coordinates and height above the root's base.
+    struct DrawnVertex
     {
-        const LandscapeTileData& tile  = land.Tiles[0];
-        const float              zs    = land.Root.ZScale;
-        const uint32_t           whole = ( kQuads / quads ) * quads; // cells covered by whole patches
-        const auto               at    = [&]( float gx, float gz )
+        float Gx = 0.0f;
+        float Gz = 0.0f;
+        float H  = 0.0f;
+        // The vertex's grid sample before the morph: which vertex of the tile's mesh it is.
+        float GridGx = 0.0f;
+        float GridGz = 0.0f;
+    };
+
+    // TerrainVertex.glslh's main(), statement for statement, on the CPU copy of tile i's samples.
+    DrawnVertex DrawVertex( const Landscape2x2& land, size_t i, const LandscapeTileLod& lod, uint32_t vertex )
+    {
+        const int   q       = static_cast<int>( kQuads );
+        const int   gridLod = static_cast<int>( std::floor( lod.Center ) );
+        const int   x       = LandscapeLodGridCoord( static_cast<int>( vertex ), q, gridLod, 0 );
+        const int   z       = LandscapeLodGridCoord( static_cast<int>( vertex ), q, gridLod, 1 );
+        const float l       = LandscapeCalcLod( static_cast<float>( x ), static_cast<float>( z ), static_cast<float>( q ),
+                                                lod.Center, lod.Edges, lod.Corners,
+                                                1.0f / Graphic::System::kLandscapeLodBlendRange );
+        const int   lo      = static_cast<int>( std::floor( l ) );
+        const float morph   = l - static_cast<float>( lo );
+        const int   stride  = LandscapeLodStride( lo );
+        const auto  f       = []( int c ) { return static_cast<float>( c ); };
+        const float x0      = f( LandscapeLodSnap( x, stride, q ) );
+        const float z0      = f( LandscapeLodSnap( z, stride, q ) );
+        const float x1      = f( LandscapeLodSnap( x, stride * 2, q ) );
+        const float z1      = f( LandscapeLodSnap( z, stride * 2, q ) );
+        const auto  h       = [&]( float sx, float sz )
         {
-            const float cx = LandscapeCellOf( gx, static_cast<float>( kSamples ) );
-            const float cz = LandscapeCellOf( gz, static_cast<float>( kSamples ) );
-            const auto  h  = [&]( float x, float z ) {
-                return LandscapeHeightCm( tile.Sample( static_cast<uint32_t>( x ), static_cast<uint32_t>( z ) ),
-                                            zs );
-            };
-            return vertexHeight( h( cx, cz ), h( cx + 1, cz ), h( cx, cz + 1 ), h( cx + 1, cz + 1 ), gx - cx,
-                                 gz - cz );
+            return LandscapeHeightCm(
+                 land.Tiles[i].Sample( static_cast<uint32_t>( sx ), static_cast<uint32_t>( sz ) ), land.Root.ZScale );
         };
-        std::mt19937                          rng( 31u );
-        std::uniform_real_distribution<float> across( 0.0f, static_cast<float>( whole ) );
-        float                                 worst = 0.0f;
-        for ( int i = 0; i < 20000; ++i )
-        {
-            const float gx = across( rng );
-            const float gz = across( rng );
-            // Micro-quad of the tessellated patch holding (gx, gz), and the fraction inside it.
-            const float step = static_cast<float>( quads ) / level;
-            const float ux   = std::floor( gx / step );
-            const float uz   = std::floor( gz / step );
-            const float x0 = ux * step, z0 = uz * step;
-            const float fx = ( gx - x0 ) / step, fz = ( gz - z0 ) / step;
-            const float v00 = at( x0, z0 ), v10 = at( x0 + step, z0 ), v01 = at( x0, z0 + step ),
-                        v11 = at( x0 + step, z0 + step );
-            // The other diagonal is LandscapeTriangle of the mirrored micro-quad.
-            const float drawn = joltDiagonal ? LandscapeTriangle( v00, v10, v01, v11, fx, fz )
-                                             : LandscapeTriangle( v10, v00, v11, v01, 1.0f - fx, fz );
-            const float truth =
-                 *SampleLandscapeHeight( tile, land.Frames[0], land.Frames[0].OriginX + gx * kSpacing,
-                                         land.Frames[0].OriginZ + gz * kSpacing ) -
-                 land.Frames[0].BaseY;
-            worst = std::max( worst, std::abs( drawn - truth ) );
-        }
-        return worst;
+        return { static_cast<float>( land.Coords[i].x * static_cast<int>( kQuads ) ) + LandscapeLodMorph( x0, x1, morph ),
+                 static_cast<float>( land.Coords[i].y * static_cast<int>( kQuads ) ) + LandscapeLodMorph( z0, z1, morph ),
+                 LandscapeLodMorph( h( x0, z0 ), h( x1, z1 ), morph ),
+                 static_cast<float>( land.Coords[i].x * q + x ),
+                 static_cast<float>( land.Coords[i].y * q + z ) };
+    }
+
+    // The LODs of the 2x2's tiles as the TerrainRenderer derives them from their centres.
+    LandscapeTileLod TileLodOf( const Landscape2x2& land, size_t i, const std::array<float, 4>& centers )
+    {
+        return Graphic::System::LandscapeTileLods(
+             centers[i],
+             [&]( int dx, int dz ) -> std::optional<float>
+             {
+                 for ( size_t j = 0; j < 4; ++j )
+                     if ( land.Coords[j] == land.Coords[i] + glm::ivec2( dx, dz ) )
+                         return centers[j];
+                 return std::nullopt;
+             } );
+    }
+
+    // The tile's boundary on the global line `X == line` (vertical seam) or `Z == line`: every non-degenerate
+    // triangle edge between two of its grid vertices ON that line, drawn where the morph puts them, as (start,
+    // end, hStart, hEnd) sorted along the line. Inside a tile the mesh is closed by construction (a grid
+    // vertex is one function of its sample), so two tiles leave no crack iff these lists are equal: the same
+    // segments at the same heights, bit for bit. Interior vertices a morph folds ONTO the line are not the
+    // boundary — they are the tile's surface meeting it, which UE's geomorph does the same way.
+    std::vector<std::array<float, 4>> SeamSegments( const Landscape2x2& land, size_t i, const LandscapeTileLod& lod,
+                                                    bool vertical, float line )
+    {
+        std::vector<std::array<float, 4>> out;
+        const uint32_t count = Graphic::System::LandscapeLodVertexCount(
+             kQuads, static_cast<uint32_t>( std::floor( lod.Center ) ) );
+        for ( uint32_t t = 0; t < count; t += 3u )
+            for ( uint32_t e = 0; e < 3u; ++e )
+            {
+                const DrawnVertex a = DrawVertex( land, i, lod, t + e );
+                const DrawnVertex b = DrawVertex( land, i, lod, t + ( e + 1u ) % 3u );
+                const float       ca = vertical ? a.GridGx : a.GridGz, cb = vertical ? b.GridGx : b.GridGz;
+                const float       pa = vertical ? a.Gz : a.Gx, pb = vertical ? b.Gz : b.Gx;
+                if ( ca != line || cb != line || pa == pb )
+                    continue;
+                out.push_back( pa < pb ? std::array<float, 4>{ pa, pb, a.H, b.H }
+                                       : std::array<float, 4>{ pb, pa, b.H, a.H } );
+            }
+        std::sort( out.begin(), out.end() );
+        out.erase( std::unique( out.begin(), out.end() ), out.end() );
+        return out;
     }
 } // namespace
 
-// The drawn surface. The tessellation stage places every vertex with LandscapeTriangle, and a near patch's
-// level is its own quads per side (TerrainRenderer, LandscapeInstance), so near the camera the vertices are
-// the samples and the drawn triangles are the cells' — the surface itself when the tessellator splits
-// on Jolt's diagonal. The split is the implementation's, so the other one is measured and printed as the
-// residual; so is the old fixed level of 16 with bilinear vertices, for the record of what changed.
-TEST( LandscapeOneSurface, AtFullDetailTheDrawnTrianglesAreTheCells )
+// LOD 0 is the collision surface: every drawn vertex is a sample at Jolt's height, and every drawn triangle
+// is one of the cell's two on Jolt's diagonal — checked at each triangle's centroid, where the other split
+// would part from the surface by the cell's twist.
+TEST( LandscapeGridLod, AtLodZeroTheDrawnTrianglesAreTheSurfaceJoltCollidesWith )
 {
     const Landscape2x2 land( SteepHill );
-    const float        aligned     = WorstDrawnChordCm( land, 9u, 9.0f, &LandscapeTriangle, true );
-    const float        mirrored    = WorstDrawnChordCm( land, 9u, 9.0f, &LandscapeTriangle, false );
-    const float        before      = WorstDrawnChordCm( land, 9u, 16.0f, &LandscapeBilinear, true );
-    const float        beforeOther = WorstDrawnChordCm( land, 9u, 16.0f, &LandscapeBilinear, false );
-    std::printf( "[ LS7b ] drawn chord vs surface, 9-quad patch: level 9 %.4f cm (Jolt split) / %.4f cm (other "
-                 "split); before, level 16 bilinear: %.3f / %.3f cm\n",
-                 aligned, mirrored, before, beforeOther );
-    EXPECT_LE( aligned, 0.01f ) << "at one segment per cell with Jolt's split the drawn triangles must be the "
-                                   "surface; a vertex off it means the TES and the query evaluate two surfaces";
+    JoltLandscape      jolt( land );
+    const float        quant = JoltHalfStepCm( land );
+    float              worstVsJolt = 0.0f, worstCentroid = 0.0f;
+    size_t             vertices    = 0;
+    for ( size_t i = 0; i < 4; ++i )
+    {
+        const LandscapeTileLod lod   = TileLodOf( land, i, { 0.0f, 0.0f, 0.0f, 0.0f } );
+        const uint32_t         count = Graphic::System::LandscapeLodVertexCount( kQuads, 0u );
+        ASSERT_EQ( count, kQuads * kQuads * 6u );
+        for ( uint32_t t = 0; t < count; t += 3u )
+        {
+            float cx = 0.0f, cz = 0.0f, ch = 0.0f;
+            for ( uint32_t k = 0; k < 3u; ++k )
+            {
+                const DrawnVertex v  = DrawVertex( land, i, lod, t + k );
+                const float       wx = land.Root.Origin.x + v.Gx * kSpacing;
+                const float       wz = land.Root.Origin.z + v.Gz * kSpacing;
+                const auto        j  = jolt.JoltHeight( wx, wz );
+                ASSERT_TRUE( j.has_value() ) << wx << "," << wz;
+                worstVsJolt = std::max( worstVsJolt, std::abs( land.Root.Origin.y + v.H - *j ) );
+                cx += v.Gx / 3.0f;
+                cz += v.Gz / 3.0f;
+                ch += v.H / 3.0f;
+                ++vertices;
+            }
+            const auto truth = land.Height( land.Root.Origin.x + cx * kSpacing, land.Root.Origin.z + cz * kSpacing );
+            ASSERT_TRUE( truth.has_value() );
+            worstCentroid = std::max( worstCentroid, std::abs( land.Root.Origin.y + ch - *truth ) );
+        }
+    }
+    std::printf( "[ LS7c ] LOD 0, %zu drawn vertices: worst |vertex - Jolt| %.4f cm (quantisation half-step %.4f cm), "
+                 "worst |triangle centroid - surface| %.4f cm\n",
+                 vertices, worstVsJolt, quant, worstCentroid );
+    EXPECT_LE( worstVsJolt, quant + 0.01f ) << "a drawn vertex is not on the surface Jolt collides with";
+    EXPECT_LE( worstCentroid, 0.05f ) << "a drawn triangle is not the cell's triangle on Jolt's diagonal";
+}
+
+// No crack between two tiles at ANY pair of LODs, fractions included (the morph), on all four seams of the
+// 2x2 and through its centre corner: the segments both tiles draw on a shared edge are the same segments.
+TEST( LandscapeGridLod, TheSeamBetweenAnyTwoLodsIsDrawnTheSameByBothTiles )
+{
+    const Landscape2x2 land( SteepHill );
+    const float        q      = static_cast<float>( kQuads );
+    const float        lods[] = { 0.0f, 0.3f, 1.0f, 1.5f, 2.0f, 2.7f, 3.9f, 4.0f };
+    std::mt19937       rng( 7u );
+    size_t             seams = 0;
+    for ( int round = 0; round < 120; ++round )
+    {
+        std::array<float, 4> centers{};
+        for ( float& c : centers )
+            c = lods[rng() % std::size( lods )];
+        std::array<LandscapeTileLod, 4> lod{};
+        for ( size_t i = 0; i < 4; ++i )
+            lod[i] = TileLodOf( land, i, centers );
+        // Tiles: 0 = (0,0), 1 = (1,0), 2 = (0,1), 3 = (1,1). Vertical seam X = q, horizontal Z = q.
+        const struct
+        {
+            size_t A, B;
+            bool   Vertical;
+        } pairs[] = { { 0, 1, true }, { 2, 3, true }, { 0, 2, false }, { 1, 3, false } };
+        for ( const auto& p : pairs )
+        {
+            const auto a = SeamSegments( land, p.A, lod[p.A], p.Vertical, q );
+            const auto b = SeamSegments( land, p.B, lod[p.B], p.Vertical, q );
+            ASSERT_FALSE( a.empty() );
+            ASSERT_EQ( a, b ) << "crack between tiles " << p.A << " (LOD " << centers[p.A] << ") and " << p.B
+                              << " (LOD " << centers[p.B] << ")";
+            // ...and the segments cover the whole edge: a gap in both lists would be a hole both agree on.
+            float covered = 0.0f;
+            for ( const auto& s : a )
+                covered += s[1] - s[0];
+            ASSERT_NEAR( covered, q, 1e-3f ) << "the seam has a hole";
+            ++seams;
+        }
+    }
+    std::printf( "[ LS7c ] %zu seams between random LOD pairs drawn identically by both tiles\n", seams );
 }

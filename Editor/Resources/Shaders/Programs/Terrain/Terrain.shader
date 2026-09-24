@@ -20,7 +20,7 @@ Shader "Terrain"
 
     State
     {
-        Topology Patches 4
+        Topology Triangles
         Cull None
         ZTest Less
         ZWrite On
@@ -40,9 +40,9 @@ Shader "Terrain"
     // The C++ mirror of TerrainInstance lives in Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp,
     // and the ShaderCacheKey suite asserts both statements of the layout against the compiled SPIR-V.
 
-    // The stage bodies are the three .glslh files beside this one, shared with TerrainGBuffer.shader and
-    // TerrainShadow.shader: one statement of the patch, its tessellation and its displacement, so the
-    // surface the cascades see is the surface the camera sees. TessEval projects with the push-constant
+    // The vertex stage is TerrainVertex.glslh, shared with TerrainGBuffer.shader and TerrainShadow.shader:
+    // one statement of the grid, its LOD and its displacement, so the surface the cascades see is the
+    // surface the camera sees. The vertex stage projects with the push-constant
     // matrix (m_PushConstants.Transform): camera Projection * View here, the cascade's matrix in the shadow
     // pass — per draw, snapshotted at record, so one material serves every cascade.
     //
@@ -52,16 +52,6 @@ Shader "Terrain"
     Vertex
     {
         #include <Programs/Terrain/TerrainVertex.glslh>
-    }
-
-    TessControl
-    {
-        #include <Programs/Terrain/TerrainTessControl.glslh>
-    }
-
-    TessEval
-    {
-        #include <Programs/Terrain/TerrainTessEval.glslh>
     }
 
     Fragment

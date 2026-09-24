@@ -19,7 +19,7 @@ Shader "TerrainGBuffer"
 
     State
     {
-        Topology Patches 4
+        Topology Triangles
         Cull None
         ZTest Less
         ZWrite On
@@ -28,16 +28,6 @@ Shader "TerrainGBuffer"
     Vertex
     {
         #include <Programs/Terrain/TerrainVertex.glslh>
-    }
-
-    TessControl
-    {
-        #include <Programs/Terrain/TerrainTessControl.glslh>
-    }
-
-    TessEval
-    {
-        #include <Programs/Terrain/TerrainTessEval.glslh>
     }
 
     Fragment

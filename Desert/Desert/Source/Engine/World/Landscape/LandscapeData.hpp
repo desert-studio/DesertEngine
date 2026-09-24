@@ -277,7 +277,7 @@ namespace Desert::World::Landscape
      * @brief World height (cm) at world (x, z) on the cell's triangle (LandscapeTriangle).
      *
      * The ONE landscape surface: two planar triangles per cell on Jolt's (x, z)-(x+1, z+1) diagonal — what
-     * the tessellation stage displaces every vertex onto, what the ray (LandscapeRaycast) hits and what the
+     * the terrain vertex stage places every LOD-0 vertex on, what the ray (LandscapeRaycast) hits and what the
      * heightfield body collides with, so an object placed at this height rests where it is drawn.
      *
      * The tile covers [OriginX, OriginX + (SamplesX-1)·Spacing] × the same in Z, BOTH edges inclusive:
