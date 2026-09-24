@@ -702,6 +702,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionMeshGuids << "->v"
                 << Desert::Migration::kSceneVersionTextureGuids << " (" << report.TextureGuids.Rewritten
                 << " texture/skybox reference(s) now state the .detex header GUID)";
+        if ( report.SpriteGuidsRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionTextureGuids << "->v"
+                << Desert::Migration::kSceneVersionSpriteGuids << " (" << report.SpriteGuids.Rewritten
+                << " UI sprite / splash reference(s) now state the .detex header GUID)";
         if ( report.TextHeaderRaised )
             out << " scene v" << Desert::Migration::kSceneVersionSiblingOrder << "->v"
                 << Desert::Migration::kSceneVersionTextHeader << " (text header stated: kind, GUID, SCNE/UNIT)";

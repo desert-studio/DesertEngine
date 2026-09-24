@@ -1,6 +1,5 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 
-#include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
@@ -51,11 +50,14 @@ namespace Desert::Assets::ContentRegistry
                 if ( state.Registry.FindByKey( key ) != nullptr )
                     continue;
 
-                Common::Utils::AssetRegistryEntry entry;
-                entry.Key  = key;
-                entry.Kind = std::string( Common::Content::KindName( file.Kind ) );
-                entry.Size = file.Size;
-                if ( const auto inserted = state.Registry.Insert( std::move( entry ) ); !inserted )
+                auto entry = Common::Content::RegistryRowFor( key, file );
+                if ( !entry )
+                {
+                    LOG_ERROR( "[ContentRegistry] '{}' was found on disk and its header refused: {}", key,
+                               entry.GetError() );
+                    continue;
+                }
+                if ( const auto inserted = state.Registry.Insert( entry.GetValue() ); !inserted )
                 {
                     LOG_ERROR( "[ContentRegistry] '{}' was found on disk and could not be entered: {}", key,
                                inserted.GetError() );
@@ -98,39 +100,12 @@ namespace Desert::Assets::ContentRegistry
             Detail::State&                    state = Detail::Get_();
             const std::lock_guard<std::mutex> lock( state.Mutex );
 
-            for ( const auto& [metadata, asset] : manager.RegisteredAssets() )
-            {
-                if ( !asset || !asset->IsReadyForUse() )
-                    continue;
-
-                const Common::Utils::AssetRegistryEntry* row =
-                     state.Registry.FindByHandle( static_cast<uint64_t>( metadata.Handle ) );
-                if ( row == nullptr )
-                    continue; // not scanned content (a procedural clip, a `.dgraph` document)
-
-                std::vector<uint64_t> edges;
-                AssetEviction::EdgesOf( manager, metadata.Handle,
-                                        [&edges]( const Common::UUID& edge, const std::string& )
-                                        {
-                                            // Null edges are dropped HERE and not in EdgesOf: the sweep
-                                            // wants them marked (a null in a slot is a slot that names
-                                            // nothing, and marking it costs nothing), the registry must
-                                            // not store a dependency on the null handle.
-                                            if ( static_cast<uint64_t>( edge ) != 0 )
-                                                edges.push_back( static_cast<uint64_t>( edge ) );
-                                        } );
-
-                std::sort( edges.begin(), edges.end() );
-                edges.erase( std::unique( edges.begin(), edges.end() ), edges.end() );
-
-                outcome.Edges += edges.size();
-                if ( edges != row->Dependencies )
-                {
-                    const std::string key = row->Key; // SetDependencies invalidates `row`
-                    state.Registry.SetDependencies( key, std::move( edges ) );
-                    state.Dirty = true;
-                }
-            }
+            // THE EDGES ARE NOT LEARNED HERE. A row's dependencies are its header's GUIDs, written by the
+            // gather (ContentScan.cpp, RegistryRowFor); a second writer from loaded assets put runtime
+            // handles into the same column (a shader's path-derived number among them) and the cache
+            // then kept them, so a fresh scan and the cache disagreed about one file.
+            for ( const Common::Utils::AssetRegistryEntry& row : state.Registry.Entries() )
+                outcome.Edges += row.Dependencies.size();
 
             // ── BOUNDS: every loaded mesh's box ─────────────────────────────────────────────────────
             //
