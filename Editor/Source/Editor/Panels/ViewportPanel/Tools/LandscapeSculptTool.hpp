@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -35,6 +36,9 @@ namespace Desert::Editor::Tools
         void SetRampPoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool start );
         /// Serves a pending ramp request (a point, apply, reset); false when the request is not the ramp's.
         bool ServeRampRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& centreRay );
+        /// Serves a Mirror or Copy/Paste request at @p ray (a point, a copy, a paste, the mirror itself).
+        void ServeComponentRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
+                                    ::Desert::Editor::Core::LandscapeStrokeRequest request );
 
         std::optional<ECS::LandscapeEditTarget>                m_Target;
         std::optional<World::Landscape::LandscapeHeightStroke> m_Stroke;

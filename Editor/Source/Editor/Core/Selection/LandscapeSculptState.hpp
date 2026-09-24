@@ -31,6 +31,8 @@ namespace Desert::Editor::Core
         Ramp,
         Erosion,
         HydroErosion,
+        Mirror,
+        CopyPaste,
     };
 
     inline const char* LandscapeToolName( LandscapeTool tool )
@@ -53,6 +55,10 @@ namespace Desert::Editor::Core
                 return "Erosion";
             case LandscapeTool::HydroErosion:
                 return "Hydro Erosion";
+            case LandscapeTool::Mirror:
+                return "Mirror";
+            case LandscapeTool::CopyPaste:
+                return "Copy/Paste";
         }
         return "Unknown";
     }
@@ -129,6 +135,45 @@ namespace Desert::Editor::Core
         return "Unknown";
     }
 
+    inline const char* LandscapeMirrorOpName( World::Landscape::LandscapeMirrorOp op )
+    {
+        using World::Landscape::LandscapeMirrorOp;
+        switch ( op )
+        {
+            case LandscapeMirrorOp::MinusXToPlusX:
+                return "-X to +X";
+            case LandscapeMirrorOp::PlusXToMinusX:
+                return "+X to -X";
+            case LandscapeMirrorOp::MinusZToPlusZ:
+                return "-Z to +Z";
+            case LandscapeMirrorOp::PlusZToMinusZ:
+                return "+Z to -Z";
+            case LandscapeMirrorOp::RotateMinusXToPlusX:
+                return "Rotate -X to +X";
+            case LandscapeMirrorOp::RotatePlusXToMinusX:
+                return "Rotate +X to -X";
+            case LandscapeMirrorOp::RotateMinusZToPlusZ:
+                return "Rotate -Z to +Z";
+            case LandscapeMirrorOp::RotatePlusZToMinusZ:
+                return "Rotate +Z to -Z";
+        }
+        return "Unknown";
+    }
+
+    inline const char* LandscapePasteModeName( World::Landscape::LandscapePasteMode mode )
+    {
+        switch ( mode )
+        {
+            case World::Landscape::LandscapePasteMode::Both:
+                return "Both";
+            case World::Landscape::LandscapePasteMode::Raise:
+                return "Raise";
+            case World::Landscape::LandscapePasteMode::Lower:
+                return "Lower";
+        }
+        return "Unknown";
+    }
+
     inline const char* LandscapeFalloffName( World::Landscape::LandscapeBrushFalloff shape )
     {
         switch ( shape )
@@ -161,6 +206,8 @@ namespace Desert::Editor::Core
         World::Landscape::LandscapeRampSettings    Ramp;
         World::Landscape::LandscapeErosionSettings      Erosion;
         World::Landscape::LandscapeHydroErosionSettings HydroErosion;
+        World::Landscape::LandscapeMirrorSettings       Mirror;
+        World::Landscape::LandscapePasteMode            PasteMode = World::Landscape::LandscapePasteMode::Both;
     };
 
     /// A stroke asked for from the palette: one step at the viewport centre, then the stroke ends. The ramp's
@@ -174,6 +221,12 @@ namespace Desert::Editor::Core
         RampEnd,
         RampApply,
         RampReset,
+        MirrorPoint,
+        MirrorApply,
+        CopyCornerA,
+        CopyCornerB,
+        Copy,
+        Paste,
     };
 
     struct LandscapeSculptState
@@ -183,6 +236,12 @@ namespace Desert::Editor::Core
         /// UE's FLandscapeToolRamp::Points, in world cm; applying keeps them, as UE does until the tool is reset.
         std::optional<glm::vec3> RampStart;
         std::optional<glm::vec3> RampEnd;
+        /// UE's MirrorPoint in world cm; unset means the landscape's centre (UE's CenterMirrorPoint).
+        std::optional<glm::vec3> MirrorPoint;
+        /// The copy region's corners (UE: the gizmo's extent) and what the last Copy took.
+        std::optional<glm::vec3>              CopyCornerA;
+        std::optional<glm::vec3>              CopyCornerB;
+        World::Landscape::LandscapeCopyBuffer CopyBuffer;
 
         static LandscapeSculptState& Get()
         {
@@ -219,7 +278,8 @@ namespace Desert::Editor::Core
         std::vector<LandscapeToolControl> controls;
         for ( const LandscapeTool tool :
               { LandscapeTool::Sculpt, LandscapeTool::Smooth, LandscapeTool::Flatten, LandscapeTool::Noise,
-                LandscapeTool::Erase, LandscapeTool::Ramp, LandscapeTool::Erosion, LandscapeTool::HydroErosion } )
+                LandscapeTool::Erase, LandscapeTool::Ramp, LandscapeTool::Erosion, LandscapeTool::HydroErosion,
+                LandscapeTool::Mirror, LandscapeTool::CopyPaste } )
             controls.push_back( { std::string( "Tool: " ) + LandscapeToolName( tool ), "Tool",
                                   [tool]( LandscapeSculptSettings& s ) { s.Tool = tool; }, always } );
 
@@ -454,6 +514,45 @@ namespace Desert::Editor::Core
         controls.push_back(
              { "Hydro detail scale: smaller", "Hydro detail scale", []( LandscapeSculptSettings& s )
                { s.HydroErosion.DetailScale = std::max( s.HydroErosion.DetailScale - 0.1f, 0.0f ); }, hydro } );
+
+        auto mirror = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Mirror; };
+        auto paste  = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::CopyPaste; };
+        using L::LandscapeMirrorOp;
+        for ( const LandscapeMirrorOp op :
+              { LandscapeMirrorOp::MinusXToPlusX, LandscapeMirrorOp::PlusXToMinusX,
+                LandscapeMirrorOp::MinusZToPlusZ, LandscapeMirrorOp::PlusZToMinusZ,
+                LandscapeMirrorOp::RotateMinusXToPlusX, LandscapeMirrorOp::RotatePlusXToMinusX,
+                LandscapeMirrorOp::RotateMinusZToPlusZ, LandscapeMirrorOp::RotatePlusZToMinusZ } )
+            controls.push_back( { std::string( "Mirror operation: " ) + LandscapeMirrorOpName( op ),
+                                  "Mirror operation", [op]( LandscapeSculptSettings& s ) { s.Mirror.Op = op; },
+                                  mirror } );
+        controls.push_back( { "Mirror smoothing width: larger", "Mirror smoothing",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.Mirror.SmoothingWidth =
+                                       std::min( s.Mirror.SmoothingWidth + 2, L::kLandscapeMaxMirrorSmoothingUi );
+                              },
+                              mirror } );
+        controls.push_back(
+             { "Mirror smoothing width: smaller", "Mirror smoothing", []( LandscapeSculptSettings& s )
+               { s.Mirror.SmoothingWidth = std::max( s.Mirror.SmoothingWidth - 2, 0 ); }, mirror } );
+        controls.push_back( { "Mirror: set point at viewport centre",
+                              "Mirror",
+                              {},
+                              mirror,
+                              LandscapeStrokeRequest::MirrorPoint } );
+        controls.push_back( { "Mirror: apply", "Mirror", {}, mirror, LandscapeStrokeRequest::MirrorApply } );
+
+        using L::LandscapePasteMode;
+        for ( const LandscapePasteMode mode :
+              { LandscapePasteMode::Both, LandscapePasteMode::Raise, LandscapePasteMode::Lower } )
+            controls.push_back( { std::string( "Paste mode: " ) + LandscapePasteModeName( mode ), "Paste mode",
+                                  [mode]( LandscapeSculptSettings& s ) { s.PasteMode = mode; }, paste } );
+        controls.push_back(
+             { "Copy: set corner A at viewport centre", "Copy", {}, paste, LandscapeStrokeRequest::CopyCornerA } );
+        controls.push_back(
+             { "Copy: set corner B at viewport centre", "Copy", {}, paste, LandscapeStrokeRequest::CopyCornerB } );
+        controls.push_back( { "Copy: copy region", "Copy", {}, paste, LandscapeStrokeRequest::Copy } );
+        controls.push_back( { "Paste: at viewport centre", "Paste", {}, paste, LandscapeStrokeRequest::Paste } );
         return controls;
     }
 } // namespace Desert::Editor::Core

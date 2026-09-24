@@ -12,6 +12,7 @@
 // through LandscapeHeightCache (L2) on the global sample lattice, kissfft is replaced by a separable DFT, the clay
 // brush, tablet pressure, the flatten target and edit layers are not ported, and the stroke records its own
 // before/after snapshot for undo.
+// Mirror and Copy/Paste: see LandscapeComponentTools.cpp for their UE sources.
 
 #pragma once
 
@@ -281,6 +282,62 @@ namespace Desert::World::Landscape
      *        Strength · (RadiusCm · 128 / ZScale) · min(dt, 0.1) · 3, and at least 1 (UE's non-clay floor).
      *        0 when the product is not positive — UE returns without writing.
      */
+    /// UE's ELandscapeMirrorOperation. UE's Y is our Z; the Rotate variants also flip the other axis.
+    enum class LandscapeMirrorOp : uint8_t
+    {
+        MinusXToPlusX,
+        PlusXToMinusX,
+        MinusZToPlusZ,
+        PlusZToMinusZ,
+        RotateMinusXToPlusX,
+        RotatePlusXToMinusX,
+        RotateMinusZToPlusZ,
+        RotatePlusZToMinusZ,
+    };
+
+    /// UE's MirrorSmoothingWidth: UIMax 20, clamped to 0..32768 when applied.
+    inline constexpr int32_t kLandscapeMaxMirrorSmoothingUi = 20;
+    inline constexpr int32_t kLandscapeMaxMirrorSmoothing   = 32768;
+
+    /// UE's mirror settings (MirrorOp, MirrorSmoothingWidth) with UE's defaults.
+    struct LandscapeMirrorSettings
+    {
+        LandscapeMirrorOp Op = LandscapeMirrorOp::MinusXToPlusX;
+        /// Samples either side of the mirror line blended by a cosine.
+        int32_t SmoothingWidth = 0;
+    };
+
+    /// UE's ELandscapeToolPasteMode: Raise only lifts samples, Lower only sinks them.
+    enum class LandscapePasteMode : uint8_t
+    {
+        Both,
+        Raise,
+        Lower,
+    };
+
+    /**
+     * UE's gizmo SelectedData for a rectangular selection: heights of SizeX x SizeZ samples (row-major, X fastest)
+     * stored RELATIVE to the region's centre sample (SizeX / 2, SizeZ / 2), exactly, in sample steps.
+     */
+    struct LandscapeCopyBuffer
+    {
+        int32_t              SizeX = 0;
+        int32_t              SizeZ = 0;
+        std::vector<int32_t> Relative;
+
+        bool Empty() const
+        {
+            return Relative.empty();
+        }
+    };
+
+    /// UE's Copy tool over the rectangle spanned by two world points (both corners inclusive, clipped to @p
+    /// bounds).
+    Common::ResultStr<LandscapeCopyBuffer> CopyLandscapeHeights( const LandscapeRoot&         root,
+                                                                 LandscapeTileLookup          lookup,
+                                                                 const LandscapeSampleBounds& bounds,
+                                                                 glm::vec3 cornerACm, glm::vec3 cornerBCm );
+
     float LandscapeSculptStrength( const LandscapeRoot& root, const LandscapeBrushSettings& brush,
                                    const LandscapeSculptStep& step );
 
@@ -346,6 +403,23 @@ namespace Desert::World::Landscape
         Common::BoolResultStr ApplyHydroErosion( const LandscapeBrushWeights&         weights,
                                                  const LandscapeBrushSettings&        brush,
                                                  const LandscapeHydroErosionSettings& hydro );
+
+        /**
+         * FLandscapeToolMirror::ApplyMirror for the heightmap: one side of the line through @p pointCm (world
+         * cm; only the op's axis is read) is copied mirrored onto the other, the SmoothingWidth samples either
+         * side of the line blended by a cosine. No point: the landscape's centre (UE's CenterMirrorPoint).
+         * Refuses a line on or outside the landscape's edge.
+         */
+        Common::BoolResultStr ApplyMirror( std::optional<glm::vec3>       pointCm,
+                                           const LandscapeMirrorSettings& mirror );
+
+        /**
+         * FLandscapeToolStrokePaste for the heightmap with a gizmo dropped at @p atCm: the buffer's centre sample
+         * lands on the lattice sample nearest @p atCm at that sample's height, the rest keep their relative
+         * heights. Refuses an empty buffer and a paste centre outside the landscape.
+         */
+        Common::BoolResultStr ApplyPaste( const LandscapeCopyBuffer& buffer, glm::vec3 atCm,
+                                          LandscapePasteMode mode );
 
         bool Touched() const
         {

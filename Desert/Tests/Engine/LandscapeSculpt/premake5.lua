@@ -17,6 +17,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeBrush.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeEditCache.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeSculpt.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeComponentTools.cpp",
     }
 
     includedirs {

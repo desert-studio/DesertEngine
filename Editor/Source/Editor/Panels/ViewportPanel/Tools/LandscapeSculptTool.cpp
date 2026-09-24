@@ -129,6 +129,31 @@ namespace Desert::Editor::Tools
                     ImGui::Text( "%s not set", name );
             }
         }
+        if ( settings.Tool == Core::LandscapeTool::Mirror )
+        {
+            const auto& point = Core::LandscapeSculptState::Get().MirrorPoint;
+            ImGui::Text( "Operation %s   Smoothing %d samples", Core::LandscapeMirrorOpName( settings.Mirror.Op ),
+                         settings.Mirror.SmoothingWidth );
+            if ( point )
+                ImGui::Text( "Point (%.0f, %.0f) cm", point->x, point->z );
+            else
+                ImGui::Text( "Point: landscape centre" );
+        }
+        if ( settings.Tool == Core::LandscapeTool::CopyPaste )
+        {
+            const auto& state = Core::LandscapeSculptState::Get();
+            ImGui::Text( "Paste mode %s   Copied %d x %d samples",
+                         Core::LandscapePasteModeName( settings.PasteMode ), state.CopyBuffer.SizeX,
+                         state.CopyBuffer.SizeZ );
+            for ( const auto& [name, point] :
+                  { std::pair{ "Corner A", state.CopyCornerA }, std::pair{ "Corner B", state.CopyCornerB } } )
+            {
+                if ( point )
+                    ImGui::Text( "%s (%.0f, %.0f) cm", name, point->x, point->z );
+                else
+                    ImGui::Text( "%s not set", name );
+            }
+        }
         if ( settings.Tool == Core::LandscapeTool::Noise )
             ImGui::Text( "Mode %s   Scale %.1f", Core::LandscapeNoiseModeName( settings.Noise.Mode ),
                          settings.Noise.NoiseScale );
@@ -222,6 +247,9 @@ namespace Desert::Editor::Tools
                 return m_Stroke->ApplyErosion( weights.GetValue(), settings.Brush, settings.Erosion );
             case Core::LandscapeTool::HydroErosion:
                 return m_Stroke->ApplyHydroErosion( weights.GetValue(), settings.Brush, settings.HydroErosion );
+            case Core::LandscapeTool::Mirror:
+            case Core::LandscapeTool::CopyPaste:
+                return Common::MakeError( "landscape mirror / copy-paste: not stroked; use their rows" );
         }
         return Common::MakeError( "landscape stroke: unknown tool" );
     }
@@ -282,6 +310,15 @@ namespace Desert::Editor::Tools
                 return true;
             case Core::LandscapeStrokeRequest::RampApply:
                 break;
+            case Core::LandscapeStrokeRequest::MirrorPoint:
+            case Core::LandscapeStrokeRequest::MirrorApply:
+            case Core::LandscapeStrokeRequest::CopyCornerA:
+            case Core::LandscapeStrokeRequest::CopyCornerB:
+            case Core::LandscapeStrokeRequest::Copy:
+            case Core::LandscapeStrokeRequest::Paste:
+                state.Request = Core::LandscapeStrokeRequest::None;
+                ServeComponentRequest( scene, centreRay, request );
+                return true;
             case Core::LandscapeStrokeRequest::None:
             case Core::LandscapeStrokeRequest::Raise:
             case Core::LandscapeStrokeRequest::Lower:
@@ -303,6 +340,69 @@ namespace Desert::Editor::Tools
             ToastManager::Push( applied.GetError(), ToastLevel::Error, 6.0f );
         End( scene );
         return true;
+    }
+
+    void LandscapeSculptTool::ServeComponentRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
+                                                     Core::LandscapeStrokeRequest request )
+    {
+        using Request = Core::LandscapeStrokeRequest;
+        auto& state   = Core::LandscapeSculptState::Get();
+        if ( request == Request::MirrorApply )
+        {
+            auto begun = Begin( scene );
+            m_ToolName = Core::LandscapeToolName( Core::LandscapeTool::Mirror );
+            auto applied =
+                 begun.IsSuccess() ? m_Stroke->ApplyMirror( state.MirrorPoint, state.Settings.Mirror ) : begun;
+            if ( !applied.IsSuccess() )
+                ToastManager::Push( applied.GetError(), ToastLevel::Error, 6.0f );
+            End( scene );
+            return;
+        }
+        if ( request == Request::Copy )
+        {
+            if ( !state.CopyCornerA || !state.CopyCornerB )
+            {
+                ToastManager::Push( "landscape copy: set both corners first", ToastLevel::Error, 6.0f );
+                return;
+            }
+            auto begun = Begin( scene );
+            auto copied =
+                 begun.IsSuccess()
+                      ? World::Landscape::CopyLandscapeHeights( m_Target->Root, m_Target->Lookup, m_Target->Bounds,
+                                                                *state.CopyCornerA, *state.CopyCornerB )
+                      : Common::MakeError<World::Landscape::LandscapeCopyBuffer>( begun.GetError() );
+            if ( copied.IsSuccess() )
+                state.CopyBuffer = copied.GetValue();
+            else
+                ToastManager::Push( copied.GetError(), ToastLevel::Error, 6.0f );
+            m_Stroke.reset();
+            m_Target.reset();
+            return;
+        }
+        const auto landscape = ECS::FirstLandscape( scene.GetRegistry() );
+        const auto point     = landscape ? TraceLandscape( scene, *landscape, ray ) : std::nullopt;
+        if ( !point )
+        {
+            ToastManager::Push( "landscape: no landscape under the ray", ToastLevel::Error, 6.0f );
+            return;
+        }
+        if ( request == Request::MirrorPoint )
+            state.MirrorPoint = *point;
+        else if ( request == Request::CopyCornerA )
+            state.CopyCornerA = *point;
+        else if ( request == Request::CopyCornerB )
+            state.CopyCornerB = *point;
+        else if ( request == Request::Paste )
+        {
+            auto begun   = Begin( scene );
+            m_ToolName   = "Paste";
+            auto applied = begun.IsSuccess()
+                                ? m_Stroke->ApplyPaste( state.CopyBuffer, *point, state.Settings.PasteMode )
+                                : begun;
+            if ( !applied.IsSuccess() )
+                ToastManager::Push( applied.GetError(), ToastLevel::Error, 6.0f );
+            End( scene );
+        }
     }
 
     void LandscapeSculptTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay,
@@ -338,6 +438,17 @@ namespace Desert::Editor::Tools
             // the end, and a third starts over.
             if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
                 SetRampPoint( scene, mouseRay, !state.RampStart || state.RampEnd );
+            return;
+        }
+        if ( state.Settings.Tool == Core::LandscapeTool::Mirror ||
+             state.Settings.Tool == Core::LandscapeTool::CopyPaste )
+        {
+            // A click places the mirror line (UE: the transform widget) or pastes there (UE: the gizmo's spot).
+            if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+                ServeComponentRequest( scene, mouseRay,
+                                       state.Settings.Tool == Core::LandscapeTool::Mirror
+                                            ? Core::LandscapeStrokeRequest::MirrorPoint
+                                            : Core::LandscapeStrokeRequest::Paste );
             return;
         }
         if ( !m_Stroke )

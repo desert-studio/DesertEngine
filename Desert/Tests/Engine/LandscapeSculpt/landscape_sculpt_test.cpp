@@ -498,8 +498,9 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
     // detail smooth, detail scale, flatten mode, slope flatten, pick per apply, terrace interval, terrace smooth,
     // noise mode, noise scale, ramp mode, ramp width, side falloff — and the ramp's action row; erosion threshold,
     // iterations, noise mode, noise scale; rain amount, sediment capacity, hydro iterations, rain distribution,
-    // rain scale, hydro detail smooth, hydro detail scale.
-    EXPECT_EQ( rows.size(), 30u );
+    // rain scale, hydro detail smooth, hydro detail scale; mirror operation, mirror smoothing and the mirror's
+    // action row; paste mode and the copy and paste action rows.
+    EXPECT_EQ( rows.size(), 36u );
 
     LandscapeSculptSettings other;
     other.Tool                      = LandscapeTool::Smooth;
@@ -531,6 +532,9 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
     other.HydroErosion.RainScale        = 16.0f;
     other.HydroErosion.DetailSmooth     = false;
     other.HydroErosion.DetailScale      = 0.5f;
+    other.Mirror.Op                     = LandscapeMirrorOp::RotatePlusZToMinusZ;
+    other.Mirror.SmoothingWidth         = 20;
+    other.PasteMode                     = LandscapePasteMode::Lower;
     auto key                            = []( const LandscapeSculptSettings& s )
     {
         return std::to_string( static_cast<int>( s.Tool ) ) + std::to_string( s.Brush.RadiusCm ) +
@@ -548,7 +552,9 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
                std::to_string( s.HydroErosion.Iterations ) +
                std::to_string( static_cast<int>( s.HydroErosion.RainMode ) ) +
                std::to_string( s.HydroErosion.RainScale ) + std::to_string( s.HydroErosion.DetailSmooth ) +
-               std::to_string( s.HydroErosion.DetailScale );
+               std::to_string( s.HydroErosion.DetailScale ) + "|" +
+               std::to_string( static_cast<int>( s.Mirror.Op ) ) + std::to_string( s.Mirror.SmoothingWidth ) +
+               std::to_string( static_cast<int>( s.PasteMode ) );
     };
     std::set<LandscapeStrokeRequest> requests;
     for ( const auto& c : controls )
@@ -573,12 +579,17 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
             EXPECT_TRUE( ValidateLandscapeRamp( s.Ramp ).IsSuccess() ) << c.Label;
             EXPECT_TRUE( ValidateLandscapeErosion( s.Erosion ).IsSuccess() ) << c.Label;
             EXPECT_TRUE( ValidateLandscapeHydroErosion( s.HydroErosion ).IsSuccess() ) << c.Label;
+            EXPECT_GE( s.Mirror.SmoothingWidth, 0 ) << c.Label;
+            EXPECT_LE( s.Mirror.SmoothingWidth, kLandscapeMaxMirrorSmoothingUi ) << c.Label;
         }
         EXPECT_TRUE( changes ) << c.Label << " changes nothing from either base: a dead widget";
     }
     EXPECT_EQ( requests, ( std::set<LandscapeStrokeRequest>{
                               LandscapeStrokeRequest::RampStart, LandscapeStrokeRequest::RampEnd,
-                              LandscapeStrokeRequest::RampApply, LandscapeStrokeRequest::RampReset } ) );
+                              LandscapeStrokeRequest::RampApply, LandscapeStrokeRequest::RampReset,
+                              LandscapeStrokeRequest::MirrorPoint, LandscapeStrokeRequest::MirrorApply,
+                              LandscapeStrokeRequest::CopyCornerA, LandscapeStrokeRequest::CopyCornerB,
+                              LandscapeStrokeRequest::Copy, LandscapeStrokeRequest::Paste } ) );
 }
 
 namespace
@@ -936,4 +947,200 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ---- Mirror and Copy/Paste (L7, ported from UE 5.8 LandscapeEdModeMirrorTool.cpp and
+// LandscapeEdModeComponentTools.cpp) ----
+
+namespace
+{
+    /// Byte-exact undo of a finished stroke, then redo, against the bytes before and after it.
+    void ExpectUndoRedo( World& w, const LandscapeHeightStroke& stroke, const std::vector<uint16_t>& original )
+    {
+        const std::vector<uint16_t> edited = w.Bytes();
+        auto                        record = stroke.Finish();
+        ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+        const auto& r = record.GetValue();
+        ASSERT_TRUE( WriteLandscapeHeights( w.Root, w.Lookup(), r.Rect, r.Before ).IsSuccess() );
+        EXPECT_EQ( w.Bytes(), original ) << "undo";
+        ASSERT_TRUE( WriteLandscapeHeights( w.Root, w.Lookup(), r.Rect, r.After ).IsSuccess() );
+        EXPECT_EQ( w.Bytes(), edited ) << "redo";
+    }
+
+    void ExpectSeamsEqual( const World& w )
+    {
+        for ( int32_t i = 0; i <= kQ; ++i )
+            for ( int32_t t = 0; t < 2; ++t )
+            {
+                const uint32_t u = static_cast<uint32_t>( i );
+                EXPECT_EQ( w.Tiles.at( { 0, t } ).Sample( kQuads, u ), w.Tiles.at( { 1, t } ).Sample( 0u, u ) );
+                EXPECT_EQ( w.Tiles.at( { t, 0 } ).Sample( u, kQuads ), w.Tiles.at( { t, 1 } ).Sample( u, 0u ) );
+            }
+    }
+
+    /// UE's blend: Alpha = cos(Frac * PI) * -0.5 + 0.5 over 2W + 1 samples, Frac = (i + 1) / (2W + 2).
+    float MirrorAlpha( int32_t i, int32_t width )
+    {
+        const float frac = static_cast<float>( i + 1 ) / static_cast<float>( 2 * width + 2 );
+        return std::cos( frac * 3.14159265358979323846f ) * -0.5f + 0.5f;
+    }
+} // namespace
+
+TEST( LandscapeSculpt, MirrorMinusXToPlusXCopiesTheLeftHalfMirroredAndLeavesItAlone )
+{
+    World                       w( Noise );
+    const std::vector<uint16_t> original = w.Bytes();
+    LandscapeHeightStroke       stroke( w.Root, w.Lookup(), w.Bounds() );
+    ASSERT_TRUE( stroke.ApplyMirror( std::nullopt, {} ).IsSuccess() ); // centre: sample 31, the tile seam
+    for ( int32_t z = 0; z <= 2 * kQ; ++z )
+        for ( int32_t x = 0; x <= 2 * kQ; ++x )
+        {
+            if ( x <= kQ )
+                EXPECT_EQ( w.At( x, z ), Noise( x, z ) ) << "the source half is untouched at " << x << "," << z;
+            else
+                EXPECT_EQ( w.At( x, z ), Noise( 2 * kQ - x, z ) ) << "mirrored at " << x << "," << z;
+        }
+    ExpectSeamsEqual( w );
+    ExpectUndoRedo( w, stroke, original );
+}
+
+TEST( LandscapeSculpt, MirrorOverZWithRotateFlipsTheOtherAxisToo )
+{
+    World                   w( Noise );
+    LandscapeHeightStroke   stroke( w.Root, w.Lookup(), w.Bounds() );
+    LandscapeMirrorSettings m;
+    m.Op = LandscapeMirrorOp::RotatePlusZToMinusZ;
+    // A point off-centre: sample 40 along Z (world 4000 cm); the X coordinate is ignored.
+    ASSERT_TRUE( stroke.ApplyMirror( glm::vec3( 123.0f, 0.0f, 4000.0f ), m ).IsSuccess() );
+    for ( int32_t z = 0; z <= 2 * kQ; ++z )
+        for ( int32_t x = 0; x <= 2 * kQ; ++x )
+        {
+            if ( z > 40 )
+                EXPECT_EQ( w.At( x, z ), Noise( x, z ) ) << x << "," << z;
+            else if ( z == 40 )
+            {
+                // UE's blend with width 0 is the mirror line alone at Alpha 0.5: under Rotate it meets its own
+                // flipped copy halfway (Lerp(Line2, Line1, 0.5), truncating).
+                const uint16_t a = Noise( 2 * kQ - x, 40 ), b = Noise( x, 40 );
+                EXPECT_EQ( w.At( x, z ),
+                           static_cast<uint16_t>( a + MirrorAlpha( 0, 0 ) * float( int32_t( b ) - a ) ) )
+                     << x;
+            }
+            else
+            {
+                // Beyond the landscape the source takes the edge sample (80 - z > 62 reads row 62).
+                const int32_t sz = std::min( 80 - z, 2 * kQ );
+                EXPECT_EQ( w.At( x, z ), Noise( 2 * kQ - x, sz ) ) << x << "," << z;
+            }
+        }
+    ExpectSeamsEqual( w );
+}
+
+TEST( LandscapeSculpt, MirrorSmoothingBlendsUEsWidthEitherSideOfTheLine )
+{
+    World                   w( Noise );
+    LandscapeHeightStroke   stroke( w.Root, w.Lookup(), w.Bounds() );
+    LandscapeMirrorSettings m;
+    m.Op             = LandscapeMirrorOp::PlusXToMinusX;
+    m.SmoothingWidth = 4;
+    ASSERT_TRUE( stroke.ApplyMirror( glm::vec3( 3000.0f, 0.0f, 0.0f ), m ).IsSuccess() ); // line at x = 30
+    for ( int32_t z = 0; z <= 2 * kQ; z += 7 )
+    {
+        for ( int32_t x = 0; x < 26; ++x )
+            EXPECT_EQ( w.At( x, z ), Noise( 60 - x, z ) ) << "pure mirror at " << x;
+        for ( int32_t i = 0; i < 9; ++i ) // x = 26..34: the 2W + 1 blended samples
+        {
+            const int32_t  x = 26 + i;
+            const uint16_t a = Noise( 60 - x, z ), b = Noise( x, z );
+            const auto     e = static_cast<uint16_t>( static_cast<float>( a ) +
+                                                      MirrorAlpha( i, 4 ) * static_cast<float>( int32_t( b ) - a ) );
+            EXPECT_EQ( w.At( x, z ), e ) << "blend at " << x;
+        }
+        for ( int32_t x = 35; x <= 2 * kQ; ++x )
+            EXPECT_EQ( w.At( x, z ), Noise( x, z ) ) << "source side untouched at " << x;
+    }
+}
+
+TEST( LandscapeSculpt, MirrorRefusesALineOnTheEdge )
+{
+    World                 w( Noise );
+    LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+    EXPECT_FALSE( stroke.ApplyMirror( glm::vec3( 0.0f ), {} ).IsSuccess() );
+    EXPECT_FALSE( stroke.ApplyMirror( glm::vec3( 6200.0f, 0.0f, 0.0f ), {} ).IsSuccess() );
+    LandscapeMirrorSettings bad;
+    bad.SmoothingWidth = -1;
+    EXPECT_FALSE( stroke.ApplyMirror( std::nullopt, bad ).IsSuccess() );
+    EXPECT_FALSE( stroke.Touched() );
+}
+
+TEST( LandscapeSculpt, CopyThenPasteElsewhereKeepsTheRelativeHeightsAcrossSeams )
+{
+    World                       w( Noise );
+    const std::vector<uint16_t> original = w.Bytes();
+    // Region x 5..15, z 8..20 (11 x 13), centre sample (10, 14).
+    auto copied = CopyLandscapeHeights( w.Root, w.Lookup(), w.Bounds(), glm::vec3( 1500.0f, 0.0f, 800.0f ),
+                                        glm::vec3( 500.0f, 0.0f, 2000.0f ) );
+    ASSERT_TRUE( copied.IsSuccess() ) << copied.GetError();
+    const LandscapeCopyBuffer& buffer = copied.GetValue();
+    ASSERT_EQ( buffer.SizeX, 11 );
+    ASSERT_EQ( buffer.SizeZ, 13 );
+    EXPECT_EQ( w.Bytes(), original ) << "copy writes nothing";
+
+    // Paste centred on (31, 31): the corner where four tiles meet.
+    LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+    ASSERT_TRUE(
+         stroke.ApplyPaste( buffer, glm::vec3( 3100.0f, 0.0f, 3100.0f ), LandscapePasteMode::Both ).IsSuccess() );
+    const int32_t base = Noise( 31, 31 );
+    for ( int32_t dz = -6; dz <= 6; ++dz )
+        for ( int32_t dx = -5; dx <= 5; ++dx )
+            EXPECT_EQ( int32_t( w.At( 31 + dx, 31 + dz ) ) - base,
+                       int32_t( Noise( 10 + dx, 14 + dz ) ) - int32_t( Noise( 10, 14 ) ) )
+                 << dx << "," << dz;
+    EXPECT_EQ( w.At( 25, 31 ), Noise( 25, 31 ) ) << "outside the pasted rectangle";
+    EXPECT_EQ( w.At( 31, 38 ), Noise( 31, 38 ) );
+    ExpectSeamsEqual( w );
+    ExpectUndoRedo( w, stroke, original );
+}
+
+TEST( LandscapeSculpt, PasteRaiseOnlyLiftsAndLowerOnlySinks )
+{
+    for ( const LandscapePasteMode mode : { LandscapePasteMode::Raise, LandscapePasteMode::Lower } )
+    {
+        World w( Noise );
+        auto  copied = CopyLandscapeHeights( w.Root, w.Lookup(), w.Bounds(), glm::vec3( 4000.0f, 0.0f, 4000.0f ),
+                                             glm::vec3( 5000.0f, 0.0f, 5000.0f ) );
+        ASSERT_TRUE( copied.IsSuccess() );
+        LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+        ASSERT_TRUE(
+             stroke.ApplyPaste( copied.GetValue(), glm::vec3( 1000.0f, 0.0f, 1000.0f ), mode ).IsSuccess() );
+        int32_t changed = 0, kept = 0;
+        for ( int32_t dz = -5; dz <= 5; ++dz )
+            for ( int32_t dx = -5; dx <= 5; ++dx )
+            {
+                const int32_t orig = Noise( 10 + dx, 10 + dz );
+                const int32_t dest = int32_t( Noise( 10, 10 ) ) + Noise( 45 + dx, 45 + dz ) - Noise( 45, 45 );
+                const int32_t now  = w.At( 10 + dx, 10 + dz );
+                const bool    take = mode == LandscapePasteMode::Raise ? dest > orig : dest < orig;
+                EXPECT_EQ( now, take ? dest : orig ) << dx << "," << dz;
+                ( take ? changed : kept ) += 1;
+            }
+        EXPECT_GT( changed, 20 ) << "both branches must be exercised";
+        EXPECT_GT( kept, 20 );
+    }
+}
+
+TEST( LandscapeSculpt, CopyAndPasteRefuseWhatUESilentlySkips )
+{
+    World w( Noise );
+    EXPECT_FALSE( CopyLandscapeHeights( w.Root, w.Lookup(), w.Bounds(), glm::vec3( -900.0f, 0.0f, -900.0f ),
+                                        glm::vec3( -500.0f, 0.0f, -500.0f ) )
+                       .IsSuccess() );
+    LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+    EXPECT_FALSE( stroke.ApplyPaste( {}, glm::vec3( 1000.0f ), LandscapePasteMode::Both ).IsSuccess() );
+    auto copied = CopyLandscapeHeights( w.Root, w.Lookup(), w.Bounds(), glm::vec3( 0.0f ), glm::vec3( 300.0f ) );
+    ASSERT_TRUE( copied.IsSuccess() );
+    EXPECT_FALSE(
+         stroke.ApplyPaste( copied.GetValue(), glm::vec3( 9000.0f, 0.0f, 0.0f ), LandscapePasteMode::Both )
+              .IsSuccess() );
+    EXPECT_FALSE( stroke.Touched() );
 }
