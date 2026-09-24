@@ -329,12 +329,14 @@ namespace Desert::Migration
     //                   file must state a GUID; anything else REFUSES the file, naming the block - in entity
     //                   records AND in prefab-override records (MigrateMeshGuidsV27ToV28).
     inline constexpr int kSceneVersionMeshGuids = 28;
-    //  29             - A TEXTURE REFERENCE IS NAMED BY ITS HEADER GUID (T6d). `Skybox.SkyboxHandle` held a string -
+    //  29             - A TEXTURE REFERENCE IS NAMED BY ITS HEADER GUID (T6d). `Skybox.SkyboxHandle` held a string
+    //  -
     //                   a stable key, or the ABSOLUTE path the writer rendered it as - and a MaterialComponent's
     //                   `Textures[].TextureHandle` held the runtime u64 handle. Both become
     //                   `{"Guid": <the .detex header GUID>, "Path": "assets:<path under the assets root>"}`, in
     //                   entity records and prefab-override records. A missing file, a file outside the assets
-    //                   root, or one stating no texture GUID REFUSES the file, naming it (MigrateTextureGuidsV28ToV29).
+    //                   root, or one stating no texture GUID REFUSES the file, naming it
+    //                   (MigrateTextureGuidsV28ToV29).
     inline constexpr int kSceneVersionTextureGuids = 29;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is

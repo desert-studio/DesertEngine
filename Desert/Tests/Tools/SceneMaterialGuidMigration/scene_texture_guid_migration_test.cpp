@@ -171,8 +171,8 @@ TEST( SceneTextureGuidMigration, ANonexistentFileRefusesNamingTheSiteAndLeavesTh
 TEST( SceneTextureGuidMigration, AnAbsolutePathOutsideTheAssetsRootRefusesByName )
 {
     const Project     project( "outside" );
-    const std::string stray = ( project.Root / "Elsewhere" / "Stray.detex" ).generic_string();
-    auto              scene = Parse( V28Scene( Quoted( stray ) ) );
+    const std::string stray  = ( project.Root / "Elsewhere" / "Stray.detex" ).generic_string();
+    auto              scene  = Parse( V28Scene( Quoted( stray ) ) );
     const auto        report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
 
     ASSERT_FALSE( report.Refused.empty() );
@@ -195,8 +195,8 @@ TEST( SceneTextureGuidMigration, AFileThatIsNotATextureRefuses )
 TEST( SceneTextureGuidMigration, AMaterialTextureHandleBecomesTheGuidOfTheTextureWhoseHandleItIs )
 {
     const Project project( "material" );
-    auto       scene = Parse( V28Scene( R"("")", std::to_string( static_cast<int64_t>( SkyHandle() ) ) ) );
-    const auto report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
+    auto          scene  = Parse( V28Scene( R"("")", std::to_string( static_cast<int64_t>( SkyHandle() ) ) ) );
+    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
 
     ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
     EXPECT_EQ( report.TextureGuids.Rewritten, 1 );
@@ -221,7 +221,7 @@ TEST( SceneTextureGuidMigration, AMaterialTextureHandleNoTextureStatesRefuses )
 TEST( SceneTextureGuidMigration, ASecondRunOfTheStepChangesNothing )
 {
     const Project project( "twice" );
-    auto          scene = Parse( V28Scene( Quoted( kSkyKey ), std::to_string( static_cast<int64_t>( SkyHandle() ) ) ) );
+    auto scene = Parse( V28Scene( Quoted( kSkyKey ), std::to_string( static_cast<int64_t>( SkyHandle() ) ) ) );
     ASSERT_TRUE( Migration::MigrateScene( scene, project.AssetsRoot, "", {} ).Refused.empty() );
     const std::string first = rfl::json::write( scene );
 
@@ -274,10 +274,10 @@ TEST( SkyboxReferenceWriter, AnAssignedSkyboxIsWrittenAsItsGuidAndItsProjectKey 
     sky.SkyboxHandle    = Desert::Assets::AssetHandle( SkyHandle() );
     const auto resolver = SkyResolver();
 
-    const rfl::Generic::Object out = Desert::Reflection::SerializeReflected( SkyboxType(), &sky, &resolver );
+    const rfl::Generic::Object out  = Desert::Reflection::SerializeReflected( SkyboxType(), &sky, &resolver );
     const std::string          text = rfl::json::write( out );
-    EXPECT_NE( text.find( std::string( R"("SkyboxHandle":{"Guid":")" ) + kSkyGuidText + R"(","Path":")" +
-                          kSkyKey + R"("})" ),
+    EXPECT_NE( text.find( std::string( R"("SkyboxHandle":{"Guid":")" ) + kSkyGuidText + R"(","Path":")" + kSkyKey +
+                          R"("})" ),
                std::string::npos )
          << text;
 

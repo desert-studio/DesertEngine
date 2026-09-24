@@ -283,14 +283,17 @@ namespace Desert::Reflection
                                 return v.has_value() ? v.value().to_string().value_or( std::string() )
                                                      : std::string();
                             };
-                            *static_cast<uint64_t*>( p ) = ResolveGuidRef(
-                                 *resolver, text( "Guid" ), text( "Path" ), "SkyboxAsset", "field '" + field.Name + "'" );
+                            *static_cast<uint64_t*>( p ) =
+                                 ResolveGuidRef( *resolver, text( "Guid" ), text( "Path" ), "SkyboxAsset",
+                                                 "field '" + field.Name + "'" );
                         }
-                        else if ( ref.has_value() || ( g.to_string().has_value() && !g.to_string().value().empty() ) )
-                            LOG_ERROR( "[Reflection] Field '{0}' is a skybox reference in a form this build does not "
-                                       "read (a {{Guid, Path}} object with no resolver, or a pre-SCNE-29 bare "
-                                       "string - run the SceneMigrator); the field keeps its default.",
-                                       field.Name );
+                        else if ( ref.has_value() ||
+                                  ( g.to_string().has_value() && !g.to_string().value().empty() ) )
+                            LOG_ERROR(
+                                 "[Reflection] Field '{0}' is a skybox reference in a form this build does not "
+                                 "read (a {{Guid, Path}} object with no resolver, or a pre-SCNE-29 bare "
+                                 "string - run the SceneMigrator); the field keeps its default.",
+                                 field.Name );
                         break;
                     }
                     if ( auto s = g.to_string(); s.has_value() )

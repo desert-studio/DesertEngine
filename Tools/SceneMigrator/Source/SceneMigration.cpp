@@ -2118,7 +2118,7 @@ namespace Desert::Migration
                  Common::Content::AssetHeaderReadContext{ {}, true } );
             if ( !header )
                 return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
-                                                                          "': " + header.GetError() );
+                                                                           "': " + header.GetError() );
             const auto& asset = header.GetValue().Asset;
             if ( asset.Kind != Common::Content::ContentKind::Texture &&
                  asset.Kind != Common::Content::ContentKind::Skybox )
@@ -2127,7 +2127,7 @@ namespace Desert::Migration
                                 std::string( Common::Content::KindName( asset.Kind ) ) + ")" );
             if ( asset.Guid.IsNull() )
                 return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
-                                                                          "' states the null GUID" );
+                                                                           "' states the null GUID" );
             return Common::MakeSuccess( Common::Content::AssetGuidToText( asset.Guid ) );
         }
 
@@ -2140,13 +2140,14 @@ namespace Desert::Migration
             const auto      rel  = file.lexically_normal().lexically_relative( root ).generic_string();
             if ( rel.empty() || rel == "." || rel.rfind( "..", 0 ) == 0 )
                 return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
-                                                                          "' lies outside the assets root '" +
-                                                                          root.generic_string() + "'" );
+                                                                           "' lies outside the assets root '" +
+                                                                           root.generic_string() + "'" );
             return Common::MakeSuccess( "assets:" + rel );
         }
 
         // A v28 skybox string -> the v29 reference object.
-        Common::ResultStr<rfl::Generic> SkyboxRefFor( const std::string& value, const std::filesystem::path& assetsRoot )
+        Common::ResultStr<rfl::Generic> SkyboxRefFor( const std::string&           value,
+                                                      const std::filesystem::path& assetsRoot )
         {
             if ( value.empty() )
                 return Common::MakeSuccess( TextureRef( "", "" ) );
@@ -2171,7 +2172,8 @@ namespace Desert::Migration
         // handle -> {GUID text, assets: key} of every texture under the assets root, read once per file.
         using TextureIndex = std::map<uint64_t, std::pair<std::string, std::string>>;
 
-        const TextureIndex& TexturesUnder( const std::filesystem::path& assetsRoot, std::optional<TextureIndex>& cache )
+        const TextureIndex& TexturesUnder( const std::filesystem::path& assetsRoot,
+                                           std::optional<TextureIndex>& cache )
         {
             if ( cache )
                 return *cache;
@@ -2246,8 +2248,9 @@ namespace Desert::Migration
                 const auto        name = slot.value().get( "Name" );
                 const std::string slotName =
                      name.has_value() ? name.value().to_string().value_or( std::string() ) : std::string();
-                const std::string site = tag + " > Material.Textures[" + std::to_string( i ) + "] (" + slotName + ")";
-                const auto        id   = slot.value().get( "TextureHandle" ).value().to_int64();
+                const std::string site =
+                     tag + " > Material.Textures[" + std::to_string( i ) + "] (" + slotName + ")";
+                const auto id = slot.value().get( "TextureHandle" ).value().to_int64();
                 if ( !id.has_value() )
                 {
                     report.UnknownNames.push_back( site + " is not a texture handle" );
@@ -2298,7 +2301,8 @@ namespace Desert::Migration
                 continue;
             for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
                 RaiseTextureGuids( ( *entity.PrefabOverrides )[i].Components,
-                                   tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, index, report );
+                                   tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, index,
+                                   report );
         }
         return report;
     }
@@ -3891,7 +3895,8 @@ namespace Desert::Migration
                     std::string names;
                     for ( const auto& unknown : report.TextureGuids.UnknownNames )
                         names += ( names.empty() ? "" : "; " ) + unknown;
-                    report.Refused = "'" + name + "': " + std::to_string( report.TextureGuids.UnknownNames.size() ) +
+                    report.Refused = "'" + name +
+                                     "': " + std::to_string( report.TextureGuids.UnknownNames.size() ) +
                                      " texture reference(s) cannot be raised to a header GUID: " + names +
                                      ". Nothing was written.";
                     return;
