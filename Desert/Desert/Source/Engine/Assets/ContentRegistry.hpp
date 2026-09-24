@@ -29,13 +29,13 @@ namespace Desert::Assets
     // Both hosts used to start by walking eight content roots with `ListFilesRecursive`, once per
     // content kind, and every handle the engine could resolve was minted by that walk. `AssetPathIndex`
     // made the result observable — `368 handle(s) can name their own path` — and said in its own header
-    // that inverting the hash is the PRECONDITION for removing the walk, not the removal. This is the
-    // removal: the walk happens once, in the editor, and its answer is a file.
+    // that inverting the hash is the PRECONDITION for removing the walk, not the removal.
     //
-    // Boot now reads that file and publishes every row's identity into `AssetPathIndex` BEFORE anything
-    // is created, so a handle read out of a `.desce` on a cold start names its file with nothing having
-    // been walked, parsed or loaded. `[ContentScan] boot finished` is the detector that says the walk
-    // really is gone rather than moved.
+    // The editor now GATHERS its registry at start (`Gather`, below): one walk reading each file's header
+    // only, with this machine's cache sparing the headers of unchanged files — UE's FAssetDataGatherer and
+    // Intermediate/CachedAssetRegistry.bin. A packaged game reads the registry the packager cooked into its
+    // pak (`LoadCooked`). Either way every row's identity is in `AssetPathIndex` BEFORE anything is created,
+    // so a handle read out of a `.desce` names its file with nothing having been parsed or loaded.
     //
     // ── THE ROWS ARE TOTAL BY CONSTRUCTION, AND THAT IS THE WHOLE DESIGN ──────────────────────────
     //
@@ -60,13 +60,12 @@ namespace Desert::Assets
     // on disk with nobody looking — a `git pull`, a drop into the folder while the editor was closed —
     // which is available the next time the project opens rather than in the session that found it.
     //
-    // ── WHAT HAPPENS WHEN THE FILE IS MISSING OR STALE ────────────────────────────────────────────
+    // ── WHAT HAPPENS WHEN THE CACHE IS MISSING OR STALE ───────────────────────────────────────────
     //
-    // `Load` REFUSES, loudly, naming the file and the command that rebuilds it. It does not fall back
-    // to a scan: a fallback would restore the cost this exists to remove and would do it silently, on
-    // exactly the machines where nobody is watching. A file that is on disk and not in the registry is
-    // a file the engine does not have — which is the danger GAP_ANALYSIS T2.7 names, and it is answered
-    // by a gate that FAILS the build (`Desert/Tests/Editor/CookedRegistryGate`), never by a scan.
+    // Nothing but cost: the cache is derived state, so an absent or unparsable one is a full header scan
+    // and a warning, never a refusal. What IS refused is a single file whose header cannot become a row —
+    // named, one line each, by `Gather`. A packaged game has no content roots to fall back to, so there an
+    // absent cooked registry is a refusal (`LoadCooked`).
     //
     // ── HEADER-ONLY, AND THAT IS LOAD-BEARING RATHER THAN A STYLE CHOICE ──────────────────────────
     //
@@ -81,15 +80,6 @@ namespace Desert::Assets
     // through `AssetEviction`, which reaches `Graphic::ResourceLedger` and through it the renderer.
     namespace ContentRegistry
     {
-        // Reads `Common::Utils::AssetRegistry::DefaultPath()` and publishes every row's identity into
-        // `Common::AssetPathIndex`. Returns how many bindings were made, so a host can log the number
-        // beside the one it is meant to reproduce.
-        //
-        // AN ABSENT FILE IS A SUCCESS WITH ZERO ROWS, and only for a project that has never been
-        // cooked — `Refresh` writes one at the end of the first editor session. A file that exists and
-        // cannot be parsed is a REFUSAL: a truncated or hand-broken registry must not read as an empty
-        // project, because an empty project starts and looks almost right.
-
         // The files of one kind, as paths on THIS machine — each row's key expanded through
         // `AssetHandle::PathForStableKey`. This is the call that replaced
         // `ListFilesRecursive( root )` filtered by extension at sixteen call sites.
@@ -162,7 +152,7 @@ namespace Desert::Assets
         // `Refresh` so the editor can flush rows that `NoteAsset` added during a session without
         // re-walking the disk.
 
-        // Has a row been added or changed since the last `Load`/`Save`? The editor flushes on this
+        // Has a row been added or changed since the last `Gather`/`Save`? The editor flushes on this
         // rather than writing the file on every import.
 
         // EXISTS FOR TESTS ONLY, for `AssetPathIndex::Clear`'s reason: a suite that moves the project
