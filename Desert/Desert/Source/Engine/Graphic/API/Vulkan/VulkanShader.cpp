@@ -129,9 +129,11 @@ namespace Desert::Graphic::API::Vulkan
 
         for ( const auto& [stage, spirv] : stages )
         {
-            VkShaderModuleCreateInfo ci = { .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, .codeSize = (uint32_t)(spirv.size() * 4), .pCode = spirv.data() };
-            VkShaderModule module  = VK_NULL_HANDLE;
-            VkResult       created = VK_SUCCESS;
+            VkShaderModuleCreateInfo ci      = { .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+                                                 .codeSize = (uint32_t)( spirv.size() * 4 ),
+                                                 .pCode    = spirv.data() };
+            VkShaderModule           module  = VK_NULL_HANDLE;
+            VkResult                 created = VK_SUCCESS;
             {
                 const Core::ScopedShaderPhase timer( Core::ShaderPhase::ShaderModule );
                 created = vkCreateShaderModule( device, &ci, nullptr, &module );
