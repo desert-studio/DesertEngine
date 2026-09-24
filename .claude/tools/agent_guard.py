@@ -10,7 +10,9 @@ The owner: «Заставь агентов выполнять это». So the r
   2. at most 80 tool calls per worker — from call 60 every result carries a stop-at-a-step-boundary reminder,
      past 80 everything is refused except git, SendMessage and reading/writing the report;
   3. no `sleep` longer than 270 s in one call (the prompt cache expires at 5 minutes);
-  4. at most two editor builds per worker.
+  4. at most two editor builds per worker;
+  5. one `make` on the machine at a time, at most -j4 (16 GB RAM; 2026-09-24 parallel builds OOM-killed it);
+  6. one editor/runtime process (GPU) at a time (2026-09-24 concurrent editors hung WindowServer: kernel panic).
 
 The lead's own session (no agent id in the hook input) and Explore agents are never restricted.
 Every decision is appended to /tmp/claude-501/agent-guard/log.jsonl so the effect can be measured.
@@ -18,6 +20,7 @@ Every decision is appended to /tmp/claude-501/agent-guard/log.jsonl so the effec
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -36,7 +39,12 @@ TREE_SEARCH = [
 FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
 EDITOR_BUILD = re.compile(r"\bmake\b[^;&|]*\bEditor\b")
-ALWAYS_ALLOWED_AFTER_LIMIT = re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
+MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
+MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
+MAX_MAKE_JOBS = 4
+SELF_WAIT = re.compile(r"pgrep\s+-x\s+make")  # a command that waits for the other build itself is allowed
+EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
+ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 
 
 def emit(obj):
@@ -76,6 +84,24 @@ def save_state(state, path):
             json.dump(state, f)
     except OSError:
         pass
+
+
+def other_build_running():
+    """One build on the machine at a time (16 GB: three parallel builds OOM-killed it on 2026-09-24)."""
+    try:
+        return subprocess.run(["pgrep", "-x", "make"], capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+def editor_running():
+    """One editor/runtime (GPU) at a time: concurrent MoltenVK editors hung WindowServer and the watchdog
+    panicked the kernel on 2026-09-24 08:05."""
+    try:
+        return subprocess.run(["pgrep", "-f", "Bin/(Debug|Release)/(Editor|Runtime)"],
+                              capture_output=True).returncode == 0
+    except OSError:
+        return False
 
 
 def main():
@@ -132,6 +158,25 @@ def main():
                 deny(f"[agent_guard] sleep {m.group(1)} > {MAX_SLEEP} с: кэш истекает через 5 минут и весь "
                      f"контекст пишется заново. Жди кусками: for i in $(seq 27); do grep -q <маркер> <лог> && "
                      f"break; sleep 10; done", data, agent)
+        if MAKE.search(cmd):
+            jobs = [int(j) for j in MAKE_JOBS.findall(cmd)]
+            if any(j > MAX_MAKE_JOBS for j in jobs):
+                save_state(state, path)
+                deny(f"[agent_guard] make -j{max(jobs)} > -j{MAX_MAKE_JOBS}: 16 ГБ памяти, clang этого движка "
+                     f"берёт 1-2 ГБ на файл. Собирай с -j{MAX_MAKE_JOBS}.", data, agent)
+            if other_build_running() and not SELF_WAIT.search(cmd):
+                save_state(state, path)
+                deny("[agent_guard] На машине уже идёт сборка (другой агент или тимлид). Одновременно — только "
+                     "одна: 2026-09-24 три параллельные сборки съели 16 ГБ и уронили машину. Поставь ожидание перед "
+                     "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
+                     "done; make ...",
+                     data, agent)
+        if EDITOR_RUN.search(cmd) and not re.search(r"\bpkill\b|\bpgrep\b", cmd) and editor_running():
+            save_state(state, path)
+            deny("[agent_guard] Уже запущен редактор/рантайм (другой агент). Одновременно — только ОДИН процесс с GPU: "
+                 "2026-09-24 несколько редакторов повесили WindowServer, ядро ушло в panic. Подожди в той же команде: "
+                 "for i in $(seq 27); do pgrep -f 'Bin/(Debug|Release)/(Editor|Runtime)' >/dev/null || break; "
+                 "sleep 10; done; <запуск>", data, agent)
         if EDITOR_BUILD.search(cmd):
             if state.get("editor_builds", 0) >= MAX_EDITOR_BUILDS:
                 save_state(state, path)
