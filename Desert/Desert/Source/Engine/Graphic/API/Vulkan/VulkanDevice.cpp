@@ -575,8 +575,24 @@ namespace Desert::Graphic::API::Vulkan
         VkPipelineCacheCreateInfo info{ .sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
                                         .initialDataSize = initial.size(),
                                         .pInitialData    = initial.empty() ? nullptr : initial.data() };
-        if ( vkCreatePipelineCache( m_LogicalDevice, &info, nullptr, &m_PipelineCache ) != VK_SUCCESS )
-            m_PipelineCache = VK_NULL_HANDLE; // non-fatal: pipeline creation just falls back to no cache
+        // One line per start that says which entry was asked for and whether it existed: the only
+        // evidence a warm start is reading the entry the previous run wrote, rather than a key nobody writes.
+        if ( blob )
+        {
+            LOG_INFO( "[PipelineCache] key {:016x}: seeded from {} bytes", m_PipelineCacheKey, initial.size() );
+        }
+        else
+        {
+            LOG_INFO( "[PipelineCache] key {:016x}: no entry, created empty", m_PipelineCacheKey );
+        }
+        if ( const VkResult r = vkCreatePipelineCache( m_LogicalDevice, &info, nullptr, &m_PipelineCache );
+             r != VK_SUCCESS )
+        {
+            // Non-fatal: pipelines are still built, each one from scratch, and nothing is persisted this run.
+            LOG_WARN( "[PipelineCache] vkCreatePipelineCache ({} seed bytes) = {}; pipelines build uncached",
+                      initial.size(), static_cast<int>( r ) );
+            m_PipelineCache = VK_NULL_HANDLE;
+        }
     }
 
     Common::BoolResultStr VulkanLogicalDevice::PersistPipelineCache()
