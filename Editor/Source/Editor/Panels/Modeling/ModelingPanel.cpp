@@ -13,6 +13,7 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <array>
 
 namespace Desert::Editor
 {
@@ -179,6 +180,7 @@ namespace Desert::Editor
                     ImGui::SetTooltip( "Keep what you built as a mesh and start a fresh grid.\n"
                                        "The grid frame and Block Size carry over." );
             }
+            DrawOutputType();
             if ( Utils::ImGuiUtilities::SectionHeader( "Grid Reinitialization" ) )
             {
                 if ( ImGui::Button( "Reset Grid from Actor", ImVec2( -1.0f, 0.0f ) ) )
@@ -390,9 +392,43 @@ namespace Desert::Editor
                 ImGui::SetTooltip( "On: the click lands on the object under the cursor (its bounding box),\n"
                                    "or on the ground where there is none. Off: always the ground, Y = 0." );
         }
+        DrawOutputType();
         ImGui::Spacing();
         ImGui::TextDisabled( "LMB in the viewport places the shape." );
         ImGui::TextDisabled( "Ctrl+Z removes it again." );
+    }
+
+    // UE's "Output Type" section (UCreateMeshObjectTypeProperties), shared by the creating tools.
+    void ModelingPanel::DrawOutputType()
+    {
+        using MS  = Core::ModelingState;
+        auto& out = MS::Get().Output;
+        if ( !Utils::ImGuiUtilities::SectionHeader( "Output Type" ) )
+            return;
+        static constexpr std::array<const char*, 2> kTypes = { "Static Mesh", "Dynamic Mesh" };
+        int                                         type   = out.Type == MS::OutputType::StaticMesh ? 0 : 1;
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##OutputType", &type, kTypes.data(), static_cast<int>( kTypes.size() ) ) )
+            out.Type = type == 0 ? MS::OutputType::StaticMesh : MS::OutputType::Dynamic;
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Static Mesh: Accept writes a new .stmesh asset and the object draws it.\n"
+                               "Dynamic Mesh: the mesh stays on the object, editable, saved in the scene." );
+        if ( out.Type != MS::OutputType::StaticMesh )
+            return;
+
+        // Plain buffers round-tripped through the settings' strings: the panel has no std::string input.
+        std::array<char, 128> folder{};
+        std::array<char, 128> name{};
+        out.Folder.copy( folder.data(), folder.size() - 1 );
+        out.Name.copy( name.data(), name.size() - 1 );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::InputTextWithHint( "##OutputFolder", "Asset folder", folder.data(), folder.size() ) )
+            out.Folder = folder.data();
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Folder inside Cooked/Meshes. A taken name gets _1, _2, ... - never overwritten." );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::InputTextWithHint( "##OutputName", "Asset name (object name)", name.data(), name.size() ) )
+            out.Name = name.data();
     }
 
     void ModelingPanel::DrawElementSelection()

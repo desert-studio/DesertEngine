@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>
@@ -61,6 +63,22 @@ namespace Desert::Editor::Core
 
         // Where a click puts the shape: on the ground plane (Y = 0), or on whatever scene surface is under
         // the cursor, falling back to the ground where there is none (UE's placement Ground / On Scene).
+        // What a creating tool's Accept leaves in the scene (UE: UCreateMeshObjectTypeProperties::OutputType).
+        // StaticMesh (the default, owner decision B4) writes a new .stmesh and the entity draws the asset;
+        // Dynamic keeps the EditMesh on the entity, editable in place and saved inside the scene.
+        enum class OutputType
+        {
+            StaticMesh,
+            Dynamic,
+        };
+
+        struct OutputSettings
+        {
+            OutputType  Type   = OutputType::StaticMesh;
+            std::string Folder = "Modeling"; // under the cooked mesh folder (StaticMeshOutput.hpp says why)
+            std::string Name;                // empty: the entity's name
+        };
+
         enum class Placement
         {
             Ground,
@@ -144,6 +162,7 @@ namespace Desert::Editor::Core
         // Create tool: the shape a click places, and a one-shot that places it where the viewport centre
         // looks (the palette's way to place without a mouse).
         ShapeSettings CreateShape;
+        OutputSettings Output; // shared by Create Shape and Cube Grid, as UE's modeling mode shares it
         bool          ReqPlaceCentre = false;
         // Tool -> panel (read-only stats for the properties panel)
         int  Cubes      = 0;

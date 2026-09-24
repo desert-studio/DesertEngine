@@ -6,9 +6,11 @@
 
 #include <glm/glm.hpp>
 
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Core
@@ -34,7 +36,7 @@ namespace Desert::Editor::Commands
     // duplication preserve every serializable component — same fidelity as saving the scene.
 
     // The scene/asset-manager the commands operate on. Set once by EditorLayer.
-    void SetContext( ::Desert::Core::Scene* scene, const ::Desert::Assets::AssetManager* assetManager );
+    void SetContext( ::Desert::Core::Scene* scene, ::Desert::Assets::AssetManager* assetManager );
 
     // Record entities just created by UI code (Add menu, prefab instantiate, viewport drag-drop) as ONE
     // undo step. Undo deletes them (snapshotting first), redo restores them with the same UUIDs.
@@ -147,6 +149,24 @@ namespace Desert::Editor::Commands
      */
     [[nodiscard]] Common::ResultStr<Common::UUID>
     CollapseIntoInstancedMesh( const std::vector<Common::UUID>& uuids );
+
+    // THE ENTITY'S EDITMESH BECOMES A STATIC MESH ASSET (UE: Convert to Static Mesh / Output: New Static Mesh).
+    // Writes a NEW .stmesh (StaticMeshOutput.hpp: under the cooked mesh folder, `folder` inside it, named
+    // `name` or the entity's name, never overwriting), registers and loads it, points the component's
+    // MeshHandle at it and REMOVES the EditMesh: the asset is now the one copy of the geometry, as a UE
+    // StaticMeshActor holds a reference and no mesh of its own. Material slots are kept - the asset's
+    // submesh k carries slot k's material, which is what the entity drew with.
+    //
+    // ONE undo step restores the EditMesh entity. THE FILE STAYS after an undo, as UE leaves the package a
+    // transaction created: redo needs it, another entity may already reference it, and deleting user content
+    // from an undo is the one undo nobody can take back. Returns the path written.
+    [[nodiscard]] Common::ResultStr<std::filesystem::path>
+    ConvertToStaticMesh( const Common::UUID& uuid, std::string_view folder, std::string_view name );
+
+    // The same conversion WITHOUT an undo step of its own, for a creating tool whose Accept records the
+    // entity's creation (NotifyCreated) right after: the created state is then already the static mesh.
+    [[nodiscard]] Common::ResultStr<std::filesystem::path>
+    OutputStaticMesh( const Common::UUID& uuid, std::string_view folder, std::string_view name );
 
     // Runs `mutate` (a component add/remove from the Details panel) undoably: the entity subtree is
     // snapshotted before and after, and undo/redo swap between the two serialized states (delete +
