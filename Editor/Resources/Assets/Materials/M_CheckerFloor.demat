@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "45d579b03cc0d0a8df2e4cb025d6bea5",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
@@ -30,6 +30,5 @@
             "Name": "u_AlbedoTexture",
             "TextureHandle": 4588246833979984450
         }
-    ],
-    "MaterialId": 6418972230554417713
+    ]
 }

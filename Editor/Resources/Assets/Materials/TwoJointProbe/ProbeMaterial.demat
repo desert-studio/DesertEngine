@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "b7b348f393d3a8378855ec314eaa4768",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
@@ -82,6 +82,5 @@
             "Name": "u_EmissiveTexture",
             "TextureHandle": 0
         }
-    ],
-    "MaterialId": 15581338169056695747
+    ]
 }

@@ -3,12 +3,11 @@
         "Kind": "Material",
         "Guid": "6969dc1f8d457806e5cf208867250443",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
     "ShaderName": "MatConst",
     "Params": [],
-    "Textures": [],
-    "MaterialId": 5555555555555555555
+    "Textures": []
 }

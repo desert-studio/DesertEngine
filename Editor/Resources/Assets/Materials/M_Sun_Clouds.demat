@@ -3,12 +3,11 @@
         "Kind": "Material",
         "Guid": "31ff3efa4dd422925f5d0534e2164753",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
     "ShaderName": "CloudRaymarch",
     "Params": [],
-    "Textures": [],
-    "MaterialId": 16054590162709670939
+    "Textures": []
 }

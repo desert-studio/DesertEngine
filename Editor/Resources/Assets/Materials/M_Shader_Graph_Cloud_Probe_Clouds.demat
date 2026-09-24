@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "ecc7b35b1ec5b3eb2698dca7d5e20394",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
@@ -23,6 +23,5 @@
             "Name": "CloudType1",
             "TextureHandle": 14207433254880240939
         }
-    ],
-    "MaterialId": 2697848050202282720
+    ]
 }

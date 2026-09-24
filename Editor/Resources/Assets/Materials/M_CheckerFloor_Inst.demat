@@ -3,12 +3,11 @@
         "Kind": "Material",
         "Guid": "3cac456286293463b516718906b23e28",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
-        "Dependencies": []
+        "Dependencies": ["45d579b03cc0d0a8df2e4cb025d6bea5"]
     },
     "Params": [],
     "Textures": [],
-    "MaterialId": 16812725336093661457,
-    "ParentMaterialId": 6418972230554417713
+    "Parent": "45d579b03cc0d0a8df2e4cb025d6bea5"
 }

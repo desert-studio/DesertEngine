@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "40e8fc4221d33289cca9e025f87dab0a",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
@@ -58,6 +58,5 @@
             "Name": "u_NormalTexture",
             "TextureHandle": 15982651964750152539
         }
-    ],
-    "MaterialId": 6031977445120031001
+    ]
 }

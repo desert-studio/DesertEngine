@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "9c738945524d749f06c5277c4a444df2",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
@@ -18,6 +18,5 @@
             "Value": [0.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [],
-    "MaterialId": 3333333333333333333
+    "Textures": []
 }

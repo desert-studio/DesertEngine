@@ -3,12 +3,11 @@
         "Kind": "Material",
         "Guid": "5d471f9abf28a145fb71c73153860d68",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
     "ShaderName": "MatProbeUnlit",
     "Params": [],
-    "Textures": [],
-    "MaterialId": 4444444444444444444
+    "Textures": []
 }

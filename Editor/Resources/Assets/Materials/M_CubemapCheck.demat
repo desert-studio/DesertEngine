@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "a01d82f279125104155bb44907dd93a5",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
@@ -14,6 +14,5 @@
             "Name": "samplerCubeMap",
             "TextureHandle": 16207958156802854130
         }
-    ],
-    "MaterialId": 9016207958156802131
+    ]
 }

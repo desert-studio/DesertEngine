@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "d543a6dedf88e918ec82a0a72220fe47",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
@@ -59,6 +59,5 @@
             "Name": "LayoutMask",
             "TextureHandle": 11903270631933576236
         }
-    ],
-    "MaterialId": 14823449842892723099
+    ]
 }

@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "c2407e5571ff7898af741eafd1abdfeb",
         "Versions": {
-            "MATL": 1
+            "MATL": 2
         },
         "Dependencies": []
     },
@@ -23,6 +23,5 @@
             "Name": "u_RockTex",
             "TextureHandle": 4588246833979984450
         }
-    ],
-    "MaterialId": 1008377614206982001
+    ]
 }
