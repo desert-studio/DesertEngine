@@ -484,10 +484,14 @@ TEST( MeshBinaryFormat, ACorruptHeaderIsRefusedByName )
     EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, 12, '\x63' ), "bad-version" ).IsSuccess() );
     EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, 16, '\x00' ), "bad-size" ).IsSuccess() );
     EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, 24, '\x02' ), "bad-section-count" ).IsSuccess() );
-    // Byte 68 is the first section row's ElementSize.
-    EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, 68, '\x37' ), "bad-element-size" ).IsSuccess() );
-    // Byte 72 is the first section row's Offset: pushing it past the end must not be followed.
-    EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, 72, '\x78' ), "bad-offset" ).IsSuccess() );
+    // Prefix + 4 is the first section row's ElementSize.
+    EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixV3 + 4, '\x37' ),
+                                         "bad-element-size" )
+                       .IsSuccess() );
+    // Prefix + 8 is the first section row's Offset: pushing it past the end must not be followed.
+    EXPECT_FALSE(
+         Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixV3 + 8, '\x78' ), "bad-offset" )
+              .IsSuccess() );
 
     // The control: the unmutated bytes still load, so the expectations above are about the mutation
     // and not about the fixture.
@@ -502,9 +506,11 @@ TEST( MeshBinaryFormat, ARecordPointingOutsideItsSectionIsRefusedRatherThanFollo
 
     // The Submeshes section is row 4 of the table (1-based), so its Offset is at 64 + 3*24 + 8.
     uint64_t submeshOffset = 0;
-    // 64 bytes of header, then three 24-byte rows, then the row's Id+ElementSize: the Submeshes
+    // The v3 prefix (header + GUID), then three 24-byte rows, then the row's Id+ElementSize: the Submeshes
     // section's Offset field. Named rather than multiplied inline so the widening is explicit.
-    const std::ptrdiff_t submeshRowOffsetField = 64 + 3 * static_cast<std::ptrdiff_t>( 24 ) + 8;
+    const std::ptrdiff_t submeshRowOffsetField =
+         static_cast<std::ptrdiff_t>( Common::Content::kMeshBinaryPrefixV3 ) +
+         3 * static_cast<std::ptrdiff_t>( 24 ) + 8;
     std::memcpy( &submeshOffset, good.data() + submeshRowOffsetField, sizeof( submeshOffset ) );
 
     {
