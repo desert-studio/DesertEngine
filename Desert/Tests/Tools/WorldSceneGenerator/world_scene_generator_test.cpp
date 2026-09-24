@@ -188,17 +188,50 @@ TEST( WorldSceneGenerator, TheToolsOwnVerifyFlagPassesAndStillWritesTheFile )
 // 1c. THE NEGATIVE CONTROL. A determinism test that passes because the generator ignores its inputs proves
 // nothing at all, and that is a real shape - a seed threaded to nowhere looks exactly like a seed that
 // works. A different seed must produce a different world.
+//
+// The seed decides the WORLD, not its identity: seed1 and seed1b are two never-before-written files, so
+// (1b) each mints its own header GUID. The comparison is therefore of the documents with that one field
+// blanked, and the two GUIDs are asserted to differ. The files are removed first because a scratch file
+// left by an earlier run keeps its GUID (1a) - a machine that still held files from the name-derived-GUID
+// era passed this test with both GUIDs equal, while a clean CI runner failed it.
 TEST( WorldSceneGenerator, ADifferentSeedIsADifferentWorldAndTheSameSeedIsNot )
 {
+    const auto pathOne      = Scratch() / "seed1.desce";
+    const auto pathTwo      = Scratch() / "seed2.desce";
+    const auto pathOneAgain = Scratch() / "seed1b.desce";
+    for ( const auto& path : { pathOne, pathTwo, pathOneAgain } )
+        std::filesystem::remove( path );
+
     std::string one;
     std::string two;
     std::string oneAgain;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "seed1.desce", one, { "--seed", "1" } ), 0 ) << one;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "seed2.desce", two, { "--seed", "2" } ), 0 ) << two;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "seed1b.desce", oneAgain, { "--seed", "1" } ), 0 ) << oneAgain;
+    ASSERT_EQ( GenerateSmoke( pathOne, one, { "--seed", "1" } ), 0 ) << one;
+    ASSERT_EQ( GenerateSmoke( pathTwo, two, { "--seed", "2" } ), 0 ) << two;
+    ASSERT_EQ( GenerateSmoke( pathOneAgain, oneAgain, { "--seed", "1" } ), 0 ) << oneAgain;
 
-    EXPECT_NE( one, two );
-    EXPECT_EQ( one, oneAgain );
+    // The header is the document's first member, so the first "Guid" is the header's own.
+    const std::string guidKey = R"("Header":{"Kind":"Scene","Guid":")";
+    const auto        guidOf  = [&guidKey]( const std::string& json ) -> std::string
+    {
+        const auto at = json.find( guidKey );
+        if ( at == std::string::npos )
+            return {};
+        const auto begin = at + guidKey.size();
+        return json.substr( begin, json.find( '"', begin ) - begin );
+    };
+    const auto withoutGuid = [&guidKey]( std::string json )
+    {
+        const auto begin = json.find( guidKey ) + guidKey.size();
+        json.erase( begin, json.find( '"', begin ) - begin );
+        return json;
+    };
+    ASSERT_FALSE( guidOf( one ).empty() ) << one;
+    ASSERT_FALSE( guidOf( two ).empty() ) << two;
+    ASSERT_FALSE( guidOf( oneAgain ).empty() ) << oneAgain;
+    EXPECT_NE( guidOf( one ), guidOf( oneAgain ) ) << "two new files must not share a GUID (1b)";
+
+    EXPECT_NE( withoutGuid( one ), withoutGuid( two ) );
+    EXPECT_EQ( withoutGuid( one ), withoutGuid( oneAgain ) );
 }
 
 // 1d. A PLACE IN THE WORLD HOLDS THE SAME BUILDINGS WHATEVER SIZE THE WORLD IS. The generator seeds each
