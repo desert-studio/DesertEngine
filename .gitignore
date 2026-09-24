@@ -303,3 +303,6 @@ __pycache__/
 # a file at the root is the most authoritative-looking place to put one.
 # The brief the agents actually share is .claude/AGENT_BRIEF_COMMON.md (core) + AGENT_BRIEF_REFERENCE.md, both tracked.
 /BRIEF.md
+
+# per-tree scratch of scripts/Dev (handoff markers)
+.cache/

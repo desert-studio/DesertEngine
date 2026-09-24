@@ -166,6 +166,46 @@ def subagent_stop(data):
     sys.exit(0)
 
 
+GIT_PUSH = re.compile(r"\bgit\b[^;&|]*\bpush\b")
+DEV_MERGE = re.compile(r"\bgit\b[^;&|]*\b(merge|pull)\b[^;&|]*\b(origin/dev|origin\s+dev|\bdev)\b")
+MIGRATOR_RUN = re.compile(r"Bin/(Debug|Release)/SceneMigrator\b")
+TEST_LOOP = re.compile(r"RunTests\.sh|for\s+\w+\s+in\s+[^;]*Bin/Tests/")
+
+
+def target_tree(cmd, cwd):
+    """The tree a git command acts on: `git -C <dir>`, else the last `cd <dir>` before it, else the hook's cwd."""
+    m = re.search(r"\bgit\s+-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
+    if m:
+        return m.group(1).strip("\"'")
+    cds = re.findall(r"(?:^|[;&|(]\s*)cd\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
+    return cds[-1].strip("\"'") if cds else cwd
+
+
+def script_rule(cmd, cwd):
+    """A refusal text when a routine step bypasses its scripts/Dev script, else None. A tree whose branch predates
+    scripts/Dev (cut before 2026-09-24 evening) is not held to it — it has nothing to call until it merges dev."""
+    tree = target_tree(cmd, cwd)
+    has = lambda name: os.path.exists(os.path.join(tree, "scripts", "Dev", name))
+    if GIT_PUSH.search(cmd) and "--delete" not in cmd and has("handoff_check.sh"):
+        head = subprocess.run(["git", "-C", tree, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        subject = subprocess.run(["git", "-C", tree, "log", "-1", "--format=%s"], capture_output=True, text=True).stdout
+        if head and not subject.lower().startswith("wip") and \
+                not os.path.exists(os.path.join(tree, ".cache", "handoff", head + ".ok")):
+            return ("[agent_guard] Push без проверки: нет .cache/handoff/<HEAD>.ok. Запусти scripts/Dev/handoff_check.sh "
+                    "(в фоне, ~6 мин) — он пишет маркер только на зелёном и чистом дереве. Не успеваешь — коммит с "
+                    "темой «wip: …» пушится без маркера, и тимлид знает, что ветка не сдана.")
+    if DEV_MERGE.search(cmd) and "merge_dev.sh" not in cmd and has("merge_dev.sh"):
+        return ("[agent_guard] dev вливается только scripts/Dev/merge_dev.sh: он останавливается на конфликте и ловит "
+                "расхождение .claude (агент не может его закоммитить, и слияние оставляло старый хук).")
+    if MIGRATOR_RUN.search(cmd) and "DESERT_MIGRATE_VIA_SCRIPT=1" not in cmd and "migrate.sh" not in cmd and has("migrate.sh"):
+        return ("[agent_guard] SceneMigrator — только через scripts/Dev/migrate.sh [--write] <пути>: он пересобирает "
+                "Debug-бинарник и отказывается от протухшего (протухший Release однажды снёс 101k строк в 157 файлах).")
+    if TEST_LOOP.search(cmd) and "handoff_check.sh" not in cmd and "suite.sh" not in cmd and has("suite.sh"):
+        return ("[agent_guard] Тесты — scripts/Dev/suite.sh <Сюита…> или scripts/Dev/handoff_check.sh (все бинарники "
+                "из корня); RunTests.sh падает на двоичном выводе, свой цикл запускает не из корня.")
+    return None
+
+
 def self_check():
     """SessionStart: prove every rule still bites by replaying known-bad calls; a silent regression of this file
     (2026-09-24: a merge restored an old copy and the build limits vanished) must be loud at the next start."""
@@ -181,11 +221,16 @@ def self_check():
         "code before map": {"tool_name": "Bash", "tool_input": {"command": "grep -n Foo Desert/X.cpp"}},
         "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
+        "push without handoff": {"tool_name": "Bash", "tool_input": {"command": "git -C " + os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + " push origin nothing-selfcheck"}},
+        "merge dev by hand": {"tool_name": "Bash", "tool_input": {"command": "git merge origin/dev"}},
+        "migrator directly": {"tool_name": "Bash", "tool_input": {"command": "./build/Bin/Debug/SceneMigrator a"}},
+        "own test loop": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/MacOS/RunTests.sh"}},
     }
     failed = []
     for name, case in cases.items():
         payload = dict(case, agent_id="selfcheck-" + name.replace(" ", "-"), agent_type="general-purpose",
-                       hook_event_name="PreToolUse")
+                       hook_event_name="PreToolUse",
+                       cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         out = subprocess.run([sys.executable, __file__], input=json.dumps(payload), capture_output=True, text=True)
         if '"deny"' not in out.stdout:
             failed.append(name)
@@ -222,6 +267,12 @@ def main():
     # budget from ~/.claude/tools/agent_extend.py: re-reading the same files in a fresh agent was 40-60 % of a step.
     limit = state.get("limit", TURN_LIMIT)
     if event == "PostToolUse":
+        pin = data.get("tool_input") or {}
+        if data.get("tool_name") == "Bash" and pin.get("run_in_background") and "build_quiet.sh" in pin.get("command", ""):
+            emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+                  "[agent_guard] Сборка в фоне. СЕЙЧАС вызови ~/.claude/tools/build_wait.sh <тот же лог> в переднем плане и "
+                  "повторяй до вердикта: простой > 5 мин сбрасывает кэш контекста (AF7v потерял так 0,43 млн)."}})
+            sys.exit(0)
         calls = state.get("calls", 0)
         if calls >= limit - (TURN_LIMIT - TURN_WARN):
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
@@ -296,6 +347,13 @@ def main():
         save_state(state, path)
         deny("[agent_guard] Файлы .claude/ (хуки, бриф, контракт) правит только тимлид: 2026-09-24 слияние "
              "принесло старую копию хука из дерева агента, лимиты сборок исчезли, машина упала.", data, agent)
+    # --- scripts/Dev is the only way to do the routine (owner 2026-09-24: «чтобы агенты всегда точно их использовали») ---
+    if tool == "Bash":
+        denial = script_rule(cmd, data.get("cwd") or "")
+        if denial:
+            save_state(state, path)
+            deny(denial, data, agent)
+
     if tool == "Bash" and GIT_COMMIT.search(cmd) and staged_claude_files(cmd, data.get("cwd")):
         save_state(state, path)
         deny("[agent_guard] В коммите есть файлы .claude/ — их коммитит только тимлид. Убери их из индекса: "
@@ -305,7 +363,8 @@ def main():
         for rx in TREE_SEARCH:
             if rx.search(cmd):
                 save_state(state, path)
-                deny("[agent_guard] Поиск по дереву в своём контексте запрещён (контракт §7.3). Отдай вопрос "
+                deny("[agent_guard] Поиск по дереву в своём контексте запрещён (контракт §7.3). Где определено имя — "
+                     "scripts/Dev/sym.sh <Имя> (1–2 с), где используется — sym.sh --refs <Имя>. Вопрос шире — "
                      "субагенту: Agent(subagent_type: \"Explore\", prompt: \"<что найти, ответ ≤60 строк>\"). "
                      "Сам ищи только внутри уже известных файлов: grep -n <шаблон> <файл>.", data, agent)
         if FIND.search(cmd) and "-maxdepth" not in cmd:
