@@ -6,7 +6,7 @@
 #include <glm/matrix.hpp>
 #include <glm/trigonometric.hpp>
 
-#include <fmt/format.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <cmath>

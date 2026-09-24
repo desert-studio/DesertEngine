@@ -12,7 +12,7 @@
 
 #include <Common/Core/Logger.hpp>
 
-#include <fmt/format.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <glm/matrix.hpp>
 

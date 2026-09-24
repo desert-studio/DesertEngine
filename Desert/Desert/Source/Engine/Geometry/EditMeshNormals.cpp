@@ -7,7 +7,7 @@
 #include <cmath>
 #include <utility>
 
-#include <fmt/format.h>
+#include <spdlog/fmt/fmt.h>
 #include <vector>
 
 namespace Desert::Geometry

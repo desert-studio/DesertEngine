@@ -5,7 +5,7 @@
 #include <glm/geometric.hpp>
 #include <glm/matrix.hpp>
 
-#include <fmt/format.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <cmath>
