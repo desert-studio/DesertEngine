@@ -1,5 +1,12 @@
 {
-    "FormatVersion": 1,
+    "Header": {
+        "Kind": "UITheme",
+        "Guid": "ebf08701ff7a9596e75af43ede0136ea",
+        "Versions": {
+            "UITH": 2
+        },
+        "Dependencies": []
+    },
     "DisplayName": "Desert Dark",
     "Notes": "The engine's own look, stated as tokens. Every colour, radius and spacing here is the value the matching component field DEFAULTS to, digit for digit, and Desert/Tests/Engine/UIStyle asserts that agreement slot by slot rather than leaving it to be maintained by hand — a preset table and the saved scenes disagreeing is a defect this engine has already shipped once. WHAT THAT DOES AND DOES NOT MEAN: an element left at its defaults renders identically with this theme and with none, so this theme is the control half of a theme A/B. It does NOT mean switching it on changes nothing — an element whose author typed a colour of its own IS repainted, because a bound slot comes from the theme. That is the feature, and it is measured: on UI_ThemeProbe the opted-out panel is 0 of 22 500 pixels different across every theme change, and the themed background is 100 % different. The HighContrastColors table is deliberately short: it holds only the tokens whose foreground/background separation is too low, and every token without a row here keeps its ordinary value.",
     "Colors": [

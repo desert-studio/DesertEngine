@@ -1,5 +1,12 @@
 {
-    "FormatVersion": 1,
+    "Header": {
+        "Kind": "StringTable",
+        "Guid": "ddb1e71d0ea8dea7cf1dab380d114fa5",
+        "Versions": {
+            "STRT": 2
+        },
+        "Dependencies": []
+    },
     "DisplayName": "Main menu",
     "Entries": [
         {

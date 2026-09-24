@@ -12,7 +12,8 @@ and every GUID is a .demat header's. MATL 2 -> 3 (T6c3) replaces each Textures s
 locator, routed by slot name into Textures / CloudAssets / ShaderRefs, states those GUIDs as Dependencies, and
 re-spells Params through MaterialData's float storage; that is normalised away only when every slot number pairs
 one-to-one with a (GUID, locator) across the corpus and every locator names a tracked file whose text header, if
-it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v) swaps FormatVersion for the header alone.
+it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings 1 -> STRT 2 and .detheme 1 -> UITH 2 (T7b) swap
+FormatVersion for the header alone.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
 each key pairs one-to-one with a GUID. Scene v30 (T6f) does the same to the UI sprite and splash keys.
 Those are normalised away below - nothing else is.
@@ -298,20 +299,32 @@ def strip_material_v3(old, new, ext):
     return True
 
 
-_CLOUD_TYPE_GUIDS = {}  # .decloudtype header GUID -> paths, gathered over every format 3 -> CLTY 4 file
+_TEXT_HEADER_GUIDS = {}  # text header GUID -> paths, gathered over every "the file gains a header" raise
+
+# The text kinds whose old top-level FormatVersion became the header (SceneMigrator's kTextHeaderRaises):
+# extension -> (Kind, tag, old version, new version, whether an absent FormatVersion meant the old version).
+TEXT_HEADER_RAISES = {
+    ".decloudtype": ("CloudType", "CLTY", 3, 4, False),  # AF7v
+    ".destrings": ("StringTable", "STRT", 1, 2, True),  # T7b
+    ".detheme": ("UITheme", "UITH", 1, 2, True),  # T7b
+}
 
 
-def strip_cloud_type_header(old, new, ext, path):
-    """.decloudtype format 3 -> CLTY 4 (AF7v): FormatVersion 3 is gone and the header states kind CloudType,
-    CLTY 4 and no Dependencies - nothing else. True when stripped; GUID uniqueness is judged over the corpus."""
-    if ext != ".decloudtype" or not isinstance(old, dict) or not isinstance(new, dict) or "Header" in old:
+def strip_text_kind_header(old, new, ext, path):
+    """A text kind's FormatVersion N -> header (tag N+1): the old FormatVersion is gone and the header states
+    the kind, the tag at the new version and no Dependencies - nothing else. True when stripped; GUID
+    uniqueness is judged over the corpus."""
+    row = TEXT_HEADER_RAISES.get(ext)
+    if row is None or not isinstance(old, dict) or not isinstance(new, dict) or "Header" in old:
         return False
+    kind, tag, before, after, absent_is_before = row
     header = new.get("Header", {})
-    if old.get("FormatVersion") != 3 or "FormatVersion" in new or header.get("Kind") != "CloudType" or \
-            header.get("Versions") != {"CLTY": 4} or header.get("Dependencies") != [] or not header.get("Guid"):
+    stated = old.get("FormatVersion", before if absent_is_before else None)
+    if stated != before or "FormatVersion" in new or header.get("Kind") != kind or \
+            header.get("Versions") != {tag: after} or header.get("Dependencies") != [] or not header.get("Guid"):
         return False
-    _CLOUD_TYPE_GUIDS.setdefault(header["Guid"], []).append(path)
-    old.pop("FormatVersion")
+    _TEXT_HEADER_GUIDS.setdefault(header["Guid"], []).append(path)
+    old.pop("FormatVersion", None)
     new.pop("Header")
     return True
 
@@ -368,7 +381,7 @@ def main():
                 differ.append(path)
             compared += 1
             continue
-        strip_cloud_type_header(old, new, ext, path)
+        strip_text_kind_header(old, new, ext, path)
         header_ok = strip_text_header(old, new, ext)
         stated = isinstance(new, dict) and new.get("SceneVersion", 26 if header_ok else None)
         raised = isinstance(old, dict) and isinstance(new, dict) and old.get("SceneVersion") == 24 and \
@@ -423,7 +436,7 @@ def main():
                if len(h) != 1]
     differ += [f"material ref locator {loc} named by {len(g)} GUIDs: {sorted(g)}"
                for loc, g in ref_by_locator.items() if len(g) != 1]
-    differ += [f"cloud type GUID {g} stated by {len(p)} files: {p}" for g, p in _CLOUD_TYPE_GUIDS.items()
+    differ += [f"text header GUID {g} stated by {len(p)} files: {p}" for g, p in _TEXT_HEADER_GUIDS.items()
                if len(p) != 1]
 
     for path in differ:
@@ -432,7 +445,7 @@ def main():
           f"{fresh} new since it; {len(_SLOT_PAIRS)} slot handle(s) paired to a GUID, "
           f"{len(_MESH_PAIRS)} mesh handle(s) paired to a GUID, "
           f"{len(_SKY_PAIRS)} skybox key(s) and {len(_SPRITE_PAIRS)} sprite key(s) paired to a GUID, {len(_REF_PAIRS)} material slot number(s) "
-          f"paired to a GUID and locator, {len(_CLOUD_TYPE_GUIDS)} cloud type header(s)")
+          f"paired to a GUID and locator, {len(_TEXT_HEADER_GUIDS)} text header(s) gained")
     return 1 if differ else 0
 
 

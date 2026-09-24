@@ -1,4 +1,5 @@
 #include <Engine/Assets/UIThemeData.hpp>
+#include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -180,25 +181,9 @@ namespace Desert::Assets
         if ( text.empty() )
             return Common::MakeFormattedError<UIThemeData>( "the file is empty" );
 
-        // THE VERSION IS READ FIRST, ON ITS OWN. A file from another format fails a full parse with a
-        // message about whichever field happens to be missing — true, and useless: what the reader needs to
-        // be told is that the FORMAT moved. Read as an untyped tree rather than into a header struct,
-        // because a struct imposes the rest of the schema on a document whose whole problem may be that it
-        // does not match the schema.
-        if ( const auto tree = rfl::json::read<rfl::Generic>( text ); tree )
-        {
-            if ( const auto fields = tree.value().to_object(); fields )
-            {
-                if ( const auto stated = fields.value().get( "FormatVersion" ); stated.has_value() )
-                {
-                    const auto number = stated.value().to_int();
-                    if ( number.has_value() && number.value() != kUIThemeFormatVersion )
-                        return Common::MakeFormattedError<UIThemeData>(
-                             "format version {} was written by a different build; this one reads version {}",
-                             number.value(), kUIThemeFormatVersion );
-                }
-            }
-        }
+        // A version-1 file (top-level FormatVersion, absent meaning 1, no header) is refused by name.
+        if ( auto headed = RefuseTextWithoutHeader( text, kUIThemeFormatVersion, 1 ); !headed )
+            return Common::MakeFormattedError<UIThemeData>( "{}", headed.GetError() );
 
         const auto parsed = rfl::json::read<UIThemeData>( text );
         if ( !parsed )
@@ -206,23 +191,21 @@ namespace Desert::Assets
 
         UIThemeData data = parsed.value();
 
-        const int32_t version = data.FormatVersion.value_or( kUIThemeFormatVersion );
-        if ( version != kUIThemeFormatVersion )
-            return Common::MakeFormattedError<UIThemeData>(
-                 "format version {} was written by a different build; this one reads version {}", version,
-                 kUIThemeFormatVersion );
+        if ( auto header = CheckStatedHeader( data.Header, Common::Content::ContentKind::UITheme, kUIThemeSchemaTag, kUIThemeFormatVersion,
+                                              UIThemeTextSubsystems() );
+             !header )
+            return Common::MakeFormattedError<UIThemeData>( "{}", header.GetError() );
 
         if ( auto valid = ValidateUIThemeData( data ); !valid )
             return Common::MakeFormattedError<UIThemeData>( "{}", valid.GetError() );
 
-        data.FormatVersion = kUIThemeFormatVersion;
         return Common::MakeSuccess( std::move( data ) );
     }
 
     std::string WriteUITheme( const UIThemeData& data )
     {
-        UIThemeData out   = data;
-        out.FormatVersion = kUIThemeFormatVersion;
+        UIThemeData out = data;
+        out.Header = StampTextHeader( data.Header, Common::Content::ContentKind::UITheme, UIThemeTextSubsystems() );
         return rfl::json::write( out, YYJSON_WRITE_PRETTY );
     }
 

@@ -1,4 +1,5 @@
 #include <Engine/Assets/CloudTypeData.hpp>
+#include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -180,32 +181,9 @@ namespace Desert::Assets
         if ( text.empty() )
             return Common::MakeFormattedError<CloudTypeData>( "the file is empty" );
 
-        // THE HEADER IS READ FIRST, ON ITS OWN, as an untyped tree, and that ordering is the whole
-        // difference between a diagnosable refusal and a puzzling one: a file from an older format misses
-        // fields a full parse would name one by one, when what the reader needs to be told is that the
-        // FORMAT moved. A struct would impose the rest of the schema on a document whose whole problem
-        // may be that it does not match it.
-        //
-        // AN UNKNOWN OR OLD FORMAT IS REFUSED, NOT READ ANYWAY. A version-3 file states no header and so
-        // no identity; reading it would hand it a handle nobody can reference again. The migration mints
-        // its GUID once, in the file.
-        if ( const auto tree = rfl::json::read<rfl::Generic>( text ); tree )
-        {
-            if ( const auto fields = tree.value().to_object(); fields )
-            {
-                if ( !fields.value().get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
-                {
-                    std::string version = "(unstated)";
-                    if ( const auto stated = fields.value().get( "FormatVersion" ); stated.has_value() )
-                        if ( const auto number = stated.value().to_int(); number.has_value() )
-                            version = std::to_string( number.value() );
-                    return Common::MakeFormattedError<CloudTypeData>(
-                         "format version {} states no header; this build reads version {} (a Header with a "
-                         "GUID): run Tools/SceneMigrator over it once",
-                         version, kCloudTypeFormatVersion );
-                }
-            }
-        }
+        // A version-3 file (no header) is refused by name: see RefuseTextWithoutHeader.
+        if ( auto headed = RefuseTextWithoutHeader( text, kCloudTypeFormatVersion, std::nullopt ); !headed )
+            return Common::MakeFormattedError<CloudTypeData>( "{}", headed.GetError() );
 
         const auto parsed = rfl::json::read<CloudTypeData>( text );
         if ( !parsed )
@@ -213,19 +191,11 @@ namespace Desert::Assets
 
         CloudTypeData data = parsed.value();
 
-        const int stated = StatedVersion( data.Header, kCloudTypeSchemaTag );
-        if ( stated != kCloudTypeFormatVersion )
-            return Common::MakeFormattedError<CloudTypeData>(
-                 "format version {} was written by a different build; this one reads version {}", stated,
-                 kCloudTypeFormatVersion );
-
-        const Common::Content::AssetHeaderReadContext context{ CloudTypeTextSubsystems() };
-        const auto header = Common::Content::TextHeaderToAssetHeader( *data.Header, context );
-        if ( !header )
+        if ( auto header = CheckStatedHeader( data.Header, Common::Content::ContentKind::CloudType,
+                                              kCloudTypeSchemaTag, kCloudTypeFormatVersion,
+                                              CloudTypeTextSubsystems() );
+             !header )
             return Common::MakeFormattedError<CloudTypeData>( "{}", header.GetError() );
-        if ( header.GetValue().Kind != Common::Content::ContentKind::CloudType )
-            return Common::MakeFormattedError<CloudTypeData>( "the header says kind '{}', not 'CloudType'",
-                                                              data.Header->Kind );
 
         if ( auto valid = ValidateCloudTypeShape( data.Shape ); !valid )
             return Common::MakeFormattedError<CloudTypeData>( "{}", valid.GetError() );

@@ -1,4 +1,5 @@
 #include "StringTable.hpp"
+#include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Engine/Localization/LocaleFormat.hpp>
 
@@ -162,24 +163,9 @@ namespace Desert::Localization
         if ( text.empty() )
             return Common::MakeFormattedError<StringTableData>( "the file is empty" );
 
-        // THE VERSION IS READ FIRST, ON ITS OWN, for the same reason CloudTypeData does it: a full parse
-        // of a file from another format generation fails by naming a missing field, which is true and
-        // useless — what the reader needs to be told is that the FORMAT moved. Read as an untyped tree,
-        // because a struct would impose the very schema whose applicability is in question.
-        if ( const auto tree = rfl::json::read<rfl::Generic>( text ); tree )
-        {
-            if ( const auto fields = tree.value().to_object(); fields )
-            {
-                if ( const auto stated = fields.value().get( "FormatVersion" ); stated.has_value() )
-                {
-                    const auto number = stated.value().to_int();
-                    if ( number.has_value() && number.value() != kStringTableFormatVersion )
-                        return Common::MakeFormattedError<StringTableData>(
-                             "format version {} was written by a different build; this one reads version {}",
-                             number.value(), kStringTableFormatVersion );
-                }
-            }
-        }
+        // A version-1 file (top-level FormatVersion, absent meaning 1, no header) is refused by name.
+        if ( auto headed = Assets::RefuseTextWithoutHeader( text, kStringTableFormatVersion, 1 ); !headed )
+            return Common::MakeFormattedError<StringTableData>( "{}", headed.GetError() );
 
         const auto parsed = rfl::json::read<StringTableData>( text );
         if ( !parsed )
@@ -187,23 +173,22 @@ namespace Desert::Localization
 
         StringTableData data = parsed.value();
 
-        const int32_t version = data.FormatVersion.value_or( kStringTableFormatVersion );
-        if ( version != kStringTableFormatVersion )
-            return Common::MakeFormattedError<StringTableData>(
-                 "format version {} was written by a different build; this one reads version {}", version,
-                 kStringTableFormatVersion );
+        if ( auto header = Assets::CheckStatedHeader( data.Header, Common::Content::ContentKind::StringTable, Assets::kStringTableSchemaTag, kStringTableFormatVersion,
+                                              StringTableTextSubsystems() );
+             !header )
+            return Common::MakeFormattedError<StringTableData>( "{}", header.GetError() );
 
         if ( auto valid = ValidateTable( data ); !valid )
             return Common::MakeFormattedError<StringTableData>( "{}", valid.GetError() );
 
-        data.FormatVersion = kStringTableFormatVersion;
         return Common::MakeSuccess( std::move( data ) );
     }
 
     std::string WriteStringTable( const StringTableData& data )
     {
         StringTableData stamped = data;
-        stamped.FormatVersion   = kStringTableFormatVersion;
+        stamped.Header          = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::StringTable,
+                                                           StringTableTextSubsystems() );
         return rfl::json::write( stamped, YYJSON_WRITE_PRETTY );
     }
 } // namespace Desert::Localization

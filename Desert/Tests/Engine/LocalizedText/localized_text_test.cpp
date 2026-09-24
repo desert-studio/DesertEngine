@@ -10,6 +10,7 @@
 // The rest of the suite is about the ways a table can be wrong, and every one of them is a refusal that
 // names the offending value rather than a default that hides it.
 
+#include <rflcpp/rfl/json.hpp>
 #include <gtest/gtest.h>
 
 #include <Engine/Localization/LocalizationService.hpp>
@@ -20,11 +21,21 @@
 
 using namespace Desert::Localization;
 
+
+// Since STRT 2 (T7b) a table opens with the text asset header; a fixture states its payload and gets the header
+// this build writes, so the tests below keep testing what they name rather than the header.
+static std::string Headed( const std::string& json )
+{
+    const std::string header = rfl::json::write( Desert::Assets::StampTextHeader(
+         std::nullopt, Common::Content::ContentKind::StringTable, Desert::Localization::StringTableTextSubsystems() ) );
+    const std::size_t brace = json.find( '{' );
+    return json.substr( 0, brace + 1 ) + "\"Header\":" + header + "," + json.substr( brace + 1 );
+}
+
 namespace
 {
     // Two keys and two languages: a plain label, and a counted noun whose Russian needs three forms.
     const char* kTable = R"({
-      "FormatVersion": 1,
       "DisplayName": "Suite fixture",
       "Entries": [
         { "Key": "menu.play",   "Forms": { "en": { "other": "PLAY" },
@@ -48,7 +59,7 @@ namespace
         {
             Localization::Get().Clear();
             ASSERT_TRUE( Localization::Get().SetLanguage( Localization::kSourceLanguage ) );
-            auto parsed = ParseStringTable( kTable );
+            auto parsed = ParseStringTable( Headed( kTable ) );
             ASSERT_TRUE( parsed ) << parsed.GetError();
             ASSERT_TRUE( Localization::Get().RegisterTable( "suite.destrings", parsed.ExtractValue() ) );
         }
@@ -246,11 +257,11 @@ TEST_F( Fixture, AnUnknownLanguageIsRefusedByNameAndChangesNothing )
 TEST_F( Fixture, TwoTablesCannotClaimOneKey )
 {
     Localization& loc   = Localization::Get();
-    const char*   rival = R"({"FormatVersion":1,"Entries":[
+    const char*   rival = R"({"Entries":[
         {"Key":"menu.play","Forms":{"en":{"other":"START"}}},
         {"Key":"menu.quit","Forms":{"en":{"other":"QUIT"}}}]})";
 
-    auto parsed = ParseStringTable( rival );
+    auto parsed = ParseStringTable( Headed( rival ) );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     const auto refused = loc.RegisterTable( "rival.destrings", parsed.ExtractValue() );
     EXPECT_FALSE( refused );
@@ -267,10 +278,10 @@ TEST_F( Fixture, TwoTablesCannotClaimOneKey )
 TEST_F( Fixture, ReRegisteringATableREPLACESItSoADeletedKeyIsDeleted )
 {
     Localization& loc    = Localization::Get();
-    const char*   shrunk = R"({"FormatVersion":1,"Entries":[
+    const char*   shrunk = R"({"Entries":[
         {"Key":"menu.play","Forms":{"en":{"other":"GO"}}}]})";
 
-    auto parsed = ParseStringTable( shrunk );
+    auto parsed = ParseStringTable( Headed( shrunk ) );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     ASSERT_TRUE( loc.RegisterTable( "suite.destrings", parsed.ExtractValue() ) );
 
@@ -319,7 +330,7 @@ TEST( LocalizedText, EveryWayATableCanBeWrongIsRefusedByName )
         const char* mustMention;
     };
     const Case cases[] = {
-         { R"({"FormatVersion":7,"Entries":[]})", "7" },
+         { R"({"FormatVersion":1,"Entries":[]})", "SceneMigrator" },
          { R"({"Entries":[{"Key":"","Forms":{"en":{"other":"x"}}}]})", "empty Key" },
          { R"({"Entries":[{"Key":"Menu.Play","Forms":{"en":{"other":"x"}}}]})", "Menu.Play" },
          { R"({"Entries":[{"Key":"a","Forms":{"en":{"other":"x"}}},
@@ -340,7 +351,8 @@ TEST( LocalizedText, EveryWayATableCanBeWrongIsRefusedByName )
 
     for ( const Case& c : cases )
     {
-        const auto parsed = ParseStringTable( c.json );
+        const std::string json   = std::string( c.json ).rfind( "{\"Entries\"", 0 ) == 0 ? Headed( c.json ) : c.json;
+        const auto        parsed = ParseStringTable( json );
         ASSERT_FALSE( parsed ) << "accepted: " << c.json;
         if ( *c.mustMention != '\0' )
             EXPECT_NE( parsed.GetError().find( c.mustMention ), std::string::npos )
@@ -348,16 +360,16 @@ TEST( LocalizedText, EveryWayATableCanBeWrongIsRefusedByName )
     }
 
     // A gendered selector and a gender.plural selector are both legal, and so is every CLDR category.
-    const auto good = ParseStringTable(
+    const auto good = ParseStringTable( Headed(
          R"({"Entries":[{"Key":"a","Comment":"note","Forms":{"ru":{"feminine.one":"x","masculine":"y",
-             "zero":"z","two":"w","few":"v","many":"u","other":"t"}}}]})" );
+             "zero":"z","two":"w","few":"v","many":"u","other":"t"}}}]})" ) );
     EXPECT_TRUE( good ) << ( good ? "" : good.GetError() );
 }
 
 TEST( LocalizedText, ATableRoundTripsThroughItsOwnWriter )
 {
-    auto parsed = ParseStringTable( R"({"FormatVersion":1,"DisplayName":"D","Entries":[
-        {"Key":"a","Comment":"why","Forms":{"en":{"other":"A"},"ru":{"one":"B","few":"C","many":"D","other":"E"}}}]})" );
+    auto parsed = ParseStringTable( Headed( R"({"DisplayName":"D","Entries":[
+        {"Key":"a","Comment":"why","Forms":{"en":{"other":"A"},"ru":{"one":"B","few":"C","many":"D","other":"E"}}}]})" ) );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     const StringTableData original = parsed.ExtractValue();
 

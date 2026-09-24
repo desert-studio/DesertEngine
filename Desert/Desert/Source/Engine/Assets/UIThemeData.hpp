@@ -3,6 +3,7 @@
 #include <Engine/UI/UIStyleSlots.hpp>
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
@@ -14,6 +15,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -63,7 +65,20 @@ namespace Desert::Assets
 
     /// The FILE layout's version. Bumped when a field moves; an unknown version is REFUSED rather than
     /// read as if it meant what it means here.
-    inline constexpr int32_t kUIThemeFormatVersion = 1;
+    ///
+    /// VERSION 2 SINCE T7b: the file opens with the text asset header (Kind "UITheme", the GUID that IS the
+    /// theme's identity and its handle - UIThemeAsset's constructor - and this number under the tag `UITH`),
+    /// and states its version nowhere else. A version-1 file (top-level FormatVersion, no header) is refused
+    /// by name; Tools/SceneMigrator mints its GUID once.
+    inline constexpr int32_t kUIThemeFormatVersion = static_cast<int32_t>( kUIThemeSchemaVersion );
+
+    /// The subsystem versions a .detheme of this build states: the UI theme schema, and nothing else.
+    [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> UIThemeTextSubsystems()
+    {
+        static const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ kUIThemeSchemaTag, static_cast<uint32_t>( kUIThemeFormatVersion ) } };
+        return versions;
+    }
 
     /// The style every element uses unless it names another one. A theme without it themes nothing and
     /// says so once; it is a name and not an empty string so that "no style" cannot be confused with "the
@@ -141,8 +156,10 @@ namespace Desert::Assets
      */
     struct UIThemeData
     {
-        std::optional<int32_t>     FormatVersion;
-        std::optional<std::string> DisplayName;
+        /// The text asset header, FIRST so the registry reads it without parsing the rest. Absent only on
+        /// a theme that has never been written: WriteUITheme stamps it (the GUID kept, or minted when new).
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::optional<std::string>                                DisplayName;
         std::optional<std::string> Notes;
 
         std::vector<UIThemeColor>  Colors;

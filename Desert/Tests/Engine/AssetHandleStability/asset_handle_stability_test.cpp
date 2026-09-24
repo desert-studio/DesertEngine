@@ -29,6 +29,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ContentScan.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Engine/Assets/AssetBase.hpp>
@@ -1310,5 +1311,71 @@ TEST( AssetHandleStability, ACloudTypeHandleIsHandleForGuidOfItsHeader )
     EXPECT_EQ( static_cast<uint64_t>( renamed.GetMetadata().Handle ),
                static_cast<uint64_t>( asset.GetMetadata().Handle ) )
          << "a rename changed the type's identity";
+    fs::remove_all( dir );
+}
+
+// A STRING TABLE'S AND A THEME'S HANDLE IS HandleForGuid OF THEIR HEADER GUID (T7b, format 2), adopted at
+// creation; the registry's header-only row states the same kind, GUID and identity without loading either.
+namespace
+{
+    template <typename AssetT>
+    void ExpectHeaderGuidIdentity( const std::filesystem::path& file, Common::Content::ContentKind kind )
+    {
+        const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+        const auto header = Common::Content::ReadAssetHeader( file, recordOnly );
+        ASSERT_TRUE( header ) << header.GetError();
+        EXPECT_EQ( header.GetValue().Kind, kind );
+        ASSERT_FALSE( header.GetValue().Guid.IsNull() );
+        const uint64_t byGuid = static_cast<uint64_t>( Common::Content::HandleForGuid( header.GetValue().Guid ) );
+
+        const AssetT asset( Desert::Assets::AssetPriority{}, file );
+        EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ), byGuid )
+             << "the constructor did not adopt the header GUID";
+        EXPECT_NE( static_cast<uint64_t>( asset.GetMetadata().Handle ),
+                   static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( file ) ) );
+
+        const std::filesystem::path moved = file.parent_path() / ( "Renamed" + file.extension().string() );
+        std::filesystem::copy_file( file, moved, std::filesystem::copy_options::overwrite_existing );
+        const AssetT renamed( Desert::Assets::AssetPriority{}, moved );
+        EXPECT_EQ( static_cast<uint64_t>( renamed.GetMetadata().Handle ), byGuid ) << "a rename changed the identity";
+
+        Common::Content::ContentFile scanned;
+        scanned.Kind   = kind;
+        scanned.Header = header.GetValue();
+        const auto row = Common::Content::RegistryRowFor( file.filename().string(), scanned );
+        ASSERT_TRUE( row ) << row.GetError();
+        EXPECT_EQ( row.GetValue().Kind, Common::Content::KindName( kind ) );
+        ASSERT_TRUE( row.GetValue().Guid.has_value() );
+        EXPECT_EQ( *row.GetValue().Guid, header.GetValue().Guid );
+        EXPECT_EQ( row.GetValue().Identity, byGuid );
+    }
+} // namespace
+
+TEST( AssetHandleStability, AStringTableHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "T7bStringTableHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path                        file = dir / "A.destrings";
+    Desert::Localization::StringTableData data;
+    Desert::Localization::LocalizedEntry  entry;
+    entry.Key         = "menu.play";
+    entry.Forms["en"] = { { "other", "PLAY" } };
+    data.Entries.push_back( entry );
+    ASSERT_TRUE( Desert::Assets::StringTableAsset::Save( file, data ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::StringTableAsset>( file, Common::Content::ContentKind::StringTable );
+    fs::remove_all( dir );
+}
+
+TEST( AssetHandleStability, AThemeHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "T7bThemeHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path file = dir / "A.detheme";
+    ASSERT_TRUE( Desert::Assets::UIThemeAsset::Save( file, Desert::Assets::UIThemeData{} ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::UIThemeAsset>( file, Common::Content::ContentKind::UITheme );
     fs::remove_all( dir );
 }
