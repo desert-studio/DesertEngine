@@ -392,9 +392,14 @@ TEST( CanonicalText, AFailedWriterRefusesTheSaveAndLeavesTheFileAsItWas )
     ASSERT_FALSE( saved );
     EXPECT_NE( saved.GetError().find( "Asset.demat" ), std::string::npos ) << saved.GetError();
 
-    std::ifstream      in( file, std::ios::binary );
+    // The reader is scoped: on Windows an open stream (no FILE_SHARE_DELETE) makes ANY replace of the
+    // file refuse with "Access is denied" - MoveFileExW and ReplaceFileW alike - so a reader left open
+    // here refused the good save below for a reason that is this test's, not the writer's.
     std::ostringstream now;
-    now << in.rdbuf();
+    {
+        const std::ifstream in( file, std::ios::binary );
+        now << in.rdbuf();
+    }
     EXPECT_EQ( now.str(), before );
     EXPECT_EQ( std::distance( fs::directory_iterator( dir ), fs::directory_iterator() ), 1 )
          << "a refused save left a file behind";

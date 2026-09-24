@@ -346,7 +346,12 @@ TEST_F( ShaderRootFixture, EditingAnIncludedHeaderMovesTheKey )
 
     const uint64_t before = ComputeShaderCacheKey( ShaderStage::Compute, source, path );
 
+    // The edit keeps the size and, as on a filesystem whose clock ticks coarser than the edit (NTFS
+    // ~15.6 ms - Windows CI rewrote this header within 1 ms), the write time too. Pinning the stamp back
+    // makes every platform meet that case instead of only the one with the coarse clock.
+    const auto stamp = std::filesystem::last_write_time( header.Path );
     header.Write( "// v2\nconst float kScratch = 2.0f;\n" );
+    std::filesystem::last_write_time( header.Path, stamp );
     const uint64_t after = ComputeShaderCacheKey( ShaderStage::Compute, source, path );
 
     EXPECT_NE( before, after );

@@ -5,6 +5,7 @@
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -38,6 +39,16 @@ namespace Desert::Core
         // 78 programs share ~40 headers, and the walk below used to read each header once per including
         // stage. The stat keeps hot reload honest — an edited header is a different entry.
         // A file served from a mounted pak has no write time; pak content cannot change under a process.
+        //
+        // (write time, size) alone is NOT an identity. A write time is only as fine as the filesystem's
+        // clock: NTFS stamps from the kernel tick (~15.6 ms), FAT at 2 s, HFS+ at 1 s. Two same-length
+        // edits inside one tick leave both unchanged, and the cache would serve the old text - Windows CI
+        // caught exactly that (EditingAnIncludedHeaderMovesTheKey, the header rewritten within 1 ms).
+        // The rule is git's "racy index" rule: an entry read while its file was still fresh - written
+        // within kRacyWindow of the moment the read began - is never trusted by stat and is re-read on
+        // the next lookup. Once a re-read lands after the window, the entry settles and stat serves it.
+        constexpr std::chrono::seconds kRacyWindow{ 2 };
+
         struct CachedShaderFile
         {
             bool                            Exists   = false;
@@ -47,6 +58,7 @@ namespace Desert::Core
             bool                            OnDisk      = false;
             std::filesystem::file_time_type WriteTime{};
             uintmax_t                       Size = 0;
+            bool                            Racy = false; // read while its write time was inside kRacyWindow
         };
 
         std::mutex                                                               s_FileCacheMutex;
@@ -54,6 +66,9 @@ namespace Desert::Core
 
         std::shared_ptr<const CachedShaderFile> ReadShaderFileCached( const std::filesystem::path& path )
         {
+            // Sampled BEFORE the stat and the read: a write that lands after this instant carries a write
+            // time at or past it, so the entry it produces is racy by construction.
+            const auto        readBegan = std::filesystem::file_time_type::clock::now();
             std::error_code   timeError;
             std::error_code   sizeError;
             const auto        writeTime = std::filesystem::last_write_time( path, timeError );
@@ -65,7 +80,8 @@ namespace Desert::Core
                 if ( const auto it = s_FileCache.find( key ); it != s_FileCache.end() )
                 {
                     const CachedShaderFile& e = *it->second;
-                    if ( e.OnDisk == onDisk && ( !onDisk || ( e.WriteTime == writeTime && e.Size == size ) ) )
+                    if ( e.OnDisk == onDisk &&
+                         ( !onDisk || ( !e.Racy && e.WriteTime == writeTime && e.Size == size ) ) )
                         return it->second;
                 }
             }
@@ -73,6 +89,7 @@ namespace Desert::Core
             entry->OnDisk    = onDisk;
             entry->WriteTime = writeTime;
             entry->Size      = onDisk ? size : 0;
+            entry->Racy      = onDisk && writeTime + kRacyWindow >= readBegan;
             entry->Exists    = Common::Utils::FileSystem::Exists( path );
             if ( entry->Exists )
             {
