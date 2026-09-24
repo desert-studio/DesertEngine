@@ -25,6 +25,8 @@
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
@@ -539,6 +541,14 @@ namespace
                                                    cases[i].Stage, source, path, debugInfo,
                                                    variant ? authored : Desert::Core::ShaderVariant{} ) ) );
         }
+        // The shader map's key: raw program text, no parse — the warm start's only question.
+        for ( const char* file : { "Clouds/CloudRaymarch.shader", "Fog/HeightFog.shader" } )
+        {
+            const auto path = ShaderPath( file );
+            lines.push_back(
+                 std::format( "{} shadermap {:016x}", file,
+                              Desert::Core::ComputeShaderMapKey( ReadFile( path ), path, "", false ) ) );
+        }
         return lines;
     }
 
@@ -605,7 +615,7 @@ TEST_F( ShaderRootFixture, TwoProcessesComputeTheSameKeyForTheSameShader )
     if ( AskedToPrintKeys() )
         return;
     const std::vector<std::string> here = KeysOfRealShaders();
-    ASSERT_EQ( here.size(), 6u );
+    ASSERT_EQ( here.size(), 8u );
 
     const std::vector<std::string> first  = KeysFromAnotherProcess();
     const std::vector<std::string> second = KeysFromAnotherProcess();
@@ -2392,6 +2402,84 @@ TEST_F( ShaderRootFixture, AMediumMaySampleTheLayersOwnNoiseVolumeInEveryConsume
                  << consumer << " gave a noise fetch a descriptor of its own at slot " << i
                  << "; the volumes it reads are the ones the renderer already binds.";
     }
+}
+
+// ---- The shader map (warm start without a parse) ------------------------------------------------------
+
+TEST_F( ShaderRootFixture, TheShaderMapKeyMovesWhenAHeaderTheRawTextIncludesChanges )
+{
+    const auto dir = std::filesystem::temp_directory_path() / "desert_shadermap_key";
+    std::filesystem::create_directories( dir );
+    const auto        program = dir / "Probe.shader";
+    const auto        header  = dir / "Probe.glslh";
+    const std::string text    = "Shader \"Probe\" { Compute { #include \"Probe.glslh\"\n void main() {} } }\n";
+    std::ofstream( header, std::ios::binary | std::ios::trunc ) << "float probe = 1.0;\n";
+
+    const uint64_t before = Desert::Core::ComputeShaderMapKey( text, program, "", false );
+    EXPECT_EQ( before, Desert::Core::ComputeShaderMapKey( text, program, "", false ) ) << "same input, two keys";
+    EXPECT_NE( before, Desert::Core::ComputeShaderMapKey( text, program, "", true ) ) << "profile ignored";
+    EXPECT_NE( before, Desert::Core::ComputeShaderMapKey( text, program, "Shadow", false ) ) << "pass ignored";
+
+    // Different SIZE as well as content: the per-process file cache is invalidated by size or write time,
+    // and a write inside one timestamp tick must still be seen.
+    std::ofstream( header, std::ios::binary | std::ios::trunc ) << "float probe = 2.0; // edited\n";
+    const uint64_t after = Desert::Core::ComputeShaderMapKey( text, program, "", false );
+    EXPECT_NE( before, after ) << "editing an included header left the shader map key where it was: a warm "
+                                  "start would serve the old program";
+    std::filesystem::remove_all( dir );
+}
+
+TEST_F( ShaderRootFixture, TheShaderMapKeyHashesTheHeaderTheParserInjects )
+{
+    // The text names no header at all; MaterialTransport.glslh is written in by the parser. It must be in
+    // the closure the key hashes, or editing it would leave every material program on its old binary.
+    const auto program = ShaderPath( "Unlit/Unlit.shader" );
+    const auto closure = Desert::Core::CollectShaderIncludes(
+         std::string( "#include <" ) + std::string( Desert::Core::Preprocess::kParserInjectedIncludes[0] ) + ">\n",
+         program );
+    ASSERT_FALSE( closure.empty() ) << "the injected header does not resolve from the shader root";
+}
+
+TEST_F( ShaderRootFixture, EveryShippedProgramsMetadataIsTheSameAfterTheShaderMap )
+{
+    namespace PP    = Desert::Core::Preprocess;
+    size_t programs = 0;
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( s_RepoRoot / "Editor" / "Resources" / "Shaders" ) )
+    {
+        if ( entry.path().extension() != ".shader" )
+            continue;
+        const std::string text = ReadFile( entry.path() );
+        if ( !PP::DShaderParser::IsDShader( text ) )
+            continue;
+        const auto parsed = PP::DShaderParser::Parse( text );
+        ASSERT_TRUE( parsed.IsSuccess() ) << entry.path() << ": " << parsed.GetError();
+        if ( parsed.GetValue().Meta.IsMediumProgram() )
+            EXPECT_TRUE( PP::DShaderParser::MayDeclareMedium( text ) ) << entry.path()
+                                                                       << " declares a Medium the "
+                                                                          "precheck says it cannot";
+        std::vector<std::string> passes{ "" };
+        for ( const auto& name : parsed.GetValue().Meta.PassNames )
+            passes.push_back( name );
+        for ( const auto& pass : passes )
+        {
+            Desert::Core::ShaderMap map;
+            map.Meta = PP::ShaderPreprocess::ParseProgramMetaForPass( text, pass );
+            map.Stages.push_back( { Desert::Core::Formats::ShaderStage::Compute, { 0x07230203u, 7u, 9u } } );
+            const std::string bytes = Desert::Core::SerializeShaderMap( map );
+            const auto        back  = Desert::Core::DeserializeShaderMap( bytes );
+            ASSERT_TRUE( back.IsSuccess() ) << entry.path() << " pass '" << pass << "': " << back.GetError();
+            EXPECT_TRUE( back.GetValue() == map ) << entry.path() << " pass '" << pass
+                                                  << "': the metadata changed on its way through the shader map";
+            EXPECT_FALSE(
+                 Desert::Core::DeserializeShaderMap( std::string_view( bytes ).substr( 0, bytes.size() - 1 ) )
+                      .IsSuccess() )
+                 << "a truncated shader map was accepted";
+            ++programs;
+        }
+    }
+    std::cout << "[ShaderMap] round-tripped " << programs << " program(s)\n";
+    EXPECT_GE( programs, 70u ) << "the shader walk found too few programs to be the shipped set";
 }
 
 int main( int argc, char** argv )

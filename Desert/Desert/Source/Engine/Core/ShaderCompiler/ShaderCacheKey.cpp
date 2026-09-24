@@ -3,6 +3,11 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+
+#include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Desert::Core
@@ -29,6 +34,61 @@ namespace Desert::Core
         // The include walk, shared by the collector and the hash. `visited` carries across the whole
         // traversal, so a header pulled in by two different files is listed (and hashed) once — which
         // is also what stops a cycle from recursing forever.
+        // Every include file read ONCE per process and re-read only when its size or write time moves:
+        // 78 programs share ~40 headers, and the walk below used to read each header once per including
+        // stage. The stat keeps hot reload honest — an edited header is a different entry.
+        // A file served from a mounted pak has no write time; pak content cannot change under a process.
+        struct CachedShaderFile
+        {
+            bool                            Exists   = false;
+            bool                            Readable = false;
+            std::string                     Text;
+            uint64_t                        ContentHash = 0;
+            bool                            OnDisk      = false;
+            std::filesystem::file_time_type WriteTime{};
+            uintmax_t                       Size = 0;
+        };
+
+        std::mutex                                                               s_FileCacheMutex;
+        std::unordered_map<std::string, std::shared_ptr<const CachedShaderFile>> s_FileCache;
+
+        std::shared_ptr<const CachedShaderFile> ReadShaderFileCached( const std::filesystem::path& path )
+        {
+            std::error_code   timeError;
+            std::error_code   sizeError;
+            const auto        writeTime = std::filesystem::last_write_time( path, timeError );
+            const auto        size      = std::filesystem::file_size( path, sizeError );
+            const bool        onDisk    = !timeError && !sizeError;
+            const std::string key       = path.generic_string();
+            {
+                std::lock_guard lock( s_FileCacheMutex );
+                if ( const auto it = s_FileCache.find( key ); it != s_FileCache.end() )
+                {
+                    const CachedShaderFile& e = *it->second;
+                    if ( e.OnDisk == onDisk && ( !onDisk || ( e.WriteTime == writeTime && e.Size == size ) ) )
+                        return it->second;
+                }
+            }
+            auto entry       = std::make_shared<CachedShaderFile>();
+            entry->OnDisk    = onDisk;
+            entry->WriteTime = writeTime;
+            entry->Size      = onDisk ? size : 0;
+            entry->Exists    = Common::Utils::FileSystem::Exists( path );
+            if ( entry->Exists )
+            {
+                if ( const auto text = Common::Utils::FileSystem::ReadFileContent( path ); text )
+                {
+                    entry->Readable    = true;
+                    entry->Text        = text.GetValue();
+                    entry->ContentHash = kFnvOffset;
+                    FnvMix( entry->ContentHash, entry->Text );
+                }
+            }
+            std::lock_guard lock( s_FileCacheMutex );
+            s_FileCache[key] = entry;
+            return entry;
+        }
+
         void WalkIncludes( const std::string& source, const std::filesystem::path& requestingFile,
                            const ShaderVariant& variant, std::unordered_set<std::string>& visited,
                            std::vector<std::filesystem::path>& out, int depth )
@@ -79,12 +139,12 @@ namespace Desert::Core
                     }
                 }
 
-                if ( !Common::Utils::FileSystem::Exists( full ) )
+                const auto file = ReadShaderFileCached( full );
+                if ( !file->Exists )
                     continue;
-
                 out.push_back( full );
-                if ( const auto text = Common::Utils::FileSystem::ReadFileContent( full ); text )
-                    WalkIncludes( text.GetValue(), full, variant, visited, out, depth + 1 );
+                if ( file->Readable )
+                    WalkIncludes( file->Text, full, variant, visited, out, depth + 1 );
             }
         }
     } // namespace
@@ -155,10 +215,40 @@ namespace Desert::Core
             FnvMix( key, include.generic_string() );
             // A read that fails mixes nothing — byte-identical to the empty string the old untyped
             // read produced here, so existing cache keys stay valid.
-            if ( const auto text = Common::Utils::FileSystem::ReadFileContent( include ); text )
-                FnvMix( key, text.GetValue() );
+            if ( const auto file = ReadShaderFileCached( include ); file->Readable )
+                FnvMix( key, file->Text );
         }
 
+        return key;
+    }
+
+    uint64_t ComputeShaderMapKey( const std::string& programSource, const std::filesystem::path& programPath,
+                                  const std::string& passName, const bool spirvDebugInfo,
+                                  const ShaderVariant& variant )
+    {
+        uint64_t key = kFnvOffset;
+        FnvMix( key, "shadermap|" );
+        FnvMix( key, kOptionsFingerprint );
+        FnvMix( key, spirvDebugInfo ? "|debuginfo" : "|nodebuginfo" );
+        FnvMix( key, "|pass:" );
+        FnvMix( key, passName );
+        FnvMix( key, "|" );
+        const uint64_t variantHash = variant.Hash();
+        FnvMix( key, std::string_view( reinterpret_cast<const char*>( &variantHash ), sizeof variantHash ) );
+        FnvMix( key, programSource );
+
+        // The raw text names every include its stages will pull in (a `#include` in a comment only adds
+        // a file, never loses one); the parser's own injections are named here because the text does not.
+        std::string scanned = programSource;
+        for ( const std::string_view injected : Preprocess::kParserInjectedIncludes )
+            scanned.append( "\n#include <" ).append( injected ).append( ">\n" );
+        for ( const auto& include : CollectShaderIncludes( scanned, programPath, variant ) )
+        {
+            FnvMix( key, include.generic_string() );
+            const auto     file = ReadShaderFileCached( include );
+            const uint64_t hash = file->Readable ? file->ContentHash : 0;
+            FnvMix( key, std::string_view( reinterpret_cast<const char*>( &hash ), sizeof hash ) );
+        }
         return key;
     }
 } // namespace Desert::Core

@@ -54,7 +54,9 @@
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <array>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -84,6 +86,12 @@ namespace Desert::Core::Preprocess
         }
     };
 
+    // Headers the parser writes into a stage that the authored text never names. A key computed over the
+    // AUTHORED text (the shader map's, see ShaderCacheKey.hpp) must hash these as well, or editing one would
+    // leave every material program on its old binary.
+    inline constexpr std::array<std::string_view, 1> kParserInjectedIncludes = {
+         "Common/MaterialTransport.glslh" };
+
     class DShaderParser
     {
     public:
@@ -98,5 +106,11 @@ namespace Desert::Core::Preprocess
         // line-for-line. Used both when assembling stage code AND by the #include resolver, so shared
         // `.glslh` headers can use the same sugar. A no-op on source that has none.
         static std::string TranslateSugar( const std::string& source );
+
+        // False only when Parse could not produce a Medium block: the block keyword is matched without
+        // regard to case, so a source that does not contain "medium" in any case has none. A true is
+        // "parse to find out". ShaderService asks this of every shader it registers, and the answer is
+        // what lets a warm start register a program without parsing its text at all.
+        static bool MayDeclareMedium( std::string_view source );
     };
 } // namespace Desert::Core::Preprocess

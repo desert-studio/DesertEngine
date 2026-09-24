@@ -506,8 +506,10 @@ namespace Desert::Assets
                   Core::FormatShaderPhaseTimes( during ), static_cast<double>( ms ) - assetMs - timedMs );
         // Cumulative for the process, which at this point is startup: a cold cache shows as hits 0.
         const Core::ShaderCacheCounts cache = Core::ReadShaderCacheCounts();
-        LOG_INFO( "[ShaderCache] {} hit(s), {} compiled, {} store failure(s) in {}", cache.Hits, cache.Compiled,
-                  cache.StoreFailures, Core::ShaderCacheDir().string() );
+        LOG_INFO( "[ShaderCache] shader map {} hit(s) / {} miss(es); SPIR-V {} hit(s), {} compiled, {} store "
+                  "failure(s) in {}",
+                  cache.MapHits, cache.MapMisses, cache.Hits, cache.Compiled, cache.StoreFailures,
+                  Core::ShaderCacheDir().string() );
     }
 
 } // namespace Desert::Assets

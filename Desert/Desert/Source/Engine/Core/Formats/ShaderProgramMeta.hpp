@@ -121,6 +121,9 @@ namespace Desert::Core::Formats
         {
             return !AssetKind.empty();
         }
+
+        // Field-wise, so the shader map's round-trip test can ask "is the cached meta the parsed meta".
+        bool operator==( const ShaderParam& ) const = default;
     };
 
     // ---- Render state (maps to GraphicsPipelineSpecification in the Graphic layer's pipeline cache) ----
@@ -162,6 +165,8 @@ namespace Desert::Core::Formats
         std::optional<StateStencilOp> StencilFail;
         std::optional<StateStencilOp> StencilPass;
         std::optional<StateStencilOp> StencilDepthFail;
+
+        bool operator==( const ShaderRenderState& ) const = default;
     };
 
     // Where a shader may be used (mirrors UE's Material Domain). Drives the editor's material shader
@@ -311,6 +316,8 @@ namespace Desert::Core::Formats
             return DrawnByMeshPath( Domain ) || DrawnByTerrainPath( Domain ) || DrawnByVolumePath( Domain ) ||
                    DrawnByUIPath( Domain );
         }
+
+        bool operator==( const ShaderProgramMeta& ) const = default;
     };
 
 } // namespace Desert::Core::Formats

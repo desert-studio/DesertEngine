@@ -79,6 +79,17 @@ namespace Desert::Core
                                               const std::filesystem::path& requestingFile, bool spirvDebugInfo,
                                               const ShaderVariant& variant = {} );
 
+    /**
+     * The SHADER MAP key (ShaderMapCache.hpp): computed over the program's RAW text — no DShader parse —
+     * plus the path and content hash of every file its text includes (transitively, plus the headers the
+     * parser injects), the pass, the variant and the debug-info profile. A hit therefore needs neither
+     * the parse nor the preprocessing the SPIR-V key needs. Include files are read once per process and
+     * re-read when their size or write time changes.
+     */
+    uint64_t ComputeShaderMapKey( const std::string& programSource, const std::filesystem::path& programPath,
+                                  const std::string& passName, bool spirvDebugInfo,
+                                  const ShaderVariant& variant = {} );
+
     /** The debug-info policy of THIS build — the profile the 3-argument overloads resolve to. */
     bool SpirvDebugInfoThisBuild();
 

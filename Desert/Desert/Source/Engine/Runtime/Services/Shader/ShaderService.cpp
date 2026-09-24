@@ -25,7 +25,8 @@ namespace
 
     ParsedMedium MediumOf( const std::string& source )
     {
-        if ( source.empty() || !Desert::Core::Preprocess::DShaderParser::IsDShader( source ) )
+        if ( source.empty() || !Desert::Core::Preprocess::DShaderParser::MayDeclareMedium( source ) ||
+             !Desert::Core::Preprocess::DShaderParser::IsDShader( source ) )
             return {};
         auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( source );
         if ( !parsed.IsSuccess() || parsed.GetValue().Meta.MediumSource.empty() )

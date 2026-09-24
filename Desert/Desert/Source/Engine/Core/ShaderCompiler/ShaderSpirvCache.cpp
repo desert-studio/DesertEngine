@@ -20,6 +20,8 @@ namespace Desert::Core
         std::atomic<uint64_t> s_Hits{ 0 };
         std::atomic<uint64_t> s_Compiled{ 0 };
         std::atomic<uint64_t> s_StoreFailures{ 0 };
+        std::atomic<uint64_t> s_MapHits{ 0 };
+        std::atomic<uint64_t> s_MapMisses{ 0 };
 
         constexpr size_t                               kPhaseCount = static_cast<size_t>( ShaderPhase::Count );
         std::array<std::atomic<uint64_t>, kPhaseCount> s_PhaseNanoseconds{};
@@ -55,7 +57,17 @@ namespace Desert::Core
 
     ShaderCacheCounts ReadShaderCacheCounts()
     {
-        return { s_Hits.load(), s_Compiled.load(), s_StoreFailures.load() };
+        return { s_Hits.load(), s_Compiled.load(), s_StoreFailures.load(), s_MapHits.load(), s_MapMisses.load() };
+    }
+
+    void CountShaderMapHit()
+    {
+        s_MapHits.fetch_add( 1 );
+    }
+
+    void CountShaderMapMiss()
+    {
+        s_MapMisses.fetch_add( 1 );
     }
 
     void CountShaderCacheHit()
@@ -91,8 +103,8 @@ namespace Desert::Core
     std::string FormatShaderPhaseTimes( const ShaderPhaseTimes& times )
     {
         static constexpr std::array<const char*, kPhaseCount> kNames = {
-             "preprocess",     "cache key",       "SPIR-V lookup", "compile",
-             "VkShaderModule", "reflect+layouts", "pipelines" };
+             "shader map", "preprocess",     "cache key",       "SPIR-V lookup",
+             "compile",    "VkShaderModule", "reflect+layouts", "pipelines" };
         std::string line;
         for ( size_t i = 0; i < kPhaseCount; ++i )
             line += std::format( "{}{} {:.1f} ms/{}", i == 0 ? "" : ", ", kNames[i],

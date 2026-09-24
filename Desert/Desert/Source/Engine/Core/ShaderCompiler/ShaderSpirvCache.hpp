@@ -50,10 +50,14 @@ namespace Desert::Core
         uint64_t Hits          = 0;
         uint64_t Compiled      = 0;
         uint64_t StoreFailures = 0;
+        uint64_t MapHits       = 0; // programs built from a shader map: no parse, no preprocessing
+        uint64_t MapMisses     = 0; // programs parsed and compiled (their map is written afterwards)
     };
     ShaderCacheCounts ReadShaderCacheCounts();
     void              CountShaderCacheHit();
     void              CountShaderCacheCompile( bool stored );
+    void              CountShaderMapHit();
+    void              CountShaderMapMiss();
 
     // WHERE shader startup time goes, per phase, summed over the process (workers included). The preloader's
     // one total ("78 programs in 3231 ms") was read as "compilation" for weeks; a warm SPIR-V cache took it
@@ -62,6 +66,7 @@ namespace Desert::Core
     // built by the first frames, and the half a warm VkPipelineCache is supposed to remove.
     enum class ShaderPhase : uint8_t
     {
+        ShaderMap,      // the raw-text key + the shader map read (the warm path's whole front end)
         Preprocess,     // pass metadata + include expansion of the program text
         CacheKey,       // ComputeShaderCacheKeyForProfile (hashes the source and every include)
         SpirvLoad,      // a cache hit's read

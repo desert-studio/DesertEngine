@@ -1,4 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
+
+#include <algorithm>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
@@ -51,6 +54,28 @@ namespace Desert::Graphic::API::Vulkan
         auto asset = m_ShaderAsset.lock();
         if ( !asset ) return Common::MakeError( "Shader asset expired" );
 
+        // THE WARM PATH: the shader map is keyed by the raw text + include files, so a hit is the whole
+        // program — metadata and SPIR-V — without parsing the DShader or preprocessing a stage.
+        const std::string&    content = asset->GetShaderContent();
+        uint64_t              mapKey  = 0;
+        Core::ShaderMapLookup lookup;
+        {
+            const Core::ScopedShaderPhase timer( Core::ShaderPhase::ShaderMap );
+            mapKey = Core::ComputeShaderMapKey( content, m_ShaderPath, m_PassName, Core::SpirvDebugInfoThisBuild(),
+                                                m_Variant );
+            lookup = Core::TryLoadShaderMap( mapKey );
+        }
+        if ( lookup.Map )
+        {
+            Core::CountShaderMapHit();
+            m_ProgramMeta = std::move( lookup.Map->Meta );
+            return BuildFromSpirv( lookup.Map->Stages );
+        }
+        Core::CountShaderMapMiss();
+        if ( !lookup.Rejected.empty() )
+            LOG_WARN( "[ShaderMap] '{}': cached entry rejected, rebuilding it ({})", m_ShaderName,
+                      lookup.Rejected );
+
         std::unordered_map<Core::Formats::ShaderStage, std::string> stages;
         {
             const Core::ScopedShaderPhase timer( Core::ShaderPhase::Preprocess );
@@ -65,10 +90,25 @@ namespace Desert::Graphic::API::Vulkan
                       m_ProgramMeta.Params.size() );
         }
 
-        return CompileProgram( stages );
+        Core::ShaderMap built{ m_ProgramMeta, {} };
+        for ( const auto& [stage, source] : stages )
+        {
+            auto spirvResult =
+                 Core::ShaderCompiler::CompileGLSLToSPIRV( stage, source, m_ShaderPath.string(), m_Variant );
+            if ( !spirvResult.IsSuccess() )
+                return Common::MakeError( spirvResult.GetError() );
+            built.Stages.push_back( { stage, std::move( spirvResult.GetValue() ) } );
+        }
+        std::sort( built.Stages.begin(), built.Stages.end(),
+                   []( const Core::ShaderMapStage& a, const Core::ShaderMapStage& b )
+                   { return static_cast<uint32_t>( a.Stage ) < static_cast<uint32_t>( b.Stage ); } );
+        if ( const auto stored = Core::StoreShaderMap( mapKey, built ); !stored )
+            LOG_WARN( "[ShaderMap] '{}': could not store the shader map {:016x}: {}", m_ShaderName, mapKey,
+                      stored.GetError() );
+        return BuildFromSpirv( built.Stages );
     }
 
-    Common::BoolResultStr VulkanShader::CompileProgram( const std::unordered_map<Core::Formats::ShaderStage, std::string>& stages )
+    Common::BoolResultStr VulkanShader::BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages )
     {
         auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
 
@@ -87,17 +127,8 @@ namespace Desert::Graphic::API::Vulkan
                 vkDestroyShaderModule( device, module, nullptr );
         };
 
-        for ( const auto& [stage, source] : stages )
+        for ( const auto& [stage, spirv] : stages )
         {
-            auto spirvResult =
-                 Core::ShaderCompiler::CompileGLSLToSPIRV( stage, source, m_ShaderPath.string(), m_Variant );
-            if ( !spirvResult.IsSuccess() )
-            {
-                discard();
-                return Common::MakeError( spirvResult.GetError() );
-            }
-
-            const auto& spirv = spirvResult.GetValue();
             VkShaderModuleCreateInfo ci = { .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, .codeSize = (uint32_t)(spirv.size() * 4), .pCode = spirv.data() };
             VkShaderModule module  = VK_NULL_HANDLE;
             VkResult       created = VK_SUCCESS;

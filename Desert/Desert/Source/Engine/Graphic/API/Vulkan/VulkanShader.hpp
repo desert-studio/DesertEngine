@@ -4,6 +4,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDescriptorSetLayout.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderResource.hpp>
 
+#include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
+
 #include <vulkan/vulkan.h>
 
 namespace Desert::Graphic::API::Vulkan
@@ -180,8 +182,7 @@ namespace Desert::Graphic::API::Vulkan
                                        ShaderResource::ReflectionData& into );
         Common::BoolResultStr CreateDescriptorsLayout();
 
-        Common::BoolResultStr
-        CompileProgram( const std::unordered_map<Core::Formats::ShaderStage, std::string>& stages );
+        Common::BoolResultStr BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages );
 
     private:
         const std::weak_ptr<Assets::ShaderAsset> m_ShaderAsset;

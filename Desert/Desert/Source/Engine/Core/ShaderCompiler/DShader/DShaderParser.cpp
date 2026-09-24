@@ -848,7 +848,7 @@ namespace Desert::Core::Preprocess
 
                 if ( any )
                 {
-                    out << "#include <Common/MaterialTransport.glslh>\n";
+                    out << "#include <" << kParserInjectedIncludes[0] << ">\n";
                     out << "struct MaterialParams\n{\n";
                     uint32_t slot = 0;
                     for ( const auto& p : meta.Params )
@@ -1248,6 +1248,21 @@ namespace Desert::Core::Preprocess
         while ( probe < source.size() && IsIdentChar( source[probe] ) )
             ident.push_back( source[probe++] );
         return ident == "Shader";
+    }
+
+    bool DShaderParser::MayDeclareMedium( const std::string_view source )
+    {
+        constexpr std::string_view keyword = "medium";
+        for ( size_t i = 0; i + keyword.size() <= source.size(); ++i )
+        {
+            size_t matched = 0;
+            while ( matched < keyword.size() &&
+                    std::tolower( static_cast<unsigned char>( source[i + matched] ) ) == keyword[matched] )
+                ++matched;
+            if ( matched == keyword.size() )
+                return true;
+        }
+        return false;
     }
 
     std::string DShaderParser::TranslateSugar( const std::string& source )
