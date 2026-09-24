@@ -2,19 +2,19 @@
     "SceneName": "Deferred Probe: a mesh with no material slot",
     "Entities": [
         {
-            "id": 15565269528183323252,
-            "Tag": "CB_Floor",
-            "Translation": [0.0, 0.0, 0.0],
+            "id": 857257356248651592,
+            "siblingIndex": 4,
+            "Tag": "CB_OrangeCube",
+            "Translation": [0.0, 130.0, -120.00000762939453],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [6.0, 0.20000000298023224, 6.0],
+            "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
                 "Primitive": "Cube"
             }
         },
         {
             "id": 1199247001707386216,
+            "siblingIndex": 1,
             "Tag": "CB_Back",
             "Translation": [0.0, 300.0, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -26,41 +26,8 @@
             }
         },
         {
-            "id": 6521001340747128329,
-            "Tag": "CB_LeftRed",
-            "Translation": [-300.0, 300.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.20000000298023224, 6.0, 6.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Red.demat"],
-                "MaterialGuids": [6268404635080857860],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 15846755177518281318,
-            "Tag": "CB_RightGreen",
-            "Translation": [300.0, 300.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.20000000298023224, 6.0, 6.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Green.demat"],
-                "MaterialGuids": [308002897746384934],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 857257356248651592,
-            "Tag": "CB_OrangeCube",
-            "Translation": [0.0, 130.0, -120.00000762939453],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
-            "StaticMesh": {
-                "Primitive": "Cube"
-            }
-        },
-        {
             "id": 1686027440585615801,
+            "siblingIndex": 5,
             "Tag": "CB_GlassSphere",
             "Translation": [0.0, 150.0, 70.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -72,7 +39,33 @@
             }
         },
         {
+            "id": 6521001340747128329,
+            "siblingIndex": 2,
+            "Tag": "CB_LeftRed",
+            "Translation": [-300.0, 300.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 6.0, 6.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_Red.demat"],
+                "MaterialGuids": [6268404635080857860],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 6853468216349300670,
+            "siblingIndex": 7,
+            "Tag": "CB_Sun",
+            "Translation": [50.70925521850586, -84.51541900634766, 16.90308380126953],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 1.0
+            }
+        },
+        {
             "id": 9365333062700381311,
+            "siblingIndex": 6,
             "Tag": "CB_BackLight",
             "Translation": [0.0, 250.0, -250.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -87,14 +80,29 @@
             }
         },
         {
-            "id": 6853468216349300670,
-            "Tag": "CB_Sun",
-            "Translation": [50.70925521850586, -84.51541900634766, 16.90308380126953],
+            "id": 15565269528183323252,
+            "siblingIndex": 0,
+            "Tag": "CB_Floor",
+            "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [100.0, 100.0, 100.0],
-            "DirectionLight": {
-                "Color": [1.0, 1.0, 1.0],
-                "Intensity": 1.0
+            "Scale": [6.0, 0.20000000298023224, 6.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": [7519796792557509740],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 15846755177518281318,
+            "siblingIndex": 3,
+            "Tag": "CB_RightGreen",
+            "Translation": [300.0, 300.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 6.0, 6.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_Green.demat"],
+                "MaterialGuids": [308002897746384934],
+                "Primitive": "Cube"
             }
         }
     ],
@@ -144,5 +152,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

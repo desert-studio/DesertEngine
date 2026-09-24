@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 1001,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
             "Rotation": [0.0, 0.0, 0.0],
@@ -14,6 +15,7 @@
         },
         {
             "id": 1002,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -31,6 +33,7 @@
         },
         {
             "id": 2001,
+            "siblingIndex": 2,
             "Tag": "Near_Back_White",
             "Translation": [-170.0, 0.0, -1000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -43,6 +46,7 @@
         },
         {
             "id": 2002,
+            "siblingIndex": 3,
             "Tag": "Near_Front_Red",
             "Translation": [-170.0, 0.0, -999.5],
             "Rotation": [0.0, 0.0, 0.0],
@@ -55,6 +59,7 @@
         },
         {
             "id": 3001,
+            "siblingIndex": 4,
             "Tag": "Far_Back_White",
             "Translation": [170000.0, 0.0, -1000000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -67,6 +72,7 @@
         },
         {
             "id": 3002,
+            "siblingIndex": 5,
             "Tag": "Far_Front_Red",
             "Translation": [170000.0, 0.0, -999500.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -124,5 +130,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

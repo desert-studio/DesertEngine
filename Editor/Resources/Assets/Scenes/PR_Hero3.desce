@@ -2,35 +2,168 @@
     "SceneName": "PR_Hero3",
     "Entities": [
         {
-            "id": 7742318905613374229,
-            "Tag": "Checker Floor",
-            "Translation": [0.0, -1000.0, 0.0],
+            "id": 1714945,
+            "siblingIndex": 4,
+            "Tag": "Hero Cumulonimbus",
+            "Translation": [-600000.0, 440000.0, -2200000.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [4000.0, 20.0, 4000.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/M_CheckerFloor.demat"],
-                "MaterialGuids": [6418972230554417713],
-                "Primitive": "Cube"
+            "Scale": [1.0, 1.0, 1.0],
+            "HeroCloud": {
+                "Enabled": true,
+                "Volume": "Clouds/Volumes/HeroCloud_Cumulonimbus.dcmv",
+                "Strength": 1.0,
+                "SuppressProceduralField": true,
+                "DetailFactor": 1.0,
+                "DensityFactor": 1.0,
+                "ExtinctionFactor": 1.0
             }
         },
         {
-            "id": 3852173717021806005,
-            "Tag": "Sun",
-            "Translation": [-30.0, -75.0, -55.0],
+            "id": 1714946,
+            "siblingIndex": 5,
+            "Tag": "Hero Arch",
+            "Translation": [340000.0, 360000.0, -1300000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
+            "HeroCloud": {
+                "Enabled": true,
+                "Volume": "Clouds/Volumes/HeroCloud_Arch.dcmv",
+                "Strength": 1.0,
+                "SuppressProceduralField": true,
+                "DetailFactor": 1.0,
+                "DensityFactor": 1.0,
+                "ExtinctionFactor": 1.0
+            }
+        },
+        {
+            "id": 1714947,
+            "siblingIndex": 6,
+            "Tag": "Hero Congestus",
+            "Translation": [40000.0, 280000.0, -2000000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [3.0, 3.0, 3.0],
+            "HeroCloud": {
+                "Enabled": true,
+                "Volume": "Clouds/Volumes/HeroCloud_Congestus.dcmv",
+                "Strength": 1.0,
+                "SuppressProceduralField": true,
+                "DetailFactor": 1.0,
+                "DensityFactor": 1.0,
+                "ExtinctionFactor": 1.0
+            }
+        },
+        {
+            "id": 1714948,
+            "siblingIndex": 7,
+            "Tag": "Hero Congestus B",
+            "Translation": [1100000.0, 280000.0, -3400000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [2.5999999046325684, 2.5999999046325684, 2.5999999046325684],
+            "HeroCloud": {
+                "Enabled": false,
+                "Volume": "Clouds/Volumes/HeroCloud_Congestus.dcmv",
+                "Strength": 1.0,
+                "SuppressProceduralField": true,
+                "DetailFactor": 1.0,
+                "DensityFactor": 1.0,
+                "ExtinctionFactor": 1.0
+            }
+        },
+        {
+            "id": 1714949,
+            "siblingIndex": 8,
+            "Tag": "Hero Congestus C",
+            "Translation": [-1600000.0, 280000.0, -3800000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [2.4000000953674316, 2.4000000953674316, 2.4000000953674316],
+            "HeroCloud": {
+                "Enabled": false,
+                "Volume": "Clouds/Volumes/HeroCloud_Congestus.dcmv",
+                "Strength": 1.0,
+                "SuppressProceduralField": true,
+                "DetailFactor": 1.0,
+                "DensityFactor": 1.0,
+                "ExtinctionFactor": 1.0
+            }
+        },
+        {
+            "id": 1714950,
+            "siblingIndex": 9,
+            "Tag": "Hero Cumulonimbus B",
+            "Translation": [1700000.0, 440000.0, -4600000.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "DirectionLight": {
-                "Color": [1.0, 1.0, 1.0],
-                "Intensity": 22.0,
-                "LightShaftBloom": false,
-                "BloomScale": 0.25,
-                "BloomThreshold": 3.0,
-                "BloomMaxBrightness": 20.0,
-                "BloomTint": [1.0, 0.95, 0.85]
+            "HeroCloud": {
+                "Enabled": false,
+                "Volume": "Clouds/Volumes/HeroCloud_Cumulonimbus.dcmv",
+                "Strength": 1.0,
+                "SuppressProceduralField": true,
+                "DetailFactor": 1.0,
+                "DensityFactor": 1.0,
+                "ExtinctionFactor": 1.0
+            }
+        },
+        {
+            "id": 1714951,
+            "siblingIndex": 10,
+            "Tag": "Hero Arch B",
+            "Translation": [-2200000.0, 300000.0, -4400000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
+            "HeroCloud": {
+                "Enabled": false,
+                "Volume": "Clouds/Volumes/HeroCloud_Arch.dcmv",
+                "Strength": 1.0,
+                "SuppressProceduralField": true,
+                "DetailFactor": 0.5,
+                "DensityFactor": 1.0,
+                "ExtinctionFactor": 1.0
+            }
+        },
+        {
+            "id": 1714952,
+            "siblingIndex": 11,
+            "Tag": "Hero Congestus D",
+            "Translation": [600000.0, 280000.0, -4000000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [2.200000047683716, 2.200000047683716, 2.200000047683716],
+            "HeroCloud": {
+                "Enabled": false,
+                "Volume": "Clouds/Volumes/HeroCloud_Congestus.dcmv",
+                "Strength": 1.0,
+                "SuppressProceduralField": true,
+                "DetailFactor": 1.0,
+                "DensityFactor": 1.0,
+                "ExtinctionFactor": 1.0
+            }
+        },
+        {
+            "id": 3315907724416550891,
+            "siblingIndex": 3,
+            "Tag": "Height Fog",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "ExponentialHeightFog": {
+                "Enabled": true,
+                "FogDensity": 0.02,
+                "FogHeightFalloff": 0.2,
+                "FogInscatteringLuminance": [0.447, 0.638, 1.0],
+                "SkyAtmosphereAmbientContributionColorScale": [1.0, 1.0, 1.0],
+                "FogMaxOpacity": 1.0,
+                "StartDistance": 0.0,
+                "FogCutoffDistance": 0.0,
+                "SecondFogDensity": 0.0,
+                "SecondFogHeightFalloff": 0.2,
+                "SecondFogHeightOffset": 0.0,
+                "DirectionalInscatteringExponent": 4.0,
+                "DirectionalInscatteringStartDistance": 10000.0,
+                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5]
             }
         },
         {
             "id": 3541476290102148810,
+            "siblingIndex": 2,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -115,154 +248,33 @@
             }
         },
         {
-            "id": 3315907724416550891,
-            "Tag": "Height Fog",
-            "Translation": [0.0, 0.0, 0.0],
+            "id": 3852173717021806005,
+            "siblingIndex": 1,
+            "Tag": "Sun",
+            "Translation": [-30.0, -75.0, -55.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "ExponentialHeightFog": {
-                "Enabled": true,
-                "FogDensity": 0.02,
-                "FogHeightFalloff": 0.2,
-                "FogInscatteringLuminance": [0.447, 0.638, 1.0],
-                "SkyAtmosphereAmbientContributionColorScale": [1.0, 1.0, 1.0],
-                "FogMaxOpacity": 1.0,
-                "StartDistance": 0.0,
-                "FogCutoffDistance": 0.0,
-                "SecondFogDensity": 0.0,
-                "SecondFogHeightFalloff": 0.2,
-                "SecondFogHeightOffset": 0.0,
-                "DirectionalInscatteringExponent": 4.0,
-                "DirectionalInscatteringStartDistance": 10000.0,
-                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5]
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 22.0,
+                "LightShaftBloom": false,
+                "BloomScale": 0.25,
+                "BloomThreshold": 3.0,
+                "BloomMaxBrightness": 20.0,
+                "BloomTint": [1.0, 0.95, 0.85]
             }
         },
         {
-            "id": 1714945,
-            "Tag": "Hero Cumulonimbus",
-            "Translation": [-600000.0, 440000.0, -2200000.0],
+            "id": 7742318905613374229,
+            "siblingIndex": 0,
+            "Tag": "Checker Floor",
+            "Translation": [0.0, -1000.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "HeroCloud": {
-                "Enabled": true,
-                "Volume": "Clouds/Volumes/HeroCloud_Cumulonimbus.dcmv",
-                "Strength": 1.0,
-                "SuppressProceduralField": true,
-                "DetailFactor": 1.0,
-                "DensityFactor": 1.0,
-                "ExtinctionFactor": 1.0
-            }
-        },
-        {
-            "id": 1714946,
-            "Tag": "Hero Arch",
-            "Translation": [340000.0, 360000.0, -1300000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
-            "HeroCloud": {
-                "Enabled": true,
-                "Volume": "Clouds/Volumes/HeroCloud_Arch.dcmv",
-                "Strength": 1.0,
-                "SuppressProceduralField": true,
-                "DetailFactor": 1.0,
-                "DensityFactor": 1.0,
-                "ExtinctionFactor": 1.0
-            }
-        },
-        {
-            "id": 1714947,
-            "Tag": "Hero Congestus",
-            "Translation": [40000.0, 280000.0, -2000000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [3.0, 3.0, 3.0],
-            "HeroCloud": {
-                "Enabled": true,
-                "Volume": "Clouds/Volumes/HeroCloud_Congestus.dcmv",
-                "Strength": 1.0,
-                "SuppressProceduralField": true,
-                "DetailFactor": 1.0,
-                "DensityFactor": 1.0,
-                "ExtinctionFactor": 1.0
-            }
-        },
-        {
-            "id": 1714948,
-            "Tag": "Hero Congestus B",
-            "Translation": [1100000.0, 280000.0, -3400000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [2.5999999046325684, 2.5999999046325684, 2.5999999046325684],
-            "HeroCloud": {
-                "Enabled": false,
-                "Volume": "Clouds/Volumes/HeroCloud_Congestus.dcmv",
-                "Strength": 1.0,
-                "SuppressProceduralField": true,
-                "DetailFactor": 1.0,
-                "DensityFactor": 1.0,
-                "ExtinctionFactor": 1.0
-            }
-        },
-        {
-            "id": 1714949,
-            "Tag": "Hero Congestus C",
-            "Translation": [-1600000.0, 280000.0, -3800000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [2.4000000953674316, 2.4000000953674316, 2.4000000953674316],
-            "HeroCloud": {
-                "Enabled": false,
-                "Volume": "Clouds/Volumes/HeroCloud_Congestus.dcmv",
-                "Strength": 1.0,
-                "SuppressProceduralField": true,
-                "DetailFactor": 1.0,
-                "DensityFactor": 1.0,
-                "ExtinctionFactor": 1.0
-            }
-        },
-        {
-            "id": 1714950,
-            "Tag": "Hero Cumulonimbus B",
-            "Translation": [1700000.0, 440000.0, -4600000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "HeroCloud": {
-                "Enabled": false,
-                "Volume": "Clouds/Volumes/HeroCloud_Cumulonimbus.dcmv",
-                "Strength": 1.0,
-                "SuppressProceduralField": true,
-                "DetailFactor": 1.0,
-                "DensityFactor": 1.0,
-                "ExtinctionFactor": 1.0
-            }
-        },
-        {
-            "id": 1714951,
-            "Tag": "Hero Arch B",
-            "Translation": [-2200000.0, 300000.0, -4400000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
-            "HeroCloud": {
-                "Enabled": false,
-                "Volume": "Clouds/Volumes/HeroCloud_Arch.dcmv",
-                "Strength": 1.0,
-                "SuppressProceduralField": true,
-                "DetailFactor": 0.5,
-                "DensityFactor": 1.0,
-                "ExtinctionFactor": 1.0
-            }
-        },
-        {
-            "id": 1714952,
-            "Tag": "Hero Congestus D",
-            "Translation": [600000.0, 280000.0, -4000000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [2.200000047683716, 2.200000047683716, 2.200000047683716],
-            "HeroCloud": {
-                "Enabled": false,
-                "Volume": "Clouds/Volumes/HeroCloud_Congestus.dcmv",
-                "Strength": 1.0,
-                "SuppressProceduralField": true,
-                "DetailFactor": 1.0,
-                "DensityFactor": 1.0,
-                "ExtinctionFactor": 1.0
+            "Scale": [4000.0, 20.0, 4000.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/M_CheckerFloor.demat"],
+                "MaterialGuids": [6418972230554417713],
+                "Primitive": "Cube"
             }
         }
     ],
@@ -312,5 +324,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

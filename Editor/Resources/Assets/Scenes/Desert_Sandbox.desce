@@ -2,7 +2,79 @@
     "SceneName": "Desert Sandbox",
     "Entities": [
         {
+            "id": 654163912330390319,
+            "siblingIndex": 22,
+            "Tag": "Text",
+            "Translation": [-220.0, 340.0, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "Text": {
+                "Text": "Desert Engine",
+                "Font": "engine:Fonts/Roboto-Regular.ttf",
+                "Color": [0.550000011920929, 0.8500000238418579, 1.0, 1.0],
+                "Size": 80.0000011920929,
+                "EmissiveIntensity": 2.5,
+                "Billboard": false
+            }
+        },
+        {
+            "id": 2272228777300357736,
+            "siblingIndex": 20,
+            "Tag": "FillWarm",
+            "Translation": [400.0, 300.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "PointLight": {
+                "Color": [1.0, 0.8500000238418579, 0.6000000238418579],
+                "Intensity": 5.0,
+                "Radius": 1200.0,
+                "MinRadius": 0.0,
+                "Falloff": 1,
+                "ShowRadius": false
+            }
+        },
+        {
+            "id": 2544264806268193126,
+            "siblingIndex": 17,
+            "Tag": "Cube",
+            "Translation": [0.0, 50.0, 150.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/Starter_Prop.demat"],
+                "MaterialGuids": [-3971208191954412172],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 2641860779869641559,
+            "siblingIndex": 3,
+            "Tag": "PBR_Dielectric_0",
+            "Translation": [-350.0, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_D_R0.demat"],
+                "MaterialGuids": [-1637594263092474605],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 3064718427019971702,
+            "siblingIndex": 5,
+            "Tag": "PBR_Dielectric_20",
+            "Translation": [-209.99998474121094, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_D_R20.demat"],
+                "MaterialGuids": [7023486545201786888],
+                "Primitive": "Sphere"
+            }
+        },
+        {
             "id": 3651295826201078030,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-35.08782958984375, -90.2258529663086, -25.06273651123047],
             "Rotation": [0.0, 0.0, 0.0],
@@ -13,7 +85,34 @@
             }
         },
         {
+            "id": 3873274063362877588,
+            "siblingIndex": 8,
+            "Tag": "PBR_Metal_40",
+            "Translation": [-70.00000762939453, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_M_R40.demat"],
+                "MaterialGuids": [1569209127309681324],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 3922436832198409948,
+            "siblingIndex": 2,
+            "Tag": "Ground",
+            "Translation": [0.0, -10.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [24.0, 0.20000000298023224, 24.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialGuids": [2985334364344323355],
+                "Primitive": "Cube"
+            }
+        },
+        {
             "id": 4576059197435775655,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -50,115 +149,8 @@
             }
         },
         {
-            "id": 3922436832198409948,
-            "Tag": "Ground",
-            "Translation": [0.0, -10.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [24.0, 0.20000000298023224, 24.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": [2985334364344323355],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 2641860779869641559,
-            "Tag": "PBR_Dielectric_0",
-            "Translation": [-350.0, 60.000003814697266, -300.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R0.demat"],
-                "MaterialGuids": [-1637594263092474605],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 9257654828845479269,
-            "Tag": "PBR_Metal_0",
-            "Translation": [-350.0, 60.000003814697266, -460.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R0.demat"],
-                "MaterialGuids": [-8389326999800573865],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 3064718427019971702,
-            "Tag": "PBR_Dielectric_20",
-            "Translation": [-209.99998474121094, 60.000003814697266, -300.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R20.demat"],
-                "MaterialGuids": [7023486545201786888],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 14833294120374093009,
-            "Tag": "PBR_Metal_20",
-            "Translation": [-209.99998474121094, 60.000003814697266, -460.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R20.demat"],
-                "MaterialGuids": [-5447928416890261483],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 16758122155923592627,
-            "Tag": "PBR_Dielectric_40",
-            "Translation": [-70.00000762939453, 60.000003814697266, -300.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R40.demat"],
-                "MaterialGuids": [-4018139824822447784],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 3873274063362877588,
-            "Tag": "PBR_Metal_40",
-            "Translation": [-70.00000762939453, 60.000003814697266, -460.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R40.demat"],
-                "MaterialGuids": [1569209127309681324],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 16901088884623634403,
-            "Tag": "PBR_Dielectric_60",
-            "Translation": [69.99999237060547, 60.000003814697266, -300.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R60.demat"],
-                "MaterialGuids": [-5431013652430687940],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 8006804125345716222,
-            "Tag": "PBR_Metal_60",
-            "Translation": [69.99999237060547, 60.000003814697266, -460.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R60.demat"],
-                "MaterialGuids": [-5054174254954205526],
-                "Primitive": "Sphere"
-            }
-        },
-        {
             "id": 5715784828217908942,
+            "siblingIndex": 11,
             "Tag": "PBR_Dielectric_80",
             "Translation": [209.99998474121094, 60.000003814697266, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -170,55 +162,8 @@
             }
         },
         {
-            "id": 15212809266110339983,
-            "Tag": "PBR_Metal_80",
-            "Translation": [209.99998474121094, 60.000003814697266, -460.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R80.demat"],
-                "MaterialGuids": [4015749061921348516],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 12635728910242907968,
-            "Tag": "PBR_Dielectric_100",
-            "Translation": [350.0, 60.000003814697266, -300.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_D_R100.demat"],
-                "MaterialGuids": [-6180756855449117347],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 12618244009676752813,
-            "Tag": "PBR_Metal_100",
-            "Translation": [350.0, 60.000003814697266, -460.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/PBR_M_R100.demat"],
-                "MaterialGuids": [-6298148867819613703],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 17928387440185196625,
-            "Tag": "GlassSphere",
-            "Translation": [-250.0, 100.0, 50.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Glass.demat"],
-                "MaterialGuids": [-5518256086626395572],
-                "Primitive": "Sphere"
-            }
-        },
-        {
             "id": 6707734579676676662,
+            "siblingIndex": 16,
             "Tag": "EmissiveCube",
             "Translation": [250.0, 50.0, 50.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -230,31 +175,8 @@
             }
         },
         {
-            "id": 2544264806268193126,
-            "Tag": "Cube",
-            "Translation": [0.0, 50.0, 150.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Prop.demat"],
-                "MaterialGuids": [-3971208191954412172],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 18099497991807693845,
-            "Tag": "Cylinder",
-            "Translation": [120.00000762939453, 75.0, 260.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Prop.demat"],
-                "MaterialGuids": [-3971208191954412172],
-                "Primitive": "Cylinder"
-            }
-        },
-        {
             "id": 7503050924405157750,
+            "siblingIndex": 19,
             "Tag": "Capsule",
             "Translation": [-120.00000762939453, 75.0, 260.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -266,22 +188,48 @@
             }
         },
         {
-            "id": 2272228777300357736,
-            "Tag": "FillWarm",
-            "Translation": [400.0, 300.0, 300.0],
+            "id": 8006804125345716222,
+            "siblingIndex": 10,
+            "Tag": "PBR_Metal_60",
+            "Translation": [69.99999237060547, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_M_R60.demat"],
+                "MaterialGuids": [-5054174254954205526],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 9257654828845479269,
+            "siblingIndex": 4,
+            "Tag": "PBR_Metal_0",
+            "Translation": [-350.0, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_M_R0.demat"],
+                "MaterialGuids": [-8389326999800573865],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 10144312751783984541,
+            "siblingIndex": 23,
+            "Tag": "Camera",
+            "Translation": [0.0, 250.0, 700.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [100.0, 100.0, 100.0],
-            "PointLight": {
-                "Color": [1.0, 0.8500000238418579, 0.6000000238418579],
-                "Intensity": 5.0,
-                "Radius": 1200.0,
-                "MinRadius": 0.0,
-                "Falloff": 1,
-                "ShowRadius": false
+            "Camera": {
+                "IsMainCamera": true,
+                "FOV": 45.0,
+                "Near": 10.000000149011612,
+                "Far": 5000000.0
             }
         },
         {
             "id": 10798217955799590600,
+            "siblingIndex": 21,
             "Tag": "FillCool",
             "Translation": [-400.0, 250.0, -100.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -296,31 +244,107 @@
             }
         },
         {
-            "id": 654163912330390319,
-            "Tag": "Text",
-            "Translation": [-220.0, 340.0, -300.0],
+            "id": 12618244009676752813,
+            "siblingIndex": 14,
+            "Tag": "PBR_Metal_100",
+            "Translation": [350.0, 60.000003814697266, -460.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [100.0, 100.0, 100.0],
-            "Text": {
-                "Text": "Desert Engine",
-                "Font": "engine:Fonts/Roboto-Regular.ttf",
-                "Color": [0.550000011920929, 0.8500000238418579, 1.0, 1.0],
-                "Size": 80.0000011920929,
-                "EmissiveIntensity": 2.5,
-                "Billboard": false
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_M_R100.demat"],
+                "MaterialGuids": [-6298148867819613703],
+                "Primitive": "Sphere"
             }
         },
         {
-            "id": 10144312751783984541,
-            "Tag": "Camera",
-            "Translation": [0.0, 250.0, 700.0],
+            "id": 12635728910242907968,
+            "siblingIndex": 13,
+            "Tag": "PBR_Dielectric_100",
+            "Translation": [350.0, 60.000003814697266, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [100.0, 100.0, 100.0],
-            "Camera": {
-                "IsMainCamera": true,
-                "FOV": 45.0,
-                "Near": 10.000000149011612,
-                "Far": 5000000.0
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_D_R100.demat"],
+                "MaterialGuids": [-6180756855449117347],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 14833294120374093009,
+            "siblingIndex": 6,
+            "Tag": "PBR_Metal_20",
+            "Translation": [-209.99998474121094, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_M_R20.demat"],
+                "MaterialGuids": [-5447928416890261483],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 15212809266110339983,
+            "siblingIndex": 12,
+            "Tag": "PBR_Metal_80",
+            "Translation": [209.99998474121094, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_M_R80.demat"],
+                "MaterialGuids": [4015749061921348516],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 16758122155923592627,
+            "siblingIndex": 7,
+            "Tag": "PBR_Dielectric_40",
+            "Translation": [-70.00000762939453, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_D_R40.demat"],
+                "MaterialGuids": [-4018139824822447784],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 16901088884623634403,
+            "siblingIndex": 9,
+            "Tag": "PBR_Dielectric_60",
+            "Translation": [69.99999237060547, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/PBR_D_R60.demat"],
+                "MaterialGuids": [-5431013652430687940],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 17928387440185196625,
+            "siblingIndex": 15,
+            "Tag": "GlassSphere",
+            "Translation": [-250.0, 100.0, 50.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/Starter_Glass.demat"],
+                "MaterialGuids": [-5518256086626395572],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 18099497991807693845,
+            "siblingIndex": 18,
+            "Tag": "Cylinder",
+            "Translation": [120.00000762939453, 75.0, 260.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/Starter_Prop.demat"],
+                "MaterialGuids": [-3971208191954412172],
+                "Primitive": "Cylinder"
             }
         }
     ],
@@ -370,5 +394,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 910001,
+            "siblingIndex": 0,
             "Tag": "Static Probe",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -13,6 +14,7 @@
         },
         {
             "id": 910002,
+            "siblingIndex": 1,
             "Tag": "Sun",
             "Translation": [-30.0, -75.0, -55.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -69,5 +71,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

@@ -2,28 +2,8 @@
     "SceneName": "U21_FoldProbe",
     "Entities": [
         {
-            "id": 926001,
-            "Tag": "Control Sphere (never folded)",
-            "Translation": [-400.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "StaticMesh": {
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 926003,
-            "Tag": "Sun",
-            "Translation": [-30.0, -75.0, -55.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "DirectionLight": {
-                "Color": [1.0, 1.0, 1.0],
-                "Intensity": 12.0
-            }
-        },
-        {
             "id": 921000,
+            "siblingIndex": 2,
             "Tag": "Block",
             "Translation": [0.0, 0.0, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -32,6 +12,7 @@
         {
             "id": 921100,
             "parent": 921000,
+            "siblingIndex": 0,
             "Tag": "Fold Cube 0",
             "Translation": [200.0, -200.0, 300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -43,6 +24,7 @@
         {
             "id": 921101,
             "parent": 921000,
+            "siblingIndex": 1,
             "Tag": "Fold Cube 1",
             "Translation": [200.0, 0.0, 300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -54,6 +36,7 @@
         {
             "id": 921102,
             "parent": 921000,
+            "siblingIndex": 2,
             "Tag": "Fold Cube 2",
             "Translation": [200.0, 200.0, 300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -65,6 +48,7 @@
         {
             "id": 921103,
             "parent": 921000,
+            "siblingIndex": 3,
             "Tag": "Fold Cube 3",
             "Translation": [400.0, -200.0, 300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -76,6 +60,7 @@
         {
             "id": 921104,
             "parent": 921000,
+            "siblingIndex": 4,
             "Tag": "Fold Cube 4",
             "Translation": [400.0, 0.0, 300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -87,6 +72,7 @@
         {
             "id": 921105,
             "parent": 921000,
+            "siblingIndex": 5,
             "Tag": "Fold Cube 5",
             "Translation": [400.0, 200.0, 300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -98,6 +84,7 @@
         {
             "id": 921106,
             "parent": 921000,
+            "siblingIndex": 6,
             "Tag": "Fold Cube 6",
             "Translation": [600.0, -200.0, 300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -109,6 +96,7 @@
         {
             "id": 921107,
             "parent": 921000,
+            "siblingIndex": 7,
             "Tag": "Fold Cube 7",
             "Translation": [600.0, 0.0, 300.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -120,12 +108,36 @@
         {
             "id": 921108,
             "parent": 921000,
+            "siblingIndex": 8,
             "Tag": "Fold Cube 8",
             "Translation": [600.0, 200.0, 300.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
                 "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 926001,
+            "siblingIndex": 0,
+            "Tag": "Control Sphere (never folded)",
+            "Translation": [-400.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 926003,
+            "siblingIndex": 1,
+            "Tag": "Sun",
+            "Translation": [-30.0, -75.0, -55.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 12.0
             }
         }
     ],
@@ -175,5 +187,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

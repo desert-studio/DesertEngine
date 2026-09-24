@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 1001,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
             "Rotation": [0.0, 0.0, 0.0],
@@ -14,6 +15,7 @@
         },
         {
             "id": 1002,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -30,19 +32,8 @@
             }
         },
         {
-            "id": 2910,
-            "Tag": "Ground_2910",
-            "Translation": [0.0, 120.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [8.0, 0.20000000298023224, 16.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
-                "Primitive": "Cube"
-            }
-        },
-        {
             "id": 2010,
+            "siblingIndex": 3,
             "Tag": "Rig_Probe",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -61,6 +52,19 @@
             },
             "ControlRig": {
                 "Rig": "Rigs/IKProbe_Arm.derig"
+            }
+        },
+        {
+            "id": 2910,
+            "siblingIndex": 2,
+            "Tag": "Ground_2910",
+            "Translation": [0.0, 120.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [8.0, 0.20000000298023224, 16.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": [7519796792557509740],
+                "Primitive": "Cube"
             }
         }
     ],
@@ -110,5 +114,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

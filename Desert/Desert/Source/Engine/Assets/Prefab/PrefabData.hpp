@@ -214,6 +214,13 @@ namespace Desert::Assets
         std::optional<Common::UUID> id;
         std::optional<Common::UUID> parent;
 
+        // Where this entity stands among its siblings (same `parent`, or the scene's roots when absent).
+        // Since scene v25 a .desce lists its records sorted by id, so the file order no longer says
+        // anything and a child's place under its parent has to be stated. It is a SORT KEY, not a dense
+        // slot: the loader orders siblings by it, ties falling back to file order. Written by the scene
+        // saver only; a .deprefab keeps its records in hierarchy order and does not state it.
+        std::optional<uint32_t> siblingIndex;
+
         std::optional<std::string> PrefabPath;
 
         std::optional<std::string> Tag;

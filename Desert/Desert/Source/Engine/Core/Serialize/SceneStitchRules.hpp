@@ -3,7 +3,11 @@
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <numeric>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -119,9 +123,9 @@ namespace Desert::Core::Rules
 
     struct StitchPlan
     {
-        std::vector<PlannedEntity> Created;       // pass 1, in file order
+        std::vector<PlannedEntity> Created;       // pass 1, in sibling order (siblingIndex, then file order)
         std::vector<PlannedLoad>   Loads;         // pass 2, same order and same length as Created
-        std::vector<PlannedPrefab> PrefabRecords; // records carrying a PrefabPath, in file order
+        std::vector<PlannedPrefab> PrefabRecords; // records carrying a PrefabPath, in sibling order
 
         size_t Minted            = 0; // entities whose id was invented because the file did not name one
         size_t Shadowed          = 0; // records whose id was already claimed - their payload lands on the CLAIMANT
@@ -159,10 +163,23 @@ namespace Desert::Core::Rules
         std::vector<size_t> winner;
         winner.reserve( records.size() );
 
+        // THE ORDER RECORDS ARE VISITED IN IS THE SIBLING ORDER. Since scene v25 the file is sorted by id,
+        // so a record's position says nothing; `siblingIndex` does. Visiting in that order makes every
+        // later step - creation, the attach in pass 2, the prefab pass - put siblings where the file
+        // says, because each of them appends. A record without one sorts last, in file order.
+        std::vector<size_t> visit( records.size() );
+        std::iota( visit.begin(), visit.end(), size_t{ 0 } );
+        std::stable_sort( visit.begin(), visit.end(),
+                          [&]( size_t a, size_t b )
+                          {
+                              return records[a].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() ) <
+                                     records[b].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() );
+                          } );
+
         std::unordered_map<Common::UUID, size_t> byId;
 
         // Pass 1 - decide identities.
-        for ( size_t record = 0; record < records.size(); ++record )
+        for ( const size_t record : visit )
         {
             const Assets::EntityData& data = records[record];
             const bool                isPrefab = data.PrefabPath.has_value();

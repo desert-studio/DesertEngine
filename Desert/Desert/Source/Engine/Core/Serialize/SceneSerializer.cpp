@@ -34,6 +34,25 @@ namespace Desert::Core
 {
     namespace
     {
+        // The entity's place among its siblings as the scene holds it: its position in the parent's
+        // Children, or - for a root - the running count of roots saved so far. The scene's root order IS
+        // its entity order, so the count is that order restated.
+        uint32_t SiblingIndexOf( const ECS::Entity& entity, uint32_t& nextRootIndex )
+        {
+            if ( entity.HasComponent<ECS::RelationshipComponent>() )
+            {
+                const entt::entity parent = entity.GetComponent<ECS::RelationshipComponent>().Parent;
+                if ( parent != entt::null )
+                {
+                    const auto& siblings =
+                         entity.GetRegistry()->get<ECS::RelationshipComponent>( parent ).Children;
+                    const auto found = std::find( siblings.begin(), siblings.end(), entity.GetHandle() );
+                    return static_cast<uint32_t>( found - siblings.begin() );
+                }
+            }
+            return nextRootIndex++;
+        }
+
         // "Is this key one an ENTITY RECORD's writer states whenever it has one?" — the meta members
         // EntitySerializer fills in, plus every component key the registry holds.
         //
@@ -194,6 +213,7 @@ namespace Desert::Core
             return false;
         };
 
+        uint32_t nextRootIndex = 0;
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
             if ( isPrefabChild( const_cast<ECS::Entity&>(entity) ) )
@@ -201,6 +221,7 @@ namespace Desert::Core
                 continue;
             }
             Assets::EntityData data = Serialize::EntitySerializer::SerializeEntity( entity, *m_AssetManager );
+            data.siblingIndex       = SiblingIndexOf( entity, nextRootIndex );
 
             // A PREFAB INSTANCE IS A LINK PLUS ITS DIFFERENCES, AND NOTHING ELSE.
             //
@@ -262,6 +283,16 @@ namespace Desert::Core
 
             scene.Entities.push_back( std::move( data ) );
         }
+
+        // Records sorted by id (scene v25): the file order is then a function of the SET of entities, not
+        // of the order they were created or last reparented in, so adding one entity changes only its own
+        // lines and the siblingIndex of its later siblings - never the position of every record after it.
+        std::stable_sort( scene.Entities.begin(), scene.Entities.end(),
+                          []( const Assets::EntityData& a, const Assets::EntityData& b )
+                          {
+                              return static_cast<uint64_t>( a.id.value_or( Common::UUID( 0 ) ) ) <
+                                     static_cast<uint64_t>( b.id.value_or( Common::UUID( 0 ) ) );
+                          } );
 
         // Scene-wide settings via the generic reflection serializer (no hand-written mirror struct).
         //

@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 1001,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
             "Rotation": [0.0, 0.0, 0.0],
@@ -14,6 +15,7 @@
         },
         {
             "id": 1002,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -31,6 +33,7 @@
         },
         {
             "id": 2000,
+            "siblingIndex": 2,
             "Tag": "Ground",
             "Translation": [0.0, -60.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -55,6 +58,7 @@
         },
         {
             "id": 2010,
+            "siblingIndex": 3,
             "Tag": "A_Skinned",
             "Translation": [-100.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -80,6 +84,7 @@
         },
         {
             "id": 2011,
+            "siblingIndex": 4,
             "Tag": "B_StaticTwin",
             "Translation": [100.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -105,20 +110,8 @@
             }
         },
         {
-            "id": 9001,
-            "Tag": "Camera",
-            "Translation": [0.0, 60.0, 500.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Camera": {
-                "IsMainCamera": true,
-                "FOV": 45.0,
-                "Near": 10.000000149011612,
-                "Far": 5000000.0
-            }
-        },
-        {
             "id": 3001,
+            "siblingIndex": 6,
             "Tag": "P_Foliage",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -138,6 +131,7 @@
         },
         {
             "id": 3002,
+            "siblingIndex": 7,
             "Tag": "P_Locomotion",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -153,6 +147,7 @@
         },
         {
             "id": 3003,
+            "siblingIndex": 8,
             "Tag": "P_Socket",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -170,6 +165,20 @@
                 "LifeRemaining": 12.5,
                 "Damage": 47.5,
                 "Owner": "0"
+            }
+        },
+        {
+            "id": 9001,
+            "siblingIndex": 5,
+            "Tag": "Camera",
+            "Translation": [0.0, 60.0, 500.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "IsMainCamera": true,
+                "FOV": 45.0,
+                "Near": 10.000000149011612,
+                "Far": 5000000.0
             }
         }
     ],
@@ -219,5 +228,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

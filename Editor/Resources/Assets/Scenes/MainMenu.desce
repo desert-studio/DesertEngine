@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 1001,
+            "siblingIndex": 0,
             "Tag": "UI Canvas",
             "UICanvas": {
                 "ScaleMode": 1,
@@ -29,6 +30,7 @@
         {
             "id": 1002,
             "parent": 1001,
+            "siblingIndex": 0,
             "Tag": "BG",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -47,6 +49,7 @@
         {
             "id": 1003,
             "parent": 1001,
+            "siblingIndex": 1,
             "Tag": "Scrim",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -65,6 +68,7 @@
         {
             "id": 1004,
             "parent": 1001,
+            "siblingIndex": 2,
             "Tag": "TopBar",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -78,6 +82,7 @@
         {
             "id": 1005,
             "parent": 1004,
+            "siblingIndex": 0,
             "Tag": "Logo",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -99,6 +104,7 @@
         {
             "id": 1006,
             "parent": 1004,
+            "siblingIndex": 1,
             "Tag": "StatusDot",
             "UILayout": {
                 "AnchorMin": [1, 0.5],
@@ -120,6 +126,7 @@
         {
             "id": 1007,
             "parent": 1004,
+            "siblingIndex": 2,
             "Tag": "StatusText",
             "UILayout": {
                 "AnchorMin": [1, 0.5],
@@ -142,24 +149,9 @@
             }
         },
         {
-            "id": 1060,
-            "parent": 1001,
-            "Tag": "Screen_Main",
-            "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [1, 1],
-                "OffsetMin": [0, 0],
-                "OffsetMax": [0, 0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
-            },
-            "UIScreen": {
-                "Name": "Main"
-            }
-        },
-        {
             "id": 1008,
             "parent": 1060,
+            "siblingIndex": 0,
             "Tag": "Nav",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -179,6 +171,7 @@
         {
             "id": 1009,
             "parent": 1008,
+            "siblingIndex": 0,
             "Tag": "Btn_PLAY",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -212,6 +205,7 @@
         {
             "id": 1010,
             "parent": 1009,
+            "siblingIndex": 0,
             "Tag": "Ico_PLAY",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -230,6 +224,7 @@
         {
             "id": 1011,
             "parent": 1009,
+            "siblingIndex": 1,
             "Tag": "Lbl_PLAY",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -250,6 +245,7 @@
         {
             "id": 1012,
             "parent": 1008,
+            "siblingIndex": 1,
             "Tag": "Btn_CHARACTERS",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -280,6 +276,7 @@
         {
             "id": 1013,
             "parent": 1012,
+            "siblingIndex": 0,
             "Tag": "Ico_CHARACTERS",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -298,6 +295,7 @@
         {
             "id": 1014,
             "parent": 1012,
+            "siblingIndex": 1,
             "Tag": "Lbl_CHARACTERS",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -318,6 +316,7 @@
         {
             "id": 1015,
             "parent": 1008,
+            "siblingIndex": 2,
             "Tag": "Btn_SERVERS",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -348,6 +347,7 @@
         {
             "id": 1016,
             "parent": 1015,
+            "siblingIndex": 0,
             "Tag": "Ico_SERVERS",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -366,6 +366,7 @@
         {
             "id": 1017,
             "parent": 1015,
+            "siblingIndex": 1,
             "Tag": "Lbl_SERVERS",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -386,6 +387,7 @@
         {
             "id": 1018,
             "parent": 1008,
+            "siblingIndex": 3,
             "Tag": "Btn_STORE",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -416,6 +418,7 @@
         {
             "id": 1019,
             "parent": 1018,
+            "siblingIndex": 0,
             "Tag": "Ico_STORE",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -434,6 +437,7 @@
         {
             "id": 1020,
             "parent": 1018,
+            "siblingIndex": 1,
             "Tag": "Lbl_STORE",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -454,6 +458,7 @@
         {
             "id": 1021,
             "parent": 1008,
+            "siblingIndex": 4,
             "Tag": "Btn_SETTINGS",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -485,6 +490,7 @@
         {
             "id": 1022,
             "parent": 1021,
+            "siblingIndex": 0,
             "Tag": "Ico_SETTINGS",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -503,6 +509,7 @@
         {
             "id": 1023,
             "parent": 1021,
+            "siblingIndex": 1,
             "Tag": "Lbl_SETTINGS",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -523,6 +530,7 @@
         {
             "id": 1024,
             "parent": 1008,
+            "siblingIndex": 5,
             "Tag": "Btn_QUIT",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -553,6 +561,7 @@
         {
             "id": 1025,
             "parent": 1024,
+            "siblingIndex": 0,
             "Tag": "Ico_QUIT",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -571,6 +580,7 @@
         {
             "id": 1026,
             "parent": 1024,
+            "siblingIndex": 1,
             "Tag": "Lbl_QUIT",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -591,6 +601,7 @@
         {
             "id": 1027,
             "parent": 1060,
+            "siblingIndex": 1,
             "Tag": "Side",
             "UILayout": {
                 "AnchorMin": [1, 0],
@@ -610,6 +621,7 @@
         {
             "id": 1028,
             "parent": 1027,
+            "siblingIndex": 0,
             "Tag": "Card_Profile",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -642,6 +654,7 @@
         {
             "id": 1029,
             "parent": 1028,
+            "siblingIndex": 0,
             "Tag": "Avatar",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -664,6 +677,7 @@
         {
             "id": 1030,
             "parent": 1029,
+            "siblingIndex": 0,
             "Tag": "AvatarIcon",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -682,6 +696,7 @@
         {
             "id": 1031,
             "parent": 1028,
+            "siblingIndex": 1,
             "Tag": "Name",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -706,6 +721,7 @@
         {
             "id": 1032,
             "parent": 1028,
+            "siblingIndex": 2,
             "Tag": "Stats",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -730,6 +746,7 @@
         {
             "id": 1033,
             "parent": 1028,
+            "siblingIndex": 3,
             "Tag": "XP",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -749,6 +766,7 @@
         {
             "id": 1034,
             "parent": 1027,
+            "siblingIndex": 1,
             "Tag": "Card_Server",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -781,6 +799,7 @@
         {
             "id": 1035,
             "parent": 1034,
+            "siblingIndex": 0,
             "Tag": "SrvName",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -801,6 +820,7 @@
         {
             "id": 1036,
             "parent": 1034,
+            "siblingIndex": 1,
             "Tag": "SrvStats",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -825,6 +845,7 @@
         {
             "id": 1037,
             "parent": 1034,
+            "siblingIndex": 2,
             "Tag": "SrvBar",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -848,6 +869,7 @@
         {
             "id": 1038,
             "parent": 1034,
+            "siblingIndex": 3,
             "Tag": "BtnConnect",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -868,6 +890,7 @@
         {
             "id": 1039,
             "parent": 1038,
+            "siblingIndex": 0,
             "Tag": "ConnectLbl",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -886,26 +909,9 @@
             }
         },
         {
-            "id": 1048,
-            "parent": 1038,
-            "Tag": "Ico_Connect",
-            "UILayout": {
-                "AnchorMin": [1, 0],
-                "AnchorMax": [1, 1],
-                "OffsetMin": [-36, 10],
-                "OffsetMax": [-12, -10],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
-            },
-            "UIIcon": {
-                "Icon": "engine:Icons/chevron-right.svg",
-                "Color": [0.1, 0.06, 0.03],
-                "Scale": 0.8
-            }
-        },
-        {
             "id": 1040,
             "parent": 1027,
+            "siblingIndex": 2,
             "Tag": "Card_News",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -938,6 +944,7 @@
         {
             "id": 1041,
             "parent": 1040,
+            "siblingIndex": 0,
             "Tag": "News0",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -959,6 +966,7 @@
         {
             "id": 1042,
             "parent": 1040,
+            "siblingIndex": 1,
             "Tag": "News1",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -980,6 +988,7 @@
         {
             "id": 1043,
             "parent": 1040,
+            "siblingIndex": 2,
             "Tag": "News2",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -1001,6 +1010,7 @@
         {
             "id": 1044,
             "parent": 1001,
+            "siblingIndex": 4,
             "Tag": "BottomBar",
             "UILayout": {
                 "AnchorMin": [0, 1],
@@ -1019,6 +1029,7 @@
         {
             "id": 1045,
             "parent": 1044,
+            "siblingIndex": 0,
             "Tag": "Version",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -1039,6 +1050,7 @@
         {
             "id": 1046,
             "parent": 1044,
+            "siblingIndex": 1,
             "Tag": "Ticker",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -1061,6 +1073,7 @@
         {
             "id": 1047,
             "parent": 1044,
+            "siblingIndex": 2,
             "Tag": "Hotkeys",
             "UILayout": {
                 "AnchorMin": [1, 0],
@@ -1079,8 +1092,45 @@
             }
         },
         {
+            "id": 1048,
+            "parent": 1038,
+            "siblingIndex": 1,
+            "Tag": "Ico_Connect",
+            "UILayout": {
+                "AnchorMin": [1, 0],
+                "AnchorMax": [1, 1],
+                "OffsetMin": [-36, 10],
+                "OffsetMax": [-12, -10],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIIcon": {
+                "Icon": "engine:Icons/chevron-right.svg",
+                "Color": [0.1, 0.06, 0.03],
+                "Scale": 0.8
+            }
+        },
+        {
+            "id": 1060,
+            "parent": 1001,
+            "siblingIndex": 3,
+            "Tag": "Screen_Main",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [1, 1],
+                "OffsetMin": [0, 0],
+                "OffsetMax": [0, 0],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIScreen": {
+                "Name": "Main"
+            }
+        },
+        {
             "id": 1061,
             "parent": 1001,
+            "siblingIndex": 5,
             "Tag": "Screen_Settings",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -1097,6 +1147,7 @@
         {
             "id": 1062,
             "parent": 1061,
+            "siblingIndex": 0,
             "Tag": "SettingsCard",
             "UILayout": {
                 "AnchorMin": [0.5, 0.5],
@@ -1129,6 +1180,7 @@
         {
             "id": 1063,
             "parent": 1062,
+            "siblingIndex": 0,
             "Tag": "SettingsTitle",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -1149,6 +1201,7 @@
         {
             "id": 1064,
             "parent": 1062,
+            "siblingIndex": 1,
             "Tag": "SettingsRow1",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -1169,6 +1222,7 @@
         {
             "id": 1065,
             "parent": 1062,
+            "siblingIndex": 2,
             "Tag": "SettingsRow2",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -1189,6 +1243,7 @@
         {
             "id": 1066,
             "parent": 1062,
+            "siblingIndex": 3,
             "Tag": "SettingsHint",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -1209,6 +1264,7 @@
         {
             "id": 1067,
             "parent": 1062,
+            "siblingIndex": 4,
             "Tag": "Btn_Back",
             "UILayout": {
                 "AnchorMin": [0, 1],
@@ -1230,6 +1286,7 @@
         {
             "id": 1068,
             "parent": 1067,
+            "siblingIndex": 0,
             "Tag": "Btn_BackLbl",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -1294,5 +1351,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 1002,
+            "siblingIndex": 0,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -15,20 +16,8 @@
             }
         },
         {
-            "id": 9001,
-            "Tag": "Camera",
-            "Translation": [0.0, 120.0, -450.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Camera": {
-                "IsMainCamera": true,
-                "FOV": 45.0,
-                "Near": 10.0,
-                "Far": 5000000.0
-            }
-        },
-        {
             "id": 4101,
+            "siblingIndex": 2,
             "Tag": "Floor",
             "Translation": [0.0, -5.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -40,6 +29,7 @@
         },
         {
             "id": 4201,
+            "siblingIndex": 3,
             "Tag": "ChromeSphere",
             "Translation": [-130.0, 60.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -51,6 +41,7 @@
         },
         {
             "id": 4202,
+            "siblingIndex": 4,
             "Tag": "SatinSphere",
             "Translation": [0.0, 60.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -62,6 +53,7 @@
         },
         {
             "id": 4203,
+            "siblingIndex": 5,
             "Tag": "MatteSphere",
             "Translation": [130.0, 60.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -69,6 +61,20 @@
             "StaticMesh": {
                 "MaterialPaths": ["Materials/M_HDR_Matte.demat"],
                 "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 9001,
+            "siblingIndex": 1,
+            "Tag": "Camera",
+            "Translation": [0.0, 120.0, -450.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "IsMainCamera": true,
+                "FOV": 45.0,
+                "Near": 10.0,
+                "Far": 5000000.0
             }
         }
     ],
@@ -118,5 +124,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

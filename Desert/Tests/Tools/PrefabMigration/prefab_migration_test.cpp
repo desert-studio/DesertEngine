@@ -141,6 +141,11 @@ TEST( PrefabMigration, TheSameEntitiesComeOutOfBothEntryPointsByteForByte )
         ASSERT_TRUE( outcome.Refused.empty() ) << "v" << from << ": " << outcome.Refused;
         ASSERT_TRUE( report.Refused.empty() ) << "v" << from << ": " << report.Refused;
 
+        // The one step a scene takes and a prefab does not (v25, MigrateSiblingOrderV24ToV25): a scene
+        // states each record's sibling index and sorts by id, a prefab keeps hierarchy order. Everything
+        // else must match byte for byte, so only that field is set aside.
+        for ( auto& record : scene.Entities )
+            record.siblingIndex.reset();
         EXPECT_EQ( EntitiesJson( prefab.Entities ), EntitiesJson( scene.Entities ) )
              << "entering at v" << from
              << ", the prefab entry point and the scene entry point disagree about the entities - the two "

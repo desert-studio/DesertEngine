@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 7310021741200001,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-0.3499999940395355, -0.699999988079071, -0.44999998807907104],
             "Rotation": [0.0, 0.0, 0.0],
@@ -15,6 +16,7 @@
         },
         {
             "id": 7310021741200002,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -32,6 +34,7 @@
         },
         {
             "id": 7310021741200003,
+            "siblingIndex": 2,
             "Tag": "Terrain",
             "Translation": [-15000.0, 0.0, -15000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -48,6 +51,7 @@
         },
         {
             "id": 7310021741200004,
+            "siblingIndex": 3,
             "Tag": "Scale Post (1.8 m)",
             "Translation": [-350.0, 0.0, -1500.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -57,37 +61,8 @@
             }
         },
         {
-            "id": 11626354900979982395,
-            "Tag": "Terrain Tile 0_0",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 0,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/11626354900979982395.dlht"
-            }
-        },
-        {
-            "id": 6731081083105531597,
-            "Tag": "Terrain Tile 1_0",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 1,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/6731081083105531597.dlht"
-            }
-        },
-        {
-            "id": 5477478537151188644,
-            "Tag": "Terrain Tile 2_0",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 2,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/5477478537151188644.dlht"
-            }
-        },
-        {
             "id": 821007510419511429,
+            "siblingIndex": 7,
             "Tag": "Terrain Tile 3_0",
             "LandscapeTile": {
                 "Landscape": "7310021741200003",
@@ -97,17 +72,8 @@
             }
         },
         {
-            "id": 14124908903545180833,
-            "Tag": "Terrain Tile 4_0",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 4,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/14124908903545180833.dlht"
-            }
-        },
-        {
             "id": 1786889910194905687,
+            "siblingIndex": 9,
             "Tag": "Terrain Tile 0_1",
             "LandscapeTile": {
                 "Landscape": "7310021741200003",
@@ -117,127 +83,19 @@
             }
         },
         {
-            "id": 17759845638711099902,
-            "Tag": "Terrain Tile 1_1",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 1,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/17759845638711099902.dlht"
-            }
-        },
-        {
-            "id": 11126006401806181125,
-            "Tag": "Terrain Tile 2_1",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 2,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/11126006401806181125.dlht"
-            }
-        },
-        {
-            "id": 11821066194761549165,
-            "Tag": "Terrain Tile 3_1",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 3,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/11821066194761549165.dlht"
-            }
-        },
-        {
-            "id": 9056216440443355854,
-            "Tag": "Terrain Tile 4_1",
+            "id": 3327386937639270483,
+            "siblingIndex": 28,
+            "Tag": "Terrain Tile 4_4",
             "LandscapeTile": {
                 "Landscape": "7310021741200003",
                 "TileX": 4,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/9056216440443355854.dlht"
-            }
-        },
-        {
-            "id": 15849646365648934700,
-            "Tag": "Terrain Tile 0_2",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 0,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/15849646365648934700.dlht"
-            }
-        },
-        {
-            "id": 10110104546615557682,
-            "Tag": "Terrain Tile 1_2",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 1,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/10110104546615557682.dlht"
-            }
-        },
-        {
-            "id": 13210505574733904040,
-            "Tag": "Terrain Tile 2_2",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 2,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/13210505574733904040.dlht"
-            }
-        },
-        {
-            "id": 7121608721554957564,
-            "Tag": "Terrain Tile 3_2",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 3,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/7121608721554957564.dlht"
-            }
-        },
-        {
-            "id": 3975560381801537963,
-            "Tag": "Terrain Tile 4_2",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 4,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/3975560381801537963.dlht"
-            }
-        },
-        {
-            "id": 8695778658748216640,
-            "Tag": "Terrain Tile 0_3",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 0,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/8695778658748216640.dlht"
-            }
-        },
-        {
-            "id": 14651609588595186388,
-            "Tag": "Terrain Tile 1_3",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 1,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/14651609588595186388.dlht"
-            }
-        },
-        {
-            "id": 10015438807432692167,
-            "Tag": "Terrain Tile 2_3",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 2,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/10015438807432692167.dlht"
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/3327386937639270483.dlht"
             }
         },
         {
             "id": 3779615529345712631,
+            "siblingIndex": 22,
             "Tag": "Terrain Tile 3_3",
             "LandscapeTile": {
                 "Landscape": "7310021741200003",
@@ -247,37 +105,8 @@
             }
         },
         {
-            "id": 16785752076158628301,
-            "Tag": "Terrain Tile 4_3",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 4,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/16785752076158628301.dlht"
-            }
-        },
-        {
-            "id": 7020694119001523850,
-            "Tag": "Terrain Tile 0_4",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 0,
-                "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/7020694119001523850.dlht"
-            }
-        },
-        {
-            "id": 16193500395362112396,
-            "Tag": "Terrain Tile 1_4",
-            "LandscapeTile": {
-                "Landscape": "7310021741200003",
-                "TileX": 1,
-                "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/16193500395362112396.dlht"
-            }
-        },
-        {
             "id": 3930759967389139878,
+            "siblingIndex": 26,
             "Tag": "Terrain Tile 2_4",
             "LandscapeTile": {
                 "Landscape": "7310021741200003",
@@ -287,7 +116,140 @@
             }
         },
         {
+            "id": 3975560381801537963,
+            "siblingIndex": 18,
+            "Tag": "Terrain Tile 4_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 4,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/3975560381801537963.dlht"
+            }
+        },
+        {
+            "id": 5477478537151188644,
+            "siblingIndex": 6,
+            "Tag": "Terrain Tile 2_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 2,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/5477478537151188644.dlht"
+            }
+        },
+        {
+            "id": 6731081083105531597,
+            "siblingIndex": 5,
+            "Tag": "Terrain Tile 1_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 1,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/6731081083105531597.dlht"
+            }
+        },
+        {
+            "id": 7020694119001523850,
+            "siblingIndex": 24,
+            "Tag": "Terrain Tile 0_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 0,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/7020694119001523850.dlht"
+            }
+        },
+        {
+            "id": 7121608721554957564,
+            "siblingIndex": 17,
+            "Tag": "Terrain Tile 3_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 3,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/7121608721554957564.dlht"
+            }
+        },
+        {
+            "id": 8695778658748216640,
+            "siblingIndex": 19,
+            "Tag": "Terrain Tile 0_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 0,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/8695778658748216640.dlht"
+            }
+        },
+        {
+            "id": 9056216440443355854,
+            "siblingIndex": 13,
+            "Tag": "Terrain Tile 4_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 4,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/9056216440443355854.dlht"
+            }
+        },
+        {
+            "id": 10015438807432692167,
+            "siblingIndex": 21,
+            "Tag": "Terrain Tile 2_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 2,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/10015438807432692167.dlht"
+            }
+        },
+        {
+            "id": 10110104546615557682,
+            "siblingIndex": 15,
+            "Tag": "Terrain Tile 1_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 1,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/10110104546615557682.dlht"
+            }
+        },
+        {
+            "id": 11126006401806181125,
+            "siblingIndex": 11,
+            "Tag": "Terrain Tile 2_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 2,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/11126006401806181125.dlht"
+            }
+        },
+        {
+            "id": 11626354900979982395,
+            "siblingIndex": 4,
+            "Tag": "Terrain Tile 0_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 0,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/11626354900979982395.dlht"
+            }
+        },
+        {
+            "id": 11821066194761549165,
+            "siblingIndex": 12,
+            "Tag": "Terrain Tile 3_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 3,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/11821066194761549165.dlht"
+            }
+        },
+        {
             "id": 12416981232610661863,
+            "siblingIndex": 27,
             "Tag": "Terrain Tile 3_4",
             "LandscapeTile": {
                 "Landscape": "7310021741200003",
@@ -297,13 +259,80 @@
             }
         },
         {
-            "id": 3327386937639270483,
-            "Tag": "Terrain Tile 4_4",
+            "id": 13210505574733904040,
+            "siblingIndex": 16,
+            "Tag": "Terrain Tile 2_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 2,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/13210505574733904040.dlht"
+            }
+        },
+        {
+            "id": 14124908903545180833,
+            "siblingIndex": 8,
+            "Tag": "Terrain Tile 4_0",
             "LandscapeTile": {
                 "Landscape": "7310021741200003",
                 "TileX": 4,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/14124908903545180833.dlht"
+            }
+        },
+        {
+            "id": 14651609588595186388,
+            "siblingIndex": 20,
+            "Tag": "Terrain Tile 1_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 1,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/14651609588595186388.dlht"
+            }
+        },
+        {
+            "id": 15849646365648934700,
+            "siblingIndex": 14,
+            "Tag": "Terrain Tile 0_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 0,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/15849646365648934700.dlht"
+            }
+        },
+        {
+            "id": 16193500395362112396,
+            "siblingIndex": 25,
+            "Tag": "Terrain Tile 1_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 1,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/3327386937639270483.dlht"
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/16193500395362112396.dlht"
+            }
+        },
+        {
+            "id": 16785752076158628301,
+            "siblingIndex": 23,
+            "Tag": "Terrain Tile 4_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 4,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/16785752076158628301.dlht"
+            }
+        },
+        {
+            "id": 17759845638711099902,
+            "siblingIndex": 10,
+            "Tag": "Terrain Tile 1_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741200003",
+                "TileX": 1,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/17759845638711099902.dlht"
             }
         }
     ],
@@ -353,5 +382,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 2001,
+            "siblingIndex": 0,
             "Tag": "UI Canvas",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -18,6 +19,7 @@
         {
             "id": 2002,
             "parent": 2001,
+            "siblingIndex": 0,
             "Tag": "Backdrop",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -39,6 +41,7 @@
         {
             "id": 2003,
             "parent": 2001,
+            "siblingIndex": 1,
             "Tag": "Animated Card",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -141,5 +144,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

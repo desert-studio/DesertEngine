@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 926003,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-30.0, -75.0, -55.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -22,6 +23,7 @@
         },
         {
             "id": 15185090931653832212,
+            "siblingIndex": 1,
             "Tag": "Nine Cubes, the only mesh in the scene",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -115,5 +117,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

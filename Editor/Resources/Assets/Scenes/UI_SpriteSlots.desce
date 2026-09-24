@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 2001,
+            "siblingIndex": 0,
             "Tag": "UI Canvas",
             "UICanvas": {
                 "ScaleMode": 2,
@@ -16,6 +17,7 @@
         {
             "id": 2002,
             "parent": 2001,
+            "siblingIndex": 0,
             "Tag": "PanelSprite",
             "UILayout": {
                 "AnchorMin": [0.55, 0.12],
@@ -35,6 +37,7 @@
         {
             "id": 2003,
             "parent": 2001,
+            "siblingIndex": 1,
             "Tag": "Title",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -53,6 +56,7 @@
         {
             "id": 2010,
             "parent": 2001,
+            "siblingIndex": 2,
             "Tag": "Slider",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -69,6 +73,7 @@
         {
             "id": 2011,
             "parent": 2001,
+            "siblingIndex": 3,
             "Tag": "Toggle",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -85,6 +90,7 @@
         {
             "id": 2012,
             "parent": 2001,
+            "siblingIndex": 4,
             "Tag": "Dropdown",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -102,6 +108,7 @@
         {
             "id": 2013,
             "parent": 2001,
+            "siblingIndex": 5,
             "Tag": "ProgressBar",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -118,6 +125,7 @@
         {
             "id": 2014,
             "parent": 2001,
+            "siblingIndex": 6,
             "Tag": "InputField",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -134,6 +142,7 @@
         {
             "id": 2015,
             "parent": 2001,
+            "siblingIndex": 7,
             "Tag": "Button",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -148,6 +157,7 @@
         {
             "id": 2016,
             "parent": 2001,
+            "siblingIndex": 8,
             "Tag": "SliderLabel",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -167,6 +177,7 @@
         {
             "id": 2017,
             "parent": 2001,
+            "siblingIndex": 9,
             "Tag": "ToggleLabel",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -186,6 +197,7 @@
         {
             "id": 2018,
             "parent": 2001,
+            "siblingIndex": 10,
             "Tag": "DropdownLabel",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -205,6 +217,7 @@
         {
             "id": 2019,
             "parent": 2001,
+            "siblingIndex": 11,
             "Tag": "ProgressBarLabel",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -224,6 +237,7 @@
         {
             "id": 2020,
             "parent": 2001,
+            "siblingIndex": 12,
             "Tag": "InputFieldLabel",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -243,6 +257,7 @@
         {
             "id": 2021,
             "parent": 2001,
+            "siblingIndex": 13,
             "Tag": "ButtonLabel",
             "UILayout": {
                 "AnchorMin": [0, 0],
@@ -306,5 +321,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

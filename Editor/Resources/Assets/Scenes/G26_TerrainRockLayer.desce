@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 926090,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-0.3499999940395355, -0.699999988079071, -0.44999998807907104],
             "Rotation": [0.0, 0.0, 0.0],
@@ -14,6 +15,7 @@
         },
         {
             "id": 926100,
+            "siblingIndex": 1,
             "Tag": "Terrain Rock=Auto",
             "Translation": [-5100.0, 0.0, -2500.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -31,6 +33,7 @@
         },
         {
             "id": 926102,
+            "siblingIndex": 2,
             "Tag": "Terrain Rock=Off",
             "Translation": [100.0, 0.0, -2500.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -47,107 +50,96 @@
             }
         },
         {
-            "id": 6438531097678307184,
-            "Tag": "Terrain Rock=Auto Tile 0_0",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 0,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6438531097678307184.dlht"
-            }
-        },
-        {
-            "id": 5233011253955214883,
-            "Tag": "Terrain Rock=Auto Tile 1_0",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 1,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/5233011253955214883.dlht"
-            }
-        },
-        {
-            "id": 9024597560160648727,
-            "Tag": "Terrain Rock=Auto Tile 2_0",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 2,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/9024597560160648727.dlht"
-            }
-        },
-        {
-            "id": 14173935688181818443,
-            "Tag": "Terrain Rock=Auto Tile 3_0",
+            "id": 216185395719206479,
+            "siblingIndex": 21,
+            "Tag": "Terrain Rock=Auto Tile 3_3",
             "LandscapeTile": {
                 "Landscape": "926100",
                 "TileX": 3,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/14173935688181818443.dlht"
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/216185395719206479.dlht"
             }
         },
         {
-            "id": 13295655800815823283,
-            "Tag": "Terrain Rock=Auto Tile 4_0",
+            "id": 488031819375873871,
+            "siblingIndex": 29,
+            "Tag": "Terrain Rock=Off Tile 1_0",
             "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 4,
+                "Landscape": "926102",
+                "TileX": 1,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/13295655800815823283.dlht"
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/488031819375873871.dlht"
             }
         },
         {
-            "id": 5790273813024064663,
-            "Tag": "Terrain Rock=Auto Tile 0_1",
+            "id": 2414938012159169517,
+            "siblingIndex": 39,
+            "Tag": "Terrain Rock=Off Tile 1_2",
             "LandscapeTile": {
-                "Landscape": "926100",
+                "Landscape": "926102",
+                "TileX": 1,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/2414938012159169517.dlht"
+            }
+        },
+        {
+            "id": 3490547139504500912,
+            "siblingIndex": 48,
+            "Tag": "Terrain Rock=Off Tile 0_4",
+            "LandscapeTile": {
+                "Landscape": "926102",
                 "TileX": 0,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/5790273813024064663.dlht"
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3490547139504500912.dlht"
             }
         },
         {
-            "id": 4887941647239550136,
-            "Tag": "Terrain Rock=Auto Tile 1_1",
+            "id": 3537456940308133201,
+            "siblingIndex": 46,
+            "Tag": "Terrain Rock=Off Tile 3_3",
             "LandscapeTile": {
-                "Landscape": "926100",
+                "Landscape": "926102",
+                "TileX": 3,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3537456940308133201.dlht"
+            }
+        },
+        {
+            "id": 3538042825138605446,
+            "siblingIndex": 41,
+            "Tag": "Terrain Rock=Off Tile 3_2",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 3,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3538042825138605446.dlht"
+            }
+        },
+        {
+            "id": 3926633026985133300,
+            "siblingIndex": 51,
+            "Tag": "Terrain Rock=Off Tile 3_4",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 3,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3926633026985133300.dlht"
+            }
+        },
+        {
+            "id": 3968987032856803023,
+            "siblingIndex": 34,
+            "Tag": "Terrain Rock=Off Tile 1_1",
+            "LandscapeTile": {
+                "Landscape": "926102",
                 "TileX": 1,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/4887941647239550136.dlht"
-            }
-        },
-        {
-            "id": 4708687266255719230,
-            "Tag": "Terrain Rock=Auto Tile 2_1",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 2,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/4708687266255719230.dlht"
-            }
-        },
-        {
-            "id": 7678174891965454777,
-            "Tag": "Terrain Rock=Auto Tile 3_1",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 3,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/7678174891965454777.dlht"
-            }
-        },
-        {
-            "id": 8767993934230522644,
-            "Tag": "Terrain Rock=Auto Tile 4_1",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 4,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8767993934230522644.dlht"
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3968987032856803023.dlht"
             }
         },
         {
             "id": 3988730993663222016,
+            "siblingIndex": 13,
             "Tag": "Terrain Rock=Auto Tile 0_2",
             "LandscapeTile": {
                 "Landscape": "926100",
@@ -157,17 +149,41 @@
             }
         },
         {
-            "id": 12468266735708772742,
-            "Tag": "Terrain Rock=Auto Tile 1_2",
+            "id": 4478174637009336653,
+            "siblingIndex": 52,
+            "Tag": "Terrain Rock=Off Tile 4_4",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 4,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/4478174637009336653.dlht"
+            }
+        },
+        {
+            "id": 4708687266255719230,
+            "siblingIndex": 10,
+            "Tag": "Terrain Rock=Auto Tile 2_1",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 2,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/4708687266255719230.dlht"
+            }
+        },
+        {
+            "id": 4887941647239550136,
+            "siblingIndex": 9,
+            "Tag": "Terrain Rock=Auto Tile 1_1",
             "LandscapeTile": {
                 "Landscape": "926100",
                 "TileX": 1,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/12468266735708772742.dlht"
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/4887941647239550136.dlht"
             }
         },
         {
             "id": 4889398945190231557,
+            "siblingIndex": 15,
             "Tag": "Terrain Rock=Auto Tile 2_2",
             "LandscapeTile": {
                 "Landscape": "926100",
@@ -178,6 +194,7 @@
         },
         {
             "id": 4993315021091382239,
+            "siblingIndex": 16,
             "Tag": "Terrain Rock=Auto Tile 3_2",
             "LandscapeTile": {
                 "Landscape": "926100",
@@ -187,107 +204,8 @@
             }
         },
         {
-            "id": 6412564011023860237,
-            "Tag": "Terrain Rock=Auto Tile 4_2",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 4,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6412564011023860237.dlht"
-            }
-        },
-        {
-            "id": 5633695621707544728,
-            "Tag": "Terrain Rock=Auto Tile 0_3",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 0,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/5633695621707544728.dlht"
-            }
-        },
-        {
-            "id": 8106907949429375216,
-            "Tag": "Terrain Rock=Auto Tile 1_3",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 1,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8106907949429375216.dlht"
-            }
-        },
-        {
-            "id": 12141859694711094571,
-            "Tag": "Terrain Rock=Auto Tile 2_3",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 2,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/12141859694711094571.dlht"
-            }
-        },
-        {
-            "id": 216185395719206479,
-            "Tag": "Terrain Rock=Auto Tile 3_3",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 3,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/216185395719206479.dlht"
-            }
-        },
-        {
-            "id": 5360029562683111758,
-            "Tag": "Terrain Rock=Auto Tile 4_3",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 4,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/5360029562683111758.dlht"
-            }
-        },
-        {
-            "id": 6511034170496346615,
-            "Tag": "Terrain Rock=Auto Tile 0_4",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 0,
-                "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6511034170496346615.dlht"
-            }
-        },
-        {
-            "id": 14261263954978766953,
-            "Tag": "Terrain Rock=Auto Tile 1_4",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 1,
-                "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/14261263954978766953.dlht"
-            }
-        },
-        {
-            "id": 11179567478449083372,
-            "Tag": "Terrain Rock=Auto Tile 2_4",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 2,
-                "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/11179567478449083372.dlht"
-            }
-        },
-        {
-            "id": 6294199210038720444,
-            "Tag": "Terrain Rock=Auto Tile 3_4",
-            "LandscapeTile": {
-                "Landscape": "926100",
-                "TileX": 3,
-                "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6294199210038720444.dlht"
-            }
-        },
-        {
             "id": 5020146916568223843,
+            "siblingIndex": 27,
             "Tag": "Terrain Rock=Auto Tile 4_4",
             "LandscapeTile": {
                 "Landscape": "926100",
@@ -297,57 +215,30 @@
             }
         },
         {
-            "id": 18326623729746426806,
-            "Tag": "Terrain Rock=Off Tile 0_0",
+            "id": 5233011253955214883,
+            "siblingIndex": 4,
+            "Tag": "Terrain Rock=Auto Tile 1_0",
             "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 0,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/18326623729746426806.dlht"
-            }
-        },
-        {
-            "id": 488031819375873871,
-            "Tag": "Terrain Rock=Off Tile 1_0",
-            "LandscapeTile": {
-                "Landscape": "926102",
+                "Landscape": "926100",
                 "TileX": 1,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/488031819375873871.dlht"
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/5233011253955214883.dlht"
             }
         },
         {
-            "id": 6425493414334902617,
-            "Tag": "Terrain Rock=Off Tile 2_0",
+            "id": 5360029562683111758,
+            "siblingIndex": 22,
+            "Tag": "Terrain Rock=Auto Tile 4_3",
             "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 2,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6425493414334902617.dlht"
-            }
-        },
-        {
-            "id": 11379887886903078276,
-            "Tag": "Terrain Rock=Off Tile 3_0",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 3,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/11379887886903078276.dlht"
-            }
-        },
-        {
-            "id": 8624461859872678536,
-            "Tag": "Terrain Rock=Off Tile 4_0",
-            "LandscapeTile": {
-                "Landscape": "926102",
+                "Landscape": "926100",
                 "TileX": 4,
-                "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8624461859872678536.dlht"
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/5360029562683111758.dlht"
             }
         },
         {
             "id": 5364850503947381380,
+            "siblingIndex": 33,
             "Tag": "Terrain Rock=Off Tile 0_1",
             "LandscapeTile": {
                 "Landscape": "926102",
@@ -357,157 +248,30 @@
             }
         },
         {
-            "id": 3968987032856803023,
-            "Tag": "Terrain Rock=Off Tile 1_1",
+            "id": 5633695621707544728,
+            "siblingIndex": 18,
+            "Tag": "Terrain Rock=Auto Tile 0_3",
             "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 1,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3968987032856803023.dlht"
-            }
-        },
-        {
-            "id": 15415707341834886404,
-            "Tag": "Terrain Rock=Off Tile 2_1",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 2,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/15415707341834886404.dlht"
-            }
-        },
-        {
-            "id": 8825179512044821223,
-            "Tag": "Terrain Rock=Off Tile 3_1",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 3,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8825179512044821223.dlht"
-            }
-        },
-        {
-            "id": 14269740860524001613,
-            "Tag": "Terrain Rock=Off Tile 4_1",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 4,
-                "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/14269740860524001613.dlht"
-            }
-        },
-        {
-            "id": 6853957398944467036,
-            "Tag": "Terrain Rock=Off Tile 0_2",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 0,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6853957398944467036.dlht"
-            }
-        },
-        {
-            "id": 2414938012159169517,
-            "Tag": "Terrain Rock=Off Tile 1_2",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 1,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/2414938012159169517.dlht"
-            }
-        },
-        {
-            "id": 15676152418273813629,
-            "Tag": "Terrain Rock=Off Tile 2_2",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 2,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/15676152418273813629.dlht"
-            }
-        },
-        {
-            "id": 3538042825138605446,
-            "Tag": "Terrain Rock=Off Tile 3_2",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 3,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3538042825138605446.dlht"
-            }
-        },
-        {
-            "id": 14697648388968407457,
-            "Tag": "Terrain Rock=Off Tile 4_2",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 4,
-                "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/14697648388968407457.dlht"
-            }
-        },
-        {
-            "id": 9064086899047964601,
-            "Tag": "Terrain Rock=Off Tile 0_3",
-            "LandscapeTile": {
-                "Landscape": "926102",
+                "Landscape": "926100",
                 "TileX": 0,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/9064086899047964601.dlht"
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/5633695621707544728.dlht"
             }
         },
         {
-            "id": 16301601527973332283,
-            "Tag": "Terrain Rock=Off Tile 1_3",
+            "id": 5790273813024064663,
+            "siblingIndex": 8,
+            "Tag": "Terrain Rock=Auto Tile 0_1",
             "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 1,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/16301601527973332283.dlht"
-            }
-        },
-        {
-            "id": 8314995421805916633,
-            "Tag": "Terrain Rock=Off Tile 2_3",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 2,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8314995421805916633.dlht"
-            }
-        },
-        {
-            "id": 3537456940308133201,
-            "Tag": "Terrain Rock=Off Tile 3_3",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 3,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3537456940308133201.dlht"
-            }
-        },
-        {
-            "id": 11712330276930464548,
-            "Tag": "Terrain Rock=Off Tile 4_3",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 4,
-                "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/11712330276930464548.dlht"
-            }
-        },
-        {
-            "id": 3490547139504500912,
-            "Tag": "Terrain Rock=Off Tile 0_4",
-            "LandscapeTile": {
-                "Landscape": "926102",
+                "Landscape": "926100",
                 "TileX": 0,
-                "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3490547139504500912.dlht"
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/5790273813024064663.dlht"
             }
         },
         {
             "id": 5814733654879357990,
+            "siblingIndex": 49,
             "Tag": "Terrain Rock=Off Tile 1_4",
             "LandscapeTile": {
                 "Landscape": "926102",
@@ -517,7 +281,305 @@
             }
         },
         {
+            "id": 6294199210038720444,
+            "siblingIndex": 26,
+            "Tag": "Terrain Rock=Auto Tile 3_4",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 3,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6294199210038720444.dlht"
+            }
+        },
+        {
+            "id": 6412564011023860237,
+            "siblingIndex": 17,
+            "Tag": "Terrain Rock=Auto Tile 4_2",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 4,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6412564011023860237.dlht"
+            }
+        },
+        {
+            "id": 6425493414334902617,
+            "siblingIndex": 30,
+            "Tag": "Terrain Rock=Off Tile 2_0",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 2,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6425493414334902617.dlht"
+            }
+        },
+        {
+            "id": 6438531097678307184,
+            "siblingIndex": 3,
+            "Tag": "Terrain Rock=Auto Tile 0_0",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 0,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6438531097678307184.dlht"
+            }
+        },
+        {
+            "id": 6511034170496346615,
+            "siblingIndex": 23,
+            "Tag": "Terrain Rock=Auto Tile 0_4",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 0,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6511034170496346615.dlht"
+            }
+        },
+        {
+            "id": 6853957398944467036,
+            "siblingIndex": 38,
+            "Tag": "Terrain Rock=Off Tile 0_2",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 0,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/6853957398944467036.dlht"
+            }
+        },
+        {
+            "id": 7678174891965454777,
+            "siblingIndex": 11,
+            "Tag": "Terrain Rock=Auto Tile 3_1",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 3,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/7678174891965454777.dlht"
+            }
+        },
+        {
+            "id": 8106907949429375216,
+            "siblingIndex": 19,
+            "Tag": "Terrain Rock=Auto Tile 1_3",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 1,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8106907949429375216.dlht"
+            }
+        },
+        {
+            "id": 8314995421805916633,
+            "siblingIndex": 45,
+            "Tag": "Terrain Rock=Off Tile 2_3",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 2,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8314995421805916633.dlht"
+            }
+        },
+        {
+            "id": 8624461859872678536,
+            "siblingIndex": 32,
+            "Tag": "Terrain Rock=Off Tile 4_0",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 4,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8624461859872678536.dlht"
+            }
+        },
+        {
+            "id": 8767993934230522644,
+            "siblingIndex": 12,
+            "Tag": "Terrain Rock=Auto Tile 4_1",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 4,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8767993934230522644.dlht"
+            }
+        },
+        {
+            "id": 8825179512044821223,
+            "siblingIndex": 36,
+            "Tag": "Terrain Rock=Off Tile 3_1",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 3,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/8825179512044821223.dlht"
+            }
+        },
+        {
+            "id": 9024597560160648727,
+            "siblingIndex": 5,
+            "Tag": "Terrain Rock=Auto Tile 2_0",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 2,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/9024597560160648727.dlht"
+            }
+        },
+        {
+            "id": 9064086899047964601,
+            "siblingIndex": 43,
+            "Tag": "Terrain Rock=Off Tile 0_3",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 0,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/9064086899047964601.dlht"
+            }
+        },
+        {
+            "id": 11179567478449083372,
+            "siblingIndex": 25,
+            "Tag": "Terrain Rock=Auto Tile 2_4",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 2,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/11179567478449083372.dlht"
+            }
+        },
+        {
+            "id": 11379887886903078276,
+            "siblingIndex": 31,
+            "Tag": "Terrain Rock=Off Tile 3_0",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 3,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/11379887886903078276.dlht"
+            }
+        },
+        {
+            "id": 11712330276930464548,
+            "siblingIndex": 47,
+            "Tag": "Terrain Rock=Off Tile 4_3",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 4,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/11712330276930464548.dlht"
+            }
+        },
+        {
+            "id": 12141859694711094571,
+            "siblingIndex": 20,
+            "Tag": "Terrain Rock=Auto Tile 2_3",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 2,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/12141859694711094571.dlht"
+            }
+        },
+        {
+            "id": 12468266735708772742,
+            "siblingIndex": 14,
+            "Tag": "Terrain Rock=Auto Tile 1_2",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 1,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/12468266735708772742.dlht"
+            }
+        },
+        {
+            "id": 13295655800815823283,
+            "siblingIndex": 7,
+            "Tag": "Terrain Rock=Auto Tile 4_0",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 4,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/13295655800815823283.dlht"
+            }
+        },
+        {
+            "id": 14173935688181818443,
+            "siblingIndex": 6,
+            "Tag": "Terrain Rock=Auto Tile 3_0",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 3,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/14173935688181818443.dlht"
+            }
+        },
+        {
+            "id": 14261263954978766953,
+            "siblingIndex": 24,
+            "Tag": "Terrain Rock=Auto Tile 1_4",
+            "LandscapeTile": {
+                "Landscape": "926100",
+                "TileX": 1,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/14261263954978766953.dlht"
+            }
+        },
+        {
+            "id": 14269740860524001613,
+            "siblingIndex": 37,
+            "Tag": "Terrain Rock=Off Tile 4_1",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 4,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/14269740860524001613.dlht"
+            }
+        },
+        {
+            "id": 14697648388968407457,
+            "siblingIndex": 42,
+            "Tag": "Terrain Rock=Off Tile 4_2",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 4,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/14697648388968407457.dlht"
+            }
+        },
+        {
+            "id": 15415707341834886404,
+            "siblingIndex": 35,
+            "Tag": "Terrain Rock=Off Tile 2_1",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 2,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/15415707341834886404.dlht"
+            }
+        },
+        {
+            "id": 15676152418273813629,
+            "siblingIndex": 40,
+            "Tag": "Terrain Rock=Off Tile 2_2",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 2,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/15676152418273813629.dlht"
+            }
+        },
+        {
+            "id": 16301601527973332283,
+            "siblingIndex": 44,
+            "Tag": "Terrain Rock=Off Tile 1_3",
+            "LandscapeTile": {
+                "Landscape": "926102",
+                "TileX": 1,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/16301601527973332283.dlht"
+            }
+        },
+        {
             "id": 17167840841273433882,
+            "siblingIndex": 50,
             "Tag": "Terrain Rock=Off Tile 2_4",
             "LandscapeTile": {
                 "Landscape": "926102",
@@ -527,23 +589,14 @@
             }
         },
         {
-            "id": 3926633026985133300,
-            "Tag": "Terrain Rock=Off Tile 3_4",
+            "id": 18326623729746426806,
+            "siblingIndex": 28,
+            "Tag": "Terrain Rock=Off Tile 0_0",
             "LandscapeTile": {
                 "Landscape": "926102",
-                "TileX": 3,
-                "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/3926633026985133300.dlht"
-            }
-        },
-        {
-            "id": 4478174637009336653,
-            "Tag": "Terrain Rock=Off Tile 4_4",
-            "LandscapeTile": {
-                "Landscape": "926102",
-                "TileX": 4,
-                "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/4478174637009336653.dlht"
+                "TileX": 0,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G26_TerrainRockLayer_Landscape/18326623729746426806.dlht"
             }
         }
     ],
@@ -593,5 +646,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

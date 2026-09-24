@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 8000,
+            "siblingIndex": 0,
             "Tag": "UI Canvas",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -24,22 +25,9 @@
             }
         },
         {
-            "id": 8708514101388726983,
-            "parent": 8000,
-            "PrefabPath": "Resources/Assets/Prefabs/UI_Card.deprefab",
-            "PrefabOverrides": [
-                {
-                    "Path": [7201],
-                    "UILayout": {
-                        "OffsetMin": [120.0, 200.0],
-                        "OffsetMax": [440.0, 380.0]
-                    }
-                }
-            ]
-        },
-        {
             "id": 6780486062127671715,
             "parent": 8000,
+            "siblingIndex": 1,
             "PrefabPath": "Resources/Assets/Prefabs/UI_Card.deprefab",
             "PrefabOverrides": [
                 {
@@ -54,6 +42,21 @@
                     "Path": [7202, 7101],
                     "UIPanel": {
                         "Color": [0.949999988079071, 0.41999998688697815, 0.11999999731779099]
+                    }
+                }
+            ]
+        },
+        {
+            "id": 8708514101388726983,
+            "parent": 8000,
+            "siblingIndex": 0,
+            "PrefabPath": "Resources/Assets/Prefabs/UI_Card.deprefab",
+            "PrefabOverrides": [
+                {
+                    "Path": [7201],
+                    "UILayout": {
+                        "OffsetMin": [120.0, 200.0],
+                        "OffsetMax": [440.0, 380.0]
                     }
                 }
             ]
@@ -105,5 +108,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

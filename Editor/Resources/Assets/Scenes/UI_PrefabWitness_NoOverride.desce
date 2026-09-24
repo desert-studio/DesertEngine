@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 8000,
+            "siblingIndex": 0,
             "Tag": "UI Canvas",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -26,6 +27,7 @@
         {
             "id": 5383751921808863294,
             "parent": 8000,
+            "siblingIndex": 0,
             "PrefabPath": "Resources/Assets/Prefabs/UI_Card.deprefab",
             "PrefabOverrides": [
                 {
@@ -40,6 +42,7 @@
         {
             "id": 11835270700432038809,
             "parent": 8000,
+            "siblingIndex": 1,
             "PrefabPath": "Resources/Assets/Prefabs/UI_Card.deprefab",
             "PrefabOverrides": [
                 {
@@ -99,5 +102,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

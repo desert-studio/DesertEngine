@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 1001,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
             "Rotation": [0.0, 0.0, 0.0],
@@ -14,6 +15,7 @@
         },
         {
             "id": 1002,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -31,6 +33,7 @@
         },
         {
             "id": 2000,
+            "siblingIndex": 2,
             "Tag": "Ground",
             "Translation": [0.0, -60.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -42,55 +45,8 @@
             }
         },
         {
-            "id": 2009,
-            "Tag": "A_ReferencePBR",
-            "Translation": [-500.0, 20.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 2005,
-            "Tag": "B_GraphConstUnlit",
-            "Translation": [-300.0, 20.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/MP_Const.demat"],
-                "MaterialGuids": [5555555555555555555],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 2006,
-            "Tag": "C_GraphConstLit",
-            "Translation": [-100.0, 20.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/MP_LitConst.demat"],
-                "MaterialGuids": [6666666666666666666],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 2007,
-            "Tag": "D_GraphParamUnlit",
-            "Translation": [100.0, 20.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/MP_Unlit.demat"],
-                "MaterialGuids": [4444444444444444444],
-                "Primitive": "Sphere"
-            }
-        },
-        {
             "id": 2001,
+            "siblingIndex": 7,
             "Tag": "E_ParamLitDefault",
             "Translation": [300.0, 20.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -103,6 +59,7 @@
         },
         {
             "id": 2002,
+            "siblingIndex": 8,
             "Tag": "F_ParamLitBlendMax",
             "Translation": [500.0, 20.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -115,6 +72,7 @@
         },
         {
             "id": 2003,
+            "siblingIndex": 9,
             "Tag": "G_ParamLitGreen",
             "Translation": [700.0, 20.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -126,7 +84,60 @@
             }
         },
         {
+            "id": 2005,
+            "siblingIndex": 4,
+            "Tag": "B_GraphConstUnlit",
+            "Translation": [-300.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/MP_Const.demat"],
+                "MaterialGuids": [5555555555555555555],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 2006,
+            "siblingIndex": 5,
+            "Tag": "C_GraphConstLit",
+            "Translation": [-100.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/MP_LitConst.demat"],
+                "MaterialGuids": [6666666666666666666],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 2007,
+            "siblingIndex": 6,
+            "Tag": "D_GraphParamUnlit",
+            "Translation": [100.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/MP_Unlit.demat"],
+                "MaterialGuids": [4444444444444444444],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 2009,
+            "siblingIndex": 3,
+            "Tag": "A_ReferencePBR",
+            "Translation": [-500.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": [9017610081296696595],
+                "Primitive": "Sphere"
+            }
+        },
+        {
             "id": 9001,
+            "siblingIndex": 10,
             "Tag": "Camera",
             "Translation": [0.0, 60.0, 900.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -185,5 +196,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

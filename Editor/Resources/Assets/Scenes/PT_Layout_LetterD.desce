@@ -2,35 +2,32 @@
     "SceneName": "PT_Layout_LetterD",
     "Entities": [
         {
-            "id": 7742318905613374229,
-            "Tag": "Checker Floor",
-            "Translation": [0.0, -1000.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [4000.0, 20.0, 4000.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/M_CheckerFloor.demat"],
-                "MaterialGuids": [6418972230554417713],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 3852173717021806005,
-            "Tag": "Sun",
-            "Translation": [-30.0, -75.0, -55.0],
+            "id": 3315907724416550891,
+            "siblingIndex": 3,
+            "Tag": "Height Fog",
+            "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "DirectionLight": {
-                "Color": [1.0, 1.0, 1.0],
-                "Intensity": 22.0,
-                "LightShaftBloom": false,
-                "BloomScale": 0.25,
-                "BloomThreshold": 3.0,
-                "BloomMaxBrightness": 20.0,
-                "BloomTint": [1.0, 0.95, 0.85]
+            "ExponentialHeightFog": {
+                "Enabled": true,
+                "FogDensity": 0.02,
+                "FogHeightFalloff": 0.2,
+                "FogInscatteringLuminance": [0.447, 0.638, 1.0],
+                "SkyAtmosphereAmbientContributionColorScale": [1.0, 1.0, 1.0],
+                "FogMaxOpacity": 1.0,
+                "StartDistance": 0.0,
+                "FogCutoffDistance": 0.0,
+                "SecondFogDensity": 0.0,
+                "SecondFogHeightFalloff": 0.2,
+                "SecondFogHeightOffset": 0.0,
+                "DirectionalInscatteringExponent": 4.0,
+                "DirectionalInscatteringStartDistance": 10000.0,
+                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5]
             }
         },
         {
             "id": 3541476290102148810,
+            "siblingIndex": 2,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -63,26 +60,33 @@
             }
         },
         {
-            "id": 3315907724416550891,
-            "Tag": "Height Fog",
-            "Translation": [0.0, 0.0, 0.0],
+            "id": 3852173717021806005,
+            "siblingIndex": 1,
+            "Tag": "Sun",
+            "Translation": [-30.0, -75.0, -55.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "ExponentialHeightFog": {
-                "Enabled": true,
-                "FogDensity": 0.02,
-                "FogHeightFalloff": 0.2,
-                "FogInscatteringLuminance": [0.447, 0.638, 1.0],
-                "SkyAtmosphereAmbientContributionColorScale": [1.0, 1.0, 1.0],
-                "FogMaxOpacity": 1.0,
-                "StartDistance": 0.0,
-                "FogCutoffDistance": 0.0,
-                "SecondFogDensity": 0.0,
-                "SecondFogHeightFalloff": 0.2,
-                "SecondFogHeightOffset": 0.0,
-                "DirectionalInscatteringExponent": 4.0,
-                "DirectionalInscatteringStartDistance": 10000.0,
-                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5]
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 22.0,
+                "LightShaftBloom": false,
+                "BloomScale": 0.25,
+                "BloomThreshold": 3.0,
+                "BloomMaxBrightness": 20.0,
+                "BloomTint": [1.0, 0.95, 0.85]
+            }
+        },
+        {
+            "id": 7742318905613374229,
+            "siblingIndex": 0,
+            "Tag": "Checker Floor",
+            "Translation": [0.0, -1000.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [4000.0, 20.0, 4000.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/M_CheckerFloor.demat"],
+                "MaterialGuids": [6418972230554417713],
+                "Primitive": "Cube"
             }
         }
     ],
@@ -132,5 +136,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

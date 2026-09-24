@@ -2,23 +2,21 @@
     "SceneName": "Clouds_Showcase",
     "Entities": [
         {
-            "id": 3852173717021806005,
-            "Tag": "Sun",
-            "Translation": [-30.0, -75.0, -55.0],
+            "id": 2496870921741983235,
+            "siblingIndex": 2,
+            "Tag": "Ground",
+            "Translation": [0.0, -10.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "DirectionLight": {
-                "Color": [1.0, 1.0, 1.0],
-                "Intensity": 22.0,
-                "LightShaftBloom": false,
-                "BloomScale": 0.25,
-                "BloomThreshold": 3.0,
-                "BloomMaxBrightness": 20.0,
-                "BloomTint": [1.0, 0.95, 0.85]
+            "Scale": [4000.0, 0.20000000298023224, 4000.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialGuids": [2985334364344323355],
+                "Primitive": "Cube"
             }
         },
         {
             "id": 3541476290102148810,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -50,19 +48,25 @@
             }
         },
         {
-            "id": 2496870921741983235,
-            "Tag": "Ground",
-            "Translation": [0.0, -10.0, 0.0],
+            "id": 3852173717021806005,
+            "siblingIndex": 0,
+            "Tag": "Sun",
+            "Translation": [-30.0, -75.0, -55.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [4000.0, 0.20000000298023224, 4000.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": [2985334364344323355],
-                "Primitive": "Cube"
+            "Scale": [1.0, 1.0, 1.0],
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 22.0,
+                "LightShaftBloom": false,
+                "BloomScale": 0.25,
+                "BloomThreshold": 3.0,
+                "BloomMaxBrightness": 20.0,
+                "BloomTint": [1.0, 0.95, 0.85]
             }
         },
         {
             "id": 7100000000000000001,
+            "siblingIndex": 3,
             "Tag": "Block_100m",
             "Translation": [-1400.0, 300.0, -10000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -75,6 +79,7 @@
         },
         {
             "id": 7100000000000000002,
+            "siblingIndex": 4,
             "Tag": "Block_250m",
             "Translation": [2600.0, 750.0, -25000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -87,6 +92,7 @@
         },
         {
             "id": 7100000000000000003,
+            "siblingIndex": 5,
             "Tag": "Block_450m",
             "Translation": [-5500.0, 1350.0, -45000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -99,6 +105,7 @@
         },
         {
             "id": 7100000000000000004,
+            "siblingIndex": 6,
             "Tag": "Block_700m",
             "Translation": [8000.0, 2100.0, -70000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -111,6 +118,7 @@
         },
         {
             "id": 7100000000000000005,
+            "siblingIndex": 7,
             "Tag": "Block_950m",
             "Translation": [-11000.0, 2850.0, -95000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -168,5 +176,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

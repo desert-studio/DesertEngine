@@ -1,4 +1,6 @@
 #include "SceneMigration.hpp"
+#include <unordered_map>
+#include <unordered_set>
 
 // The graph model and its JSON round trip, for the v20 -> v21 step: the blob it moves out of the entity
 // IS this type serialized, so reading it with anything else would be a second statement of the format.
@@ -3426,6 +3428,58 @@ namespace Desert::Migration
         }
     } // namespace
 
+    SiblingOrderMigrationReport MigrateSiblingOrderV24ToV25( std::vector<Assets::EntityData>& entities )
+    {
+        SiblingOrderMigrationReport report;
+
+        // Which ids the v24 loader could attach to in pass 2: non-prefab records only (a prefab record's
+        // entity did not exist yet). Pass 3 also resolved parents among prefab roots made before it.
+        std::unordered_set<uint64_t> normalIds;
+        for ( const auto& record : entities )
+            if ( !record.PrefabPath.has_value() && record.id.has_value() )
+                normalIds.insert( static_cast<uint64_t>( *record.id ) );
+
+        constexpr uint64_t                     kRoot = 0;
+        std::unordered_map<uint64_t, uint32_t> next; // parent id (kRoot for roots) -> next index
+        std::unordered_set<uint64_t>           madePrefabs;
+        const auto                             stamp = [&]( Assets::EntityData& record, bool resolves )
+        {
+            const bool hasParent = record.parent.has_value() && !record.parent->IsNull() && resolves;
+            record.siblingIndex  = next[hasParent ? static_cast<uint64_t>( *record.parent ) : kRoot]++;
+            ++report.Indexed;
+        };
+        for ( auto& record : entities )
+            if ( !record.PrefabPath.has_value() )
+                stamp( record, record.parent.has_value() &&
+                                    normalIds.contains( static_cast<uint64_t>( *record.parent ) ) );
+        for ( auto& record : entities )
+        {
+            if ( !record.PrefabPath.has_value() )
+                continue;
+            const bool resolves =
+                 record.parent.has_value() && ( normalIds.contains( static_cast<uint64_t>( *record.parent ) ) ||
+                                                madePrefabs.contains( static_cast<uint64_t>( *record.parent ) ) );
+            stamp( record, resolves );
+            if ( record.id.has_value() )
+                madePrefabs.insert( static_cast<uint64_t>( *record.id ) );
+        }
+
+        std::vector<uint64_t> before;
+        before.reserve( entities.size() );
+        for ( const auto& record : entities )
+            before.push_back( static_cast<uint64_t>( record.id.value_or( Common::UUID( 0 ) ) ) );
+        std::stable_sort( entities.begin(), entities.end(),
+                          []( const Assets::EntityData& a, const Assets::EntityData& b )
+                          {
+                              return static_cast<uint64_t>( a.id.value_or( Common::UUID( 0 ) ) ) <
+                                     static_cast<uint64_t>( b.id.value_or( Common::UUID( 0 ) ) );
+                          } );
+        for ( size_t i = 0; i < entities.size(); ++i )
+            if ( before[i] != static_cast<uint64_t>( entities[i].id.value_or( Common::UUID( 0 ) ) ) )
+                ++report.Reordered;
+        return report;
+    }
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -3450,6 +3504,14 @@ namespace Desert::Migration
 
         RunSteps( scene.Entities, &scene.Settings, scene.SceneName, statedSceneVersion, statedUnitVersion,
                   assetsRoot, sourceFile, report );
+
+        // Scene-only, so outside RunSteps (which prefabs share): a prefab keeps its records in hierarchy
+        // order. After every entity-level step, because it reorders the records those steps walk.
+        if ( statedSceneVersion < kSceneVersionSiblingOrder )
+        {
+            report.SiblingOrderRaised = true;
+            report.SiblingOrder       = MigrateSiblingOrderV24ToV25( scene.Entities );
+        }
 
         // Stamped whether or not anything moved: an empty scene at version 0 is still a scene at version 0,
         // and leaving it unstamped is how every load ends up re-running a migration that already happened.

@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 1002,
+            "siblingIndex": 0,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -15,7 +16,20 @@
             }
         },
         {
+            "id": 4101,
+            "siblingIndex": 2,
+            "Tag": "N9_Floor",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [40.0, 1.0, 40.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "Primitive": "Cube"
+            }
+        },
+        {
             "id": 9001,
+            "siblingIndex": 1,
             "Tag": "Camera",
             "Translation": [0.0, 200.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -25,17 +39,6 @@
                 "FOV": 45.0,
                 "Near": 10.000000149011612,
                 "Far": 5000000.0
-            }
-        },
-        {
-            "id": 4101,
-            "Tag": "N9_Floor",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [40.0, 1.0, 40.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "Primitive": "Cube"
             }
         }
     ],
@@ -85,5 +88,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

@@ -258,12 +258,18 @@ namespace Desert::Migration
     //                   (MigrateTextureAssetRefsV23ToV24). The tracked corpus had TWO such strings, both in
     //                   UI_SpriteSlots (measured 2026-09-24).
     inline constexpr int kSceneVersionTextureAssetRefs = 24;
+    //  25             - RECORDS SORTED BY ID, SIBLING ORDER STATED (AF6c, decision D3). A .desce lists its
+    //                   entities by ascending id, so the file order is a function of the entity SET; the
+    //                   order among siblings moves into each record's `siblingIndex`, stamped from the order
+    //                   the v24 loader produced so no hierarchy moves (MigrateSiblingOrderV24ToV25). Scenes
+    //                   only: a .deprefab keeps hierarchy order and is untouched by this step.
+    inline constexpr int kSceneVersionSiblingOrder = 25;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionTextureAssetRefs == kSceneVersion,
+    static_assert( kSceneVersionSiblingOrder == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1361,6 +1367,23 @@ namespace Desert::Migration
                                                                      std::vector<Assets::EntityData>& entities,
                                                                      const std::filesystem::path&     assetsRoot );
 
+    // What MigrateSiblingOrderV24ToV25 did to one file.
+    struct SiblingOrderMigrationReport
+    {
+        size_t Indexed   = 0; // records that received a siblingIndex
+        size_t Reordered = 0; // records whose position in the file moved when sorted by id
+    };
+
+    // Stamps every record's `siblingIndex` with its place among its siblings AS THE v24 LOADER BUILT IT,
+    // then sorts the records by id. The v24 loader attached non-prefab records in file order (pass 2) and
+    // prefab instances after all of them, in file order (pass 3); roots were made in that same order. The
+    // index mirrors exactly that, so the loaded hierarchy is identical before and after. A parent that no
+    // record answers to counted as a root then and counts as one here.
+    //
+    // Idempotent in effect (a v25 file already carries the indices and is already sorted), but gated on
+    // its number like every step above. SHELF LIFE: deleted once no v24 scene remains.
+    SiblingOrderMigrationReport MigrateSiblingOrderV24ToV25( std::vector<Assets::EntityData>& entities );
+
     // What MigrateAnimGraphV20ToV21 did, returned rather than logged, like every report above.
     struct AnimGraphMigrationReport
     {
@@ -1474,6 +1497,8 @@ namespace Desert::Migration
         ProceduralTerrainMigrationReport ProceduralTerrain;
         bool                             TextureAssetRefsRaised = false; // below kSceneVersionTextureAssetRefs
         TextureAssetRefsMigrationReport  TextureAssetRefs;
+        bool                             SiblingOrderRaised = false; // below kSceneVersionSiblingOrder
+        SiblingOrderMigrationReport      SiblingOrder;
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
 
@@ -1484,7 +1509,7 @@ namespace Desert::Migration
                    GravityUnitsRaised || UIVisibilityRaised || SSRUnitsRaised || CloudMaterialRaised ||
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
-                   TextureAssetRefsRaised || RetiredKeysRaised;
+                   TextureAssetRefsRaised || SiblingOrderRaised || RetiredKeysRaised;
         }
     };
 

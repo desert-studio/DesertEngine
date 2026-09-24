@@ -2,21 +2,8 @@
     "SceneName": "VIS_FogVisibleTrue",
     "Entities": [
         {
-            "id": 3651295826201078030,
-            "Tag": "Sun",
-            "Translation": [0.15000000596046448, -0.3700000047683716, 0.9200000166893005],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "DirectionLight": {
-                "Color": [1.0, 1.0, 1.0],
-                "Intensity": 1.0
-            },
-            "Visibility": {
-                "Visible": true
-            }
-        },
-        {
             "id": 3541476290102148810,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -57,7 +44,23 @@
             }
         },
         {
+            "id": 3651295826201078030,
+            "siblingIndex": 0,
+            "Tag": "Sun",
+            "Translation": [0.15000000596046448, -0.3700000047683716, 0.9200000166893005],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 1.0
+            },
+            "Visibility": {
+                "Visible": true
+            }
+        },
+        {
             "id": 4200000000000000001,
+            "siblingIndex": 2,
             "Tag": "Height Fog",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -84,6 +87,7 @@
         },
         {
             "id": 4200000000000000002,
+            "siblingIndex": 3,
             "Tag": "Ground",
             "Translation": [0.0, -10.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -96,6 +100,7 @@
         },
         {
             "id": 4200000000000000010,
+            "siblingIndex": 4,
             "Tag": "Sphere_20m",
             "Translation": [-600.0, 200.0, -2000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -108,6 +113,7 @@
         },
         {
             "id": 4200000000000000011,
+            "siblingIndex": 5,
             "Tag": "Cube_60m",
             "Translation": [600.0, 200.0, -6000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -120,6 +126,7 @@
         },
         {
             "id": 4200000000000000012,
+            "siblingIndex": 6,
             "Tag": "Sphere_150m",
             "Translation": [-600.0, 200.0, -15000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -132,6 +139,7 @@
         },
         {
             "id": 4200000000000000013,
+            "siblingIndex": 7,
             "Tag": "Cube_300m",
             "Translation": [600.0, 200.0, -30000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -144,6 +152,7 @@
         },
         {
             "id": 4200000000000000014,
+            "siblingIndex": 8,
             "Tag": "Sphere_500m",
             "Translation": [-600.0, 200.0, -50000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -156,6 +165,7 @@
         },
         {
             "id": 4200000000000000015,
+            "siblingIndex": 9,
             "Tag": "Cube_800m",
             "Translation": [600.0, 200.0, -80000.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -168,6 +178,7 @@
         },
         {
             "id": 10144312751783984541,
+            "siblingIndex": 10,
             "Tag": "Camera",
             "Translation": [0.0, 200.0, 1500.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -226,5 +237,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

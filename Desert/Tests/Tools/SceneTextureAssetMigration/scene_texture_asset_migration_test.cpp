@@ -62,9 +62,9 @@ namespace
     }
 } // namespace
 
-TEST( SceneTextureAssetMigration, TheStepIsTheHeadAndTheHeadIsWhatTheEngineRequires )
+TEST( SceneTextureAssetMigration, TheStepIsFollowedOnlyByTheSiblingOrderStep )
 {
-    EXPECT_EQ( Migration::kSceneVersionTextureAssetRefs, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Migration::kSceneVersionTextureAssetRefs + 1, Migration::kSceneVersionSiblingOrder );
     EXPECT_EQ( Migration::kSceneVersionTextureAssetRefs, Migration::kSceneVersionProceduralTerrain + 1 );
 }
 

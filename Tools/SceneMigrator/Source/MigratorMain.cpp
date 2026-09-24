@@ -566,6 +566,13 @@ namespace
                 out << "; NO ASSET under the assets root: " << name;
             out << ")";
         }
+        if ( report.SiblingOrderRaised )
+        {
+            out << " scene v" << Desert::Migration::kSceneVersionTextureAssetRefs << "->v"
+                << Desert::Migration::kSceneVersionSiblingOrder << " (" << report.SiblingOrder.Indexed
+                << " sibling index(es) stated, " << report.SiblingOrder.Reordered
+                << " record(s) moved when sorted by id)";
+        }
         if ( report.DebugViewRaised )
         {
             out << " scene v" << Desert::Migration::kSceneVersionCloudMaterial << "->v"

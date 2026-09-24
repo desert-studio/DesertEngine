@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 1001,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
             "Rotation": [0.0, 0.0, 0.0],
@@ -14,6 +15,7 @@
         },
         {
             "id": 1002,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -30,20 +32,8 @@
             }
         },
         {
-            "id": 9001,
-            "Tag": "Camera",
-            "Translation": [0.0, 60.0, 900.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Camera": {
-                "IsMainCamera": true,
-                "FOV": 45.0,
-                "Near": 10.0,
-                "Far": 5000000.0
-            }
-        },
-        {
             "id": 3001,
+            "siblingIndex": 3,
             "Tag": "UI Canvas",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -63,6 +53,7 @@
         {
             "id": 3002,
             "parent": 3001,
+            "siblingIndex": 0,
             "Tag": "BG",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -116,6 +107,7 @@
         {
             "id": 3003,
             "parent": 3001,
+            "siblingIndex": 1,
             "Tag": "Title",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -163,6 +155,7 @@
         {
             "id": 3010,
             "parent": 3001,
+            "siblingIndex": 2,
             "Tag": "Live",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -195,6 +188,7 @@
         {
             "id": 3011,
             "parent": 3001,
+            "siblingIndex": 3,
             "Tag": "LiveLabel",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -242,6 +236,7 @@
         {
             "id": 3020,
             "parent": 3001,
+            "siblingIndex": 4,
             "Tag": "Missing",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -274,6 +269,7 @@
         {
             "id": 3021,
             "parent": 3001,
+            "siblingIndex": 5,
             "Tag": "MissingLabel",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -321,6 +317,7 @@
         {
             "id": 3030,
             "parent": 3001,
+            "siblingIndex": 6,
             "Tag": "Unset",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -353,6 +350,7 @@
         {
             "id": 3031,
             "parent": 3001,
+            "siblingIndex": 7,
             "Tag": "UnsetLabel",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -400,6 +398,7 @@
         {
             "id": 3040,
             "parent": 3001,
+            "siblingIndex": 8,
             "Tag": "Control",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -453,6 +452,7 @@
         {
             "id": 3041,
             "parent": 3001,
+            "siblingIndex": 9,
             "Tag": "ControlLabel",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -495,6 +495,20 @@
                 "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
                 "OutlineColor": [0.0, 0.0, 0.0]
+            }
+        },
+        {
+            "id": 9001,
+            "siblingIndex": 2,
+            "Tag": "Camera",
+            "Translation": [0.0, 60.0, 900.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "IsMainCamera": true,
+                "FOV": 45.0,
+                "Near": 10.0,
+                "Far": 5000000.0
             }
         }
     ],
@@ -544,5 +558,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

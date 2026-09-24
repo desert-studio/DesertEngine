@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 7310021741300001,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-0.3499999940395355, -0.699999988079071, -0.44999998807907104],
             "Rotation": [0.0, 0.0, 0.0],
@@ -15,6 +16,7 @@
         },
         {
             "id": 7310021741300002,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -32,6 +34,7 @@
         },
         {
             "id": 7310021741300003,
+            "siblingIndex": 2,
             "Tag": "Floor",
             "Translation": [0.0, -60.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -42,6 +45,7 @@
         },
         {
             "id": 7310021741300004,
+            "siblingIndex": 3,
             "Tag": "EmitterRed",
             "Translation": [-500.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -68,6 +72,7 @@
         },
         {
             "id": 7310021741300005,
+            "siblingIndex": 4,
             "Tag": "EmitterBlue",
             "Translation": [500.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -139,5 +144,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

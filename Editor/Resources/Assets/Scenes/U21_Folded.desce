@@ -2,7 +2,16 @@
     "SceneName": "U21_Folded",
     "Entities": [
         {
+            "id": 921000,
+            "siblingIndex": 2,
+            "Tag": "Block",
+            "Translation": [0.0, 0.0, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0]
+        },
+        {
             "id": 926001,
+            "siblingIndex": 0,
             "Tag": "Control Sphere (never folded)",
             "Translation": [-400.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -13,6 +22,7 @@
         },
         {
             "id": 926003,
+            "siblingIndex": 1,
             "Tag": "Sun",
             "Translation": [-30.0, -75.0, -55.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -31,14 +41,8 @@
             }
         },
         {
-            "id": 921000,
-            "Tag": "Block",
-            "Translation": [0.0, 0.0, -300.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0]
-        },
-        {
             "id": 7243249734566722678,
+            "siblingIndex": 3,
             "Tag": "Fold Cube 0 x9",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -132,5 +136,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }

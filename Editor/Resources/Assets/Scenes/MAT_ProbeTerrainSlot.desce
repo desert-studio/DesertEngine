@@ -3,6 +3,7 @@
     "Entities": [
         {
             "id": 1001,
+            "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
             "Rotation": [0.0, 0.0, 0.0],
@@ -14,6 +15,7 @@
         },
         {
             "id": 1002,
+            "siblingIndex": 1,
             "Tag": "Sky",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -31,6 +33,7 @@
         },
         {
             "id": 2008,
+            "siblingIndex": 2,
             "Tag": "TerrainDomainInMeshSlot",
             "Translation": [0.0, 20.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -43,6 +46,7 @@
         },
         {
             "id": 2009,
+            "siblingIndex": 3,
             "Tag": "ReferencePBR",
             "Translation": [250.0, 20.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -55,6 +59,7 @@
         },
         {
             "id": 9001,
+            "siblingIndex": 4,
             "Tag": "Camera",
             "Translation": [0.0, 60.0, 900.0],
             "Rotation": [0.0, 0.0, 0.0],
@@ -113,5 +118,5 @@
         "SplashFade": 0.4000000059604645
     },
     "UnitVersion": 1,
-    "SceneVersion": 24
+    "SceneVersion": 25
 }
