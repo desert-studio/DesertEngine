@@ -160,6 +160,20 @@ namespace
 
     // Every text asset this tool writes goes through the one canonical writer (AF6), so a migrated file and a
     // file saved by the engine are laid out alike and a migration's diff is only the lines it changed.
+    // `object` (JSON text of an object without a "Header" member) with "Header": `header` as its FIRST member,
+    // every other byte left as written; WriteText lays the result out canonically. A text that does not open
+    // an object is returned unchanged, and WriteText's parse then refuses it by name.
+    std::string PrependHeaderMember( const std::string& object, const std::string& header )
+    {
+        const std::size_t open = object.find_first_not_of( " \t\r\n" );
+        if ( open == std::string::npos || object[open] != '{' )
+            return object;
+        const std::size_t next  = object.find_first_not_of( " \t\r\n", open + 1 );
+        const bool        empty = next != std::string::npos && object[next] == '}';
+        return object.substr( 0, open + 1 ) + "\"Header\":" + header + ( empty ? "" : "," ) +
+               object.substr( open + 1 );
+    }
+
     bool WriteText( const std::filesystem::path& path, const std::string& json, std::ostream& err )
     {
         const auto text = Common::Content::CanonicalJsonText( json );
@@ -999,7 +1013,14 @@ namespace Desert::Migration
                 continue;
             }
 
-            if ( !WriteText( path, rfl::json::write( parsed.value() ), err ) )
+            // A raise that only STATES the header splices it into the file's own text. Round-tripping
+            // through MaterialData would respell every number through float (0.97 -> 0.9700000286102295):
+            // the same value to the engine, but a content change to every reader of the text, for no step.
+            const bool headerOnly = headerRaised && !report.Changed() && !albedo.Changed();
+            if ( !WriteText( path,
+                             headerOnly ? PrependHeaderMember( source, rfl::json::write( *parsed.value().Header ) )
+                                        : rfl::json::write( parsed.value() ),
+                             err ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched. It would have been:" << what.str() << "\n";

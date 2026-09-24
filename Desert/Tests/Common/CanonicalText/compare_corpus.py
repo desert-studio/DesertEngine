@@ -3,8 +3,10 @@
 
 The canonical writer changed only LAYOUT: key order, whitespace, number spelling. A file whose parsed
 document differs from the one at the base ref therefore changed CONTENT, and this names it. The only
-content change AF6 made on purpose is scene v25 (AF6c): records sorted by id, each stating `siblingIndex`,
-and the version integer raised. Those three are normalised away below - nothing else is.
+content change AF6 made on purpose are scene v25 (AF6c): records sorted by id, each stating `siblingIndex`,
+and the version integer raised; and the text header (AF6g/AF6h): scene v26, prefabs and .demat files open
+with a Header stating kind, GUID and versions in place of the two integers. Those are normalised away below
+- nothing else is.
 
 Run from anywhere inside the repository:
     python3 Desert/Tests/Common/CanonicalText/compare_corpus.py [base-ref]
@@ -41,6 +43,28 @@ def normalise(doc, ext, raised):
     return doc
 
 
+def strip_text_header(old, new, ext):
+    """Removes the text header AF6g/AF6h added (scene v26, .demat MATL 1) when it states exactly what the old
+    file did: kind by extension, SCNE 26 with the old UnitVersion carried as UNIT, MATL 1. True when stripped."""
+    if not isinstance(old, dict) or not isinstance(new, dict) or "Header" not in new:
+        return False
+    header = new["Header"]
+    versions = header.get("Versions", {})
+    if ext in (".desce", ".deprefab"):
+        kind = "Scene" if ext == ".desce" else "Prefab"
+        if header.get("Kind") != kind or versions.get("SCNE") != 26 or "UnitVersion" in new or \
+                versions.get("UNIT") != old.get("UnitVersion"):
+            return False
+        old.pop("UnitVersion", None)
+    elif ext == ".demat":
+        if header.get("Kind") != "Material" or versions != {"MATL": 1}:
+            return False
+    else:
+        return False
+    new.pop("Header")
+    return True
+
+
 def main():
     base = sys.argv[1] if len(sys.argv) > 1 else "origin/task/AF2-cells-envelope"
     root = git("rev-parse", "--show-toplevel").decode().strip()
@@ -56,8 +80,10 @@ def main():
         old = json.loads(git("-C", root, "show", f"{base}:{path}"))
         with open(f"{root}/{path}", "rb") as f:
             new = json.loads(f.read())
+        header_ok = strip_text_header(old, new, ext)
+        stated = isinstance(new, dict) and new.get("SceneVersion", 26 if header_ok else None)
         raised = isinstance(old, dict) and isinstance(new, dict) and old.get("SceneVersion") == 24 and \
-            new.get("SceneVersion") == 25
+            stated in (25, 26)
         if normalise(old, ext, raised) != normalise(new, ext, raised):
             differ.append(path)
         compared += 1
