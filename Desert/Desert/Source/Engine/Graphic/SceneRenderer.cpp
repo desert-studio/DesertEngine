@@ -228,8 +228,23 @@ namespace Desert::Graphic
         // GPU terrain (tessellated patch grid; opaque geometry, depth-tested with the meshes).
         RegisterSystem<System::TerrainRenderer>( "TerrainSystem", this, m_TargetFramebuffer,
                                                  m_RenderGraphBuilder );
-        if ( !SP_CAST( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->Initialize() )
-            LOG_ERROR( "[SceneRenderer] the terrain system did not initialise; terrain will not draw." );
+        const auto& terrainSystem = SP_CAST( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        if ( const auto init = terrainSystem->Initialize(); !init )
+        {
+            LOG_ERROR( "[SceneRenderer] the terrain system did not initialise; terrain will not draw: {}",
+                       init.GetError() );
+        }
+        // The terrain casts into the sun's cascades from inside the mesh renderer's cascade passes, which
+        // own and clear those targets (IShadowCaster says why it is not a pass of its own).
+        else if ( const auto caster = terrainSystem->CreateShadowPipeline( meshSystem->GetCascadeFramebuffer() );
+                  !caster )
+        {
+            LOG_ERROR( "[SceneRenderer] the terrain will not cast shadows: {}", caster.GetError() );
+        }
+        else
+        {
+            meshSystem->AddShadowCaster( terrainSystem );
+        }
 
         const auto& jumpFloodSystem =
              SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
@@ -670,6 +685,13 @@ namespace Desert::Graphic
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
         }
 
+        // The terrain's frame data, once, before any of its three passes records (the cascades in
+        // DepthPrePass, the forward pass in Geometry, the G-buffer fill after the graph).
+        {
+            DESERT_PROFILE_PASS( "Terrain: PrepareFrame" );
+            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame();
+        }
+
         {
             DESERT_PROFILE_PASS( "ClearMainFramebuffer" );
             ClearMainFramebuffer();
@@ -710,6 +732,12 @@ namespace Desert::Graphic
 
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             meshRenderer->RenderGBufferManual();
+            {
+                // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is
+                // the graph's "TerrainPass").
+                DESERT_PROFILE_PASS( "TerrainGBuffer" );
+                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->RenderGBufferManual();
+            }
 
             // Resolve the G-buffer depth (static opaque geometry) into the scene target depth. The deferred
             // composite writes only colour, so without this the target depth stays empty and depth-tested

@@ -273,14 +273,49 @@ namespace Desert::World::Landscape
                                                 float worldX, float worldZ );
 
     /**
+     * @brief The four tiles that share an edge with a tile, each null when it is not loaded (or is the
+     * landscape's own edge). West = tile (x - 1, z), East = (x + 1, z), South = (x, z - 1), North = (x, z + 1).
+     *
+     * A present neighbour must have the tile's own sample counts — it belongs to the same root, and
+     * CheckTileMatchesRoot holds both to QuadsPerTile + 1. A mismatch is a caller defect and verified.
+     */
+    struct LandscapeTileNeighbours
+    {
+        const LandscapeTileData* West  = nullptr;
+        const LandscapeTileData* East  = nullptr;
+        const LandscapeTileData* South = nullptr;
+        const LandscapeTileData* North = nullptr;
+    };
+
+    /// Bit i set = neighbour i present, in the order West, East, South, North. The GPU receives exactly this
+    /// number (TerrainInstance.Params2.w) and decodes it into the hasLow / hasHigh of LandscapeHeight.glslh.
+    uint32_t LandscapeNeighbourMask( const LandscapeTileNeighbours& neighbours );
+
+    /**
+     * @brief The tile's samples with a one-sample ring from its neighbours: (SamplesX + 2) x (SamplesZ + 2),
+     * row-major, X fastest; entry (x + 1, z + 1) is sample (x, z) for x in [-1, SamplesX], z likewise.
+     *
+     * The ring holds the row BEYOND the shared edge — the neighbour's second row, because its first is this
+     * tile's last. It exists for one reader: the gradient at a border sample, which with it is a central
+     * difference identical on both sides of the seam (LandscapeGradientLow/High). Where a neighbour is
+     * absent, and at the four corners (no gradient reads them), the ring repeats the nearest own sample; the
+     * neighbour mask says those entries are not to be differenced. This is the GPU heightmap's layout.
+     */
+    std::vector<uint16_t> LandscapeBorderedSamples( const LandscapeTileData&       tile,
+                                                    const LandscapeTileNeighbours& neighbours );
+
+    /**
      * @brief Unit surface normal (Y up) at world (x, z), or nullopt off the tile.
      *
-     * The gradient is taken by central differences AT THE SAMPLES (one-sided on the tile's border, where
-     * the neighbour belongs to another tile) and then interpolated bilinearly, so the normal is continuous
-     * across cells where the bilinear surface's own derivative is not. On a plane both agree exactly.
+     * The gradient is taken by central differences AT THE SAMPLES and then interpolated bilinearly, so the
+     * normal is continuous across cells where the bilinear surface's own derivative is not. On a border
+     * sample the difference reaches into the neighbour's ring row (LandscapeBorderedSamples), so two tiles
+     * give the same bits at a point of their shared edge; it is one-sided only where the neighbour is
+     * absent. The GPU evaluates the same functions of LandscapeHeight.glslh on the same samples.
      */
     std::optional<glm::vec3> SampleLandscapeNormal( const LandscapeTileData& tile, const LandscapeFrame& frame,
-                                                    float worldX, float worldZ );
+                                                    const LandscapeTileNeighbours& neighbours, float worldX,
+                                                    float worldZ );
 
     // ── The blob ──────────────────────────────────────────────────────────────────────────────────────
 

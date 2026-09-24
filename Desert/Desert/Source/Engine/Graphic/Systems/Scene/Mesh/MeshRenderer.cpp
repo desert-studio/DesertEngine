@@ -2410,6 +2410,12 @@ namespace Desert::Graphic::System
                                                   instMat->GetMaterialExecutor(), b.Count, b.First,
                                                   /*hiddenSubmeshMask*/ 0, b.LodLevel );
                      }
+
+                     // Casters that are not meshes (the tessellated terrain), recorded into THIS pass so the
+                     // cascade is cleared once and holds everyone's depth (IShadowCaster).
+                     for ( const auto& weak : m_ShadowCasters )
+                         if ( const auto caster = weak.lock() )
+                             caster->RecordShadowCascade( c, m_CascadeVP[c] );
                  },
                  m_ShadowPipeline->GetSpecification(), m_CascadeFB[c], {},
                  // Clear the R32F depth target to 1.0 (far): background texels must read as "no occluder",

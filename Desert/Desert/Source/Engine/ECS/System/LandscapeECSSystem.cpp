@@ -10,6 +10,8 @@
 #include <Common/Core/Logger.hpp>
 
 #include <cstring>
+#include <map>
+#include <tuple>
 #include <optional>
 #include <string>
 #include <vector>
@@ -41,20 +43,21 @@ namespace Desert::ECS
             return std::nullopt;
         }
 
-        std::shared_ptr<Graphic::Image2D> UploadHeightmap( const Landscape::LandscapeTileData& tile, int32_t tileX,
-                                                           int32_t tileZ )
+        std::shared_ptr<Graphic::Image2D> UploadHeightmap( const Landscape::LandscapeTileData&       tile,
+                                                           const Landscape::LandscapeTileNeighbours& neighbours,
+                                                           int32_t tileX, int32_t tileZ )
         {
-            // The samples as the CPU holds them, row-major z * SamplesX + x — which is the image's own
-            // row order, so the byte copy IS the upload layout (R16 texel = one uint16, host byte order,
-            // which is the device's on every platform this builds for).
-            const std::vector<uint16_t>& samples = tile.Samples();
-            std::vector<unsigned char>   bytes( samples.size() * sizeof( uint16_t ) );
+            // The tile's samples with the one-sample ring from its neighbours (LandscapeBorderedSamples),
+            // row-major, X fastest — the image's own row order, so the byte copy IS the upload layout (R16
+            // texel = one uint16, host byte order, which is the device's on every platform this builds for).
+            const std::vector<uint16_t> samples = Landscape::LandscapeBorderedSamples( tile, neighbours );
+            std::vector<unsigned char>  bytes( samples.size() * sizeof( uint16_t ) );
             std::memcpy( bytes.data(), samples.data(), bytes.size() );
 
             Core::Formats::Image2DSpecification spec = {
                  .Tag        = "LandscapeTile(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
-                 .Width      = tile.SamplesX(),
-                 .Height     = tile.SamplesZ(),
+                 .Width      = tile.SamplesX() + 2u,
+                 .Height     = tile.SamplesZ() + 2u,
                  .Format     = Core::Formats::ImageFormat::R16_UNORM,
                  .Mips       = 1,
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
@@ -75,6 +78,18 @@ namespace Desert::ECS
                                      Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                                      const Common::Timestep& /*ts*/ )
     {
+        // Pass 1: every drawable tile, by (root, tile x, tile z) — a tile's heightmap carries a ring row from
+        // each loaded neighbour, so it cannot be built before its neighbours are known.
+        struct Drawable
+        {
+            entt::entity             Entity = entt::null;
+            Landscape::LandscapeRoot Root;
+            bool                     Dirty = false;
+        };
+        using Coord = std::tuple<uint64_t, int32_t, int32_t>;
+        std::vector<Drawable>   drawables;
+        std::map<Coord, size_t> byCoord;
+
         auto view = registry.view<LandscapeTileComponent>();
         for ( const auto entity : view )
         {
@@ -97,36 +112,81 @@ namespace Desert::ECS
 
             // ALWAYS taken, drawn or hidden: the list is "what the GPU copy does not have yet", and a hidden
             // tile's copy is refreshed like any other so showing it again shows the current heights.
-            const bool dirty = !heights.TakeDirtyRects().empty();
-            TileGpu&   gpu   = m_Tiles[entity];
-            if ( dirty || !gpu.Heightmap || gpu.SamplesX != heights.SamplesX() ||
-                 gpu.SamplesZ != heights.SamplesZ() )
+            Drawable d;
+            d.Entity = entity;
+            d.Root   = *root;
+            d.Dirty  = !heights.TakeDirtyRects().empty();
+            byCoord.emplace( Coord{ static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) ), tileComp.TileX,
+                                    tileComp.TileZ },
+                             drawables.size() );
+            drawables.push_back( d );
+        }
+
+        const auto neighbourAt = [&]( const LandscapeTileComponent& c, int32_t dx, int32_t dz ) -> const Drawable*
+        {
+            const auto it = byCoord.find(
+                 Coord{ static_cast<uint64_t>( Common::UUID( c.Landscape ) ), c.TileX + dx, c.TileZ + dz } );
+            return it == byCoord.end() ? nullptr : &drawables[it->second];
+        };
+
+        // Pass 2: upload what changed, draw what is shown.
+        for ( const Drawable& d : drawables )
+        {
+            const auto&                         tileComp = registry.get<LandscapeTileComponent>( d.Entity );
+            const Landscape::LandscapeTileData& heights  = *tileComp.Heights;
+
+            const Drawable* west  = neighbourAt( tileComp, -1, 0 );
+            const Drawable* east  = neighbourAt( tileComp, 1, 0 );
+            const Drawable* south = neighbourAt( tileComp, 0, -1 );
+            const Drawable* north = neighbourAt( tileComp, 0, 1 );
+
+            const auto heightsOf = [&]( const Drawable* n ) -> const Landscape::LandscapeTileData*
+            { return n ? &*registry.get<LandscapeTileComponent>( n->Entity ).Heights : nullptr; };
+            Landscape::LandscapeTileNeighbours neighbours;
+            neighbours.West     = heightsOf( west );
+            neighbours.East     = heightsOf( east );
+            neighbours.South    = heightsOf( south );
+            neighbours.North    = heightsOf( north );
+            const uint32_t mask = Landscape::LandscapeNeighbourMask( neighbours );
+
+            // The ring is a copy of the neighbours' rows, so a neighbour's edit, arrival or departure makes
+            // this tile's copy stale as surely as its own edit does.
+            bool neighbourDirty = false;
+            for ( const Drawable* n : { west, east, south, north } )
+                neighbourDirty = neighbourDirty || ( n && n->Dirty );
+
+            TileGpu& gpu = m_Tiles[d.Entity];
+            if ( d.Dirty || neighbourDirty || !gpu.Heightmap || gpu.SamplesX != heights.SamplesX() ||
+                 gpu.SamplesZ != heights.SamplesZ() || gpu.NeighbourMask != mask )
             {
-                gpu.Heightmap = UploadHeightmap( heights, tileComp.TileX, tileComp.TileZ );
-                gpu.SamplesX  = heights.SamplesX();
-                gpu.SamplesZ  = heights.SamplesZ();
+                gpu.Heightmap     = UploadHeightmap( heights, neighbours, tileComp.TileX, tileComp.TileZ );
+                gpu.SamplesX      = heights.SamplesX();
+                gpu.SamplesZ      = heights.SamplesZ();
+                gpu.NeighbourMask = mask;
                 if ( !gpu.Heightmap )
                 {
                     LOG_ERROR( "[Landscape] tile ({}, {}): the {} x {} R16 heightmap could not be created; the "
                                "tile is not drawn",
-                               tileComp.TileX, tileComp.TileZ, gpu.SamplesX, gpu.SamplesZ );
-                    m_Tiles.erase( entity );
+                               tileComp.TileX, tileComp.TileZ, gpu.SamplesX + 2u, gpu.SamplesZ + 2u );
+                    m_Tiles.erase( d.Entity );
                     continue;
                 }
             }
 
-            if ( IsHidden( registry, entity ) )
+            if ( IsHidden( registry, d.Entity ) )
                 continue;
 
+            const Landscape::LandscapeRoot&    root = d.Root;
             Graphic::System::LandscapeTileDraw draw;
-            draw.OriginX      = root->Origin.x;
-            draw.OriginZ      = root->Origin.z;
-            draw.BaseY        = root->Origin.y;
-            draw.SpacingCm    = root->SpacingCm;
-            draw.ZScale       = root->ZScale;
-            draw.FirstSampleX = tileComp.TileX * static_cast<int32_t>( root->QuadsPerTile );
-            draw.FirstSampleZ = tileComp.TileZ * static_cast<int32_t>( root->QuadsPerTile );
-            draw.QuadsPerTile = root->QuadsPerTile;
+            draw.OriginX       = root.Origin.x;
+            draw.OriginZ       = root.Origin.z;
+            draw.BaseY         = root.Origin.y;
+            draw.SpacingCm     = root.SpacingCm;
+            draw.ZScale        = root.ZScale;
+            draw.FirstSampleX  = tileComp.TileX * static_cast<int32_t>( root.QuadsPerTile );
+            draw.FirstSampleZ  = tileComp.TileZ * static_cast<int32_t>( root.QuadsPerTile );
+            draw.QuadsPerTile  = root.QuadsPerTile;
+            draw.NeighbourMask = mask;
             renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap.get(), draw );
         }
 

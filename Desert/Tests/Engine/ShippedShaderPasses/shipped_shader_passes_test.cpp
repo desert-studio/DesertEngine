@@ -291,8 +291,16 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
     // Ю11 added the last of these. UIMatError.shader is deliberately ABSENT: it declares no resources at
     // all, which is what makes it the tree's only test of a resource-free program, so it carries no row.
     static constexpr std::string_view kCarriesAGeneratedRow[] = {
-         "MatProbe.shader", "MatProbeUnlit.shader",   "NewShaderGraph.shader", "Terrain.shader",
-         "TextSDF.shader",  "UIMatRadialWipe.shader", "Unlit.shader",
+         "MatProbe.shader",
+         "MatProbeUnlit.shader",
+         "NewShaderGraph.shader",
+         "Terrain.shader",
+         // LS-5: the terrain's deferred twin carries Terrain.shader's Properties block — the same row, written
+         // by the TerrainRenderer into whichever of the two the render path draws with.
+         "TerrainGBuffer.shader",
+         "TextSDF.shader",
+         "UIMatRadialWipe.shader",
+         "Unlit.shader",
     };
 
     std::set<std::string> expected;

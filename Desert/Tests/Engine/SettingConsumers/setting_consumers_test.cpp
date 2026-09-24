@@ -544,9 +544,10 @@ namespace
          { "Far", kScene },
     };
 
-    // The one shader every terrain in this engine is drawn by. A layer mode that TerrainECSSystem packs
-    // into the draw command has to be READ here, or the mode is a combo box that moves nothing.
-    constexpr const char* kTerrainShader = "Editor/Resources/Shaders/Programs/Terrain/Terrain.shader";
+    // The one surface text every terrain in this engine is shaded by — Terrain.shader (forward) and
+    // TerrainGBuffer.shader (deferred) both include it. A layer mode that TerrainECSSystem packs into the
+    // draw command has to be READ here, or the mode is a combo box that moves nothing.
+    constexpr const char* kTerrainShader = "Editor/Resources/Shaders/Programs/Terrain/TerrainSurface.glslh";
 
     constexpr Row kTerrainRows[] = {
          { "Material", kTerrain },

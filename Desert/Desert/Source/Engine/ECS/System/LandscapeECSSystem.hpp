@@ -22,7 +22,9 @@ namespace Desert::ECS
      * The tile's uint16 samples (LandscapeTileComponent::Heights) are the one source of the landscape's
      * heights (analysis A2); the GPU holds an R16_UNORM COPY of them, one image per tile, made here:
      *   - uploaded when the tile first appears, and again whenever it reports dirty rectangles (a new tile
-     *     is wholly dirty, LandscapeData.hpp) or changes size;
+     *     is wholly dirty, LandscapeData.hpp) or changes size — and whenever a NEIGHBOUR is edited, appears
+     *     or goes away, because the copy carries a one-sample ring of each neighbour's next row (the normal
+     *     at a seam is a central difference through it, LandscapeBorderedSamples);
      *   - a re-upload makes a NEW image rather than writing into the old one, because the old one may be
      *     bound by a frame still in flight; dropping it hands it to the allocator's per-frame deletion
      *     queue, which is what makes the release safe;
@@ -46,6 +48,7 @@ namespace Desert::ECS
             std::shared_ptr<Graphic::Image2D> Heightmap;
             uint32_t                          SamplesX = 0u;
             uint32_t                          SamplesZ = 0u;
+            uint32_t                          NeighbourMask = 0u; // whose ring rows the copy carries
         };
 
         std::unordered_map<entt::entity, TileGpu> m_Tiles;

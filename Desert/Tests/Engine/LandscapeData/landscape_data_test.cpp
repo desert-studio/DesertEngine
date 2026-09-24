@@ -173,7 +173,7 @@ TEST( LandscapeSampling, PlaneIsExactHeightAndNormal )
         const auto  h  = SampleLandscapeHeight( tile, frame, frame.OriginX + lx, frame.OriginZ + lz );
         ASSERT_TRUE( h.has_value() );
         ASSERT_NEAR( *h, frame.BaseY + plane( lx, lz ), 1e-3f ) << "at local (" << lx << ", " << lz << ")";
-        const auto n = SampleLandscapeNormal( tile, frame, frame.OriginX + lx, frame.OriginZ + lz );
+        const auto n = SampleLandscapeNormal( tile, frame, {}, frame.OriginX + lx, frame.OriginZ + lz );
         ASSERT_TRUE( n.has_value() );
         ASSERT_NEAR( n->x, expectedNormal.x, 1e-5f );
         ASSERT_NEAR( n->y, expectedNormal.y, 1e-5f );
@@ -230,7 +230,7 @@ TEST( LandscapeSampling, SineIsWithinTheInterpolationAndQuantisationBound )
         ASSERT_NEAR( *h, wave( lx, 0.0f ), heightTol ) << "x = " << lx;
         if ( lx >= s && lx <= 63.0f * s )
         {
-            const auto      n        = SampleLandscapeNormal( tile, frame, lx, 2.0f * s );
+            const auto      n        = SampleLandscapeNormal( tile, frame, {}, lx, 2.0f * s );
             const float     slope    = amplitude * k * std::cos( k * lx );
             const glm::vec3 expected = glm::normalize( glm::vec3( -slope, 1.0f, 0.0f ) );
             ASSERT_TRUE( n.has_value() );
@@ -275,7 +275,7 @@ TEST( LandscapeSampling, EdgesAreInclusiveOffTileIsNulloptAndSeamsAgree )
     EXPECT_FALSE( SampleLandscapeHeight( tA, a, 10.0f, 400.01f ).has_value() );
     EXPECT_FALSE( SampleLandscapeHeight( tA, a, 10.0f, -0.01f ).has_value() );
     EXPECT_FALSE( SampleLandscapeHeight( tA, a, std::nanf( "" ), 10.0f ).has_value() );
-    EXPECT_FALSE( SampleLandscapeNormal( tA, a, 400.01f, 10.0f ).has_value() );
+    EXPECT_FALSE( SampleLandscapeNormal( tA, a, {}, 400.01f, 10.0f ).has_value() );
 }
 
 TEST( LandscapeSampling, FrameValidationNamesTheNumber )
@@ -418,7 +418,7 @@ TEST( LandscapeDirty, DimensionsAreValidated )
     // The empty tile a failed unwrap hands back is inert, not plausible.
     const LandscapeTileData empty;
     EXPECT_FALSE( SampleLandscapeHeight( empty, LandscapeFrame{}, 0.0f, 0.0f ).has_value() );
-    EXPECT_FALSE( SampleLandscapeNormal( empty, LandscapeFrame{}, 0.0f, 0.0f ).has_value() );
+    EXPECT_FALSE( SampleLandscapeNormal( empty, LandscapeFrame{}, {}, 0.0f, 0.0f ).has_value() );
     EXPECT_FALSE( empty.ReadRegion( { 0u, 0u, 1u, 1u } ).IsSuccess() );
     EXPECT_TRUE( empty.DirtyRects().empty() );
 
