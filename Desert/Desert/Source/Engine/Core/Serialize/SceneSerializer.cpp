@@ -20,6 +20,8 @@
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include <Common/Core/Units.hpp>
+#include <Common/Content/CanonicalText.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 #include <cmath>
 #include <filesystem>
@@ -660,7 +662,13 @@ namespace Desert::Core
             return Common::MakeFormattedError( "could not save the landscape of '{}': {}", m_Scene->GetSceneName(),
                                                tiles.GetError() );
 
-        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, SerializeToJson() );
+        // The file is the canonical text (AF6), not rfl's single line: one field per line is what makes a
+        // scene's git diff name the fields that changed and two edits to different entities merge.
+        const auto text = Common::Content::CanonicalJsonText( SerializeToJson() );
+        if ( !text )
+            return Common::MakeFormattedError( "could not lay out '{}' as text: {}", m_Scene->GetSceneName(),
+                                               text.GetError() );
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text.GetValue() );
              !written )
             return Common::MakeFormattedError( "could not write {}: {}", path.string(), written.GetError() );
 

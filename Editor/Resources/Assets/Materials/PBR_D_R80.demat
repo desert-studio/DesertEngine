@@ -1,1 +1,18 @@
-{"Params":[{"Name":"AlbedoColor","Value":[0.8500000238418579,0.20000000298023224,0.15000000596046448,1.0]},{"Name":"RoughnessFactor","Value":[0.800000011920929,0.0,0.0,0.0]},{"Name":"MetallicFactor","Value":[0.0,0.0,0.0,0.0]}],"Textures":[],"MaterialId":4689765669016845411}
+{
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.8500000238418579, 0.20000000298023224, 0.15000000596046448, 1.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.800000011920929, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "MaterialId": 4689765669016845411
+}

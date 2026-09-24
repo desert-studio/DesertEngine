@@ -48,6 +48,7 @@
 #include "SceneMigration.hpp"
 #include "SettingsCanonical.hpp"
 
+#include <Common/Content/CanonicalText.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -136,6 +137,51 @@ namespace
         return buffer.str();
     }
 
+    // Every text asset this tool writes goes through the one canonical writer (AF6), so a migrated file and a
+    // file saved by the engine are laid out alike and a migration's diff is only the lines it changed.
+    bool WriteText( const std::filesystem::path& path, const std::string& json, std::ostream& err )
+    {
+        const auto text = Common::Content::CanonicalJsonText( json );
+        if ( !text )
+        {
+            err << "FAIL   " << path.string() << " — " << text.GetError() << "\n";
+            return false;
+        }
+        const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text.GetValue() );
+        if ( !written )
+            err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+        return static_cast<bool>( written );
+    }
+
+    // A file whose DOCUMENT is current but whose TEXT is not canonical is re-laid-out, not raised: its version
+    // stays, because the content is unchanged (the CanonicalText suite proves old and new parse to one document).
+    enum class Layout
+    {
+        Canonical,
+        Relaid,
+        Failed,
+    };
+
+    Layout RelayOutIfNeeded( const std::filesystem::path& path, const std::string& source, bool check,
+                             std::ostream& out, std::ostream& err )
+    {
+        if ( Common::Content::IsCanonicalJsonText( source ) )
+            return Layout::Canonical;
+        if ( check )
+        {
+            out << "WOULD  " << path.string() << " — text layout only (canonical text), version unchanged\n";
+            return Layout::Relaid;
+        }
+        if ( !WriteText( path, source, err ) )
+        {
+            err << "FAIL   " << path.string() << " — the layout could not be written; the original file is "
+                << "untouched\n";
+            return Layout::Failed;
+        }
+        out << "relaid " << path.string() << " — text layout only (canonical text), version unchanged\n";
+        return Layout::Relaid;
+    }
+
     // THE `.demat` FILES A v11 -> v12 RAISE PRODUCED, written FIRST and atomically, before the file that
     // names them: a file naming a material which does not exist is worse than one not yet migrated, so if
     // a material cannot be written its source is not either. Returns false on failure, having named it,
@@ -177,7 +223,7 @@ namespace
 
             std::error_code ec;
             std::filesystem::create_directories( matPath.parent_path(), ec );
-            if ( !Common::Utils::FileSystem::WriteContentToFileAtomic( matPath, mat.Json ) )
+            if ( !WriteText( matPath, mat.Json, err ) )
             {
                 err << "FAIL   " << matPath.string() << " — the cloud material could not be written; "
                     << source.string() << " is left at its old version\n";
@@ -236,7 +282,7 @@ namespace
 
             std::error_code ec;
             std::filesystem::create_directories( graphPath.parent_path(), ec );
-            if ( !Common::Utils::FileSystem::WriteContentToFileAtomic( graphPath, graph.Json ) )
+            if ( !WriteText( graphPath, graph.Json, err ) )
             {
                 err << "FAIL   " << graphPath.string() << " — the anim graph could not be written; "
                     << source.string() << " is left at its old version\n";
@@ -713,6 +759,7 @@ namespace Desert::Migration
 
         int changed = 0;
         int failed  = 0;
+        int relaid  = 0;
 
         // Cloud material FILE -> the scene that produced it, for the collision check below. Keyed on the
         // resolved path and not on the relative name any more: the root is per-scene now, so two scenes
@@ -778,6 +825,12 @@ namespace Desert::Migration
 
             if ( !report.Changed() )
             {
+                if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
+                     layout != Layout::Canonical )
+                {
+                    ++( layout == Layout::Failed ? failed : relaid );
+                    continue;
+                }
                 out << "ok     " << path.string() << " — already at scene v" << Desert::Migration::kSceneVersion
                     << " / units v" << Desert::Migration::kUnitVersion << "\n";
                 continue;
@@ -820,7 +873,7 @@ namespace Desert::Migration
             // byte-identical, and is a failed FILE here: counted, named, fatal to the exit code like
             // every FAIL above. The "raised" line above then describes work that was NOT kept, which is
             // why this line says so explicitly.
-            if ( !Common::Utils::FileSystem::WriteContentToFileAtomic( path, rfl::json::write( parsed.value() ) ) )
+            if ( !WriteText( path, rfl::json::write( parsed.value() ), err ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched\n";
@@ -865,6 +918,12 @@ namespace Desert::Migration
 
             if ( !report.Changed() && !albedo.Changed() )
             {
+                if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
+                     layout != Layout::Canonical )
+                {
+                    ++( layout == Layout::Failed ? failed : relaid );
+                    continue;
+                }
                 out << "ok     " << path.string() << " — no pre-O-4 layout slot, no scalar albedo\n";
                 continue;
             }
@@ -889,7 +948,7 @@ namespace Desert::Migration
                 continue;
             }
 
-            if ( !Common::Utils::FileSystem::WriteContentToFileAtomic( path, rfl::json::write( parsed.value() ) ) )
+            if ( !WriteText( path, rfl::json::write( parsed.value() ), err ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched. It would have been:" << what.str() << "\n";
@@ -925,6 +984,12 @@ namespace Desert::Migration
                 // doubling the conversion, not a sign that anything is wrong.
                 if ( report.FromVersion >= Desert::Assets::Serialization::kAnimationVersion )
                 {
+                    if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
+                         layout != Layout::Canonical )
+                    {
+                        ++( layout == Layout::Failed ? failed : relaid );
+                        continue;
+                    }
                     out << "ok     " << path.string() << " — already at `.anim` generation " << report.FromVersion
                         << "\n";
                     continue;
@@ -975,7 +1040,7 @@ namespace Desert::Migration
                 continue;
             }
 
-            if ( !Common::Utils::FileSystem::WriteContentToFileAtomic( path, migrated.GetValue() ) )
+            if ( !WriteText( path, migrated.GetValue(), err ) )
             {
                 err << "FAIL   " << path.string() << " — the conversion could not be written; the original "
                     << "file is untouched. It would have been:" << what.str() << "\n";
@@ -1024,6 +1089,12 @@ namespace Desert::Migration
             }
             if ( outcome.AlreadyCurrent )
             {
+                if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
+                     layout != Layout::Canonical )
+                {
+                    ++( layout == Layout::Failed ? failed : relaid );
+                    continue;
+                }
                 out << "ok     " << path.string() << " — already at scene v" << Desert::Migration::kSceneVersion
                     << " / units v" << Desert::Migration::kUnitVersion << "\n";
                 continue;
@@ -1087,7 +1158,7 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( !Common::Utils::FileSystem::WriteContentToFileAtomic( path, migrated ) )
+            if ( !WriteText( path, migrated, err ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched\n";
@@ -1101,10 +1172,11 @@ namespace Desert::Migration
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s) of which " << clipsChanged
             << ( check ? " would change, " : " raised, " ) << materials.size() << " material(s), "
             << materialsChanged << ( check ? " would change, " : " raised, " ) << prefabs.size() << " prefab(s), "
-            << prefabsChanged << ( check ? " would change, " : " raised, " ) << failed << " failed\n";
+            << prefabsChanged << ( check ? " would change, " : " raised, " ) << relaid
+            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << failed << " failed\n";
 
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || materialsChanged > 0 || prefabsChanged > 0 ) ) ? 1 : 0;
+        return ( check && ( changed > 0 || materialsChanged > 0 || prefabsChanged > 0 || relaid > 0 ) ) ? 1 : 0;
     }
 } // namespace Desert::Migration

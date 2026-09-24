@@ -1,1 +1,124 @@
-{"ShaderName":"CloudRaymarch","Params":[{"Name":"Coverage","Value":[0.20900000631809235,0.0,0.0,0.0]},{"Name":"WeatherTileSize","Value":[1200000.0,0.0,0.0,0.0]},{"Name":"CoverageContrast","Value":[1.0,0.0,0.0,0.0]},{"Name":"Seed","Value":[1.0,0.0,0.0,0.0]},{"Name":"PlacementDensity","Value":[1.75,0.0,0.0,0.0]},{"Name":"PlacementScatter","Value":[1.0,0.0,0.0,0.0]},{"Name":"PlacementSizeVariety","Value":[0.75,0.0,0.0,0.0]},{"Name":"PatchTileSize","Value":[2100000.0,0.0,0.0,0.0]},{"Name":"PatchStrength","Value":[0.6000000238418579,0.0,0.0,0.0]},{"Name":"LayoutPatternStrength","Value":[1.0,0.0,0.0,0.0]},{"Name":"LayoutMaskStrength","Value":[1.0,0.0,0.0,0.0]},{"Name":"LayoutRepeats","Value":[1.0,0.0,0.0,0.0]},{"Name":"LayoutRotation","Value":[0.0,0.0,0.0,0.0]},{"Name":"LayoutOffset","Value":[0.0,0.0,0.0,0.0]},{"Name":"DetailTileSize","Value":[100000.0,0.0,0.0,0.0]},{"Name":"DetailStrength","Value":[0.6499999761581421,0.0,0.0,0.0]},{"Name":"DensityScale","Value":[1.0,0.0,0.0,0.0]},{"Name":"ExtinctionScale","Value":[8.0,0.0,0.0,0.0]},{"Name":"ScatteringAlbedo","Value":[0.9800000190734863,0.9800000190734863,0.9800000190734863,0.0]},{"Name":"PhaseG","Value":[0.800000011920929,0.0,0.0,0.0]},{"Name":"PhaseGBackward","Value":[0.16670000553131104,0.0,0.0,0.0]},{"Name":"PhaseBlend","Value":[0.574999988079071,0.0,0.0,0.0]},{"Name":"AmbientOcclusionStrength","Value":[1.0,0.0,0.0,0.0]},{"Name":"MultiScatterOctaves","Value":[3.0,0.0,0.0,0.0]},{"Name":"MultiScatterContribution","Value":[0.6669999957084656,0.0,0.0,0.0]},{"Name":"MultiScatterOcclusion","Value":[0.25,0.0,0.0,0.0]},{"Name":"MultiScatterEccentricity","Value":[0.18000000715255737,0.0,0.0,0.0]},{"Name":"AmbientScale","Value":[1.0,1.0,1.0,0.0]}],"Textures":[{"Name":"CloudType1","TextureHandle":17151824050666325486}],"MaterialId":15937785653841507631}
+{
+    "ShaderName": "CloudRaymarch",
+    "Params": [
+        {
+            "Name": "Coverage",
+            "Value": [0.20900000631809235, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "WeatherTileSize",
+            "Value": [1200000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "CoverageContrast",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Seed",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PlacementDensity",
+            "Value": [1.75, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PlacementScatter",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PlacementSizeVariety",
+            "Value": [0.75, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PatchTileSize",
+            "Value": [2100000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PatchStrength",
+            "Value": [0.6000000238418579, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "LayoutPatternStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "LayoutMaskStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "LayoutRepeats",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "LayoutRotation",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "LayoutOffset",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DetailTileSize",
+            "Value": [100000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DetailStrength",
+            "Value": [0.6499999761581421, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DensityScale",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "ExtinctionScale",
+            "Value": [8.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "ScatteringAlbedo",
+            "Value": [0.9800000190734863, 0.9800000190734863, 0.9800000190734863, 0.0]
+        },
+        {
+            "Name": "PhaseG",
+            "Value": [0.800000011920929, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PhaseGBackward",
+            "Value": [0.16670000553131104, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PhaseBlend",
+            "Value": [0.574999988079071, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AmbientOcclusionStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MultiScatterOctaves",
+            "Value": [3.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MultiScatterContribution",
+            "Value": [0.6669999957084656, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MultiScatterOcclusion",
+            "Value": [0.25, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MultiScatterEccentricity",
+            "Value": [0.18000000715255737, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AmbientScale",
+            "Value": [1.0, 1.0, 1.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "CloudType1",
+            "TextureHandle": 17151824050666325486
+        }
+    ],
+    "MaterialId": 15937785653841507631
+}

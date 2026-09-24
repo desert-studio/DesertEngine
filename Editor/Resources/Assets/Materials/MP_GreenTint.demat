@@ -1,1 +1,15 @@
-{"ShaderName":"MatProbe","Params":[{"Name":"TintA","Value":[0.1,0.85,0.15,1.0]},{"Name":"Blend","Value":[0.0,0.0,0.0,0.0]}],"Textures":[],"MaterialId":3333333333333333333}
+{
+    "ShaderName": "MatProbe",
+    "Params": [
+        {
+            "Name": "TintA",
+            "Value": [0.1, 0.85, 0.15, 1.0]
+        },
+        {
+            "Name": "Blend",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "MaterialId": 3333333333333333333
+}

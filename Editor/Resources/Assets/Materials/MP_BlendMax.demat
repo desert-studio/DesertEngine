@@ -1,1 +1,11 @@
-{"ShaderName":"MatProbe","Params":[{"Name":"Blend","Value":[1.0,0.0,0.0,0.0]}],"Textures":[],"MaterialId":2222222222222222222}
+{
+    "ShaderName": "MatProbe",
+    "Params": [
+        {
+            "Name": "Blend",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "MaterialId": 2222222222222222222
+}

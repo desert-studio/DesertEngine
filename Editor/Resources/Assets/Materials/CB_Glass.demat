@@ -1,1 +1,18 @@
-{"Params":[{"Name":"Transmission","Value":[0.8999999761581421,0.0,0.0,0.0]},{"Name":"IOR","Value":[1.5,0.0,0.0,0.0]},{"Name":"GlassTint","Value":[0.75,0.8999999761581421,1.0,1.0]}],"Textures":[],"MaterialId":11800363237644377467}
+{
+    "Params": [
+        {
+            "Name": "Transmission",
+            "Value": [0.8999999761581421, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "IOR",
+            "Value": [1.5, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "GlassTint",
+            "Value": [0.75, 0.8999999761581421, 1.0, 1.0]
+        }
+    ],
+    "Textures": [],
+    "MaterialId": 11800363237644377467
+}

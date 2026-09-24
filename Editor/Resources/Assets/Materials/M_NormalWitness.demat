@@ -1,1 +1,55 @@
-{"Params":[{"Name":"AlbedoColor","Value":[0.6,0.6,0.62,1.0]},{"Name":"MetallicFactor","Value":[0.0,0.0,0.0,0.0]},{"Name":"RoughnessFactor","Value":[0.45,0.0,0.0,0.0]},{"Name":"AOStrength","Value":[1.0,0.0,0.0,0.0]},{"Name":"EmissiveColor","Value":[0.0,0.0,0.0,1.0]},{"Name":"EmissiveIntensity","Value":[1.0,0.0,0.0,0.0]},{"Name":"AlphaCutoff","Value":[0.0,0.0,0.0,0.0]},{"Name":"Transmission","Value":[0.0,0.0,0.0,0.0]},{"Name":"IOR","Value":[1.5,0.0,0.0,0.0]},{"Name":"GlassTint","Value":[1.0,1.0,1.0,1.0]},{"Name":"UVTiling","Value":[2.0,2.0,0.0,0.0]}],"Textures":[{"Name":"u_NormalTexture","TextureHandle":15982651964750152539}],"MaterialId":6031977445120031001}
+{
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.6, 0.6, 0.62, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.45, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AOStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "EmissiveIntensity",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AlphaCutoff",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Transmission",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "IOR",
+            "Value": [1.5, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "GlassTint",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "UVTiling",
+            "Value": [2.0, 2.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "u_NormalTexture",
+            "TextureHandle": 15982651964750152539
+        }
+    ],
+    "MaterialId": 6031977445120031001
+}

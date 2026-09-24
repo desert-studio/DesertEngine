@@ -1,1 +1,6 @@
-{"ShaderName":"MatProbeUnlit","Params":[],"Textures":[],"MaterialId":4444444444444444444}
+{
+    "ShaderName": "MatProbeUnlit",
+    "Params": [],
+    "Textures": [],
+    "MaterialId": 4444444444444444444
+}

@@ -1,1 +1,15 @@
-{"ShaderName":"Terrain","Params":[{"Name":"Tint","Value":[0.5,0.85,1.0,1.0]},{"Name":"DetailTiling","Value":[8.0,0.0,0.0,0.0]}],"Textures":[],"MaterialId":1008377614206982002}
+{
+    "ShaderName": "Terrain",
+    "Params": [
+        {
+            "Name": "Tint",
+            "Value": [0.5, 0.85, 1.0, 1.0]
+        },
+        {
+            "Name": "DetailTiling",
+            "Value": [8.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "MaterialId": 1008377614206982002
+}

@@ -1,1 +1,6 @@
-{"ShaderName":"CloudRaymarch","Params":[],"Textures":[],"MaterialId":3209575480641023076}
+{
+    "ShaderName": "CloudRaymarch",
+    "Params": [],
+    "Textures": [],
+    "MaterialId": 3209575480641023076
+}

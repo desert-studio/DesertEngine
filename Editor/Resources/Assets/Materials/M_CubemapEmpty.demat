@@ -1,1 +1,6 @@
-{"ShaderName":"Skybox","Params":[],"Textures":[],"MaterialId":9016207958156802132}
+{
+    "ShaderName": "Skybox",
+    "Params": [],
+    "Textures": [],
+    "MaterialId": 9016207958156802132
+}

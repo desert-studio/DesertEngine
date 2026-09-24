@@ -1,1 +1,14 @@
-{"Params":[{"Name":"AlbedoColor","Value":[0.0,0.33333373069763184,1.0,1.0]},{"Name":"RoughnessFactor","Value":[0.5,0.0,0.0,0.0]}],"Textures":[],"MaterialId":12201067369178727069}
+{
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.0, 0.33333373069763184, 1.0, 1.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.5, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "MaterialId": 12201067369178727069
+}

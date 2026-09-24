@@ -1,1 +1,20 @@
-{"ShaderName":"Terrain","Params":[{"Name":"Tint","Value":[1.0,0.55,0.45,1.0]},{"Name":"DetailTiling","Value":[5000.0,0.0,0.0,0.0]}],"Textures":[{"Name":"u_RockTex","TextureHandle":4588246833979984450}],"MaterialId":1008377614206982001}
+{
+    "ShaderName": "Terrain",
+    "Params": [
+        {
+            "Name": "Tint",
+            "Value": [1.0, 0.55, 0.45, 1.0]
+        },
+        {
+            "Name": "DetailTiling",
+            "Value": [5000.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "u_RockTex",
+            "TextureHandle": 4588246833979984450
+        }
+    ],
+    "MaterialId": 1008377614206982001
+}

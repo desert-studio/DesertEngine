@@ -1,1 +1,6 @@
-{"ShaderName":"MatLitConst","Params":[],"Textures":[],"MaterialId":6666666666666666666}
+{
+    "ShaderName": "MatLitConst",
+    "Params": [],
+    "Textures": [],
+    "MaterialId": 6666666666666666666
+}

@@ -1,1 +1,16 @@
-{"ShaderName":"CloudRaymarch","Params":[{"Name":"Coverage","Value":[0.55,0.0,0.0,0.0]}],"Textures":[{"Name":"CloudType1","TextureHandle":415244014067535331}],"MaterialId":2605842999670143031}
+{
+    "ShaderName": "CloudRaymarch",
+    "Params": [
+        {
+            "Name": "Coverage",
+            "Value": [0.55, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "CloudType1",
+            "TextureHandle": 415244014067535331
+        }
+    ],
+    "MaterialId": 2605842999670143031
+}

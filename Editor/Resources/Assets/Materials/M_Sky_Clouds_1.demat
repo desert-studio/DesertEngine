@@ -1,1 +1,36 @@
-{"ShaderName":"CloudRaymarch","Params":[{"Name":"ScatteringAlbedo","Value":[1.0,1.0,1.0,0.0]},{"Name":"AmbientScale","Value":[0.8220640420913696,0.04973342642188072,0.04973342642188072,0.0]},{"Name":"Seed","Value":[33261.0,0.0,0.0,0.0]}],"Textures":[{"Name":"CloudType1","TextureHandle":9213269412652257784},{"Name":"CloudType2","TextureHandle":0},{"Name":"CloudType3","TextureHandle":0},{"Name":"CloudType4","TextureHandle":0}],"MaterialId":4402289808675898575}
+{
+    "ShaderName": "CloudRaymarch",
+    "Params": [
+        {
+            "Name": "ScatteringAlbedo",
+            "Value": [1.0, 1.0, 1.0, 0.0]
+        },
+        {
+            "Name": "AmbientScale",
+            "Value": [0.8220640420913696, 0.04973342642188072, 0.04973342642188072, 0.0]
+        },
+        {
+            "Name": "Seed",
+            "Value": [33261.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "CloudType1",
+            "TextureHandle": 9213269412652257784
+        },
+        {
+            "Name": "CloudType2",
+            "TextureHandle": 0
+        },
+        {
+            "Name": "CloudType3",
+            "TextureHandle": 0
+        },
+        {
+            "Name": "CloudType4",
+            "TextureHandle": 0
+        }
+    ],
+    "MaterialId": 4402289808675898575
+}

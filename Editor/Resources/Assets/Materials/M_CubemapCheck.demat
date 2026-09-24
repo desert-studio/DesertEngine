@@ -1,1 +1,11 @@
-{"ShaderName":"Skybox","Params":[],"Textures":[{"Name":"samplerCubeMap","TextureHandle":16207958156802854130}],"MaterialId":9016207958156802131}
+{
+    "ShaderName": "Skybox",
+    "Params": [],
+    "Textures": [
+        {
+            "Name": "samplerCubeMap",
+            "TextureHandle": 16207958156802854130
+        }
+    ],
+    "MaterialId": 9016207958156802131
+}
