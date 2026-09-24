@@ -94,10 +94,10 @@ namespace Desert::Core
 
         // Children before parents, as the recursive version did, so an on_destroy listener that looks at
         // the parent of a dying entity still finds it alive.
-        for ( auto& it : std::ranges::reverse_view( doomed ) )
+        for ( const entt::entity doomedEntity : std::ranges::reverse_view( doomed ) )
         {
-            index.Remove( it );
-            registry.destroy( it );
+            index.Remove( doomedEntity );
+            registry.destroy( doomedEntity );
         }
     }
 } // namespace Desert::Core

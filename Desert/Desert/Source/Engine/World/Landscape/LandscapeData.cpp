@@ -248,7 +248,8 @@ namespace Desert::World::Landscape
             const auto  lastX = static_cast<float>( tile.SamplesX() - 1u );
             const auto  lastZ = static_cast<float>( tile.SamplesZ() - 1u );
             // Written as !(inside) so NaN lands outside rather than on sample 0.
-            if ( gx < 0.0f || gx > lastX || gz < 0.0f || gz > lastZ )
+            // NOLINTNEXTLINE(readability-simplify-boolean-expr): the De Morgan form lets NaN through.
+            if ( !( gx >= 0.0f && gx <= lastX && gz >= 0.0f && gz <= lastZ ) )
                 return std::nullopt;
             const float cellX = LandscapeCellOf( gx, static_cast<float>( tile.SamplesX() ) );
             const float cellZ = LandscapeCellOf( gz, static_cast<float>( tile.SamplesZ() ) );
