@@ -124,7 +124,8 @@ namespace Desert::Geometry
     // have nothing to arbitrate), corners and group edges of a per-triangle topology are the mesh's own vertices
     // and edges (UE's FTriangleGroupTopology), a linear scan in place of FGeometrySet3 / FDynamicMeshAABBTree3,
     // the visual-angle PointSnapQuery replaced by the viewport-pixel tolerance of PickView, back faces hit and
-    // occlude (the mechanic's bHitBackFaces default), and the occlusion ray bounded at the eye with the relative
+    // occlude (the mechanic's bHitBackFaces default), an occluded edge skipped rather than failing the pick
+    // (PickNearestEdge says why), and the occlusion ray bounded at the eye with the relative
     // slack of Visible() instead of UE's absolute 100 * ZeroTolerance, which is below float resolution at
     // centimetre scale.
     namespace
@@ -218,13 +219,16 @@ namespace Desert::Geometry
 
         // DoEdgeBasedSelection over FindNearestCurveToRay: of the candidate mesh edges within tolerance, the one
         // whose |Area(RayOrigin, CurvePosition, RayPosition)| is least - closeness to the ray balanced against
-        // closeness to the eye; a miss when its nearest point is occluded. A polyline's nearest point is its
+        // closeness to the eye - among the VISIBLE ones. UE takes the least metric and then bails if it is
+        // occluded; but an edge lying exactly behind the picked one (a face diagonal seen head-on has the
+        // opposite face's diagonal on the same ray) has the same metric up to float noise, so the hidden one
+        // could win on noise and the pick missed. Occluded candidates are skipped instead, which keeps UE's
+        // "never select what is hidden" and makes the tie deterministic. A polyline's nearest point is its
         // nearest segment's, so scanning a group edge's segments is FindNearestCurveToRay over that curve.
         ElementHit PickNearestEdge( const FDynamicMeshElements& mesh, const PickView& view,
                                     const std::vector<int>& candidates )
         {
             ElementHit best;
-            glm::vec3  bestPoint{ 0.0f };
             float      bestMetric = kNoHit;
             for ( const int e : candidates )
             {
@@ -239,15 +243,12 @@ namespace Desert::Geometry
                     continue;
                 const float metric =
                      0.5f * glm::length( glm::cross( curvePoint - view.RayOrigin, rayPoint - view.RayOrigin ) );
-                if ( metric < bestMetric )
+                if ( metric < bestMetric && !Occluded( mesh, view, curvePoint ) )
                 {
                     bestMetric = metric;
                     best       = { e, rayT, pixels };
-                    bestPoint  = curvePoint;
                 }
             }
-            if ( best.IsHit() && Occluded( mesh, view, bestPoint ) )
-                return {};
             return best;
         }
 

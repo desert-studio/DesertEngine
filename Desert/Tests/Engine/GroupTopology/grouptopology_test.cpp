@@ -7,6 +7,9 @@
 
 #include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
 #include <Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
+
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <cmath>
 #include <map>
@@ -237,6 +240,65 @@ TEST( GroupTopology, TriangleTopologyIsTheMeshItself )
         EXPECT_EQ( G.NeighbourGroupIDs.Num(), 3 );
     ExpectBoundariesClose( Topo );
     ExpectGroupEdgesPartition( Mesh, Topo );
+}
+
+namespace
+{
+    // The view ElementSelectTool builds for "pick at the viewport centre": the eye, a unit ray towards the
+    // target, and the view-projection the pixel tolerance is measured in.
+    PickView CentreView( const glm::vec3& eye, const glm::vec3& target )
+    {
+        const glm::vec3 dir = glm::normalize( target - eye );
+        const glm::vec3 up  = std::abs( dir.y ) > 0.99f ? glm::vec3( 0, 0, -1 ) : glm::vec3( 0, 1, 0 );
+        PickView        view;
+        view.ViewProj =
+             glm::perspective( glm::radians( 60.0f ), 1.0f, 1.0f, 10000.0f ) * glm::lookAt( eye, target, up );
+        view.ViewportSize    = glm::vec2( 800.0f );
+        view.Cursor          = glm::vec2( 400.0f );
+        view.RayOrigin       = eye;
+        view.RayDirection    = dir;
+        view.TolerancePixels = 8.0f;
+        return view;
+    }
+
+    std::vector<int> TriEditEdgePick( const FDynamicMesh3& mesh, const glm::vec3& eye, const glm::vec3& target )
+    {
+        const FGroupTopology topology( &mesh, true );
+        const ElementHit     hit =
+             PickElement( mesh, topology, ElementMode::Edge, CentreView( eye, target ), TopologyLevel::Triangle );
+        return HitElements( topology, ElementMode::Edge, TopologyLevel::Triangle, hit );
+    }
+} // namespace
+
+// TriEdit picks the diagonal inside a group. Face 1 (z = Side) is triangles (4,5,7) + (4,7,6): its diagonal is
+// 4-7. Looking straight down -z at the diagonal's middle, the back face's diagonal 0-3 lies exactly behind it
+// on the same ray: the front one must win, the hidden one must not turn the pick into a miss.
+TEST( GroupTopology, TriEditPicksTheFaceDiagonalHeadOn )
+{
+    const int           Groups[6] = { 0, 1, 2, 3, 4, 5 };
+    const FDynamicMesh3 Mesh      = MakeCube( Groups );
+    const glm::vec3     mid( 50.0f, 50.0f, 100.0f );
+    EXPECT_EQ( TriEditEdgePick( Mesh, mid + glm::vec3( 0, 0, 300 ), mid ),
+               std::vector<int>{ Mesh.FindEdge( 4, 7 ) } );
+}
+
+TEST( GroupTopology, TriEditPicksTheFaceDiagonalObliquely )
+{
+    const int           Groups[6] = { 0, 1, 2, 3, 4, 5 };
+    const FDynamicMesh3 Mesh      = MakeCube( Groups );
+    const glm::vec3     mid( 50.0f, 50.0f, 100.0f );
+    EXPECT_EQ( TriEditEdgePick( Mesh, mid + glm::vec3( 120, -80, 300 ), mid ),
+               std::vector<int>{ Mesh.FindEdge( 4, 7 ) } );
+}
+
+// The middle of a cube edge (4-5, between faces 1 and 2) selects that one triangle edge.
+TEST( GroupTopology, TriEditPicksOneCubeEdgeAtItsMiddle )
+{
+    const int           Groups[6] = { 0, 1, 2, 3, 4, 5 };
+    const FDynamicMesh3 Mesh      = MakeCube( Groups );
+    const glm::vec3     mid( 50.0f, 0.0f, 100.0f );
+    EXPECT_EQ( TriEditEdgePick( Mesh, mid + glm::vec3( 60, -200, 250 ), mid ),
+               std::vector<int>{ Mesh.FindEdge( 4, 5 ) } );
 }
 
 int main( int argc, char** argv )
