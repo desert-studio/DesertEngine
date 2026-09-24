@@ -4,11 +4,10 @@
 // samples the renderer uploads, placed by the same frame (LandscapeRootOf, LandscapeTileFrame).
 //
 // WHICH SURFACE. Jolt collides with two planar triangles per cell, split on the (x, z)-(x+1, z+1)
-// diagonal; the renderer and SampleLandscapeHeight use the bilinear patch. They agree on every sample and
-// along every grid line and differ inside a cell by at most a quarter of its twist |h00 - h10 - h01 + h11|
-// (LandscapeRaycast.hpp). A one-surface design — triangles everywhere, shader included — was weighed and
-// refused while that bound stays below what shows (an object visibly floating or sinking, > 2 cm, on real
-// terrain); the landscape_raycast suite measures it.
+// diagonal, and that split is the landscape's one surface: the terrain shader, SampleLandscapeHeight and
+// the ray evaluate the same triangles (LandscapeHeight.glslh, LandscapeTriangle). What remains between
+// them is Jolt's 16-bit quantisation of the heights (PhysicsWorld.cpp); the landscape_raycast suite
+// checks the relation on a steep hill.
 //
 // SEAMS. Neighbouring tiles share their edge samples, so the two bodies meeting at a seam carry the same
 // heights along it: a body crossing it meets one continuous surface, not a step.

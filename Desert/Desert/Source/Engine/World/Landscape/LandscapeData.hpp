@@ -274,11 +274,11 @@ namespace Desert::World::Landscape
     // ── Sampling ──────────────────────────────────────────────────────────────────────────────────────
 
     /**
-     * @brief World height (cm) at world (x, z), bilinear between the four surrounding samples.
+     * @brief World height (cm) at world (x, z) on the cell's triangle (LandscapeTriangle).
      *
-     * BILINEAR because that is what the GPU's R16 fetch in the tessellation stage returns, and the CPU
-     * answer must agree with the surface on screen; a triangle split would disagree with it by up to a
-     * quarter of the cell's twist.
+     * The ONE landscape surface: two planar triangles per cell on Jolt's (x, z)-(x+1, z+1) diagonal — what
+     * the tessellation stage displaces every vertex onto, what the ray (LandscapeRaycast) hits and what the
+     * heightfield body collides with, so an object placed at this height rests where it is drawn.
      *
      * The tile covers [OriginX, OriginX + (SamplesX-1)·Spacing] × the same in Z, BOTH edges inclusive:
      * the last row of one tile is the first row of the next (neighbouring tiles share their edge samples,

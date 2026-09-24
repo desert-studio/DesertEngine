@@ -340,10 +340,10 @@ namespace Desert::World::Landscape
         const auto p = Locate( tile, frame, worldX, worldZ );
         if ( !p )
             return std::nullopt;
-        const float h = Bilinear( HeightAt( tile, frame, p->CellX, p->CellZ ),
-                                  HeightAt( tile, frame, p->CellX + 1u, p->CellZ ),
-                                  HeightAt( tile, frame, p->CellX, p->CellZ + 1u ),
-                                  HeightAt( tile, frame, p->CellX + 1u, p->CellZ + 1u ), p->Fx, p->Fz );
+        const float h = LandscapeTriangle( HeightAt( tile, frame, p->CellX, p->CellZ ),
+                                           HeightAt( tile, frame, p->CellX + 1u, p->CellZ ),
+                                           HeightAt( tile, frame, p->CellX, p->CellZ + 1u ),
+                                           HeightAt( tile, frame, p->CellX + 1u, p->CellZ + 1u ), p->Fx, p->Fz );
         return frame.BaseY + h;
     }
 

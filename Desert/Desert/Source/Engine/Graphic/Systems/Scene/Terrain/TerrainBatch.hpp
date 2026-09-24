@@ -82,9 +82,9 @@ namespace Desert::Graphic::System
         uint32_t NeighbourMask = 0u;
     };
 
-    // The most heightmap quads one tessellated patch spans. It equals the pass's maximum tessellation
-    // level, so a near patch places a vertex on every sample and a far one halves them — more would
-    // tessellate between samples the bilinear surface has nothing to say about.
+    // The most heightmap quads one tessellated patch spans. A patch's near tessellation level is its own
+    // quads per side (TerrainRenderer, LandscapeInstance), so a near patch places a vertex on every sample
+    // and draws the cells' own triangles; this bounds that level to what the GPU tessellates cheaply.
     inline constexpr uint32_t kLandscapeMaxQuadsPerPatch = 16u;
 
     // Patches per tile side: the fewest that divide the tile's quads evenly with at most

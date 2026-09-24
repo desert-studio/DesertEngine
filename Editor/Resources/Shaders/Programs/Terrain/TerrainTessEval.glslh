@@ -2,8 +2,10 @@
 // deferred, TerrainShadow = cascade depth): ONE statement of where a terrain vertex is, so the surface a
 // cascade sees is the surface the camera sees — same patches, same tessellation, same displacement.
         // Tessellation evaluation — places each tessellated vertex of a landscape tile at its global sample
-        // coordinate and displaces it by the tile's heights, bilinearly between samples, exactly as the CPU
-        // answers a height query (LandscapeHeight.glslh is the one statement of both).
+        // coordinate and displaces it onto the tile's triangulated surface (LandscapeTriangle, Jolt's
+        // diagonal), exactly as the CPU answers a height query and Jolt collides (LandscapeHeight.glslh is
+        // the one statement of both). The shading normal below stays the smooth, interpolated gradient —
+        // shading, not position; UE shades its triangulated landscape the same way.
 
         layout( quads, equal_spacing, cw ) in;
 
@@ -94,7 +96,7 @@
             int   cx      = int( cellX );
             int   cz      = int( cellZ );
 
-            float h = LandscapeBilinear( TileHeightCm( cx, cz ), TileHeightCm( cx + 1, cz ), TileHeightCm( cx, cz + 1 ),
+            float h = LandscapeTriangle( TileHeightCm( cx, cz ), TileHeightCm( cx + 1, cz ), TileHeightCm( cx, cz + 1 ),
                                          TileHeightCm( cx + 1, cz + 1 ), fx, fz );
 
             vec2 worldXZ = u_T.LandscapeFrame.xz + g * u_T.LandscapeFrame.w;

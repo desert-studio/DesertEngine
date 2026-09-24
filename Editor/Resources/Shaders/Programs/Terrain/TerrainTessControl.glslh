@@ -35,8 +35,11 @@
 
         float TessForDistance( float d )
         {
+            // Params.w is the patch's quads per side (TerrainRenderer): at full detail one segment per cell,
+            // so every tessellated vertex is a sample and the drawn triangles are the cells' own. A far
+            // patch may drop to 2, never rise above its near level (a one-quad patch stays at 1).
             float maxTess = max( u_T.Params.w, 1.0 );
-            float minTess = 2.0;
+            float minTess = min( 2.0, maxTess );
             // Distance band scales with terrain size so LOD adapts to small and large terrains alike.
             float nearD = max( u_T.Params.x * 0.05, 2.0 );
             float farD  = max( u_T.Params.x * 1.5, nearD + 1.0 );
