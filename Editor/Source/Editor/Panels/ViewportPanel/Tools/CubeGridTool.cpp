@@ -11,8 +11,7 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/EditMeshConversion.hpp>
-#include <Engine/Geometry/GreedyMesher.hpp>
-#include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/Logger.hpp>
@@ -27,6 +26,8 @@
 
 namespace Desert::Editor::Tools
 {
+    using namespace Geometry::VoxelBlockout;
+
     namespace
     {
         // The theme gives a colour its HUE; each overlay decides how present it should be. ImGui's
@@ -34,116 +35,6 @@ namespace Desert::Editor::Tools
         ImVec4 WithAlpha( const ImVec4& c, float alpha )
         {
             return ImVec4( c.x, c.y, c.z, alpha );
-        }
-    } // namespace
-
-    namespace
-    {
-        // Sparse voxel volume key: pack a grid cell into a 63-bit key (21 bits/axis, centred so negatives fit).
-        constexpr int OFF = 1 << 20;
-        uint64_t      Pack( const glm::ivec3& c )
-        {
-            const uint64_t x = static_cast<uint64_t>( c.x + OFF ) & 0x1FFFFF;
-            const uint64_t y = static_cast<uint64_t>( c.y + OFF ) & 0x1FFFFF;
-            const uint64_t z = static_cast<uint64_t>( c.z + OFF ) & 0x1FFFFF;
-            return x | ( y << 21 ) | ( z << 42 );
-        }
-        glm::ivec3 Unpack( uint64_t k )
-        {
-            return { static_cast<int>( k & 0x1FFFFF ) - OFF, static_cast<int>( ( k >> 21 ) & 0x1FFFFF ) - OFF,
-                     static_cast<int>( ( k >> 42 ) & 0x1FFFFF ) - OFF };
-        }
-        // Floor division rounding toward -infinity (block-align negative coords correctly).
-        int FloorDiv( int a, int b )
-        {
-            return a >= 0 ? a / b : -( ( -a + b - 1 ) / b );
-        }
-
-        // The 6 faces of a unit cube (position in [-0.5,0.5] + the engine's cube normals/tangents/UVs), each as
-        // 4 CCW corners — copied from PrimitiveMeshFactory::CreateCube so winding/normals are known-good.
-        struct FaceVert
-        {
-            glm::vec3 P, N, T, B;
-            glm::vec2 UV;
-        };
-        const FaceVert kFace[6][4] = {
-             // Front (+Z)
-             { { { -0.5f, -0.5f, 0.5f }, { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0 } },
-               { { 0.5f, -0.5f, 0.5f }, { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 0 } },
-               { { 0.5f, 0.5f, 0.5f }, { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 1 } },
-               { { -0.5f, 0.5f, 0.5f }, { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1 } } },
-             // Back (-Z)
-             { { { -0.5f, -0.5f, -0.5f }, { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 }, { 1, 0 } },
-               { { -0.5f, 0.5f, -0.5f }, { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 }, { 1, 1 } },
-               { { 0.5f, 0.5f, -0.5f }, { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, 1 } },
-               { { 0.5f, -0.5f, -0.5f }, { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, 0 } } },
-             // Top (+Y)
-             { { { -0.5f, 0.5f, -0.5f }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1 } },
-               { { -0.5f, 0.5f, 0.5f }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 0 } },
-               { { 0.5f, 0.5f, 0.5f }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 1, 0 } },
-               { { 0.5f, 0.5f, -0.5f }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 1, 1 } } },
-             // Bottom (-Y)
-             { { { -0.5f, -0.5f, -0.5f }, { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, { 1, 1 } },
-               { { 0.5f, -0.5f, -0.5f }, { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, { 0, 1 } },
-               { { 0.5f, -0.5f, 0.5f }, { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, { 0, 0 } },
-               { { -0.5f, -0.5f, 0.5f }, { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, { 0, 0 } } },
-             // Left (-X)
-             { { { -0.5f, -0.5f, -0.5f }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, { 0, 0 } },
-               { { -0.5f, -0.5f, 0.5f }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, { 1, 0 } },
-               { { -0.5f, 0.5f, 0.5f }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, { 1, 1 } },
-               { { -0.5f, 0.5f, -0.5f }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, { 0, 1 } } },
-             // Right (+X)
-             { { { 0.5f, -0.5f, -0.5f }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 }, { 1, 0 } },
-               { { 0.5f, 0.5f, -0.5f }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 }, { 1, 1 } },
-               { { 0.5f, 0.5f, 0.5f }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 }, { 0, 1 } },
-               { { 0.5f, -0.5f, 0.5f }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 }, { 0, 0 } } },
-        };
-        // Outward neighbour offset per face — a face is generated only on a Solid/Empty border (Face Culling).
-        const glm::ivec3 kNeighbor[6] = { { 0, 0, 1 },  { 0, 0, -1 }, { 0, 1, 0 },
-                                          { 0, -1, 0 }, { -1, 0, 0 }, { 1, 0, 0 } };
-
-        // The same 6 faces expressed as CORNER indices (bits: 1=+X, 2=+Y, 4=+Z), in the identical winding
-        // as kFace, plus the corner-index bit that flips when you step to that face's neighbour. Corner Mode
-        // moves corners, so the mesher builds every quad from these instead of from a fixed box.
-        const int kFaceCorner[6][4] = {
-             { 4, 5, 7, 6 }, // Front  (+Z)
-             { 0, 2, 3, 1 }, // Back   (-Z)
-             { 2, 6, 7, 3 }, // Top    (+Y)
-             { 0, 1, 5, 4 }, // Bottom (-Y)
-             { 0, 4, 6, 2 }, // Left   (-X)
-             { 1, 3, 7, 5 }, // Right  (+X)
-        };
-        const int kFaceAxisBit[6] = { 4, 4, 2, 2, 1, 1 };
-
-        // World position of corner `i` of the cell at `c` (edge `unit`, frame `origin`), including the
-        // corner's vertical offset.
-        // World-aligned ("triplanar-ish") UVs: one UV unit per metre of world space, so a 4x1 wall and a
-        // 1x1 block share a texel density and a MERGED quad tiles instead of stretching one 0..1 patch
-        // over it. This is what makes greedy meshing safe to turn on — per-face 0..1 UVs would smear.
-        constexpr float kUvPerUnit = 1.0f / 100.0f;
-
-        // The UV axes of a face, in world space. Vertical faces put V on world +Y (a wall's texture stays
-        // upright whichever way it faces); the two horizontal faces fall back to X/Z.
-        struct FaceUvFrame
-        {
-            glm::vec3 T, B;
-        };
-        FaceUvFrame UvFrame( int f )
-        {
-            const glm::vec3 n = kFace[f][0].N;
-            if ( std::abs( n.y ) > 0.5f )
-                return { { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
-            const glm::vec3 t = glm::cross( glm::vec3( 0.0f, 1.0f, 0.0f ), n );
-            return { glm::normalize( t ), { 0.0f, 1.0f, 0.0f } };
-        }
-
-        glm::vec3 CornerPos( const glm::ivec3& c, const CubeGridTool::Cell& cell, int i, float unit,
-                             const glm::vec3& origin )
-        {
-            glm::vec3 p( c.x + ( i & 1 ? 1 : 0 ), c.y + ( i & 2 ? 1 : 0 ), c.z + ( i & 4 ? 1 : 0 ) );
-            p *= unit;
-            p.y += static_cast<float>( cell.V[i] ) / static_cast<float>( CubeGridTool::CornerDen ) * unit;
-            return p + origin;
         }
     } // namespace
 
@@ -161,229 +52,41 @@ namespace Desert::Editor::Tools
 
     void CubeGridTool::RefineBy( int F )
     {
-        CellMap out;
-        out.reserve( m_Cells.size() * static_cast<size_t>( F * F * F ) );
-        for ( const auto& [k, cell] : m_Cells )
-        {
-            const glm::ivec3 c = Unpack( k );
-            for ( int dx = 0; dx < F; ++dx )
-                for ( int dy = 0; dy < F; ++dy )
-                    for ( int dz = 0; dz < F; ++dz )
-                        out[Pack( { c.x * F + dx, c.y * F + dy, c.z * F + dz } )] = Cell{};
-        }
-        m_Cells = std::move( out );
+        // The volume splits its cells; the marquee and the work-plane are the tool's, so they scale here.
+        m_Volume.Refine( F );
         m_Anchor *= F;
-        m_UMin *= F, m_VMin *= F;
-        m_UMax = m_UMax * F + F - 1, m_VMax = m_VMax * F + F - 1;
-        m_PlaneCell *= F;
-        m_Unit /= static_cast<float>( F );
+        m_Sel.UMin *= F, m_Sel.VMin *= F;
+        m_Sel.UMax = m_Sel.UMax * F + F - 1, m_Sel.VMax = m_Sel.VMax * F + F - 1;
+        m_Plane.Cell *= F;
     }
-
-    void CubeGridTool::RescaleSelection( float oldUnit, float newUnit, int K )
-    {
-        // Re-express the marquee (which is stored in BASE cells) in a new base, keeping its world position,
-        // then re-snap it out to whole blocks of the new size.
-        const float s = oldUnit / newUnit;
-        auto toNewMin = [&]( int c ) { return static_cast<int>( std::floor( static_cast<float>( c ) * s ) ); };
-        auto toNewMax = [&]( int c )
-        { return static_cast<int>( std::ceil( static_cast<float>( c + 1 ) * s ) ) - 1; };
-
-        const float planeW = static_cast<float>( m_PlaneCell + ( m_PlaneSign > 0 ? 0 : 1 ) ) * oldUnit;
-        m_PlaneCell        = static_cast<int>( std::lround( planeW / newUnit ) ) - ( m_PlaneSign > 0 ? 0 : 1 );
-        m_Anchor           = { toNewMin( m_Anchor.x ), toNewMin( m_Anchor.y ) };
-
-        const int uMin = toNewMin( m_UMin );
-        const int uMax = toNewMax( m_UMax );
-        const int vMin = toNewMin( m_VMin );
-        const int vMax = toNewMax( m_VMax );
-        m_UMin         = FloorDiv( uMin, K ) * K;
-        m_UMax         = FloorDiv( uMax, K ) * K + K - 1;
-        m_VMin         = FloorDiv( vMin, K ) * K;
-        m_VMax         = FloorDiv( vMax, K ) * K + K - 1;
-    }
-
-    namespace
-    {
-        // The four posts of the selection rectangle, as (cell offset in u, cell offset in v, corner index).
-        // u = the (na+1)%3 axis, v = (na+2)%3; corner bits are 1=+X, 2=+Y(top), 4=+Z, and for a ground grid
-        // (na=1) u is Z (bit 4) and v is X (bit 1).
-        struct RectPost
-        {
-            bool AtUMax, AtVMax;
-            int  Corner;
-        };
-        const RectPost kPosts[4] = {
-             { false, false, 2 }, { true, false, 2 | 4 }, { false, true, 2 | 1 }, { true, true, 2 | 1 | 4 } };
-    } // namespace
 
     void CubeGridTool::ApplyCornerHeights( ::Desert::Core::Scene& scene )
     {
-        // Corner Mode deforms the TOP layer of cells under the selection: every cell corner takes the
-        // bilinear blend of the four rectangle posts, so raising two of them tilts the whole region into
-        // one clean ramp (and raising one gives a hip).
-        if ( !m_HasSel || m_PlaneNa != 1 || m_PlaneSign <= 0 )
-            return;
-        const int ua      = ( m_PlaneNa + 1 ) % 3;
-        const int va      = ( m_PlaneNa + 2 ) % 3;
-        const int topCell = m_PlaneCell - 1; // the cell whose top face is the work-plane
-
-        const float spanU = static_cast<float>( m_UMax + 1 - m_UMin );
-        const float spanV = static_cast<float>( m_VMax + 1 - m_VMin );
-        if ( spanU <= 0.0f || spanV <= 0.0f )
-            return;
-
-        auto heightAt = [&]( int lu, int lv )
-        {
-            const float fu = ( static_cast<float>( lu - m_UMin ) ) / spanU;
-            const float fv = ( static_cast<float>( lv - m_VMin ) ) / spanV;
-            const float a = glm::mix( static_cast<float>( m_CornerH[0] ), static_cast<float>( m_CornerH[1] ), fu );
-            const float b = glm::mix( static_cast<float>( m_CornerH[2] ), static_cast<float>( m_CornerH[3] ), fu );
-            return static_cast<int16_t>( std::lround( glm::mix( a, b, fv ) ) );
-        };
-
-        for ( int uu = m_UMin; uu <= m_UMax; ++uu )
-            for ( int vv = m_VMin; vv <= m_VMax; ++vv )
-            {
-                glm::ivec3 c{ 0 };
-                c[m_PlaneNa] = topCell;
-                c[ua]        = uu;
-                c[va]        = vv;
-                auto it      = m_Cells.find( Pack( c ) );
-                if ( it == m_Cells.end() )
-                    continue; // nothing pushed out under this column yet
-                for ( int i = 0; i < 8; ++i )
-                {
-                    if ( !( i & 2 ) ) // bottom corners stay on the lattice so the cell below still meets it
-                        continue;
-                    it->second.V[i] = heightAt( uu + ( ( i & 4 ) ? 1 : 0 ), vv + ( ( i & 1 ) ? 1 : 0 ) );
-                }
-            }
-        RegenMesh( scene );
+        if ( m_HasSel && m_Volume.ApplyCornerHeights( m_Plane, m_Sel, m_CornerH ) )
+            RegenMesh( scene );
     }
 
     void CubeGridTool::SyncCornerHeights()
     {
         // Entering Corner Mode picks up whatever the rectangle's posts are already at, so a second pass
         // continues from the current shape instead of snapping it flat.
-        for ( int k = 0; k < 4; ++k )
-            m_CornerH[k] = 0;
-        if ( !m_HasSel || m_PlaneNa != 1 || m_PlaneSign <= 0 )
-            return;
-        const int ua = ( m_PlaneNa + 1 ) % 3;
-        const int va = ( m_PlaneNa + 2 ) % 3;
-        for ( int k = 0; k < 4; ++k )
-        {
-            glm::ivec3 c{ 0 };
-            c[m_PlaneNa] = m_PlaneCell - 1;
-            c[ua]        = kPosts[k].AtUMax ? m_UMax : m_UMin;
-            c[va]        = kPosts[k].AtVMax ? m_VMax : m_VMin;
-            if ( auto it = m_Cells.find( Pack( c ) ); it != m_Cells.end() )
-                m_CornerH[k] = it->second.V[kPosts[k].Corner];
-        }
+        m_CornerH = m_HasSel ? m_Volume.ReadCornerHeights( m_Plane, m_Sel ) : CornerHeights{};
     }
 
     void CubeGridTool::FreezeActive()
     {
-        if ( m_Cells.empty() )
+        if ( !m_Volume.Freeze() )
             return;
-        Layer l;
-        l.Cells  = std::move( m_Cells );
-        l.Unit   = m_Unit;
-        l.Origin = m_ActiveOrigin;
-        m_Frozen.push_back( std::move( l ) );
-        m_Cells.clear();
-        m_Unit = m_BakedUnit = -1.0f; // the next Block Size becomes the base of a brand-new volume
+        m_BakedUnit = -1.0f;
         m_HasSel = m_Selecting = m_CornerMode = false;
-    }
-
-    bool CubeGridTool::SolidAt( const glm::ivec3& c, float unit, const glm::vec3& origin ) const
-    {
-        // Is the cell (index `c`, edge `unit`) inside solid geometry of ANY layer? Layer units are always
-        // commensurate in practice (the base only ever halves), so a coarser layer maps with one FloorDiv.
-        // A layer FINER than `unit`, or one built in a DIFFERENT grid frame (its lattice doesn't line up
-        // at all), is skipped — conservative: it can only ever leave a hidden interior face.
-        auto inLayer = [&]( const CellMap& cells, float lu, const glm::vec3& lo )
-        {
-            if ( cells.empty() || lu <= 0.0f ||
-                 glm::any( glm::greaterThan( glm::abs( lo - origin ), glm::vec3( 1e-3f ) ) ) )
-                return false;
-            const int R = static_cast<int>( std::lround( lu / unit ) );
-            if ( R < 1 || std::abs( lu - static_cast<float>( R ) * unit ) > 0.001f * unit )
-                return false;
-            return cells.count( Pack( { FloorDiv( c.x, R ), FloorDiv( c.y, R ), FloorDiv( c.z, R ) } ) ) > 0;
-        };
-        if ( inLayer( m_Cells, m_Unit, m_ActiveOrigin ) )
-            return true;
-        for ( const Layer& l : m_Frozen )
-            if ( inLayer( l.Cells, l.Unit, l.Origin ) )
-                return true;
-        return false;
-    }
-
-    bool CubeGridTool::FaceHidden( const CellMap& cells, const glm::ivec3& c, const Cell& data, int f, float unit,
-                                   const glm::vec3& origin ) const
-    {
-        const glm::ivec3 n  = c + kNeighbor[f];
-        const auto       it = cells.find( Pack( n ) );
-        if ( it != cells.end() )
-        {
-            // Same layer: the shared quad only exists if all four corners line up on both boxes — that is
-            // what keeps a ramp's slanted face visible while the flat faces under it stay culled.
-            const int bit = kFaceAxisBit[f];
-            for ( int k = 0; k < 4; ++k )
-            {
-                const int i = kFaceCorner[f][k];
-                if ( data.V[i] != it->second.V[i ^ bit] )
-                    return false;
-            }
-            return true;
-        }
-        // Another layer's solid can only hide a face of an UNDEFORMED cell (we don't know its corners).
-        return data.IsFlat() && SolidAt( n, unit, origin );
     }
 
     void CubeGridTool::PushPull( ::Desert::Core::Scene& scene, int dir, int K )
     {
         if ( !m_HasSel )
             return;
-        auto      occ    = [&]( const glm::ivec3& c ) { return SolidAt( c, m_Unit, m_ActiveOrigin ); };
-        const int na     = m_PlaneNa;
-        const int sign   = m_PlaneSign;
-        const int ua     = ( na + 1 ) % 3;
-        const int va     = ( na + 2 ) % 3;
-        const int steps  = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
-        const int height = K * steps; // one block = K base cells tall; × Blocks Per Step
-
-        if ( dir > 0 ) // Extrude out: fill `height` base cells from the first empty cell, per column
-        {
-            for ( int u = m_UMin; u <= m_UMax; ++u )
-                for ( int v = m_VMin; v <= m_VMax; ++v )
-                {
-                    glm::ivec3 c{ 0 };
-                    c[na] = m_PlaneCell;
-                    c[ua] = u;
-                    c[va] = v;
-                    while ( occ( c ) )
-                        c[na] += sign;
-                    for ( int s = 0; s < height; ++s, c[na] += sign )
-                        m_Cells[Pack( c )] = Cell{};
-                }
-            m_PlaneCell += sign * height;
-        }
-        else // Push in: remove `height` base cells just inside the plane, per column
-        {
-            for ( int u = m_UMin; u <= m_UMax; ++u )
-                for ( int v = m_VMin; v <= m_VMax; ++v )
-                {
-                    glm::ivec3 c{ 0 };
-                    c[na] = m_PlaneCell - sign;
-                    c[ua] = u;
-                    c[va] = v;
-                    for ( int s = 0; s < height; ++s, c[na] -= sign )
-                        m_Cells.erase( Pack( c ) );
-                }
-            m_PlaneCell -= sign * height;
-        }
+        const int steps = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
+        m_Volume.PushPull( m_Plane, m_Sel, dir, K * steps ); // one block = K base cells tall; x Blocks Per Step
         RegenMesh( scene );
     }
 
@@ -421,7 +124,7 @@ namespace Desert::Editor::Tools
             ms.ReqCornerMode = false;
             if ( m_CornerMode )
                 m_CornerMode = false;
-            else if ( m_HasSel && m_PlaneNa == 1 && m_PlaneSign > 0 )
+            else if ( m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0 )
             {
                 m_CornerMode = true;
                 SyncCornerHeights();
@@ -436,25 +139,25 @@ namespace Desert::Editor::Tools
         // re-scales the new volume — the geometry built before never moves or re-subdivides again.
         // (m_HoverValid = last frame's targeting, so a click on empty sky doesn't commit anything.)
         if ( interact && !m_CornerMode && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && m_HoverValid &&
-             !m_Cells.empty() )
+             !m_Volume.Cells.empty() )
             FreezeActive();
 
         // Re-initialising the grid frame commits the current piece too: cells are indices into a lattice,
         // so keeping them across a frame change would teleport built geometry. Frozen layers remember the
         // frame they were built in and stay exactly where they are.
-        if ( glm::any( glm::greaterThan( glm::abs( ms.GridOrigin - m_ActiveOrigin ), glm::vec3( 1e-4f ) ) ) )
+        if ( glm::any( glm::greaterThan( glm::abs( ms.GridOrigin - m_Volume.Origin ), glm::vec3( 1e-4f ) ) ) )
         {
-            const glm::vec3 prevOrigin = m_ActiveOrigin;
+            const glm::vec3 prevOrigin = m_Volume.Origin;
             FreezeActive();
-            m_ActiveOrigin = ms.GridOrigin;
-            m_GroundY += prevOrigin.y - m_ActiveOrigin.y; // keep the work-plane at the same world height
+            m_Volume.Origin = ms.GridOrigin;
+            m_GroundY += prevOrigin.y - m_Volume.Origin.y; // keep the work-plane at the same world height
         }
 
         // A finer Block Size subdivides the base — but splitting a DEFORMED cell would have to re-derive
         // every corner offset, so a piece that already has slopes is committed instead and the finer work
         // starts on a clean slate. (Its shape is preserved exactly; nothing is flattened.)
-        if ( !m_Cells.empty() && gs < m_Unit * 0.999f )
-            for ( const auto& [k, cell] : m_Cells )
+        if ( !m_Volume.Cells.empty() && gs < m_Volume.Unit * 0.999f )
+            for ( const auto& [k, cell] : m_Volume.Cells )
                 if ( !cell.IsFlat() )
                 {
                     FreezeActive();
@@ -465,37 +168,37 @@ namespace Desert::Editor::Tools
         // Base unit: the finest cell ever used. A Block Size finer than the base subdivides the base
         // losslessly (existing solids split into F³, world-identical); a coarser Block Size never remaps —
         // it just stamps K base cells at once. So drawn geometry never changes when the grid step changes.
-        const float uPrev   = m_Unit;
+        const float uPrev   = m_Volume.Unit;
         bool        rebased = false;
-        if ( m_Unit < 0.0f || m_Cells.empty() )
+        if ( m_Volume.Unit < 0.0f || m_Volume.Cells.empty() )
         {
-            m_Unit  = gs; // nothing drawn yet -> the requested size simply becomes the base
+            m_Volume.Unit = gs; // nothing drawn yet -> the requested size simply becomes the base
             rebased = true;
         }
         else
-            for ( int guard = 0; gs < m_Unit * 0.999f && guard < 24; ++guard )
+            for ( int guard = 0; gs < m_Volume.Unit * 0.999f && guard < 24; ++guard )
             {
                 RefineBy( 2 ); // finer than the base -> subdivide losslessly (geometry stays put)
                 changed = true;
             }
-        const int K   = std::max( 1, static_cast<int>( std::lround( gs / m_Unit ) ) );
-        ms.CellSize   = static_cast<float>( K ) * m_Unit; // snap the shown Block Size to a base multiple
-        const float u = m_Unit;
+        const int K   = std::max( 1, static_cast<int>( std::lround( gs / m_Volume.Unit ) ) );
+        ms.CellSize   = static_cast<float>( K ) * m_Volume.Unit; // snap the shown Block Size to a base multiple
+        const float u = m_Volume.Unit;
 
         // Resizing the grid with a selection up but nothing pushed yet re-bases the whole volume, so the
         // stored cell indices would silently mean a different world position — the orange rectangle jumped
         // somewhere else. Re-express it in the new base instead: it stays where you put it and just
         // re-snaps to the new block size (UE: the marquee grows/shrinks in place).
-        if ( rebased && uPrev > 0.0f && m_Unit != uPrev && ( m_HasSel || m_Selecting ) )
-            RescaleSelection( uPrev, m_Unit, K );
+        if ( rebased && uPrev > 0.0f && m_Volume.Unit != uPrev && ( m_HasSel || m_Selecting ) )
+            RescaleSelection( m_Plane, m_Anchor, m_Sel, uPrev, m_Volume.Unit, K );
 
         if ( ms.ReqClear )
         {
             ms.ReqClear = false;
-            m_Cells.clear();
-            m_Frozen.clear();
+            m_Volume.Cells.clear();
+            m_Volume.Frozen.clear();
             m_HasSel = m_Selecting = m_CornerMode = false;
-            m_GroundY = 0.0f, m_PlaneNa = 1, m_PlaneSign = 1, m_PlaneCell = 0;
+            m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
             RegenMesh( scene );
         }
 
@@ -537,8 +240,8 @@ namespace Desert::Editor::Tools
                     }
                 }
             };
-            testLayer( m_Cells, u, glm::vec3( 0.0f ) );
-            for ( const Layer& l : m_Frozen ) // you can keep building on a committed piece
+            testLayer( m_Volume.Cells, u, glm::vec3( 0.0f ) );
+            for ( const Layer& l : m_Volume.Frozen ) // you can keep building on a committed piece
                 testLayer( l.Cells, l.Unit, l.Origin - gridOrigin );
 
             // "Hit Unrelated Geometry": the rest of the scene is targetable too, so you can start a grid
@@ -623,7 +326,7 @@ namespace Desert::Editor::Tools
             const glm::vec3 mn = glm::vec3( c ) * cu + co;
             for ( int f = 0; f < 6; ++f )
             {
-                if ( FaceHidden( cells, c, cell, f, cu, co ) )
+                if ( m_Volume.FaceHidden( cells, c, cell, f, cu, co ) )
                     continue;
                 const glm::vec3 fn = kFace[f][0].N;
                 const glm::vec3 fc = mn + 0.5f * cu + 0.5f * cu * fn;
@@ -736,7 +439,7 @@ namespace Desert::Editor::Tools
             {
                 const int  corU[4] = { uMin, uMax, uMin, uMax };
                 const int  corV[4] = { vMin, vMin, vMax, vMax };
-                const int  sign    = ( na == m_PlaneNa ) ? m_PlaneSign : 1;
+                const int  sign    = ( na == m_Plane.Na ) ? m_Plane.Sign : 1;
                 glm::ivec3 c{ 0 };
                 for ( int k = 0; k < 4; ++k )
                 {
@@ -745,7 +448,7 @@ namespace Desert::Editor::Tools
                     c[na]             = cell - sign;
                     c[( na + 1 ) % 3] = corU[k];
                     c[( na + 2 ) % 3] = corV[k];
-                    while ( d < 4096 && SolidAt( c, u, gridOrigin ) )
+                    while ( d < 4096 && m_Volume.SolidAt( c, u, gridOrigin ) )
                     {
                         ++d;
                         c[na] -= sign;
@@ -795,14 +498,14 @@ namespace Desert::Editor::Tools
         // them). The volume being worked on: brighter grey checkerboard at the live base resolution.
         if ( toolActive )
         {
-            for ( const Layer& l : m_Frozen )
+            for ( const Layer& l : m_Volume.Frozen )
                 for ( const auto& [k, cell] : l.Cells )
                     drawCellSolid( l.Cells, Unpack( k ), cell, l.Unit, l.Origin, IM_COL32( 108, 112, 122, 200 ),
                                    IM_COL32( 78, 82, 92, 225 ) );
-            for ( const auto& [k, cell] : m_Cells )
+            for ( const auto& [k, cell] : m_Volume.Cells )
             {
                 const glm::ivec3 c = Unpack( k );
-                drawCellSolid( m_Cells, c, cell, u, gridOrigin,
+                drawCellSolid( m_Volume.Cells, c, cell, u, gridOrigin,
                                ( ( c.x + c.y + c.z ) & 1 ) ? IM_COL32( 120, 125, 135, 205 )
                                                            : IM_COL32( 150, 155, 165, 205 ),
                                IM_COL32( 90, 95, 105, 230 ) );
@@ -868,8 +571,8 @@ namespace Desert::Editor::Tools
             {
                 const int steps = wheel > 0.0f ? 1 : -1;
                 m_GroundY += static_cast<float>( steps * K ) * u;
-                if ( m_HasSel && m_PlaneNa == 1 && m_PlaneSign > 0 )
-                    m_PlaneCell += steps * K;
+                if ( m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0 )
+                    m_Plane.Cell += steps * K;
             }
             // Ctrl + MMB drops the work-plane onto whatever surface was clicked (UE's grid realignment).
             if ( ctrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Middle ) && tHas )
@@ -887,18 +590,18 @@ namespace Desert::Editor::Tools
         {
             m_Selecting = true;
             m_HasSel    = false;
-            m_PlaneNa   = tNa;
-            m_PlaneSign = tSign;
-            m_PlaneCell = tPlaneCell;
+            m_Plane.Na   = tNa;
+            m_Plane.Sign = tSign;
+            m_Plane.Cell = tPlaneCell;
             m_Anchor    = { tU, tV };
         }
 
         if ( m_Selecting )
         {
-            const int   na     = m_PlaneNa;
+            const int   na     = m_Plane.Na;
             const int   ua     = ( na + 1 ) % 3;
             const int   va     = ( na + 2 ) % 3;
-            const float planeW = planeWorldOf( na, m_PlaneSign, m_PlaneCell );
+            const float planeW = planeWorldOf( na, m_Plane.Sign, m_Plane.Cell );
             glm::ivec2  cur    = m_Anchor;
             if ( std::abs( gray.Direction[na] ) > 1e-6f )
             {
@@ -913,14 +616,14 @@ namespace Desert::Editor::Tools
             // Snap the anchor..cursor span out to whole Blocks (K base cells).
             const int aUb = FloorDiv( m_Anchor.x, K ), cUb = FloorDiv( cur.x, K );
             const int aVb = FloorDiv( m_Anchor.y, K ), cVb = FloorDiv( cur.y, K );
-            m_UMin = std::min( aUb, cUb ) * K;
-            m_UMax = std::max( aUb, cUb ) * K + K - 1;
-            m_VMin = std::min( aVb, cVb ) * K;
-            m_VMax = std::max( aVb, cVb ) * K + K - 1;
-            drawRect( m_UMin, m_UMax, m_VMin, m_VMax, na, planeW,
+            m_Sel.UMin = std::min( aUb, cUb ) * K;
+            m_Sel.UMax = std::max( aUb, cUb ) * K + K - 1;
+            m_Sel.VMin = std::min( aVb, cVb ) * K;
+            m_Sel.VMax = std::max( aVb, cVb ) * K + K - 1;
+            drawRect( m_Sel.UMin, m_Sel.UMax, m_Sel.VMin, m_Sel.VMax, na, planeW,
                       ::ImGui::GetColorU32( WithAlpha( ThemeManager::GetHighlightColor(), 0.27f ) ),
                       ::ImGui::GetColorU32( ThemeManager::GetHighlightColor() ) );
-            drawGridAndDims( m_UMin, m_UMax, m_VMin, m_VMax, na, planeW, true );
+            drawGridAndDims( m_Sel.UMin, m_Sel.UMax, m_Sel.VMin, m_Sel.VMax, na, planeW, true );
 
             if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
             {
@@ -933,11 +636,11 @@ namespace Desert::Editor::Tools
             // The committed selection stays highlighted (a repeat Push/Pull acts on it)...
             if ( m_HasSel )
             {
-                const float planeW = planeWorldOf( m_PlaneNa, m_PlaneSign, m_PlaneCell );
-                drawRect( m_UMin, m_UMax, m_VMin, m_VMax, m_PlaneNa, planeW,
+                const float planeW = planeWorldOf( m_Plane.Na, m_Plane.Sign, m_Plane.Cell );
+                drawRect( m_Sel.UMin, m_Sel.UMax, m_Sel.VMin, m_Sel.VMax, m_Plane.Na, planeW,
                           ::ImGui::GetColorU32( WithAlpha( ThemeManager::GetHighlightColor(), 0.22f ) ),
                           ::ImGui::GetColorU32( WithAlpha( ThemeManager::GetHighlightColor(), 0.92f ) ) );
-                drawGridAndDims( m_UMin, m_UMax, m_VMin, m_VMax, m_PlaneNa, planeW, true );
+                drawGridAndDims( m_Sel.UMin, m_Sel.UMax, m_Sel.VMin, m_Sel.VMax, m_Plane.Na, planeW, true );
             }
             // ...and the green Block preview ALWAYS tracks the cursor, so you always see where the next
             // selection begins (a fresh LMB drag replaces the committed one).
@@ -958,7 +661,7 @@ namespace Desert::Editor::Tools
         //     take the bilinear blend, so two posts up = a ramp, one post up = a hip. ---
         if ( toolActive && m_CornerMode && m_HasSel )
         {
-            const float  planeW = planeWorldOf( m_PlaneNa, m_PlaneSign, m_PlaneCell );
+            const float  planeW = planeWorldOf( m_Plane.Na, m_Plane.Sign, m_Plane.Cell );
             const ImVec2 mouse  = ::ImGui::GetMousePos();
             glm::vec2    sp[4];
             bool         ok[4];
@@ -966,11 +669,11 @@ namespace Desert::Editor::Tools
             float        bestD   = 14.0f;
             for ( int k = 0; k < 4; ++k )
             {
-                const float lu = static_cast<float>( kPosts[k].AtUMax ? m_UMax + 1 : m_UMin );
-                const float lv = static_cast<float>( kPosts[k].AtVMax ? m_VMax + 1 : m_VMin );
+                const float lu = static_cast<float>( kPosts[k].AtUMax ? m_Sel.UMax + 1 : m_Sel.UMin );
+                const float lv = static_cast<float>( kPosts[k].AtVMax ? m_Sel.VMax + 1 : m_Sel.VMin );
                 const float hW = planeW + static_cast<float>( m_CornerH[k] ) / CornerDen * u;
-                ok[k] =
-                     WorldToScreen( worldPt( lu, lv, m_PlaneNa, hW ), viewProj, viewportPos, viewportSize, sp[k] );
+                ok[k] = WorldToScreen( worldPt( lu, lv, m_Plane.Na, hW ), viewProj, viewportPos, viewportSize,
+                                       sp[k] );
                 if ( !ok[k] )
                     continue;
                 const float d = glm::length( sp[k] - glm::vec2( mouse.x, mouse.y ) );
@@ -1005,11 +708,11 @@ namespace Desert::Editor::Tools
         }
 
         // Re-bake if the base resolution changed (a refine this frame).
-        if ( m_Unit != m_BakedUnit && !m_Cells.empty() )
+        if ( m_Volume.Unit != m_BakedUnit && !m_Volume.Cells.empty() )
             changed = true;
 
-        ms.Cubes = static_cast<int>( m_Cells.size() );
-        for ( const Layer& l : m_Frozen )
+        ms.Cubes = static_cast<int>( m_Volume.Cells.size() );
+        for ( const Layer& l : m_Volume.Frozen )
             ms.Cubes += static_cast<int>( l.Cells.size() );
 
         // --- Viewport bottom bar: tool + Level shift + Push/Pull + Resize Grid + Accept/Cancel. ---
@@ -1033,19 +736,19 @@ namespace Desert::Editor::Tools
                 // Level: shift the ground work-plane one block up/down (the hover preview follows it), and
                 // carry a selection that sits on that plane along with it.
                 ::ImGui::SameLine( 0.0f, 14.0f );
-                const bool onGround = m_HasSel && m_PlaneNa == 1 && m_PlaneSign > 0;
+                const bool onGround = m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0;
                 if ( ::ImGui::Button( ICON_MDI_ARROW_UP "##lvlup" ) )
                 {
                     m_GroundY += static_cast<float>( K ) * u;
                     if ( onGround )
-                        m_PlaneCell += K;
+                        m_Plane.Cell += K;
                 }
                 ::ImGui::SameLine();
                 if ( ::ImGui::Button( ICON_MDI_ARROW_DOWN "##lvldn" ) )
                 {
                     m_GroundY -= static_cast<float>( K ) * u;
                     if ( onGround )
-                        m_PlaneCell -= K;
+                        m_Plane.Cell -= K;
                 }
 
                 ::ImGui::SameLine( 0.0f, 14.0f );
@@ -1078,7 +781,7 @@ namespace Desert::Editor::Tools
 
                 // Corner Mode toggle, right next to Push/Pull (Z does the same).
                 ::ImGui::SameLine();
-                const bool canCorner = m_HasSel && m_PlaneNa == 1 && m_PlaneSign > 0;
+                const bool canCorner = m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0;
                 if ( !canCorner && !m_CornerMode )
                     ::ImGui::BeginDisabled();
                 if ( m_CornerMode )
@@ -1125,7 +828,7 @@ namespace Desert::Editor::Tools
         if ( ms.ReqAccept )
         {
             ms.ReqAccept = false;
-            if ( !( m_Cells.empty() && m_Frozen.empty() ) )
+            if ( !( m_Volume.Cells.empty() && m_Volume.Frozen.empty() ) )
             {
                 // Collision on Accept (UE's Cube Grid bakes collision with the mesh): a blockout you
                 // cannot walk into is half a blockout. This is a BOX around the piece, not a triangle
@@ -1189,11 +892,11 @@ namespace Desert::Editor::Tools
                 Commands::NotifyCreated( { m_Entity } );
                 Core::SelectionManager::SetSelected( m_Entity );
                 m_Entity = Common::UUID::Null();
-                m_Cells.clear();
-                m_Frozen.clear();
+                m_Volume.Cells.clear();
+                m_Volume.Frozen.clear();
                 m_HasSel = m_Selecting = m_CornerMode = false;
-                m_Unit = m_BakedUnit = -1.0f;
-                m_GroundY = 0.0f, m_PlaneNa = 1, m_PlaneSign = 1, m_PlaneCell = 0;
+                m_Volume.Unit = m_BakedUnit = -1.0f;
+                m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
             }
         }
         if ( ms.ReqCancel )
@@ -1205,100 +908,14 @@ namespace Desert::Editor::Tools
 
     void CubeGridTool::RegenMesh( ::Desert::Core::Scene& scene )
     {
-        m_BakedUnit = m_Unit;
-        if ( m_Cells.empty() && m_Frozen.empty() )
+        m_BakedUnit = m_Volume.Unit;
+        if ( m_Volume.Cells.empty() && m_Volume.Frozen.empty() )
         {
             Cancel( scene );
             return;
         }
 
-        std::vector<Vertex> verts;
-        std::vector<Index>  inds;
-
-        // One quad -> 4 vertices + 2 triangles, with world-aligned UVs and a tangent frame that matches
-        // them (so a normal map on a merged quad lines up with the texture it is paired with).
-        auto emitQuad = [&]( const glm::vec3 p[4], const glm::vec3& nrm, const FaceUvFrame& uv )
-        {
-            const uint32_t base = static_cast<uint32_t>( verts.size() );
-            for ( int k = 0; k < 4; ++k )
-            {
-                Vertex v;
-                v.Position  = p[k];
-                v.Normal    = nrm;
-                v.Tangent   = uv.T;
-                v.Bitangent = uv.B;
-                v.TexCoord  = { glm::dot( p[k], uv.T ) * kUvPerUnit, glm::dot( p[k], uv.B ) * kUvPerUnit };
-                verts.push_back( v );
-            }
-            inds.push_back( { base + 0, base + 1, base + 2 } );
-            inds.push_back( { base + 2, base + 3, base + 0 } );
-        };
-
-        // One mesh out of every layer — each meshed at its OWN cell size, face-culled against all layers.
-        auto emitLayer = [&]( const CellMap& cells, float lu, const glm::vec3& lo )
-        {
-            // FLAT cells go through greedy meshing: a 20x8 blockout wall becomes ONE quad instead of 160.
-            // Corner-deformed cells keep their own per-face quads — their corners are not coplanar with a
-            // neighbour's, so merging them would flatten the ramp you just built.
-            std::vector<glm::ivec3> flat;
-            flat.reserve( cells.size() );
-            for ( const auto& [key, cell] : cells )
-                if ( cell.IsFlat() )
-                    flat.push_back( Unpack( key ) );
-
-            const auto merged = Geometry::GreedyMeshFaces(
-                 flat,
-                 [&]( const glm::ivec3& c, int f )
-                 {
-                     const auto it = cells.find( Pack( c ) );
-                     return it != cells.end() && !FaceHidden( cells, c, it->second, f, lu, lo );
-                 } );
-
-            for ( const auto& q : merged )
-            {
-                const Geometry::VoxelFaceAxes ax = Geometry::FaceAxes( q.Face );
-                const FaceUvFrame             uv = UvFrame( q.Face );
-
-                // The face's unit-cube corners, stretched over the merged run: the 0/1 offset along each
-                // in-plane axis becomes 0/Size, which keeps the table's winding (and so the normal).
-                glm::vec3 p[4];
-                for ( int k = 0; k < 4; ++k )
-                {
-                    const glm::vec3 unitP = kFace[q.Face][k].P + 0.5f; // 0 or 1 per axis
-                    glm::vec3       g( q.Cell );
-                    g[ax.Normal] += unitP[ax.Normal];
-                    g[ax.U] += unitP[ax.U] * static_cast<float>( q.SizeU );
-                    g[ax.V] += unitP[ax.V] * static_cast<float>( q.SizeV );
-                    p[k] = g * lu + lo;
-                }
-                emitQuad( p, kFace[q.Face][0].N, uv );
-            }
-
-            for ( const auto& [key, cell] : cells )
-            {
-                if ( cell.IsFlat() )
-                    continue; // already meshed above
-
-                const glm::ivec3 c = Unpack( key );
-                for ( int f = 0; f < 6; ++f )
-                {
-                    if ( FaceHidden( cells, c, cell, f, lu, lo ) ) // only Solid/Empty borders
-                        continue;
-                    // Corner Mode can slant a quad, so the normal comes from the actual corners.
-                    glm::vec3 p[4];
-                    for ( int k = 0; k < 4; ++k )
-                        p[k] = CornerPos( c, cell, kFaceCorner[f][k], lu, lo );
-                    glm::vec3 nrm =
-                         glm::cross( p[1] - p[0], p[3] - p[0] ) + glm::cross( p[3] - p[2], p[1] - p[2] );
-                    nrm = glm::dot( nrm, nrm ) > 1e-12f ? glm::normalize( nrm ) : kFace[f][0].N;
-
-                    emitQuad( p, nrm, UvFrame( f ) );
-                }
-            }
-        };
-        emitLayer( m_Cells, m_Unit, m_ActiveOrigin );
-        for ( const Layer& l : m_Frozen )
-            emitLayer( l.Cells, l.Unit, l.Origin );
+        const Geometry::RenderMeshData quads = m_Volume.Bake();
 
         if ( m_Entity == Common::UUID::Null() )
         {
@@ -1323,9 +940,6 @@ namespace Desert::Editor::Tools
         // quads disagree, so a flat face renders the vertices it did before. On a Corner Mode ramp the
         // bitangent is the one thing that changes: the render side derives it as cross(N, T) * sign
         // (EditMeshConversion.hpp), in the ramp's plane, where the old buffer kept the world UV axis.
-        Geometry::RenderMeshData quads;
-        quads.Vertices = std::move( verts );
-        quads.Indices  = std::move( inds );
         auto imported  = Geometry::FromRenderMesh( quads );
         if ( !imported.IsSuccess() )
         {
@@ -1343,10 +957,10 @@ namespace Desert::Editor::Tools
             if ( auto ref = scene.FindEntityByID( m_Entity ) )
                 scene.DestroyEntity( ref->get() );
         m_Entity = Common::UUID::Null();
-        m_Cells.clear();
-        m_Frozen.clear();
+        m_Volume.Cells.clear();
+        m_Volume.Frozen.clear();
         m_HasSel = m_Selecting = m_CornerMode = false;
-        m_Unit = m_BakedUnit = -1.0f;
-        m_GroundY = 0.0f, m_PlaneNa = 1, m_PlaneSign = 1, m_PlaneCell = 0;
+        m_Volume.Unit = m_BakedUnit = -1.0f;
+        m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
     }
 } // namespace Desert::Editor::Tools
