@@ -112,29 +112,6 @@ TEST( SplashLayout, TheDesignShrinksToFitASmallScreenAndNeverGrows )
 
 // --- The motion -------------------------------------------------------------------------------------
 
-TEST( SplashLayout, ThePushInGoesFromOneToTwoPercentAndHolds )
-{
-    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( 0.0f ), 1.0f );
-    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( Splash::kKenBurnsSeconds ), 1.02f );
-    // A start longer than the push-in holds the last frame; it does not keep zooming or spring back.
-    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( Splash::kKenBurnsSeconds * 3.0f ), 1.02f );
-    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( -1.0f ), 1.0f );
-}
-
-TEST( SplashLayout, ThePushInIsEasedOutAndNeverGoesBackwards )
-{
-    // Ease-out: more than half the travel is done by half the time.
-    const float half = Splash::KenBurnsScale( Splash::kKenBurnsSeconds * 0.5f );
-    EXPECT_GT( half - 1.0f, 0.5f * ( Splash::kKenBurnsZoom - 1.0f ) );
-    float previous = 1.0f;
-    for ( int i = 1; i <= 100; ++i )
-    {
-        const float scale = Splash::KenBurnsScale( Splash::kKenBurnsSeconds * static_cast<float>( i ) / 100.0f );
-        EXPECT_GE( scale, previous );
-        previous = scale;
-    }
-}
-
 TEST( SplashLayout, TheFadesTakeAtMostTwoHundredMilliseconds )
 {
     EXPECT_LE( Splash::kFadeInSeconds, 0.2f );

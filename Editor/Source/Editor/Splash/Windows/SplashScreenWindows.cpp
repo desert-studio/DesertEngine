@@ -6,9 +6,8 @@
 // creates the window, runs its message loop, and is the only thing that ever touches it; `SetStatus` and
 // `Close` only post messages to it. This is the arrangement UE's FWindowsPlatformSplash uses.
 //
-// THE MOTION (SplashLayout.hpp: push-in, fade in, crossfade out) is driven by a timer on the same
-// thread, so it keeps moving however long the main thread is away. The fades are the layered window's
-// own alpha; the push-in is a centred source rectangle that shrinks as the scale grows.
+// THE MOTION (SplashLayout.hpp: fade in, crossfade out) is driven by a timer on the same thread, so it
+// keeps running however long the main thread is away. The fades are the layered window's own alpha.
 //
 // Drawn with plain GDI into a memory bitmap and blitted in one piece, so a repaint never flickers. GDI
 // has no alpha for text, so "white at 62 %" is the grey that white at 62 % over black gives, and the soft
@@ -219,8 +218,8 @@ namespace Desert::Editor::Splash
                 return;
 
             // THE PICTURE, after the window is already up with its live text on the dark background — and
-            // on a thread of its own, because this one has to keep pumping: the fade in and the push-in are
-            // timer messages, and a decode run here (1.2 s in Debug) would hold the window invisible.
+            // on a thread of its own, because this one has to keep pumping: the fade in is a timer
+            // message, and a decode run here (1.2 s in Debug) would hold the window invisible.
             std::thread decoder(
                  [this, window]
                  {
@@ -276,9 +275,6 @@ namespace Desert::Editor::Splash
                 DestroyWindow( window );
                 return;
             }
-            // The push-in needs a repaint only while it is still moving.
-            if ( SecondsSince( m_ShownAt ) <= kKenBurnsSeconds + 0.1f )
-                InvalidateRect( window, nullptr, FALSE );
         }
 
         RECT Scaled( const Rect& designFromBottom ) const
@@ -337,16 +333,11 @@ namespace Desert::Editor::Splash
                     info.bmiHeader.biPlanes      = 1;
                     info.bmiHeader.biBitCount    = 32;
                     info.bmiHeader.biCompression = BI_RGB;
-                    // The push-in: a CENTRED source rectangle 1/scale of the picture. Centred on both axes,
-                    // so StretchDIBits' bottom-up reading of the source y cannot move it.
-                    const float scale = KenBurnsScale( SecondsSince( m_ShownAt ) );
-                    const int   srcW  = static_cast<int>( static_cast<float>( m_Picture->Width ) / scale );
-                    const int   srcH  = static_cast<int>( static_cast<float>( m_Picture->Height ) / scale );
-                    const int   srcX  = ( static_cast<int>( m_Picture->Width ) - srcW ) / 2;
-                    const int   srcY  = ( static_cast<int>( m_Picture->Height ) - srcH ) / 2;
+                    const int srcW = static_cast<int>( m_Picture->Width );
+                    const int srcH = static_cast<int>( m_Picture->Height );
                     SetStretchBltMode( dc, HALFTONE );
                     SetBrushOrgEx( dc, 0, 0, nullptr );
-                    StretchDIBits( dc, 0, 0, w, h, srcX, srcY, srcW, srcH, m_Picture->Rgba.data(), &info,
+                    StretchDIBits( dc, 0, 0, w, h, 0, 0, srcW, srcH, m_Picture->Rgba.data(), &info,
                                    DIB_RGB_COLORS, SRCCOPY );
                 }
                 else

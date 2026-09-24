@@ -170,19 +170,7 @@ namespace Desert::Editor::Splash
             m_Version.string = ToNS( content.Version );
             ApplyStatus( Status{} );
 
-            // THE MOTION, handed to Core Animation whole. An explicit animation committed once is run by
-            // the render server frame by frame on its own clock, so nothing in this process — neither the
-            // main thread nor the splash thread — has to wake up for the picture to keep moving. The
-            // model values are the END values, so a removed animation would leave the picture where the
-            // motion ends rather than snapping back.
-            CABasicAnimation* push = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
-            push.fromValue         = @1.0;
-            push.toValue           = @( kKenBurnsZoom );
-            push.duration          = kKenBurnsSeconds;
-            push.timingFunction    = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
-            m_Image.transform      = CATransform3DMakeScale( kKenBurnsZoom, kKenBurnsZoom, 1.0 );
-            [m_Image addAnimation:push forKey:@"push-in"];
-
+            // The fade is handed to Core Animation whole: its render server runs it on its own clock.
             CABasicAnimation* fadeIn = [CABasicAnimation animationWithKeyPath:@"opacity"];
             fadeIn.fromValue         = @0.0;
             fadeIn.toValue           = @1.0;
