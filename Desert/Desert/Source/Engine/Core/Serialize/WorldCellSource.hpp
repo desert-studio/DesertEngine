@@ -30,8 +30,10 @@ namespace Desert::Core::Rules
 
         // The records of residency unit @p unit, in ResidencyUnitMembers order. An error names the unit and why
         // (for a file source: which file, and what about it is wrong).
+        //
+        // CONST AND SAFE FROM ANY THREAD: the streamer calls it on JobSystem workers, several at once.
         [[nodiscard]] virtual Common::ResultStr<std::vector<Assets::EntityData>>
-        UnitRecords( std::size_t unit ) = 0;
+        UnitRecords( std::size_t unit ) const = 0;
     };
 
     // The records are already in memory: a unit is a copy of its members. Holds a VIEW of @p records, which must
@@ -47,7 +49,8 @@ namespace Desert::Core::Rules
                 m_Units[unit] = ResidencyUnitMembers( plan, unit );
         }
 
-        [[nodiscard]] Common::ResultStr<std::vector<Assets::EntityData>> UnitRecords( std::size_t unit ) override
+        [[nodiscard]] Common::ResultStr<std::vector<Assets::EntityData>>
+        UnitRecords( std::size_t unit ) const override
         {
             using Result = std::vector<Assets::EntityData>;
             if ( unit >= m_Units.size() )

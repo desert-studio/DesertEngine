@@ -489,12 +489,18 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   m_Mesh (shared) - the same immutable EditMesh EditMeshCommand's m_Before/m_After hold, by reference so
     //   a redo puts back exactly that half - and m_Alongside (unique), the companion command it owns, as
     //   EditMeshCommand::m_Alongside. Shared 339+1, Unique 130+1.
-    //   Summed with LS-6 (-2 Raw, -1 Shared): 400 / 339 / 131 / 39 = 909.
+    //   WP9 (2026-09-24) added four shared and moved one unique: the cooked world's index is held by
+    //   CookedWorldStart::Index and WorldStreamer::m_Index, the Play snapshot by WorldStreamer::m_Snapshot, and
+    //   the cell source by WorldCellLoader::m_Source - each co-held by the JobSystem workers reading a cell, which
+    //   may outlive the frame that started them. WorldStreamer::m_Source (unique) became ::m_Loader (unique).
+    //   Shared 339+4.
+    //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared):
+    //   400 / 343 / 131 / 39 = 913.
     EXPECT_EQ( CountOf( Form::Raw ), 400 );
-    EXPECT_EQ( CountOf( Form::Shared ), 339 );
+    EXPECT_EQ( CountOf( Form::Shared ), 343 );
     EXPECT_EQ( CountOf( Form::Unique ), 131 );
     EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 909 )
+    EXPECT_EQ( (int)Members().size(), 913 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -745,8 +751,10 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // 335 -> 337 with M13: MeshElementSelection::m_Mesh and the Select Elements tool's Target::Mesh, the
     // same immutable EditMesh - see TheScanFindsTheCensusedPopulation.
     // 337 -> 339: LS-5's two and M13/M14's two, merged 2026-09-24.
-    // 339 -> 338 with LS-6 (the procedural terrain's SplatMap), -> 339 with M16b (SplitCopyCommand::m_Mesh).
-    EXPECT_EQ( CountOf( Form::Shared ), 339 );
+    // 339 -> 338 with LS-6 (the procedural terrain's SplatMap), -> 339 with M16b (SplitCopyCommand::m_Mesh),
+    // -> 343 with WP9: a cooked world's index, the Play snapshot and the cell source, co-held by the JobSystem
+    // workers reading cells - see TheScanFindsTheCensusedPopulation.
+    EXPECT_EQ( CountOf( Form::Shared ), 343 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

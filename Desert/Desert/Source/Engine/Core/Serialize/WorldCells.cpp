@@ -11,6 +11,9 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
+#include <map>
+#include <tuple>
 #include <set>
 #include <unordered_map>
 #include <utility>
@@ -485,57 +488,192 @@ namespace Desert::Core::WorldCells
     {
     }
 
-    Common::ResultStr<std::vector<Assets::EntityData>> CookedCellSource::UnitRecords( std::size_t unit )
+    namespace
+    {
+        // Unit @p unit's records out of its file's payload: a run of them, after the units the file lists
+        // before it.
+        std::vector<Assets::EntityData> UnitSlice( const WorldIndex& index, std::size_t unit,
+                                                   const CellPayload& cell )
+        {
+            const IndexUnit& wanted = index.Units[unit];
+            std::size_t      offset = 0;
+            for ( std::size_t other = 0; other < unit; ++other )
+                if ( index.Units[other].File == wanted.File )
+                    offset += index.Units[other].Ids.size();
+            return std::vector<Assets::EntityData>(
+                 cell.Records.begin() + static_cast<std::ptrdiff_t>( offset ),
+                 cell.Records.begin() + static_cast<std::ptrdiff_t>( offset + wanted.Ids.size() ) );
+        }
+
+        Common::ResultStr<CellPayload> ReadUnitFile( const WorldIndex& index, const FileReader& reader,
+                                                     const std::string& file )
+        {
+            auto bytes = reader( file );
+            if ( !bytes )
+                return Common::MakeError<CellPayload>( bytes.GetError() );
+            return ReadCellFile( index, file, bytes.GetValue() );
+        }
+
+        // The scene-wide part of the index and the records of units [0, @p units), each file read once.
+        Common::ResultStr<SceneSerialized> Assemble( const WorldIndex& index, const FileReader& reader,
+                                                     std::size_t units )
+        {
+            SceneSerialized scene;
+            scene.SceneName      = index.SceneName;
+            scene.Settings       = index.Settings;
+            scene.SceneVersion   = index.SceneVersion;
+            scene.UnitVersion    = index.UnitVersion;
+            scene.WorldPartition = index.WorldPartition;
+
+            std::map<std::string, CellPayload> read;
+            for ( std::size_t unit = 0; unit < units; ++unit )
+            {
+                const std::string& file = index.Units[unit].File;
+                auto               held = read.find( file );
+                if ( held == read.end() )
+                {
+                    auto cell = ReadUnitFile( index, reader, file );
+                    if ( !cell )
+                        return Common::MakeError<SceneSerialized>( cell.GetError() );
+                    held = read.emplace( file, cell.ExtractValue() ).first;
+                }
+                for ( auto& record : UnitSlice( index, unit, held->second ) )
+                    scene.Entities.push_back( std::move( record ) );
+            }
+            return Common::MakeSuccess( std::move( scene ) );
+        }
+
+        std::optional<Rules::AlwaysLoadedReason> ReasonNamed( std::string_view name )
+        {
+            for ( const auto reason : { Rules::AlwaysLoadedReason::Author, Rules::AlwaysLoadedReason::Component,
+                                        Rules::AlwaysLoadedReason::NoFit, Rules::AlwaysLoadedReason::NoGrid } )
+                if ( ReasonName( reason ) == name )
+                    return reason;
+            return std::nullopt;
+        }
+    } // namespace
+
+    Common::ResultStr<std::vector<Assets::EntityData>> CookedCellSource::UnitRecords( std::size_t unit ) const
     {
         using Result = std::vector<Assets::EntityData>;
         if ( unit >= m_Index->Units.size() )
             return Common::MakeError<Result>( "world '" + m_Index->SceneName + "' has no unit " +
                                               std::to_string( unit ) + " (it has " +
                                               std::to_string( m_Index->Units.size() ) + ")" );
-        const IndexUnit& wanted = m_Index->Units[unit];
-        auto             held   = m_Read.find( wanted.File );
-        if ( held == m_Read.end() )
-        {
-            auto bytes = m_Reader( wanted.File );
-            if ( !bytes )
-                return Common::MakeError<Result>( bytes.GetError() );
-            auto cell = ReadCellFile( *m_Index, wanted.File, bytes.GetValue() );
-            if ( !cell )
-                return Common::MakeError<Result>( cell.GetError() );
-            held = m_Read.emplace( wanted.File, cell.ExtractValue() ).first;
-        }
-
-        // The unit's records are a run of the file's, after the units the file lists before it.
-        std::size_t offset = 0;
-        for ( std::size_t other = 0; other < unit; ++other )
-            if ( m_Index->Units[other].File == wanted.File )
-                offset += m_Index->Units[other].Ids.size();
-        const auto& records = held->second.Records;
-        return Common::MakeSuccess(
-             Result( records.begin() + static_cast<std::ptrdiff_t>( offset ),
-                     records.begin() + static_cast<std::ptrdiff_t>( offset + wanted.Ids.size() ) ) );
+        auto cell = ReadUnitFile( *m_Index, m_Reader, m_Index->Units[unit].File );
+        if ( !cell )
+            return Common::MakeError<Result>( cell.GetError() );
+        return Common::MakeSuccess( UnitSlice( *m_Index, unit, cell.GetValue() ) );
     }
 
     Common::ResultStr<SceneSerialized> AssembleWorld( const WorldIndex& index, const FileReader& reader )
     {
-        SceneSerialized scene;
-        scene.SceneName      = index.SceneName;
-        scene.Settings       = index.Settings;
-        scene.SceneVersion   = index.SceneVersion;
-        scene.UnitVersion    = index.UnitVersion;
-        scene.WorldPartition = index.WorldPartition;
-        scene.Entities.reserve( static_cast<std::size_t>( index.Records ) );
+        return Assemble( index, reader, index.Units.size() );
+    }
 
-        CookedCellSource source( index, reader );
+    Common::ResultStr<SceneSerialized> AssembleAlwaysLoaded( const WorldIndex& index, const FileReader& reader )
+    {
+        std::size_t alwaysLoaded = 0;
+        while ( alwaysLoaded < index.Units.size() && index.Units[alwaysLoaded].Reason.has_value() )
+            ++alwaysLoaded;
+        return Assemble( index, reader, alwaysLoaded );
+    }
+
+    Common::ResultStr<IndexedWorld> PlanFromIndex( const WorldIndex& index )
+    {
+        using Result = IndexedWorld;
+        IndexedWorld world;
+        world.Plan.LevelCount = index.LevelCount;
+        std::unordered_map<std::uint64_t, std::pair<std::size_t, std::size_t>> recordOf; // id -> (record, unit)
         for ( std::size_t unit = 0; unit < index.Units.size(); ++unit )
         {
-            auto records = source.UnitRecords( unit );
-            if ( !records )
-                return Common::MakeError<SceneSerialized>( records.GetError() );
-            for ( auto& record : records.ExtractValue() )
-                scene.Entities.push_back( std::move( record ) );
+            const IndexUnit&  from = index.Units[unit];
+            const std::string name =
+                 "world '" + index.SceneName + "' unit " + std::to_string( unit ) + " ('" + from.Name + "')";
+            Rules::PlannedComposite composite;
+            for ( const std::uint64_t id : from.Ids )
+            {
+                const std::size_t record = world.RecordIds.size();
+                if ( !recordOf.emplace( id, std::make_pair( record, unit ) ).second )
+                    return Common::MakeError<Result>( name + " holds record id " + std::to_string( id ) +
+                                                      ", which an earlier unit holds too" );
+                world.RecordIds.push_back( id );
+                composite.Members.push_back( record );
+            }
+            composite.Anchor          = composite.Members.empty() ? Rules::kNoRecord : composite.Members.front();
+            const std::size_t placeAt = world.Plan.Composites.size();
+            if ( from.Reason.has_value() )
+            {
+                if ( !world.Plan.Cells.empty() )
+                    return Common::MakeError<Result>( name + " is always-loaded and comes after a cell; the "
+                                                             "index lists every always-loaded unit first" );
+                const auto reason = ReasonNamed( *from.Reason );
+                if ( !reason.has_value() )
+                    return Common::MakeError<Result>( name + " states the always-loaded reason '" + *from.Reason +
+                                                      "', which is none this build knows" );
+                composite.Reason = *reason;
+                world.Plan.AlwaysLoaded.push_back( placeAt );
+                world.AlwaysLoadedRecords += from.Ids.size();
+            }
+            else
+            {
+                if ( !from.Level.has_value() || !from.X.has_value() || !from.Z.has_value() ||
+                     !from.Square.has_value() )
+                    return Common::MakeError<Result>( name +
+                                                      " is a cell without its level, coordinate or square" );
+                Rules::PlannedCell cell;
+                cell.Level  = *from.Level;
+                cell.Cell   = Rules::CellCoord{ *from.X, *from.Z };
+                cell.Square = *from.Square;
+                cell.Composites.push_back( placeAt );
+                if ( !world.Plan.Cells.empty() )
+                {
+                    const Rules::PlannedCell& last = world.Plan.Cells.back();
+                    if ( std::make_tuple( last.Level, last.Cell.X, last.Cell.Z ) >=
+                         std::make_tuple( cell.Level, cell.Cell.X, cell.Cell.Z ) )
+                        return Common::MakeError<Result>( name + " is out of (level, X, Z) order after '" +
+                                                          index.Units[unit - 1].Name + "'" );
+                }
+                composite.Level     = cell.Level;
+                composite.Cell      = cell.Cell;
+                composite.Footprint = cell.Square;
+                world.Plan.MaxLevel = std::max( world.Plan.MaxLevel, cell.Level );
+                world.Plan.Cells.push_back( std::move( cell ) );
+            }
+            world.Plan.Composites.push_back( std::move( composite ) );
         }
-        return Common::MakeSuccess( std::move( scene ) );
+        for ( const IndexReference& reference : index.References )
+        {
+            const auto from = recordOf.find( reference.From );
+            const auto to   = recordOf.find( reference.To );
+            if ( from == recordOf.end() || to == recordOf.end() )
+                return Common::MakeError<Result>( "world '" + index.SceneName + "': the reference " +
+                                                  reference.Component + "." + reference.Field + " from " +
+                                                  std::to_string( reference.From ) + " to " +
+                                                  std::to_string( reference.To ) + " names an id no unit holds" );
+            // Only observation can cross a unit and dangle (the cook refuses a crossing containment).
+            const bool observation =
+                 std::any_of( std::begin( Rules::kEntityReferences ), std::end( Rules::kEntityReferences ),
+                              [&reference]( const Rules::EntityReferenceRow& row )
+                              {
+                                  return row.Kind == Rules::ReferenceKind::Observation &&
+                                         row.ComponentKey == reference.Component && row.Field == reference.Field;
+                              } );
+            if ( observation )
+                world.Observations.emplace_back( from->second.first, to->second.first );
+        }
+        return Common::MakeSuccess( std::move( world ) );
+    }
+
+    std::string CookedWorldDirectory( std::string_view scenePath )
+    {
+        const std::size_t slash = scenePath.find_last_of( "/\\" );
+        const std::size_t dot   = scenePath.find_last_of( '.' );
+        const std::size_t stem =
+             ( dot != std::string_view::npos && ( slash == std::string_view::npos || dot > slash ) )
+                  ? dot
+                  : scenePath.size();
+        return std::string( scenePath.substr( 0, stem ) ) + ".dwworld/";
     }
 
     std::vector<std::string> CanonicalRecords( const SceneSerialized& scene )

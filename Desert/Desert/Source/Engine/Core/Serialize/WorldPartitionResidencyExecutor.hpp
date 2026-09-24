@@ -17,12 +17,11 @@
 //
 // ── THE LOAD IS REPORTED ON THE NEXT FRAME, NOT THIS ONE ──────────────────────────────────────────
 //
-// In this slice a unit's records are already in memory (the Play snapshot, parsed once), so a StartLoad has
-// nothing to read and cannot fail. Its outcome is nevertheless handed to the NEXT frame's step, not fed back
-// into this one: StepResidency takes the loader's reports as an input of the frame, and a real loader (WP9,
-// asynchronous I/O) can only ever report on a later frame. Answering on the same frame would need a second
-// StepResidency call per frame — a code path the asynchronous loader would then have to delete. The price is one
-// frame of latency per unit, which the unload margin already absorbs.
+// A load is the WORLD's (ResidencyWorld's load port): the engine's streamer reads a unit's cell on a JobSystem
+// worker (WorldCellLoader.hpp) and a worker can only ever report on a later frame. So an outcome is handed to
+// the step of a LATER frame, never fed back into this one — answering on the same frame would need a second
+// StepResidency call per frame. A world whose records are already in memory (the port's default) reports on
+// the very next frame; the price is one frame of latency per unit, which the unload margin already absorbs.
 //
 // ── THE UNIT'S ENTITIES ARE ITS RECORDS' IDS ──────────────────────────────────────────────────────
 //
@@ -46,6 +45,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -71,6 +71,32 @@ namespace Desert::Core::Rules
         // Destroys the entities of these records. A record whose entity is already gone (a child taken with
         // its parent's tree) is not an error.
         virtual void Destroy( std::span<const std::size_t> records ) = 0;
+
+        // THE LOAD PORT. A load fetches a unit's records from wherever the world keeps them, so that a later
+        // Activate of that unit has them; its outcome is handed over by TakeLoadOutcomes, at the start of a
+        // later Tick, and never from inside StartLoad. The defaults are a world whose records are already in
+        // memory (the suites' worlds): every load is done at once and reported on the next Tick. The engine's
+        // streamer overrides all four and reads on a JobSystem worker (WorldCellLoader.hpp).
+        virtual void StartLoad( std::size_t unit, std::uint64_t ticket )
+        {
+            m_Finished.push_back( { unit, ticket, true, {} } );
+        }
+        // A load StepResidency no longer wants. Its outcome, if it arrives, is stale (StepResidency counts and
+        // drops it by ticket), so an override may also drop it.
+        virtual void CancelLoad( std::size_t /*unit*/, std::uint64_t /*ticket*/ )
+        {
+        }
+        // The unit is neither activated nor loaded any more: what its load fetched may be freed.
+        virtual void Unload( std::size_t /*unit*/ )
+        {
+        }
+        [[nodiscard]] virtual std::vector<LoadOutcome> TakeLoadOutcomes()
+        {
+            return std::exchange( m_Finished, {} );
+        }
+
+    private:
+        std::vector<LoadOutcome> m_Finished;
     };
 
     struct ResidencyTick
@@ -104,32 +130,6 @@ namespace Desert::Core::Rules
                std::span<const Assets::EntityData> records, const ResidencySettings& settings,
                std::span<const StreamingSource> sources, ResidencyWorld& world )
         {
-            if ( auto valid = Detail::CheckResidencySettings( settings ); !valid.IsSuccess() )
-                return Common::MakeError<ResidencyExecutor>( valid.GetError() );
-
-            ResidencyExecutor executor;
-            executor.m_Plan      = std::move( plan );
-            executor.m_Partition = std::move( partition );
-            executor.m_Settings  = settings;
-
-            const WorldPartitionPlan& p         = executor.m_Plan;
-            const std::size_t         unitCount = ResidencyUnitCount( p );
-            executor.m_UnitRecords.resize( unitCount );
-            executor.m_UnitOfRecord.assign( records.size(), kNoRecord );
-            for ( std::size_t unit = 0; unit < unitCount; ++unit )
-            {
-                executor.m_UnitRecords[unit] = ResidencyUnitMembers( p, unit );
-                for ( const std::size_t record : executor.m_UnitRecords[unit] )
-                    if ( record < records.size() )
-                        executor.m_UnitOfRecord[record] = unit;
-                for ( const std::size_t record : executor.m_UnitRecords[unit] )
-                    if ( record >= records.size() )
-                        return Common::MakeError<ResidencyExecutor>(
-                             "ResidencyExecutor: unit " + std::to_string( unit ) + " names record " +
-                             std::to_string( record ) + " of " + std::to_string( records.size() ) +
-                             "; the plan was not made from these records" );
-            }
-
             std::unordered_map<Common::UUID, std::size_t> byId;
             for ( std::size_t record = 0; record < records.size(); ++record )
             {
@@ -140,21 +140,11 @@ namespace Desert::Core::Rules
                          records[record].Tag.value_or( "" ) +
                          "') has no id, so its entity could not be found again to be destroyed" );
                 }
-                if ( executor.m_UnitOfRecord[record] == kNoRecord )
-                {
-                    return Common::MakeError<ResidencyExecutor>(
-                         "ResidencyExecutor: record " + std::to_string( record ) + " ('" +
-                         records[record].Tag.value_or( "" ) + "', id " +
-                         std::to_string( static_cast<std::uint64_t>( *records[record].id ) ) +
-                         ") belongs to no unit of the plan; the plan was not made from these records" );
-                }
                 byId.emplace( *records[record].id, record );
             }
-
             // The observation register, resolved to record indices once. A target the file does not contain is
             // dangling, not a streaming matter — the planner already names those.
-            executor.m_RefsFrom.resize( records.size() );
-            executor.m_RefsTo.resize( records.size() );
+            std::vector<std::pair<std::size_t, std::size_t>> observations;
             for ( std::size_t record = 0; record < records.size(); ++record )
                 for ( const EntityReferenceRow& row : kEntityReferences )
                 {
@@ -166,25 +156,28 @@ namespace Desert::Core::Rules
                          target.IsNull() )
                         continue;
                     const auto found = byId.find( target );
-                    if ( found == byId.end() )
-                        continue;
-                    executor.m_RefsFrom[record].push_back( found->second );
-                    executor.m_RefsTo[found->second].push_back( record );
+                    if ( found != byId.end() )
+                        observations.emplace_back( record, found->second );
                 }
-
+            auto made = Make( std::move( plan ), std::move( partition ), settings, records.size(), observations );
+            if ( !made.IsSuccess() )
+                return made;
+            ResidencyExecutor executor = made.ExtractValue();
+            for ( std::size_t record = 0; record < records.size(); ++record )
+                if ( executor.m_UnitOfRecord[record] == kNoRecord )
+                {
+                    return Common::MakeError<ResidencyExecutor>(
+                         "ResidencyExecutor: record " + std::to_string( record ) + " ('" +
+                         records[record].Tag.value_or( "" ) + "', id " +
+                         std::to_string( static_cast<std::uint64_t>( *records[record].id ) ) +
+                         ") belongs to no unit of the plan; the plan was not made from these records" );
+                }
             // The units resident from the start: what the first step would want.
             auto wished = QueryStreamingCells( executor.m_Plan, executor.m_Partition, sources );
             if ( !wished.IsSuccess() )
                 return Common::MakeError<ResidencyExecutor>( "ResidencyExecutor: " + wished.GetError() );
-            executor.m_State.Units.resize( unitCount );
-            executor.m_Live.assign( records.size(), false );
             for ( const std::size_t unit : Detail::UnitsInOrder( executor.m_Plan, wished.GetValue() ) )
-            {
-                executor.m_State.Units[unit].State = Residency::Activated;
-                for ( const std::size_t record : executor.m_UnitRecords[unit] )
-                    executor.m_Live[record] = true;
-            }
-
+                executor.MarkActivated( unit );
             std::vector<std::size_t> leaving;
             for ( std::size_t record = 0; record < records.size(); ++record )
                 if ( !executor.m_Live[record] )
@@ -193,17 +186,42 @@ namespace Desert::Core::Rules
             return Common::MakeSuccess( std::move( executor ) );
         }
 
-        // ONE FRAME: step the residency, then perform its actions in the order it gives them.
+        // Starts streaming a world of which ONLY THE ALWAYS-LOADED UNITS are entities right now (a cooked world:
+        // its caller made them from the always-loaded cell file before this). Every cell is Unloaded, and the
+        // first Tick starts loading the ones @p sources want; nothing is destroyed. @p recordCount records are
+        // named by index only — their ids are the world's, which resolves them — and @p observations are the
+        // observation references between them (from, to) that cross a unit, the only ones that can dangle.
+        [[nodiscard]] static Common::ResultStr<ResidencyExecutor>
+        BeginFromAlwaysLoaded( WorldPartitionPlan plan, WorldPartitionSerialized partition,
+                               const ResidencySettings& settings, std::size_t recordCount,
+                               std::span<const std::pair<std::size_t, std::size_t>> observations )
+        {
+            auto made = Make( std::move( plan ), std::move( partition ), settings, recordCount, observations );
+            if ( !made.IsSuccess() )
+                return made;
+            ResidencyExecutor executor = made.ExtractValue();
+            for ( std::size_t unit = 0; unit < executor.m_Plan.AlwaysLoaded.size(); ++unit )
+                executor.MarkActivated( unit );
+            for ( std::size_t record = 0; record < recordCount; ++record )
+                if ( executor.m_UnitOfRecord[record] == kNoRecord )
+                    return Common::MakeError<ResidencyExecutor>(
+                         "ResidencyExecutor: record " + std::to_string( record ) + " of " +
+                         std::to_string( recordCount ) + " belongs to no unit of the plan" );
+            return Common::MakeSuccess( std::move( executor ) );
+        }
+
+        // ONE FRAME: step the residency with the loads the world finished since the last one, then perform its
+        // actions in the order it gives them.
         [[nodiscard]] Common::ResultStr<ResidencyTick> Tick( std::span<const StreamingSource> sources,
                                                              double nowSeconds, ResidencyWorld& world )
         {
-            auto stepped = StepResidency( m_Plan, m_Partition, sources, m_Settings, std::move( m_State ),
-                                          m_PendingOutcomes, nowSeconds );
+            const std::vector<LoadOutcome> finished = world.TakeLoadOutcomes();
+            auto stepped = StepResidency( m_Plan, m_Partition, sources, m_Settings, std::move( m_State ), finished,
+                                          nowSeconds );
             if ( !stepped.IsSuccess() )
                 return Common::MakeError<ResidencyTick>( stepped.GetError() );
             ResidencyStep step = stepped.ExtractValue();
             m_State            = std::move( step.State );
-            m_PendingOutcomes.clear();
 
             ResidencyTick            tick;
             std::vector<std::size_t> activated;
@@ -216,13 +234,11 @@ namespace Desert::Core::Rules
                 switch ( action.Kind )
                 {
                     case ResidencyActionKind::StartLoad:
-                        // The records are in memory: the load is done, and says so next frame.
-                        m_PendingOutcomes.push_back( { action.Unit, action.Ticket, true, {} } );
+                        world.StartLoad( action.Unit, action.Ticket );
                         ++tick.LoadsStarted;
                         break;
                     case ResidencyActionKind::CancelLoad:
-                        // Nothing was reported yet (reports are handed over at the next Tick, and a load is only
-                        // ever cancelled by a later step), so there is nothing to take back.
+                        world.CancelLoad( action.Unit, action.Ticket );
                         break;
                     case ResidencyActionKind::Activate:
                         if ( auto made = world.Activate( action.Unit, records ); !made.IsSuccess() )
@@ -246,11 +262,10 @@ namespace Desert::Core::Rules
                         tick.RecordsDestroyed += records.size();
                         break;
                     case ResidencyActionKind::Unload:
-                        // The records stay in memory for as long as the world plays; there is nothing to free.
+                        world.Unload( action.Unit );
                         break;
                 }
             }
-
             for ( const std::size_t record : activated )
                 for ( const std::size_t target : m_RefsFrom[record] )
                     tick.DeferredReferences += m_Live[target] ? 0 : 1;
@@ -286,11 +301,60 @@ namespace Desert::Core::Rules
         friend class Common::ResultStr<ResidencyExecutor>;
         ResidencyExecutor() = default;
 
+        // What both beginnings share: the plan, the per-unit record lists, and the observation register.
+        [[nodiscard]] static Common::ResultStr<ResidencyExecutor>
+        Make( WorldPartitionPlan plan, WorldPartitionSerialized partition, const ResidencySettings& settings,
+              std::size_t recordCount, std::span<const std::pair<std::size_t, std::size_t>> observations )
+        {
+            if ( auto valid = Detail::CheckResidencySettings( settings ); !valid.IsSuccess() )
+                return Common::MakeError<ResidencyExecutor>( valid.GetError() );
+            ResidencyExecutor executor;
+            executor.m_Plan             = std::move( plan );
+            executor.m_Partition        = std::move( partition );
+            executor.m_Settings         = settings;
+            const std::size_t unitCount = ResidencyUnitCount( executor.m_Plan );
+            executor.m_UnitRecords.resize( unitCount );
+            executor.m_UnitOfRecord.assign( recordCount, kNoRecord );
+            for ( std::size_t unit = 0; unit < unitCount; ++unit )
+            {
+                executor.m_UnitRecords[unit] = ResidencyUnitMembers( executor.m_Plan, unit );
+                for ( const std::size_t record : executor.m_UnitRecords[unit] )
+                {
+                    if ( record >= recordCount )
+                        return Common::MakeError<ResidencyExecutor>(
+                             "ResidencyExecutor: unit " + std::to_string( unit ) + " names record " +
+                             std::to_string( record ) + " of " + std::to_string( recordCount ) +
+                             "; the plan was not made from these records" );
+                    executor.m_UnitOfRecord[record] = unit;
+                }
+            }
+            executor.m_RefsFrom.resize( recordCount );
+            executor.m_RefsTo.resize( recordCount );
+            for ( const auto& [from, to] : observations )
+            {
+                if ( from >= recordCount || to >= recordCount )
+                    return Common::MakeError<ResidencyExecutor>( "ResidencyExecutor: a reference names record " +
+                                                                 std::to_string( std::max( from, to ) ) + " of " +
+                                                                 std::to_string( recordCount ) );
+                executor.m_RefsFrom[from].push_back( to );
+                executor.m_RefsTo[to].push_back( from );
+            }
+            executor.m_State.Units.resize( unitCount );
+            executor.m_Live.assign( recordCount, false );
+            return Common::MakeSuccess( std::move( executor ) );
+        }
+
+        void MarkActivated( std::size_t unit )
+        {
+            m_State.Units[unit].State = Residency::Activated;
+            for ( const std::size_t record : m_UnitRecords[unit] )
+                m_Live[record] = true;
+        }
+
         WorldPartitionPlan       m_Plan;
         WorldPartitionSerialized m_Partition;
         ResidencySettings        m_Settings;
         ResidencyState           m_State;
-        std::vector<LoadOutcome> m_PendingOutcomes;
 
         std::vector<std::vector<std::size_t>> m_UnitRecords;  // per unit: its records, in composite order
         std::vector<std::size_t>              m_UnitOfRecord; // per record
