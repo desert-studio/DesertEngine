@@ -141,6 +141,7 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
@@ -4393,6 +4394,36 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+        // LANDSCAPE SCULPT / SMOOTH. Every widget of the tool panel is a row of LandscapeToolControls() and is
+        // offered here from that same table; the stroke itself is the click a hand would make at the viewport
+        // centre, because PaletteCommand::Run takes no coordinates -- aim the camera, then stroke.
+        commands.push_back( { "Landscape", "Sculpt mode", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( auto& control : Core::LandscapeToolControls() )
+        {
+            commands.push_back( { "Landscape", control.Label, [apply = control.Apply]
+                                  {
+                                      apply( Core::LandscapeSculptState::Get().Settings );
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        for ( const bool lower : { false, true } )
+        {
+            commands.push_back(
+                 { "Landscape",
+                   lower ? "Stroke at the viewport centre, lowering" : "Stroke at the viewport centre", [lower]
+                   {
+                       if ( Core::ViewportMode::Get() != Core::EditorMode::Landscape )
+                           return PaletteCommandOutcome( false, "the Landscape mode is not active; "
+                                                                "run 'Landscape: Sculpt mode' first" );
+                       Core::LandscapeSculptState::Get().Request =
+                            lower ? Core::LandscapeStrokeRequest::Lower : Core::LandscapeStrokeRequest::Raise;
+                       return PaletteCommandDone();
+                   } } );
+        }
         // CREATE SHAPE (Modeling Mode -> Create). One entry per shape, and the placement a click makes, at the
         // viewport centre: placing is the whole tool, and a capability the channel cannot reach does not exist
         // for an unattended check.

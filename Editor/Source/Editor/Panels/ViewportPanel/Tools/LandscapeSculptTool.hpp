@@ -1,0 +1,40 @@
+#pragma once
+
+#include <Engine/Desert.hpp>
+#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Common/Core/Math/Ray.hpp>
+
+#include <glm/glm.hpp>
+
+#include <optional>
+
+namespace Desert::Editor::Tools
+{
+    /**
+     * @brief Landscape mode's Sculpt / Smooth tool in the viewport — UE's FLandscapeToolSculpt / Smooth driven the
+     *        way FEdModeLandscape drives them: a stroke starts on LMB press, applies once per frame at the
+     *        landscape point under the cursor (Shift lowers), and ends on release as ONE undo transaction.
+     *
+     * The ray is traced against the landscape alone (UE's LandscapeTrace), not Scene::Raycast: a mesh standing
+     * on the terrain must not catch the brush.
+     */
+    class LandscapeSculptTool
+    {
+    public:
+        void DrawPanel( const glm::vec2& viewportPos );
+
+        /// @p mouseRay under the cursor, @p centreRay through the viewport centre (palette strokes use it).
+        void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay,
+                     const Common::Math::Ray& centreRay, bool hovered, float deltaSeconds );
+
+    private:
+        Common::BoolResultStr Begin( ::Desert::Core::Scene& scene );
+        Common::BoolResultStr Step( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool invert,
+                                    float deltaSeconds );
+        void                  End( ::Desert::Core::Scene& scene );
+
+        std::optional<ECS::LandscapeEditTarget>                m_Target;
+        std::optional<World::Landscape::LandscapeHeightStroke> m_Stroke;
+        bool                                                   m_Failed = false;
+    };
+} // namespace Desert::Editor::Tools

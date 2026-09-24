@@ -1517,6 +1517,7 @@ namespace Desert::Editor
 
         const bool foliageMode  = Core::ViewportMode::Get() == Core::EditorMode::Foliage;
         const bool modelingMode = Core::ViewportMode::Get() == Core::EditorMode::Modeling;
+        const bool landscapeMode = Core::ViewportMode::Get() == Core::EditorMode::Landscape;
 
         // UI elements are edited with the in-scene UILayout handles (DrawUIInScene), not the 3D transform
         // gizmo — suppress the object gizmo for them so the two don't overlap and fight for the mouse.
@@ -1527,7 +1528,7 @@ namespace Desert::Editor
 
         // Handle gizmos (Select mode only — Foliage/Modeling use LMB for their own tools, not gizmo/pick).
         m_Gizmo.ResetHovered();
-        if ( !foliageMode && !modelingMode )
+        if ( !foliageMode && !modelingMode && !landscapeMode )
         {
             if ( Core::ActiveAuthoringContext().ShowsBones() )
             {
@@ -1556,6 +1557,26 @@ namespace Desert::Editor
                          static_cast<uint32_t>( m_ViewportData.Size.y ) );
                     m_FoliageTool.Paint( *m_Scene, ray );
                 }
+            }
+        }
+
+        // --- Landscape mode: Sculpt / Smooth (LandscapeSculptTool); LMB strokes, Shift lowers ---
+        if ( landscapeMode )
+        {
+            m_LandscapeTool.DrawPanel( m_ViewportData.ViewportPos );
+            if ( const auto camera = ViewCamera() )
+            {
+                auto [mx, my]       = GetMouseViewportSpace();
+                const auto width    = static_cast<uint32_t>( m_ViewportData.Size.x );
+                const auto height   = static_cast<uint32_t>( m_ViewportData.Size.y );
+                const auto mouseRay = Common::Math::Ray::FromScreenPosition(
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
+                     width, height );
+                const auto centreRay = Common::Math::Ray::FromScreenPosition(
+                     { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
+                     camera->GetViewMatrix(), camera->GetPosition(), width, height );
+                m_LandscapeTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered,
+                                        ImGui::GetIO().DeltaTime );
             }
         }
 
