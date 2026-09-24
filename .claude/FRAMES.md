@@ -16,6 +16,8 @@
 - **НИКОГДА не снимай весь экран** (`screencapture -x` без `-l`): на нём почта, встречи и прочее владельца (SPL2
   снял именно так). Только окно редактора/заставки: id окна через `CGWindowListCopyWindowInfo` (python3 + Quartz,
   фильтр по владельцу `Editor`), затем `screencapture -x -o -l<id> файл.png` — работает, даже если окно перекрыто.
+- Системный `python3` без Quartz: id окна — `osascript -l JavaScript` + `CGWindowListCopyWindowInfo`; рабочий
+  скрипт окна заставки — `/private/tmp/claude-501/spl3/frames.sh`.
 - ПОСМОТРИ на кадр (Read png) до того, как писать «работает».
 
 ## 1. Один кадр без взаимодействия (сцена + камера)

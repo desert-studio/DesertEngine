@@ -327,7 +327,7 @@ def main():
                      "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
                      "done; make ...",
                      data, agent)
-        if EDITOR_RUN.search(cmd) and "run_capped.sh" not in cmd and not re.search(r"\bpkill\b|\bpgrep\b|\bls\b|\bfile\b", cmd):
+        if EDITOR_RUN.search(cmd) and "run_capped.sh" not in cmd and not re.search(r"\bpkill\b|\bpgrep\b|\bls\b|\bfile\b|\bstat\b|\bshasum\b|\botool\b|\bnm\b", cmd):
             save_state(state, path)
             deny("[agent_guard] Редактор/рантайм запускается только через ограничитель памяти: "
                  "~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... "
