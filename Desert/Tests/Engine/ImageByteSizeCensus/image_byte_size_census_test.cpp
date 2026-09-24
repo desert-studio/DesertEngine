@@ -501,6 +501,11 @@ namespace
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
           "CalculateImageSize( kAerialPerspectiveWidth, kAerialPerspectiveHeight, " "kAerialPerspectiveDepth, Core::Formats::ImageFormat::RGBA16F )", Sizes::OneImage, Blocks::Correct,
           "the aerial perspective VOLUME's cost line -- three extents, not three layers" },
+        { "Desert/Desert/Source/Engine/Graphic/ViewMemory.hpp",
+          "CalculateImageSize( w, h, Format )", Sizes::OneImage, Blocks::Correct,
+          "one level of one row of the view's render-target census (ViewTarget::Bytes); the level loop "
+          "and the identical-image Count multiply around it. A render target is one 2D image with no "
+          "layers, and never a block format -- but the size would be right if one were" },
         { "Editor/Source/Editor/Import/TextureImporter.cpp",
           "GetTexelBlock( source.Format )", Sizes::TheBlockTable, Blocks::Correct,
           "how many bytes ONE TEXEL of the uncompressed source occupies, which the cook's fidelity "

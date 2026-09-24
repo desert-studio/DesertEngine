@@ -488,7 +488,7 @@ namespace Desert::Graphic
 
         struct
         {
-            Core::Camera* ActiveCamera;
+            Core::Camera* ActiveCamera = nullptr;
         } m_SceneInfo;
 
         // The atmosphere sun light's render-effect slice, refreshed by SetProceduralSky each frame; the

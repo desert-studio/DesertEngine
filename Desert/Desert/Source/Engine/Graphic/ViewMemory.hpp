@@ -58,18 +58,20 @@ namespace Desert::Graphic
         Core::Formats::ImageFormat Format;
         uint32_t                   Width          = 0;
         uint32_t                   Height         = 0;
-        uint32_t                   Depth          = 1;
         uint32_t                   Mips           = 1;
         uint32_t                   Count          = 1; // identical images (ping-pong pairs, cascades)
         bool                       ScalesWithView = true;
 
         [[nodiscard]] uint64_t Bytes() const
         {
+            // One 2D image per level, asked of the format table rather than multiplied here, so a row whose
+            // format is ever a block format is rounded to whole blocks like every other censused size.
             uint64_t total = 0;
-            uint32_t w = Width, h = Height;
+            uint32_t w     = Width;
+            uint32_t h     = Height;
             for ( uint32_t mip = 0; mip < Mips; ++mip )
             {
-                total += static_cast<uint64_t>( w ) * h * Depth * Core::Formats::GetBytesPerPixel( Format );
+                total += Core::Formats::CalculateImageSize( w, h, Format );
                 w = std::max( 1u, w / 2 );
                 h = std::max( 1u, h / 2 );
             }
@@ -143,21 +145,23 @@ namespace Desert::Graphic
 
         // Post stack, all built in Init.
         add( { "SilhouetteMask", "MeshRenderer.cpp", ImageFormat::RGBA8F, width, height } );
-        add( { "JFA.Seed+Output", "JumpFloodOutlineRenderer.cpp", ImageFormat::RGBA32F, width, height, 1, 1, 3 } );
+        add( { "JFA.Seed+Output", "JumpFloodOutlineRenderer.cpp", ImageFormat::RGBA32F, width, height, 1, 3 } );
         add( { "Tonemap", "TonemapRenderer.cpp", ImageFormat::RGBA32F, width, height } );
         add( { "FXAA", "FXAARenderer.cpp", ImageFormat::RGBA32F, width, height } );
-        add( { "SMAA.Edges+Weights", "SMAARenderer.cpp", ImageFormat::RGBA8F, width, height, 1, 1, 2 } );
+        add( { "SMAA.Edges+Weights", "SMAARenderer.cpp", ImageFormat::RGBA8F, width, height, 1, 2 } );
         add( { "SMAA.Blend", "SMAARenderer.cpp", ImageFormat::RGBA32F, width, height } );
         {
-            const uint32_t bw = Div( width, 2 ), bh = Div( height, 2 );
-            add( { "Bloom.Chain", "BloomRenderer.cpp", ImageFormat::RGBA32F, bw, bh, 1,
+            const uint32_t bw = Div( width, 2 );
+            const uint32_t bh = Div( height, 2 );
+            add( { "Bloom.Chain", "BloomRenderer.cpp", ImageFormat::RGBA32F, bw, bh,
                    std::min( 6u /* BloomRenderer::kMaxBloomMips */, MipCount( bw, bh ) ) } );
         }
         add( { "LightShaft.PingPong", "LightShaftRenderer.cpp", ImageFormat::RGBA16F, Div( width, 2 ),
-               Div( height, 2 ), 1, 1, 2 } );
+               Div( height, 2 ), 1, 2 } );
         {
-            const uint32_t sw = Div( width, 2 ), sh = Div( height, 2 );
-            add( { "LensFlare.Source", "LensFlareRenderer.cpp", ImageFormat::RGBA16F, sw, sh, 1,
+            const uint32_t sw = Div( width, 2 );
+            const uint32_t sh = Div( height, 2 );
+            add( { "LensFlare.Source", "LensFlareRenderer.cpp", ImageFormat::RGBA16F, sw, sh,
                    std::min( 5u /* LensFlareRenderer::kMaxSourceMips */, MipCount( sw, sh ) ) } );
             add( { "LensFlare.Feature", "LensFlareRenderer.cpp", ImageFormat::RGBA16F, Div( width, 4 ),
                    Div( height, 4 ) } );
@@ -168,23 +172,23 @@ namespace Desert::Graphic
         {
             // VolumetricCloudRenderer::EnsureTraceTargets: trace pair at a quarter, history pairs at half.
             add( { "Clouds.Trace+Guide", "VolumetricCloudRenderer.cpp", ImageFormat::RGBA16F, Div( width, 4 ),
-                   Div( height, 4 ), 1, 1, 2 } );
+                   Div( height, 4 ), 1, 2 } );
             add( { "Clouds.History+Guide x2", "VolumetricCloudRenderer.cpp", ImageFormat::RGBA16F, Div( width, 2 ),
-                   Div( height, 2 ), 1, 1, 4 } );
+                   Div( height, 2 ), 1, 4 } );
         }
         if ( profile.ScreenSpaceReflections )
         {
             add( { "SSR.Trace", "SceneRenderer.cpp", ImageFormat::RGBA32F, width, height } );
-            add( { "SSR.Accum x2", "SSRRenderer.hpp", ImageFormat::RGBA32F, width, height, 1, 1, 2 } );
+            add( { "SSR.Accum x2", "SSRRenderer.hpp", ImageFormat::RGBA32F, width, height, 1, 2 } );
         }
         if ( profile.GlobalIllumination )
         {
             add( { "GI.Resolve", "SceneRenderer.cpp", ImageFormat::RGBA32F, width, height } );
-            add( { "GI.Accum x2", "GIResolveRenderer.hpp", ImageFormat::RGBA32F, width, height, 1, 1, 2 } );
+            add( { "GI.Accum x2", "GIResolveRenderer.hpp", ImageFormat::RGBA32F, width, height, 1, 2 } );
             // SceneRenderer::kRSMResolution = 512: albedo RGBA8, three RGBA32F, DEPTH32F.
             ViewTarget rsm8{ "RSM.Albedo", "SceneRenderer.cpp", ImageFormat::RGBA8F, 512, 512 };
             ViewTarget rsm32{
-                 "RSM.Normal+Pos+Emissive", "SceneRenderer.cpp", ImageFormat::RGBA32F, 512, 512, 1, 1, 3 };
+                 "RSM.Normal+Pos+Emissive", "SceneRenderer.cpp", ImageFormat::RGBA32F, 512, 512, 1, 3 };
             ViewTarget rsmD{ "RSM.Depth", "SceneRenderer.cpp", ImageFormat::DEPTH32F, 512, 512 };
             rsm8.ScalesWithView = rsm32.ScalesWithView = rsmD.ScalesWithView = false;
             add( rsm8 );
@@ -194,10 +198,11 @@ namespace Desert::Graphic
         if ( profile.Shadows.CascadeCount != 0 )
         {
             // MeshRenderer::SetupShadowPass — see kShadowBytesPerTexel.
-            const uint32_t s = profile.Shadows.ShadowMapSize, n = profile.Shadows.CascadeCount;
-            ViewTarget color{ "ShadowCascades.Color", "MeshRenderer.cpp", ImageFormat::RGBA32F, s, s, 1, 1, n };
+            const uint32_t s = profile.Shadows.ShadowMapSize;
+            const uint32_t n = profile.Shadows.CascadeCount;
+            ViewTarget color{ "ShadowCascades.Color", "MeshRenderer.cpp", ImageFormat::RGBA32F, s, s, 1, n };
             ViewTarget depth{
-                 "ShadowCascades.Depth", "MeshRenderer.cpp", ImageFormat::DEPTH24STENCIL8, s, s, 1, 1, n };
+                 "ShadowCascades.Depth", "MeshRenderer.cpp", ImageFormat::DEPTH24STENCIL8, s, s, 1, n };
             color.ScalesWithView = depth.ScalesWithView = false;
             add( color );
             add( depth );
