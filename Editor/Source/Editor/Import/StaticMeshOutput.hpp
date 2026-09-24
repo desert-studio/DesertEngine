@@ -54,12 +54,13 @@ namespace Desert::Editor
     }
 
     // The folder a tool's "Asset Folder" setting names: relative to the cooked mesh root, and refused when it
-    // would climb out of it (an absolute path or a `..` component) - a file outside the root is not content.
+    // would climb out of it (a rooted path or a `..` component) - a file outside the root is not content. Rooted,
+    // not absolute: on Windows "/abs" and "C:abs" are not is_absolute() yet still leave the root when appended.
     [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
     StaticMeshOutputFolder( std::string_view relative )
     {
         const std::filesystem::path rel = std::filesystem::path( relative ).lexically_normal();
-        if ( rel.is_absolute() || ( !rel.empty() && *rel.begin() == ".." ) )
+        if ( rel.is_absolute() || rel.has_root_directory() || rel.has_root_name() || ( !rel.empty() && *rel.begin() == ".." ) )
             return Common::MakeFormattedError<std::filesystem::path>(
                  "the asset folder '{}' is outside the cooked mesh folder; name a folder inside it", relative );
         return Common::MakeSuccess( ( Common::Constants::Path::MESH_PATH_COOKED / rel ).lexically_normal() );
