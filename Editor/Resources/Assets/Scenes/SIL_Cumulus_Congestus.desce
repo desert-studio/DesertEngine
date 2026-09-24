@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "9f880bdeea504e546be851e62d18d9d1",
         "Versions": {
-            "SCNE": 28,
+            "SCNE": 29,
             "UNIT": 1
         },
         "Dependencies": []
@@ -42,7 +42,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Skybox": {
-                "SkyboxHandle": "",
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Intensity": 1.0
             },
             "SkyAtmosphere": {

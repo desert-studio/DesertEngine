@@ -1,5 +1,7 @@
 #include "ReflectionSerializer.hpp"
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <cstddef>
@@ -145,7 +147,17 @@ namespace Desert::Reflection
                     out[field.Name] = ReadIntBySize( p, field.Size );
                     break;
                 case FieldType::AssetHandle:
-                    if ( resolver && resolver->ToPath )
+                    if ( resolver && field.Meta.AssetType == "SkyboxAsset" )
+                    {
+                        // SCNE 29: the GUID is the identity, the project key only locates it. ToPath
+                        // renders a skybox as a tagged key or not at all, so no absolute path reaches here.
+                        const uint64_t       handle = *static_cast<const uint64_t*>( p );
+                        rfl::Generic::Object ref;
+                        ref["Guid"]     = resolver->ToGuid( handle, field.Meta.AssetType );
+                        ref["Path"]     = resolver->ToPath( handle, field.Meta.AssetType );
+                        out[field.Name] = std::move( ref );
+                    }
+                    else if ( resolver && resolver->ToPath )
                         out[field.Name] =
                              resolver->ToPath( *static_cast<const uint64_t*>( p ), field.Meta.AssetType );
                     else
@@ -161,6 +173,44 @@ namespace Desert::Reflection
         }
 
         return out;
+    }
+
+    uint64_t ResolveGuidRef( const AssetResolver& resolver, const std::string& text, const std::string& path,
+                             const char* type, const std::string& what )
+    {
+        if ( text.empty() )
+        {
+            if ( !path.empty() )
+                LOG_ERROR( "[ComponentRegistry] {0} states no GUID but a path '{1}' - the path is a locator, "
+                           "not an identity, so the reference stays empty",
+                           what, path );
+            return 0;
+        }
+        const auto guid = Common::Content::AssetGuidFromText( text );
+        if ( !guid )
+        {
+            LOG_ERROR( "[ComponentRegistry] {0} states '{1}', which is not a GUID ({2}) - the reference stays "
+                       "empty",
+                       what, text, guid.GetError() );
+            return 0;
+        }
+        if ( guid.GetValue().IsNull() )
+        {
+            LOG_ERROR( "[ComponentRegistry] {0} states the null GUID - the reference stays empty", what );
+            return 0;
+        }
+        const uint64_t expected = static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) );
+        if ( const uint64_t known = resolver.FromGuid( expected, type ); known != 0 )
+            return known;
+        const uint64_t located = path.empty() ? 0 : resolver.FromPath( path, type );
+        if ( located == expected )
+            return located;
+        LOG_ERROR( "[ComponentRegistry] {0} names GUID {1}, but its locator '{2}' {3} - the reference stays "
+                   "empty",
+                   what, text, path,
+                   located == 0 ? std::string( "loads no " ) + type
+                                : "holds a different asset (handle " + std::to_string( located ) + ")" );
+        return 0;
     }
 
     void DeserializeReflected( const TypeInfo& type, void* obj, const rfl::Generic::Object& src,
@@ -222,6 +272,30 @@ namespace Desert::Reflection
                     break;
                 case FieldType::AssetHandle:
                 {
+                    if ( field.Meta.AssetType == "SkyboxAsset" )
+                    {
+                        const auto ref = g.to_object();
+                        if ( ref.has_value() && resolver )
+                        {
+                            const auto text = [&]( const char* key )
+                            {
+                                const auto v = ref.value().get( key );
+                                return v.has_value() ? v.value().to_string().value_or( std::string() )
+                                                     : std::string();
+                            };
+                            *static_cast<uint64_t*>( p ) =
+                                 ResolveGuidRef( *resolver, text( "Guid" ), text( "Path" ), "SkyboxAsset",
+                                                 "field '" + field.Name + "'" );
+                        }
+                        else if ( ref.has_value() ||
+                                  ( g.to_string().has_value() && !g.to_string().value().empty() ) )
+                            LOG_ERROR(
+                                 "[Reflection] Field '{0}' is a skybox reference in a form this build does not "
+                                 "read (a {{Guid, Path}} object with no resolver, or a pre-SCNE-29 bare "
+                                 "string - run the SceneMigrator); the field keeps its default.",
+                                 field.Name );
+                        break;
+                    }
                     if ( auto s = g.to_string(); s.has_value() )
                     {
                         // A path/key. Without a resolver there is nothing that can turn it into a handle,

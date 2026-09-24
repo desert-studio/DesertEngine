@@ -132,7 +132,10 @@ namespace Desert::WorldGen
             auto sky =
                  MakeEntity( nextId++, "Sky", { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f } );
             rfl::Generic::Object skybox;
-            skybox["SkyboxHandle"]   = rfl::Generic( std::string{} );
+            rfl::Generic::Object noSkybox; // SCNE 29 empty reference: {Guid, Path}
+            noSkybox["Guid"]         = rfl::Generic( std::string{} );
+            noSkybox["Path"]         = rfl::Generic( std::string{} );
+            skybox["SkyboxHandle"]   = rfl::Generic( std::move( noSkybox ) );
             skybox["Intensity"]      = Num( 1.0 );
             sky.Components["Skybox"] = rfl::Generic( std::move( skybox ) );
             rfl::Generic::Object atmosphere;

@@ -95,10 +95,14 @@ namespace Desert::Assets
     //
     // The FIELD NAME matches MaterialData's `.demat` form on purpose. The same reference written two ways
     // by two serializers is the same defect one indirection further out.
+    //
+    // SCNE 29 (T6d): the handle became `{Guid, Path}` - the .detex header GUID is the identity and the
+    // project key only locates it, read through Reflection::ResolveGuidRef like every other GUID reference.
     struct MaterialTextureSer
     {
         std::string Name;
-        uint64_t    TextureHandle = 0;
+        std::string Guid;
+        std::string Path;
     };
 
     struct MaterialComponentSer

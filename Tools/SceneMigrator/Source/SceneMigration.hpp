@@ -329,12 +329,21 @@ namespace Desert::Migration
     //                   file must state a GUID; anything else REFUSES the file, naming the block - in entity
     //                   records AND in prefab-override records (MigrateMeshGuidsV27ToV28).
     inline constexpr int kSceneVersionMeshGuids = 28;
+    //  29             - A TEXTURE REFERENCE IS NAMED BY ITS HEADER GUID (T6d). `Skybox.SkyboxHandle` held a string
+    //  -
+    //                   a stable key, or the ABSOLUTE path the writer rendered it as - and a MaterialComponent's
+    //                   `Textures[].TextureHandle` held the runtime u64 handle. Both become
+    //                   `{"Guid": <the .detex header GUID>, "Path": "assets:<path under the assets root>"}`, in
+    //                   entity records and prefab-override records. A missing file, a file outside the assets
+    //                   root, or one stating no texture GUID REFUSES the file, naming it
+    //                   (MigrateTextureGuidsV28ToV29).
+    inline constexpr int kSceneVersionTextureGuids = 29;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionMeshGuids == kSceneVersion,
+    static_assert( kSceneVersionTextureGuids == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1442,6 +1451,25 @@ namespace Desert::Migration
     MeshGuidsMigrationReport MigrateMeshGuidsV27ToV28( std::vector<Assets::EntityData>& entities,
                                                        const std::filesystem::path&     assetsRoot );
 
+    // What MigrateTextureGuidsV28ToV29 did to one file.
+    struct TextureGuidsMigrationReport
+    {
+        int Rewritten = 0; // references that now state a .detex header GUID
+
+        // References that cannot be raised, as "Tag > Skybox.SkyboxHandle = 'x' (why)". Non-empty REFUSES the
+        // file: a missing file, a file outside the assets root, or one that states no texture GUID leaves no
+        // identity to write, and guessing one is the silent fallback this step retires.
+        std::vector<std::string> UnknownNames;
+    };
+
+    // Raises `Skybox.SkyboxHandle` (a stable key or a path) and `Material.Textures[].TextureHandle` (the
+    // runtime handle, HandleForGuid of the .detex header GUID) from v28 to the v29 reference object
+    // `{"Guid", "Path"}`, in entity records and their prefab-override records. `Path` is always the
+    // `assets:` key of a file under `assetsRoot`. IDEMPOTENT: a value that is already an object is left as
+    // it is, so a second run changes nothing. SHELF LIFE: deleted once no v28 file remains.
+    TextureGuidsMigrationReport MigrateTextureGuidsV28ToV29( std::vector<Assets::EntityData>& entities,
+                                                             const std::filesystem::path&     assetsRoot );
+
     struct TextureAssetRefsMigrationReport
     {
         int Rewritten = 0; // strings that now name a texture asset
@@ -1608,6 +1636,8 @@ namespace Desert::Migration
         MaterialGuidsMigrationReport     MaterialGuids;
         bool                             MeshGuidsRaised = false; // below kSceneVersionMeshGuids
         MeshGuidsMigrationReport         MeshGuids;
+        bool                             TextureGuidsRaised = false; // below kSceneVersionTextureGuids
+        TextureGuidsMigrationReport      TextureGuids;
 
         bool Changed() const
         {
@@ -1617,7 +1647,7 @@ namespace Desert::Migration
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
                    TextureAssetRefsRaised || SiblingOrderRaised || TextHeaderRaised || RetiredKeysRaised ||
-                   MaterialGuidsRaised || MeshGuidsRaised;
+                   MaterialGuidsRaised || MeshGuidsRaised || TextureGuidsRaised;
         }
     };
 

@@ -13,7 +13,8 @@ locator, routed by slot name into Textures / CloudAssets / ShaderRefs, states th
 re-spells Params through MaterialData's float storage; that is normalised away only when every slot number pairs
 one-to-one with a (GUID, locator) across the corpus and every locator names a tracked file whose text header, if
 it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v) swaps FormatVersion for the header alone.
-Those are normalised away below - nothing else is.
+Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
+each key pairs one-to-one with a GUID. Those are normalised away below - nothing else is.
 
 Run from anywhere inside the repository:
     python3 Desert/Tests/Common/CanonicalText/compare_corpus.py [base-ref]
@@ -175,6 +176,43 @@ def strip_scene_v28(old, new, ext):
     return swap_mesh_guids(old, new)
 
 
+_SKY_PAIRS = {}  # old SkyboxHandle key -> {GUID text}, gathered over every SCNE 28 -> 29 file
+
+
+def swap_skybox_refs(old, new):
+    """Replaces every string SkyboxHandle in `old` by the {Guid, Path} object at the same place in `new`,
+    provided the object's Path is that string (an empty one pairs with an empty GUID). False when the two
+    documents do not line up."""
+    if isinstance(old, dict) and isinstance(new, dict):
+        for key, value in old.items():
+            if key == "SkyboxHandle" and isinstance(value, str):
+                ref = new.get(key)
+                if not isinstance(ref, dict) or set(ref) != {"Guid", "Path"} or ref["Path"] != value or \
+                        (value == "") != (ref["Guid"] == ""):
+                    return False
+                if value:
+                    _SKY_PAIRS.setdefault(value, set()).add(ref["Guid"])
+                old[key] = ref
+            elif key in new and not swap_skybox_refs(value, new[key]):
+                return False
+    elif isinstance(old, list) and isinstance(new, list):
+        return all(swap_skybox_refs(a, b) for a, b in zip(old, new))
+    return True
+
+
+def strip_scene_v29(old, new, ext):
+    """SCNE 28 -> 29 (T6d): the version and the SkyboxHandle spelling (key string -> {Guid, Path}) are the only
+    change. The pairing is judged once the corpus is read."""
+    if ext not in (".desce", ".deprefab") or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_v = old.get("Header", {}).get("Versions", {})
+    new_v = new.get("Header", {}).get("Versions", {})
+    if old_v.get("SCNE") != 28 or new_v.get("SCNE") != 29:
+        return False
+    old_v["SCNE"] = 29
+    return swap_skybox_refs(old, new)
+
+
 _REF_PAIRS = {}  # MATL 2 slot number -> {(GUID text, locator)}, gathered over every MATL 2 -> 3 file
 _MATL3_LISTS = ("Textures", "CloudAssets", "ShaderRefs")
 
@@ -301,6 +339,7 @@ def main():
             # The base is past AF6: both sides state the header, and only AF7h's slot spelling may differ.
             strip_scene_v27(old, new, ext)
             strip_scene_v28(old, new, ext)
+            strip_scene_v29(old, new, ext)
             strip_material_v3(old, new, ext)
             if old != new:
                 differ.append(path)
@@ -333,6 +372,16 @@ def main():
         for guid in guids:
             mesh_by_guid.setdefault(guid, set()).add(handle)
     differ += [f"mesh GUID {g} came from {len(h)} handles" for g, h in mesh_by_guid.items() if len(h) != 1]
+    sky_by_guid = {}
+    for key, guids in _SKY_PAIRS.items():
+        if len(guids) != 1:
+            differ.append(f"skybox key {key} became {len(guids)} GUIDs: {sorted(guids)}")
+        for guid in guids:
+            sky_by_guid.setdefault(guid, set()).add(key)
+        file = locator_file(root, key)
+        if file is None or not os.path.isfile(file):
+            differ.append(f"skybox key {key}: names no file")
+    differ += [f"skybox GUID {g} came from {len(k)} keys" for g, k in sky_by_guid.items() if len(k) != 1]
     ref_by_guid, ref_by_locator = {}, {}
     for handle, refs in sorted(_REF_PAIRS.items()):
         if len(refs) != 1:
@@ -357,7 +406,8 @@ def main():
         print(f"DIFFERS {path}")
     print(f"compare_corpus: {compared} file(s) compared against {base}, {len(differ)} differ, "
           f"{fresh} new since it; {len(_SLOT_PAIRS)} slot handle(s) paired to a GUID, "
-          f"{len(_MESH_PAIRS)} mesh handle(s) paired to a GUID, {len(_REF_PAIRS)} material slot number(s) "
+          f"{len(_MESH_PAIRS)} mesh handle(s) paired to a GUID, "
+          f"{len(_SKY_PAIRS)} skybox key(s) paired to a GUID, {len(_REF_PAIRS)} material slot number(s) "
           f"paired to a GUID and locator, {len(_CLOUD_TYPE_GUIDS)} cloud type header(s)")
     return 1 if differ else 0
 
