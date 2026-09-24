@@ -5,6 +5,7 @@
 #include "Engine/Geometry/MeshRegionOperation.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/MergeCoincidentMeshEdges.hpp"
 
 #include <gtest/gtest.h>
 
@@ -198,4 +199,45 @@ TEST( RegionOperation, ZeroAndWronglySignedDistancesAreRefusedByName )
     ASSERT_FALSE( negative.IsSuccess() );
     EXPECT_NE( negative.GetError().find( "use Outset" ), std::string::npos ) << negative.GetError();
     EXPECT_TRUE( RunRegionOperation( RegionOperation::PushPull, before, top, -5.0f ).IsSuccess() );
+}
+
+// Weld (P12): the cube imported WITHOUT position welding is twelve loose triangles - every edge, face diagonals
+// included, is an open seam with a coincident partner. FMergeCoincidentMeshEdges with the UE Weld Edges tool's
+// defaults (ZeroTolerance, split-attribute welding on merged edges, 0.1 degree normal/tangent and 0.01 UV
+// thresholds) must close it into one watertight 8-vertex cube that still renders back with its hard normals and
+// tangent frame.
+TEST( RegionOperation, WeldClosesACubeCutAlongEverySeam )
+{
+    auto imported = DynamicMeshFromRenderMesh( HardCube( 50.0f ), WeldOptions{ -1.0f, 1e-5f } );
+    ASSERT_TRUE( imported.IsSuccess() ) << imported.GetError();
+    FDynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
+    ASSERT_EQ( mesh.VertexCount(), 36 ); // no corner is shared: 12 loose triangles
+    int openBefore = 0;
+    for ( int e : mesh.BoundaryEdgeIndicesItr() )
+        openBefore += e >= 0 ? 1 : 0;
+    ASSERT_EQ( openBefore, 36 );
+
+    FMergeCoincidentMeshEdges merger( &mesh );
+    merger.MergeVertexTolerance                        = FMathf::ZeroTolerance;
+    merger.MergeSearchTolerance                        = 2 * merger.MergeVertexTolerance;
+    merger.bWeldAttrsOnMergedEdges                     = true;
+    merger.SplitAttributeWelder.UVDistSqrdThreshold    = 0.01f * 0.01f;
+    merger.SplitAttributeWelder.NormalVecDotThreshold  = std::abs( 1.f - std::cos( 0.1f * 3.14159265f / 180.f ) );
+    merger.SplitAttributeWelder.TangentVecDotThreshold = merger.SplitAttributeWelder.NormalVecDotThreshold;
+    ASSERT_TRUE( merger.Apply() );
+    EXPECT_EQ( merger.InitialNumBoundaryEdges, 36 );
+    EXPECT_EQ( merger.FinalNumBoundaryEdges, 0 );
+    EXPECT_EQ( mesh.VertexCount(), 8 );
+    EXPECT_EQ( mesh.TriangleCount(), 12 );
+    EXPECT_EQ( mesh.EdgeCount(), 18 );
+
+    auto render = ToRenderMesh( mesh );
+    ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
+    // hard edges survive: three faces meet at 90 degrees at each corner, so no normal element is welded
+    EXPECT_EQ( render.GetValue().Vertices.size(), 24u );
+    for ( const Vertex& v : render.GetValue().Vertices )
+    {
+        EXPECT_NEAR( glm::length( v.Tangent ), 1.0f, 1e-5f );
+        EXPECT_NEAR( glm::dot( v.Tangent, v.Normal ), 0.0f, 1e-5f );
+    }
 }
