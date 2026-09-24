@@ -307,12 +307,12 @@ namespace Desert::Editor
             return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
         }
         const Assets::TextureSourceAsset& asset     = assetRead.GetValue();
-        const Common::UUID handle    = asset.Handle();
-        const std::string  sourceKey = asset.Import.SourceFile;
-        const std::string  sourceBytesStorage( reinterpret_cast<const char*>( asset.Source.data() ),
-                                               asset.Source.size() );
-        const uint64_t     sourceHash = asset.Import.SourceHash;
-        TextureIntentRead  authored;
+        const Common::UUID                handle    = asset.Handle();
+        const std::string                 sourceKey = asset.Import.SourceFile;
+        const std::string                 sourceBytesStorage( reinterpret_cast<const char*>( asset.Source.data() ),
+                                                              asset.Source.size() );
+        const uint64_t                    sourceHash = asset.Import.SourceHash;
+        TextureIntentRead                 authored;
         authored.Intent = asset.Import.Settings.Intent;
         authored.Where  = authored.Intent == Fmt::TextureIntent::Unspecified ? TextureIntentSource::NotAuthored
                                                                              : TextureIntentSource::Authored;
