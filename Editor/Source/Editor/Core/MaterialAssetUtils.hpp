@@ -128,9 +128,8 @@ namespace Desert::Editor::MaterialAssetUtils
             // written, get canonical defaults, and hand back a handle for a material that has none of
             // the authored parameters and no file behind it. The caller (a startup scene builder) would
             // then put that handle into a mesh slot and save it into a .desce.
-            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(),
-                      Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( data ) ) );
+            if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( path.generic_string(),
+                                                                                     rfl::json::write( data ) );
                  !written )
             {
                 LOG_ERROR( "[Material] '{}' was not created: {}", path.generic_string(), written.GetError() );

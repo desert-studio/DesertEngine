@@ -30,7 +30,10 @@ namespace Desert::Assets
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
-        std::string Serialize() const;
+        Common::ResultStr<std::string> Serialize() const;
+        // Serialize, then the atomic replace: a failure of either refuses and leaves the file as it was.
+        Common::BoolResultStr
+        SaveTo( const std::filesystem::path& file ) const; // fails if the writer produced text that is not JSON
 
         bool IsReadyForUse() const override
         {

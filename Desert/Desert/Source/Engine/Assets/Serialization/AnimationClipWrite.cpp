@@ -81,8 +81,11 @@ namespace Desert::Assets::Serialization
 
     Common::BoolResultStr SaveClipToFile( const std::filesystem::path& path, const Animation::AnimationClip& clip )
     {
-        const std::string json = Common::Content::CanonicalJsonTextOfWriterOutput(
+        const auto canonicalJson = Common::Content::CanonicalJsonTextOfWriterOutput(
              rfl::json::write( BuildAssetDataFromClip( clip ) ) );
+        if ( !canonicalJson )
+            return Common::MakeError<bool>( canonicalJson.GetError() );
+        const std::string& json = canonicalJson.GetValue();
 
         // The verdict is the primitive's, and it is read before this function returns. See the header
         // for the shape this replaces.

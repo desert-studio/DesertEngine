@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -38,9 +39,15 @@ namespace Common::Content
     ResultStr<std::string> CanonicalJsonText( std::string_view json );
 
     // The same layout for text a JSON WRITER just produced (rfl::json, yyjson). Such text is JSON by
-    // construction, so a failure here is a defect in this engine rather than in any file, and it aborts
-    // naming the byte offset instead of returning an error every save path would have to carry.
-    std::string CanonicalJsonTextOfWriterOutput( std::string_view json );
+    // construction, so a failure names the writer as the culprit - but it is still RETURNED, never aborted
+    // on: the caller is a save, and a save that cannot produce its text must refuse with a reason and
+    // leave the file on disk as it was, not take the editor down with the user's unsaved work.
+    ResultStr<std::string> CanonicalJsonTextOfWriterOutput( std::string_view json );
+
+    // The two steps of a text-asset save: the canonical layout of the writer's output, then the atomic
+    // replace (FileSystem::WriteContentToFileAtomic - a temporary file renamed over the target). Either
+    // failing refuses the save with the reason, and the file on disk stays what it was.
+    ResultStr<bool> WriteCanonicalJsonFileAtomic( const std::filesystem::path& file, std::string_view json );
 
     // True if the text is already byte-identical to its canonical layout.
     bool IsCanonicalJsonText( std::string_view json );

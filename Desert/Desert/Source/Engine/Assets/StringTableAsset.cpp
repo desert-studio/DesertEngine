@@ -110,8 +110,11 @@ namespace Desert::Assets
         // The round trip is the invariant this format lives by, so it is CHECKED rather than assumed: a
         // table that would not read back is refused here, where the author can still see what they typed,
         // instead of on somebody else's machine at load time.
-        const std::string text =
+        const auto canonicalText =
              Common::Content::CanonicalJsonTextOfWriterOutput( Localization::WriteStringTable( data ) );
+        if ( !canonicalText )
+            return Common::MakeError<bool>( canonicalText.GetError() );
+        const std::string& text = canonicalText.GetValue();
         if ( const auto reread = Localization::ParseStringTable( text ); !reread )
         {
             return Common::MakeFormattedError<bool>(

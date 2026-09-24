@@ -305,8 +305,7 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "refusing to write retarget '{}': {}", path.string(),
                                                      valid.GetError() );
         }
-        return Common::Utils::FileSystem::WriteContentToFileAtomic(
-             path, Common::Content::CanonicalJsonTextOfWriterOutput( WriteRetarget( data ) ) );
+        return Common::Content::WriteCanonicalJsonFileAtomic( path, WriteRetarget( data ) );
     }
 
     Common::ResultStr<RetargetSetup> BuildRetargetSetup( const RetargetAssetData& data )

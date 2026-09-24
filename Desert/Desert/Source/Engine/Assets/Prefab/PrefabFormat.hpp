@@ -50,6 +50,6 @@ namespace Desert::Assets
     // PrefabAsset::Serialize goes through here, and so does anything else that ever writes a prefab, so
     // "what the saver writes" and "what the gate accepts" meet in a single function a test can hold
     // together: WritePrefabJson(tree) must always satisfy ParseLoadablePrefab.
-    [[nodiscard]] std::string WritePrefabJson( PrefabData prefab );
+    [[nodiscard]] Common::ResultStr<std::string> WritePrefabJson( PrefabData prefab );
 
 } // namespace Desert::Assets

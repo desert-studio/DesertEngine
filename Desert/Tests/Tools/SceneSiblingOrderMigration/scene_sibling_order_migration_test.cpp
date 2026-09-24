@@ -36,27 +36,31 @@ namespace
         return static_cast<uint64_t>( record.id.value_or( Common::UUID( 0 ) ) );
     }
 
-    // The hierarchy the loader builds from these records, in the order it builds it: pass 2 attaches the
-    // plan's Loads in order, pass 3 attaches prefab instances in order, each to a parent made before it
-    // (SceneSerializer::InstantiateRecords). Roots are listed in creation order.
+    // The hierarchy the loader builds from these records, in the order it builds it: pass 2 collects the
+    // plan's Loads, pass 3 the prefab instances (each to a parent made before it), and the attaches are
+    // then made together in Rules::OrderAttaches order (SceneSerializer::InstantiateRecords). Roots are
+    // listed in creation order.
     Hierarchy Loaded( const Records& records )
     {
         uint64_t   minted = 1ull << 62;
         const auto plan   = Rules::PlanSceneStitch(
              records, [&]( void ) { return Common::UUID( ++minted ); },
              Rules::PrefabRecordPolicy::InstantiatedLater );
-        Hierarchy                    tree;
-        std::unordered_set<uint64_t> made;
+        Hierarchy                                   tree;
+        std::unordered_set<uint64_t>                made;
+        std::vector<Rules::PendingAttach<uint64_t>> attaches;
         for ( size_t slot = 0; slot < plan.Loads.size(); ++slot )
         {
             const auto& load = plan.Loads[slot];
             if ( load.Target != slot )
                 continue; // a shadowed record lands on another entity; it makes no node of its own
             const uint64_t id = static_cast<uint64_t>( plan.Created[slot].Id );
-            const uint64_t parent =
-                 load.Parent == Rules::kNoSlot ? 0 : static_cast<uint64_t>( plan.Created[load.Parent].Id );
-            tree[parent].push_back( id );
             made.insert( id );
+            if ( load.Parent == Rules::kNoSlot )
+                tree[0].push_back( id );
+            else
+                attaches.push_back( { static_cast<uint64_t>( plan.Created[load.Parent].Id ), id,
+                                      Rules::SiblingIndexOf( records[load.Record] ) } );
         }
         for ( const auto& prefab : plan.PrefabRecords )
         {
@@ -64,10 +68,17 @@ namespace
             const uint64_t id     = IdOf( record );
             const bool     hangs =
                  record.parent.has_value() && made.contains( static_cast<uint64_t>( *record.parent ) );
-            tree[hangs ? static_cast<uint64_t>( *record.parent ) : 0].push_back( id );
+            if ( hangs )
+                attaches.push_back(
+                     { static_cast<uint64_t>( *record.parent ), id, Rules::SiblingIndexOf( record ) } );
+            else
+                tree[0].push_back( id );
             if ( id != 0 )
                 made.insert( id );
         }
+        Rules::OrderAttaches( attaches );
+        for ( const auto& attach : attaches )
+            tree[attach.Parent].push_back( attach.Child );
         return tree;
     }
 
@@ -160,6 +171,30 @@ TEST( SceneSiblingOrderMigration, TheLoadedTreeIsTheOneTheV24LoaderBuilt )
     EXPECT_EQ( Loaded( scene.Entities ), before );
     EXPECT_EQ( before.at( 90 ), ( std::vector<uint64_t>{ 7, 3, 80 } ) );
     EXPECT_EQ( before.at( 0 ), ( std::vector<uint64_t>{ 90, 50, 4 } ) );
+}
+
+// The defect AF6c found: an ordinary child saved AFTER a prefab sibling came back BEFORE it, because pass 2
+// attached ordinary children at once and pass 3 appended every prefab instance behind them.
+TEST( SceneSiblingOrderMigration, AnOrdinaryChildAfterAPrefabSiblingStaysAfterIt )
+{
+    constexpr const char* kV25Scene = R"({"SceneName":"S","Entities":[
+        {"id":3,"parent":90,"Tag":"C2","siblingIndex":2},
+        {"id":7,"parent":90,"Tag":"C1","siblingIndex":0},
+        {"id":80,"PrefabPath":"Prefabs/P.deprefab","parent":90,"siblingIndex":1},
+        {"id":90,"Tag":"RootA","siblingIndex":0}],
+        "UnitVersion":1,"SceneVersion":25})";
+    const auto            scene     = rfl::json::read<Desert::Core::SceneSerialized>( kV25Scene ).value();
+    EXPECT_EQ( Loaded( scene.Entities ).at( 90 ), ( std::vector<uint64_t>{ 7, 80, 3 } ) );
+
+    // And the round trip: a saved v25 scene with the prefab sibling in the middle keeps it there under any
+    // record order.
+    auto         shuffled = scene.Entities;
+    std::mt19937 shuffle( 26 );
+    for ( int round = 0; round < 8; ++round )
+    {
+        std::shuffle( shuffled.begin(), shuffled.end(), shuffle );
+        EXPECT_EQ( Loaded( shuffled ).at( 90 ), ( std::vector<uint64_t>{ 7, 80, 3 } ) );
+    }
 }
 
 // Over every tracked scene: a v24 file migrates to the same tree; a v25 file (the corpus after the run) is

@@ -826,8 +826,7 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "refusing to write control rig '{}': {}", path.string(),
                                                      valid.GetError() );
         }
-        return Common::Utils::FileSystem::WriteContentToFileAtomic(
-             path, Common::Content::CanonicalJsonTextOfWriterOutput( WriteControlRig( data ) ) );
+        return Common::Content::WriteCanonicalJsonFileAtomic( path, WriteControlRig( data ) );
     }
 
     Common::BoolResultStr BuildControlRig( const ControlRigData& data, const Animation::Skeleton& skeleton,

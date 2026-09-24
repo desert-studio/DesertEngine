@@ -84,9 +84,8 @@ namespace Desert::Assets
 
         // Atomic, for SaveControlRigFile's reason: a failed write must not cost the author the graph they
         // already had on disk.
-        if ( const auto ok = Common::Utils::FileSystem::WriteContentToFileAtomic(
-                  filepath, Common::Content::CanonicalJsonTextOfWriterOutput(
-                                 Serialization::ShaderGraph::Serialize( doc ) ) );
+        if ( const auto ok = Common::Content::WriteCanonicalJsonFileAtomic(
+                  filepath, Serialization::ShaderGraph::Serialize( doc ) );
              !ok )
         {
             return ok;

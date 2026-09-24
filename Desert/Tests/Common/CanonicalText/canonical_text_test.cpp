@@ -330,7 +330,12 @@ TEST( CanonicalText, EveryTextAssetWriterGoesThroughTheCanonicalWriter )
         const bool serializes  = code.find( "rfl::json::write" ) != std::string::npos ||
                                 code.find( "Serialize(" ) != std::string::npos ||
                                 code.find( "Save()" ) != std::string::npos;
-        if ( !writesFiles || !serializes || code.find( "CanonicalJsonText" ) != std::string::npos )
+        // A file whose saves go through WriteCanonicalJsonFileAtomic names the canonical writer by that call.
+        const bool namesCanonical = code.find( "CanonicalJsonText" ) != std::string::npos ||
+                                    code.find( "WriteCanonicalJsonFileAtomic" ) != std::string::npos ||
+                                    // PrefabAsset::SaveTo writes WritePrefabJson's text, which is canonical.
+                                    code.find( "->SaveTo(" ) != std::string::npos;
+        if ( !writesFiles || !serializes || namesCanonical )
             continue;
         writers.push_back( rel );
         const auto row      = std::find_if( kCanonicalAtSource.begin(), kCanonicalAtSource.end(),
@@ -362,6 +367,46 @@ TEST( CanonicalText, RefusesTextThatIsNotJsonAndNamesWhere )
     const auto text = CanonicalJsonText( R"({"a":1,})" );
     ASSERT_FALSE( text );
     EXPECT_NE( text.GetError().find( "at byte" ), std::string::npos ) << text.GetError();
+}
+
+// A writer that produced something that is not JSON is a defect in this engine, but the SAVE that met it
+// must refuse with the reason and leave the file as it was - never abort with the author's work unsaved,
+// never truncate the file it was about to replace, never leave its temporary behind.
+TEST( CanonicalText, AFailedWriterRefusesTheSaveAndLeavesTheFileAsItWas )
+{
+    const auto refused = Common::Content::CanonicalJsonTextOfWriterOutput( R"({"a":1,)" );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( "not JSON" ), std::string::npos ) << refused.GetError();
+
+    const fs::path dir = fs::temp_directory_path() / "canonical_text_refused_save";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path    file   = dir / "Asset.demat";
+    const std::string before = "{\n  \"kept\": true\n}\n";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << before;
+    }
+
+    const auto saved = Common::Content::WriteCanonicalJsonFileAtomic( file, R"({"kept":false,)" );
+    ASSERT_FALSE( saved );
+    EXPECT_NE( saved.GetError().find( "Asset.demat" ), std::string::npos ) << saved.GetError();
+
+    std::ifstream      in( file, std::ios::binary );
+    std::ostringstream now;
+    now << in.rdbuf();
+    EXPECT_EQ( now.str(), before );
+    EXPECT_EQ( std::distance( fs::directory_iterator( dir ), fs::directory_iterator() ), 1 )
+         << "a refused save left a file behind";
+
+    // The same call with good text replaces the file, laid out canonically.
+    ASSERT_TRUE( Common::Content::WriteCanonicalJsonFileAtomic( file, R"({"kept":false})" ) );
+    std::ifstream      again( file, std::ios::binary );
+    std::ostringstream after;
+    after << again.rdbuf();
+    EXPECT_TRUE( IsCanonicalJsonText( after.str() ) );
+    EXPECT_NE( after.str().find( "false" ), std::string::npos );
+    fs::remove_all( dir );
 }
 
 int main( int argc, char** argv )

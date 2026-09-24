@@ -243,4 +243,31 @@ namespace Desert::Core::Rules
         return plan;
     }
 
+    // ONE ATTACH OF A LOAD: `Child` hangs off `Parent`, at the place `SiblingIndex` names (a record without
+    // one - older than scene v25 - carries the maximum, and keeps the order it was collected in).
+    template <typename Handle>
+    struct PendingAttach
+    {
+        Handle   Parent;
+        Handle   Child;
+        uint32_t SiblingIndex = std::numeric_limits<uint32_t>::max();
+    };
+
+    // THE ATTACHES ARE MADE LAST, ALL TOGETHER, IN SIBLING ORDER. Pass 2 knows the ordinary children and
+    // pass 3 the prefab instances; attaching each where it was found put every prefab instance after all
+    // of its ordinary siblings, so an ordinary child saved AFTER a prefab sibling came back before it.
+    // Collected from both passes (pass 2's first) and stably sorted here, each parent's children arrive
+    // in the order the file states - and a file with no indices keeps the v24 order exactly.
+    template <typename Handle>
+    void OrderAttaches( std::vector<PendingAttach<Handle>>& attaches )
+    {
+        std::stable_sort( attaches.begin(), attaches.end(),
+                          []( const PendingAttach<Handle>& a, const PendingAttach<Handle>& b )
+                          { return a.SiblingIndex < b.SiblingIndex; } );
+    }
+
+    inline uint32_t SiblingIndexOf( const Assets::EntityData& record )
+    {
+        return record.siblingIndex.value_or( std::numeric_limits<uint32_t>::max() );
+    }
 } // namespace Desert::Core::Rules

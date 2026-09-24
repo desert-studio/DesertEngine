@@ -202,9 +202,8 @@ namespace Desert::Editor
             // point of this order is that the asset ADOPTS the GUID out of the file: an unwritten file
             // means CreateAsset loads defaults, the material is not a Terrain material at all, and the
             // handle is not the one any future run will resolve.
-            if ( const auto written = ::Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(),
-                      ::Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( data ) ) );
+            if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( path.generic_string(),
+                                                                                     rfl::json::write( data ) );
                  !written )
             {
                 LOG_ERROR( "[Landscape] could not write the landscape material '{}': {} — the landscape's "
@@ -687,9 +686,8 @@ namespace Desert::Editor
             data.ShaderName = ::Desert::Graphic::kCloudMaterialShaderName;
             data.MaterialId = ::Common::UUID::Generate();
             // Checked for the same reason CreateLandscapeMaterial checks it, one function above.
-            if ( const auto written = ::Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(),
-                      ::Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( data ) ) );
+            if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( path.generic_string(),
+                                                                                     rfl::json::write( data ) );
                  !written )
             {
                 LOG_ERROR( "[Clouds] could not write the cloud material '{}': {} — the layer's material "

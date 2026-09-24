@@ -70,7 +70,7 @@ namespace Desert::Assets
         return BOOLSUCCESS;
     }
 
-    std::string PrefabAsset::Serialize() const
+    Common::ResultStr<std::string> PrefabAsset::Serialize() const
     {
         PrefabData data;
         data.Name = m_Metadata.Filepath.stem().string();
@@ -90,6 +90,15 @@ namespace Desert::Assets
         // The one writer: stamps both generation integers, so every file this engine saves is one its
         // own gate accepts. Writing rfl::json directly here would be a prefab the loader refuses.
         return WritePrefabJson( std::move( data ) );
+    }
+
+    Common::BoolResultStr PrefabAsset::SaveTo( const std::filesystem::path& file ) const
+    {
+        const auto text = Serialize();
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "prefab save of '{}' refused, the file is unchanged: {}",
+                                                     file.string(), text.GetError() );
+        return Common::Utils::FileSystem::WriteContentToFileAtomic( file, text.GetValue() );
     }
 
     void PrefabAsset::CreateFromEntity( ECS::Entity rootEntity, const AssetManager& assetManager )

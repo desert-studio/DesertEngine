@@ -142,11 +142,13 @@ namespace Common::Content
         return MakeSuccess( std::move( out ) );
     }
 
-    std::string CanonicalJsonTextOfWriterOutput( std::string_view json )
+    ResultStr<std::string> CanonicalJsonTextOfWriterOutput( std::string_view json )
     {
         auto canonical = CanonicalJsonText( json );
-        DESERT_VERIFY( canonical, "a JSON writer produced text that is not JSON: {}", canonical.GetError() );
-        return std::move( canonical.GetValue() );
+        if ( !canonical )
+            return MakeFormattedError<std::string>( "a JSON writer produced text that is not JSON: {}",
+                                                    canonical.GetError() );
+        return canonical;
     }
 
     bool IsCanonicalJsonText( std::string_view json )

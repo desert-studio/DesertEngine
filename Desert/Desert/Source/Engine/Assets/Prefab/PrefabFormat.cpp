@@ -56,7 +56,7 @@ namespace Desert::Assets
         return Common::MakeSuccess( std::move( parsed.value() ) );
     }
 
-    std::string WritePrefabJson( PrefabData prefab )
+    Common::ResultStr<std::string> WritePrefabJson( PrefabData prefab )
     {
         prefab.SceneVersion = Core::kSceneVersion;
         prefab.UnitVersion  = Core::kUnitVersion;

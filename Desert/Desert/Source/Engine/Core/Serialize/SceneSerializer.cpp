@@ -567,14 +567,16 @@ namespace Desert::Core
         if ( phases != nullptr )
             phases->Lap( "create entities", plan.Created.size() );
 
-        // Pass 2 — deserialize normal entities and wire up hierarchy
+        // Pass 2 — deserialize normal entities; their parent links are collected, and made after pass 3
+        std::vector<Rules::PendingAttach<ECS::Entity>> attaches;
         for ( const auto& load : plan.Loads )
         {
             ECS::Entity entity = created[load.Target];
             Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, *m_AssetManager );
 
             if ( load.Parent != Rules::kNoSlot )
-                m_Scene->Attach( created[load.Parent], entity );
+                attaches.push_back(
+                     { created[load.Parent], entity, Rules::SiblingIndexOf( records[load.Record] ) } );
         }
         if ( phases != nullptr )
             phases->Lap( "deserialize components and attach", plan.Loads.size() );
@@ -649,11 +651,18 @@ namespace Desert::Core
             {
                 auto parentIt = entityMap.find( *entityData->parent );
                 if ( parentIt != entityMap.end() )
-                    m_Scene->Attach( parentIt->second, prefabRoot );
+                    attaches.push_back( { parentIt->second, prefabRoot, Rules::SiblingIndexOf( *entityData ) } );
             }
         }
         if ( phases != nullptr )
             phases->Lap( "instantiate prefabs", plan.PrefabRecords.size() );
+
+        // Pass 4 — the hierarchy, every parent link at once in sibling order (Rules::OrderAttaches).
+        Rules::OrderAttaches( attaches );
+        for ( const auto& attach : attaches )
+            m_Scene->Attach( attach.Parent, attach.Child );
+        if ( phases != nullptr )
+            phases->Lap( "attach in sibling order", attaches.size() );
 
         return BOOLSUCCESS;
     }
