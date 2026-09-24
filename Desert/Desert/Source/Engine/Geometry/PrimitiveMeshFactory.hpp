@@ -6,9 +6,13 @@
 
 namespace Desert::Geometry
 {
+    // A GPU CACHE, NOT A SOURCE OF GEOMETRY. The vertices of every primitive come from
+    // Geometry::MakePrimitive (ShapeGenerators.hpp), the same generators the Modeling Create tool uses;
+    // this class only uploads them and shares the result.
     class PrimitiveMeshFactory
     {
     public:
+        // A fresh mesh of the primitive, nullptr for a type with no mesh here (Terrain, LightCube).
         static std::shared_ptr<DynamicMesh> Create( PrimitiveType type );
 
         // Returns a process-wide SHARED mesh for the given primitive type (created + GPU-invalidated once,
@@ -21,11 +25,5 @@ namespace Desert::Geometry
         // index buffers, and a static destructor releases those after ~Application has destroyed the device
         // and the VMA allocator. Called from Renderer::Shutdown(), which runs inside main.
         static void ReleaseShared();
-
-    private:
-        static std::shared_ptr<DynamicMesh> CreateCube();
-        static std::shared_ptr<DynamicMesh> CreateSphere();
-        static std::shared_ptr<DynamicMesh> CreatePlane();
-        static std::shared_ptr<DynamicMesh> CreatePyramid();
     };
 } // namespace Desert::Geometry

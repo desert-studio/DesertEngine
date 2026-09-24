@@ -68,22 +68,21 @@ namespace Desert::Geometry
          PrimitiveType::Cube,  PrimitiveType::Sphere,   PrimitiveType::Pyramid,
          PrimitiveType::Plane, PrimitiveType::Cylinder, PrimitiveType::Capsule };
 
-    // THE BOX EACH PRIMITIVE DRAWS, in its own space and in world units — and nothing for a shape that
+    // THE BOX EACH PRIMITIVE DRAWS, in its own space and in world units - and nothing for a shape that
     // draws nothing.
     //
-    // ONE SOURCE, READ BY TWO SIDES THAT CANNOT SEE EACH OTHER. PrimitiveMeshFactory builds the vertices
-    // and stamps THIS box on the submesh; the world partitioner (Core/Serialize/WorldPartitionRules.hpp)
-    // cannot include the factory — it reaches Vulkan through DynamicMesh — and reads the same box from
-    // here. Before this the partitioner restated the cube's half edge as a literal 50 beside a comment
-    // naming the factory, and knew no other shape.
+    // ONE SOURCE, READ BY TWO SIDES THAT CANNOT SEE EACH OTHER. The vertices come from
+    // Geometry::MakePrimitive (ShapeGenerators.hpp), and PrimitiveMeshFactory stamps THIS box on the
+    // submesh; the world partitioner (Core/Serialize/WorldPartitionRules.hpp) reads the same box from here
+    // without tessellating a sphere per record. The ShapeGenerators suite holds this closed form to the
+    // generated vertices for every PrimitiveType, so the two cannot drift apart.
     //
-    // NULLOPT IS AN ANSWER, not a gap: `PrimitiveMeshFactory::Create` returns nullptr for Pyramid,
-    // Cylinder and Capsule, so an entity naming one draws nothing and its position is its whole extent.
     // Terrain and LightCube are built elsewhere (TerrainMeshFactory, the light gizmo) and are never the
-    // `Primitive` of a mesh block.
+    // `Primitive` of a mesh block: nullopt, and such an entity's position is its whole extent.
     //
-    // Unit shapes are authored on [-0.5, 0.5] and scaled to one METRE (Common/Core/Units.hpp), so a Cube
-    // is 100 units a side. The Plane is a card in the XY plane with normal +Z, hence zero depth.
+    // Shapes are authored on [-0.5, 0.5] m around their centre (Common/Core/Units.hpp), so a Cube is 100
+    // units a side. The Plane is a card in the XY plane with normal +Z, hence zero depth; the Capsule is
+    // half as wide as it is tall.
     [[nodiscard]] inline std::optional<Common::Math::AABB> PrimitiveBounds( PrimitiveType type )
     {
         constexpr float half = 0.5f * Common::Units::UnitsPerMetre;
@@ -91,12 +90,14 @@ namespace Desert::Geometry
         {
             case PrimitiveType::Cube:
             case PrimitiveType::Sphere:
+            case PrimitiveType::Pyramid:
+            case PrimitiveType::Cylinder:
                 return Common::Math::AABB{ glm::vec3( -half ), glm::vec3( half ) };
             case PrimitiveType::Plane:
                 return Common::Math::AABB{ glm::vec3( -half, -half, 0.0f ), glm::vec3( half, half, 0.0f ) };
-            case PrimitiveType::Pyramid:
-            case PrimitiveType::Cylinder:
             case PrimitiveType::Capsule:
+                return Common::Math::AABB{ glm::vec3( -0.5f * half, -half, -0.5f * half ),
+                                           glm::vec3( 0.5f * half, half, 0.5f * half ) };
             case PrimitiveType::Terrain:
             case PrimitiveType::LightCube:
             case PrimitiveType::Count:

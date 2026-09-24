@@ -66,10 +66,10 @@
 // kLandscapeTileComponent — the tile's own position is read by nothing and is not a point):
 //
 //   * the record's own world position — every record;
-//   * the eight corners of the box a PRIMITIVE draws — Cube, Sphere, Plane — through the world matrix.
-//     The box is `Geometry::PrimitiveBounds`, the same statement the factory stamps on the submesh. A
-//     primitive the factory builds NOTHING for (Pyramid, Cylinder, Capsule: `Create` returns nullptr)
-//     draws nothing, so its position is its whole extent — true, and a defect of the factory, not here;
+//   * the eight corners of the box a PRIMITIVE draws, through the world matrix. The box is
+//     `Geometry::PrimitiveBounds`, the same statement the factory stamps on the submesh and the
+//     ShapeGenerators suite holds to the generated vertices. Terrain and LightCube are never a mesh
+//     block's primitive and have no box, so such a record's position is its whole extent;
 //   * the four corners of a Terrain's square, `Size` wide and centred (TerrainMeshFactory.hpp);
 //   * every instance of an InstancedStaticMesh, whose matrices are WORLD-space (MeshECSSystem.hpp submits
 //     the snapshot without the entity's transform) — a kilometre of grass is one record;

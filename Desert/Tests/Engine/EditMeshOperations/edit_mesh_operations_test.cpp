@@ -22,17 +22,8 @@ namespace
     using namespace Desert::Geometry;
     using EditMeshTest::Valid;
 
-    // turnInsideOut reverses every triangle and its normal: MakeCylinder builds an inside-out solid (winding
-    // and normals both face the axis), and an extrude test needs the outward one.
-    EditMesh Import( ShapeMesh shape, bool turnInsideOut )
+    EditMesh Import( const ShapeMesh& shape )
     {
-        if ( turnInsideOut )
-        {
-            for ( auto& index : shape.Indices )
-                std::swap( index.V2, index.V3 );
-            for ( auto& vertex : shape.Vertices )
-                vertex.Normal = -vertex.Normal;
-        }
         RenderMeshData render;
         render.Vertices = shape.Vertices;
         render.Indices  = shape.Indices;
@@ -70,17 +61,17 @@ namespace
     // 200 cm box, base at y = 0: x, z in [-100, 100], y in [0, 200]; six polygroups, wound outwards.
     EditMesh MakeCube()
     {
-        EditMesh mesh = Import( MakeBox( glm::vec3( 200.0f ) ), false );
+        EditMesh mesh = Import( MakeBox( glm::vec3( 200.0f ) ) );
         EXPECT_EQ( GeneratePolyGroupsByAngle( mesh, 30.0f ), 6 );
         EXPECT_NEAR( SignedVolume( mesh ), 8.0e6, 1.0 );
         return mesh;
     }
 
-    // 12 slices, diameter 200, height 200: wall + two caps = three polygroups, turned outwards (the signed
+    // 12 slices, diameter 200, height 200: wall + two caps = three polygroups, wound outwards (the signed
     // volume is the 12-gon prism's, 30000 cm^2 x 200 cm).
     EditMesh MakeCylinder12()
     {
-        EditMesh mesh = Import( MakeCylinder( 200.0f, 200.0f, 12 ), true );
+        EditMesh mesh = Import( MakeCylinder( 200.0f, 200.0f, 12 ) );
         EXPECT_EQ( GeneratePolyGroupsByAngle( mesh, 45.0f ), 3 );
         EXPECT_NEAR( SignedVolume( mesh ), 6.0e6, 1.0 );
         return mesh;
