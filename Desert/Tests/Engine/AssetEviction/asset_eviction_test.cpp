@@ -39,6 +39,7 @@
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -544,6 +545,39 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
          << "the ROOT set was mutated; the closure must be a copy so the caller's roots stay its own";
 
     std::filesystem::remove( materialPath );
+}
+
+TEST( AssetEviction, ATextureCreatedWithoutLoadIsKeyedByItsHeaderGuid )
+{
+    // loadAfterCreate=false keys the manager's handle lookup BEFORE any Load. When the texture adopted its
+    // identity in Load, that lookup held the PATH-derived number and Load then changed the asset's handle
+    // under it: FindByHandle(real) missed and the evicted/reloaded asset answered to the wrong number.
+    // The identity is now adopted in the constructor, so the lookup and the asset agree from creation.
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction";
+    std::filesystem::create_directories( dir );
+    const std::filesystem::path texturePath = dir / "probe_guid_texture.detex";
+    const auto                  source      = std::vector<std::byte>( 4, std::byte{ 0x7F } );
+    const auto asset = MakeTextureSourceAsset( Common::Content::ContentKind::Texture, "assets:Textures/Probe.png",
+                                               source, TextureImportSettings{} );
+    ASSERT_TRUE( WriteTextureSourceAssetFile( texturePath, asset ).IsSuccess() );
+    const auto byGuid = Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( asset.Guid ) ) );
+    const auto byPath = Common::AssetHandle::FromCookedPath( texturePath );
+
+    AssetManager manager;
+    auto         texture =
+         manager.CreateAsset<TextureAsset>( AssetPriority::Medium, Common::Filepath( texturePath ), false );
+    ASSERT_TRUE( texture );
+    EXPECT_FALSE( texture->IsReadyForUse() );
+    EXPECT_EQ( static_cast<uint64_t>( texture->GetMetadata().Handle ), static_cast<uint64_t>( byGuid ) );
+    EXPECT_EQ( manager.FindByHandle<TextureAsset>( byGuid ), texture )
+         << "a texture created without Load is not findable by its header GUID's handle";
+    EXPECT_FALSE( manager.FindByHandle<TextureAsset>( byPath ) )
+         << "the lookup still answers to the path-derived number";
+
+    ASSERT_TRUE( texture->Load().IsSuccess() );
+    EXPECT_EQ( static_cast<uint64_t>( texture->GetMetadata().Handle ), static_cast<uint64_t>( byGuid ) )
+         << "Load changed the identity the lookup was keyed on";
+    std::filesystem::remove( texturePath );
 }
 
 // THE SWEEP MUST BE SURVIVABLE, NOT MERELY CORRECT — the half this suite did not state.

@@ -626,8 +626,8 @@ namespace Desert::Editor
             return Common::MakeSuccess( assetPath );
         }
 
-        // FIRST IMPORT. The handle is the number this texture has always had -- derived once from the
-        // source's place, then frozen into the header. A legacy `{"Intent": ...}` sidecar at the asset's
+        // FIRST IMPORT. A fresh GUID is minted into the header; the handle is its fold (HandleForGuid), so
+        // nothing about the source's place enters the identity. A legacy `{"Intent": ...}` sidecar at the asset's
         // path is the authored setting and is folded into ImportInfo; the asset replaces it.
         Assets::TextureImportSettings settings;
         const TextureIntentRead       authored = ReadTextureIntent( source );
@@ -647,8 +647,8 @@ namespace Desert::Editor
         const fs::path rel  = fs::relative( source, Common::Constants::Path::SKYBOX_PATH );
         const bool     sky  = !rel.empty() && rel.begin()->string() != "..";
         const auto     kind = sky ? Common::Content::ContentKind::Skybox : Common::Content::ContentKind::Texture;
-        const Assets::TextureSourceAsset asset = Assets::MakeTextureSourceAsset(
-             kind, Common::AssetHandle::FromCookedPath( source ), sourceKey, std::move( bytes ), settings );
+        const Assets::TextureSourceAsset asset =
+             Assets::MakeTextureSourceAsset( kind, sourceKey, std::move( bytes ), settings );
         if ( auto w = Assets::WriteTextureSourceAssetFile( assetPath, asset ); !w.IsSuccess() )
             return Common::MakeError<fs::path>( w.GetError() );
         return Common::MakeSuccess( assetPath );

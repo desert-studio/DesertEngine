@@ -167,7 +167,7 @@ namespace
             const auto key = Desert::Assets::ReadTextureAssetKey( file );
             EXPECT_TRUE( key.IsSuccess() ) << key.GetError();
             if ( key.IsSuccess() )
-                return static_cast<uint64_t>( key.GetValue().Handle );
+                return static_cast<uint64_t>( Common::Content::HandleForGuid( key.GetValue().Guid ) );
         }
         return static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( file ) );
     }

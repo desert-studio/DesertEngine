@@ -887,15 +887,20 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
 {
     // A real `.detex`, because the claim is about what Load does with the handle frozen into the header.
     const auto scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_rooted.detex";
-    constexpr uint64_t kIdInTheFile = 4588246833979984450ull; // the value T_Checker.detex's header carries
+    // A fixed GUID in the header; the handle is its one fold (SCNE 28 step 6), never a number of its own.
+    Common::Content::AssetGuid kGuidInTheFile;
+    kGuidInTheFile.Hi           = 4588246833979984450ull; // T_Checker.detex's Guid.Hi
+    kGuidInTheFile.Lo           = 0x5eed5eed5eed5eedull;
+    const uint64_t kIdInTheFile = static_cast<uint64_t>( Common::Content::HandleForGuid( kGuidInTheFile ) );
     {
         // THROUGH THE IMPORTER'S OWN WRITER (AF3). A fixture hand-spelled here would be a second writer of
         // the envelope — the drift this suite is about. The source bytes are opaque to Load: it reads the
         // header and IMPT, never SRCE.
         const std::vector<std::byte> source( 4, std::byte{ 0x7F } );
-        const auto                   asset = Desert::Assets::MakeTextureSourceAsset(
-             Common::Content::ContentKind::Texture, Common::UUID( kIdInTheFile ), "assets:Textures/T_Checker.png",
-             source, Desert::Assets::TextureImportSettings{} );
+        auto asset         = Desert::Assets::MakeTextureSourceAsset( Common::Content::ContentKind::Texture,
+                                                                     "assets:Textures/T_Checker.png", source,
+                                                                     Desert::Assets::TextureImportSettings{} );
+        asset.Guid         = kGuidInTheFile;
         const auto written = Desert::Assets::WriteTextureSourceAssetFile( scratch, asset );
         ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     }
@@ -904,6 +909,8 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     Desert::Assets::TextureAsset underOneRoot( AssetPriority::Medium, Common::Filepath( scratch ) );
+    EXPECT_EQ( static_cast<uint64_t>( underOneRoot.GetMetadata().Handle ), kIdInTheFile )
+         << "the identity must be adopted at creation, before any Load: the asset manager keys its lookup then";
     ASSERT_TRUE( underOneRoot.Load().IsSuccess() );
 
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Game", "Assets" );
@@ -914,9 +921,8 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
 
     EXPECT_EQ( static_cast<uint64_t>( underOneRoot.GetMetadata().Handle ), kIdInTheFile );
     EXPECT_EQ( static_cast<uint64_t>( underAnother.GetMetadata().Handle ), kIdInTheFile )
-         << "a texture stopped taking its identity from its own file. Every `.demat` in the repository "
-            "names its textures by that number, so the moment it becomes path-derived a change to the "
-            "derivation silently empties every texture slot.";
+         << "a texture stopped taking its identity from its own file's GUID. The moment it becomes "
+            "path-derived a change to the derivation silently empties every texture slot.";
 }
 
 TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMoving )

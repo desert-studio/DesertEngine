@@ -5,8 +5,8 @@
 // FEditorBulkData — Engine/Classes/Engine/Texture.h:1268) and never re-reads the file it was imported
 // from; the imported file's name and hash are provenance (FAssetImportInfo). The same here:
 //
-//   header   Kind = Texture (or Skybox for a sky panorama), Guid.Hi = the texture's 64-bit AssetHandle
-//            — FROZEN at import, the number every `.demat` names; Guid.Lo is minted once and only copied
+//   header   Kind = Texture (or Skybox for a sky panorama), Guid = the texture's identity, minted once at
+//            import and only copied; the runtime handle is HandleForGuid(Guid), the one fold (AssetEnvelope.hpp)
 //   Meta     the asset's display name
 //   IMPT     ImportInfo: the stable key of the file it was imported from, that file's content hash at
 //            import, and the import settings (the authored intent)
@@ -19,9 +19,10 @@
 // header and Meta and, instead of IMPT + SRCE, one PAYL section holding exactly what the runtime reads:
 // the DDC key, the source's content hash (the environment bake's signature) and its stable key.
 //
-// WHY THE HANDLE IS IN THE HEADER AND NOT DERIVED. Before AF3 the handle was `FromCookedPath(<source
-// image>)`, a function of a PATH; the migration froze that number into the asset, so the 116 `.demat`
-// files keep resolving without being rewritten, and a later rename/move of the asset changes nothing.
+// WHY THE IDENTITY IS IN THE HEADER AND NOT DERIVED. Before AF3 the handle was `FromCookedPath(<source
+// image>)`, a function of a PATH, so a rename changed it. The header GUID survives any move; the handle is
+// its fold, like every other asset's (SCNE 28 step 6). Assets imported before step 6 carry the old path
+// number in Guid.Hi -- that is now just 64 random-looking bits of their GUID, not a handle.
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -67,23 +68,22 @@ namespace Desert::Assets
     struct TextureSourceAsset
     {
         Common::Content::ContentKind Kind = Common::Content::ContentKind::Texture; // Texture or Skybox
-        Common::Content::AssetGuid   Guid;                                         // Hi = AssetHandle
+        Common::Content::AssetGuid   Guid;
         std::string                  Name;
         TextureImportInfo            Import;
         std::vector<std::byte>       Source;
 
         Common::UUID Handle() const
         {
-            return Common::UUID( Guid.Hi );
+            return Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( Guid ) ) );
         }
         bool operator==( const TextureSourceAsset& ) const = default;
     };
 
-    // A new asset around `sourceBytes`: the handle is given (the importer passes the path-derived number
-    // the texture has always had), Guid.Lo is minted, SourceHash is computed.
-    TextureSourceAsset MakeTextureSourceAsset( Common::Content::ContentKind kind, Common::UUID handle,
-                                               std::string sourceKey, std::vector<std::byte> sourceBytes,
-                                               TextureImportSettings settings );
+    // A new asset around `sourceBytes`: a fresh GUID is minted (its fold is the handle), SourceHash is computed.
+    TextureSourceAsset MakeTextureSourceAsset( Common::Content::ContentKind kind, std::string sourceKey,
+                                               std::vector<std::byte> sourceBytes,
+                                               TextureImportSettings  settings );
 
     Common::ResultStr<std::vector<std::byte>> EncodeTextureSourceAsset( const TextureSourceAsset& asset );
     Common::ResultStr<TextureSourceAsset>     DecodeTextureSourceAsset( std::span<const std::byte> file );
@@ -124,7 +124,7 @@ namespace Desert::Assets
     struct TextureAssetKey
     {
         Common::Content::ContentKind Kind = Common::Content::ContentKind::Texture;
-        Common::UUID                 Handle;
+        Common::Content::AssetGuid   Guid;               // the header's; the handle is HandleForGuid(Guid)
         std::string                  SourceFile;         // TextureImportInfo::SourceFile
         uint64_t                     SourceHash     = 0; // TextureImportInfo::SourceHash
         uint64_t                     DerivedDataKey = 0;

@@ -36,6 +36,8 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
+        -- TextureAsset reads the texture key (and so its GUID) through it, in the constructor and the load.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Skybox/SkyboxAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Shader/ShaderAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp",

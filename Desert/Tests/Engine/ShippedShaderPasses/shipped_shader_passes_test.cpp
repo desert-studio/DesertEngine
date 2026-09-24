@@ -582,7 +582,8 @@ TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
         const Common::Content::ContentFile described = Common::Content::DescribeContentFile( entry.path(), *kind );
         ASSERT_TRUE( described.HeaderError.empty() ) << key << ": " << described.HeaderError;
         ASSERT_TRUE( described.Header.has_value() ) << key << " is a texture asset that states no header";
-        sourceByHandle.emplace( described.Header->Guid.Hi, key );
+        sourceByHandle.emplace( static_cast<uint64_t>( Common::Content::HandleForGuid( described.Header->Guid ) ),
+                                key );
     }
 
     // Every material path any scene names, whatever component named it.

@@ -304,7 +304,7 @@ namespace
     }
 } // namespace
 
-TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCookedFile )
+TEST_F( TextureImport, HandleIsTheFoldOfTheMintedGuidAndNotOfTheSourcePath )
 {
     const fs::path source = TexturesDir() / "T_Test.bmp";
     WriteBmp( source, 4, 3, 0xF0 );
@@ -317,7 +317,9 @@ TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCooked
     // is the one that reached the repository: T_Checker.tex carried FNV-1a of a path beginning
     // /Users/<a developer>/. Asserted against the shared derivation, so an importer that grew its own
     // copy would not agree.
-    EXPECT_EQ( (uint64_t)handle, (uint64_t)Common::AssetHandle::FromCookedPath( source ) );
+    // SCNE 28 step 6: a new import mints a GUID and the handle is its fold; the source's place is
+    // provenance only (the equality with the header GUID's fold is asserted below).
+    EXPECT_NE( (uint64_t)handle, (uint64_t)Common::AssetHandle::FromCookedPath( source ) );
     EXPECT_NE( (uint64_t)handle, 0u );
 
     // And the key really is the source's place inside the project, with no part of the project root in
@@ -334,7 +336,7 @@ TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCooked
     // whichever asset happened to derive it first.
     const auto assetKey = Desert::Assets::ReadTextureAssetKey( TextureImporter::AssetPathFor( source ) );
     ASSERT_TRUE( assetKey.IsSuccess() ) << assetKey.GetError();
-    EXPECT_EQ( (uint64_t)assetKey.GetValue().Handle, (uint64_t)handle );
+    EXPECT_EQ( (uint64_t)Common::Content::HandleForGuid( assetKey.GetValue().Guid ), (uint64_t)handle );
     EXPECT_EQ( assetKey.GetValue().SourceFile, "assets:Textures/T_Test.bmp" );
     EXPECT_EQ( (uint64_t)stored.Handle, 0u ) << "the DDC entry carries an asset's handle";
     EXPECT_TRUE( stored.SourcePath.empty() ) << "the DDC entry carries an asset's path: " << stored.SourcePath;
