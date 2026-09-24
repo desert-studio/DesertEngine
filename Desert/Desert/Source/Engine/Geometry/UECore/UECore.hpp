@@ -14,8 +14,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <limits>
+#include <mutex>
+#include <optional>
+#include <type_traits>
 #include <span>
 #include <unordered_map>
 #include <unordered_set>
@@ -28,11 +32,24 @@
 #define UE_CHECK( Expr ) assert( Expr )
 #define UE_CHECK_SLOW( Expr ) assert( Expr )
 #define UE_CHECKF( Expr, Format, ... ) assert( ( Expr ) && Format )
-// ensure() evaluates to the condition in UE so it can guard a branch; keep that shape.
-#define UE_ENSURE( Expr ) ( assert( Expr ), static_cast<bool>( Expr ) )
+// ensure() evaluates to the condition in UE so it can guard a branch, and unlike check() it is NOT fatal:
+// UE reports and carries on into the recovery branch (e.g. RemoveTriangle on a dead id returns
+// Failed_NotATriangle). So it reports to stderr and returns the value; the condition is evaluated once.
+#define UE_ENSURE( Expr )                                                                                         \
+    ::Desert::Geometry::UEEnsureReport( static_cast<bool>( Expr ), #Expr, __FILE__, __LINE__ )
+#define UE_ENSURE_MSGF( Expr, Format, ... ) UE_ENSURE( Expr )
 
 namespace Desert::Geometry
 {
+    inline bool UEEnsureReport( const bool bCondition, const char* Expr, const char* File, const int Line )
+    {
+        if ( !bCondition )
+        {
+            std::fprintf( stderr, "ensure(%s) failed at %s:%d\n", Expr, File, Line );
+        }
+        return bCondition;
+    }
+
     using int8   = std::int8_t;
     using int16  = std::int16_t;
     using int32  = std::int32_t;
@@ -277,6 +294,21 @@ namespace Desert::Geometry
             return Data[Data.size() - 1 - static_cast<size_t>( IndexFromEnd )];
         }
 
+        void Push( const T& Item )
+        {
+            Data.push_back( Item );
+        }
+        // Removes the first occurrence, filling the hole with the last element (order not preserved).
+        int32 RemoveSingleSwap( const T& Item )
+        {
+            const int32 Index = Find( Item );
+            if ( Index == INDEX_NONE )
+            {
+                return 0;
+            }
+            RemoveAtSwap( Index );
+            return 1;
+        }
         int32 Find( const T& Item ) const
         {
             const auto It = std::find( Data.begin(), Data.end(), Item );
@@ -456,6 +488,65 @@ namespace Desert::Geometry
 
     // UE::Math::TVector / TVector2 with UE's member names (X, Y, Z); positions are double
     // (FVector3d), as in UE's FDynamicMesh3. glm conversions sit at the boundary to the engine.
+    // TOptional over std::optional (Misc/Optional.h names).
+    template <typename T>
+    class TOptional
+    {
+    public:
+        TOptional() = default;
+        TOptional( const T& InValue ) : Value( InValue )
+        {
+        }
+        TOptional( T&& InValue ) : Value( std::move( InValue ) )
+        {
+        }
+        bool IsSet() const
+        {
+            return Value.has_value();
+        }
+        T& GetValue()
+        {
+            UE_CHECK( IsSet() );
+            return *Value;
+        }
+        const T& GetValue() const
+        {
+            UE_CHECK( IsSet() );
+            return *Value;
+        }
+        template <typename... ArgTypes>
+        T& Emplace( ArgTypes&&... Args )
+        {
+            return Value.emplace( std::forward<ArgTypes>( Args )... );
+        }
+        void Reset()
+        {
+            Value.reset();
+        }
+        T* operator->()
+        {
+            return &GetValue();
+        }
+        const T* operator->() const
+        {
+            return &GetValue();
+        }
+        T& operator*()
+        {
+            return GetValue();
+        }
+        const T& operator*() const
+        {
+            return GetValue();
+        }
+
+    private:
+        std::optional<T> Value;
+    };
+
+    template <typename T>
+    using TConstArrayView = TArrayView<const T>;
+
     template <typename T>
     struct TVector2
     {
@@ -531,6 +622,27 @@ namespace Desert::Geometry
         {
             return { T( 0 ), T( 0 ), T( 0 ) };
         }
+        static constexpr TVector One()
+        {
+            return { T( 1 ), T( 1 ), T( 1 ) };
+        }
+        static constexpr TVector UnitX()
+        {
+            return { T( 1 ), T( 0 ), T( 0 ) };
+        }
+        static constexpr TVector UnitY()
+        {
+            return { T( 0 ), T( 1 ), T( 0 ) };
+        }
+        static constexpr TVector UnitZ()
+        {
+            return { T( 0 ), T( 0 ), T( 1 ) };
+        }
+        // UE converts between FVector3f and FVector3d explicitly (vertex normals/colours are float).
+        template <typename U>
+        explicit constexpr TVector( const TVector<U>& V ) : X( T( V.X ) ), Y( T( V.Y ) ), Z( T( V.Z ) )
+        {
+        }
         T& operator[]( int Index )
         {
             return Index == 0 ? X : ( Index == 1 ? Y : Z );
@@ -567,6 +679,14 @@ namespace Desert::Geometry
         {
             return *this = *this - O;
         }
+        TVector& operator*=( T S )
+        {
+            return *this = *this * S;
+        }
+        TVector& operator/=( T S )
+        {
+            return *this = *this / S;
+        }
         bool operator==( const TVector& O ) const
         {
             return X == O.X && Y == O.Y && Z == O.Z;
@@ -593,6 +713,20 @@ namespace Desert::Geometry
             return std::sqrt( SquaredLength() );
         }
     };
+
+    // Scalar on the left, any arithmetic type (UE: `double * FVector3f` compiles and keeps the vector's type).
+    template <typename T, typename S>
+        requires std::is_arithmetic_v<S>
+    TVector<T> operator*( S Scale, const TVector<T>& V )
+    {
+        return V * T( Scale );
+    }
+    template <typename T, typename S>
+        requires std::is_arithmetic_v<S>
+    TVector2<T> operator*( S Scale, const TVector2<T>& V )
+    {
+        return V * T( Scale );
+    }
 
     using FVector2f = TVector2<float>;
     using FVector2d = TVector2<double>;
