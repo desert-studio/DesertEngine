@@ -108,6 +108,15 @@ namespace Desert::Editor::Tools
             ImGui::Text( "Filter radius %d   Detail smooth %s   Detail scale %.2f",
                          settings.Smooth.FilterKernelRadius, settings.Smooth.DetailSmooth ? "on" : "off",
                          settings.Smooth.DetailScale );
+        if ( settings.Tool == Core::LandscapeTool::Flatten )
+            ImGui::Text( "Mode %s   Slope %s   Pick per apply %s   Terrace interval %.0f cm   Terrace smooth %.4f",
+                         Core::LandscapeFlattenModeName( settings.Flatten.Mode ),
+                         settings.Flatten.UseSlopeFlatten ? "on" : "off",
+                         settings.Flatten.PickValuePerApply ? "on" : "off", settings.Flatten.TerraceIntervalCm,
+                         settings.Flatten.TerraceSmooth );
+        if ( settings.Tool == Core::LandscapeTool::Noise )
+            ImGui::Text( "Mode %s   Scale %.1f", Core::LandscapeNoiseModeName( settings.Noise.Mode ),
+                         settings.Noise.NoiseScale );
 
         // Every button is a row of LandscapeToolControls(), which the palette offers too (see that header).
         const char* row = nullptr;
@@ -128,7 +137,7 @@ namespace Desert::Editor::Tools
                 control.Apply( settings );
             ImGui::PopID();
         }
-        ImGui::TextDisabled( "LMB raises / smooths, Shift+LMB lowers" );
+        ImGui::TextDisabled( "LMB applies the tool, Shift+LMB lowers (Sculpt)" );
         ImGui::End();
     }
 
@@ -157,9 +166,21 @@ namespace Desert::Editor::Tools
         auto weights = World::Landscape::ComputeLandscapeBrush( m_Target->Root, settings.Brush, positions );
         if ( !weights.IsSuccess() )
             return Common::MakeError( weights.GetError() );
-        if ( settings.Tool == Core::LandscapeTool::Sculpt )
-            return m_Stroke->ApplySculpt( weights.GetValue(), settings.Brush, { invert, deltaSeconds } );
-        return m_Stroke->ApplySmooth( weights.GetValue(), settings.Brush, settings.Smooth );
+        switch ( settings.Tool )
+        {
+            case Core::LandscapeTool::Sculpt:
+                return m_Stroke->ApplySculpt( weights.GetValue(), settings.Brush, { invert, deltaSeconds } );
+            case Core::LandscapeTool::Smooth:
+                return m_Stroke->ApplySmooth( weights.GetValue(), settings.Brush, settings.Smooth );
+            case Core::LandscapeTool::Flatten:
+                return m_Stroke->ApplyFlatten( weights.GetValue(), settings.Brush, settings.Flatten,
+                                               positions[0] );
+            case Core::LandscapeTool::Noise:
+                return m_Stroke->ApplyNoise( weights.GetValue(), settings.Brush, settings.Noise );
+            case Core::LandscapeTool::Erase:
+                return m_Stroke->ApplyErase( weights.GetValue(), settings.Brush );
+        }
+        return Common::MakeError( "landscape stroke: unknown tool" );
     }
 
     void LandscapeSculptTool::End( ::Desert::Core::Scene& scene )

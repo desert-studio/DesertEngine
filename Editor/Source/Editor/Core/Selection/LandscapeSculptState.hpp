@@ -12,8 +12,9 @@
 namespace Desert::Editor::Core
 {
     /**
-     * @brief The Landscape mode's Sculpt / Smooth tool settings (UE's ULandscapeEditorObject subset) and the ONE
-     *        table the tool panel draws its widgets from and the command palette offers as commands.
+     * @brief The Landscape mode's Sculpt / Smooth / Flatten / Noise / Erase tool settings (UE's
+     * ULandscapeEditorObject subset) and the ONE table the tool panel draws its widgets from and the command
+     * palette offers as commands.
      *
      * WHY ONE TABLE. Synthetic mouse input is closed on this machine, so a setting only a hand can change is a
      * setting no unattended run can photograph. The panel draws NOTHING but the rows of LandscapeToolControls()
@@ -23,11 +24,59 @@ namespace Desert::Editor::Core
     {
         Sculpt,
         Smooth,
+        Flatten,
+        Noise,
+        Erase,
     };
 
     inline const char* LandscapeToolName( LandscapeTool tool )
     {
-        return tool == LandscapeTool::Sculpt ? "Sculpt" : "Smooth";
+        switch ( tool )
+        {
+            case LandscapeTool::Sculpt:
+                return "Sculpt";
+            case LandscapeTool::Smooth:
+                return "Smooth";
+            case LandscapeTool::Flatten:
+                return "Flatten";
+            case LandscapeTool::Noise:
+                return "Noise";
+            case LandscapeTool::Erase:
+                return "Erase";
+        }
+        return "Unknown";
+    }
+
+    inline const char* LandscapeFlattenModeName( World::Landscape::LandscapeFlattenMode mode )
+    {
+        switch ( mode )
+        {
+            case World::Landscape::LandscapeFlattenMode::Both:
+                return "Both";
+            case World::Landscape::LandscapeFlattenMode::Raise:
+                return "Raise";
+            case World::Landscape::LandscapeFlattenMode::Lower:
+                return "Lower";
+            case World::Landscape::LandscapeFlattenMode::Interval:
+                return "Interval";
+            case World::Landscape::LandscapeFlattenMode::Terrace:
+                return "Terrace";
+        }
+        return "Unknown";
+    }
+
+    inline const char* LandscapeNoiseModeName( World::Landscape::LandscapeNoiseMode mode )
+    {
+        switch ( mode )
+        {
+            case World::Landscape::LandscapeNoiseMode::Both:
+                return "Both";
+            case World::Landscape::LandscapeNoiseMode::Add:
+                return "Add";
+            case World::Landscape::LandscapeNoiseMode::Sub:
+                return "Sub";
+        }
+        return "Unknown";
     }
 
     inline const char* LandscapeFalloffName( World::Landscape::LandscapeBrushFalloff shape )
@@ -54,9 +103,11 @@ namespace Desert::Editor::Core
 
     struct LandscapeSculptSettings
     {
-        LandscapeTool                             Tool = LandscapeTool::Sculpt;
-        World::Landscape::LandscapeBrushSettings  Brush;
-        World::Landscape::LandscapeSmoothSettings Smooth;
+        LandscapeTool                              Tool = LandscapeTool::Sculpt;
+        World::Landscape::LandscapeBrushSettings   Brush;
+        World::Landscape::LandscapeSmoothSettings  Smooth;
+        World::Landscape::LandscapeFlattenSettings Flatten;
+        World::Landscape::LandscapeNoiseSettings   Noise;
     };
 
     /// A stroke asked for from the palette: one step at the viewport centre, then the stroke ends.
@@ -94,10 +145,15 @@ namespace Desert::Editor::Core
     {
         using World::Landscape::LandscapeBrushFalloff;
         auto always = []( const LandscapeSculptSettings& ) { return true; };
-        auto smooth = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Smooth; };
+        using World::Landscape::LandscapeFlattenMode;
+        using World::Landscape::LandscapeNoiseMode;
+        auto smooth  = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Smooth; };
+        auto flatten = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Flatten; };
+        auto noise   = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Noise; };
 
         std::vector<LandscapeToolControl> controls;
-        for ( const LandscapeTool tool : { LandscapeTool::Sculpt, LandscapeTool::Smooth } )
+        for ( const LandscapeTool tool : { LandscapeTool::Sculpt, LandscapeTool::Smooth, LandscapeTool::Flatten,
+                                           LandscapeTool::Noise, LandscapeTool::Erase } )
             controls.push_back( { std::string( "Tool: " ) + LandscapeToolName( tool ), "Tool",
                                   [tool]( LandscapeSculptSettings& s ) { s.Tool = tool; }, always } );
 
@@ -153,6 +209,69 @@ namespace Desert::Editor::Core
         controls.push_back( { "Detail scale: smaller", "Detail scale", []( LandscapeSculptSettings& s )
                               { s.Smooth.DetailScale = std::max( s.Smooth.DetailScale - 0.1f, 0.0f ); },
                               smooth } );
+
+        for ( const LandscapeFlattenMode mode :
+              { LandscapeFlattenMode::Both, LandscapeFlattenMode::Raise, LandscapeFlattenMode::Lower,
+                LandscapeFlattenMode::Interval, LandscapeFlattenMode::Terrace } )
+            controls.push_back( { std::string( "Flatten mode: " ) + LandscapeFlattenModeName( mode ),
+                                  "Flatten mode", [mode]( LandscapeSculptSettings& s ) { s.Flatten.Mode = mode; },
+                                  flatten } );
+        controls.push_back( { "Slope flatten: on", "Slope flatten",
+                              []( LandscapeSculptSettings& s ) { s.Flatten.UseSlopeFlatten = true; }, flatten } );
+        controls.push_back( { "Slope flatten: off", "Slope flatten",
+                              []( LandscapeSculptSettings& s ) { s.Flatten.UseSlopeFlatten = false; }, flatten } );
+        controls.push_back( { "Pick value per apply: on", "Pick per apply", []( LandscapeSculptSettings& s )
+                              { s.Flatten.PickValuePerApply = true; }, flatten } );
+        controls.push_back( { "Pick value per apply: off", "Pick per apply", []( LandscapeSculptSettings& s )
+                              { s.Flatten.PickValuePerApply = false; }, flatten } );
+        controls.push_back( { "Terrace interval: larger", "Terrace interval",
+                              []( LandscapeSculptSettings& s )
+                              {
+                                  s.Flatten.TerraceIntervalCm =
+                                       std::min( s.Flatten.TerraceIntervalCm * 2.0f,
+                                                 World::Landscape::kLandscapeMaxTerraceIntervalCm );
+                              },
+                              flatten } );
+        controls.push_back( { "Terrace interval: smaller", "Terrace interval",
+                              []( LandscapeSculptSettings& s )
+                              {
+                                  s.Flatten.TerraceIntervalCm =
+                                       std::max( s.Flatten.TerraceIntervalCm / 2.0f,
+                                                 World::Landscape::kLandscapeMinTerraceIntervalCm );
+                              },
+                              flatten } );
+        controls.push_back( { "Terrace smooth: larger", "Terrace smooth",
+                              []( LandscapeSculptSettings& s )
+                              {
+                                  s.Flatten.TerraceSmooth =
+                                       std::min( s.Flatten.TerraceSmooth * 4.0f,
+                                                 World::Landscape::kLandscapeMaxTerraceSmooth );
+                              },
+                              flatten } );
+        controls.push_back( { "Terrace smooth: smaller", "Terrace smooth",
+                              []( LandscapeSculptSettings& s )
+                              {
+                                  s.Flatten.TerraceSmooth =
+                                       std::max( s.Flatten.TerraceSmooth / 4.0f,
+                                                 World::Landscape::kLandscapeMinTerraceSmooth );
+                              },
+                              flatten } );
+        for ( const LandscapeNoiseMode mode :
+              { LandscapeNoiseMode::Both, LandscapeNoiseMode::Add, LandscapeNoiseMode::Sub } )
+            controls.push_back( { std::string( "Noise mode: " ) + LandscapeNoiseModeName( mode ), "Noise mode",
+                                  [mode]( LandscapeSculptSettings& s ) { s.Noise.Mode = mode; }, noise } );
+        controls.push_back( { "Noise scale: larger", "Noise scale",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.Noise.NoiseScale = std::min( s.Noise.NoiseScale * 2.0f,
+                                                                 World::Landscape::kLandscapeMaxNoiseScale );
+                              },
+                              noise } );
+        controls.push_back( { "Noise scale: smaller", "Noise scale",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.Noise.NoiseScale = std::max( s.Noise.NoiseScale / 2.0f,
+                                                                 World::Landscape::kLandscapeMinNoiseScale );
+                              },
+                              noise } );
         return controls;
     }
 } // namespace Desert::Editor::Core
