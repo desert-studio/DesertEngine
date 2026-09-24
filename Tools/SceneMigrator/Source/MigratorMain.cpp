@@ -300,7 +300,7 @@ namespace
                 return stated.value().to_int();
             if ( row.AbsentIsFrom )
                 return row.FromVersion;
-            return rfl::Result<int>( rfl::Error( "absent" ) );
+            return { rfl::Error( "absent" ) };
         }();
         if ( !version || version.value() != row.FromVersion )
             return Common::MakeError<std::optional<std::string>>(
