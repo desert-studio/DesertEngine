@@ -686,8 +686,8 @@ namespace
         const int   gridLod = static_cast<int>( std::floor( lod.Center ) );
         const int   x       = LandscapeLodGridCoord( static_cast<int>( vertex ), q, gridLod, 0 );
         const int   z       = LandscapeLodGridCoord( static_cast<int>( vertex ), q, gridLod, 1 );
-        const float l       = LandscapeCalcLod( static_cast<float>( x ), static_cast<float>( z ), static_cast<float>( q ),
-                                                lod.Center, lod.Edges, lod.Corners,
+        const float l       = LandscapeCalcLod( static_cast<float>( x ), static_cast<float>( z ),
+                                                static_cast<float>( q ), lod.Center, lod.Edges, lod.Corners,
                                                 1.0f / Graphic::System::kLandscapeLodBlendRange );
         const int   lo      = static_cast<int>( std::floor( l ) );
         const float morph   = l - static_cast<float>( lo );
@@ -700,27 +700,29 @@ namespace
         const auto  h       = [&]( float sx, float sz )
         {
             return LandscapeHeightCm(
-                 land.Tiles[i].Sample( static_cast<uint32_t>( sx ), static_cast<uint32_t>( sz ) ), land.Root.ZScale );
+                 land.Tiles[i].Sample( static_cast<uint32_t>( sx ), static_cast<uint32_t>( sz ) ),
+                 land.Root.ZScale );
         };
-        return { static_cast<float>( land.Coords[i].x * static_cast<int>( kQuads ) ) + LandscapeLodMorph( x0, x1, morph ),
-                 static_cast<float>( land.Coords[i].y * static_cast<int>( kQuads ) ) + LandscapeLodMorph( z0, z1, morph ),
+        return { static_cast<float>( land.Coords[i].x * static_cast<int>( kQuads ) ) +
+                      LandscapeLodMorph( x0, x1, morph ),
+                 static_cast<float>( land.Coords[i].y * static_cast<int>( kQuads ) ) +
+                      LandscapeLodMorph( z0, z1, morph ),
                  LandscapeLodMorph( h( x0, z0 ), h( x1, z1 ), morph ),
-                 static_cast<float>( land.Coords[i].x * q + x ),
-                 static_cast<float>( land.Coords[i].y * q + z ) };
+                 static_cast<float>( land.Coords[i].x * q + x ), static_cast<float>( land.Coords[i].y * q + z ) };
     }
 
     // The LODs of the 2x2's tiles as the TerrainRenderer derives them from their centres.
     LandscapeTileLod TileLodOf( const Landscape2x2& land, size_t i, const std::array<float, 4>& centers )
     {
-        return Graphic::System::LandscapeTileLods(
-             centers[i],
-             [&]( int dx, int dz ) -> std::optional<float>
-             {
-                 for ( size_t j = 0; j < 4; ++j )
-                     if ( land.Coords[j] == land.Coords[i] + glm::ivec2( dx, dz ) )
-                         return centers[j];
-                 return std::nullopt;
-             } );
+        return Graphic::System::LandscapeTileLods( centers[i],
+                                                   [&]( int dx, int dz ) -> std::optional<float>
+                                                   {
+                                                       for ( size_t j = 0; j < 4; ++j )
+                                                           if ( land.Coords[j] ==
+                                                                land.Coords[i] + glm::ivec2( dx, dz ) )
+                                                               return centers[j];
+                                                       return std::nullopt;
+                                                   } );
     }
 
     // The tile's boundary on the global line `X == line` (vertical seam) or `Z == line`: every non-degenerate
@@ -729,17 +731,17 @@ namespace
     // vertex is one function of its sample), so two tiles leave no crack iff these lists are equal: the same
     // segments at the same heights, bit for bit. Interior vertices a morph folds ONTO the line are not the
     // boundary — they are the tile's surface meeting it, which UE's geomorph does the same way.
-    std::vector<std::array<float, 4>> SeamSegments( const Landscape2x2& land, size_t i, const LandscapeTileLod& lod,
-                                                    bool vertical, float line )
+    std::vector<std::array<float, 4>> SeamSegments( const Landscape2x2& land, size_t i,
+                                                    const LandscapeTileLod& lod, bool vertical, float line )
     {
         std::vector<std::array<float, 4>> out;
-        const uint32_t count = Graphic::System::LandscapeLodVertexCount(
-             kQuads, static_cast<uint32_t>( std::floor( lod.Center ) ) );
+        const uint32_t                    count =
+             Graphic::System::LandscapeLodVertexCount( kQuads, static_cast<uint32_t>( std::floor( lod.Center ) ) );
         for ( uint32_t t = 0; t < count; t += 3u )
             for ( uint32_t e = 0; e < 3u; ++e )
             {
-                const DrawnVertex a = DrawVertex( land, i, lod, t + e );
-                const DrawnVertex b = DrawVertex( land, i, lod, t + ( e + 1u ) % 3u );
+                const DrawnVertex a  = DrawVertex( land, i, lod, t + e );
+                const DrawnVertex b  = DrawVertex( land, i, lod, t + ( e + 1u ) % 3u );
                 const float       ca = vertical ? a.GridGx : a.GridGz, cb = vertical ? b.GridGx : b.GridGz;
                 const float       pa = vertical ? a.Gz : a.Gx, pb = vertical ? b.Gz : b.Gx;
                 if ( ca != line || cb != line || pa == pb )
@@ -760,9 +762,9 @@ TEST( LandscapeGridLod, AtLodZeroTheDrawnTrianglesAreTheSurfaceJoltCollidesWith 
 {
     const Landscape2x2 land( SteepHill );
     JoltLandscape      jolt( land );
-    const float        quant = JoltHalfStepCm( land );
+    const float        quant       = JoltHalfStepCm( land );
     float              worstVsJolt = 0.0f, worstCentroid = 0.0f;
-    size_t             vertices    = 0;
+    size_t             vertices = 0;
     for ( size_t i = 0; i < 4; ++i )
     {
         const LandscapeTileLod lod   = TileLodOf( land, i, { 0.0f, 0.0f, 0.0f, 0.0f } );
@@ -784,14 +786,16 @@ TEST( LandscapeGridLod, AtLodZeroTheDrawnTrianglesAreTheSurfaceJoltCollidesWith 
                 ch += v.H / 3.0f;
                 ++vertices;
             }
-            const auto truth = land.Height( land.Root.Origin.x + cx * kSpacing, land.Root.Origin.z + cz * kSpacing );
+            const auto truth =
+                 land.Height( land.Root.Origin.x + cx * kSpacing, land.Root.Origin.z + cz * kSpacing );
             ASSERT_TRUE( truth.has_value() );
             worstCentroid = std::max( worstCentroid, std::abs( land.Root.Origin.y + ch - *truth ) );
         }
     }
-    std::printf( "[ LS7c ] LOD 0, %zu drawn vertices: worst |vertex - Jolt| %.4f cm (quantisation half-step %.4f cm), "
-                 "worst |triangle centroid - surface| %.4f cm\n",
-                 vertices, worstVsJolt, quant, worstCentroid );
+    std::printf(
+         "[ LS7c ] LOD 0, %zu drawn vertices: worst |vertex - Jolt| %.4f cm (quantisation half-step %.4f cm), "
+         "worst |triangle centroid - surface| %.4f cm\n",
+         vertices, worstVsJolt, quant, worstCentroid );
     EXPECT_LE( worstVsJolt, quant + 0.01f ) << "a drawn vertex is not on the surface Jolt collides with";
     EXPECT_LE( worstCentroid, 0.05f ) << "a drawn triangle is not the cell's triangle on Jolt's diagonal";
 }

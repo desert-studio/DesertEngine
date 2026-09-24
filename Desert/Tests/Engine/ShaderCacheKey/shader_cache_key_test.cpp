@@ -1372,8 +1372,8 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
 // ---- The terrain's three programs (LS-5): one patch, three things written ---------------------------------
 //
 // Terrain.shader (forward), TerrainGBuffer.shader (deferred) and TerrainShadow.shader (cascade depth) share
-// their vertex stage through Programs/Terrain/TerrainVertex.glslh. What must hold between them, and would not be seen on
-// screen until it had already been wrong for a while:
+// their vertex stage through Programs/Terrain/TerrainVertex.glslh. What must hold between them, and would not be
+// seen on screen until it had already been wrong for a while:
 //   - the G-buffer program's Properties are the forward program's, param for param: a terrain's .demat names
 //     `Terrain`, and the renderer writes the SAME param row into whichever program the render path uses —
 //     a block that drifted would read Tint where DetailTiling was written, in Deferred only;

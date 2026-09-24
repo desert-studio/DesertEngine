@@ -66,7 +66,8 @@ namespace Desert::Graphic::System
     static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, LayerModes ) == 32 &&
                         offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
                         offsetof( TerrainInstance, LandscapeTile ) == 64 &&
-                        offsetof( TerrainInstance, LodEdges ) == 80 && offsetof( TerrainInstance, LodCorners ) == 96,
+                        offsetof( TerrainInstance, LodEdges ) == 80 &&
+                        offsetof( TerrainInstance, LodCorners ) == 96,
                    "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first
@@ -124,9 +125,9 @@ namespace Desert::Graphic::System
     inline LandscapeLodSettings MakeLandscapeLodSettings( uint32_t quadsPerTile )
     {
         LandscapeLodSettings settings;
-        const uint32_t       maxLod  = LandscapeMaxLod( quadsPerTile );
-        float                divider = std::max( kLandscapeLod0Distribution, 1.01f );
-        float                ratio   = kLandscapeLod0ScreenSize;
+        const uint32_t       maxLod    = LandscapeMaxLod( quadsPerTile );
+        float                divider   = std::max( kLandscapeLod0Distribution, 1.01f );
+        float                ratio     = kLandscapeLod0ScreenSize;
         settings.LOD0ScreenSizeSquared = ratio * ratio;
         ratio /= divider;
         settings.LOD1ScreenSizeSquared               = ratio * ratio;
@@ -148,7 +149,8 @@ namespace Desert::Graphic::System
         if ( screenSizeSquared <= settings.LastLODScreenSizeSquared )
             return settings.LastLODIndex;
         if ( screenSizeSquared > settings.LOD1ScreenSizeSquared )
-            return ( settings.LOD0ScreenSizeSquared - std::min( screenSizeSquared, settings.LOD0ScreenSizeSquared ) ) /
+            return ( settings.LOD0ScreenSizeSquared -
+                     std::min( screenSizeSquared, settings.LOD0ScreenSizeSquared ) ) /
                    ( settings.LOD0ScreenSizeSquared - settings.LOD1ScreenSizeSquared );
         // No longer a linear fraction (UE's words): log base (distribution^2) of the size ratio.
         return std::min( settings.LastLODIndex,
@@ -161,9 +163,10 @@ namespace Desert::Graphic::System
     inline float LandscapeScreenRadiusSquared( const glm::vec3& center, float radius, const glm::vec3& viewOrigin,
                                                const glm::mat4& projection )
     {
-        const glm::vec3 d        = center - viewOrigin;
-        const float     distSq   = glm::dot( d, d );
-        const float     multiple = std::max( 0.5f * std::abs( projection[0][0] ), 0.5f * std::abs( projection[1][1] ) );
+        const glm::vec3 d      = center - viewOrigin;
+        const float     distSq = glm::dot( d, d );
+        const float     multiple =
+             std::max( 0.5f * std::abs( projection[0][0] ), 0.5f * std::abs( projection[1][1] ) );
         return ( multiple * radius ) * ( multiple * radius ) / std::max( 1.0f, distSq );
     }
 
@@ -177,14 +180,16 @@ namespace Desert::Graphic::System
         glm::vec4 Corners{ 0.0f };
     };
 
-    template <class LodAt> LandscapeTileLod LandscapeTileLods( float center, LodAt&& lodAt )
+    template <class LodAt>
+    LandscapeTileLod LandscapeTileLods( float center, LodAt&& lodAt )
     {
         const auto at = [&]( int dx, int dz )
         {
             const std::optional<float> lod = lodAt( dx, dz );
             return std::max( center, lod.value_or( center ) );
         };
-        const auto corner = [&]( int dx, int dz ) { return std::max( { at( dx, 0 ), at( 0, dz ), at( dx, dz ) } ); };
+        const auto corner = [&]( int dx, int dz )
+        { return std::max( { at( dx, 0 ), at( 0, dz ), at( dx, dz ) } ); };
         LandscapeTileLod result;
         result.Center  = center;
         result.Edges   = glm::vec4( at( -1, 0 ), at( 1, 0 ), at( 0, -1 ), at( 0, 1 ) );

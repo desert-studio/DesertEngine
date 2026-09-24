@@ -112,8 +112,9 @@ TEST( LandscapeLod, UEScreenSizeRatiosAndTheLastLod )
     float previous = 0.0f;
     for ( float d = 100.0f; d < 1.0e7f; d *= 1.02f )
     {
-        const float lod = LandscapeLodFromScreenSize(
-             s, LandscapeScreenRadiusSquared( glm::vec3( 0.0f ), 9000.0f, glm::vec3( 0.0f, 0.0f, d ), glm::mat4( 1.3f ) ) );
+        const float lod = LandscapeLodFromScreenSize( s, LandscapeScreenRadiusSquared( glm::vec3( 0.0f ), 9000.0f,
+                                                                                       glm::vec3( 0.0f, 0.0f, d ),
+                                                                                       glm::mat4( 1.3f ) ) );
         ASSERT_GE( lod, previous ) << d;
         ASSERT_LE( lod, previous + 0.25f ) << "a jump, not a blend, at " << d;
         previous = lod;

@@ -79,10 +79,10 @@ namespace Desert::Graphic::System
         // first sample over the tile size. Two roots at one origin would be one landscape drawn twice.
         struct TileKey
         {
-            float   OriginX = 0.0f;
-            float   OriginZ = 0.0f;
-            int32_t X       = 0;
-            int32_t Z       = 0;
+            float   OriginX                            = 0.0f;
+            float   OriginZ                            = 0.0f;
+            int32_t X                                  = 0;
+            int32_t Z                                  = 0;
             bool    operator==( const TileKey& ) const = default;
         };
 
@@ -107,12 +107,13 @@ namespace Desert::Graphic::System
         float TileLod( const LandscapeTileDraw& l, const glm::vec3& viewOrigin, const glm::mat4& projection )
         {
             const float     extent = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
-            const glm::vec3 center( l.OriginX + ( static_cast<float>( l.FirstSampleX ) * l.SpacingCm ) + 0.5f * extent,
-                                    l.BaseY,
-                                    l.OriginZ + ( static_cast<float>( l.FirstSampleZ ) * l.SpacingCm ) + 0.5f * extent );
+            const glm::vec3 center(
+                 l.OriginX + ( static_cast<float>( l.FirstSampleX ) * l.SpacingCm ) + 0.5f * extent, l.BaseY,
+                 l.OriginZ + ( static_cast<float>( l.FirstSampleZ ) * l.SpacingCm ) + 0.5f * extent );
             const float radius = glm::length( glm::vec3( 0.5f * extent, 256.0f * l.ZScale, 0.5f * extent ) );
-            return LandscapeLodFromScreenSize( MakeLandscapeLodSettings( l.QuadsPerTile ),
-                                               LandscapeScreenRadiusSquared( center, radius, viewOrigin, projection ) );
+            return LandscapeLodFromScreenSize(
+                 MakeLandscapeLodSettings( l.QuadsPerTile ),
+                 LandscapeScreenRadiusSquared( center, radius, viewOrigin, projection ) );
         }
     } // namespace
 
@@ -235,7 +236,8 @@ namespace Desert::Graphic::System
         const glm::vec3 viewOrigin = glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] );
         std::unordered_map<TileKey, float, TileKeyHash> tileLods;
         for ( const auto& t : m_Queue )
-            tileLods[KeyOf( t.Landscape, 0, 0 )] = TileLod( t.Landscape, viewOrigin, camera->GetProjectionMatrix() );
+            tileLods[KeyOf( t.Landscape, 0, 0 )] =
+                 TileLod( t.Landscape, viewOrigin, camera->GetProjectionMatrix() );
 
         for ( const auto& t : m_Queue )
         {
@@ -294,7 +296,8 @@ namespace Desert::Graphic::System
             FrameDraw draw;
             draw.Group       = it->second;
             draw.Row         = static_cast<uint32_t>( group.Instances.size() );
-            draw.VertexCount = LandscapeLodVertexCount( t.Landscape.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ) );
+            draw.VertexCount =
+                 LandscapeLodVertexCount( t.Landscape.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ) );
             m_FrameDraws.push_back( draw );
 
             group.ParamRows.insert( group.ParamRows.end(), surface->GetParamRow().begin(),
