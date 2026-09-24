@@ -268,10 +268,12 @@ def main():
     limit = state.get("limit", TURN_LIMIT)
     if event == "PostToolUse":
         pin = data.get("tool_input") or {}
-        if data.get("tool_name") == "Bash" and pin.get("run_in_background") and "build_quiet.sh" in pin.get("command", ""):
+        if data.get("tool_name") == "Bash" and pin.get("run_in_background"):
+            # Any background job, not only build_quiet.sh: T6c5 ran suite.sh in the background and went idle.
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-                  "[agent_guard] Сборка в фоне. СЕЙЧАС вызови ~/.claude/tools/build_wait.sh <тот же лог> в переднем плане и "
-                  "повторяй до вердикта: простой > 5 мин сбрасывает кэш контекста (AF7v потерял так 0,43 млн)."}})
+                  "[agent_guard] Задача в фоне. НЕ заканчивай ход в ожидании уведомления: простой > 5 мин сбрасывает кэш "
+                  "контекста (AF7v потерял так 0,43 млн). Жди блокирующими вызовами ≤ 4 мин: сборка build_quiet.sh — "
+                  "~/.claude/tools/build_wait.sh <лог>; прочее — for i in $(seq 24); do <проверка готовности> && break; sleep 10; done."}})
             sys.exit(0)
         calls = state.get("calls", 0)
         if calls >= limit - (TURN_LIMIT - TURN_WARN):
