@@ -369,7 +369,7 @@ TEST( SceneGrassGenerationMigration, TheStepSitsWhereItWasAddedInTheChain )
 
 TEST( SceneGrassGenerationMigration, TheChainRunsTheStepAndStampsTheHead )
 {
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneName    = "GrassProbe";
     scene.SceneVersion = Migration::kSceneVersionServiceAssetRoot;
     scene.UnitVersion  = Core::kUnitVersion;
@@ -380,7 +380,8 @@ TEST( SceneGrassGenerationMigration, TheChainRunsTheStepAndStampsTheHead )
     EXPECT_TRUE( report.Refused.empty() ) << report.Refused;
     EXPECT_TRUE( report.GrassGenerationRaised );
     EXPECT_EQ( report.GrassGeneration.KeysRemoved, 6 );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), Core::kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Core::kSceneVersion );
 
     // And a file already at the head does not run it again.
     const auto second = Migration::MigrateScene( scene );

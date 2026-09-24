@@ -42,6 +42,26 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <optional>
+
+namespace
+{
+    // A fixture's text header stating the given generations; an absent one is not stated at all, which is
+    // how a file that predates one of the two numbers reads since v26 moved them into the header. One
+    // fixed GUID: fixtures built twice must be the same bytes, as two saves of one asset are.
+    Common::Content::TextAssetHeaderSerialized FixtureHeader( Common::Content::ContentKind kind,
+                                                              std::optional<int>           sceneVersion,
+                                                              std::optional<int>           unitVersion )
+    {
+        std::vector<Common::Content::SubsystemVersion> versions;
+        if ( sceneVersion )
+            versions.push_back( { Desert::Assets::kSceneSchemaTag, static_cast<uint32_t>( *sceneVersion ) } );
+        if ( unitVersion )
+            versions.push_back( { Desert::Assets::kUnitSchemaTag, static_cast<uint32_t>( *unitVersion ) } );
+        const auto guid = Common::Content::AssetGuidFromText( "0f1e2d3c4b5a69788796a5b4c3d2e1f0" );
+        return Common::Content::MakeTextHeader( kind, guid.GetValue(), versions );
+    }
+} // namespace
 
 using Desert::Assets::EntityData;
 using Desert::Core::SceneSerialized;
@@ -91,8 +111,8 @@ namespace
     {
         SceneSerialized scene;
         scene.SceneName      = "CookMe";
-        scene.SceneVersion   = Desert::Core::kSceneVersion;
-        scene.UnitVersion    = Desert::Core::kUnitVersion;
+        scene.Header         = FixtureHeader( Common::Content::ContentKind::Scene, Desert::Core::kSceneVersion,
+                                              Desert::Core::kUnitVersion );
         scene.Settings       = rfl::json::read<rfl::Generic>( R"({"Exposure": 1.5})" ).value();
         scene.WorldPartition = WorldPartitionSerialized{ { WorldPartitionGridSerialized{ kCell, 1500.0f } } };
 
@@ -219,8 +239,10 @@ TEST( WorldCells, TheWorldAssembledFromItsCellsHoldsTheSourcesRecords )
 
     EXPECT_EQ( Cells::CanonicalRecords( back.GetValue() ), Cells::CanonicalRecords( source ) );
     EXPECT_EQ( back.GetValue().SceneName, source.SceneName );
-    EXPECT_EQ( back.GetValue().SceneVersion, source.SceneVersion );
-    EXPECT_EQ( back.GetValue().UnitVersion, source.UnitVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( back.GetValue().Header, Desert::Assets::kSceneSchemaTag ),
+               Desert::Assets::StatedVersion( source.Header, Desert::Assets::kSceneSchemaTag ) );
+    EXPECT_EQ( Desert::Assets::StatedVersion( back.GetValue().Header, Desert::Assets::kUnitSchemaTag ),
+               Desert::Assets::StatedVersion( source.Header, Desert::Assets::kUnitSchemaTag ) );
     EXPECT_EQ( rfl::json::write( back.GetValue().Settings ), rfl::json::write( source.Settings ) );
     EXPECT_EQ( rfl::json::write( back.GetValue().WorldPartition ), rfl::json::write( source.WorldPartition ) );
 }

@@ -195,7 +195,7 @@ TEST( SceneSSRUnitsMigration, TheRestOfTheSettingsBlockSurvivesInOrder )
 // recognise). That makes the version gate load-bearing, so the gate is what gets asserted.
 TEST( SceneSSRUnitsMigration, AFileAtTheHeadDoesNotRunTheStep )
 {
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneVersion = Core::kSceneVersion;
     scene.UnitVersion  = Core::kUnitVersion;
     scene.Settings     = SettingsWith( 4000.0 );
@@ -207,7 +207,7 @@ TEST( SceneSSRUnitsMigration, AFileAtTheHeadDoesNotRunTheStep )
 
 TEST( SceneSSRUnitsMigration, AV10FileRunsTheStepOnceAndComesOutStamped )
 {
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneVersion = 10;
     scene.UnitVersion  = Core::kUnitVersion;
     scene.Settings     = SettingsWith( 40.0 );
@@ -216,8 +216,9 @@ TEST( SceneSSRUnitsMigration, AV10FileRunsTheStepOnceAndComesOutStamped )
 
     EXPECT_TRUE( report.SSRUnitsRaised );
     EXPECT_DOUBLE_EQ( 4000.0, DistanceOf( scene.Settings ).value() );
-    ASSERT_TRUE( scene.SceneVersion.has_value() );
-    EXPECT_EQ( Core::kSceneVersion, *scene.SceneVersion )
+    ASSERT_TRUE( scene.Header.has_value() );
+    EXPECT_EQ( Core::kSceneVersion,
+               Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ) )
          << "an unstamped result is a file the next run would scale again";
 }
 
@@ -277,7 +278,7 @@ TEST( SceneSSRUnitsMigration, NoShippedSceneCarriesAMetreEraDistance )
         std::ifstream     in( entry.path(), std::ios::binary );
         std::stringstream buffer;
         buffer << in.rdbuf();
-        const auto parsed = rfl::json::read<Core::SceneSerialized>( buffer.str() );
+        const auto parsed = rfl::json::read<Desert::Migration::SceneSerialized>( buffer.str() );
         ASSERT_TRUE( parsed ) << entry.path().string() << " did not parse";
 
         std::optional<rfl::Generic> settings = parsed.value().Settings;

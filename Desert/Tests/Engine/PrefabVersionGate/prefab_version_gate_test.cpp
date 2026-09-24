@@ -25,6 +25,26 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <optional>
+
+namespace
+{
+    // A fixture's text header stating the given generations; an absent one is not stated at all, which is
+    // how a file that predates one of the two numbers reads since v26 moved them into the header. One
+    // fixed GUID: fixtures built twice must be the same bytes, as two saves of one asset are.
+    Common::Content::TextAssetHeaderSerialized FixtureHeader( Common::Content::ContentKind kind,
+                                                              std::optional<int>           sceneVersion,
+                                                              std::optional<int>           unitVersion )
+    {
+        std::vector<Common::Content::SubsystemVersion> versions;
+        if ( sceneVersion )
+            versions.push_back( { Desert::Assets::kSceneSchemaTag, static_cast<uint32_t>( *sceneVersion ) } );
+        if ( unitVersion )
+            versions.push_back( { Desert::Assets::kUnitSchemaTag, static_cast<uint32_t>( *unitVersion ) } );
+        const auto guid = Common::Content::AssetGuidFromText( "0f1e2d3c4b5a69788796a5b4c3d2e1f0" );
+        return Common::Content::MakeTextHeader( kind, guid.GetValue(), versions );
+    }
+} // namespace
 
 using Desert::Assets::ParseLoadablePrefab;
 using Desert::Assets::PrefabData;
@@ -45,8 +65,7 @@ namespace
         Desert::Assets::EntityData entity;
         entity.Tag = "FixtureRoot";
         prefab.Entities.push_back( entity );
-        prefab.SceneVersion = sceneVersion;
-        prefab.UnitVersion  = unitVersion;
+        prefab.Header = FixtureHeader( Common::Content::ContentKind::Prefab, sceneVersion, unitVersion );
         return prefab;
     }
 
@@ -161,11 +180,13 @@ TEST( PrefabVersionGate, ATreeAtBothHeadsIsCurrentAndOneOffEitherAxisIsNot )
 TEST( PrefabVersionGate, AnAbsentVersionIntegerIsZeroRatherThanCurrent )
 {
     PrefabData noScene;
-    noScene.UnitVersion = kUnitVersion; // scene version absent
+    noScene.Header =
+         FixtureHeader( Common::Content::ContentKind::Prefab, std::nullopt, kUnitVersion ); // scene version absent
     EXPECT_FALSE( PrefabIsAtCurrentVersion( noScene ) );
 
     PrefabData noUnit;
-    noUnit.SceneVersion = kSceneVersion; // unit version absent
+    noUnit.Header =
+         FixtureHeader( Common::Content::ContentKind::Prefab, kSceneVersion, std::nullopt ); // unit version absent
     EXPECT_FALSE( PrefabIsAtCurrentVersion( noUnit ) );
 
     PrefabData neither;
@@ -280,14 +301,17 @@ TEST( PrefabVersionGate, WhatTheSaverWritesTheGateAccepts )
     entity.Tag = "Root";
     authored.Entities.push_back( entity );
 
-    const auto loadable = ParseLoadablePrefab( "Saved.deprefab", WritePrefabJson( authored ) );
+    const auto written  = WritePrefabJson( authored );
+    const auto loadable = ParseLoadablePrefab( "Saved.deprefab", written.GetValue() );
 
     ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
     // Explicitly stated, not defaulted: the file carries both keys at both heads.
-    ASSERT_TRUE( loadable.GetValue().SceneVersion.has_value() );
-    ASSERT_TRUE( loadable.GetValue().UnitVersion.has_value() );
-    EXPECT_EQ( *loadable.GetValue().SceneVersion, kSceneVersion );
-    EXPECT_EQ( *loadable.GetValue().UnitVersion, kUnitVersion );
+    ASSERT_TRUE( loadable.GetValue().Header.has_value() );
+    ASSERT_TRUE( loadable.GetValue().Header.has_value() );
+    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Header, Desert::Assets::kSceneSchemaTag ),
+               kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Header, Desert::Assets::kUnitSchemaTag ),
+               kUnitVersion );
     // And the content is the content — the stamp is additive.
     ASSERT_EQ( loadable.GetValue().Entities.size(), 1u );
     EXPECT_EQ( loadable.GetValue().Entities.front().Tag.value_or( "" ), "Root" );
@@ -298,11 +322,15 @@ TEST( PrefabVersionGate, WhatTheSaverWritesTheGateAccepts )
 // "this build writes its own generation" is enforced, so it is asserted against the saver.
 TEST( PrefabVersionGate, TheSaverOverwritesAStaleStampWithTheCurrentOne )
 {
-    const auto loadable = ParseLoadablePrefab( "Restamped.deprefab", WritePrefabJson( At( 1, 0 ) ) );
+    const auto written = WritePrefabJson( At( 1, 0 ) );
+    ASSERT_TRUE( static_cast<bool>( written ) ) << written.GetError();
+    const auto loadable = ParseLoadablePrefab( "Restamped.deprefab", written.GetValue() );
 
     ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
-    EXPECT_EQ( *loadable.GetValue().SceneVersion, kSceneVersion );
-    EXPECT_EQ( *loadable.GetValue().UnitVersion, kUnitVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Header, Desert::Assets::kSceneSchemaTag ),
+               kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Header, Desert::Assets::kUnitSchemaTag ),
+               kUnitVersion );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -347,10 +375,13 @@ TEST( PrefabVersionGateCorpus, EveryPrefabStatesBothVersionIntegersExplicitly )
         const auto parsed = rfl::json::read<PrefabData>( ReadAll( path ) );
         ASSERT_TRUE( parsed.has_value() ) << path.string();
 
-        ASSERT_TRUE( parsed->SceneVersion.has_value() ) << path.string() << " states no SceneVersion";
-        ASSERT_TRUE( parsed->UnitVersion.has_value() ) << path.string() << " states no UnitVersion";
-        EXPECT_EQ( *parsed->SceneVersion, kSceneVersion ) << path.string();
-        EXPECT_EQ( *parsed->UnitVersion, kUnitVersion ) << path.string();
+        ASSERT_TRUE( parsed->Header.has_value() ) << path.string() << " states no header";
+        ASSERT_TRUE( parsed->Header.has_value() ) << path.string() << " states no header";
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed->Header, Desert::Assets::kSceneSchemaTag ),
+                   kSceneVersion )
+             << path.string();
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed->Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion )
+             << path.string();
     }
 }
 

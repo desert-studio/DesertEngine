@@ -431,11 +431,10 @@ namespace
     // ------------------------------------------------------------------------------------------------
 
     constexpr Row kSceneFileRows[] = {
-         { "SceneName", Owner::FileMeta },    // the name this file is filed under; also decides where a save lands
-         { "Entities", Owner::Level },        // the world itself
-         { "Settings", Owner::Level },        // the block censused below
-         { "UnitVersion", Owner::FileMeta },  // world-unit generation
-         { "SceneVersion", Owner::FileMeta }, // schema generation
+         { "SceneName", Owner::FileMeta }, // the name this file is filed under; also decides where a save lands
+         { "Entities", Owner::Level },     // the world itself
+         { "Settings", Owner::Level },     // the block censused below
+         { "Header", Owner::FileMeta },    // the text header: GUID and the scene/unit generations
          // The cell size, and its presence is the switch: a partitioned world is a property of the
          // world, not of whoever opens it (WP1, the owner's 2026-09-18 decision).
          { "WorldPartition", Owner::Level },
@@ -901,9 +900,10 @@ TEST( ConfigOwnership, EveryFieldIsOfItsOwnFilesKind )
 }
 
 // FileMeta is the one kind that can be claimed to dodge the rule, so the set that may claim it is pinned
-// exactly rather than left to judgement. A version, a unit generation and the name a file is filed under
-// are the whole of it; a sixth field calling itself metadata is somebody widening a loophole.
-TEST( ConfigOwnership, OnlyFourFieldsAreFileMetadataAndTheseAreThey )
+// exactly rather than left to judgement. The project's format version, a scene's text header (its GUID and
+// generations) and the name a file is filed under are the whole of it; a fourth field calling itself
+// metadata is somebody widening a loophole.
+TEST( ConfigOwnership, OnlyThreeFieldsAreFileMetadataAndTheseAreThey )
 {
     std::vector<std::string> meta;
     for ( const FileCensus& file : kFiles )
@@ -915,9 +915,8 @@ TEST( ConfigOwnership, OnlyFourFieldsAreFileMetadataAndTheseAreThey )
 
     const std::vector<std::string> expected = {
          "<Name>.deproj::FileVersion",
+         "<Name>.desce::Header",
          "<Name>.desce::SceneName",
-         "<Name>.desce::SceneVersion",
-         "<Name>.desce::UnitVersion",
     };
 
     EXPECT_EQ( meta, expected ) << "the FileMeta kind is the rule's one exemption, and this is the list of "

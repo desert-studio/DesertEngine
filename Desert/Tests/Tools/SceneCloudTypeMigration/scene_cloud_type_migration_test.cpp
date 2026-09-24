@@ -287,7 +287,7 @@ TEST( SceneCloudTypeMigration, MigrateSceneRunsItAndStampsTheFileSoItNeverRunsAg
     EXPECT_TRUE( report.CloudTypeRaised );
     EXPECT_EQ( report.CloudType.TypesSet, 1 );
     EXPECT_TRUE( report.Changed() );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
 
     // AND THE STEP AFTER THIS ONE RAN TOO, on the very key this one wrote. v4 -> v5 turns the species into
     // a `CloudType` path and v5 -> v6 renames that key into the first slot of the set, so a v4 file

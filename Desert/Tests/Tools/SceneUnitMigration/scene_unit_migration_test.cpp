@@ -169,7 +169,8 @@ TEST( SceneUnitMigration, UnstampedSceneIsMigratedExactlyOnce )
     const FileMigrationReport first = MigrateScene( scene );
     EXPECT_TRUE( first.UnitsRaised );
     EXPECT_EQ( first.Units.Rejected, 0 );
-    EXPECT_EQ( scene.UnitVersion.value_or( 0 ), kUnitVersion ) << "the migration did not stamp the file";
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion )
+         << "the migration did not stamp the file";
 
     // Every number the census names, at its authored value x100.
     EXPECT_DOUBLE_EQ( Field( scene, kLight, "PointLight", "Radius" ), 1200.0 );
@@ -312,7 +313,7 @@ TEST( SceneUnitMigration, MalformedValuesAreRejectedNotGuessed )
 
     // ...and the file is stamped anyway, because a rejected value is not a reason to migrate the whole
     // scene a second time next load and reject it again.
-    EXPECT_EQ( scene.UnitVersion.value_or( 0 ), kUnitVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -355,8 +356,8 @@ TEST( SceneUnitMigration, BothVersionsAreRaisedIndependently )
     EXPECT_TRUE( report.SkyRaised );
     EXPECT_TRUE( report.UnitsRaised );
     EXPECT_EQ( report.Sky.Entities, 1 );
-    EXPECT_EQ( old.SceneVersion.value_or( 0 ), kSceneVersion );
-    EXPECT_EQ( old.UnitVersion.value_or( 0 ), kUnitVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( old.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( old.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 
     // The sky payload the sky migration wrote carries no length, so the unit migration cannot have
     // touched it: 22 is an intensity and 2.29 is an angle in degrees.

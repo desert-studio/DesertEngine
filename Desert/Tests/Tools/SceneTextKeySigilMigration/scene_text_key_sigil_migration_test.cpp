@@ -158,7 +158,7 @@ TEST( SceneTextKeySigilMigration, ItRunsEXACTLYONCEBecauseTheVERSIONGatesIt )
     //
     // So the protection is the GATE, not the function, and the gate is what is asserted here: through
     // MigrateScene, which is the only way the step is ever reached in production.
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneName    = "Gated";
     scene.SceneVersion = 18;
     scene.UnitVersion  = Core::kUnitVersion;
@@ -170,7 +170,8 @@ TEST( SceneTextKeySigilMigration, ItRunsEXACTLYONCEBecauseTheVERSIONGatesIt )
     EXPECT_EQ( first.TextKeySigil.Escaped, 2 );
     EXPECT_EQ( FieldOf( scene.Entities[0], "UIText", "Text" ), "##x" );
     EXPECT_EQ( FieldOf( scene.Entities[1], "UIText", "Text" ), "###already" );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), Core::kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Core::kSceneVersion );
 
     // The tree is now at the head, so the step does not run again and the strings do not move. That is
     // what "runs once" means for every value-deciding step in this file.

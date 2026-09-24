@@ -240,7 +240,7 @@ TEST( SceneTonemapMigration, RaisingAV1SceneRunsTheTonemapperMigrationAndNotTheS
     EXPECT_FALSE( report.UnitsRaised );
     EXPECT_TRUE( report.TonemapperRaised );
     EXPECT_TRUE( report.Tonemap.OperatorPinned );
-    EXPECT_EQ( scene.SceneVersion.value(), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
     EXPECT_EQ( LoadedOperator( MigratedSettings( scene.Settings ) ), TonemapOperator::Reinhard );
 }
 
@@ -257,7 +257,7 @@ TEST( SceneTonemapMigration, AV0SceneIsRaisedAllTheWay )
     EXPECT_TRUE( report.SkyRaised );
     EXPECT_TRUE( report.UnitsRaised );
     EXPECT_TRUE( report.TonemapperRaised );
-    EXPECT_EQ( scene.SceneVersion.value(), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
 
     const auto again = MigrateScene( scene );
     EXPECT_FALSE( again.Changed() );
@@ -307,7 +307,8 @@ TEST( SceneTonemapMigration, EveryRepositorySceneIsStampedAndStatesItsOperator )
         auto parsed = rfl::json::read<SceneSerialized>( text );
         ASSERT_TRUE( parsed ) << path << ": " << parsed.error().what();
 
-        EXPECT_EQ( parsed.value().SceneVersion.value_or( 0 ), kSceneVersion )
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed.value().Header, Desert::Assets::kSceneSchemaTag ),
+                   kSceneVersion )
              << path << " is not stamped at the current scene generation - run Tools/SceneMigrator";
 
         ASSERT_TRUE( parsed.value().Settings.has_value() ) << path << " carries no Settings block";

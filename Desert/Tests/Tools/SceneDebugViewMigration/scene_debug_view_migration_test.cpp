@@ -172,7 +172,7 @@ TEST( SceneDebugViewMigration, ASecondRunRemovesNothingAndChangesNothing )
 
 TEST( SceneDebugViewMigration, MigrateSceneRunsTheStepBelowTheHeadAndStampsIt )
 {
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneName    = "Fixture";
     scene.SceneVersion = Migration::kSceneVersionDebugView - 1;
     scene.UnitVersion  = Migration::kUnitVersion;
@@ -183,12 +183,13 @@ TEST( SceneDebugViewMigration, MigrateSceneRunsTheStepBelowTheHeadAndStampsIt )
     EXPECT_TRUE( report.DebugViewRaised );
     EXPECT_EQ( report.DebugView.KeysRemoved, 8 );
     EXPECT_FALSE( Has( scene.Settings, "ShowColliders" ) );
-    EXPECT_EQ( *scene.SceneVersion, Migration::kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Migration::kSceneVersion );
 }
 
 TEST( SceneDebugViewMigration, AFileAlreadyAtTheHeadDoesNotRunTheStep )
 {
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneName    = "Fixture";
     scene.SceneVersion = Migration::kSceneVersion;
     scene.UnitVersion  = Migration::kUnitVersion;

@@ -47,14 +47,14 @@ namespace
         }
     };
 
-    Desert::Core::SceneSerialized Parse( const char* json )
+    Desert::Migration::SceneSerialized Parse( const char* json )
     {
-        auto scene = rfl::json::read<Desert::Core::SceneSerialized>( json );
+        auto scene = rfl::json::read<Desert::Migration::SceneSerialized>( json );
         EXPECT_TRUE( scene ) << "the fixture does not parse";
         return scene.value();
     }
 
-    std::string Field( const Desert::Core::SceneSerialized& scene, size_t entity, const char* component,
+    std::string Field( const Desert::Migration::SceneSerialized& scene, size_t entity, const char* component,
                        const char* key )
     {
         const auto payload = scene.Entities[entity].Components.get( component ).value().to_object().value();
@@ -75,7 +75,8 @@ TEST( SceneTextureAssetMigration, EveryCookedTextureStringNamesItsAssetAndNothin
     const auto    report = Migration::MigrateScene( scene, fixture.Root );
 
     ASSERT_TRUE( report.TextureAssetRefsRaised );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Desert::Core::kSceneVersion );
 
     EXPECT_EQ( Field( scene, 0, "UICanvas", "Sprite" ), "assets:Textures/T_Checker.detex" );
     EXPECT_EQ( Field( scene, 1, "UIPanel", "Sprite" ), "assets:Textures/Sub/T_Gone.detex" );

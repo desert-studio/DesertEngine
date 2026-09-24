@@ -1,5 +1,8 @@
 #include "WorldBuild.hpp"
 
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
@@ -82,6 +85,25 @@ namespace Desert::WorldGen
         // that gets remembered wrongly in the second place it is written.
         constexpr float kCubeEdgeCm = 100.0f;
 
+        // Two FNV-1a 64 passes (different offsets) over the world's name, as the 32 hex digits of an AssetGuid.
+        Common::Content::AssetGuid GuidOfWorld( const std::string& name )
+        {
+            const auto fnv = [&]( uint64_t hash )
+            {
+                for ( const unsigned char c : name )
+                    hash = ( hash ^ c ) * 1099511628211ull;
+                return hash;
+            };
+            const uint64_t halves[2] = { fnv( 14695981039346656037ull ), fnv( 0x9E3779B97F4A7C15ull ) };
+            const char*    digits    = "0123456789abcdef";
+            std::string    text;
+            for ( const uint64_t half : halves )
+                for ( int shift = 60; shift >= 0; shift -= 4 )
+                    text.push_back( digits[( half >> shift ) & 0xF] );
+            const auto guid = Common::Content::AssetGuidFromText( text );
+            return guid.GetValue();
+        }
+
         glm::vec3 BoxScale( int widthCm, int heightCm, int depthCm )
         {
             return { static_cast<float>( widthCm ) / kCubeEdgeCm, static_cast<float>( heightCm ) / kCubeEdgeCm,
@@ -94,8 +116,10 @@ namespace Desert::WorldGen
     {
         Core::SceneSerialized scene;
         scene.SceneName    = spec.Name;
-        scene.SceneVersion = Core::kSceneVersion;
-        scene.UnitVersion  = Core::kUnitVersion;
+        // The GUID comes from the spec's name, not AssetGuid::Generate: WorldGen must be reproducible (two runs of
+        // one spec are the same bytes - --verify refuses otherwise), and a regenerated world is the same asset.
+        scene.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Scene,
+                                                        GuidOfWorld( spec.Name ), Core::SceneTextSubsystems() );
 
         stats          = WorldStats{};
         stats.Cells    = spec.Cells * spec.Cells;

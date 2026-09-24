@@ -424,7 +424,7 @@ TEST( SceneMaterialPathMigration, MigrateSceneRunsTheStepForAV7FileAndStampsItAt
     EXPECT_TRUE( report.MaterialPathRaised );
     EXPECT_EQ( report.MaterialPath.Paths, 1 );
     EXPECT_FALSE( report.TerrainMaterialRaised ) << "a v7 file is already past the terrain step";
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
 }
 
 TEST( SceneMaterialPathMigration, AFileAlreadyAtTheHeadIsNotMigratedAgain )
@@ -492,7 +492,8 @@ TEST( SceneMaterialPathMigration, NoShippedSceneContainsAnAbsolutePath )
         auto parsed = rfl::json::read<SceneSerialized>( text );
         ASSERT_TRUE( parsed ) << entry.path().string() << " does not parse as a scene";
 
-        EXPECT_EQ( parsed.value().SceneVersion.value_or( 0 ), kSceneVersion )
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed.value().Header, Desert::Assets::kSceneSchemaTag ),
+                   kSceneVersion )
              << entry.path().filename().string()
              << " is not stamped at the current schema version. Run Tools/SceneMigrator over "
                 "Editor/Resources/Assets/Scenes and commit the result (DC 4.5).";

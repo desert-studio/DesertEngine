@@ -46,6 +46,26 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <optional>
+
+namespace
+{
+    // A fixture's text header stating the given generations; an absent one is not stated at all, which is
+    // how a file that predates one of the two numbers reads since v26 moved them into the header. One
+    // fixed GUID: fixtures built twice must be the same bytes, as two saves of one asset are.
+    Common::Content::TextAssetHeaderSerialized FixtureHeader( Common::Content::ContentKind kind,
+                                                              std::optional<int>           sceneVersion,
+                                                              std::optional<int>           unitVersion )
+    {
+        std::vector<Common::Content::SubsystemVersion> versions;
+        if ( sceneVersion )
+            versions.push_back( { Desert::Assets::kSceneSchemaTag, static_cast<uint32_t>( *sceneVersion ) } );
+        if ( unitVersion )
+            versions.push_back( { Desert::Assets::kUnitSchemaTag, static_cast<uint32_t>( *unitVersion ) } );
+        const auto guid = Common::Content::AssetGuidFromText( "0f1e2d3c4b5a69788796a5b4c3d2e1f0" );
+        return Common::Content::MakeTextHeader( kind, guid.GetValue(), versions );
+    }
+} // namespace
 
 using Desert::Assets::EntityData;
 using Desert::Core::SceneSerialized;
@@ -253,8 +273,8 @@ TEST( WorldPartitionFormat, AnUnpartitionedSceneWritesNoPartitionKey )
 {
     SceneSerialized scene;
     scene.SceneName    = "Nothing To Partition";
-    scene.SceneVersion = Desert::Core::kSceneVersion;
-    scene.UnitVersion  = Desert::Core::kUnitVersion;
+    scene.Header       = FixtureHeader( Common::Content::ContentKind::Scene, Desert::Core::kSceneVersion,
+                                        Desert::Core::kUnitVersion );
 
     const std::string written = rfl::json::write( scene );
     EXPECT_EQ( written.find( "WorldPartition" ), std::string::npos ) << written;
@@ -285,8 +305,8 @@ TEST( WorldPartitionFormat, APartitionedSceneStatesAListOfGridsAndBothNumbersRou
 {
     SceneSerialized scene;
     scene.SceneName      = "Partitioned";
-    scene.SceneVersion   = Desert::Core::kSceneVersion;
-    scene.UnitVersion    = Desert::Core::kUnitVersion;
+    scene.Header         = FixtureHeader( Common::Content::ContentKind::Scene, Desert::Core::kSceneVersion,
+                                          Desert::Core::kUnitVersion );
     scene.WorldPartition = Cells( 25600.0f, 76800.0f );
 
     const std::string written = rfl::json::write( scene );
@@ -313,8 +333,8 @@ TEST( WorldPartitionFormat, APartitionedSceneStatesAListOfGridsAndBothNumbersRou
 TEST( WorldPartitionFormat, PartitioningAWorldDoesNotMoveItsVersion )
 {
     SceneSerialized scene;
-    scene.SceneVersion   = Desert::Core::kSceneVersion;
-    scene.UnitVersion    = Desert::Core::kUnitVersion;
+    scene.Header         = FixtureHeader( Common::Content::ContentKind::Scene, Desert::Core::kSceneVersion,
+                                          Desert::Core::kUnitVersion );
     scene.WorldPartition = Cells( 12800.0f );
     EXPECT_TRUE( Desert::Core::SceneIsAtCurrentVersion( scene ) );
 }
@@ -326,14 +346,13 @@ TEST( WorldPartitionFormat, ThePartitionBlockSurvivesASaveThroughTheDocumentMerg
 {
     SceneSerialized onDisk;
     onDisk.SceneName      = "Partitioned";
-    onDisk.SceneVersion   = Desert::Core::kSceneVersion;
-    onDisk.UnitVersion    = Desert::Core::kUnitVersion;
+    onDisk.Header         = FixtureHeader( Common::Content::ContentKind::Scene, Desert::Core::kSceneVersion,
+                                           Desert::Core::kUnitVersion );
     onDisk.WorldPartition = Cells( 51200.0f, 102400.0f );
 
     SceneSerialized fresh;
     fresh.SceneName    = onDisk.SceneName;
-    fresh.SceneVersion = onDisk.SceneVersion;
-    fresh.UnitVersion  = onDisk.UnitVersion;
+    fresh.Header       = onDisk.Header;
 
     const auto freshTree  = rfl::json::read<rfl::Generic>( rfl::json::write( fresh ) );
     const auto sourceTree = rfl::json::read<rfl::Generic>( rfl::json::write( onDisk ) );

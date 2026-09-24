@@ -380,11 +380,11 @@ TEST( WorldSceneGenerator, TheGeneratedSceneStatesBothVersionIntegersExplicitly 
     // the analyser - a fresh expression each time, so neither can tell that the check two lines up was
     // about the same value.
     const SceneSerialized& scene = parsed.value();
-    ASSERT_TRUE( scene.SceneVersion.has_value() )
+    ASSERT_TRUE( scene.Header.has_value() )
          << "an absent version integer reads as version 0, and the loader refuses the file";
-    ASSERT_TRUE( scene.UnitVersion.has_value() );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
-    EXPECT_EQ( scene.UnitVersion.value_or( 0 ), kUnitVersion );
+    ASSERT_TRUE( scene.Header.has_value() );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 }
 
 // ---------------------------------------------------------------------------------------------------

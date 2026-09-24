@@ -34,6 +34,26 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <optional>
+
+namespace
+{
+    // A fixture's text header stating the given generations; an absent one is not stated at all, which is
+    // how a file that predates one of the two numbers reads since v26 moved them into the header. One
+    // fixed GUID: fixtures built twice must be the same bytes, as two saves of one asset are.
+    Common::Content::TextAssetHeaderSerialized FixtureHeader( Common::Content::ContentKind kind,
+                                                              std::optional<int>           sceneVersion,
+                                                              std::optional<int>           unitVersion )
+    {
+        std::vector<Common::Content::SubsystemVersion> versions;
+        if ( sceneVersion )
+            versions.push_back( { Desert::Assets::kSceneSchemaTag, static_cast<uint32_t>( *sceneVersion ) } );
+        if ( unitVersion )
+            versions.push_back( { Desert::Assets::kUnitSchemaTag, static_cast<uint32_t>( *unitVersion ) } );
+        const auto guid = Common::Content::AssetGuidFromText( "0f1e2d3c4b5a69788796a5b4c3d2e1f0" );
+        return Common::Content::MakeTextHeader( kind, guid.GetValue(), versions );
+    }
+} // namespace
 
 namespace fs = std::filesystem;
 
@@ -112,8 +132,8 @@ namespace
     {
         SceneSerialized file;
         file.SceneName    = scenePath.stem().string();
-        file.SceneVersion = Core::kSceneVersion;
-        file.UnitVersion  = Core::kUnitVersion;
+        file.Header =
+             FixtureHeader( Common::Content::ContentKind::Scene, Core::kSceneVersion, Core::kUnitVersion );
 
         EntityData root;
         root.id                      = Common::UUID( kRootId );

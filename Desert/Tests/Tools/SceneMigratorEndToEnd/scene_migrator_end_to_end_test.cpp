@@ -181,10 +181,10 @@ TEST( SceneMigratorEndToEnd, AV1SceneComesOutStampedAtBothHeads )
     const auto      report = MigrateScene( scene, kAssetsRoot );
 
     EXPECT_TRUE( report.Changed() );
-    ASSERT_TRUE( scene.SceneVersion.has_value() );
-    ASSERT_TRUE( scene.UnitVersion.has_value() );
-    EXPECT_EQ( *scene.SceneVersion, kSceneVersion );
-    EXPECT_EQ( *scene.UnitVersion, kUnitVersion );
+    ASSERT_TRUE( scene.Header.has_value() );
+    ASSERT_TRUE( scene.Header.has_value() );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 }
 
 // EVERY STEP FROM v1 TO THE HEAD RAN, and is reported as having run. A chain that stamps the head while
@@ -391,8 +391,8 @@ TEST( SceneMigratorEndToEnd, AnEmptyV1SceneIsStillStampedToTheHead )
 
     MigrateScene( scene, kAssetsRoot );
 
-    EXPECT_EQ( *scene.SceneVersion, kSceneVersion );
-    EXPECT_EQ( *scene.UnitVersion, kUnitVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
     EXPECT_TRUE( scene.Entities.empty() );
 }
 
@@ -413,7 +413,7 @@ TEST( SceneMigratorEndToEnd, MalformedComponentPayloadsAreSurvivedAndLeftAsTheyA
 
     MigrateScene( scene, kAssetsRoot );
 
-    EXPECT_EQ( *scene.SceneVersion, kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
     EXPECT_EQ( scene.Entities[0].Components.get( "VolumetricCloud" ).value().to_string().value_or( "" ),
                "not an object" );
     EXPECT_EQ( scene.Entities[0].Components.get( "Terrain" ).value().to_int64().value_or( 0 ), 42 );
@@ -445,7 +445,7 @@ TEST( SceneMigratorEndToEnd, AMalformedCloudTypeCostsTheLayerItsTypeAndNothingEl
     EXPECT_TRUE( HasKey( out, "Enabled" ) );
     // The good value beside it still arrives — in the material, where the look lives since O1.
     EXPECT_FALSE( HasKey( out, "Coverage" ) );
-    EXPECT_EQ( *scene.SceneVersion, kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
 }
 
 // A MATERIAL PATH OUTSIDE THE ASSETS ROOT has no project-relative form to have. It is left exactly as it is

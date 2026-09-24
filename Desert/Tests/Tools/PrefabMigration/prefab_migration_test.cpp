@@ -35,13 +35,13 @@
 #include <vector>
 
 using Desert::Assets::EntityData;
-using Desert::Assets::PrefabData;
 using Desert::Assets::PrefabIsAtCurrentVersion;
 using Desert::Core::kSceneVersion;
 using Desert::Core::kUnitVersion;
-using Desert::Core::SceneSerialized;
 using Desert::Migration::MigratePrefab;
 using Desert::Migration::MigrateScene;
+using Desert::Migration::PrefabData;
+using Desert::Migration::SceneSerialized;
 
 namespace
 {
@@ -180,10 +180,10 @@ TEST( PrefabMigration, AStampedOlderPrefabRunsTheEntityStepsAndArrivesAtTheHead 
     EXPECT_EQ( outcome.Steps.UIVisibility.Entities, 1 );
     EXPECT_EQ( json.find( "Interactable" ), std::string::npos ) << json;
 
-    ASSERT_TRUE( prefab.SceneVersion.has_value() );
-    ASSERT_TRUE( prefab.UnitVersion.has_value() );
-    EXPECT_EQ( *prefab.SceneVersion, kSceneVersion );
-    EXPECT_EQ( *prefab.UnitVersion, kUnitVersion );
+    ASSERT_TRUE( prefab.Header.has_value() );
+    ASSERT_TRUE( prefab.Header.has_value() );
+    EXPECT_EQ( Desert::Assets::StatedVersion( prefab.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( prefab.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -233,10 +233,10 @@ TEST( PrefabMigration, AnUnversionedPrefabIsStampedAtBothHeadsAndItsEntitiesDoNo
     EXPECT_EQ( outcome.FoundSceneVersion, 0 );
     EXPECT_EQ( outcome.FoundUnitVersion, 0 );
 
-    ASSERT_TRUE( prefab.SceneVersion.has_value() );
-    ASSERT_TRUE( prefab.UnitVersion.has_value() );
-    EXPECT_EQ( *prefab.SceneVersion, kSceneVersion );
-    EXPECT_EQ( *prefab.UnitVersion, kUnitVersion );
+    ASSERT_TRUE( prefab.Header.has_value() );
+    ASSERT_TRUE( prefab.Header.has_value() );
+    EXPECT_EQ( Desert::Assets::StatedVersion( prefab.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( prefab.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 
     // Byte-for-byte: "stamp only" is measured, not asserted by the code path that claims it.
     EXPECT_EQ( EntitiesJson( prefab.Entities ), before );
@@ -319,12 +319,13 @@ TEST( PrefabMigration, WhatTheMigrationStampsTheEngineGateAccepts )
     for ( int from = 0; from < kSceneVersion; ++from )
     {
         PrefabData prefab = PrefabAt( from, from == 0 ? 0 : kUnitVersion );
-        ASSERT_FALSE( PrefabIsAtCurrentVersion( prefab ) ) << "the fixture must start below the gate";
+        ASSERT_FALSE( PrefabIsAtCurrentVersion( Desert::Migration::ToEnginePrefab( prefab ) ) )
+             << "the fixture must start below the gate";
 
         const auto outcome = MigratePrefab( prefab );
         ASSERT_TRUE( outcome.Refused.empty() ) << "v" << from << ": " << outcome.Refused;
 
-        EXPECT_TRUE( PrefabIsAtCurrentVersion( prefab ) )
+        EXPECT_TRUE( PrefabIsAtCurrentVersion( Desert::Migration::ToEnginePrefab( prefab ) ) )
              << "entering at v" << from
              << ", MigratePrefab produced a tree the engine's own gate refuses - the migration and the "
                 "loader disagree about what the current generation is";

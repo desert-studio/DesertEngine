@@ -333,7 +333,7 @@ TEST( SceneCloudMaterialMigration, MigrateSceneRunsItLastAndStampsTheFileSoItNev
     EXPECT_TRUE( report.CloudMaterialRaised );
     EXPECT_EQ( report.CloudMaterial.Entities, 1 );
     EXPECT_TRUE( report.Changed() );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
     // A newer step exists now (v12 -> v13, the debug-view removal), so this suite takes the shape the
     // older cloud suites already had: the head is at or past THIS step's version, and the tree comes out
     // stamped at the head rather than at this step's number.

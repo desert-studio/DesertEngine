@@ -36,6 +36,26 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <optional>
+
+namespace
+{
+    // A fixture's text header stating the given generations; an absent one is not stated at all, which is
+    // how a file that predates one of the two numbers reads since v26 moved them into the header. One
+    // fixed GUID: fixtures built twice must be the same bytes, as two saves of one asset are.
+    Common::Content::TextAssetHeaderSerialized FixtureHeader( Common::Content::ContentKind kind,
+                                                              std::optional<int>           sceneVersion,
+                                                              std::optional<int>           unitVersion )
+    {
+        std::vector<Common::Content::SubsystemVersion> versions;
+        if ( sceneVersion )
+            versions.push_back( { Desert::Assets::kSceneSchemaTag, static_cast<uint32_t>( *sceneVersion ) } );
+        if ( unitVersion )
+            versions.push_back( { Desert::Assets::kUnitSchemaTag, static_cast<uint32_t>( *unitVersion ) } );
+        const auto guid = Common::Content::AssetGuidFromText( "0f1e2d3c4b5a69788796a5b4c3d2e1f0" );
+        return Common::Content::MakeTextHeader( kind, guid.GetValue(), versions );
+    }
+} // namespace
 
 using Desert::Core::kSceneVersion;
 using Desert::Core::kUnitVersion;
@@ -53,8 +73,7 @@ namespace
     {
         SceneSerialized scene;
         scene.SceneName    = "Fixture";
-        scene.SceneVersion = sceneVersion;
-        scene.UnitVersion  = unitVersion;
+        scene.Header       = FixtureHeader( Common::Content::ContentKind::Scene, sceneVersion, unitVersion );
         return scene;
     }
 
@@ -165,11 +184,13 @@ TEST( SceneVersionGate, ATreeAtBothHeadsIsCurrentAndOneOffEitherAxisIsNot )
 TEST( SceneVersionGate, AnAbsentVersionIntegerIsZeroRatherThanCurrent )
 {
     SceneSerialized noScene;
-    noScene.UnitVersion = kUnitVersion; // scene version absent
+    noScene.Header =
+         FixtureHeader( Common::Content::ContentKind::Scene, std::nullopt, kUnitVersion ); // scene version absent
     EXPECT_FALSE( SceneIsAtCurrentVersion( noScene ) );
 
     SceneSerialized noUnit;
-    noUnit.SceneVersion = kSceneVersion; // unit version absent
+    noUnit.Header =
+         FixtureHeader( Common::Content::ContentKind::Scene, kSceneVersion, std::nullopt ); // unit version absent
     EXPECT_FALSE( SceneIsAtCurrentVersion( noUnit ) );
 
     SceneSerialized neither;
@@ -230,8 +251,10 @@ TEST( SceneVersionGate, ACurrentFileParsesAndTheTreeComesBack )
 
     ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
     EXPECT_EQ( loadable.GetValue().SceneName, "Fixture" );
-    EXPECT_EQ( *loadable.GetValue().SceneVersion, kSceneVersion );
-    EXPECT_EQ( *loadable.GetValue().UnitVersion, kUnitVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Header, Desert::Assets::kSceneSchemaTag ),
+               kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Header, Desert::Assets::kUnitSchemaTag ),
+               kUnitVersion );
 }
 
 // EVERY GENERATION THAT EVER SHIPPED IS REFUSED, not just the one before this. A gate written as
@@ -340,10 +363,13 @@ TEST( SceneVersionGateCorpus, EverySceneStatesBothVersionIntegersExplicitly )
         const auto parsed = rfl::json::read<SceneSerialized>( ReadAll( path ) );
         ASSERT_TRUE( parsed.has_value() ) << path.string();
 
-        ASSERT_TRUE( parsed->SceneVersion.has_value() ) << path.string() << " states no SceneVersion";
-        ASSERT_TRUE( parsed->UnitVersion.has_value() ) << path.string() << " states no UnitVersion";
-        EXPECT_EQ( *parsed->SceneVersion, kSceneVersion ) << path.string();
-        EXPECT_EQ( *parsed->UnitVersion, kUnitVersion ) << path.string();
+        ASSERT_TRUE( parsed->Header.has_value() ) << path.string() << " states no header";
+        ASSERT_TRUE( parsed->Header.has_value() ) << path.string() << " states no header";
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed->Header, Desert::Assets::kSceneSchemaTag ),
+                   kSceneVersion )
+             << path.string();
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed->Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion )
+             << path.string();
     }
 }
 

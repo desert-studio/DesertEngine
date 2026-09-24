@@ -124,7 +124,7 @@ TEST( SceneRetiredKeysMigration, AMissingSettingsBlockIsNotAFailure )
 
 TEST( SceneRetiredKeysMigration, ThePassIsGatedOnTheHeadAndIsIdempotent )
 {
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneVersion = Migration::kSceneVersionDebugView; // v13: the pass must run
     scene.UnitVersion  = Core::kUnitVersion;
     scene.Settings     = Settings( R"({"EnableSSGI":true})" );
@@ -133,7 +133,8 @@ TEST( SceneRetiredKeysMigration, ThePassIsGatedOnTheHeadAndIsIdempotent )
     EXPECT_TRUE( first.RetiredKeysRaised );
     EXPECT_EQ( first.RetiredKeys.KeysRemoved, 1 );
     EXPECT_FALSE( Has( scene.Settings, "EnableSSGI" ) );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), Core::kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Core::kSceneVersion );
 
     // Hand-edited back in; the gate must not care, because the file now claims the head.
     scene.Settings    = Settings( R"({"EnableSSGI":true})" );
@@ -150,7 +151,7 @@ TEST( SceneRetiredKeysMigration, ThePassIsGatedOnTheHeadAndIsIdempotent )
 // number: set the gate back to `< kSceneVersionRetiredKeys` and this test goes red.
 TEST( SceneRetiredKeysMigration, ARowAddedAfterTheLastHeadStillFiresOnAFileStampedAtThatHead )
 {
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneVersion = Migration::kSceneVersionRetiredKeys; // v14 — where the whole corpus stood
     scene.UnitVersion  = Core::kUnitVersion;
     scene.Settings     = Settings( R"({"Exposure":1.0,"CloudQualityTier":"Low","AA":"SMAA"})" );

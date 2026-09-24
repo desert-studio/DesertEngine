@@ -106,14 +106,14 @@ namespace
         return files;
     }
 
-    Desert::Core::SceneSerialized Read( const fs::path& file )
+    Desert::Migration::SceneSerialized Read( const fs::path& file )
     {
         std::ifstream     in( file, std::ios::binary );
         std::stringstream text;
         text << in.rdbuf();
-        auto scene = rfl::json::read<Desert::Core::SceneSerialized>( text.str() );
+        auto scene = rfl::json::read<Desert::Migration::SceneSerialized>( text.str() );
         EXPECT_TRUE( scene ) << file << " does not parse";
-        return scene ? scene.value() : Desert::Core::SceneSerialized{};
+        return scene ? scene.value() : Desert::Migration::SceneSerialized{};
     }
 
     bool SortedById( const Records& records )
@@ -124,7 +124,7 @@ namespace
 
     std::vector<std::string> Lines( const Records& records )
     {
-        Desert::Core::SceneSerialized scene;
+        Desert::Migration::SceneSerialized scene;
         scene.Entities  = records;
         const auto text = Common::Content::CanonicalJsonText( rfl::json::write( scene ) );
         EXPECT_TRUE( text );
@@ -135,7 +135,7 @@ namespace
         return lines;
     }
 
-    Desert::Core::SceneSerialized Fixture()
+    Desert::Migration::SceneSerialized Fixture()
     {
         // The prefab instance sits BEFORE C2 in the file, but the v24 loader attached it after (pass 3);
         // the orphan names a parent nothing answers to and was therefore a root.
@@ -147,13 +147,14 @@ namespace
             {"id":50,"Tag":"RootB"},
             {"id":4,"parent":404,"Tag":"Orphan"}],
             "UnitVersion":1,"SceneVersion":24})";
-        return rfl::json::read<Desert::Core::SceneSerialized>( kV24Scene ).value();
+        return rfl::json::read<Desert::Migration::SceneSerialized>( kV24Scene ).value();
     }
 } // namespace
 
-TEST( SceneSiblingOrderMigration, TheStepIsTheHeadAndTheHeadIsWhatTheEngineRequires )
+TEST( SceneSiblingOrderMigration, TheStepIsTheOneBelowTheTextHeaderHead )
 {
-    EXPECT_EQ( Migration::kSceneVersionSiblingOrder, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Migration::kSceneVersionSiblingOrder + 1, Migration::kSceneVersionTextHeader );
+    EXPECT_EQ( Migration::kSceneVersionTextHeader, Desert::Core::kSceneVersion );
     EXPECT_EQ( Migration::kSceneVersionSiblingOrder, Migration::kSceneVersionTextureAssetRefs + 1 );
 }
 
@@ -180,7 +181,7 @@ TEST( SceneSiblingOrderMigration, AnOrdinaryChildAfterAPrefabSiblingStaysAfterIt
         {"id":80,"PrefabPath":"Prefabs/P.deprefab","parent":90,"siblingIndex":1},
         {"id":90,"Tag":"RootA","siblingIndex":0}],
         "UnitVersion":1,"SceneVersion":25})";
-    const auto            scene     = rfl::json::read<Desert::Core::SceneSerialized>( kV25Scene ).value();
+    const auto            scene     = rfl::json::read<Desert::Migration::SceneSerialized>( kV25Scene ).value();
     EXPECT_EQ( Loaded( scene.Entities ).at( 90 ), ( std::vector<uint64_t>{ 7, 80, 3 } ) );
 
     // And the round trip: a saved v25 scene with the prefab sibling in the middle keeps it there under any
@@ -206,7 +207,7 @@ TEST( SceneSiblingOrderMigration, APrefabRootBetweenOrdinaryRootsStaysBetweenThe
         {"id":5,"Tag":"R2","siblingIndex":2},
         {"id":6,"parent":5,"Tag":"Child","siblingIndex":0}],
         "UnitVersion":1,"SceneVersion":25})";
-    const auto                  scene     = rfl::json::read<Desert::Core::SceneSerialized>( kV25Scene ).value();
+    const auto                  scene = rfl::json::read<Desert::Migration::SceneSerialized>( kV25Scene ).value();
     const std::vector<uint64_t> expected{ 7, 80, 5, 3, 81 };
     EXPECT_EQ( Loaded( scene.Entities ).at( 0 ), expected );
 
@@ -231,10 +232,12 @@ TEST( SceneSiblingOrderMigration, EveryCorpusSceneKeepsItsTreeAndIgnoresRecordOr
     for ( const auto& file : Corpus() )
     {
         auto scene = Read( file );
-        if ( scene.SceneVersion.value_or( 0 ) < Migration::kSceneVersionTextureAssetRefs )
+        if ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ) <
+             Migration::kSceneVersionTextureAssetRefs )
             continue; // an older generation goes through every earlier step first; not this step's business
         const auto before = Loaded( scene.Entities );
-        if ( scene.SceneVersion.value_or( 0 ) < Migration::kSceneVersionSiblingOrder )
+        if ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ) <
+             Migration::kSceneVersionSiblingOrder )
         {
             Migration::MigrateScene( scene, fs::temp_directory_path(), file );
             ++migrated;

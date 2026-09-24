@@ -252,7 +252,7 @@ TEST( SceneEditMeshMigration, AV21SceneIsRaisedToV22ThroughTheWholeChain )
     std::vector<unsigned> indices;
     MakeCube( vertices, indices );
 
-    Desert::Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneName    = "Synthetic v21";
     scene.SceneVersion = 21;
     scene.UnitVersion  = Desert::Core::kUnitVersion;
@@ -263,7 +263,8 @@ TEST( SceneEditMeshMigration, AV21SceneIsRaisedToV22ThroughTheWholeChain )
     EXPECT_TRUE( report.EditMeshRaised );
     EXPECT_FALSE( report.AnimGraphRaised ) << "a v21 file must not go back through the v21 step";
     EXPECT_EQ( report.EditMesh.Entities, 1 );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Desert::Core::kSceneVersion );
     EXPECT_TRUE( LoadedEditMesh( scene.Entities[0] ).has_value() );
 }
 

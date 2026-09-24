@@ -327,7 +327,7 @@ TEST( SceneTerrainMaterialMigration, MigrateSceneRunsItAndStampsTheFileSoItNever
     EXPECT_EQ( report.TerrainMaterial.Params, 2 );
     EXPECT_EQ( report.TerrainMaterial.Textures, 3 );
     EXPECT_TRUE( report.Changed() );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
     // GE, not EQ. This used to pin the head to this step's own number, which was true only while the
     // terrain step WAS the head — the v7 -> v8 material-path step moved it, and the assertion failed
     // without anything about the terrain migration having changed. The tonemap suite wrote GE here for
@@ -372,7 +372,7 @@ TEST( SceneTerrainMaterialMigration, AFileFromBeforeEveryStepStillComesOutAtTheH
 
     EXPECT_TRUE( report.TerrainMaterialRaised );
     EXPECT_EQ( report.TerrainMaterial.Entities, 1 );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
     EXPECT_FALSE( scene.Entities.front().Components.get( "Material" ).has_value() );
 }
 
@@ -503,7 +503,8 @@ TEST( SceneTerrainMaterialMigration, NoSceneInTheRepositoryStillCarriesATerrains
         ASSERT_TRUE( parsed ) << entry.path().string() << " does not parse as a scene";
         ++seen;
 
-        EXPECT_EQ( parsed.value().SceneVersion.value_or( 0 ), kSceneVersion )
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed.value().Header, Desert::Assets::kSceneSchemaTag ),
+                   kSceneVersion )
              << entry.path().filename().string()
              << " is not stamped at the current schema version. Run Tools/SceneMigrator over "
                 "Editor/Resources/Assets/Scenes and commit the result (DC 4.5).";

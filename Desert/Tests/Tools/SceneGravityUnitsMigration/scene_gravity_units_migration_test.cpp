@@ -297,7 +297,7 @@ TEST( SceneGravityUnitsMigration, NoShippedSceneCarriesAMetreEraGravity )
         std::ifstream     in( entry.path(), std::ios::binary );
         std::stringstream buffer;
         buffer << in.rdbuf();
-        const auto parsed = rfl::json::read<Core::SceneSerialized>( buffer.str() );
+        const auto parsed = rfl::json::read<Desert::Migration::SceneSerialized>( buffer.str() );
         ASSERT_TRUE( parsed ) << entry.path().string() << " did not parse";
 
         std::optional<rfl::Generic> settings = parsed.value().Settings;
