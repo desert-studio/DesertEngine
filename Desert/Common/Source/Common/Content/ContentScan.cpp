@@ -152,8 +152,9 @@ namespace Common::Content
         // The remedy, spelled once. Every disagreement below ends with it, because a gate that names a
         // problem without naming the command that fixes it is a gate people learn to disable.
         constexpr const char* kRemedy =
-             " Fix: `cd Editor && ../build/Bin/Debug/AssetRegistryTool cook Desert.deproj`, then commit "
-             "Editor/Cooked/AssetRegistry.dreg.";
+             " Fix: gather again - restart the editor (it gathers the content roots at start), or "
+             "`cd Editor && ../build/Bin/Debug/AssetRegistryTool cook Desert.deproj` for a cooked copy in "
+             "Saved/Cooked/<Platform>. The registry is gathered, never committed.";
     } // namespace
 
     std::optional<ContentKind> KindOfContentFile( const std::filesystem::path& file )
