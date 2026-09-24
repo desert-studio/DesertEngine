@@ -171,6 +171,11 @@ namespace Common::Content
                                                         text );
             const auto known = std::find_if( context.KnownSubsystems.begin(), context.KnownSubsystems.end(),
                                              [&]( const SubsystemVersion& k ) { return k.Tag == *tag; } );
+            if ( context.RecordOnly )
+            {
+                out.Subsystems.push_back( SubsystemVersion{ *tag, version } );
+                continue;
+            }
             if ( known == context.KnownSubsystems.end() )
                 return MakeFormattedError<AssetHeader>(
                      "text header: subsystem '{}' (version {}) is unknown to this build", text, version );

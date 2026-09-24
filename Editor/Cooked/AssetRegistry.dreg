@@ -1,257 +1,406 @@
-DesertAssetRegistry 2
-760 AnimGraph - - - assets:AnimGraphs/OneBoneBlend.danimgraph
-1065 AnimGraph - - - assets:AnimGraphs/ScriptDriven.danimgraph
-766 AnimGraph - - - assets:AnimGraphs/TwoBoneBlend.danimgraph
-8388684 CloudNoiseVolume - - - assets:Clouds/CloudNoise_Default.dcnv
-8388684 CloudNoiseVolume - - - assets:Clouds/CloudNoise_FineWisp.dcnv
-1310768 CloudLayout - - - assets:Clouds/Layouts/Layout_LetterD.dclayout
-1048624 CloudLayout - - - assets:Clouds/Layouts/Layout_Stripe.dclayout
-1048624 CloudLayout - - - assets:Clouds/Layouts/O4_Bands.dclayout
-1310768 CloudLayout - - - assets:Clouds/Layouts/O4_MaskAddRemove.dclayout
-1310768 CloudLayout - - - assets:Clouds/Layouts/O4_MaskNeutral.dclayout
-1310768 CloudLayout - - - assets:Clouds/Layouts/PR1_Brush_LetterD.dclayout
-1310768 CloudLayout - - - assets:Clouds/Layouts/PR1_Brush_Thin.dclayout
-16432 CloudLayout - - - assets:Clouds/Layouts/PTP_Channels_Green.dclayout
-16432 CloudLayout - - - assets:Clouds/Layouts/PTP_Channels_Red.dclayout
-1310768 CloudLayout - - - assets:Clouds/Layouts/PTP_LetterP.dclayout
-3256 CloudType - - - assets:Clouds/Types/Altocumulus.decloudtype
-5946 CloudType - bcfaa03b1b89b8b3 - assets:Clouds/Types/Cirrus.decloudtype
-1201 CloudType - - - assets:Clouds/Types/Cumulonimbus.decloudtype
-1315 CloudType - - - assets:Clouds/Types/Cumulus_Congestus.decloudtype
-1164 CloudType - - - assets:Clouds/Types/Cumulus_Humilis.decloudtype
-998 CloudType - - - assets:Clouds/Types/Cumulus_Mediocris.decloudtype
-1446 CloudType - - - assets:Clouds/Types/Lenticular.decloudtype
-1397 CloudType - - - assets:Clouds/Types/Stratocumulus.decloudtype
-1225 CloudType - - - assets:Clouds/Types/Stratus.decloudtype
-4194704 CloudModellingVolume - - - assets:Clouds/Volumes/HeroCloud_Arch.dcmv
-4194808 CloudModellingVolume - - - assets:Clouds/Volumes/HeroCloud_Congestus.dcmv
-4194808 CloudModellingVolume - - - assets:Clouds/Volumes/HeroCloud_Cumulonimbus.dcmv
-8924 StringTable - - - assets:Localization/MainMenu.destrings
-650 StringTable - - - assets:Localization/Probes.destrings
-586 Material a3c34fd7f85f1d7b - - assets:Materials/CB_Glass.demat
-711 Material 6bf037ae325f1c6b - - assets:Materials/CB_GraphMatch.demat
-529 Material 04463f00edf6d826 - - assets:Materials/CB_Green.demat
-514 Material 7d24fc9772abc513 - - assets:Materials/CB_Orange.demat
-531 Material 56fdd8cdde681904 - - assets:Materials/CB_Red.demat
-528 Material 685baf575b831c6c - - assets:Materials/CB_White.demat
-486 Material a952e620d482029d - - assets:Materials/LOD_Sphere.demat
-391 Material 1ed6eb565788e38e - - assets:Materials/MP_BlendMax.demat
-295 Material 4d194c57dad638e3 - - assets:Materials/MP_Const.demat
-295 Material 0f6b75ab2bc471c7 - - assets:Materials/MP_Default.demat
-485 Material 2e426101834d5555 - - assets:Materials/MP_GreenTint.demat
-292 Material 7b5bad595e238e38 - - assets:Materials/MP_HandUnlit.demat
-298 Material 5c84c203069aaaaa - - assets:Materials/MP_LitConst.demat
-300 Material 3dadd6acaf11c71c - - assets:Materials/MP_Unlit.demat
-631 Material 87894031e2469385 c52af1456735652b - assets:Materials/M_Batch_Stress__1024_cubes__one_material__Clouds.demat
-783 Material 5914c53c094afa31 3facba2f99300a42 - assets:Materials/M_CheckerFloor.demat
-311 Material e952cc9d94129911 - - assets:Materials/M_CheckerFloor_Inst.demat
-300 Material 2c8ab3e503696c64 - - assets:Materials/M_CloudDefault.demat
-618 Material bf4f451e0d8189d9 c52af1456735652b - assets:Materials/M_Clouds_Demo_Clouds.demat
-632 Material f4b589318458278b c52af1456735652b - assets:Materials/M_Clouds_HeroCloud_Clouds.demat
-632 Material 5f3b892ce4daeff8 ee0785198df7c5ee - assets:Materials/M_Clouds_HeroMass_Clouds.demat
-633 Material df210c601fc8da32 ee0785198df7c5ee - assets:Materials/M_Clouds_HeroTrio_Clouds.demat
-3459 Material c83a8a8bb1e0e008 c52af1456735652b - assets:Materials/M_Clouds_Protocol_Clouds.demat
-617 Material 7784251a648f3d8d c52af1456735652b - assets:Materials/M_Clouds_ShadowsOnGround_Clouds.demat
-507 Material 2429d066dfc6f837 05c33e3b119a4de3 - assets:Materials/M_Clouds_Showcase_Clouds.demat
-510 Material 8e7f473ab96b4902 c52af1456735652b - assets:Materials/M_Clouds_Sunset_Clouds.demat
-737 Material af2fe2fc16c307dc 5f1b9208289b21b2,c52af1456735652b - assets:Materials/M_Clouds_TwoSpecies_Clouds.demat
-406 Material 7d20015e36fc7853 e0ee3c11f6a10cf2 - assets:Materials/M_CubemapCheck.demat
-293 Material 7d20015e36fc7854 - - assets:Materials/M_CubemapEmpty.demat
-600 Material 0dfe7a18f6435771 3facba2f99300a42 - assets:Materials/M_G3_TerrainChecker.demat
-489 Material 0dfe7a18f6435772 - - assets:Materials/M_G3_TerrainPlain.demat
-632 Material b901dafc396fe32d c52af1456735652b - assets:Materials/M_Graph_Batch_Stress__1024_cubes__one_graph_material__Clouds.demat
-562 Material - - - assets:Materials/M_HDR_Chrome.demat
-557 Material - - - assets:Materials/M_HDR_Matte.demat
-561 Material - - - assets:Materials/M_HDR_Satin.demat
-632 Material d74641b8dc505d6a c52af1456735652b - assets:Materials/M_Instanced_Cascade_Seam_Clouds.demat
-1465 Material - - - assets:Materials/M_NormalWitness.demat
-1351 Material - - - assets:Materials/M_NormalWitness_Flat.demat
-3458 Material 7ba8cd222a5275d4 c52af1456735652b - assets:Materials/M_O4_Base_Clouds.demat
-3698 Material 02583817f039487e 5ea2c37f611538f1,67aea52253b9c474,c52af1456735652b - assets:Materials/M_O4_Both_Clouds.demat
-3563 Material b57ffe8a06b97adc 5ea2c37f611538f1,c52af1456735652b - assets:Materials/M_O4_MaskAddRemove_Clouds.demat
-3564 Material d7eba53ddb9ec25c c52af1456735652b,c7a369aeadadeffd - assets:Materials/M_O4_MaskNeutral_Clouds.demat
-3565 Material 77c6a4c539f13b0f 67aea52253b9c474,c52af1456735652b - assets:Materials/M_O4_Pattern_Clouds.demat
-1599 Material 3d9ee002ed70c2a6 c52af1456735652b,e2371ee91d823a51 - assets:Materials/M_PR1_Brush_LetterD_Clouds.demat
-1600 Material cdb779181770d39b a530e992d1bd842c,c52af1456735652b - assets:Materials/M_PR1_Brush_Thin_Clouds.demat
-3460 Material ee952efdf93f2864 ee0785198df7c5ee - assets:Materials/M_PR_Hero0_Clouds.demat
-3460 Material dd2e639c338a352f ee0785198df7c5ee - assets:Materials/M_PR_Hero3_Clouds.demat
-3460 Material fa2fd1ff7977741c ee0785198df7c5ee - assets:Materials/M_PR_Hero8_Clouds.demat
-1584 Material e26e2ec2f20e08a0 38bdc8e32eaef2b3,c52af1456735652b - assets:Materials/M_PTP_Channels_Green_Clouds.demat
-1586 Material 9caefde4719d3200 c52af1456735652b,ca86e3420a223cb3 - assets:Materials/M_PTP_Channels_Red_Clouds.demat
-1597 Material 18f65a678b643f6b 26c744bef62c7d0f,c52af1456735652b - assets:Materials/M_PTP_Layout_LetterP_Clouds.demat
-1596 Material 08d138558a65cc17 26c744bef62c7d0f,c52af1456735652b - assets:Materials/M_PTP_Layout_LetterP_nomask_Clouds.demat
-1597 Material 79dc1f457ce90f22 26c744bef62c7d0f,c52af1456735652b - assets:Materials/M_PTP_Layout_LetterP_x4_Clouds.demat
-844 Material 73c06ef991618b98 8ea06d01828e64c0,c52af1456735652b - assets:Materials/M_PT_Layout_Cost_Clouds.demat
-1597 Material 6d661fb0444f4dcd 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_Layout_LetterD_Clouds.demat
-1156 Material 0990cfde5a1f7528 8ea06d01828e64c0,c52af1456735652b - assets:Materials/M_PT_Layout_Stripe_Clouds.demat
-1596 Material cbd3a7691455ea4b 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_offset_high_Clouds.demat
-1597 Material 2fb06f6050518c6c 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_pattern_high_Clouds.demat
-1597 Material 3be763dcb7170aca 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_pattern_low_Clouds.demat
-1597 Material 26a2ed5e15391292 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_repeats_high_Clouds.demat
-1699 Material fd85eead1aa8d7c6 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_rotation_high_Clouds.demat
-3458 Material 6c1f0e9b5cef9d86 c52af1456735652b - assets:Materials/M_R14_LowSunOff_Clouds.demat
-3459 Material ae75cb5b728fdc2c c52af1456735652b - assets:Materials/M_R14_LowSunOn_Clouds.demat
-3459 Material 976dbc3720953406 c52af1456735652b - assets:Materials/M_R14_NightOff_Clouds.demat
-3457 Material 02093691f2b7abac c52af1456735652b - assets:Materials/M_R14_NightOn_Clouds.demat
-3459 Material 8ee9fbc25c9dd878 c52af1456735652b - assets:Materials/M_R14_ProtocolOn_Clouds.demat
-632 Material b4a0960ecd16590a bc02678807d14197 - assets:Materials/M_SIL_Altocumulus_Clouds.demat
-631 Material 8367a25e2a15f97c df95361dd23b89eb - assets:Materials/M_SIL_Cirrus_Clouds.demat
-632 Material ed1e873e8d65961b ee0785198df7c5ee - assets:Materials/M_SIL_Cumulonimbus_Clouds.demat
-632 Material b27910c7d3d76012 c52af1456735652b - assets:Materials/M_SIL_Cumulus_Congestus_Clouds.demat
-630 Material 68ac154ef9f79fc6 587284023967ba23 - assets:Materials/M_SIL_Cumulus_Humilis_Clouds.demat
-630 Material ec5eb99f506b980a 05c33e3b119a4de3 - assets:Materials/M_SIL_Cumulus_Mediocris_Clouds.demat
-631 Material ca3b076c8f30a539 7fdc1bb7811c11f8 - assets:Materials/M_SIL_Lenticular_Clouds.demat
-630 Material 4db01e1a796db21d 5f1b9208289b21b2 - assets:Materials/M_SIL_Stratocumulus_Clouds.demat
-631 Material 74b8568dd84edf1e d6616ba6534bb97f - assets:Materials/M_SIL_Stratus_Clouds.demat
-631 Material 2570ae8202498ae0 c52af1456735652b - assets:Materials/M_Shader_Graph_Cloud_Probe_Clouds.demat
-632 Material e72a8c5d5c248f04 c52af1456735652b - assets:Materials/M_Shader_Graph_Geometry_Shadow_Probe_Clouds.demat
-300 Material 10bd2fd3b9ccbf5d - - assets:Materials/M_Sky_Clouds.demat
-1014 Material 3d181341b47304cf 7fdc1bb7811c11f8 - assets:Materials/M_Sky_Clouds_1.demat
-301 Material decd5cb12eca6c1b - - assets:Materials/M_Sun_Clouds.demat
-491 Material 0dfe7a18f64355e7 - - assets:Materials/M_TerrainProbe.demat
-266 Material a9dc8befe795baa2 - - assets:Materials/Material.demat
-266 Material b7707cf99a296840 - - assets:Materials/Material_1.demat
-265 Material 5d8cf0c2893b2c54 - - assets:Materials/Material_10.demat
-265 Material 454fefff68b0b68d - - assets:Materials/Material_11.demat
-265 Material 62bd82af1559157e - - assets:Materials/Material_2.demat
-266 Material ef6ecf51d5b150fb - - assets:Materials/Material_3.demat
-265 Material 648152f01cc528a6 - - assets:Materials/Material_4.demat
-266 Material ce4e0800b06eb1c9 - - assets:Materials/Material_5.demat
-266 Material e645308171b13d06 - - assets:Materials/Material_6.demat
-265 Material 5683243562bab447 - - assets:Materials/Material_7.demat
-266 Material ffc63f46958fa278 - - assets:Materials/Material_8.demat
-266 Material c45a08c89f0b3335 - - assets:Materials/Material_9.demat
-618 Material e94618b1ae27cd13 - - assets:Materials/PBR_D_R0.demat
-618 Material aa398a6313e51d5d - - assets:Materials/PBR_D_R100.demat
-633 Material 61786fcd037cf008 - - assets:Materials/PBR_D_R20.demat
-633 Material c83cb31e4b9b9158 - - assets:Materials/PBR_D_R40.demat
-633 Material b4a129db9c92713c - - assets:Materials/PBR_D_R60.demat
-631 Material 411565074d923c63 - - assets:Materials/PBR_D_R80.demat
-615 Material 8b931f8ad04b1057 - - assets:Materials/PBR_M_R0.demat
-615 Material a8987af9471551f9 - - assets:Materials/PBR_M_R100.demat
-631 Material b46511f81d7ff015 - - assets:Materials/PBR_M_R20.demat
-629 Material 15c6f363239822ac - - assets:Materials/PBR_M_R40.demat
-630 Material b9dbf74b1487aeaa - - assets:Materials/PBR_M_R60.demat
-628 Material 37bace7ed6ee1ba4 - - assets:Materials/PBR_M_R80.demat
-649 Material 37e13b6bd3615e5a - - assets:Materials/Starter_Emissive.demat
-598 Material b36b375380ff1a4c - - assets:Materials/Starter_Glass.demat
-311 Material 44ddda7c1a104ffe - - assets:Materials/Starter_Glass_Inst.demat
-527 Material 296e09c992828d1b - - assets:Materials/Starter_Ground.demat
-531 Material c8e36f30956f9d74 - - assets:Materials/Starter_Prop.demat
-1995 Material f09b8616565475f8 - - assets:Materials/TwoJointProbe/Material_1.demat
-2040 Material d83c0882e3dc15c3 - - assets:Materials/TwoJointProbe/ProbeMaterial.demat
-686 Material 66f59726a2e35425 - - assets:Materials/UI_RadialWipe.demat
-2009 Material 44d056a9359b4d1c - - assets:Materials/base/model.demat
-2092 Material f92eb79deac06342 235a4677ab990d51,4935766ceb333c40,f4458fd2d2ef1866 - assets:Materials/base_basic_pbr/model.demat
-2013 Material 194232c86369b0cb c6ff26d3abf50030 - assets:Materials/base_basic_shaded/model.demat
-3180425 Texture - - - assets:Meshes/shaded.detex
-3177799 Texture - - - assets:Meshes/texture_diffuse.detex
-1205652 Texture - - - assets:Meshes/texture_metallic.detex
-2249390 Texture - - - assets:Meshes/texture_normal.detex
-3372302 Texture - - - assets:Meshes/texture_pbr.detex
-1672233 Texture - - - assets:Meshes/texture_roughness.detex
-674 Retarget - - - assets:Retargets/ForeignArm_To_IKProbe.retarget
-1393 ControlRig - - - assets:Rigs/IKProbe_Arm.derig
-3549 ControlRig - - - assets:Rigs/IKProbe_ArmGraph.derig
-3113998 Texture - - - assets:Textures/1k_Dissolve_Noise_Texture.detex
-33058 Skybox - - - assets:Textures/HDR/PreviewCheck.detex
-5750841 Skybox - - - assets:Textures/HDR/rural_asphalt_road_2k.detex
-9016 Texture - - - assets:Textures/T_Checker.detex
-55983 Texture - - - assets:Textures/T_NormalWitness.detex
-10460 UITheme - - - assets:UI/Themes/Desert_Dark.detheme
-9407 UITheme - - - assets:UI/Themes/Desert_Light.detheme
-2007 Animation - - - cooked:Meshes/A6Curve_Cubic.anim
-2008 Animation - - - cooked:Meshes/A6Curve_Linear.anim
-1899 Skeleton - - - cooked:Meshes/ForeignArm.skeleton
-43648 Animation - - - cooked:Meshes/ForeignArm_Swing.anim
-9073 Animation - - - cooked:Meshes/Foreign_Hips.anim
-2628 Skeleton - - - cooked:Meshes/IKProbe.skeleton
-11696 SkinnedMesh - - c267d730,43070000,c2156dab,434a0000,43902321,41700000 cooked:Meshes/IKProbe.skmesh
-29212 Animation - - - cooked:Meshes/IKProbe_Swing.anim
-428 Skeleton - - - cooked:Meshes/SkinProbe.skeleton
-2680 SkinnedMesh - - c2480000,c2480000,c2480000,42480000,42480000,42480000 cooked:Meshes/SkinProbe.skmesh
-9094 Animation - - - cooked:Meshes/SkinProbe_Hover.anim
-7717 Animation - - - cooked:Meshes/SkinProbe_Tilt.anim
-3536 StaticMesh - - c3160000,00000000,c2480000,43160000,43480000,42480000 cooked:Meshes/StaticProbe.stmesh
-934 Skeleton - - - cooked:Meshes/TwoBoneProbe.skeleton
-4936 SkinnedMesh - - c2c949e6,42af0000,c2487df4,41ad3480,4380291a,41c80000 cooked:Meshes/TwoBoneProbe.skmesh
-30046 Animation - - - cooked:Meshes/TwoBoneProbe_Twist.anim
-29301 Animation - - - cooked:Meshes/TwoBoneProbe_Wave.anim
-2898 Shader - - - engine:Shaders/Programs/AutoExposure/AEAverage.shader
-2379 Shader - - - engine:Shaders/Programs/AutoExposure/AEHistogram.shader
-470 Shader - - - engine:Shaders/Programs/AutoExposure/AEHistogramClear.shader
-4239 Shader - - - engine:Shaders/Programs/Bloom/BloomDownsample.shader
-2355 Shader - - - engine:Shaders/Programs/Bloom/BloomUpsample.shader
-11831 Shader - - - engine:Shaders/Programs/Clouds/CloudComposite.shader
-67722 Shader - - - engine:Shaders/Programs/Clouds/CloudRaymarch.shader
-11681 Shader - - - engine:Shaders/Programs/Clouds/CloudShadowMap.shader
-10585 Shader - - - engine:Shaders/Programs/Clouds/CloudSkyOcclusionVolume.shader
-24207 Shader - - - engine:Shaders/Programs/Clouds/CloudTemporalResolve.shader
-9232 Shader - - - engine:Shaders/Programs/Composite/SceneComposite.shader
-839 Shader - - - engine:Shaders/Programs/Composite/SwapchainBlit.shader
-32023 Shader - - - engine:Shaders/Programs/Compute/BakeProceduralSky.shader
-7096 Shader - - - engine:Shaders/Programs/Compute/DiffuseIrradiance.shader
-942 Shader - - - engine:Shaders/Programs/Compute/GenerateMipMap_2D.shader
-2127 Shader - - - engine:Shaders/Programs/Compute/PanoramaToCubemap.shader
-7549 Shader - - - engine:Shaders/Programs/Compute/PrefilterEnvMap.shader
-1069 Shader - - - engine:Shaders/Programs/Debug/DebugLine.shader
-1199 Shader - - - engine:Shaders/Programs/Debug/Overdraw.shader
-1533 Shader - - - engine:Shaders/Programs/Debug/OverdrawResolve.shader
-910 Shader - - - engine:Shaders/Programs/Deferred/Copy.shader
-20519 Shader - - - engine:Shaders/Programs/Deferred/DeferredLighting.shader
-4418 Shader - - - engine:Shaders/Programs/Deferred/GIResolve.shader
-5296 Shader - - - engine:Shaders/Programs/Deferred/SSAO.shader
-8955 Shader - - - engine:Shaders/Programs/Deferred/SSR.shader
-3386 Shader - - - engine:Shaders/Programs/Deferred/SSRComposite.shader
-3834 Shader - - - engine:Shaders/Programs/Deferred/SSRResolve.shader
-3099 Shader - - - engine:Shaders/Programs/FXAA/FXAA.shader
-10724 Shader - - - engine:Shaders/Programs/Fog/HeightFog.shader
-1995 Shader - - - engine:Shaders/Programs/Fog/HeightFogApply.shader
-600 Shader - - - engine:Shaders/Programs/Graph/MatConst.shader
-1035 Shader - - - engine:Shaders/Programs/Graph/MatLitConst.shader
-1340 Shader - - - engine:Shaders/Programs/Graph/MatProbe.shader
-913 Shader - - - engine:Shaders/Programs/Graph/MatProbeUnlit.shader
-702 Shader - - - engine:Shaders/Programs/Graph/NewShaderGraph.shader
-6536 Shader - - - engine:Shaders/Programs/Grid/Grid.shader
-599 Shader - - - engine:Shaders/Programs/JFA/JFA_Composite.shader
-1868 Shader - - - engine:Shaders/Programs/JFA/JFA_Final.shader
-1132 Shader - - - engine:Shaders/Programs/JFA/JFA_Init.shader
-1768 Shader - - - engine:Shaders/Programs/JFA/JFA_Step.shader
-4985 Shader - - - engine:Shaders/Programs/LensFlare/LensFlareBrightPass.shader
-9211 Shader - - - engine:Shaders/Programs/LensFlare/LensFlareFeatures.shader
-1990 Shader - - - engine:Shaders/Programs/LightShafts/LightShaftBlur.shader
-2722 Shader - - - engine:Shaders/Programs/LightShafts/LightShaftMask.shader
-19754 Shader - - - engine:Shaders/Programs/PBR/SkinnedMeshPBR.shader
-7566 Shader - - - engine:Shaders/Programs/PBR/StaticMeshGBuffer.shader
-9465 Shader - - - engine:Shaders/Programs/PBR/StaticMeshGBuffer_Instanced.shader
-8624 Shader - - - engine:Shaders/Programs/PBR/StaticMeshGlass.shader
-20262 Shader - - - engine:Shaders/Programs/PBR/StaticMeshPBR.shader
-17114 Shader - - - engine:Shaders/Programs/PBR/StaticMeshPBR_Instanced.shader
-2567 Shader - - - engine:Shaders/Programs/Particles/ParticleBillboard.shader
-5950 Shader - - - engine:Shaders/Programs/Particles/ParticleSimulate.shader
-4593 Shader - - - engine:Shaders/Programs/Preview/CubemapSphere.shader
-10226 Shader - - - engine:Shaders/Programs/ProceduralSky/ProceduralSky.shader
-1496 Shader - - - engine:Shaders/Programs/SMAA/SMAABlend.shader
-794 Shader - - - engine:Shaders/Programs/SMAA/SMAAEdges.shader
-1046 Shader - - - engine:Shaders/Programs/SMAA/SMAAWeights.shader
-1039 Shader - - - engine:Shaders/Programs/Shadow/Shadow.shader
-1812 Shader - - - engine:Shaders/Programs/Shadow/Shadow_Instanced.shader
-3113 Shader - - - engine:Shaders/Programs/Shadow/Shadow_Skinned.shader
-741 Shader - - - engine:Shaders/Programs/Silhouette/Silhouette.shader
-2264 Shader - - - engine:Shaders/Programs/Silhouette/Silhouette_Skinned.shader
-10046 Shader - - - engine:Shaders/Programs/Sky/SkyAerialPerspectiveLut.shader
-6818 Shader - - - engine:Shaders/Programs/Sky/SkyDistantLight.shader
-9711 Shader - - - engine:Shaders/Programs/Sky/SkyMultiScatterLut.shader
-4237 Shader - - - engine:Shaders/Programs/Sky/SkyTransmittanceLut.shader
-7904 Shader - - - engine:Shaders/Programs/Sky/SkyViewLut.shader
-3727 Shader - - - engine:Shaders/Programs/Skybox/Skybox.shader
-6480 Shader - - - engine:Shaders/Programs/Terrain/Terrain.shader
-2680 Shader - - - engine:Shaders/Programs/Terrain/TerrainGBuffer.shader
-1604 Shader - - - engine:Shaders/Programs/Terrain/TerrainShadow.shader
-2514 Shader - - - engine:Shaders/Programs/Text/TextSDF.shader
-1209 Shader - - - engine:Shaders/Programs/UI/UI2D.shader
-4248 Shader - - - engine:Shaders/Programs/UI/UIGlass.shader
-2131 Shader - - - engine:Shaders/Programs/UI/UIMatError.shader
-3141 Shader - - - engine:Shaders/Programs/UI/UIMatRadialWipe.shader
-1727 Shader - - - engine:Shaders/Programs/UI/UIText.shader
-2863 Shader - - - engine:Shaders/Programs/Unlit/Unlit.shader
+DesertAssetRegistry 3
+760 AnimGraph - - - - assets:AnimGraphs/OneBoneBlend.danimgraph
+1065 AnimGraph - - - - assets:AnimGraphs/ScriptDriven.danimgraph
+766 AnimGraph - - - - assets:AnimGraphs/TwoBoneBlend.danimgraph
+8388684 CloudNoiseVolume - - - - assets:Clouds/CloudNoise_Default.dcnv
+8388684 CloudNoiseVolume - - - - assets:Clouds/CloudNoise_FineWisp.dcnv
+1310768 CloudLayout - - - - assets:Clouds/Layouts/Layout_LetterD.dclayout
+1048624 CloudLayout - - - - assets:Clouds/Layouts/Layout_Stripe.dclayout
+1048624 CloudLayout - - - - assets:Clouds/Layouts/O4_Bands.dclayout
+1310768 CloudLayout - - - - assets:Clouds/Layouts/O4_MaskAddRemove.dclayout
+1310768 CloudLayout - - - - assets:Clouds/Layouts/O4_MaskNeutral.dclayout
+1310768 CloudLayout - - - - assets:Clouds/Layouts/PR1_Brush_LetterD.dclayout
+1310768 CloudLayout - - - - assets:Clouds/Layouts/PR1_Brush_Thin.dclayout
+16432 CloudLayout - - - - assets:Clouds/Layouts/PTP_Channels_Green.dclayout
+16432 CloudLayout - - - - assets:Clouds/Layouts/PTP_Channels_Red.dclayout
+1310768 CloudLayout - - - - assets:Clouds/Layouts/PTP_LetterP.dclayout
+3256 CloudType - - - - assets:Clouds/Types/Altocumulus.decloudtype
+5946 CloudType - - bcfaa03b1b89b8b3 - assets:Clouds/Types/Cirrus.decloudtype
+1201 CloudType - - - - assets:Clouds/Types/Cumulonimbus.decloudtype
+1315 CloudType - - - - assets:Clouds/Types/Cumulus_Congestus.decloudtype
+1164 CloudType - - - - assets:Clouds/Types/Cumulus_Humilis.decloudtype
+998 CloudType - - - - assets:Clouds/Types/Cumulus_Mediocris.decloudtype
+1446 CloudType - - - - assets:Clouds/Types/Lenticular.decloudtype
+1397 CloudType - - - - assets:Clouds/Types/Stratocumulus.decloudtype
+1225 CloudType - - - - assets:Clouds/Types/Stratus.decloudtype
+4194704 CloudModellingVolume - - - - assets:Clouds/Volumes/HeroCloud_Arch.dcmv
+4194808 CloudModellingVolume - - - - assets:Clouds/Volumes/HeroCloud_Congestus.dcmv
+4194808 CloudModellingVolume - - - - assets:Clouds/Volumes/HeroCloud_Cumulonimbus.dcmv
+8924 StringTable - - - - assets:Localization/MainMenu.destrings
+650 StringTable - - - - assets:Localization/Probes.destrings
+586 Material b7de7b6da944bded0382e39126712944;MATL=1 a3c34fd7f85f1d7b - - assets:Materials/CB_Glass.demat
+711 Material f4263dfdcb77af201c6050be35f5394f;MATL=1 6bf037ae325f1c6b - - assets:Materials/CB_GraphMatch.demat
+529 Material 91bde2ac45c15dd230d961a447b6fba7;MATL=1 04463f00edf6d826 - - assets:Materials/CB_Green.demat
+514 Material df51ca6ed9cb71779a9b5634db0863bc;MATL=1 7d24fc9772abc513 - - assets:Materials/CB_Orange.demat
+531 Material e04d99eaf3ddd30e0184e38e5c3bcc57;MATL=1 56fdd8cdde681904 - - assets:Materials/CB_Red.demat
+528 Material 04f3bb576e64e248daad7640edbe91c5;MATL=1 685baf575b831c6c - - assets:Materials/CB_White.demat
+486 Material 1138830e1ab5cfca8f2b15a8b2042983;MATL=1 a952e620d482029d - - assets:Materials/LOD_Sphere.demat
+391 Material 3a694efc0e834f76822205c934681465;MATL=1 1ed6eb565788e38e - - assets:Materials/MP_BlendMax.demat
+295 Material 6969dc1f8d457806e5cf208867250443;MATL=1 4d194c57dad638e3 - - assets:Materials/MP_Const.demat
+295 Material 358bc9f1414d0b0477ba9f42f026b305;MATL=1 0f6b75ab2bc471c7 - - assets:Materials/MP_Default.demat
+485 Material 9c738945524d749f06c5277c4a444df2;MATL=1 2e426101834d5555 - - assets:Materials/MP_GreenTint.demat
+292 Material 58b25001fd9a29362681f26b0c4ebf67;MATL=1 7b5bad595e238e38 - - assets:Materials/MP_HandUnlit.demat
+298 Material 5fd4737b3cc218b5bc0ecceccd3664ca;MATL=1 5c84c203069aaaaa - - assets:Materials/MP_LitConst.demat
+300 Material 5d471f9abf28a145fb71c73153860d68;MATL=1 3dadd6acaf11c71c - - assets:Materials/MP_Unlit.demat
+631 Material 8d8f039e11a60108670d6a4ae05f9629;MATL=1 87894031e2469385 c52af1456735652b - assets:Materials/M_Batch_Stress__1024_cubes__one_material__Clouds.demat
+783 Material 45d579b03cc0d0a8df2e4cb025d6bea5;MATL=1 5914c53c094afa31 3facba2f99300a42 - assets:Materials/M_CheckerFloor.demat
+311 Material 3cac456286293463b516718906b23e28;MATL=1 e952cc9d94129911 - - assets:Materials/M_CheckerFloor_Inst.demat
+300 Material 54b3a3ffe67f4531c60b825dc61546bc;MATL=1 2c8ab3e503696c64 - - assets:Materials/M_CloudDefault.demat
+618 Material 9f3d4f0bb90f356828bfc9dacab2e61d;MATL=1 bf4f451e0d8189d9 c52af1456735652b - assets:Materials/M_Clouds_Demo_Clouds.demat
+632 Material b3937061d95f9744042f6c7811390607;MATL=1 f4b589318458278b c52af1456735652b - assets:Materials/M_Clouds_HeroCloud_Clouds.demat
+632 Material 3f1b351af3ddce3d2bee4c67d1897354;MATL=1 5f3b892ce4daeff8 ee0785198df7c5ee - assets:Materials/M_Clouds_HeroMass_Clouds.demat
+633 Material 138b37aa7370d14ffe297abc9a6ac336;MATL=1 df210c601fc8da32 ee0785198df7c5ee - assets:Materials/M_Clouds_HeroTrio_Clouds.demat
+3459 Material f748ea218bfda9055083bc5a0cb94d64;MATL=1 c83a8a8bb1e0e008 c52af1456735652b - assets:Materials/M_Clouds_Protocol_Clouds.demat
+617 Material 411bbc8457ead6eab594dcb66a246a19;MATL=1 7784251a648f3d8d c52af1456735652b - assets:Materials/M_Clouds_ShadowsOnGround_Clouds.demat
+507 Material 732b2b6a48f6b68a5c5ab22f00719633;MATL=1 2429d066dfc6f837 05c33e3b119a4de3 - assets:Materials/M_Clouds_Showcase_Clouds.demat
+510 Material 2731f4b41a1ce80f8f52cea1bb617496;MATL=1 8e7f473ab96b4902 c52af1456735652b - assets:Materials/M_Clouds_Sunset_Clouds.demat
+737 Material 78427e437fd0857519523929bbc6ae28;MATL=1 af2fe2fc16c307dc 5f1b9208289b21b2,c52af1456735652b - assets:Materials/M_Clouds_TwoSpecies_Clouds.demat
+406 Material a01d82f279125104155bb44907dd93a5;MATL=1 7d20015e36fc7853 e0ee3c11f6a10cf2 - assets:Materials/M_CubemapCheck.demat
+293 Material a905758b34fc48a57331fdd92a087920;MATL=1 7d20015e36fc7854 - - assets:Materials/M_CubemapEmpty.demat
+600 Material c2407e5571ff7898af741eafd1abdfeb;MATL=1 0dfe7a18f6435771 3facba2f99300a42 - assets:Materials/M_G3_TerrainChecker.demat
+489 Material 239102b0b0735153c9b59f5e6558ca50;MATL=1 0dfe7a18f6435772 - - assets:Materials/M_G3_TerrainPlain.demat
+632 Material cf96d95df17d5ca88087032a0d2bc1f1;MATL=1 b901dafc396fe32d c52af1456735652b - assets:Materials/M_Graph_Batch_Stress__1024_cubes__one_graph_material__Clouds.demat
+562 Material 33e572a04c3edf8ed3d872e10230a97b;MATL=1 - - - assets:Materials/M_HDR_Chrome.demat
+557 Material f8e0ca8759ab3f1ba120daddde4a6784;MATL=1 - - - assets:Materials/M_HDR_Matte.demat
+561 Material 1a32f84f685d2419e52642eed0ce8936;MATL=1 - - - assets:Materials/M_HDR_Satin.demat
+632 Material 691eb51b4283322934c3d5c1fb9ffdb6;MATL=1 d74641b8dc505d6a c52af1456735652b - assets:Materials/M_Instanced_Cascade_Seam_Clouds.demat
+1465 Material 40e8fc4221d33289cca9e025f87dab0a;MATL=1 - - - assets:Materials/M_NormalWitness.demat
+1351 Material e0792c5065612c4f073796096540f18a;MATL=1 - - - assets:Materials/M_NormalWitness_Flat.demat
+3458 Material 1d337480dfe86dc3870c67bbf2b5ebda;MATL=1 7ba8cd222a5275d4 c52af1456735652b - assets:Materials/M_O4_Base_Clouds.demat
+3698 Material 29ae4a94857a92450f49defa33cc0104;MATL=1 02583817f039487e 5ea2c37f611538f1,67aea52253b9c474,c52af1456735652b - assets:Materials/M_O4_Both_Clouds.demat
+3563 Material d7fe8df2b37a783532f28ae9d396ac1a;MATL=1 b57ffe8a06b97adc 5ea2c37f611538f1,c52af1456735652b - assets:Materials/M_O4_MaskAddRemove_Clouds.demat
+3564 Material d65618ffa2d46b21deb88f08e0452ce6;MATL=1 d7eba53ddb9ec25c c52af1456735652b,c7a369aeadadeffd - assets:Materials/M_O4_MaskNeutral_Clouds.demat
+3565 Material b6df26e549dc159e9ecd291422db4cc9;MATL=1 77c6a4c539f13b0f 67aea52253b9c474,c52af1456735652b - assets:Materials/M_O4_Pattern_Clouds.demat
+1599 Material fe4a2d8222fbf1bfbbfffd40cc0959ca;MATL=1 3d9ee002ed70c2a6 c52af1456735652b,e2371ee91d823a51 - assets:Materials/M_PR1_Brush_LetterD_Clouds.demat
+1600 Material d543a6dedf88e918ec82a0a72220fe47;MATL=1 cdb779181770d39b a530e992d1bd842c,c52af1456735652b - assets:Materials/M_PR1_Brush_Thin_Clouds.demat
+3460 Material 92df8ccec0a37c7b167d340608973810;MATL=1 ee952efdf93f2864 ee0785198df7c5ee - assets:Materials/M_PR_Hero0_Clouds.demat
+3460 Material c924ee8ef3e9b430e4fc3d2e0c8dcd5b;MATL=1 dd2e639c338a352f ee0785198df7c5ee - assets:Materials/M_PR_Hero3_Clouds.demat
+3460 Material 2a0be059ed143f53ce10ee6467346a08;MATL=1 fa2fd1ff7977741c ee0785198df7c5ee - assets:Materials/M_PR_Hero8_Clouds.demat
+1584 Material 567a5c69b19b41cf9c248477828cfaac;MATL=1 e26e2ec2f20e08a0 38bdc8e32eaef2b3,c52af1456735652b - assets:Materials/M_PTP_Channels_Green_Clouds.demat
+1586 Material 6bc7f03f392181ab087db81e9b01fc9c;MATL=1 9caefde4719d3200 c52af1456735652b,ca86e3420a223cb3 - assets:Materials/M_PTP_Channels_Red_Clouds.demat
+1597 Material 9bcfcb99bc5c63b4b9ff2fa7eeba98ff;MATL=1 18f65a678b643f6b 26c744bef62c7d0f,c52af1456735652b - assets:Materials/M_PTP_Layout_LetterP_Clouds.demat
+1596 Material d503fe0bf901bc360e97b3365b937d53;MATL=1 08d138558a65cc17 26c744bef62c7d0f,c52af1456735652b - assets:Materials/M_PTP_Layout_LetterP_nomask_Clouds.demat
+1597 Material 3e514b8cc25232e37fe951766b6ed47e;MATL=1 79dc1f457ce90f22 26c744bef62c7d0f,c52af1456735652b - assets:Materials/M_PTP_Layout_LetterP_x4_Clouds.demat
+844 Material 6ccd98ac47e91467a2ad37f7408cd904;MATL=1 73c06ef991618b98 8ea06d01828e64c0,c52af1456735652b - assets:Materials/M_PT_Layout_Cost_Clouds.demat
+1597 Material 5b859d5044a1a0ccfc885b4a786b8661;MATL=1 6d661fb0444f4dcd 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_Layout_LetterD_Clouds.demat
+1156 Material e6cd7605b9a661dfac83684e99091c44;MATL=1 0990cfde5a1f7528 8ea06d01828e64c0,c52af1456735652b - assets:Materials/M_PT_Layout_Stripe_Clouds.demat
+1596 Material 777ba9786ba494260bb2365631e47fe7;MATL=1 cbd3a7691455ea4b 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_offset_high_Clouds.demat
+1597 Material a4b66e17d0a34557c73e89c23a46b9f8;MATL=1 2fb06f6050518c6c 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_pattern_high_Clouds.demat
+1597 Material 233fe010a6e0a0733c4421444278402e;MATL=1 3be763dcb7170aca 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_pattern_low_Clouds.demat
+1597 Material 67453cc93d54de259726f17c6cf70536;MATL=1 26a2ed5e15391292 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_repeats_high_Clouds.demat
+1699 Material 8c0b9b6f88be3df33cc6388bceab6292;MATL=1 fd85eead1aa8d7c6 57d4131903c5da77,c52af1456735652b - assets:Materials/M_PT_knob_rotation_high_Clouds.demat
+3458 Material b6fe1282a710945b8504b728fe38ba52;MATL=1 6c1f0e9b5cef9d86 c52af1456735652b - assets:Materials/M_R14_LowSunOff_Clouds.demat
+3459 Material e940f495ab97979f2f7f08320f94b2a8;MATL=1 ae75cb5b728fdc2c c52af1456735652b - assets:Materials/M_R14_LowSunOn_Clouds.demat
+3459 Material d2d858f5ab21de1985b7e8c91bb58dea;MATL=1 976dbc3720953406 c52af1456735652b - assets:Materials/M_R14_NightOff_Clouds.demat
+3457 Material de518e10f039e575641d5feae38ae860;MATL=1 02093691f2b7abac c52af1456735652b - assets:Materials/M_R14_NightOn_Clouds.demat
+3459 Material e9e390351cbb5bb3b90a89ff768e74e4;MATL=1 8ee9fbc25c9dd878 c52af1456735652b - assets:Materials/M_R14_ProtocolOn_Clouds.demat
+632 Material 288c7ec795d155f34e882220d9526ee6;MATL=1 b4a0960ecd16590a bc02678807d14197 - assets:Materials/M_SIL_Altocumulus_Clouds.demat
+631 Material 877910cdce38586fe8c854b44c0abba8;MATL=1 8367a25e2a15f97c df95361dd23b89eb - assets:Materials/M_SIL_Cirrus_Clouds.demat
+632 Material 270564bcae4b0950d23c458904da303f;MATL=1 ed1e873e8d65961b ee0785198df7c5ee - assets:Materials/M_SIL_Cumulonimbus_Clouds.demat
+632 Material 418afdfe567cadef3d08fb95a4d70aee;MATL=1 b27910c7d3d76012 c52af1456735652b - assets:Materials/M_SIL_Cumulus_Congestus_Clouds.demat
+630 Material ca84b9af93f8b5cbb1ee0da2e47b5a5a;MATL=1 68ac154ef9f79fc6 587284023967ba23 - assets:Materials/M_SIL_Cumulus_Humilis_Clouds.demat
+630 Material 6d4ec62745a3d047881a0dbbbd2352a6;MATL=1 ec5eb99f506b980a 05c33e3b119a4de3 - assets:Materials/M_SIL_Cumulus_Mediocris_Clouds.demat
+631 Material 0d7f234fc14e1f8ef95528082a290ebd;MATL=1 ca3b076c8f30a539 7fdc1bb7811c11f8 - assets:Materials/M_SIL_Lenticular_Clouds.demat
+630 Material 07a3b038dfec80e024d28352527e9599;MATL=1 4db01e1a796db21d 5f1b9208289b21b2 - assets:Materials/M_SIL_Stratocumulus_Clouds.demat
+631 Material c2b4590ba347366b4b7390aa584b3bd2;MATL=1 74b8568dd84edf1e d6616ba6534bb97f - assets:Materials/M_SIL_Stratus_Clouds.demat
+631 Material ecc7b35b1ec5b3eb2698dca7d5e20394;MATL=1 2570ae8202498ae0 c52af1456735652b - assets:Materials/M_Shader_Graph_Cloud_Probe_Clouds.demat
+632 Material 3117919ba155db5f98b358e6f77e48d8;MATL=1 e72a8c5d5c248f04 c52af1456735652b - assets:Materials/M_Shader_Graph_Geometry_Shadow_Probe_Clouds.demat
+300 Material 7d1d48e58a3c4cbf04868ea516630b72;MATL=1 10bd2fd3b9ccbf5d - - assets:Materials/M_Sky_Clouds.demat
+1014 Material 57e7e6f3c502e037510d53219f9af5ae;MATL=1 3d181341b47304cf 7fdc1bb7811c11f8 - assets:Materials/M_Sky_Clouds_1.demat
+301 Material 31ff3efa4dd422925f5d0534e2164753;MATL=1 decd5cb12eca6c1b - - assets:Materials/M_Sun_Clouds.demat
+491 Material c98ffe0750adbafe16f2b147ca5a8dcf;MATL=1 0dfe7a18f64355e7 - - assets:Materials/M_TerrainProbe.demat
+266 Material 2993e180422dbb8a8e7acfb89406be8f;MATL=1 a9dc8befe795baa2 - - assets:Materials/Material.demat
+266 Material b7d9511ce5bcc1964751ad356dd99bc7;MATL=1 b7707cf99a296840 - - assets:Materials/Material_1.demat
+265 Material 73a82b56fbd67428ae942e1c6e37accb;MATL=1 5d8cf0c2893b2c54 - - assets:Materials/Material_10.demat
+265 Material cebb6ddd2efdb6371532f037d7700bcc;MATL=1 454fefff68b0b68d - - assets:Materials/Material_11.demat
+265 Material c3a2ebc1406d6a0730ccf06ee17b7f56;MATL=1 62bd82af1559157e - - assets:Materials/Material_2.demat
+266 Material 6ea57eeda1fe163823207a592a76067d;MATL=1 ef6ecf51d5b150fb - - assets:Materials/Material_3.demat
+265 Material 8158702059ff87917fb1f1a308a9dacc;MATL=1 648152f01cc528a6 - - assets:Materials/Material_4.demat
+266 Material 015c6ad94421f5ea19132f879f717bcb;MATL=1 ce4e0800b06eb1c9 - - assets:Materials/Material_5.demat
+266 Material f4a365b8572d370bd2c201d01f409baa;MATL=1 e645308171b13d06 - - assets:Materials/Material_6.demat
+265 Material fc03302edb3da90ca92f39efa528a851;MATL=1 5683243562bab447 - - assets:Materials/Material_7.demat
+266 Material 97b5c0ca465354c551faae7fd3e43680;MATL=1 ffc63f46958fa278 - - assets:Materials/Material_8.demat
+266 Material 0dd5d298d94e125e3b06ca58142287af;MATL=1 c45a08c89f0b3335 - - assets:Materials/Material_9.demat
+618 Material f19593762f19be4d47cadcb269c4e878;MATL=1 e94618b1ae27cd13 - - assets:Materials/PBR_D_R0.demat
+618 Material b15fb21e65ca9e9e574fd69d1aa31877;MATL=1 aa398a6313e51d5d - - assets:Materials/PBR_D_R100.demat
+633 Material 731f4f827c7b881bed18f470df8653e8;MATL=1 61786fcd037cf008 - - assets:Materials/PBR_D_R20.demat
+633 Material 1ff7bf41d54b6c595b934944215d82aa;MATL=1 c83cb31e4b9b9158 - - assets:Materials/PBR_D_R40.demat
+633 Material d27106039e9adb87a41069d7ce898854;MATL=1 b4a129db9c92713c - - assets:Materials/PBR_D_R60.demat
+631 Material a849328dedac15852ea59eb6cc7e4176;MATL=1 411565074d923c63 - - assets:Materials/PBR_D_R80.demat
+615 Material 582f0def2b00efe8f1018b02af8340dd;MATL=1 8b931f8ad04b1057 - - assets:Materials/PBR_M_R0.demat
+615 Material 88204c80060d80e7ebf5173d38f05fae;MATL=1 a8987af9471551f9 - - assets:Materials/PBR_M_R100.demat
+631 Material 1d329766c5c4c2d83fcfdafc37df272b;MATL=1 b46511f81d7ff015 - - assets:Materials/PBR_M_R20.demat
+629 Material 6336872c8642f7daeea018f4449c1529;MATL=1 15c6f363239822ac - - assets:Materials/PBR_M_R40.demat
+630 Material d85d458cca28da444ac2939074e0b757;MATL=1 b9dbf74b1487aeaa - - assets:Materials/PBR_M_R60.demat
+628 Material e71ff67b2d1649e6d2787be69933b7d5;MATL=1 37bace7ed6ee1ba4 - - assets:Materials/PBR_M_R80.demat
+649 Material b272c29047a884c02a065b782ae62ea5;MATL=1 37e13b6bd3615e5a - - assets:Materials/Starter_Emissive.demat
+598 Material 02a74d5bec4236c300fc86c6c13a97a8;MATL=1 b36b375380ff1a4c - - assets:Materials/Starter_Glass.demat
+311 Material aa2ce453d12bada6ca43a5b196a72963;MATL=1 44ddda7c1a104ffe - - assets:Materials/Starter_Glass_Inst.demat
+527 Material b33524f57b8f411039fb457c1c34be51;MATL=1 296e09c992828d1b - - assets:Materials/Starter_Ground.demat
+531 Material f6f923426f71eb4a270b1db46ebceeff;MATL=1 c8e36f30956f9d74 - - assets:Materials/Starter_Prop.demat
+1995 Material 12fe8a31b660dcbb5691dc7d36768daa;MATL=1 f09b8616565475f8 - - assets:Materials/TwoJointProbe/Material_1.demat
+2040 Material b7b348f393d3a8378855ec314eaa4768;MATL=1 d83c0882e3dc15c3 - - assets:Materials/TwoJointProbe/ProbeMaterial.demat
+686 Material 53e7930a82e65578715e5c2659a4ae9f;MATL=1 66f59726a2e35425 - - assets:Materials/UI_RadialWipe.demat
+2009 Material a507de677ab8496c6c8ff4347bdb67e1;MATL=1 44d056a9359b4d1c - - assets:Materials/base/model.demat
+2092 Material 0e9b8e4ceacda82ab24a400acb62fa97;MATL=1 f92eb79deac06342 235a4677ab990d51,4935766ceb333c40,f4458fd2d2ef1866 - assets:Materials/base_basic_pbr/model.demat
+2013 Material 8c72c9c7c64d1367398b8af70ba59284;MATL=1 194232c86369b0cb c6ff26d3abf50030 - assets:Materials/base_basic_shaded/model.demat
+3180425 Texture c6ff26d3abf50030251f7dad63b62142;TXAS=1 - - - assets:Meshes/shaded.detex
+3177799 Texture 235a4677ab990d51e1ab19be0ad75fc2;TXAS=1 - - - assets:Meshes/texture_diffuse.detex
+1205652 Texture f4458fd2d2ef186689c5b11bda29765b;TXAS=1 - - - assets:Meshes/texture_metallic.detex
+2249390 Texture 4935766ceb333c400238ec9d78b344c2;TXAS=1 - - - assets:Meshes/texture_normal.detex
+3372302 Texture e3980ccb29ff975f8ccd4be5aacf46da;TXAS=1 - - - assets:Meshes/texture_pbr.detex
+1672233 Texture 01f6ea11587372f1b58222d1d521a261;TXAS=1 - - - assets:Meshes/texture_roughness.detex
+2463 Prefab 37d52634d940d6c1be0f623515668528;SCNE=26,UNIT=1 - - - assets:Prefabs/UI_Card.deprefab
+2321 Prefab 19f6830c2ac6aa465c2a2907b883cf63;SCNE=26,UNIT=1 - - - assets:Prefabs/UI_CardStripe.deprefab
+674 Retarget - - - - assets:Retargets/ForeignArm_To_IKProbe.retarget
+1393 ControlRig - - - - assets:Rigs/IKProbe_Arm.derig
+3549 ControlRig - - - - assets:Rigs/IKProbe_ArmGraph.derig
+5567 Scene 43d90bf109f432210eee3c1119c190d2;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_ClipProbe.desce
+4119 Scene 11a2a2e8a025a727e452e59fa42b0930;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_ControlNudgeProbe.desce
+6962 Scene a8b98e82066b336a19f729bde6b25331;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_GraphScript.desce
+5272 Scene bb5005af43f711ffd69f108112b0f792;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_GraphScript_NoScript.desce
+9646 Scene 61dd81434856d2beae1e32fff4b9a93d;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_IKWitness.desce
+9056 Scene cb8249fc78c336c0050fcd723266c3f9;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_IKWitness_NoIK.desce
+4454 Scene 723e7cce11ea7b914ef6c77a5bcca43e;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_KeyInterp_Cubic.desce
+4456 Scene 7cf0e6352ff3d5b8bf91911274151889;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_KeyInterp_Linear.desce
+4150 Scene 8015c4b560e8c6a22aa75bb696d704a1;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_RetargetWitness.desce
+4052 Scene f24d75a60eee26080570921beb993af9;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_RetargetWitness_NoRetarget.desce
+4135 Scene 69776b82fff377bc4a4e25e2f18c01eb;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_RigGraphWitness.desce
+4124 Scene 75b35ecab36c19324d017b93676ddf43;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_RigWitness.desce
+4042 Scene e614a6057a3911267b35d54ca3b954af;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_RigWitness_NoRig.desce
+6842 Scene 9cb37b611894338c89e1778b0b485fe1;SCNE=26,UNIT=1 - - - assets:Scenes/ANIM_TwoBoneWitness.desce
+5195 Scene 92c26504efb1ab69c62071722ff4931c;SCNE=26,UNIT=1 - - - assets:Scenes/Clouds_Demo.desce
+5803 Scene 60bddb8ae3a4384740e3694b14e6b520;SCNE=26,UNIT=1 - - - assets:Scenes/Clouds_HeroCloud.desce
+10202 Scene 7a124cef89e1d22adeeedec9053b25bb;SCNE=26,UNIT=1 - - - assets:Scenes/Clouds_HeroMass.desce
+10202 Scene ad1f89214ca4d8f020379dabf20058b1;SCNE=26,UNIT=1 - - - assets:Scenes/Clouds_HeroTrio.desce
+7689 Scene 0b0c2fb9c8f2eb2ebdc1dc7b17dff753;SCNE=26,UNIT=1 - - - assets:Scenes/Clouds_Protocol.desce
+5212 Scene 131301f06d7a019d8c37f072c66d2b62;SCNE=26,UNIT=1 - - - assets:Scenes/Clouds_ShadowsOnGround.desce
+6487 Scene 9072d755d005afb36804094fd5773882;SCNE=26,UNIT=1 - - - assets:Scenes/Clouds_Showcase.desce
+6465 Scene e41a616c94aeb7649f941eed2ea52b71;SCNE=26,UNIT=1 - - - assets:Scenes/Clouds_Sunset.desce
+5207 Scene 1f9bc6a75da1a4e2502392e1eb378d83;SCNE=26,UNIT=1 - - - assets:Scenes/Clouds_TwoSpecies.desce
+5771 Scene c54c3f9501890923418c4edb1be6f646;SCNE=26,UNIT=1 - - - assets:Scenes/CornellDemo.desce
+4758 Scene 8c6878d7020fb35245a45d383b1ec4db;SCNE=26,UNIT=1 - - - assets:Scenes/DepthPrecisionProbe.desce
+15302 Scene d1866666b352131a53d8c117532fd739;SCNE=26,UNIT=1 - - - assets:Scenes/Desert_Sandbox.desce
+6299 Scene 5e2ad3f663a0567a6001699f3d26291d;SCNE=26,UNIT=1 - - - assets:Scenes/E4_LightGizmos.desce
+8601 Scene 2e7f1fb2dd84686b69de21a859f5f018;SCNE=26,UNIT=1 - - - assets:Scenes/Fog_Showcase.desce
+4435 Scene 5776dddabf631032340a2197bff6bf7d;SCNE=26,UNIT=1 - - - assets:Scenes/G26_ISMProbe.desce
+23113 Scene 4889e7696edd99f42725d628298f20d3;SCNE=26,UNIT=1 - - - assets:Scenes/G26_TerrainRockLayer.desce
+5180 Scene dc4f94975c5e46ef484d4ff5ba3137cc;SCNE=26,UNIT=1 - - - assets:Scenes/G3_TwoEmitters.desce
+24173 Scene d911e1788ca30dfafe332f0910cc045d;SCNE=26,UNIT=1 - - - assets:Scenes/G3_TwoTerrains.desce
+2656 Scene a04bf3ba2301b7795ecd486ea5a5af32;SCNE=26,UNIT=1 - - - assets:Scenes/M10_MeshSlot.desce
+8618 Scene 947d3fbe9c35d4765564bacbb8a8e39d;SCNE=26,UNIT=1 - - - assets:Scenes/M4_RampNormalMap.desce
+7163 Scene 4c79309c00ab52aa6612a1223bc815d3;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_Probe.desce
+474001 Scene 392fabaf6010f7ce91c2532a2043ebbd;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeBatchStress.desce
+50902 Scene c34427e881b49886c87de128bab89c1d;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeCascadeSeam.desce
+7111 Scene bbd16673bbb521c4f7828ae86e5b9ba1;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeClouds.desce
+5681 Scene 5fc47a56d28c79566bd248237ba28f5b;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeDeferredNoSlot.desce
+7102 Scene 75a226b1a3a247cc893938e10e3ba5a5;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeGeoShadows.desce
+626722 Scene b966c401a84137d2e2e40fd8c38b9f57;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeGraphBatchStress.desce
+4878 Scene b88171deaf99325a1a3fc07cc29773fb;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeOverride.desce
+4715 Scene 4338afd53eedf5cbc3b609890beffedc;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeShadows.desce
+5214 Scene 8418ed46ec377848ed31f52d0c1bc01b;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeSharedBlock.desce
+3956 Scene 02483c0cb39060e07831614ff1a857bf;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeSharedBlockSingle.desce
+4294 Scene 39e0c7e61708026beba9c2c806a94d20;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeTerrainSlot.desce
+4881 Scene f34777b6f5d0a280aa11a7aa906048cd;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeTextRows.desce
+4718 Scene 6c3811d1b67d0cd37685fdcb4dd5b97e;SCNE=26,UNIT=1 - - - assets:Scenes/MAT_ProbeUnlitShadows.desce
+4682 Scene d97152f93397f535160ff733b7c2cebc;SCNE=26,UNIT=1 - - - assets:Scenes/MESH_SkinnedProbe.desce
+4733 Scene f98d5a114ad5d446dc11c69932b58593;SCNE=26,UNIT=1 - - - assets:Scenes/MESH_SkinnedShadowOff.desce
+41776 Scene 803fb12985dde3690e19e8ae9880b3da;SCNE=26,UNIT=1 - - - assets:Scenes/MainMenu.desce
+4743 Scene d922defdefd4e3aa667300cd6fdf119f;SCNE=26,UNIT=1 - - - assets:Scenes/NRM_Witness.desce
+7648 Scene da7d650c52f75b7db1b277cb6d1b723c;SCNE=26,UNIT=1 - - - assets:Scenes/NRM_WitnessDeferred.desce
+4774 Scene d7daa345dfe108b14be3399a2dc7dab4;SCNE=26,UNIT=1 - - - assets:Scenes/NRM_WitnessFlat.desce
+6670 Scene c448bb6d252649f3da279b326fbddcd4;SCNE=26,UNIT=1 - - - assets:Scenes/NRM_WitnessInstanced.desce
+6695 Scene 2736688a3b24f390754f431611878de7;SCNE=26,UNIT=1 - - - assets:Scenes/NRM_WitnessInstancedFlat.desce
+7588 Scene 889d9cf9b85bf16428c0191d6ef5df7d;SCNE=26,UNIT=1 - - - assets:Scenes/O4_Base.desce
+7588 Scene a7c2547b4cea429affe84d5207d3e193;SCNE=26,UNIT=1 - - - assets:Scenes/O4_Both.desce
+7606 Scene b8bdd90d2a8144fce4b4dce2f70cd543;SCNE=26,UNIT=1 - - - assets:Scenes/O4_MaskAddRemove.desce
+7602 Scene fae3a77b8f1db83cfb3993494c45c547;SCNE=26,UNIT=1 - - - assets:Scenes/O4_MaskNeutral.desce
+7594 Scene 0e8f54acd9262be59718dfeb100853be;SCNE=26,UNIT=1 - - - assets:Scenes/O4_Pattern.desce
+4495 Scene 5f1126e475658ac0d129a29c537f7bd9;SCNE=26,UNIT=1 - - - assets:Scenes/PART_LocalSpace.desce
+4494 Scene a818816ace4cfcadaec60e24855458b8;SCNE=26,UNIT=1 - - - assets:Scenes/PART_WorldSpace.desce
+5249 Scene 30c8bbe1dd7749a549426f8dcf1e0960;SCNE=26,UNIT=1 - - - assets:Scenes/PHYS_DestroyWitness.desce
+5208 Scene 9bcb824e266364f8e322caa37e1aae61;SCNE=26,UNIT=1 - - - assets:Scenes/PR1_Brush_LetterD.desce
+5202 Scene 3876ec07df0f874bcb70bf020d4c5b8c;SCNE=26,UNIT=1 - - - assets:Scenes/PR1_Brush_Thin.desce
+12677 Scene cd822c9ad383d61a0d026032121a2525;SCNE=26,UNIT=1 - - - assets:Scenes/PR_Hero0.desce
+12674 Scene 1f6d955fcb900d5ff9c6d127812730b4;SCNE=26,UNIT=1 - - - assets:Scenes/PR_Hero3.desce
+12669 Scene 084185b6ad247ce22e218eb5d17b214d;SCNE=26,UNIT=1 - - - assets:Scenes/PR_Hero8.desce
+5210 Scene e9749d8972c8704a98c993e91c2d0331;SCNE=26,UNIT=1 - - - assets:Scenes/PTP_Channels_Green.desce
+5206 Scene 5075a180045b1c0a0fbe5c7620bec015;SCNE=26,UNIT=1 - - - assets:Scenes/PTP_Channels_Red.desce
+5210 Scene 6ee29bdd96741d9fc9c91b5b9f843390;SCNE=26,UNIT=1 - - - assets:Scenes/PTP_Layout_LetterP.desce
+5224 Scene 39b552b4ec1bae13f7412b105d31fb06;SCNE=26,UNIT=1 - - - assets:Scenes/PTP_Layout_LetterP_nomask.desce
+5216 Scene f833ea7fd0dc6ddc55457ba3b39fd81d;SCNE=26,UNIT=1 - - - assets:Scenes/PTP_Layout_LetterP_x4.desce
+5201 Scene 48fde54359e92a260d25a3f0013810d9;SCNE=26,UNIT=1 - - - assets:Scenes/PT_Layout_Cost.desce
+5208 Scene 75b4ea51e94d265953e8595c1952f4f8;SCNE=26,UNIT=1 - - - assets:Scenes/PT_Layout_LetterD.desce
+5205 Scene 9316e2ab484a4fbaf68f2fb6909d7401;SCNE=26,UNIT=1 - - - assets:Scenes/PT_Layout_Stripe.desce
+5212 Scene aeabea71f311dfa3aa6a77662f255d36;SCNE=26,UNIT=1 - - - assets:Scenes/PT_knob_offset_high.desce
+5214 Scene baab3c90ff98e612f7a9cf007b38e289;SCNE=26,UNIT=1 - - - assets:Scenes/PT_knob_pattern_high.desce
+5212 Scene c5a60e586c1169f48e357e3250e30eed;SCNE=26,UNIT=1 - - - assets:Scenes/PT_knob_pattern_low.desce
+5214 Scene ce2ee41f6bccc1c4c45eae52d7bfc1f3;SCNE=26,UNIT=1 - - - assets:Scenes/PT_knob_repeats_high.desce
+5216 Scene 59b9a2b77b96d8cc7a2613b0bae6e36d;SCNE=26,UNIT=1 - - - assets:Scenes/PT_knob_rotation_high.desce
+7530 Scene f9d07405e86ba900ee24aa4612dcc205;SCNE=26,UNIT=1 - - - assets:Scenes/R14_LowSunOff.desce
+7527 Scene 95545ac1373f95e2f60ba00058b2b0c1;SCNE=26,UNIT=1 - - - assets:Scenes/R14_LowSunOn.desce
+7528 Scene b590c962b9c46dcce6e732fcba682e0f;SCNE=26,UNIT=1 - - - assets:Scenes/R14_NightOff.desce
+7525 Scene 785659f685bd6b6e08669a041ad98183;SCNE=26,UNIT=1 - - - assets:Scenes/R14_NightOn.desce
+7492 Scene c59b852a40433a52b2bf640c19bd802d;SCNE=26,UNIT=1 - - - assets:Scenes/R14_ProtocolOn.desce
+5203 Scene 791f5ff6c354245cb631122f4b9ebf6d;SCNE=26,UNIT=1 - - - assets:Scenes/SIL_Altocumulus.desce
+5193 Scene fec6bbdedb6d0fd2a826f827e5e27651;SCNE=26,UNIT=1 - - - assets:Scenes/SIL_Cirrus.desce
+5205 Scene c6df0bd9547c8d1b881e9e3b1eb08254;SCNE=26,UNIT=1 - - - assets:Scenes/SIL_Cumulonimbus.desce
+5215 Scene 9f880bdeea504e546be851e62d18d9d1;SCNE=26,UNIT=1 - - - assets:Scenes/SIL_Cumulus_Congestus.desce
+5211 Scene 3371b648a5ecfadc73ffa4bd1cfb0cb5;SCNE=26,UNIT=1 - - - assets:Scenes/SIL_Cumulus_Humilis.desce
+5215 Scene 1fbcb6e86a99a76c32a5deb1257db039;SCNE=26,UNIT=1 - - - assets:Scenes/SIL_Cumulus_Mediocris.desce
+5201 Scene 66673d771549faedf5dce0b11989492e;SCNE=26,UNIT=1 - - - assets:Scenes/SIL_Lenticular.desce
+5207 Scene 17fbe5462c00c3e589e9ff6538b88ce4;SCNE=26,UNIT=1 - - - assets:Scenes/SIL_Stratocumulus.desce
+5195 Scene 793503b4e444b2e8f482f5588ef32bd5;SCNE=26,UNIT=1 - - - assets:Scenes/SIL_Stratus.desce
+4497 Scene 6c35315da1b18578dda3455bb3e3e529;SCNE=26,UNIT=1 - - - assets:Scenes/SKY_HDR_PolyHaven.desce
+2750 Scene 1eb1324b5419511d0f1637213db41ffe;SCNE=26,UNIT=1 - - - assets:Scenes/SKY_HdrOrientation.desce
+2816 Scene 48b563efb581cea016249cb7f23ec0c1;SCNE=26,UNIT=1 - - - assets:Scenes/SKY_N9_Base.desce
+3209 Scene 65da1fd060a2ae46feedcf55220473bb;SCNE=26,UNIT=1 - - - assets:Scenes/SKY_N9_IBL_Base.desce
+3209 Scene d112e304b4eed3da810ec0d1544a612f;SCNE=26,UNIT=1 - - - assets:Scenes/SKY_N9_IBL_Int2.desce
+3212 Scene adb3a0fad96e50c91dc2e06e11eb1036;SCNE=26,UNIT=1 - - - assets:Scenes/SKY_N9_IBL_TintRed.desce
+2820 Scene 972f1b3bbb049ef1c1ac350a698506a4;SCNE=26,UNIT=1 - - - assets:Scenes/SKY_N9_Rot180.desce
+2818 Scene fa20de7bdfb909fb09397f6c4d446980;SCNE=26,UNIT=1 - - - assets:Scenes/SKY_N9_Rot90.desce
+2819 Scene 41b651ad15515e87ede77f0c8bf62ad8;SCNE=26,UNIT=1 - - - assets:Scenes/SKY_N9_TintRed.desce
+6323 Scene cc502b887e2379e9375a4adfdd6c90ba;SCNE=26,UNIT=1 - - - assets:Scenes/Sky_PhysicalShowcase.desce
+15302 Scene 2da2387a87064ed6bd33c61d6d5a7fc7;SCNE=26,UNIT=1 - - - assets:Scenes/Starter.desce
+13519 Scene 4270aae0b67c9c098e471208e27b21e0;SCNE=26,UNIT=1 - - - assets:Scenes/Terrain_Grass.desce
+13659 Scene 588ea69bc9d0cce516b7f46047dd2a1e;SCNE=26,UNIT=1 - - - assets:Scenes/Terrain_MatProbe.desce
+7902 Scene e22d46a4ad83c345a360dc9886614c9a;SCNE=26,UNIT=1 - - - assets:Scenes/U13_AuthoredComponents.desce
+6021 Scene 95d0efb149c9be373351ac877465b556;SCNE=26,UNIT=1 - - - assets:Scenes/U21_FoldProbe.desce
+5229 Scene ba4cc69e5154e0c646e4b271cc4b49e5;SCNE=26,UNIT=1 - - - assets:Scenes/U21_Folded.desce
+4688 Scene 5f59c3f577927209875f5c8a89232890;SCNE=26,UNIT=1 - - - assets:Scenes/U21_ISMOnly.desce
+5130 Scene c7dcf9f6e1b4fe938842d9b535552be0;SCNE=26,UNIT=1 - - - assets:Scenes/UI_AnimProbe.desce
+9989 Scene 97c5068826bd72ac1e4d27dcb516a95d;SCNE=26,UNIT=1 - - - assets:Scenes/UI_ElementProbe.desce
+478077 Scene 494ecc14fa16bf97571d15640ee9dc44;SCNE=26,UNIT=1 - - - assets:Scenes/UI_ListViewProbe.desce
+478104 Scene 20494e283a58f37029f4496dd0e5e975;SCNE=26,UNIT=1 - - - assets:Scenes/UI_ListViewProbe_Scrolled.desce
+31719 Scene b72387f29f8e894416d4511b36ebb337;SCNE=26,UNIT=1 - - - assets:Scenes/UI_ListViewSlots.desce
+31675 Scene 29db420a0a1b703ddcf3d2e06a95d1b4;SCNE=26,UNIT=1 - - - assets:Scenes/UI_ListViewSlots_ScrollView.desce
+21329 Scene 0c42ee850e95277f8d732c3c69595870;SCNE=26,UNIT=1 - - - assets:Scenes/UI_MaterialProbe.desce
+10979 Scene 0eee318963bb84a455c180c5ce6d7d6b;SCNE=26,UNIT=1 - - - assets:Scenes/UI_OverScene.desce
+10987 Scene adfc8e99d5dfcb9d8a1986b74148baf4;SCNE=26,UNIT=1 - - - assets:Scenes/UI_OverScene_Hidden.desce
+29967 Scene 9c9c08149fc4034cefc3171c96cebec1;SCNE=26,UNIT=1 - - - assets:Scenes/UI_OverlayProbe.desce
+3914 Scene 449124a6534e5b6bfed671446ad8fa4c;SCNE=26,UNIT=1 - - - assets:Scenes/UI_PrefabWitness.desce
+3697 Scene 13e76af44c8a39bbb5f8bce9d0939162;SCNE=26,UNIT=1 - - - assets:Scenes/UI_PrefabWitness_NoOverride.desce
+24071 Scene ceaaca5ab4672f206182251aa9482443;SCNE=26,UNIT=1 - - - assets:Scenes/UI_RenderTextureBudget.desce
+19300 Scene 9d92df36abf33e5d9dfd71161355a4a4;SCNE=26,UNIT=1 - - - assets:Scenes/UI_RenderTextureProbe.desce
+19307 Scene 23e83d23f9f87b1a6d231428dcf92b9d;SCNE=26,UNIT=1 - - - assets:Scenes/UI_RenderTextureProbe_Hidden.desce
+3971 Scene 2025ba58183936d3ece25958990b0cca;SCNE=26,UNIT=1 - - - assets:Scenes/UI_RenderTextureWorld.desce
+10132 Scene 7af7a467f0d19a0c944420b0c36d1657;SCNE=26,UNIT=1 - - - assets:Scenes/UI_SpriteSlots.desce
+9475 Scene 33e31e6714041dd0c0310fb02a6a57c3;SCNE=26,UNIT=1 - - - assets:Scenes/UI_ThemeProbe_A11y.desce
+9476 Scene 3e4129f23f48c200dca134231f4dbebf;SCNE=26,UNIT=1 - - - assets:Scenes/UI_ThemeProbe_Dark.desce
+9478 Scene 8452786c623ccda05a4aaaddbf354abd;SCNE=26,UNIT=1 - - - assets:Scenes/UI_ThemeProbe_Light.desce
+9447 Scene a75cecab0cb3897e086fb575ce013989;SCNE=26,UNIT=1 - - - assets:Scenes/UI_ThemeProbe_None.desce
+12583 Scene b65dc359cf1e0598c610aaf2e1081869;SCNE=26,UNIT=1 - - - assets:Scenes/UI_TransformProbe.desce
+11585 Scene 995e9b52810dd7703d1c67742e351517;SCNE=26,UNIT=1 - - - assets:Scenes/UI_TwoCanvases.desce
+7035 Scene 7197fabd7d83f494fb2c53f56ce0ed17;SCNE=26,UNIT=1 - - - assets:Scenes/UI_VisibilityStack_Collapsed.desce
+7029 Scene b0bebbde89250a77ffa1825ef8e56946;SCNE=26,UNIT=1 - - - assets:Scenes/UI_VisibilityStack_Hidden.desce
+6998 Scene 58657091b33e7e9f89141923f1ad1e28;SCNE=26,UNIT=1 - - - assets:Scenes/UI_VisibilityStack_Visible.desce
+8600 Scene 2a11d76b363423f15a9630400d1454f0;SCNE=26,UNIT=1 - - - assets:Scenes/VIS_FogBase.desce
+8679 Scene b4e293534d5d0788a0b2774594303507;SCNE=26,UNIT=1 - - - assets:Scenes/VIS_FogHideFog.desce
+8679 Scene 23d30046b84fd935c4b66fa83434c786;SCNE=26,UNIT=1 - - - assets:Scenes/VIS_FogHideSky.desce
+8679 Scene 230946c2edf41a8e31b6840b401d5569;SCNE=26,UNIT=1 - - - assets:Scenes/VIS_FogHideSun.desce
+8832 Scene dbff521b92a18afec6677bc649036401;SCNE=26,UNIT=1 - - - assets:Scenes/VIS_FogVisibleTrue.desce
+6301 Scene 332407e25d3299c880cf4e98517cb497;SCNE=26,UNIT=1 - - - assets:Scenes/VIS_LightsBase.desce
+6382 Scene 06695f38e3e0dbc129c4f0cb65530468;SCNE=26,UNIT=1 - - - assets:Scenes/VIS_LightsHidePoint.desce
+6381 Scene 197e808d812cd3619163ba9f2f9cb686;SCNE=26,UNIT=1 - - - assets:Scenes/VIS_LightsHideSpot.desce
+3113998 Texture c797a6c7682f796190b4c1e5c5f4b263;TXAS=1 - - - assets:Textures/1k_Dissolve_Noise_Texture.detex
+33058 Skybox e0ee3c11f6a10cf2edd3474d72613488;TXAS=1 - - - assets:Textures/HDR/PreviewCheck.detex
+5750841 Skybox 05a0673d1865f5a909f557f4d64bc802;TXAS=1 - - - assets:Textures/HDR/rural_asphalt_road_2k.detex
+9016 Texture 3facba2f99300a42b32d1af712ab96e9;TXAS=1 - - - assets:Textures/T_Checker.detex
+55983 Texture ddcdc9483fa1c35b1e8d295f05ddb640;TXAS=1 - - - assets:Textures/T_NormalWitness.detex
+10460 UITheme - - - - assets:UI/Themes/Desert_Dark.detheme
+9407 UITheme - - - - assets:UI/Themes/Desert_Light.detheme
+2007 Animation - - - - cooked:Meshes/A6Curve_Cubic.anim
+2008 Animation - - - - cooked:Meshes/A6Curve_Linear.anim
+1899 Skeleton - - - - cooked:Meshes/ForeignArm.skeleton
+43648 Animation - - - - cooked:Meshes/ForeignArm_Swing.anim
+9073 Animation - - - - cooked:Meshes/Foreign_Hips.anim
+2628 Skeleton - - - - cooked:Meshes/IKProbe.skeleton
+11696 SkinnedMesh - - - c267d730,43070000,c2156dab,434a0000,43902321,41700000 cooked:Meshes/IKProbe.skmesh
+29212 Animation - - - - cooked:Meshes/IKProbe_Swing.anim
+428 Skeleton - - - - cooked:Meshes/SkinProbe.skeleton
+2680 SkinnedMesh - - - c2480000,c2480000,c2480000,42480000,42480000,42480000 cooked:Meshes/SkinProbe.skmesh
+9094 Animation - - - - cooked:Meshes/SkinProbe_Hover.anim
+7717 Animation - - - - cooked:Meshes/SkinProbe_Tilt.anim
+3536 StaticMesh - - - c3160000,00000000,c2480000,43160000,43480000,42480000 cooked:Meshes/StaticProbe.stmesh
+934 Skeleton - - - - cooked:Meshes/TwoBoneProbe.skeleton
+4936 SkinnedMesh - - - c2c949e6,42af0000,c2487df4,41ad3480,4380291a,41c80000 cooked:Meshes/TwoBoneProbe.skmesh
+30046 Animation - - - - cooked:Meshes/TwoBoneProbe_Twist.anim
+29301 Animation - - - - cooked:Meshes/TwoBoneProbe_Wave.anim
+2898 Shader - - - - engine:Shaders/Programs/AutoExposure/AEAverage.shader
+2379 Shader - - - - engine:Shaders/Programs/AutoExposure/AEHistogram.shader
+470 Shader - - - - engine:Shaders/Programs/AutoExposure/AEHistogramClear.shader
+4239 Shader - - - - engine:Shaders/Programs/Bloom/BloomDownsample.shader
+2355 Shader - - - - engine:Shaders/Programs/Bloom/BloomUpsample.shader
+11831 Shader - - - - engine:Shaders/Programs/Clouds/CloudComposite.shader
+67722 Shader - - - - engine:Shaders/Programs/Clouds/CloudRaymarch.shader
+11681 Shader - - - - engine:Shaders/Programs/Clouds/CloudShadowMap.shader
+10585 Shader - - - - engine:Shaders/Programs/Clouds/CloudSkyOcclusionVolume.shader
+24207 Shader - - - - engine:Shaders/Programs/Clouds/CloudTemporalResolve.shader
+9232 Shader - - - - engine:Shaders/Programs/Composite/SceneComposite.shader
+839 Shader - - - - engine:Shaders/Programs/Composite/SwapchainBlit.shader
+32023 Shader - - - - engine:Shaders/Programs/Compute/BakeProceduralSky.shader
+7096 Shader - - - - engine:Shaders/Programs/Compute/DiffuseIrradiance.shader
+942 Shader - - - - engine:Shaders/Programs/Compute/GenerateMipMap_2D.shader
+2127 Shader - - - - engine:Shaders/Programs/Compute/PanoramaToCubemap.shader
+7549 Shader - - - - engine:Shaders/Programs/Compute/PrefilterEnvMap.shader
+1069 Shader - - - - engine:Shaders/Programs/Debug/DebugLine.shader
+1199 Shader - - - - engine:Shaders/Programs/Debug/Overdraw.shader
+1533 Shader - - - - engine:Shaders/Programs/Debug/OverdrawResolve.shader
+910 Shader - - - - engine:Shaders/Programs/Deferred/Copy.shader
+20519 Shader - - - - engine:Shaders/Programs/Deferred/DeferredLighting.shader
+4418 Shader - - - - engine:Shaders/Programs/Deferred/GIResolve.shader
+5296 Shader - - - - engine:Shaders/Programs/Deferred/SSAO.shader
+8955 Shader - - - - engine:Shaders/Programs/Deferred/SSR.shader
+3386 Shader - - - - engine:Shaders/Programs/Deferred/SSRComposite.shader
+3834 Shader - - - - engine:Shaders/Programs/Deferred/SSRResolve.shader
+3099 Shader - - - - engine:Shaders/Programs/FXAA/FXAA.shader
+10724 Shader - - - - engine:Shaders/Programs/Fog/HeightFog.shader
+1995 Shader - - - - engine:Shaders/Programs/Fog/HeightFogApply.shader
+600 Shader - - - - engine:Shaders/Programs/Graph/MatConst.shader
+1035 Shader - - - - engine:Shaders/Programs/Graph/MatLitConst.shader
+1340 Shader - - - - engine:Shaders/Programs/Graph/MatProbe.shader
+913 Shader - - - - engine:Shaders/Programs/Graph/MatProbeUnlit.shader
+702 Shader - - - - engine:Shaders/Programs/Graph/NewShaderGraph.shader
+6536 Shader - - - - engine:Shaders/Programs/Grid/Grid.shader
+599 Shader - - - - engine:Shaders/Programs/JFA/JFA_Composite.shader
+1868 Shader - - - - engine:Shaders/Programs/JFA/JFA_Final.shader
+1132 Shader - - - - engine:Shaders/Programs/JFA/JFA_Init.shader
+1768 Shader - - - - engine:Shaders/Programs/JFA/JFA_Step.shader
+4985 Shader - - - - engine:Shaders/Programs/LensFlare/LensFlareBrightPass.shader
+9211 Shader - - - - engine:Shaders/Programs/LensFlare/LensFlareFeatures.shader
+1990 Shader - - - - engine:Shaders/Programs/LightShafts/LightShaftBlur.shader
+2722 Shader - - - - engine:Shaders/Programs/LightShafts/LightShaftMask.shader
+19754 Shader - - - - engine:Shaders/Programs/PBR/SkinnedMeshPBR.shader
+7566 Shader - - - - engine:Shaders/Programs/PBR/StaticMeshGBuffer.shader
+9465 Shader - - - - engine:Shaders/Programs/PBR/StaticMeshGBuffer_Instanced.shader
+8624 Shader - - - - engine:Shaders/Programs/PBR/StaticMeshGlass.shader
+20262 Shader - - - - engine:Shaders/Programs/PBR/StaticMeshPBR.shader
+17114 Shader - - - - engine:Shaders/Programs/PBR/StaticMeshPBR_Instanced.shader
+2567 Shader - - - - engine:Shaders/Programs/Particles/ParticleBillboard.shader
+5950 Shader - - - - engine:Shaders/Programs/Particles/ParticleSimulate.shader
+4593 Shader - - - - engine:Shaders/Programs/Preview/CubemapSphere.shader
+10226 Shader - - - - engine:Shaders/Programs/ProceduralSky/ProceduralSky.shader
+1496 Shader - - - - engine:Shaders/Programs/SMAA/SMAABlend.shader
+794 Shader - - - - engine:Shaders/Programs/SMAA/SMAAEdges.shader
+1046 Shader - - - - engine:Shaders/Programs/SMAA/SMAAWeights.shader
+1039 Shader - - - - engine:Shaders/Programs/Shadow/Shadow.shader
+1812 Shader - - - - engine:Shaders/Programs/Shadow/Shadow_Instanced.shader
+3113 Shader - - - - engine:Shaders/Programs/Shadow/Shadow_Skinned.shader
+741 Shader - - - - engine:Shaders/Programs/Silhouette/Silhouette.shader
+2264 Shader - - - - engine:Shaders/Programs/Silhouette/Silhouette_Skinned.shader
+10046 Shader - - - - engine:Shaders/Programs/Sky/SkyAerialPerspectiveLut.shader
+6818 Shader - - - - engine:Shaders/Programs/Sky/SkyDistantLight.shader
+9711 Shader - - - - engine:Shaders/Programs/Sky/SkyMultiScatterLut.shader
+4237 Shader - - - - engine:Shaders/Programs/Sky/SkyTransmittanceLut.shader
+7904 Shader - - - - engine:Shaders/Programs/Sky/SkyViewLut.shader
+3727 Shader - - - - engine:Shaders/Programs/Skybox/Skybox.shader
+6480 Shader - - - - engine:Shaders/Programs/Terrain/Terrain.shader
+2680 Shader - - - - engine:Shaders/Programs/Terrain/TerrainGBuffer.shader
+1604 Shader - - - - engine:Shaders/Programs/Terrain/TerrainShadow.shader
+2514 Shader - - - - engine:Shaders/Programs/Text/TextSDF.shader
+1209 Shader - - - - engine:Shaders/Programs/UI/UI2D.shader
+4248 Shader - - - - engine:Shaders/Programs/UI/UIGlass.shader
+2131 Shader - - - - engine:Shaders/Programs/UI/UIMatError.shader
+3141 Shader - - - - engine:Shaders/Programs/UI/UIMatRadialWipe.shader
+1727 Shader - - - - engine:Shaders/Programs/UI/UIText.shader
+2863 Shader - - - - engine:Shaders/Programs/Unlit/Unlit.shader

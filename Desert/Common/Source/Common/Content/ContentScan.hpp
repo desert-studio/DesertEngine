@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
@@ -40,7 +41,15 @@ namespace Common::Content
     {
         ContentKind Kind = ContentKind::StaticMesh;
         uint64_t    Size = 0;
+        // What the file's own header states, read WITHOUT the body (ReadAssetHeaderIfStated, RecordOnly):
+        // std::nullopt for content that states none. HeaderError is set instead when a header format
+        // claims the file and the header is malformed — never folded into "states none".
+        std::optional<AssetHeader> Header;
+        std::string                HeaderError;
     };
+
+    // The file at `file`, of `kind`: its size and its header, read the way the registry cook reads it.
+    [[nodiscard]] ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind );
 
     // Every content file under every census root, keyed by the STABLE KEY the engine identifies it by,
     // sorted (std::map) so two scans of one tree produce one order.
@@ -93,6 +102,8 @@ namespace Common::Content
             OrphanRow,  ///< a row, no file — the loader will fail to read it once per boot, for ever
             WrongKind,  ///< recorded as one kind, is another — the loader builds the wrong class
             StaleSize,  ///< the file was edited after the cook
+            BadHeader,  ///< the file's header is malformed, or states another kind than its place does
+            StaleHeader ///< the row's GUID/versions are not the ones the file's header states
         };
 
         Kind        What = Kind::MissingRow;

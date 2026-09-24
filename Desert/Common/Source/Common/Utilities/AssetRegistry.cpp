@@ -1,5 +1,7 @@
 #include <Common/Utilities/AssetRegistry.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
+
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
@@ -16,7 +18,9 @@ namespace Common::Utils
     namespace
     {
         constexpr std::string_view kMagic         = "DesertAssetRegistry";
-        constexpr int              kFormatVersion = 2;
+        constexpr int              kFormatVersion = 3;
+        // The version before the header column. Read, never written — see the header's note on the form.
+        constexpr int kHeaderlessVersion = 2;
         // The version before the bounds column. Read, never written — see the header's note on the form.
         constexpr int kBoundlessVersion = 1;
         // The file's name under the Cooked tree. One spelling, here, because both the producer (the
@@ -117,6 +121,59 @@ namespace Common::Utils
             out.Min = glm::vec3( values[0], values[1], values[2] );
             out.Max = glm::vec3( values[3], values[4], values[5] );
             return out.Min.x <= out.Max.x && out.Min.y <= out.Max.y && out.Min.z <= out.Max.z;
+        }
+
+        std::string HeaderText( const AssetRegistryEntry& entry )
+        {
+            if ( !entry.Guid )
+                return std::string( kNone );
+            std::string out = Content::AssetGuidToText( *entry.Guid );
+            out += ';';
+            std::vector<Content::SubsystemVersion> versions = entry.Versions;
+            std::sort( versions.begin(), versions.end(),
+                       []( const Content::SubsystemVersion& a, const Content::SubsystemVersion& b )
+                       { return a.Tag < b.Tag; } );
+            for ( std::size_t i = 0; i < versions.size(); ++i )
+            {
+                if ( i != 0 )
+                    out += ',';
+                out += Content::FourCCToString( versions[i].Tag );
+                out += '=';
+                out += std::to_string( versions[i].Version );
+            }
+            return out;
+        }
+
+        // `<guid>;<TAG>=<n>,...` back into the entry; false on any malformed piece.
+        bool ParseHeaderText( std::string_view text, AssetRegistryEntry& entry )
+        {
+            const std::size_t semicolon = text.find( ';' );
+            if ( semicolon == std::string_view::npos )
+                return false;
+            const auto guid = Content::AssetGuidFromText( text.substr( 0, semicolon ) );
+            if ( !guid || guid.GetValue().IsNull() )
+                return false;
+            entry.Guid            = guid.GetValue();
+            std::string_view rest = text.substr( semicolon + 1 );
+            while ( !rest.empty() )
+            {
+                const std::size_t      comma = rest.find( ',' );
+                const std::string_view one   = rest.substr( 0, comma );
+                if ( one.size() < 6 || one[4] != '=' )
+                    return false;
+                Content::SubsystemVersion version;
+                for ( std::size_t i = 0; i < 4; ++i )
+                    version.Tag |= static_cast<uint32_t>( static_cast<unsigned char>( one[i] ) ) << ( 8 * i );
+                const std::string_view number = one.substr( 5 );
+                const auto parsed = std::from_chars( number.data(), number.data() + number.size(), version.Version );
+                if ( parsed.ec != std::errc() || parsed.ptr != number.data() + number.size() )
+                    return false;
+                entry.Versions.push_back( version );
+                if ( comma == std::string_view::npos )
+                    break;
+                rest = rest.substr( comma + 1 );
+            }
+            return true;
         }
 
         bool ParseHexU64( std::string_view text, uint64_t& out )
@@ -357,6 +414,8 @@ namespace Common::Utils
             out += ' ';
             out += entry.Kind;
             out += ' ';
+            out += HeaderText( entry );
+            out += ' ';
             out += entry.Identity == 0 ? std::string( kNone ) : HexU64( entry.Identity );
             out += ' ';
             if ( entry.Dependencies.empty() )
@@ -412,9 +471,11 @@ namespace Common::Utils
         if ( !nextLine( header ) )
             return MakeError<AssetRegistry>( "the asset registry is empty — its header line is missing" );
 
-        const std::string expected  = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
-        const std::string boundless = std::string( kMagic ) + " " + std::to_string( kBoundlessVersion );
-        const bool        hasBounds = header == expected;
+        const std::string expected   = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
+        const std::string headerless = std::string( kMagic ) + " " + std::to_string( kHeaderlessVersion );
+        const std::string boundless  = std::string( kMagic ) + " " + std::to_string( kBoundlessVersion );
+        const bool        hasHeader  = header == expected;
+        const bool        hasBounds  = hasHeader || header == headerless;
         if ( !hasBounds && header != boundless )
             return MakeFormattedError<AssetRegistry>(
                  R"(not a Desert asset registry: line 1 is "{}", expected "{}")", std::string( header ),
@@ -430,16 +491,17 @@ namespace Common::Utils
             std::string_view rest = line;
             std::string_view sizeText;
             std::string_view kindText;
+            std::string_view headerText = kNone;
             std::string_view identityText;
             std::string_view depsText;
             std::string_view boundsText = kNone;
             if ( !NextColumn( rest, sizeText ) || !NextColumn( rest, kindText ) ||
-                 !NextColumn( rest, identityText ) || !NextColumn( rest, depsText ) ||
+                 ( hasHeader && !NextColumn( rest, headerText ) ) || !NextColumn( rest, identityText ) || !NextColumn( rest, depsText ) ||
                  ( hasBounds && !NextColumn( rest, boundsText ) ) || rest.empty() )
             {
                 return MakeFormattedError<AssetRegistry>(
-                     "line {} is not a registry row — expected \"<size> <kind> <identity> <deps>{} <key>\"",
-                     lineNo, hasBounds ? " <bounds>" : "" );
+                     "line {} is not a registry row — expected \"<size> <kind>{} <identity> <deps>{} <key>\"",
+                     lineNo, hasHeader ? " <header>" : "", hasBounds ? " <bounds>" : "" );
             }
 
             AssetRegistryEntry entry;
@@ -452,6 +514,11 @@ namespace Common::Utils
                                                           std::string( sizeText ) );
 
             entry.Kind = std::string( kindText );
+
+            if ( headerText != kNone && !ParseHeaderText( headerText, entry ) )
+                return MakeFormattedError<AssetRegistry>(
+                     "line {}: '{}' is neither '-' nor '<32-hex GUID>;<TAG>=<version>,...'", lineNo,
+                     std::string( headerText ) );
 
             if ( identityText != kNone && !ParseHexU64( identityText, entry.Identity ) )
                 return MakeFormattedError<AssetRegistry>( "line {}: '{}' is neither '-' nor a 16-digit hex handle",

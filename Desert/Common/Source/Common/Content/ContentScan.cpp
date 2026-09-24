@@ -1,4 +1,5 @@
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
@@ -183,6 +184,19 @@ namespace Common::Content
         return best;
     }
 
+    ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind )
+    {
+        ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {} };
+        // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
+        const AssetHeaderReadContext context{ {}, true };
+        auto                         stated = ReadAssetHeaderIfStated( file, context );
+        if ( !stated )
+            described.HeaderError = stated.GetError();
+        else
+            described.Header = stated.GetValue();
+        return described;
+    }
+
     std::map<std::string, ContentFile> ScanContentRoots()
     {
         std::map<std::string, ContentFile> found;
@@ -207,7 +221,7 @@ namespace Common::Content
                 if ( key.empty() )
                     continue;
 
-                found.emplace( key, ContentFile{ kind, Utils::FileSystem::GetFileSize( candidate ) } );
+                found.emplace( key, DescribeContentFile( candidate, kind ) );
             }
         }
         return found;
@@ -278,7 +292,7 @@ namespace Common::Content
             // as they land. In a clean checkout the two agree, and where they do not — a file edited but
             // not committed — the gate SHOULD report it, because the committed registry describes the
             // committed bytes.
-            tracked.emplace( key, ContentFile{ *kind, Utils::FileSystem::GetFileSize( file ) } );
+            tracked.emplace( key, DescribeContentFile( file, *kind ) );
         }
 
         return tracked;
@@ -317,6 +331,40 @@ namespace Common::Content
                                            "' on disk, so the loader would build it with the "
                                            "wrong asset class." +
                                            kRemedy } );
+            }
+
+            if ( !file.HeaderError.empty() )
+            {
+                problems.push_back( { RegistryDisagreement::Kind::BadHeader, key,
+                                      "'" + key + "' has a header no reader accepts: " + file.HeaderError } );
+            }
+            else if ( file.Header && file.Header->Kind != file.Kind )
+            {
+                problems.push_back( { RegistryDisagreement::Kind::BadHeader, key,
+                                      "'" + key + "' states kind '" + std::string( KindName( file.Header->Kind ) ) +
+                                           "' in its header and sits where a '" + kindName +
+                                           "' belongs, so the header and the census name two classes." } );
+            }
+            else
+            {
+                const std::optional<AssetGuid> stated =
+                     file.Header ? std::optional<AssetGuid>( file.Header->Guid ) : std::nullopt;
+                std::vector<SubsystemVersion> versions =
+                     file.Header ? file.Header->Subsystems : std::vector<SubsystemVersion>{};
+                std::sort( versions.begin(), versions.end(),
+                           []( const SubsystemVersion& a, const SubsystemVersion& b ) { return a.Tag < b.Tag; } );
+                if ( row->Guid != stated || row->Versions != versions )
+                {
+                    problems.push_back(
+                         { RegistryDisagreement::Kind::StaleHeader, key,
+                           "'" + key + "' is recorded with GUID " +
+                                ( row->Guid ? AssetGuidToText( *row->Guid ) : std::string( "(none)" ) ) +
+                                " and its header states " +
+                                ( stated ? AssetGuidToText( *stated ) : std::string( "(none)" ) ) +
+                                " (or other versions), so a reference by GUID would resolve through a row "
+                                "that is not this file's." +
+                                kRemedy } );
+                }
             }
 
             if ( row->Size != file.Size )

@@ -138,3 +138,34 @@ TEST( TextAssetHeader, AFileWhoseFirstMemberIsNotTheHeaderIsNotClaimed )
     ASSERT_FALSE( cut );
     EXPECT_NE( cut.GetError().find( "ends inside the header" ), std::string::npos ) << cut.GetError();
 }
+
+// AF7: the registry cook RECORDS a header it cannot judge - an unknown tag, a newer version - and the
+// build that loads the body refuses it. A malformed header is refused either way, and a file no format
+// claims is "states no header", not an error.
+TEST( TextAssetHeader, RecordOnlyKeepsVersionsItCannotJudgeAndStillRefusesAMalformedHeader )
+{
+    using namespace Common::Content;
+    TextAssetHeaderSerialized header = MakeTextHeader( ContentKind::Material, AssetGuid::Generate(), {} );
+    header.Versions["ZZZZ"]          = 9;
+    const AssetHeaderReadContext judging{ {} };
+    const AssetHeaderReadContext recording{ {}, true };
+    EXPECT_FALSE( TextHeaderToAssetHeader( header, judging ) );
+    const auto recorded = TextHeaderToAssetHeader( header, recording );
+    ASSERT_TRUE( recorded ) << recorded.GetError();
+    ASSERT_EQ( recorded.GetValue().Subsystems.size(), 1u );
+    EXPECT_EQ( recorded.GetValue().Subsystems[0].Version, 9u );
+
+    header.Guid = "00000000000000000000000000000000";
+    EXPECT_FALSE( TextHeaderToAssetHeader( header, recording ) ) << "RecordOnly never admits a null GUID";
+
+    const auto dir = std::filesystem::temp_directory_path() / "af7_record_only";
+    std::filesystem::create_directories( dir );
+    {
+        std::ofstream( dir / "plain.dshader" ) << "Shader \"X\" {}";
+    }
+    const auto none = ReadAssetHeaderIfStated( dir / "plain.dshader", recording );
+    ASSERT_TRUE( none ) << none.GetError();
+    EXPECT_FALSE( none.GetValue().has_value() );
+    EXPECT_FALSE( ReadAssetHeader( dir / "plain.dshader", recording ) );
+    std::filesystem::remove_all( dir );
+}

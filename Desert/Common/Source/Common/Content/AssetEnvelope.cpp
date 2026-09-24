@@ -393,6 +393,11 @@ namespace Common::Content
             }
             const auto known = std::find_if( context.KnownSubsystems.begin(), context.KnownSubsystems.end(),
                                              [&]( const SubsystemVersion& k ) { return k.Tag == stamped.Tag; } );
+            if ( context.RecordOnly )
+            {
+                out.Asset.Subsystems.push_back( stamped );
+                continue;
+            }
             if ( known == context.KnownSubsystems.end() )
                 return MakeFormattedError<Out>(
                      "asset envelope: subsystem '{}' (version {}) is unknown to this build",
@@ -564,12 +569,13 @@ namespace Common::Content
         return formats;
     }
 
-    ResultStr<AssetHeader> ReadAssetHeader( const std::filesystem::path&  file,
-                                            const AssetHeaderReadContext& context )
+    ResultStr<std::optional<AssetHeader>> ReadAssetHeaderIfStated( const std::filesystem::path&  file,
+                                                                   const AssetHeaderReadContext& context )
     {
+        using Out = std::optional<AssetHeader>;
         std::ifstream in( file, std::ios::binary );
         if ( !in )
-            return MakeFormattedError<AssetHeader>( "asset header: cannot open '{}'", file.string() );
+            return MakeFormattedError<Out>( "asset header: cannot open '{}'", file.string() );
         std::array<std::byte, ASSET_HEADER_SNIFF_BYTES> leading{};
         in.read( reinterpret_cast<char*>( leading.data() ), static_cast<std::streamsize>( leading.size() ) );
         const auto sniffed =
@@ -582,11 +588,22 @@ namespace Common::Content
                 continue;
             auto header = format->ReadHeader( in, context );
             if ( !header )
-                return MakeFormattedError<AssetHeader>( "{} ('{}', {})", header.GetError(), file.string(),
-                                                        format->Name() );
-            return header;
+                return MakeFormattedError<Out>( "{} ('{}', {})", header.GetError(), file.string(), format->Name() );
+            return MakeSuccess( Out( std::move( header.GetValue() ) ) );
         }
-        return MakeFormattedError<AssetHeader>( "asset header: no header format recognises '{}'", file.string() );
+        return MakeSuccess( Out() );
+    }
+
+    ResultStr<AssetHeader> ReadAssetHeader( const std::filesystem::path&  file,
+                                            const AssetHeaderReadContext& context )
+    {
+        auto stated = ReadAssetHeaderIfStated( file, context );
+        if ( !stated )
+            return MakeError<AssetHeader>( stated.GetError() );
+        if ( !stated.GetValue() )
+            return MakeFormattedError<AssetHeader>( "asset header: no header format recognises '{}'",
+                                                    file.string() );
+        return MakeSuccess( *stated.GetValue() );
     }
 
     std::vector<std::byte> EncodeEnvelopeMeta( const EnvelopeMeta& meta )

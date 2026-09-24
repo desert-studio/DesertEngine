@@ -52,8 +52,10 @@
 // converge after one session rather than being wrong for ever; this tool carries them across a cook.
 //
 // So `check` asserts what this tool can honestly know: that the set of rows and the set of content
-// files on disk are the same set, and that each row's recorded size is the file's size. It does not
-// assert the identity column, because a tool that cannot compute a value must not judge it.
+// files on disk are the same set, that each row's recorded size is the file's size, and that each row's
+// HEADER column (GUID and subsystem versions) is what the file's own header states — read without the
+// body, as UE's asset registry reads a package summary (AF7). It does not assert the u64 identity column,
+// because a tool that cannot compute a value must not judge it.
 
 #include <ToolMain.hpp>
 
@@ -201,6 +203,23 @@ namespace
             entry.Key  = key;
             entry.Kind = std::string( Common::Content::KindName( file.Kind ) );
             entry.Size = file.Size;
+            // THE HEADER COLUMN IS READ FROM THE FILE'S HEADER, never carried: it is the one identity this
+            // tool can compute without the body. A header that is there and unreadable stops the cook -
+            // writing the row without it would publish "this file states no GUID", which is false.
+            if ( !file.HeaderError.empty() )
+                return Fail( key + ": " + file.HeaderError );
+            if ( file.Header )
+            {
+                if ( file.Header->Kind != file.Kind )
+                    return Fail( key + ": its header states kind '" +
+                                 std::string( Common::Content::KindName( file.Header->Kind ) ) +
+                                 "' and it sits where a '" + entry.Kind + "' belongs" );
+                entry.Guid     = file.Header->Guid;
+                entry.Versions = file.Header->Subsystems;
+                std::sort( entry.Versions.begin(), entry.Versions.end(),
+                           []( const Common::Content::SubsystemVersion& a, const Common::Content::SubsystemVersion& b )
+                           { return a.Tag < b.Tag; } );
+            }
             if ( const Common::Utils::AssetRegistryEntry* old = previous.FindByKey( key ) )
             {
                 entry.Identity     = old->Identity;

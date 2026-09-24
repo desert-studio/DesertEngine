@@ -105,9 +105,15 @@ namespace Common::Content
     // What the reading build knows. A file stamped with a subsystem this build has never heard of, or
     // with a NEWER version than it knows, is refused: decoding it with older code would read a layout
     // that code was not written for (UE refuses such a package for the same reason).
+    //
+    // RECORDING IS NOT READING. The asset registry is cooked by a tool that links `Common` only and so
+    // cannot know the engine's subsystem versions; it RECORDS what a header states (kind, GUID, versions)
+    // and the build that loads the body judges them. `RecordOnly` is that one caller's question, and it
+    // never lets a header through that is malformed: kind, GUID and tag shape are checked all the same.
     struct AssetHeaderReadContext
     {
         std::span<const SubsystemVersion> KnownSubsystems;
+        bool                              RecordOnly = false;
     };
 
     enum class EnvelopeSection : uint32_t
@@ -208,6 +214,12 @@ namespace Common::Content
     // recognises them read the header, and refuses a file no format claims.
     ResultStr<AssetHeader> ReadAssetHeader( const std::filesystem::path&  file,
                                             const AssetHeaderReadContext& context );
+
+    // The same, for a caller walking content of every kind: std::nullopt when NO format claims the file
+    // (a shader, a font - content that states no header), an error when one claims it and the header is
+    // bad. The two are different answers and the registry cook must not fold the second into the first.
+    ResultStr<std::optional<AssetHeader>> ReadAssetHeaderIfStated( const std::filesystem::path&  file,
+                                                                   const AssetHeaderReadContext& context );
 
     // The Meta section's contents. Bounds are in world units (centimetres); absent for kinds that have
     // no spatial extent (a string table, an anim graph).
