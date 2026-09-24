@@ -367,7 +367,8 @@ namespace
         view.ViewProj = glm::perspective( glm::radians( 60.0f ), 1.0f, 1.0f, 10000.0f ) *
                         glm::lookAt( eye, glm::vec3( 0.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ) );
         view.ViewportSize = { 512.0f, 512.0f };
-        EXPECT_TRUE( ProjectToViewport( target, view.ViewProj, view.ViewportPos, view.ViewportSize, view.Cursor ) );
+        EXPECT_TRUE(
+             ProjectToViewport( target, view.ViewProj, view.ViewportPos, view.ViewportSize, view.Cursor ) );
         view.RayOrigin    = eye;
         view.RayDirection = glm::normalize( target - eye );
         return view;
@@ -400,10 +401,10 @@ TEST( DynamicMeshSelection, GroupEdgePickSkipsTheDiagonalInsideAGroup )
         }
     }
     ASSERT_GE( diagonal, 0 );
-    const FIndex2i  ev  = p->New.GetEdgeV( diagonal );
-    const glm::vec3 mid = 0.5f * ( At( p->New, ev.A ) + At( p->New, ev.B ) );
-    const PickView  view = ViewThrough( { 0.0f, 0.0f, 400.0f }, mid );
-    const ElementHit tri = PickElement( p->New, p->Topology, ElementMode::Edge, view, TopologyLevel::Triangle );
+    const FIndex2i   ev   = p->New.GetEdgeV( diagonal );
+    const glm::vec3  mid  = 0.5f * ( At( p->New, ev.A ) + At( p->New, ev.B ) );
+    const PickView   view = ViewThrough( { 0.0f, 0.0f, 400.0f }, mid );
+    const ElementHit tri  = PickElement( p->New, p->Topology, ElementMode::Edge, view, TopologyLevel::Triangle );
     ASSERT_TRUE( tri.IsHit() );
     EXPECT_EQ( tri.Id, diagonal );
     const ElementHit group = PickElement( p->New, p->Topology, ElementMode::Edge, view, TopologyLevel::Group );
@@ -414,7 +415,7 @@ TEST( DynamicMeshSelection, GroupEdgePickSkipsTheDiagonalInsideAGroup )
 // (found here by position, not through the topology) and nothing else.
 TEST( DynamicMeshSelection, GroupEdgePickSelectsEveryMeshEdgeOfTheGroupEdge )
 {
-    auto p = Build( SplitCube() );
+    auto          p = Build( SplitCube() );
     std::set<int> alongCubeEdge;
     for ( const int e : p->New.EdgeIndicesItr() )
     {
@@ -440,7 +441,7 @@ TEST( DynamicMeshSelection, GroupVertexPickIsAGroupCorner )
     ASSERT_EQ( p->Topology.Corners.Num(), 8 );
     const glm::vec3  centre( 0.0f, 0.0f, 50.0f );
     const PickView   front = ViewThrough( { 0.0f, 0.0f, 400.0f }, centre );
-    const ElementHit tri   = PickElement( p->New, p->Topology, ElementMode::Vertex, front, TopologyLevel::Triangle );
+    const ElementHit tri = PickElement( p->New, p->Topology, ElementMode::Vertex, front, TopologyLevel::Triangle );
     ASSERT_TRUE( tri.IsHit() );
     EXPECT_EQ( At( p->New, tri.Id ), centre );
     EXPECT_FALSE( PickElement( p->New, p->Topology, ElementMode::Vertex, front, TopologyLevel::Group ).IsHit() );

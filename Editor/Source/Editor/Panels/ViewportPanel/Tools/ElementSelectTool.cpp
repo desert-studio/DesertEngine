@@ -216,7 +216,7 @@ namespace Desert::Editor::Tools
             view.Cursor                    = viewportPos + viewportSize * 0.5f;
             view.RayOrigin                 = centre.Origin;
             view.RayDirection              = centre.Direction;
-            hover                          = Geometry::PickElement( mesh, topology, state.Mode(), view, state.Level() );
+            hover = Geometry::PickElement( mesh, topology, state.Mode(), view, state.Level() );
         }
         else if ( hovered )
         {
@@ -280,7 +280,8 @@ namespace Desert::Editor::Tools
             if ( hover.IsHit() )
             {
                 // A group edge is all of its mesh edges (HitElements), added or removed together.
-                const std::vector<int> picked = Geometry::HitElements( topology, state.Mode(), state.Level(), hover );
+                const std::vector<int> picked =
+                     Geometry::HitElements( topology, state.Mode(), state.Level(), hover );
                 if ( !pickCentre && io.KeyCtrl )
                 {
                     for ( const int id : picked )
@@ -291,7 +292,8 @@ namespace Desert::Editor::Tools
                 {
                     for ( const int id : picked )
                         if ( auto added = next.Add( mesh, id ); !added.IsSuccess() )
-                            // PickElement returned it from this very mesh; a refusal here is a defect worth seeing.
+                            // PickElement returned it from this very mesh; a refusal here is a defect worth
+                            // seeing.
                             LOG_ERROR( "[Mesh Selection] {0}", added.GetError() );
                     if ( !pickCentre && io.KeyShift )
                         label = "Mesh Selection: Add";

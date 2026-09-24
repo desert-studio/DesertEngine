@@ -35,12 +35,12 @@ namespace Desert::Geometry
     // @p topology is FGroupTopology( &mesh, true ): MeshElementSelection keeps the two together. The hit's Id is
     // a mesh ID in every mode and level (a group edge's picked SEGMENT, a corner's vertex); HitElements turns it
     // into what a click selects.
-    [[nodiscard]] ElementHit PickElement( const FDynamicMesh3& mesh, const FGroupTopology& topology, ElementMode mode,
-                                          const PickView& view, TopologyLevel level );
+    [[nodiscard]] ElementHit PickElement( const FDynamicMesh3& mesh, const FGroupTopology& topology,
+                                          ElementMode mode, const PickView& view, TopologyLevel level );
     // The mesh IDs a hit selects: at the Group level an Edge hit is every mesh edge of its group edge
     // (GetGroupEdgeEdges); otherwise the hit's own ID. Empty for a miss.
-    [[nodiscard]] std::vector<int> HitElements( const FGroupTopology& topology, ElementMode mode, TopologyLevel level,
-                                                const ElementHit& hit );
+    [[nodiscard]] std::vector<int> HitElements( const FGroupTopology& topology, ElementMode mode,
+                                                TopologyLevel level, const ElementHit& hit );
     [[nodiscard]] ElementSelection ConvertSelection( const FDynamicMesh3& mesh, const FGroupTopology& topology,
                                                      const ElementSelection& selection, ElementMode target );
     [[nodiscard]] ElementSelection SelectConnected( const FDynamicMesh3& mesh, const FGroupTopology& topology,

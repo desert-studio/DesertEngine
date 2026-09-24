@@ -122,7 +122,7 @@ namespace Desert::Editor::Core
         // topology was built from alive, so pointer identity cannot be reused under it.
         std::unique_ptr<const Geometry::FGroupTopology> m_Topology;
         Geometry::ElementSelection                m_Selection{ Geometry::ElementMode::PolyGroup };
-        Geometry::TopologyLevel                   m_Level = Geometry::TopologyLevel::Group;
+        Geometry::TopologyLevel                         m_Level = Geometry::TopologyLevel::Group;
         Geometry::PruneReport                     m_LastDropped;
         int                                       m_TotalDropped = 0;
     };
