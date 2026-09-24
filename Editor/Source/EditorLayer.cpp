@@ -7049,13 +7049,27 @@ namespace Desert::Editor
         // write SerializeToJson() itself, which was the same save spelled twice — and the moment the save
         // grew a step (a landscape writes its tile files beside the scene before the scene names them),
         // this copy would have written a .desce naming tile files that were never written.
+        const auto previousHeader = ForgetAssetIdentityUnlessSameFile( path );
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
         if ( const auto written = serializer.SaveToFile( Common::Filepath( path ) ); !written )
         {
+            // Nothing was written, so the scene is still the asset it was.
+            m_MainScene->SetAssetHeader( previousHeader );
             LOG_ERROR( "[Scene] Could not write '{}': {}", path, written.GetError() );
             return false;
         }
         return true;
+    }
+
+    std::optional<Common::Content::TextAssetHeaderSerialized>
+    EditorLayer::ForgetAssetIdentityUnlessSameFile( const std::string& destination )
+    {
+        auto previous = m_MainScene->GetAssetHeader();
+        // A save under another path is a new asset (Rules::SaveKeepsAssetIdentity): dropping the header
+        // makes the serializer mint a fresh GUID instead of copying this one into a second file.
+        if ( !Editor::Core::Rules::SaveKeepsAssetIdentity( m_OpenScenePath.generic_string(), destination ) )
+            m_MainScene->SetAssetHeader( std::nullopt );
+        return previous;
     }
 
     Common::Filepath EditorLayer::SceneSaveDestination() const
@@ -7071,10 +7085,13 @@ namespace Desert::Editor
 
     bool EditorLayer::SaveOpenScene()
     {
-        const Common::Filepath destination = SceneSaveDestination();
-        const auto             verdict     = Editor::Core::Rules::DecideAfterSceneSave(
+        const Common::Filepath destination    = SceneSaveDestination();
+        const auto             previousHeader = ForgetAssetIdentityUnlessSameFile( destination.generic_string() );
+        const auto             verdict        = Editor::Core::Rules::DecideAfterSceneSave(
              m_MainScene->Serialize( m_AssetManager.get(), destination ), m_MainScene->GetSceneName(),
              destination.string() );
+        if ( !verdict.MarkSceneSaved )
+            m_MainScene->SetAssetHeader( previousHeader );
 
         if ( verdict.MarkSceneSaved )
         {
