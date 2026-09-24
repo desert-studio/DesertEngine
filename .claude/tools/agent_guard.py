@@ -134,6 +134,7 @@ def self_check():
         "make -j8": {"tool_name": "Bash", "tool_input": {"command": "make Editor -j8"}},
         "editor without cap": {"tool_name": "Bash", "tool_input": {"command": "cd Editor && ../build/Bin/Debug/Editor"}},
         "explore not on haiku": {"tool_name": "Agent", "tool_input": {"subagent_type": "Explore", "prompt": "x"}},
+        "agent spawns a worker": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "x"}},
         "code before map": {"tool_name": "Bash", "tool_input": {"command": "grep -n Foo Desert/X.cpp"}},
         "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
@@ -192,6 +193,13 @@ def main():
             save_state(state, path)
             deny(f"[agent_guard] Лимит {TURN_LIMIT} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, "
                  f"отчитайся тимлиду; остаток он отдаст свежему агенту.", data, agent)
+
+    # Owner's rule: at most three programme agents. A sub-agent that spawns a general worker is a fourth
+    # (2026-09-24: P10e spawned "P10e code" and the machine ran five). Only Explore (discovery) is allowed.
+    if tool == "Agent" and (tin.get("subagent_type") or "general-purpose").lower() != "explore":
+        save_state(state, path)
+        deny("[agent_guard] Агент не запускает других агентов, кроме Explore на haiku: владелец разрешил не больше "
+             "трёх агентов программ. Делай работу сам; не влезает в лимит — коммит, пуш, отчёт тимлиду.", data, agent)
 
     # --- Economy rules measured on the ledger (owner 2026-09-24: «сделай так, чтобы агенты опять не НЕ исполнили») ---
     if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore" and \
