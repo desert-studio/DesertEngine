@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "6c3811d1b67d0cd37685fdcb4dd5b97e",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 27,
             "UNIT": 1
         },
         "Dependencies": []
@@ -49,7 +49,7 @@
             "Scale": [40.0, 0.20000000298023224, 40.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -62,7 +62,7 @@
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/MP_HandUnlit.demat"],
-                "MaterialGuids": [8888888888888888888],
+                "MaterialGuids": ["58b25001fd9a29362681f26b0c4ebf67"],
                 "Primitive": "Cube"
             }
         },
@@ -75,7 +75,7 @@
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595],
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
                 "Primitive": "Cube"
             }
         },

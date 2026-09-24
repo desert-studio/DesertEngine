@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "b88171deaf99325a1a3fc07cc29773fb",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 27,
             "UNIT": 1
         },
         "Dependencies": []
@@ -83,7 +83,7 @@
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/MP_Unlit.demat"],
-                "MaterialGuids": [4444444444444444444],
+                "MaterialGuids": ["5d471f9abf28a145fb71c73153860d68"],
                 "Primitive": "Sphere"
             }
         },

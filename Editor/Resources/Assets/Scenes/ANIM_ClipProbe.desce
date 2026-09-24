@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "43d90bf109f432210eee3c1119c190d2",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 27,
             "UNIT": 1
         },
         "Dependencies": []
@@ -49,7 +49,7 @@
             "Scale": [24.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -64,7 +64,7 @@
                 "MeshPath": "Cooked/Meshes/SkinProbe.skmesh",
                 "MeshGuid": -2180280456575790904,
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595]
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
             "Animation": {
                 "CurrentClip": "SkinProbe_Hover",
@@ -83,7 +83,7 @@
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595]
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             }
         },
         {
@@ -97,7 +97,7 @@
                 "MeshPath": "Cooked/Meshes/SkinProbe.skmesh",
                 "MeshGuid": -2180280456575790904,
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595]
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
             "Animation": {
                 "CurrentClip": "SkinProbe_Tilt",

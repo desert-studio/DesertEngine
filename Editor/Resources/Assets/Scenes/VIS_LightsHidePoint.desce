@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "06695f38e3e0dbc129c4f0cb65530468",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 27,
             "UNIT": 1
         },
         "Dependencies": []
@@ -19,7 +19,7 @@
             "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595],
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
                 "Primitive": "Cube"
             }
         },
@@ -32,7 +32,7 @@
             "Scale": [6.0, 6.0, 0.20000000298023224],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -45,7 +45,7 @@
             "Scale": [1.600000023841858, 1.600000023841858, 1.600000023841858],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_Glass.demat"],
-                "MaterialGuids": [-6646380836065174149],
+                "MaterialGuids": ["b7de7b6da944bded0382e39126712944"],
                 "Primitive": "Sphere"
             }
         },
@@ -58,7 +58,7 @@
             "Scale": [0.20000000298023224, 6.0, 6.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_Red.demat"],
-                "MaterialGuids": [6268404635080857860],
+                "MaterialGuids": ["e04d99eaf3ddd30e0184e38e5c3bcc57"],
                 "Primitive": "Cube"
             }
         },
@@ -102,7 +102,7 @@
             "Scale": [6.0, 0.20000000298023224, 6.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -115,7 +115,7 @@
             "Scale": [0.20000000298023224, 6.0, 6.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_Green.demat"],
-                "MaterialGuids": [308002897746384934],
+                "MaterialGuids": ["91bde2ac45c15dd230d961a447b6fba7"],
                 "Primitive": "Cube"
             }
         },

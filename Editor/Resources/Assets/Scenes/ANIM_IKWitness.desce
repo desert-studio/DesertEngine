@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "61dd81434856d2beae1e32fff4b9a93d",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 27,
             "UNIT": 1
         },
         "Dependencies": []
@@ -51,7 +51,7 @@
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
                 "MeshGuid": 556331627295699705,
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595]
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
             "Animation": {
                 "CurrentClip": "IKProbe_Swing",
@@ -71,7 +71,7 @@
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
                 "MeshGuid": 556331627295699705,
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595]
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
             "Animation": {
                 "CurrentClip": "IKProbe_Swing",
@@ -97,7 +97,7 @@
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
                 "MeshGuid": 556331627295699705,
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595]
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
             "Animation": {
                 "CurrentClip": "IKProbe_Swing",
@@ -123,7 +123,7 @@
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
                 "MeshGuid": 556331627295699705,
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595]
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
             "Animation": {
                 "CurrentClip": "IKProbe_Swing",
@@ -149,7 +149,7 @@
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
                 "MeshGuid": 556331627295699705,
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595]
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
             "Animation": {
                 "CurrentClip": "IKProbe_Swing",
@@ -167,7 +167,7 @@
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -180,7 +180,7 @@
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -193,7 +193,7 @@
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -206,7 +206,7 @@
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -219,7 +219,7 @@
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },

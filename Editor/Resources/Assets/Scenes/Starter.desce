@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "2da2387a87064ed6bd33c61d6d5a7fc7",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 27,
             "UNIT": 1
         },
         "Dependencies": []
@@ -35,7 +35,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_M_R40.demat"],
-                "MaterialGuids": [1569209127309681324],
+                "MaterialGuids": ["6336872c8642f7daeea018f4449c1529"],
                 "Primitive": "Sphere"
             }
         },
@@ -86,7 +86,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_M_R80.demat"],
-                "MaterialGuids": [4015749061921348516],
+                "MaterialGuids": ["e71ff67b2d1649e6d2787be69933b7d5"],
                 "Primitive": "Sphere"
             }
         },
@@ -99,7 +99,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_D_R100.demat"],
-                "MaterialGuids": [-6180756855449117347],
+                "MaterialGuids": ["b15fb21e65ca9e9e574fd69d1aa31877"],
                 "Primitive": "Sphere"
             }
         },
@@ -112,7 +112,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Prop.demat"],
-                "MaterialGuids": [-3971208191954412172],
+                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Cube"
             }
         },
@@ -125,7 +125,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_D_R40.demat"],
-                "MaterialGuids": [-4018139824822447784],
+                "MaterialGuids": ["1ff7bf41d54b6c595b934944215d82aa"],
                 "Primitive": "Sphere"
             }
         },
@@ -138,7 +138,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Emissive.demat"],
-                "MaterialGuids": [4026564876139847258],
+                "MaterialGuids": ["b272c29047a884c02a065b782ae62ea5"],
                 "Primitive": "Cube"
             }
         },
@@ -151,7 +151,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_M_R100.demat"],
-                "MaterialGuids": [-6298148867819613703],
+                "MaterialGuids": ["88204c80060d80e7ebf5173d38f05fae"],
                 "Primitive": "Sphere"
             }
         },
@@ -164,7 +164,7 @@
             "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Prop.demat"],
-                "MaterialGuids": [-3971208191954412172],
+                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Capsule"
             }
         },
@@ -177,7 +177,7 @@
             "Scale": [24.0, 0.20000000298023224, 24.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": [2985334364344323355],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
         },
@@ -190,7 +190,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_M_R20.demat"],
-                "MaterialGuids": [-5447928416890261483],
+                "MaterialGuids": ["1d329766c5c4c2d83fcfdafc37df272b"],
                 "Primitive": "Sphere"
             }
         },
@@ -203,7 +203,7 @@
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Glass.demat"],
-                "MaterialGuids": [-5518256086626395572],
+                "MaterialGuids": ["02a74d5bec4236c300fc86c6c13a97a8"],
                 "Primitive": "Sphere"
             }
         },
@@ -216,7 +216,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_M_R0.demat"],
-                "MaterialGuids": [-8389326999800573865],
+                "MaterialGuids": ["582f0def2b00efe8f1018b02af8340dd"],
                 "Primitive": "Sphere"
             }
         },
@@ -241,7 +241,7 @@
             "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Prop.demat"],
-                "MaterialGuids": [-3971208191954412172],
+                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Cylinder"
             }
         },
@@ -268,7 +268,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_M_R60.demat"],
-                "MaterialGuids": [-5054174254954205526],
+                "MaterialGuids": ["d85d458cca28da444ac2939074e0b757"],
                 "Primitive": "Sphere"
             }
         },
@@ -281,7 +281,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_D_R60.demat"],
-                "MaterialGuids": [-5431013652430687940],
+                "MaterialGuids": ["d27106039e9adb87a41069d7ce898854"],
                 "Primitive": "Sphere"
             }
         },
@@ -294,7 +294,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_D_R0.demat"],
-                "MaterialGuids": [-1637594263092474605],
+                "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
                 "Primitive": "Sphere"
             }
         },
@@ -307,7 +307,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_D_R20.demat"],
-                "MaterialGuids": [7023486545201786888],
+                "MaterialGuids": ["731f4f827c7b881bed18f470df8653e8"],
                 "Primitive": "Sphere"
             }
         },
@@ -320,7 +320,7 @@
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/PBR_D_R80.demat"],
-                "MaterialGuids": [4689765669016845411],
+                "MaterialGuids": ["a849328dedac15852ea59eb6cc7e4176"],
                 "Primitive": "Sphere"
             }
         },
