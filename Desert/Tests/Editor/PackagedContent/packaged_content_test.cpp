@@ -1671,7 +1671,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
         WriteFile( Common::Utils::AssetRegistry::DefaultPath(), projectRegistry.Serialize() );
     }
     // THIS project's registry, not whatever an earlier case left in the process-wide one.
-    ASSERT_TRUE( Desert::Assets::ContentRegistry::Load().IsSuccess() );
+    ASSERT_TRUE( Desert::Assets::ContentRegistry::LoadCooked().IsSuccess() );
 
     const auto result = Desert::Editor::BuildContentPak();
     ASSERT_TRUE( result.Success ) << result.Message;
@@ -1685,7 +1685,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
     ASSERT_TRUE(
          Desert::Project::ProjectContext::Open( ( pkg / Desert::Project::kPackagedDescriptorName ).string() ) );
-    ASSERT_TRUE( Desert::Assets::ContentRegistry::Load().IsSuccess() );
+    ASSERT_TRUE( Desert::Assets::ContentRegistry::LoadCooked().IsSuccess() );
 
     const auto textures = PackagedTexturesBySourceKey();
     for ( const char* key :
@@ -1782,7 +1782,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     Common::Utils::VFS::Unmount();
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
-    ASSERT_TRUE( Desert::Assets::ContentRegistry::Load().IsSuccess() );
+    ASSERT_TRUE( Desert::Assets::ContentRegistry::LoadCooked().IsSuccess() );
     const auto again = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
     EXPECT_EQ( again.TexturesCooked, 0u ) << "an unchanged source was cooked again";
     EXPECT_EQ( again.TexturesCached, 3u );
