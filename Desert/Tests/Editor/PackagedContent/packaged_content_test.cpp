@@ -1607,7 +1607,7 @@ namespace
             EXPECT_EQ( static_cast<uint64_t>( decoded.GetValue().Handle ), 0u ) << file.string();
             EXPECT_TRUE( decoded.GetValue().SourcePath.empty() ) << file.string();
             auto data   = decoded.ExtractValue();
-            data.Handle = key.GetValue().Handle;
+            data.Handle = Common::Content::HandleForGuid( key.GetValue().Guid );
             out.emplace( key.GetValue().SourceFile, std::move( data ) );
         }
         return out;
@@ -1695,9 +1695,11 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
         EXPECT_EQ( checker->second.Format, Desert::Core::Formats::ImageFormat::BC7_UNORM );
         EXPECT_EQ( checker->second.Width, 1024u );
         EXPECT_EQ( checker->second.LevelCount(), 11u ); // floor(log2(1024)) + 1
-        // The number M_CheckerFloor.demat names: derived from the source's key, so a package cooked on any
-        // machine agrees with the material without a committed `.tex` to carry it.
-        EXPECT_EQ( static_cast<uint64_t>( checker->second.Handle ), 4588246833979984450ull );
+        // The handle is the shipped `.detex` header GUID's (T6a), not a number derived from a path: the
+        // package names the checker by the same identity the editor asset states, on any machine.
+        const auto shippedKey = Desert::Assets::ReadTextureAssetKey( shipped / "Textures" / "T_Checker.detex" );
+        ASSERT_TRUE( shippedKey ) << shippedKey.GetError();
+        EXPECT_EQ( checker->second.Handle, Common::Content::HandleForGuid( shippedKey.GetValue().Guid ) );
     }
     if ( const auto sky = textures.find( "assets:Textures/HDR/PreviewCheck.hdr" ); sky != textures.end() )
     {
