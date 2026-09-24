@@ -5,8 +5,10 @@ The canonical writer changed only LAYOUT: key order, whitespace, number spelling
 document differs from the one at the base ref therefore changed CONTENT, and this names it. The only
 content change AF6 made on purpose are scene v25 (AF6c): records sorted by id, each stating `siblingIndex`,
 and the version integer raised; and the text header (AF6g/AF6h): scene v26, prefabs and .demat files open
-with a Header stating kind, GUID and versions in place of the two integers. Those are normalised away below
-- nothing else is.
+with a Header stating kind, GUID and versions in place of the two integers. Scene v27 (AF7h) states each
+material slot as the material's GUID text in place of the 64-bit handle; against a base that already carries
+the header, that is normalised away only when the handle -> GUID pairing is one-to-one across the whole corpus
+and every GUID is a .demat header's. Those are normalised away below - nothing else is.
 
 Run from anywhere inside the repository:
     python3 Desert/Tests/Common/CanonicalText/compare_corpus.py [base-ref]
@@ -100,6 +102,49 @@ def strip_text_header(old, new, ext):
     return True
 
 
+_SLOT_PAIRS = {}  # old MaterialGuids handle -> new GUID text, gathered over every SCNE 26 -> 27 file
+
+
+def swap_material_slots(old, new):
+    """Replaces every MaterialGuids list in `old` by the one at the same place in `new` when the lengths agree,
+    recording each handle -> GUID pair. False when the two documents do not line up."""
+    if isinstance(old, dict) and isinstance(new, dict):
+        for key, value in old.items():
+            if key == "MaterialGuids" and isinstance(value, list) and isinstance(new.get(key), list):
+                if len(value) != len(new[key]) or not all(isinstance(g, str) for g in new[key]):
+                    return False
+                for handle, guid in zip(value, new[key]):
+                    _SLOT_PAIRS.setdefault(handle, set()).add(guid)
+                old[key] = list(new[key])
+            elif key in new and not swap_material_slots(value, new[key]):
+                return False
+    elif isinstance(old, list) and isinstance(new, list):
+        return all(swap_material_slots(a, b) for a, b in zip(old, new))
+    return True
+
+
+def strip_scene_v27(old, new, ext):
+    """SCNE 26 -> 27 (AF7h) against a base that already states the header: the version and the slot spelling
+    are the only change. True when normalised; the pairing itself is judged once the corpus is read."""
+    if ext not in (".desce", ".deprefab") or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_v = old.get("Header", {}).get("Versions", {})
+    new_v = new.get("Header", {}).get("Versions", {})
+    if old_v.get("SCNE") != 26 or new_v.get("SCNE") != 27:
+        return False
+    old_v["SCNE"] = 27
+    return swap_material_slots(old, new)
+
+
+def material_header_guids(root, files):
+    guids = set()
+    for path in files:
+        if path.endswith(".demat"):
+            with open(f"{root}/{path}", "rb") as f:
+                guids.add(json.loads(f.read()).get("Header", {}).get("Guid"))
+    return guids
+
+
 def main():
     base = sys.argv[1] if len(sys.argv) > 1 else "origin/task/AF2-cells-envelope"
     root = git("rev-parse", "--show-toplevel").decode().strip()
@@ -115,6 +160,13 @@ def main():
         old = json.loads(git("-C", root, "show", f"{base}:{path}"))
         with open(f"{root}/{path}", "rb") as f:
             new = json.loads(f.read())
+        if isinstance(old, dict) and "Header" in old:
+            # The base is past AF6: both sides state the header, and only AF7h's slot spelling may differ.
+            strip_scene_v27(old, new, ext)
+            if old != new:
+                differ.append(path)
+            compared += 1
+            continue
         header_ok = strip_text_header(old, new, ext)
         stated = isinstance(new, dict) and new.get("SceneVersion", 26 if header_ok else None)
         raised = isinstance(old, dict) and isinstance(new, dict) and old.get("SceneVersion") == 24 and \
@@ -123,10 +175,22 @@ def main():
             differ.append(path)
         compared += 1
 
+    known = material_header_guids(root, files)
+    for handle, guids in sorted(_SLOT_PAIRS.items(), key=lambda kv: str(kv[0])):
+        if len(guids) != 1:
+            differ.append(f"handle {handle} became {len(guids)} GUIDs: {sorted(guids)}")
+    by_guid = {}
+    for handle, guids in _SLOT_PAIRS.items():
+        for guid in guids:
+            by_guid.setdefault(guid, set()).add(handle)
+            if guid not in known:
+                differ.append(f"slot GUID {guid} (was handle {handle}) names no .demat header")
+    differ += [f"GUID {g} came from {len(h)} handles" for g, h in by_guid.items() if len(h) != 1]
+
     for path in differ:
         print(f"DIFFERS {path}")
     print(f"compare_corpus: {compared} file(s) compared against {base}, {len(differ)} differ, "
-          f"{fresh} new since it")
+          f"{fresh} new since it; {len(_SLOT_PAIRS)} slot handle(s) paired to a GUID")
     return 1 if differ else 0
 
 
