@@ -197,34 +197,161 @@ namespace Common::Content
         return described;
     }
 
+    namespace
+    {
+        // THE ONE WALK over the census roots; the scan and the gather differ only in what they do per file.
+        template <class Visit>
+        void ForEachContentFile( Visit&& visit )
+        {
+            for ( std::size_t i = 0; i < CONTENT_KIND_COUNT; ++i )
+            {
+                const auto            kind = static_cast<ContentKind>( i );
+                const ContentKindSpec spec = KindSpec( kind );
+
+                // Through `ListFilesRecursive` and not a bare iterator, because that primitive is the one
+                // that also sees what a mounted `.dpak` holds — a packaged game's content directories do
+                // not exist on disk at all. The font and icon services each hand-rolled the disk half once,
+                // and a packaged game scanned nothing.
+                for ( const std::filesystem::path& candidate :
+                      Utils::FileSystem::ListFilesRecursive( *spec.Root ) )
+                {
+                    // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
+                    // kind whose root is the LONGEST that contains it, never to whichever row was walked first.
+                    if ( LowerExtension( candidate ) != spec.Extension || KindOfContentFile( candidate ) != kind )
+                        continue;
+
+                    const std::string key = AssetHandle::StableKeyForPath( candidate );
+                    if ( key.empty() )
+                        continue;
+
+                    visit( candidate, kind, key );
+                }
+            }
+        }
+
+        std::int64_t ModifiedTime( const std::filesystem::path& file )
+        {
+            std::error_code ec;
+            const auto      stamp = std::filesystem::last_write_time( file, ec );
+            return ec ? 0 : static_cast<std::int64_t>( stamp.time_since_epoch().count() );
+        }
+
+        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 1";
+    } // namespace
+
     std::map<std::string, ContentFile> ScanContentRoots()
     {
         std::map<std::string, ContentFile> found;
-
-        for ( std::size_t i = 0; i < CONTENT_KIND_COUNT; ++i )
-        {
-            const auto            kind = static_cast<ContentKind>( i );
-            const ContentKindSpec spec = KindSpec( kind );
-
-            // Through `ListFilesRecursive` and not a bare iterator, because that primitive is the one
-            // that also sees what a mounted `.dpak` holds — a packaged game's content directories do
-            // not exist on disk at all. The font and icon services each hand-rolled the disk half once,
-            // and a packaged game scanned nothing.
-            for ( const std::filesystem::path& candidate : Utils::FileSystem::ListFilesRecursive( *spec.Root ) )
-            {
-                // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
-                // kind whose root is the LONGEST that contains it, never to whichever row was walked first.
-                if ( LowerExtension( candidate ) != spec.Extension || KindOfContentFile( candidate ) != kind )
-                    continue;
-
-                const std::string key = AssetHandle::StableKeyForPath( candidate );
-                if ( key.empty() )
-                    continue;
-
-                found.emplace( key, DescribeContentFile( candidate, kind ) );
-            }
-        }
+        ForEachContentFile( [&found]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
+                            { found.emplace( key, DescribeContentFile( file, kind ) ); } );
         return found;
+    }
+
+    std::filesystem::path RegistryCachePath()
+    {
+        return Constants::Path::CurrentProjectRoot().ProjectDir / "Intermediate" / "AssetRegistry.cache";
+    }
+
+    ResultStr<Utils::AssetRegistryEntry> RegistryRowFor( const std::string& key, const ContentFile& file )
+    {
+        Utils::AssetRegistryEntry entry;
+        entry.Key  = key;
+        entry.Kind = std::string( KindName( file.Kind ) );
+        entry.Size = file.Size;
+        // A header that is there and unreadable keeps the file out: a row without it would publish "this
+        // file states no GUID", which is false.
+        if ( !file.HeaderError.empty() )
+            return MakeFormattedError<Utils::AssetRegistryEntry>( "{}: {}", key, file.HeaderError );
+        if ( file.Header )
+        {
+            if ( file.Header->Kind != file.Kind )
+                return MakeFormattedError<Utils::AssetRegistryEntry>(
+                     "{}: its header states kind '{}' and it sits where a '{}' belongs", key,
+                     KindName( file.Header->Kind ), entry.Kind );
+            entry.Guid     = file.Header->Guid;
+            entry.Versions = file.Header->Subsystems;
+            std::sort( entry.Versions.begin(), entry.Versions.end(),
+                       []( const SubsystemVersion& a, const SubsystemVersion& b ) { return a.Tag < b.Tag; } );
+        }
+        return MakeSuccess( std::move( entry ) );
+    }
+
+    GatheredRegistry GatherContentRegistry( const RegistryCache& cache )
+    {
+        GatheredRegistry gathered;
+        ForEachContentFile(
+             [&]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
+             {
+                 const Utils::AssetRegistryEntry* cached   = cache.Registry.FindByKey( key );
+                 const auto                       modified = cache.Modified.find( key );
+                 if ( cached != nullptr && modified != cache.Modified.end() && cached->Kind == KindName( kind ) &&
+                      cached->Size == Utils::FileSystem::GetFileSize( file ) &&
+                      modified->second == ModifiedTime( file ) )
+                 {
+                     if ( const auto inserted = gathered.Registry.Insert( *cached ); !inserted )
+                         gathered.Refused.push_back( inserted.GetError() );
+                     else
+                         ++gathered.FromCache;
+                     return;
+                 }
+
+                 auto row = RegistryRowFor( key, DescribeContentFile( file, kind ) );
+                 if ( !row )
+                 {
+                     gathered.Refused.push_back( row.GetError() );
+                     return;
+                 }
+                 if ( const auto inserted = gathered.Registry.Insert( row.GetValue() ); !inserted )
+                     gathered.Refused.push_back( inserted.GetError() );
+                 else
+                     ++gathered.Read;
+             } );
+        return gathered;
+    }
+
+    std::string SerializeRegistryCache( const Utils::AssetRegistry& registry )
+    {
+        std::string text( kCacheMagic );
+        text += '\n';
+        for ( const Utils::AssetRegistryEntry& row : registry.Entries() )
+        {
+            text += std::to_string( ModifiedTime( AssetHandle::PathForStableKey( row.Key ) ) );
+            text += ' ';
+            text += row.Key;
+            text += '\n';
+        }
+        text += registry.Serialize();
+        return text;
+    }
+
+    ResultStr<RegistryCache> ParseRegistryCache( std::string_view text )
+    {
+        if ( !text.starts_with( kCacheMagic ) )
+            return MakeFormattedError<RegistryCache>( "not a registry cache: it does not begin '{}'",
+                                                      kCacheMagic );
+        const std::size_t registryAt = text.find( "\nDesertAssetRegistry " );
+        if ( registryAt == std::string_view::npos )
+            return MakeError<RegistryCache>( "the registry cache carries no registry" );
+
+        RegistryCache cache;
+        std::size_t   at = text.find( '\n' ) + 1;
+        while ( at <= registryAt )
+        {
+            const std::size_t      end   = text.find( '\n', at );
+            const std::string_view line  = text.substr( at, end - at );
+            const std::size_t      space = line.find( ' ' );
+            if ( space == std::string_view::npos )
+                return MakeFormattedError<RegistryCache>( "the registry cache line '{}' has no key", line );
+            cache.Modified.emplace( std::string( line.substr( space + 1 ) ),
+                                    std::stoll( std::string( line.substr( 0, space ) ) ) );
+            at = end + 1;
+        }
+
+        auto registry = Utils::AssetRegistry::Parse( text.substr( registryAt + 1 ) );
+        if ( !registry )
+            return MakeError<RegistryCache>( registry.GetError() );
+        cache.Registry = registry.GetValue();
+        return MakeSuccess( std::move( cache ) );
     }
 
     std::optional<std::map<std::string, ContentFile>> TrackedContent( const std::filesystem::path& repoRoot )

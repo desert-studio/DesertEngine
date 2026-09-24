@@ -659,7 +659,7 @@ namespace Desert::Editor
         // A REFUSAL ENDS THE RUN, on the terms §1.4 sets: an editor that starts with a registry it
         // could not parse is an editor showing an empty Content Browser over a project full of files,
         // and "looks almost right" is the failure mode that costs the most to find.
-        const auto registry = Assets::ContentRegistry::Load();
+        const auto registry = Assets::ContentRegistry::Gather();
         if ( !registry )
             return Common::MakeFormattedError( "the cooked asset registry: {}", registry.GetError() );
         LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",

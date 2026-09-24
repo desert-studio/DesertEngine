@@ -2,6 +2,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
 #include <cstdint>
@@ -65,6 +66,45 @@ namespace Common::Content
     [[nodiscard]] std::optional<ContentKind> KindOfContentFile( const std::filesystem::path& file );
 
     [[nodiscard]] std::map<std::string, ContentFile> ScanContentRoots();
+
+    // ── THE REGISTRY BUILDS ITSELF (UE: FAssetDataGatherer + CachedAssetRegistry.bin) ──────────────────
+    //
+    // The editor's registry is not a file anybody commits: it is this walk, reading each file's HEADER only,
+    // plus a local cache that spares re-reading headers of files that did not change. A missing or unreadable
+    // cache costs one full header scan and nothing else — it is derived state, exactly like UE's
+    // Intermediate/CachedAssetRegistry.bin, and so it lives outside git. A packaged game reads the cooked
+    // registry the packager writes instead (`AssetRegistry::DefaultPath`, inside the pak).
+    //
+    // A cached row is reused when its file's size AND modification time are the ones the cache recorded
+    // (UE invalidates by the package's timestamp the same way); it keeps the columns only a parse can learn
+    // (identity, dependency edges, bounds). Any other file is described afresh and starts without them.
+    struct RegistryCache
+    {
+        Utils::AssetRegistry                Registry;
+        std::map<std::string, std::int64_t> Modified; // key -> file modification time, as the cache saw it
+    };
+
+    struct GatheredRegistry
+    {
+        Utils::AssetRegistry     Registry;
+        std::size_t              FromCache = 0; // rows reused without opening the file
+        std::size_t              Read      = 0; // rows whose header was read by this gather
+        std::vector<std::string> Refused;       // one sentence per file that could not enter, naming it
+    };
+
+    // <projectDir>/Intermediate/AssetRegistry.cache — this machine's, never committed (.gitignore).
+    [[nodiscard]] std::filesystem::path RegistryCachePath();
+
+    // The row a file's header-only description makes, or a refusal naming why it cannot be one (a malformed
+    // header, or a header stating another kind than the file's place).
+    [[nodiscard]] ResultStr<Utils::AssetRegistryEntry> RegistryRowFor( const std::string& key,
+                                                                       const ContentFile& file );
+
+    [[nodiscard]] GatheredRegistry GatherContentRegistry( const RegistryCache& cache );
+
+    // The cache text: every row's modification time, then the registry itself in its own form.
+    [[nodiscard]] std::string              SerializeRegistryCache( const Utils::AssetRegistry& registry );
+    [[nodiscard]] ResultStr<RegistryCache> ParseRegistryCache( std::string_view text );
 
     // ── AND THE OTHER LIST, WHICH IS NOT THE SAME LIST ────────────────────────────────────────────
     //

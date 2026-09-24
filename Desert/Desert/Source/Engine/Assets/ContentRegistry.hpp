@@ -177,17 +177,6 @@ namespace Desert::Assets
                 std::mutex                   Mutex;
                 Common::Utils::AssetRegistry Registry;
                 bool                         Dirty = false;
-
-                // WHAT THE PROJECT REGISTRY SAID, kept beside what the session now believes, so that
-                // `Save` can tell a row the repository carries from a row this cook produced — and a
-                // row the project carries whose identity or edges this session LEARNED from the only
-                // thing that can learn them, a parse.
-                //
-                // Without this distinction the two are indistinguishable by the time anything writes,
-                // and the editor puts its own machine's cook output into the committed file. That is
-                // not hypothetical: measured at ten rows on `dev`, and it is what makes a shared gate
-                // red for everybody except whoever ran the cook last.
-                Common::Utils::AssetRegistry Project;
             };
 
             // A FUNCTION-LOCAL STATIC, for `AssetPathIndex`'s reason: `NoteAsset` is reachable from
@@ -212,76 +201,64 @@ namespace Desert::Assets
             }
         } // namespace Detail
 
-        inline Common::ResultStr<std::size_t> Load()
+        namespace Detail
         {
-            const std::filesystem::path projectPath = Common::Utils::AssetRegistry::DefaultPath();
-            const std::filesystem::path cookPath    = Common::Utils::AssetRegistry::CookOutputPath();
-
-            Detail::State& state = Detail::Get_();
-
-            const std::lock_guard<std::mutex> lock( state.Mutex );
-
-            state.Registry = Common::Utils::AssetRegistry();
-            state.Project  = Common::Utils::AssetRegistry();
-            state.Dirty    = false;
-
-            // THE PROJECT REGISTRY FIRST — the content the project carries, committed, and reproducible
-            // from what the repository tracks.
-            //
-            // AN ABSENT FILE IS ZERO ROWS AND NOT A REFUSAL, and the distinction is the only one that
-            // matters here: a project that has never been cooked has no registry, and refusing to start
-            // would make "File / New Project" impossible. A file that EXISTS and will not parse is the
-            // refusal — see LoadFrom, which separates the two.
-            if ( Common::Utils::FileSystem::Exists( projectPath ) )
+            inline std::size_t Publish( Common::Utils::AssetRegistry registry )
             {
-                auto loaded = Common::Utils::AssetRegistry::LoadFrom( projectPath );
-                if ( !loaded )
-                    return Common::MakeError<std::size_t>( loaded.GetError() );
-
-                // No `std::move`: `GetValue()` hands back a const reference, so a move here would be a
-                // copy wearing a move's spelling — which is worse than a copy, because it reads as free.
-                state.Project  = loaded.GetValue();
-                state.Registry = state.Project;
+                State&                            state = Get_();
+                const std::lock_guard<std::mutex> lock( state.Mutex );
+                state.Registry = std::move( registry );
+                state.Dirty    = false;
+                return state.Registry.PublishIdentities();
             }
-            else
+        } // namespace Detail
+
+        // THE EDITOR'S REGISTRY BUILDS ITSELF, as UE's asset registry does at editor start: a walk of the
+        // content roots reading each file's header only (`Common::Content::GatherContentRegistry`), with this
+        // machine's cache (`RegistryCachePath`, outside git) sparing the headers of unchanged files. No cache
+        // is the ordinary first start, not a warning. The cache is written back when the gather read anything.
+        inline Common::ResultStr<std::size_t> Gather()
+        {
+            Common::Content::RegistryCache cache;
+            const std::filesystem::path    cachePath = Common::Content::RegistryCachePath();
+            if ( Common::Utils::FileSystem::Exists( cachePath ) )
             {
-                LOG_WARN( "[ContentRegistry] '{}' does not exist, so this project carries no asset "
-                          "registry and the preload has nothing to read from it. Run 'Rebuild Content "
-                          "Registry', or `AssetRegistryTool cook`, and commit the result.",
-                          projectPath.string() );
+                const auto text   = Common::Utils::FileSystem::ReadFileContent( cachePath );
+                auto       parsed = text ? Common::Content::ParseRegistryCache( text.GetValue() )
+                                         : Common::MakeError<Common::Content::RegistryCache>( text.GetError() );
+                if ( parsed )
+                    cache = parsed.GetValue();
+                else
+                    LOG_WARN( "[ContentRegistry] the local cache '{}' is unusable and is rebuilt from the "
+                              "content: {}",
+                              cachePath.string(), parsed.GetError() );
             }
 
-            // THEN THIS COOK'S OWN ROWS, OVERRIDING KEY BY KEY. The same rule as the pak stack and for
-            // the same reason (`VFS.hpp:21` — later mounts win): what a cook wrote most recently
-            // describes the bytes that are actually on the disk it wrote them to.
-            std::size_t cookRows = 0;
-            if ( Common::Utils::FileSystem::Exists( cookPath ) )
+            Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( cache );
+            for ( const std::string& refusal : gathered.Refused )
+                LOG_ERROR( "[ContentRegistry] a content file could not enter the registry: {}", refusal );
+            LOG_INFO( "[ContentRegistry] gathered {} row(s): {} from the local cache, {} header(s) read",
+                      gathered.Registry.Count(), gathered.FromCache, gathered.Read );
+
+            const bool        changed = gathered.Read > 0 || gathered.Registry.Count() != cache.Registry.Count();
+            const std::size_t bound   = Detail::Publish( std::move( gathered.Registry ) );
+            if ( changed )
             {
-                auto cooked = Common::Utils::AssetRegistry::LoadFrom( cookPath );
-                if ( !cooked )
-                    return Common::MakeError<std::size_t>( cooked.GetError() );
-
-                for ( const Common::Utils::AssetRegistryEntry& row : cooked.GetValue().Entries() )
-                {
-                    state.Registry.Remove( row.Key );
-                    if ( const auto inserted = state.Registry.Insert( row ); !inserted )
-                    {
-                        LOG_ERROR( "[ContentRegistry] '{}' from the cook registry was refused: {}", row.Key,
-                                   inserted.GetError() );
-                        continue;
-                    }
-                    ++cookRows;
-                }
+                Detail::Get_().Dirty = true;
             }
+            return Common::MakeSuccess( bound );
+        }
 
-            LOG_INFO( "[ContentRegistry] {} row(s) the project carries, {} this cook produced",
-                      state.Project.Count(), cookRows );
-
-            // AND HERE IS THE POINT OF THE WHOLE TIER. Every row's handles are bound to its key before one
-            // asset exists, so a number read out of a `.desce` names its file on a cold start with nothing
-            // having been walked. The count is returned rather than logged here so the host can print it
-            // beside the boot lines it is meant to be compared against.
-            return Common::MakeSuccess( state.Registry.PublishIdentities() );
+        // A PACKAGED GAME'S REGISTRY: the one the packager cooked into the pak at `AssetRegistry::DefaultPath`.
+        // Read through the VFS; absent or unparsable is a refusal, because a shipped game has no content roots
+        // to gather from.
+        inline Common::ResultStr<std::size_t> LoadCooked()
+        {
+            auto loaded = Common::Utils::AssetRegistry::LoadFrom( Common::Utils::AssetRegistry::DefaultPath() );
+            if ( !loaded )
+                return Common::MakeError<std::size_t>( loaded.GetError() );
+            LOG_INFO( "[ContentRegistry] {} row(s) from the cooked registry", loaded.GetValue().Count() );
+            return Common::MakeSuccess( Detail::Publish( loaded.GetValue() ) );
         }
 
         inline const Common::Utils::AssetRegistry& Get()
@@ -468,39 +445,14 @@ namespace Desert::Assets
 
         inline Common::BoolResultStr Save()
         {
-            // WRITES THE COOK REGISTRY AND NOTHING ELSE. The committed project registry is READ-ONLY to
-            // the engine; its only writer is `AssetRegistryTool cook`, which sources its list from what
-            // the repository tracks. That rule is what the split exists to make expressible: before it,
-            // an editor session on any developer's machine rewrote the shared file with rows for that
-            // machine's cook output, and the gate then failed for everybody except its author.
-            //
-            // A row the project DOES carry is written here too, but only when this session changed it —
-            // a texture's declared identity and an asset's dependency edges can be learned only by
-            // parsing, and only the editor parses. So they survive to the next boot without the
-            // committed file moving. The comparison is per field rather than by identity of the row,
-            // because "changed" has to mean changed and not merely re-inserted.
-            const std::filesystem::path path = Common::Utils::AssetRegistry::CookOutputPath();
+            const std::filesystem::path path = Common::Content::RegistryCachePath();
 
             Detail::State& state = Detail::Get_();
 
             std::string text;
             {
                 const std::lock_guard<std::mutex> lock( state.Mutex );
-
-                Common::Utils::AssetRegistry cookOnly;
-                for ( const Common::Utils::AssetRegistryEntry& row : state.Registry.Entries() )
-                {
-                    const Common::Utils::AssetRegistryEntry* carried = state.Project.FindByKey( row.Key );
-                    if ( carried != nullptr && carried->Kind == row.Kind && carried->Size == row.Size &&
-                         carried->Identity == row.Identity && carried->Dependencies == row.Dependencies &&
-                         Common::Utils::SameBounds( carried->Bounds, row.Bounds ) )
-                    {
-                        continue;
-                    }
-                    if ( const auto inserted = cookOnly.Insert( row ); !inserted )
-                        return Common::MakeError<bool>( inserted.GetError() );
-                }
-                text = cookOnly.Serialize();
+                text = Common::Content::SerializeRegistryCache( state.Registry );
             }
 
             std::error_code ec;
@@ -508,7 +460,7 @@ namespace Desert::Assets
 
             if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text ); !written )
             {
-                return Common::MakeFormattedError<bool>( "the cook's asset registry '{}' could not be "
+                return Common::MakeFormattedError<bool>( "the local asset registry cache '{}' could not be "
                                                          "written: {}",
                                                          path.string(), written.GetError() );
             }
@@ -534,7 +486,6 @@ namespace Desert::Assets
             const std::lock_guard<std::mutex> lock( state.Mutex );
 
             state.Registry = Common::Utils::AssetRegistry();
-            state.Project  = Common::Utils::AssetRegistry();
             state.Dirty    = false;
         }
     } // namespace ContentRegistry

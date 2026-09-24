@@ -65,6 +65,9 @@ Desert/Common/Source/Common/Core/Version.gen.hpp
 # Saved/ holds the packager's cook (Saved/Cooked/<Platform>), equally derived.
 DerivedDataCache/
 Saved/
+# The editor's local asset registry cache (Intermediate/AssetRegistry.cache, UE: CachedAssetRegistry.bin):
+# rebuilt by a header scan whenever it is missing, so it never enters git (AF9a).
+Intermediate/
 
 # Cooked mesh/texture twins and the asset registry (AF3/AF4 move them into the envelope/DDC model)
 Cooked/
@@ -88,13 +91,6 @@ Cooked/
 # files (mesh and texture cooks) ignored.
 !Editor/Cooked/
 Editor/Cooked/*
-# THE COOKED ASSET REGISTRY IS COMMITTED CONTENT, not a build intermediate, and that is a decision
-# rather than an oversight. Since T2.4 neither host walks the content roots at boot: this file IS the
-# list of what the project has, so a checkout without it is a checkout with no content, and the editor
-# cannot write one on the way up (its own shader preload is the first thing that reads it). It is 20 KB
-# of sorted text, one line per asset, so it diffs and merges like source. `AssetRegistryTool check`
-# fails the build when it disagrees with the tree.
-!Editor/Cooked/AssetRegistry.dreg
 
 # THE SECOND: the skinned probe. Until 2026-09-04 this repository contained NOT ONE skinned mesh in any
 # scene, which is why the skinned rendering path accumulated three independent defects that nothing could

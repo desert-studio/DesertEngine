@@ -215,17 +215,6 @@ namespace Common::Utils
         // is the file `Desert/Tests/Editor/CookedRegistryGate` holds against the repository.
         [[nodiscard]] static std::filesystem::path DefaultPath();
 
-        // THE COOK REGISTRY: rows for files a cook GENERATED. Written by the editor and by nothing
-        // else, never committed (it matches the `Editor/Cooked/*` rule that already excludes what it
-        // describes), and packed — because a packaged game is built from a cook's output and needs the
-        // rows for it. Read AFTER the project registry and overriding it key by key, which is the same
-        // rule the pak stack uses for the same reason (`VFS.hpp:21` — later mounts win).
-        //
-        // A row goes here when the project registry does not already have its key. That test needs no
-        // git and no filesystem: the engine cannot ask what a repository tracks, and a rule it can
-        // evaluate is the only kind it can be held to.
-        [[nodiscard]] static std::filesystem::path CookOutputPath();
-
         // Reads and parses the registry at `path`, through the VFS — so a packaged game reads it out
         // of `Content.dpak` exactly as a loose checkout reads it off disk.
         [[nodiscard]] static ResultStr<AssetRegistry> LoadFrom( const std::filesystem::path& path );
