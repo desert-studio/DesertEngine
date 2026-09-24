@@ -336,11 +336,42 @@ namespace Desert::Editor
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     namespace
     {
-        // The splash's cost per item of each weighed stage (EditorLayer::MakeSplashPlan).
-        constexpr double kSecondsPerShader      = 0.05;
-        constexpr double kSecondsPerTextureCook = 0.004;
-        constexpr double kSecondsPerAssetRow    = 0.0002;
-        constexpr double kSecondsPerSceneRead   = 0.05;
+        // The splash's cost per item of each weighed stage (EditorLayer::MakeSplashPlan), read off the
+        // "[Startup] ... item(s) in" lines of a Debug start on the M-series development machine.
+        constexpr double kSecondsPerShader = 0.048; // 78 programs in 3.73 s
+        // A texture whose cook is fresh costs its freshness check: 11 in 0.04 s.
+        constexpr double kSecondsPerTextureCheck = 0.0036;
+        // A texture that IS cooked costs by its source's size, not by its count: with the artifact deleted,
+        // the 3.18 MB texture_diffuse.png (2048x2048, BC7) took the stage from 0.04 s to 4.30 s. The
+        // 3.11 MB 1k_Dissolve_Noise_Texture.png, kept uncompressed, took 1.3 s: BC7 is what is slow, and
+        // the rate that assumes it is the one a start full of colour textures actually waits for.
+        constexpr double kSecondsPerCookedSourceByte = 4.26 / 3177561.0;
+        constexpr double kSecondsPerAssetRow         = 0.0002; // 151 rows in 0.03 s
+        // The settle costs its first frames whether or not a read is outstanding: 0.75 s with none. A read
+        // outstanding at its start adds one shader's worth; no measured start has had one.
+        constexpr double kSecondsSceneSettle  = 0.75;
+        constexpr double kSecondsPerSceneRead = kSecondsPerShader;
+
+        // The texture cook's items in the order `CookLooseTextures` reaches them: a source with no cooked
+        // artifact will be cooked and weighs its bytes; the rest weigh their freshness check. A source whose
+        // artifact exists but is stale is found only by the cook's own check, and is weighed as fresh.
+        std::vector<double> TextureCookCosts()
+        {
+            std::vector<double> costs;
+            for ( const std::filesystem::path& source : LooseTextureSources() )
+            {
+                std::error_code ec;
+                double          cost = kSecondsPerTextureCheck;
+                if ( !std::filesystem::exists( TextureImporter::CookedMetaPath( source ), ec ) )
+                {
+                    const std::uintmax_t bytes = std::filesystem::file_size( source, ec );
+                    if ( !ec )
+                        cost += static_cast<double>( bytes ) * kSecondsPerCookedSourceByte;
+                }
+                costs.push_back( cost );
+            }
+            return costs;
+        }
     } // namespace
 
     EditorLayer::EditorLayer( const Engine::Application* application, const std::string& layerName,
@@ -382,7 +413,7 @@ namespace Desert::Editor
         // fresh.)
         m_StartupStages.push_back( { "Cooking textures...",
                                      [this] { (void)m_ImportManager->CookLooseTextures( SplashItems() ); },
-                                     kSecondsPerTextureCook, [] { return LooseTextureSources().size(); } } );
+                                     kSecondsPerTextureCheck, nullptr, [] { return TextureCookCosts(); } } );
         m_StartupStages.push_back( { "Preloading meshes, textures and materials...", [this]
                                      { m_AssetPreloader->PreloadCookedAssetsAndMaterials( SplashItems() ); },
                                      kSecondsPerAssetRow,
@@ -5691,10 +5722,13 @@ namespace Desert::Editor
         m_ShaderStage = m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader,
                                              Assets::AssetPreloader::ShaderRowCount() );
         for ( StartupStage& stage : m_StartupStages )
-            stage.ProgressStage = m_Progress.AddStage( stage.Label, stage.SecondsPerItem,
-                                                       stage.CountItems ? stage.CountItems() : 1 );
+            stage.ProgressStage =
+                 stage.ItemCosts ? m_Progress.AddStage( stage.Label, stage.SecondsPerItem, stage.ItemCosts() )
+                                 : m_Progress.AddStage( stage.Label, stage.SecondsPerItem,
+                                                        stage.CountItems ? stage.CountItems() : 1 );
         // The scene's reads are started by the scene load and counted only when the settle begins.
-        m_SettleStage = m_Progress.AddStage( "Loading scene content...", kSecondsPerSceneRead, 1 );
+        m_SettleStage =
+             m_Progress.AddStage( "Loading scene content...", kSecondsPerSceneRead, 1, kSecondsSceneSettle );
     }
 
     void EditorLayer::BeginSplashStage( const std::size_t stage, const std::optional<std::size_t> items )

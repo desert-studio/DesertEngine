@@ -31,10 +31,10 @@ namespace Desert::Editor::Splash
     inline constexpr float kItemAlpha       = 0.45f;
 
     // The three text lines, bottom edges from the bottom of the splash: the project over the stage over
-    // the item the stage is working on, all above the bar.
-    inline constexpr float kProjectY = 80.0f;
-    inline constexpr float kStageY   = 58.0f;
-    inline constexpr float kItemY    = 38.0f;
+    // the item the stage is working on, all above the bar and all below the wordmark.
+    inline constexpr float kProjectY = 70.0f;
+    inline constexpr float kStageY   = 52.0f;
+    inline constexpr float kItemY    = 36.0f;
 
     inline constexpr float kBarY          = 22.0f;
     inline constexpr float kBarHeight     = 2.0f;
@@ -70,6 +70,15 @@ namespace Desert::Editor::Splash
     {
         return fontSize * 1.3f;
     }
+
+    // WHERE THE PICTURE'S "ENGINE" IS, which no live line may reach: its glyphs, measured off the pixels
+    // of `Resources/Splash/Splash.jpg` (drawn by `Tools/SplashBake/Compose.swift` at x 52, y 94), span
+    // x 53.5..194 and y 99.5..113.5. The project line at y 80 sat 1.3 points under them with the glow on
+    // top, and read as one block with the wordmark.
+    inline constexpr Rect kWordmarkEngine = { 53.0f, 99.0f, 142.0f, 15.0f };
+    // The clear space kept under it: the glyphs' glow (radius 12, most of it faint) is not part of the
+    // measured box.
+    inline constexpr float kWordmarkClearance = 8.0f;
 
     [[nodiscard]] constexpr Layout ComputeLayout( const double fraction )
     {

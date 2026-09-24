@@ -149,3 +149,41 @@ TEST( SplashProgress, ACountThatGrowsDuringTheStageHoldsTheBar )
     EXPECT_EQ( model.Fraction(), shown );
     EXPECT_EQ( model.Snapshot().Item, "Scene assets (4 / 40)" );
 }
+
+TEST( SplashProgress, ATextureThatIsCookedWeighsItsCookNotOneCheck )
+{
+    // Ten textures, one of them with no cooked artifact: its cook (4.26 s for 3.18 MB of BC7 source) is
+    // the stage, and the bar must spend most of the stage's share on that one item, not a tenth.
+    Splash::ProgressModel model;
+    std::vector<double>   costs( 10, 0.0036 );
+    costs[3]                   = 0.0036 + 4.26;
+    const std::size_t textures = model.AddStage( "Cooking textures", 0.0036, costs );
+    const std::size_t rest     = model.AddStage( "Rest", 1.0, 1 );
+    model.BeginStage( textures, 0.0 );
+    model.Step( "a.png", 3 ); // three checks done, the cook next
+    EXPECT_NEAR( model.Fraction(), 3 * 0.0036 / ( 4.26 + 10 * 0.0036 + 1.0 ), 1e-9 );
+    model.Step( "b.png", 4 ); // the cook done
+    EXPECT_NEAR( model.Fraction(), ( 4.26 + 4 * 0.0036 ) / ( 4.26 + 10 * 0.0036 + 1.0 ), 1e-9 );
+    EXPECT_EQ( model.Snapshot().Item, "b.png (5 / 10)" );
+    // An item the plan did not count costs the stage's unit cost.
+    model.Step( "c.png", 11, 12 );
+    EXPECT_NEAR( model.Fraction(), ( 4.26 + 11 * 0.0036 ) / ( 4.26 + 12 * 0.0036 + 1.0 ), 1e-9 );
+    model.BeginStage( rest, 1.0 );
+    EXPECT_NEAR( model.Fraction(), ( 4.26 + 12 * 0.0036 ) / ( 4.26 + 12 * 0.0036 + 1.0 ), 1e-9 );
+}
+
+TEST( SplashProgress, AFixedCostWeighsEvenWithNoItemsAndCountsOnlyWhenTheStageEnds )
+{
+    // The settle: 0.75 s of first frames with no read outstanding. With its fixed cost it holds its share
+    // of the bar until it ends; without it, it weighed one read and the bar sat at 99 % through it.
+    Splash::ProgressModel model;
+    const std::size_t     shaders = model.AddStage( "Shaders", 0.048, 78 );
+    const std::size_t     settle  = model.AddStage( "Scene", 0.048, 1, 0.75 );
+    model.BeginStage( shaders, 0.0 );
+    model.BeginStage( settle, 3.73, std::size_t{ 0 } );
+    const double total = 0.048 * 78 + 0.75 + 0.048;
+    EXPECT_NEAR( model.Fraction(), 0.048 * 78 / total, 1e-9 );
+    EXPECT_LT( model.Fraction(), 0.84 );
+    model.Finish( 4.48 );
+    EXPECT_EQ( model.Fraction(), 1.0 );
+}

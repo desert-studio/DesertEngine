@@ -684,7 +684,10 @@ namespace Desert::Editor
             // many items there are — asked when the plan is made, before any stage runs. Empty = one item.
             double                       SecondsPerItem = 0.01;
             std::function<std::size_t()> CountItems;
-            std::size_t                  ProgressStage = 0; // its id in m_Progress
+            // Instead of CountItems, for a stage whose items do not cost alike: each item's own cost, in
+            // the order the stage works through them.
+            std::function<std::vector<double>()> ItemCosts;
+            std::size_t                          ProgressStage = 0; // its id in m_Progress
         };
         std::vector<StartupStage> m_StartupStages;
         size_t                    m_StartupNext = 0;

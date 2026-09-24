@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -21,11 +22,11 @@ TEST( SplashLayout, TheElementsSitWhereTheDesignPutsThem )
 {
     const Splash::Layout layout = Splash::ComputeLayout( 0.0 );
     EXPECT_EQ( layout.Project.X, 48.0f );
-    EXPECT_EQ( layout.Project.Y, 80.0f );
+    EXPECT_EQ( layout.Project.Y, 70.0f );
     EXPECT_EQ( layout.Stage.X, 48.0f );
-    EXPECT_EQ( layout.Stage.Y, 58.0f );
+    EXPECT_EQ( layout.Stage.Y, 52.0f );
     EXPECT_EQ( layout.Item.X, 48.0f );
-    EXPECT_EQ( layout.Item.Y, 38.0f );
+    EXPECT_EQ( layout.Item.Y, 36.0f );
     // The item line has no right-hand neighbour and runs margin to margin.
     EXPECT_EQ( layout.Item.X + layout.Item.W, Splash::kWidth - 48.0f );
     EXPECT_EQ( layout.BarTrack.Y, 22.0f );
@@ -65,6 +66,57 @@ TEST( SplashLayout, NoTwoTextBoxesOverlap )
     EXPECT_GE( layout.Item.Y, layout.BarTrack.Y + layout.BarTrack.H );
     EXPECT_GE( layout.Stage.Y, layout.Item.Y + layout.Item.H );
     EXPECT_GE( layout.Project.Y, layout.Stage.Y + layout.Stage.H );
+}
+
+TEST( SplashLayout, NoLiveLineReachesThePicturesEngineWordmark )
+{
+    // The live lines are drawn over a picture that already has text in it. The project line used to sit
+    // at y 80 with its box ending 1.3 points under ENGINE's glyphs, and on screen the two read as one line.
+    const Splash::Layout layout = Splash::ComputeLayout( 0.5 );
+    const float          floor  = Splash::kWordmarkEngine.Y - Splash::kWordmarkClearance;
+    for ( const Splash::Rect& box : { layout.Project, layout.Version, layout.Stage, layout.Percent, layout.Item } )
+        EXPECT_LE( box.Y + box.H, floor ) << "a text box at y " << box.Y << " reaches the wordmark";
+}
+
+TEST( SplashLayout, TheWordmarkBoxIsWhereThePictureDrawsEngine )
+{
+    // THE CONSTANT AGAINST THE PIXELS: every sand-coloured pixel in the lower-left of the committed
+    // picture (ENGINE's glyphs; DESERT is white) lies inside kWordmarkEngine, and the box is not empty.
+    // A re-baked picture that moved the wordmark fails here instead of under the project line.
+    const std::filesystem::path repo =
+         std::filesystem::path( __FILE__ ).parent_path().parent_path().parent_path().parent_path().parent_path();
+    const auto loaded = Splash::LoadSplashPixels( repo / "Editor" / Splash::kSplashTexture );
+    ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    const Splash::SplashPixels& picture = loaded.GetValue();
+    const float                 scale   = static_cast<float>( picture.Width ) / Splash::kWidth;
+
+    float left = Splash::kWidth, right = 0.0f, bottom = Splash::kHeight, top = 0.0f;
+    // Rows and columns in design points: x 40..420, y 30..140 from the bottom — the whole column the live
+    // lines use, so a wordmark that moved down into it is seen.
+    for ( uint32_t row = static_cast<uint32_t>( ( Splash::kHeight - 140.0f ) * scale );
+          row < static_cast<uint32_t>( ( Splash::kHeight - 30.0f ) * scale ); ++row )
+        for ( uint32_t col = static_cast<uint32_t>( 40.0f * scale ); col < static_cast<uint32_t>( 420.0f * scale );
+              ++col )
+        {
+            const unsigned char* p = &picture.Rgba[( static_cast<std::size_t>( row ) * picture.Width + col ) * 4];
+            const bool           sand = p[0] > 215 && p[1] > 150 && p[1] < 215 && p[2] < 170 && p[0] - p[2] > 70;
+            if ( !sand )
+                continue;
+            const float x = static_cast<float>( col ) / scale;
+            const float y = Splash::kHeight - static_cast<float>( row ) / scale;
+            left          = std::min( left, x );
+            right         = std::max( right, x );
+            bottom        = std::min( bottom, y );
+            top           = std::max( top, y );
+        }
+    ASSERT_LT( left, right ) << "no ENGINE glyph found in the picture";
+    const Splash::Rect& box = Splash::kWordmarkEngine;
+    EXPECT_GE( left, box.X - 1.0f );
+    EXPECT_LE( right, box.X + box.W + 1.0f );
+    EXPECT_GE( bottom, box.Y - 1.0f );
+    EXPECT_LE( top, box.Y + box.H + 1.0f );
+    // And the box is tight, so the clearance above is a clearance from the glyphs, not from slack.
+    EXPECT_LE( bottom, box.Y + 2.0f );
 }
 
 TEST( SplashLayout, FlippingToATopOriginKeepsTheBoxAndMovesItsReferenceEdge )

@@ -50,10 +50,28 @@ namespace Desert::Editor::Splash
         /// relative to the items of the other stages (a shader program compile against a texture load);
         /// @p units is how many items there are, or the best estimate while the real count is unknown.
         /// A stage of zero units weighs one unit: it still happens and still takes time.
-        std::size_t AddStage( std::string name, const double unitCost, const std::size_t units )
+        /// @p fixedCost is work the stage does whatever its count (the settle's first frames with no read
+        /// outstanding): it weighs in the plan and counts as done only when the stage finishes.
+        std::size_t AddStage( std::string name, const double unitCost, const std::size_t units,
+                              const double fixedCost = 0.0 )
         {
-            m_Stages.push_back( { std::move( name ), unitCost, units, 0, false } );
+            Stage stage;
+            stage.Name      = std::move( name );
+            stage.UnitCost  = unitCost;
+            stage.Units     = units;
+            stage.FixedCost = fixedCost;
+            m_Stages.push_back( std::move( stage ) );
             return m_Stages.size() - 1;
+        }
+
+        /// A stage whose items do NOT cost alike (a texture that has to be cooked against one whose cook is
+        /// fresh and only checked): @p itemCosts is each item's cost in the order the work reaches them.
+        /// An item past the list (the work found more than the plan counted) costs @p unitCost.
+        std::size_t AddStage( std::string name, const double unitCost, std::vector<double> itemCosts )
+        {
+            const std::size_t id   = AddStage( std::move( name ), unitCost, itemCosts.size() );
+            m_Stages[id].ItemCosts = std::move( itemCosts );
+            return id;
         }
 
         /// Starts @p stage (finishing the one running, if any, at @p nowSeconds). @p units, when given,
@@ -120,10 +138,7 @@ namespace Desert::Editor::Splash
             {
                 const double weight = Weight( s );
                 total += weight;
-                if ( s.Finished )
-                    done += weight;
-                else if ( s.Units > 0 )
-                    done += weight * static_cast<double>( s.Done ) / static_cast<double>( s.Units );
+                done += s.Finished ? weight : ItemsWeight( s, s.Done );
             }
             const double now = total > 0.0 ? std::clamp( done / total, 0.0, 1.0 ) : 0.0;
             m_Shown          = std::max( m_Shown, now );
@@ -164,15 +179,28 @@ namespace Desert::Editor::Splash
         struct Stage
         {
             std::string Name;
-            double      UnitCost = 1.0;
-            std::size_t Units    = 0;
-            std::size_t Done     = 0;
-            bool        Finished = false;
+            double              UnitCost  = 1.0;
+            std::size_t         Units     = 0;
+            std::size_t         Done      = 0;
+            bool                Finished  = false;
+            double              FixedCost = 0.0;
+            std::vector<double> ItemCosts; // empty: every item costs UnitCost
         };
+
+        /// What the first @p count items of @p s cost.
+        [[nodiscard]] static double ItemsWeight( const Stage& s, const std::size_t count )
+        {
+            if ( s.ItemCosts.empty() )
+                return s.UnitCost * static_cast<double>( count );
+            double sum = 0.0;
+            for ( std::size_t i = 0; i < count; ++i )
+                sum += i < s.ItemCosts.size() ? s.ItemCosts[i] : s.UnitCost;
+            return sum;
+        }
 
         [[nodiscard]] static double Weight( const Stage& s )
         {
-            return s.UnitCost * static_cast<double>( std::max<std::size_t>( s.Units, 1 ) );
+            return s.FixedCost + ItemsWeight( s, std::max<std::size_t>( s.Units, 1 ) );
         }
 
         std::vector<Stage>         m_Stages;
