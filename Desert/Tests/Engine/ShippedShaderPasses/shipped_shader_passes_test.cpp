@@ -576,10 +576,12 @@ TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
         // the `.detex` header DECLARES -- TextureSourceAsset.cpp stamps it into Guid.Hi at import and
         // ReadTextureAssetKey hands Guid.Hi to TextureAsset::LoadFromFile, whose handle the registry then
         // indexes (ContentRegistry NoteAsset -> AssetRegistry::SetIdentity) -- so that is the number read here.
-        const auto kind = Common::Content::KindOfContentFile( entry.path() );
-        if ( !kind || *kind != Common::Content::ContentKind::Texture )
+        // By extension, NOT by KindOfContentFile: that resolves the kind's root against the process's content
+        // directory, which this suite never sets, so every `.detex` read as "no kind" and was skipped in silence.
+        if ( entry.path().extension() != ".detex" )
             continue;
-        const Common::Content::ContentFile described = Common::Content::DescribeContentFile( entry.path(), *kind );
+        const Common::Content::ContentFile described =
+             Common::Content::DescribeContentFile( entry.path(), Common::Content::ContentKind::Texture );
         ASSERT_TRUE( described.HeaderError.empty() ) << key << ": " << described.HeaderError;
         ASSERT_TRUE( described.Header.has_value() ) << key << " is a texture asset that states no header";
         sourceByHandle.emplace( described.Header->Guid.Hi, key );
