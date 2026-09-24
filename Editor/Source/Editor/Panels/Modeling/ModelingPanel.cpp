@@ -460,10 +460,12 @@ namespace Desert::Editor
                 LOG_WARN( "Mesh {0}: the Modeling panel has no scene", Core::ToString( op ) );
                 return;
             }
-            report( Core::ApplyMeshOperation( *m_Scene, op, ms.ElementOpDistance ) );
+            report( Core::ApplyMeshOperation( *m_Scene, op, Core::ArgsFromModelingState() ) );
         };
-        const MO grid[3][2] = {
-             { MO::Extrude, MO::PushPull }, { MO::Inset, MO::Outset }, { MO::Offset, MO::Delete } };
+        const MO grid[4][2] = { { MO::Extrude, MO::PushPull },
+                                { MO::Inset, MO::Outset },
+                                { MO::Offset, MO::Delete },
+                                { MO::Bevel, MO::InsertEdgeLoop } };
         for ( const auto& row : grid )
         {
             if ( ImGui::Button( Core::ToString( row[0] ), ImVec2( half, 0.0f ) ) )
@@ -472,8 +474,17 @@ namespace Desert::Editor
             if ( ImGui::Button( Core::ToString( row[1] ), ImVec2( half, 0.0f ) ) )
                 operate( row[1] );
         }
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::SliderFloat( "##ElementLoopPosition", &ms.ElementLoopPosition, 0.01f, 0.99f, "Loop at %.2f" );
+        ImGui::SetNextItemWidth( half );
+        ImGui::DragFloat( "##ElementWeldTolerance", &ms.ElementWeldTolerance, 0.001f, 0.0f, 10.0f,
+                          "Weld %.3f cm" );
+        ImGui::SameLine();
+        if ( ImGui::Button( Core::ToString( MO::Clean ), ImVec2( half, 0.0f ) ) )
+            operate( MO::Clean );
         ImGui::Spacing();
         ImGui::TextDisabled( "LMB select, Shift+LMB add, Ctrl+LMB remove" );
         ImGui::TextDisabled( "Del delete, Alt+E extrude, Alt+I inset, Alt+O offset" );
+        ImGui::TextDisabled( "Alt+B bevel, Alt+L edge loop, Alt+K knife (two clicks)" );
     }
 } // namespace Desert::Editor

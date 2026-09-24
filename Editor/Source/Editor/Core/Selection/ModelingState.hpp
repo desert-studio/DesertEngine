@@ -132,10 +132,14 @@ namespace Desert::Editor::Core
         bool ReqClear          = false; // one-shot: clear the cells (keep editing)
         bool ReqResetFromActor = false; // one-shot: put the grid origin on the selected entity
 
-        // Select Elements: the distance Extrude / Push-Pull / Offset / Inset / Outset use, in centimetres (the
-        // panel's field, the Alt hotkeys and the palette entries all read this one value). Push/Pull and
+        // Select Elements: the distance Extrude / Push-Pull / Offset / Inset / Outset / Bevel use, in centimetres
+        // (the panel's field, the Alt hotkeys and the palette entries all read this one value). Push/Pull and
         // Offset take its sign; the others refuse a negative one.
         float ElementOpDistance = 20.0f;
+        // Insert Edge Loop: where along each ring edge the loop goes, in (0, 1).
+        float ElementLoopPosition = 0.5f;
+        // Clean: vertices closer than this (cm) are welded.
+        float ElementWeldTolerance = 0.01f;
 
         // Create tool: the shape a click places, and a one-shot that places it where the viewport centre
         // looks (the palette's way to place without a mouse).

@@ -6,6 +6,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <string>
 
 namespace Desert::Geometry
 {
@@ -69,6 +70,9 @@ namespace Desert::Geometry
         // The region the operation acted on, on the result, in the input selection's mode (empty after
         // Delete). Triangle IDs change for the region's triangles: they are re-created on the new vertices.
         ElementSelection Selection{ ElementMode::Triangle };
+        // What the operation did beyond the mesh itself, in numbers, for the log - where a ring stopped, what
+        // a clean removed. Empty when the topology change says it all.
+        std::string Report;
     };
 
     // Removes the region's triangles, and every vertex left with no triangle. On a closed mesh the open
