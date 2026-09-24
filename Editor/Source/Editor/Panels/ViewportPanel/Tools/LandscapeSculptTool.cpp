@@ -114,6 +114,21 @@ namespace Desert::Editor::Tools
                          settings.Flatten.UseSlopeFlatten ? "on" : "off",
                          settings.Flatten.PickValuePerApply ? "on" : "off", settings.Flatten.TerraceIntervalCm,
                          settings.Flatten.TerraceSmooth );
+        if ( settings.Tool == Core::LandscapeTool::Ramp )
+        {
+            const auto& state = Core::LandscapeSculptState::Get();
+            ImGui::Text( "Mode %s   Width %.0f cm   Side falloff %.2f",
+                         Core::LandscapeRampModeName( settings.Ramp.Mode ), settings.Ramp.WidthCm,
+                         settings.Ramp.SideFalloff );
+            for ( const auto& [name, point] :
+                  { std::pair{ "Start", state.RampStart }, std::pair{ "End", state.RampEnd } } )
+            {
+                if ( point )
+                    ImGui::Text( "%s (%.0f, %.0f, %.0f) cm", name, point->x, point->y, point->z );
+                else
+                    ImGui::Text( "%s not set", name );
+            }
+        }
         if ( settings.Tool == Core::LandscapeTool::Noise )
             ImGui::Text( "Mode %s   Scale %.1f", Core::LandscapeNoiseModeName( settings.Noise.Mode ),
                          settings.Noise.NoiseScale );
@@ -134,10 +149,17 @@ namespace Desert::Editor::Tools
             ImGui::PushID( id++ );
             const std::string text = control.Label.substr( control.Label.find( ':' ) + 2 );
             if ( ImGui::SmallButton( text.c_str() ) )
-                control.Apply( settings );
+            {
+                if ( control.Request != Core::LandscapeStrokeRequest::None )
+                    Core::LandscapeSculptState::Get().Request = control.Request;
+                else
+                    control.Apply( settings );
+            }
             ImGui::PopID();
         }
-        ImGui::TextDisabled( "LMB applies the tool, Shift+LMB lowers (Sculpt)" );
+        ImGui::TextDisabled( settings.Tool == Core::LandscapeTool::Ramp
+                                  ? "LMB sets the start, then the end; apply with the Ramp row"
+                                  : "LMB applies the tool, Shift+LMB lowers (Sculpt)" );
         ImGui::End();
     }
 
@@ -151,6 +173,7 @@ namespace Desert::Editor::Tools
             return Common::MakeError( target.GetError() );
         m_Target = target.GetValue();
         m_Stroke.emplace( m_Target->Root, m_Target->Lookup, m_Target->Bounds );
+        m_ToolName = Core::LandscapeToolName( Core::LandscapeSculptState::Get().Settings.Tool );
         m_Failed = false;
         return Common::MakeSuccess( true );
     }
@@ -179,6 +202,9 @@ namespace Desert::Editor::Tools
                 return m_Stroke->ApplyNoise( weights.GetValue(), settings.Brush, settings.Noise );
             case Core::LandscapeTool::Erase:
                 return m_Stroke->ApplyErase( weights.GetValue(), settings.Brush );
+            case Core::LandscapeTool::Ramp:
+                return Common::MakeError( "landscape ramp: the ramp is not stroked; set its two points and run "
+                                          "'Landscape: Ramp: apply'" );
         }
         return Common::MakeError( "landscape stroke: unknown tool" );
     }
@@ -192,9 +218,7 @@ namespace Desert::Editor::Tools
                 ToastManager::Push( record.GetError(), ToastLevel::Error, 6.0f );
             else if ( record.GetValue().Before != record.GetValue().After )
             {
-                const std::string label =
-                     std::string( "Landscape " ) +
-                     Core::LandscapeToolName( Core::LandscapeSculptState::Get().Settings.Tool );
+                const std::string label = std::string( "Landscape " ) + m_ToolName;
                 CommandHistory::Get().PushCommand( std::make_unique<LandscapeStrokeCommand>(
                      scene, m_Target->Landscape, record.GetValue(), label ) );
             }
@@ -203,10 +227,73 @@ namespace Desert::Editor::Tools
         m_Target.reset();
     }
 
+    void LandscapeSculptTool::SetRampPoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
+                                            bool start )
+    {
+        auto&      state     = Core::LandscapeSculptState::Get();
+        const auto landscape = ECS::FirstLandscape( scene.GetRegistry() );
+        const auto point     = landscape ? TraceLandscape( scene, *landscape, ray ) : std::nullopt;
+        if ( !point )
+        {
+            ToastManager::Push( "landscape ramp: no landscape under the ray", ToastLevel::Error, 6.0f );
+            return;
+        }
+        if ( start )
+        {
+            state.RampStart = *point;
+            state.RampEnd.reset();
+        }
+        else
+            state.RampEnd = *point;
+    }
+
+    bool LandscapeSculptTool::ServeRampRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& centreRay )
+    {
+        auto&                              state   = Core::LandscapeSculptState::Get();
+        const Core::LandscapeStrokeRequest request = state.Request;
+        switch ( request )
+        {
+            case Core::LandscapeStrokeRequest::RampStart:
+            case Core::LandscapeStrokeRequest::RampEnd:
+                state.Request = Core::LandscapeStrokeRequest::None;
+                SetRampPoint( scene, centreRay, request == Core::LandscapeStrokeRequest::RampStart );
+                return true;
+            case Core::LandscapeStrokeRequest::RampReset:
+                state.Request = Core::LandscapeStrokeRequest::None;
+                state.RampStart.reset();
+                state.RampEnd.reset();
+                return true;
+            case Core::LandscapeStrokeRequest::RampApply:
+                break;
+            case Core::LandscapeStrokeRequest::None:
+            case Core::LandscapeStrokeRequest::Raise:
+            case Core::LandscapeStrokeRequest::Lower:
+                return false;
+        }
+        state.Request = Core::LandscapeStrokeRequest::None;
+        // UE's CanApplyRamp: exactly two points.
+        if ( !state.RampStart || !state.RampEnd )
+        {
+            ToastManager::Push( "landscape ramp: set both the start and the end first", ToastLevel::Error, 6.0f );
+            return true;
+        }
+        auto begun   = Begin( scene );
+        m_ToolName   = Core::LandscapeToolName( Core::LandscapeTool::Ramp );
+        auto applied = begun.IsSuccess()
+                            ? m_Stroke->ApplyRamp( *state.RampStart, *state.RampEnd, state.Settings.Ramp )
+                            : begun;
+        if ( !applied.IsSuccess() )
+            ToastManager::Push( applied.GetError(), ToastLevel::Error, 6.0f );
+        End( scene );
+        return true;
+    }
+
     void LandscapeSculptTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay,
                                       const Common::Math::Ray& centreRay, bool hovered, float deltaSeconds )
     {
         auto& state = Core::LandscapeSculptState::Get();
+        if ( !m_Stroke && ServeRampRequest( scene, centreRay ) )
+            return;
         if ( state.Request != Core::LandscapeStrokeRequest::None && !m_Stroke )
         {
             const bool lower = state.Request == Core::LandscapeStrokeRequest::Lower;
@@ -226,6 +313,14 @@ namespace Desert::Editor::Tools
         {
             if ( m_Stroke )
                 End( scene );
+            return;
+        }
+        if ( state.Settings.Tool == Core::LandscapeTool::Ramp )
+        {
+            // UE's ramp places a point per click instead of stroking: the first press sets the start, the next
+            // the end, and a third starts over.
+            if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+                SetRampPoint( scene, mouseRay, !state.RampStart || state.RampEnd );
             return;
         }
         if ( !m_Stroke )

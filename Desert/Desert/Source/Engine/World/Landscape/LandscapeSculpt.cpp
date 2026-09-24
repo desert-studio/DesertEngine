@@ -5,6 +5,7 @@
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <complex>
 #include <optional>
@@ -253,6 +254,137 @@ namespace Desert::World::Landscape
             }
         return noise;
     }
+
+    namespace
+    {
+        /// UE's FVector2D interpolant of the ramp raster: X = side falloff alpha, Y = height in samples.
+        using RampInterpolant = glm::dvec2;
+
+        /// UE's FMath::IsNearlyZero(float) tolerance, UE_SMALL_NUMBER.
+        constexpr float kRasterSmallNumber = 1.e-8f;
+
+        float NonZeroDiff( float d )
+        {
+            if ( std::abs( d ) <= kRasterSmallNumber )
+                return d >= 0.0f ? kRasterSmallNumber : -kRasterSmallNumber;
+            return d;
+        }
+
+        /// FLandscapeRampToolHeightRasterPolicy over an inclusive rectangle of samples, row-major, X fastest.
+        struct RampRasterPolicy
+        {
+            std::vector<uint16_t>& Data;
+            int32_t                MinX;
+            int32_t                MinY;
+            int32_t                MaxX;
+            int32_t                MaxY;
+            bool                   RaiseTerrain;
+            bool                   LowerTerrain;
+
+            void ProcessPixel( int32_t x, int32_t y, const RampInterpolant& interpolant ) const
+            {
+                const float cosInterpX = static_cast<float>(
+                     interpolant.x >= 1 ? 1 : 0.5 - 0.5 * std::cos( interpolant.x * 3.14159265358979323846 ) );
+                const float alpha = cosInterpX;
+                uint16_t&   dest  = Data[static_cast<size_t>( ( y - MinY ) * ( 1 + MaxX - MinX ) + x - MinX )];
+                const float value = Lerp( static_cast<float>( dest ), static_cast<float>( interpolant.y ), alpha );
+                const auto  dValue =
+                     static_cast<uint16_t>( std::clamp( value, 0.0f, static_cast<float>( kLandscapeMaxSample ) ) );
+                if ( ( RaiseTerrain && dValue > dest ) || ( LowerTerrain && dValue < dest ) )
+                    dest = dValue;
+            }
+        };
+
+        /// UE's FTriangleRasterizer (Raster.h): scanline fill with pixel centres at integer coordinates, the
+        /// interpolant linear across the triangle; the ramp's edges are shared, so no sample is drawn twice.
+        class RampRasterizer
+        {
+        public:
+            explicit RampRasterizer( const RampRasterPolicy& policy ) : m_Policy( policy )
+            {
+            }
+
+            void DrawTriangle( const RampInterpolant& i0, const RampInterpolant& i1, const RampInterpolant& i2,
+                               const glm::dvec2& p0, const glm::dvec2& p1, const glm::dvec2& p2 )
+            {
+                std::array<RampInterpolant, 3> in{ i0, i1, i2 };
+                std::array<glm::vec2, 3>       pt{ glm::vec2( p0 ), glm::vec2( p1 ), glm::vec2( p2 ) };
+                if ( pt[1].y < pt[0].y && pt[1].y <= pt[2].y )
+                {
+                    std::swap( pt[0], pt[1] );
+                    std::swap( in[0], in[1] );
+                }
+                else if ( pt[2].y < pt[0].y && pt[2].y <= pt[1].y )
+                {
+                    std::swap( pt[0], pt[2] );
+                    std::swap( in[0], in[2] );
+                }
+                if ( pt[1].y > pt[2].y )
+                {
+                    std::swap( pt[2], pt[1] );
+                    std::swap( in[2], in[1] );
+                }
+                const float d10 = NonZeroDiff( pt[1].y - pt[0].y );
+                const float d20 = NonZeroDiff( pt[2].y - pt[0].y );
+                const float d21 = NonZeroDiff( pt[2].y - pt[1].y );
+
+                const float           topMinDiffX         = ( pt[1].x - pt[0].x ) / d10;
+                const float           topMaxDiffX         = ( pt[2].x - pt[0].x ) / d20;
+                const RampInterpolant topMinDiffInterp    = ( in[1] - in[0] ) / static_cast<double>( d10 );
+                const RampInterpolant topMaxDiffInterp    = ( in[2] - in[0] ) / static_cast<double>( d20 );
+                const float           bottomMinDiffX      = ( pt[2].x - pt[1].x ) / d21;
+                const float           bottomMaxDiffX      = ( pt[2].x - pt[0].x ) / d20;
+                const RampInterpolant bottomMinDiffInterp = ( in[2] - in[1] ) / static_cast<double>( d21 );
+                const RampInterpolant bottomMaxDiffInterp = ( in[2] - in[0] ) / static_cast<double>( d20 );
+
+                Trapezoid( in[0], topMinDiffInterp, in[0], topMaxDiffInterp, pt[0].x, topMinDiffX, pt[0].x,
+                           topMaxDiffX, pt[0].y, pt[1].y );
+                Trapezoid( in[1], bottomMinDiffInterp, in[0] + topMaxDiffInterp * static_cast<double>( d10 ),
+                           bottomMaxDiffInterp, pt[1].x, bottomMinDiffX, pt[0].x + topMaxDiffX * d10,
+                           bottomMaxDiffX, pt[1].y, pt[2].y );
+            }
+
+        private:
+            void Trapezoid( const RampInterpolant& topMinInterp, const RampInterpolant& deltaMinInterp,
+                            const RampInterpolant& topMaxInterp, const RampInterpolant& deltaMaxInterp,
+                            float topMinX, float deltaMinX, float topMaxX, float deltaMaxX, float inMinY,
+                            float inMaxY )
+            {
+                const int32_t intMinY =
+                     std::clamp( static_cast<int32_t>( std::ceil( inMinY ) ), m_Policy.MinY, m_Policy.MaxY + 1 );
+                const int32_t intMaxY =
+                     std::clamp( static_cast<int32_t>( std::ceil( inMaxY ) ), m_Policy.MinY, m_Policy.MaxY + 1 );
+                for ( int32_t intY = intMinY; intY < intMaxY; ++intY )
+                {
+                    const float     y         = static_cast<float>( intY ) - inMinY;
+                    float           localMinX = topMinX + deltaMinX * y;
+                    float           localMaxX = topMaxX + deltaMaxX * y;
+                    RampInterpolant minInterp = topMinInterp + deltaMinInterp * static_cast<double>( y );
+                    RampInterpolant maxInterp = topMaxInterp + deltaMaxInterp * static_cast<double>( y );
+                    if ( localMinX > localMaxX )
+                    {
+                        std::swap( localMinX, localMaxX );
+                        std::swap( minInterp, maxInterp );
+                    }
+                    if ( !( localMaxX > localMinX ) )
+                        continue;
+                    const int32_t         intMinX = std::clamp( static_cast<int32_t>( std::ceil( localMinX ) ),
+                                                                m_Policy.MinX, m_Policy.MaxX + 1 );
+                    const int32_t         intMaxX = std::clamp( static_cast<int32_t>( std::ceil( localMaxX ) ),
+                                                                m_Policy.MinX, m_Policy.MaxX + 1 );
+                    const RampInterpolant deltaInterp =
+                         ( maxInterp - minInterp ) / static_cast<double>( localMaxX - localMinX );
+                    for ( int32_t x = intMinX; x < intMaxX; ++x )
+                        m_Policy.ProcessPixel(
+                             x, intY,
+                             minInterp +
+                                  deltaInterp * static_cast<double>( static_cast<float>( x ) - localMinX ) );
+                }
+            }
+
+            RampRasterPolicy m_Policy;
+        };
+    } // namespace
 
     float LandscapeSculptStrength( const LandscapeRoot& root, const LandscapeBrushSettings& brush,
                                    const LandscapeSculptStep& step )
@@ -701,6 +833,101 @@ namespace Desert::World::Landscape
                 uint16_t&   current  = data[static_cast<size_t>( ( z - rect.Z1 ) * width + ( x - rect.X1 ) )];
                 current = TowardsFloorCeil( current, flattenHeight, strength, current > kLandscapeMidSample );
             }
+        return m_Cache.SetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2, data );
+    }
+
+    Common::BoolResultStr ValidateLandscapeRamp( const LandscapeRampSettings& s )
+    {
+        if ( !( s.WidthCm >= kLandscapeMinRampWidthCm ) )
+            return Common::MakeError( "landscape ramp: width " + std::to_string( s.WidthCm ) + " cm below " +
+                                      std::to_string( kLandscapeMinRampWidthCm ) );
+        if ( !( s.SideFalloff >= 0.0f && s.SideFalloff <= 1.0f ) )
+            return Common::MakeError( "landscape ramp: side falloff " + std::to_string( s.SideFalloff ) +
+                                      " outside 0..1" );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr LandscapeHeightStroke::ApplyRamp( glm::vec3 startCm, glm::vec3 endCm,
+                                                            const LandscapeRampSettings& ramp )
+    {
+        auto valid = ValidateLandscapeRamp( ramp );
+        if ( !valid.IsSuccess() )
+            return valid;
+        // UE's Points are landscape-local: X/Y in samples, Z in world units above the actor. Our lattice is X/Z
+        // with Y up, so UE's (X, Y) is our (X, Z).
+        const auto toLattice = [&]( const glm::vec3& p )
+        {
+            return glm::dvec2( ( static_cast<double>( p.x ) - m_Root.Origin.x ) / m_Root.SpacingCm,
+                               ( static_cast<double>( p.z ) - m_Root.Origin.z ) / m_Root.SpacingCm );
+        };
+        const std::array<glm::dvec2, 2> points{ toLattice( startCm ), toLattice( endCm ) };
+        // Cross(P1 - P0, Up) in UE's frame, then GetSafeNormal.
+        const glm::dvec2 dir = points[1] - points[0];
+        const glm::dvec2 cross( dir.y, -dir.x );
+        const double     len = glm::length( cross );
+        if ( !( len > 1.e-8 ) )
+            return Common::MakeError( "landscape ramp: start and end coincide at lattice (" +
+                                      std::to_string( points[0].x ) + ", " + std::to_string( points[0].y ) + ")" );
+        const glm::dvec2 side      = cross / len;
+        const glm::dvec2 innerSide = side *
+                                     static_cast<double>( ramp.WidthCm * 0.5f * ( 1.0f - ramp.SideFalloff ) ) /
+                                     static_cast<double>( m_Root.SpacingCm );
+        const glm::dvec2 outerSide =
+             side * static_cast<double>( ramp.WidthCm * 0.5f ) / static_cast<double>( m_Root.SpacingCm );
+
+        std::array<std::array<glm::dvec2, 2>, 2> inner{};
+        std::array<std::array<glm::dvec2, 2>, 2> outer{};
+        for ( size_t i = 0; i < 2; ++i )
+        {
+            inner[i] = { points[i] - innerSide, points[i] + innerSide };
+            outer[i] = { points[i] - outerSide, points[i] + outerSide };
+        }
+        // Points.Z * LANDSCAPE_INV_ZSCALE + MidValue, unclamped: the raster policy clamps each sample.
+        const auto toSamples = [&]( const glm::vec3& p )
+        {
+            return ( static_cast<double>( p.y ) - m_Root.Origin.y ) / m_Root.ZScale * kLandscapeStepsPerLocal +
+                   kLandscapeMidSample;
+        };
+        const std::array<double, 2> heights{ toSamples( startCm ), toSamples( endCm ) };
+
+        double lox = outer[0][0].x, loy = outer[0][0].y, hix = lox, hiy = loy;
+        for ( const auto& end : outer )
+            for ( const glm::dvec2& v : end )
+            {
+                lox = std::min( lox, v.x );
+                loy = std::min( loy, v.y );
+                hix = std::max( hix, v.x );
+                hiy = std::max( hiy, v.y );
+            }
+        // "+/- 1 to make sure we have enough data for calculating correct normals"
+        const LandscapeSampleBounds rect = Intersect(
+             { static_cast<int32_t>( std::ceil( lox ) ) - 1, static_cast<int32_t>( std::ceil( loy ) ) - 1,
+               static_cast<int32_t>( std::floor( hix ) ) + 1, static_cast<int32_t>( std::floor( hiy ) ) + 1 },
+             m_Bounds );
+        // "The bounds don't intersect any data, so we skip applying the ramp entirely"
+        if ( rect.Empty() )
+            return Common::MakeSuccess( true );
+        auto cached = Cache( rect );
+        if ( !cached.IsSuccess() )
+            return cached;
+        auto read = m_Cache.GetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2 );
+        if ( !read.IsSuccess() )
+            return Common::MakeError( read.GetError() );
+        std::vector<uint16_t> data = read.GetValue();
+
+        RampRasterizer raster( { data, rect.X1, rect.Z1, rect.X2, rect.Z2, ramp.Mode != LandscapeRampMode::Lower,
+                                 ramp.Mode != LandscapeRampMode::Raise } );
+        const RampInterpolant h00( 0, heights[0] ), h10( 1, heights[0] ), h01( 0, heights[1] ),
+             h11( 1, heights[1] );
+        // Left
+        raster.DrawTriangle( h00, h10, h01, outer[0][0], inner[0][0], outer[1][0] );
+        raster.DrawTriangle( h10, h01, h11, inner[0][0], outer[1][0], inner[1][0] );
+        // Center
+        raster.DrawTriangle( h10, h10, h11, inner[0][0], inner[0][1], inner[1][0] );
+        raster.DrawTriangle( h10, h11, h11, inner[0][1], inner[1][0], inner[1][1] );
+        // Right
+        raster.DrawTriangle( h10, h00, h11, inner[0][1], outer[0][1], inner[1][1] );
+        raster.DrawTriangle( h00, h11, h01, outer[0][1], inner[1][1], outer[1][1] );
         return m_Cache.SetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2, data );
     }
 

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,7 @@ namespace Desert::Editor::Core
         Flatten,
         Noise,
         Erase,
+        Ramp,
     };
 
     inline const char* LandscapeToolName( LandscapeTool tool )
@@ -43,6 +45,8 @@ namespace Desert::Editor::Core
                 return "Noise";
             case LandscapeTool::Erase:
                 return "Erase";
+            case LandscapeTool::Ramp:
+                return "Ramp";
         }
         return "Unknown";
     }
@@ -79,6 +83,20 @@ namespace Desert::Editor::Core
         return "Unknown";
     }
 
+    inline const char* LandscapeRampModeName( World::Landscape::LandscapeRampMode mode )
+    {
+        switch ( mode )
+        {
+            case World::Landscape::LandscapeRampMode::Both:
+                return "Both";
+            case World::Landscape::LandscapeRampMode::Raise:
+                return "Raise";
+            case World::Landscape::LandscapeRampMode::Lower:
+                return "Lower";
+        }
+        return "Unknown";
+    }
+
     inline const char* LandscapeFalloffName( World::Landscape::LandscapeBrushFalloff shape )
     {
         switch ( shape )
@@ -108,20 +126,29 @@ namespace Desert::Editor::Core
         World::Landscape::LandscapeSmoothSettings  Smooth;
         World::Landscape::LandscapeFlattenSettings Flatten;
         World::Landscape::LandscapeNoiseSettings   Noise;
+        World::Landscape::LandscapeRampSettings    Ramp;
     };
 
-    /// A stroke asked for from the palette: one step at the viewport centre, then the stroke ends.
+    /// A stroke asked for from the palette: one step at the viewport centre, then the stroke ends. The ramp's
+    /// requests stand for UE's clicks on the landscape (a point each) and its Enter / Escape (apply / reset).
     enum class LandscapeStrokeRequest : uint8_t
     {
         None,
         Raise,
         Lower,
+        RampStart,
+        RampEnd,
+        RampApply,
+        RampReset,
     };
 
     struct LandscapeSculptState
     {
         LandscapeSculptSettings Settings;
         LandscapeStrokeRequest  Request = LandscapeStrokeRequest::None;
+        /// UE's FLandscapeToolRamp::Points, in world cm; applying keeps them, as UE does until the tool is reset.
+        std::optional<glm::vec3> RampStart;
+        std::optional<glm::vec3> RampEnd;
 
         static LandscapeSculptState& Get()
         {
@@ -139,6 +166,9 @@ namespace Desert::Editor::Core
         std::function<void( LandscapeSculptSettings& )> Apply;
         /// Whether the button is offered for the current tool (UE's ShowForTools).
         std::function<bool( const LandscapeSculptSettings& )> Shown;
+        /// Not None: the row is an action at the viewport centre, not a setting — Apply is empty and both the
+        /// panel and the palette post this request, which the viewport tool serves on its next update.
+        LandscapeStrokeRequest Request = LandscapeStrokeRequest::None;
     };
 
     inline std::vector<LandscapeToolControl> LandscapeToolControls()
@@ -150,10 +180,11 @@ namespace Desert::Editor::Core
         auto smooth  = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Smooth; };
         auto flatten = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Flatten; };
         auto noise   = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Noise; };
+        auto ramp    = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Ramp; };
 
         std::vector<LandscapeToolControl> controls;
         for ( const LandscapeTool tool : { LandscapeTool::Sculpt, LandscapeTool::Smooth, LandscapeTool::Flatten,
-                                           LandscapeTool::Noise, LandscapeTool::Erase } )
+                                           LandscapeTool::Noise, LandscapeTool::Erase, LandscapeTool::Ramp } )
             controls.push_back( { std::string( "Tool: " ) + LandscapeToolName( tool ), "Tool",
                                   [tool]( LandscapeSculptSettings& s ) { s.Tool = tool; }, always } );
 
@@ -272,6 +303,33 @@ namespace Desert::Editor::Core
                                                                  World::Landscape::kLandscapeMinNoiseScale );
                               },
                               noise } );
+        using World::Landscape::LandscapeRampMode;
+        for ( const LandscapeRampMode mode :
+              { LandscapeRampMode::Both, LandscapeRampMode::Raise, LandscapeRampMode::Lower } )
+            controls.push_back( { std::string( "Ramp mode: " ) + LandscapeRampModeName( mode ), "Ramp mode",
+                                  [mode]( LandscapeSculptSettings& s ) { s.Ramp.Mode = mode; }, ramp } );
+        controls.push_back( { "Ramp width: larger", "Ramp width",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.Ramp.WidthCm = std::min( s.Ramp.WidthCm * 1.25f,
+                                                             World::Landscape::kLandscapeMaxRampWidthUiCm );
+                              },
+                              ramp } );
+        controls.push_back( { "Ramp width: smaller", "Ramp width",
+                              []( LandscapeSculptSettings& s ) {
+                                  s.Ramp.WidthCm = std::max( s.Ramp.WidthCm / 1.25f,
+                                                             World::Landscape::kLandscapeMinRampWidthCm );
+                              },
+                              ramp } );
+        controls.push_back( { "Ramp side falloff: larger", "Side falloff", []( LandscapeSculptSettings& s )
+                              { s.Ramp.SideFalloff = std::min( s.Ramp.SideFalloff + 0.1f, 1.0f ); }, ramp } );
+        controls.push_back( { "Ramp side falloff: smaller", "Side falloff", []( LandscapeSculptSettings& s )
+                              { s.Ramp.SideFalloff = std::max( s.Ramp.SideFalloff - 0.1f, 0.0f ); }, ramp } );
+        controls.push_back(
+             { "Ramp: set start at viewport centre", "Ramp", {}, ramp, LandscapeStrokeRequest::RampStart } );
+        controls.push_back(
+             { "Ramp: set end at viewport centre", "Ramp", {}, ramp, LandscapeStrokeRequest::RampEnd } );
+        controls.push_back( { "Ramp: apply", "Ramp", {}, ramp, LandscapeStrokeRequest::RampApply } );
+        controls.push_back( { "Ramp: reset", "Ramp", {}, ramp, LandscapeStrokeRequest::RampReset } );
         return controls;
     }
 } // namespace Desert::Editor::Core

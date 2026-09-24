@@ -496,8 +496,8 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
     }
     // Every setting of LandscapeSculptSettings has a row: tool, radius, falloff, shape, strength, filter radius,
     // detail smooth, detail scale, flatten mode, slope flatten, pick per apply, terrace interval, terrace smooth,
-    // noise mode, noise scale.
-    EXPECT_EQ( rows.size(), 15u );
+    // noise mode, noise scale, ramp mode, ramp width, side falloff — and the ramp's action row.
+    EXPECT_EQ( rows.size(), 19u );
 
     LandscapeSculptSettings other;
     other.Tool                      = LandscapeTool::Smooth;
@@ -515,6 +515,9 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
     other.Flatten.TerraceSmooth     = 0.5f;
     other.Noise.Mode                = LandscapeNoiseMode::Sub;
     other.Noise.NoiseScale          = 64.0f;
+    other.Ramp.Mode                 = LandscapeRampMode::Lower;
+    other.Ramp.WidthCm              = 500.0f;
+    other.Ramp.SideFalloff          = 0.7f;
     auto key                        = []( const LandscapeSculptSettings& s )
     {
         return std::to_string( static_cast<int>( s.Tool ) ) + std::to_string( s.Brush.RadiusCm ) +
@@ -524,10 +527,19 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
                std::to_string( static_cast<int>( s.Flatten.Mode ) ) + std::to_string( s.Flatten.UseSlopeFlatten ) +
                std::to_string( s.Flatten.PickValuePerApply ) + std::to_string( s.Flatten.TerraceIntervalCm ) +
                std::to_string( s.Flatten.TerraceSmooth ) + std::to_string( static_cast<int>( s.Noise.Mode ) ) +
-               std::to_string( s.Noise.NoiseScale );
+               std::to_string( s.Noise.NoiseScale ) + std::to_string( static_cast<int>( s.Ramp.Mode ) ) +
+               std::to_string( s.Ramp.WidthCm ) + std::to_string( s.Ramp.SideFalloff );
     };
+    std::set<LandscapeStrokeRequest> requests;
     for ( const auto& c : controls )
     {
+        if ( c.Request != LandscapeStrokeRequest::None )
+        {
+            // An action row posts a request instead of editing a setting; it must not carry both.
+            EXPECT_FALSE( static_cast<bool>( c.Apply ) ) << c.Label;
+            EXPECT_TRUE( requests.insert( c.Request ).second ) << "two rows post the request of " << c.Label;
+            continue;
+        }
         bool changes = false;
         for ( const LandscapeSculptSettings& base : { LandscapeSculptSettings{}, other } )
         {
@@ -538,9 +550,157 @@ TEST( LandscapeSculpt, EveryPanelControlIsADistinctCommandThatKeepsTheSettingsVa
             EXPECT_TRUE( ValidateLandscapeSmooth( s.Smooth ).IsSuccess() ) << c.Label;
             EXPECT_TRUE( ValidateLandscapeFlatten( s.Flatten ).IsSuccess() ) << c.Label;
             EXPECT_TRUE( ValidateLandscapeNoise( s.Noise ).IsSuccess() ) << c.Label;
+            EXPECT_TRUE( ValidateLandscapeRamp( s.Ramp ).IsSuccess() ) << c.Label;
         }
         EXPECT_TRUE( changes ) << c.Label << " changes nothing from either base: a dead widget";
     }
+    EXPECT_EQ( requests, ( std::set<LandscapeStrokeRequest>{
+                              LandscapeStrokeRequest::RampStart, LandscapeStrokeRequest::RampEnd,
+                              LandscapeStrokeRequest::RampApply, LandscapeStrokeRequest::RampReset } ) );
+}
+
+namespace
+{
+    /// World height (cm) to a sample value, as UE's Points.Z * LANDSCAPE_INV_ZSCALE + MidValue.
+    double SampleOf( const World& w, float heightCm )
+    {
+        return ( heightCm - w.Root.Origin.y ) / w.Root.ZScale * kLandscapeStepsPerLocal + kLandscapeMidSample;
+    }
+
+    /// A ramp along X on the Z seam (gz = 31) from sample x 10 to 50, crossing the X seam at gx = 31:
+    /// 2000 cm wide = 10 samples each side, side falloff 0.4 = the outer 4 of them.
+    struct RampCase
+    {
+        glm::vec3             Start{ 1000.0f, 200.0f, 3100.0f };
+        glm::vec3             End{ 5000.0f, 600.0f, 3100.0f };
+        LandscapeRampSettings Ramp;
+    };
+} // namespace
+
+TEST( LandscapeSculpt, RampIsLinearAlongTheAxisAndFlatAcrossTheInnerWidth )
+{
+    World                 w( Flat );
+    const RampCase        c;
+    LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+    ASSERT_TRUE( stroke.ApplyRamp( c.Start, c.End, c.Ramp ).IsSuccess() );
+    const double h0 = SampleOf( w, c.Start.y );
+    const double h1 = SampleOf( w, c.End.y );
+    ASSERT_GT( h1 - h0, 400.0 ) << "the slope must span many steps, or linearity proves nothing";
+    for ( int32_t x = 11; x <= 49; ++x )
+    {
+        const double line = h0 + ( h1 - h0 ) * ( x - 10 ) / 40.0;
+        EXPECT_NEAR( w.At( x, 31 ), std::floor( line ), 1.0 ) << "axis sample x " << x;
+        // Inside the inner width (|dz| < 6) the cross-section is flat: the ramp owns the sample outright.
+        for ( int32_t dz = -5; dz <= 5; ++dz )
+            EXPECT_NEAR( w.At( x, 31 + dz ), w.At( x, 31 ), 1.0 ) << "x " << x << " dz " << dz;
+    }
+}
+
+TEST( LandscapeSculpt, RampSidesBlendByUEsCosineAndStopAtTheWidth )
+{
+    World                 w( Flat );
+    const RampCase        c;
+    LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+    ASSERT_TRUE( stroke.ApplyRamp( c.Start, c.End, c.Ramp ).IsSuccess() );
+    const double mid = kLandscapeMidSample;
+    for ( int32_t x = 12; x <= 48; x += 4 )
+    {
+        const double target = w.At( x, 31 );
+        for ( const int32_t dz : { 7, 8, 9 } )
+        {
+            // The interpolant is 0 at the outer edge (10 samples out) and 1 at the inner edge (6 out).
+            const double alphaX = ( 10.0 - dz ) / 4.0;
+            const double alpha  = 0.5 - 0.5 * std::cos( alphaX * 3.14159265358979323846 );
+            const double want   = mid + ( target - mid ) * alpha;
+            EXPECT_NEAR( w.At( x, 31 + dz ), want, 2.0 ) << "x " << x << " dz +" << dz;
+            EXPECT_NEAR( w.At( x, 31 - dz ), want, 2.0 ) << "x " << x << " dz -" << dz;
+        }
+        for ( const int32_t dz : { 10, 11, 14 } )
+        {
+            EXPECT_EQ( w.At( x, 31 + dz ), kLandscapeMidSample ) << "outside the width, x " << x << " dz " << dz;
+            EXPECT_EQ( w.At( x, 31 - dz ), kLandscapeMidSample ) << "outside the width, x " << x << " dz " << dz;
+        }
+    }
+    for ( int32_t z = 0; z <= 2 * kQ; ++z )
+        EXPECT_EQ( w.At( 55, z ), kLandscapeMidSample ) << "past the end, z " << z;
+}
+
+TEST( LandscapeSculpt, RampRaiseNeverLowersAndLowerNeverRaises )
+{
+    for ( const LandscapeRampMode mode :
+          { LandscapeRampMode::Raise, LandscapeRampMode::Lower, LandscapeRampMode::Both } )
+    {
+        World      w( Noise );
+        const auto before = w.Bytes();
+        RampCase   c;
+        // Level with the middle of the noise band (30000..32000), so both directions have samples to move.
+        c.Start.y = c.End.y =
+             static_cast<float>( ( 31000.0 - kLandscapeMidSample ) / kLandscapeStepsPerLocal * w.Root.ZScale );
+        c.Ramp.Mode = mode;
+        LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+        ASSERT_TRUE( stroke.ApplyRamp( c.Start, c.End, c.Ramp ).IsSuccess() );
+        const auto after = w.Bytes();
+        int        up    = 0;
+        int        down  = 0;
+        for ( size_t i = 0; i < after.size(); ++i )
+        {
+            up += after[i] > before[i];
+            down += after[i] < before[i];
+        }
+        const char* name = Desert::Editor::Core::LandscapeRampModeName( mode );
+        EXPECT_EQ( down > 0, mode != LandscapeRampMode::Raise ) << name << " down " << down;
+        EXPECT_EQ( up > 0, mode != LandscapeRampMode::Lower ) << name << " up " << up;
+    }
+}
+
+TEST( LandscapeSculpt, RampWritesEqualSeamCopiesAndUndoesByteForByte )
+{
+    World                 w( Noise );
+    const auto            original = w.Bytes();
+    const RampCase        c;
+    LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+    ASSERT_TRUE( stroke.ApplyRamp( c.Start, c.End, c.Ramp ).IsSuccess() );
+    int changedX = 0;
+    int changedZ = 0;
+    for ( int32_t i = 0; i <= kQ; ++i )
+    {
+        for ( int32_t t = 0; t < 2; ++t )
+        {
+            const uint32_t u = static_cast<uint32_t>( i );
+            EXPECT_EQ( w.Tiles.at( { 0, t } ).Sample( kQuads, u ), w.Tiles.at( { 1, t } ).Sample( 0u, u ) );
+            EXPECT_EQ( w.Tiles.at( { t, 0 } ).Sample( u, kQuads ), w.Tiles.at( { t, 1 } ).Sample( u, 0u ) );
+        }
+        changedX += w.At( kQ, i ) != Noise( kQ, i );
+        changedZ += w.At( i, kQ ) != Noise( i, kQ );
+    }
+    EXPECT_GT( changedX, 5 ) << "the X seam must have been edited, or the equality proves nothing";
+    EXPECT_GT( changedZ, 5 ) << "the Z seam must have been edited, or the equality proves nothing";
+
+    auto record = stroke.Finish();
+    ASSERT_TRUE( record.IsSuccess() );
+    const auto edited = w.Bytes();
+    ASSERT_NE( edited, original );
+    const auto& r = record.GetValue();
+    ASSERT_TRUE( WriteLandscapeHeights( w.Root, w.Lookup(), r.Rect, r.Before ).IsSuccess() );
+    EXPECT_EQ( w.Bytes(), original );
+    ASSERT_TRUE( WriteLandscapeHeights( w.Root, w.Lookup(), r.Rect, r.After ).IsSuccess() );
+    EXPECT_EQ( w.Bytes(), edited );
+}
+
+TEST( LandscapeSculpt, BadRampsAreRefused )
+{
+    World                 w( Flat );
+    LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+    const glm::vec3       p{ 1000.0f, 0.0f, 1000.0f };
+    EXPECT_FALSE( stroke.ApplyRamp( p, p + glm::vec3( 0.0f, 300.0f, 0.0f ), {} ).IsSuccess() )
+         << "points one above the other have no direction";
+    LandscapeRampSettings narrow;
+    narrow.WidthCm = 0.5f;
+    EXPECT_FALSE( ValidateLandscapeRamp( narrow ).IsSuccess() );
+    LandscapeRampSettings wide;
+    wide.SideFalloff = 1.5f;
+    EXPECT_FALSE( ValidateLandscapeRamp( wide ).IsSuccess() );
+    EXPECT_FALSE( stroke.Touched() );
 }
 
 int main( int argc, char** argv )

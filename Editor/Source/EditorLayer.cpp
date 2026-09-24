@@ -4404,6 +4404,19 @@ namespace Desert::Editor
                               } } );
         for ( auto& control : Core::LandscapeToolControls() )
         {
+            if ( control.Request != Core::LandscapeStrokeRequest::None )
+            {
+                commands.push_back( { "Landscape", control.Label, [request = control.Request]
+                                      {
+                                          if ( Core::ViewportMode::Get() != Core::EditorMode::Landscape )
+                                              return PaletteCommandOutcome( false,
+                                                                            "the Landscape mode is not active; "
+                                                                            "run 'Landscape: Sculpt mode' first" );
+                                          Core::LandscapeSculptState::Get().Request = request;
+                                          return PaletteCommandDone();
+                                      } } );
+                continue;
+            }
             commands.push_back( { "Landscape", control.Label, [apply = control.Apply]
                                   {
                                       apply( Core::LandscapeSculptState::Get().Settings );

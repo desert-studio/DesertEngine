@@ -32,9 +32,14 @@ namespace Desert::Editor::Tools
         Common::BoolResultStr Step( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool invert,
                                     float deltaSeconds );
         void                  End( ::Desert::Core::Scene& scene );
+        void SetRampPoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool start );
+        /// Serves a pending ramp request (a point, apply, reset); false when the request is not the ramp's.
+        bool ServeRampRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& centreRay );
 
         std::optional<ECS::LandscapeEditTarget>                m_Target;
         std::optional<World::Landscape::LandscapeHeightStroke> m_Stroke;
         bool                                                   m_Failed = false;
+        /// The undo entry's name, fixed when the stroke begins.
+        const char* m_ToolName = "";
     };
 } // namespace Desert::Editor::Tools

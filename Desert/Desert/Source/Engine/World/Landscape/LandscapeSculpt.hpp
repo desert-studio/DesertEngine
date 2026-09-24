@@ -1,10 +1,14 @@
 // Ported from UE 5.8 Engine/Source/Editor/LandscapeEditor/Private/LandscapeEdModePaintTools.cpp:505-590 (Erase),
 // :593-808 (Sculpt), :878-1000 (Smooth), :1049-1350 (Flatten), :1533-1650 (Noise), :29-46 (noise permutations),
 // LandscapeEdModeTools.h:29-160 (FNoiseParameter), :168-280 (LowPassFilter), :474-516 (GetValue / GetNormal) and
-// :1134-1142 (StrengthMultiplier), LandscapeEditorObject.h:85-99 (NoiseModeConversion), adapted:
-// UObject/ULandscapeEditorObject settings become plain structs, the stroke writes through LandscapeHeightCache
-// (L2) on the global sample lattice, kissfft is replaced by a separable DFT, the clay brush, tablet pressure, the
-// flatten target and edit layers are not ported, and the stroke records its own before/after snapshot for undo.
+// :1134-1142 (StrengthMultiplier), LandscapeEditorObject.h:85-99 (NoiseModeConversion),
+// LandscapeEdModeRampTool.cpp:29-75 (FLandscapeRampToolHeightRasterPolicy) and :486-613 (ApplyRamp),
+// LandscapeEditorObject.h:396-403 with LandscapeEditorObject.cpp:57-58 (RampWidth / RampSideFalloff),
+// Runtime/Engine/ Public/Raster.h (FTriangleRasterizer), adapted: the ramp's two points come from palette
+// commands, not a hit proxy; UObject/ULandscapeEditorObject settings become plain structs, the stroke writes
+// through LandscapeHeightCache (L2) on the global sample lattice, kissfft is replaced by a separable DFT, the clay
+// brush, tablet pressure, the flatten target and edit layers are not ported, and the stroke records its own
+// before/after snapshot for undo.
 
 #pragma once
 
@@ -147,6 +151,29 @@ namespace Desert::World::Landscape
      */
     float LandscapeNoiseSample( int32_t x, int32_t z, float noiseScale );
 
+    /// UE's Ramp_bRaiseTerrain / Ramp_bLowerTerrain as one choice. UE 5.8 hard-codes both on (the settings are
+    /// commented out in ApplyRamp); the raster policy still honours each flag, and Both is that default.
+    enum class LandscapeRampMode : uint8_t
+    {
+        Both,
+        Raise,
+        Lower,
+    };
+
+    struct LandscapeRampSettings
+    {
+        /// UE: RampWidth, world units (cm), ClampMin 1, default 2000.
+        float WidthCm = 2000.0f;
+        /// UE: RampSideFalloff, the fraction of the half width that blends into the terrain, 0..1, default 0.4.
+        float             SideFalloff = 0.4f;
+        LandscapeRampMode Mode        = LandscapeRampMode::Both;
+    };
+
+    inline constexpr float kLandscapeMinRampWidthCm   = 1.0f;
+    inline constexpr float kLandscapeMaxRampWidthUiCm = 8192.0f; // UE's UIMax
+
+    Common::BoolResultStr ValidateLandscapeRamp( const LandscapeRampSettings& settings );
+
     /**
      * @brief UE's SculptStrength for one step, in height steps at brush weight 1:
      *        Strength · (RadiusCm · 128 / ZScale) · min(dt, 0.1) · 3, and at least 1 (UE's non-clay floor).
@@ -199,6 +226,14 @@ namespace Desert::World::Landscape
         /// FLandscapeToolStrokeErase::Apply: towards local height 0, strength clamped to 0..1 as in UE.
         Common::BoolResultStr ApplyErase( const LandscapeBrushWeights&  weights,
                                           const LandscapeBrushSettings& brush );
+
+        /**
+         * FLandscapeToolRamp::ApplyRamp: a ramp from @p startCm to @p endCm (world cm; Y is the height the ramp
+         * takes at that end), @p ramp.WidthCm wide, its sides blended into the terrain by a cosine over the outer
+         * SideFalloff of the half width. Refuses coincident points (UE's CanApplyRamp wants two distinct points
+         * to have a direction at all).
+         */
+        Common::BoolResultStr ApplyRamp( glm::vec3 startCm, glm::vec3 endCm, const LandscapeRampSettings& ramp );
 
         bool Touched() const
         {
