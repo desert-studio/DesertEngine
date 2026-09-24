@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -343,8 +344,11 @@ namespace Desert::Graphic::API::Vulkan
                                                         .stage  = *computeStage,
                                                         .layout = m_ComputePipelineLayout };
 
-        VK_CHECK_RESULT(
-             vkCreateComputePipelines( device, pipelineCache, 1, &pipelineInfo, nullptr, &m_ComputePipeline ) );
+        {
+            const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
+            VK_CHECK_RESULT( vkCreateComputePipelines( device, pipelineCache, 1, &pipelineInfo, nullptr,
+                                                       &m_ComputePipeline ) );
+        }
 
         VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, m_Specification.Shader->GetName(), m_ComputePipeline );
 

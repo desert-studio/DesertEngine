@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -444,8 +445,11 @@ namespace Desert::Graphic::API::Vulkan
         // pipeline binaries across runs instead of compiling this graphics pipeline from scratch.
         const VkPipelineCache pipelineCache =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetPipelineCache();
-        VK_CHECK_RESULT(
-             vkCreateGraphicsPipelines( device, pipelineCache, 1, &pipelineInfo, nullptr, &m_Pipeline ) );
+        {
+            const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
+            VK_CHECK_RESULT(
+                 vkCreateGraphicsPipelines( device, pipelineCache, 1, &pipelineInfo, nullptr, &m_Pipeline ) );
+        }
 
         // Debug name so RenderDoc/validation identify the pipeline by its spec name.
         if ( !m_Specification.DebugName.empty() )

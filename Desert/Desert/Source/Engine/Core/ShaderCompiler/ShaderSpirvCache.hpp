@@ -15,9 +15,12 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace Desert::Core
@@ -51,6 +54,57 @@ namespace Desert::Core
     ShaderCacheCounts ReadShaderCacheCounts();
     void              CountShaderCacheHit();
     void              CountShaderCacheCompile( bool stored );
+
+    // WHERE shader startup time goes, per phase, summed over the process (workers included). The preloader's
+    // one total ("78 programs in 3231 ms") was read as "compilation" for weeks; a warm SPIR-V cache took it
+    // only from 3.8 s to 3.2 s, so the rest had to be named before anything else was changed. Pipelines are
+    // counted here too although the preloader builds none: they are the other half of "shaders at startup",
+    // built by the first frames, and the half a warm VkPipelineCache is supposed to remove.
+    enum class ShaderPhase : uint8_t
+    {
+        Preprocess,     // pass metadata + include expansion of the program text
+        CacheKey,       // ComputeShaderCacheKeyForProfile (hashes the source and every include)
+        SpirvLoad,      // a cache hit's read
+        Compile,        // a cache miss: shaderc + the store
+        ShaderModule,   // vkCreateShaderModule
+        Reflect,        // SPIR-V reflection + descriptor-set layouts
+        PipelineCreate, // vkCreateGraphicsPipelines / vkCreateComputePipelines
+        Count
+    };
+    struct ShaderPhaseTimes
+    {
+        std::array<uint64_t, static_cast<size_t>( ShaderPhase::Count )> Nanoseconds{};
+        std::array<uint64_t, static_cast<size_t>( ShaderPhase::Count )> Calls{};
+
+        double Milliseconds( const ShaderPhase phase ) const
+        {
+            return static_cast<double>( Nanoseconds[static_cast<size_t>( phase )] ) / 1.0e6;
+        }
+    };
+    ShaderPhaseTimes ReadShaderPhaseTimes();
+    void             AddShaderPhaseTime( ShaderPhase phase, std::chrono::nanoseconds elapsed );
+    // "preprocess 412.3 ms/156, cache key ..., pipelines 0.0 ms/0" — one log line's worth.
+    std::string FormatShaderPhaseTimes( const ShaderPhaseTimes& times );
+
+    // Times its own scope into one phase.
+    class ScopedShaderPhase
+    {
+    public:
+        explicit ScopedShaderPhase( const ShaderPhase phase )
+             : m_Phase( phase ), m_Start( std::chrono::steady_clock::now() )
+        {
+        }
+        ~ScopedShaderPhase()
+        {
+            AddShaderPhaseTime( m_Phase, std::chrono::steady_clock::now() - m_Start );
+        }
+        ScopedShaderPhase( const ScopedShaderPhase& )            = delete;
+        ScopedShaderPhase& operator=( const ScopedShaderPhase& ) = delete;
+
+    private:
+        ShaderPhase                           m_Phase;
+        std::chrono::steady_clock::time_point m_Start;
+    };
 
     // The bucket directory every SpirvCachePathForKey lives under (sharded by key prefix below it).
     std::filesystem::path ShaderCacheDir();

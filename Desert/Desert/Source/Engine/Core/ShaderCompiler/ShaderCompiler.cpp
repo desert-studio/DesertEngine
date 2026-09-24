@@ -59,14 +59,24 @@ namespace Desert::Core
         // source + every included file's content (recursive) + the VARIANT's substituted bytes.
         // Content-addressed, so any edit produces a fresh key — no mtime races — and two materials
         // substituting two different cloud media are two artifacts rather than one served twice.
-        const uint64_t key = ComputeShaderCacheKeyForProfile( stage, source, shaderPath, spirvDebugInfo, variant );
+        uint64_t key = 0;
+        {
+            const ScopedShaderPhase timer( ShaderPhase::CacheKey );
+            key = ComputeShaderCacheKeyForProfile( stage, source, shaderPath, spirvDebugInfo, variant );
+        }
 
-        if ( auto cached = TryLoadCachedSpirv( key ) )
+        std::optional<std::vector<uint32_t>> cached;
+        {
+            const ScopedShaderPhase timer( ShaderPhase::SpirvLoad );
+            cached = TryLoadCachedSpirv( key );
+        }
+        if ( cached )
         {
             CountShaderCacheHit();
             return Common::MakeSuccess( std::move( *cached ) );
         }
 
+        const ScopedShaderPhase  compileTimer( ShaderPhase::Compile );
         static shaderc::Compiler compiler;
         shaderc::CompileOptions  options;
 

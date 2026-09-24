@@ -6,6 +6,7 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Core/ShaderCompiler/ShaderCompiler.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 
 namespace Desert::Graphic::API::Vulkan
@@ -50,16 +51,20 @@ namespace Desert::Graphic::API::Vulkan
         auto asset = m_ShaderAsset.lock();
         if ( !asset ) return Common::MakeError( "Shader asset expired" );
 
-        m_ProgramMeta =
-             Core::Preprocess::ShaderPreprocess::ParseProgramMetaForPass( asset->GetShaderContent(), m_PassName );
+        std::unordered_map<Core::Formats::ShaderStage, std::string> stages;
+        {
+            const Core::ScopedShaderPhase timer( Core::ShaderPhase::Preprocess );
+            m_ProgramMeta = Core::Preprocess::ShaderPreprocess::ParseProgramMetaForPass( asset->GetShaderContent(),
+                                                                                         m_PassName );
+            stages        = Core::Preprocess::ShaderPreprocess::PreProcessProgramPass( asset->GetShaderContent(),
+                                                                                       m_ShaderPath, m_PassName );
+        }
         if ( m_ProgramMeta.HasParams() || m_ProgramMeta.State.Topology.has_value() )
         {
             LOG_INFO( "Shader '{}': parsed {} param(s) + render-state from shader metadata", m_ShaderName,
                       m_ProgramMeta.Params.size() );
         }
 
-        auto stages = Core::Preprocess::ShaderPreprocess::PreProcessProgramPass( asset->GetShaderContent(),
-                                                                                 m_ShaderPath, m_PassName );
         return CompileProgram( stages );
     }
 
@@ -94,8 +99,13 @@ namespace Desert::Graphic::API::Vulkan
 
             const auto& spirv = spirvResult.GetValue();
             VkShaderModuleCreateInfo ci = { .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, .codeSize = (uint32_t)(spirv.size() * 4), .pCode = spirv.data() };
-            VkShaderModule module;
-            if ( vkCreateShaderModule( device, &ci, nullptr, &module ) != VK_SUCCESS )
+            VkShaderModule module  = VK_NULL_HANDLE;
+            VkResult       created = VK_SUCCESS;
+            {
+                const Core::ScopedShaderPhase timer( Core::ShaderPhase::ShaderModule );
+                created = vkCreateShaderModule( device, &ci, nullptr, &module );
+            }
+            if ( created != VK_SUCCESS )
             {
                 discard();
                 return Common::MakeFormattedError( "Shader '{}': vkCreateShaderModule failed for the {} stage",
@@ -114,7 +124,8 @@ namespace Desert::Graphic::API::Vulkan
                                     .module = module,
                                     .pName  = "main" } );
 
-            auto reflectResult = Reflect( vkStage, spirv, reflection );
+            const Core::ScopedShaderPhase reflectTimer( Core::ShaderPhase::Reflect );
+            auto                          reflectResult = Reflect( vkStage, spirv, reflection );
             if ( !reflectResult.IsSuccess() )
             {
                 discard();
@@ -136,6 +147,7 @@ namespace Desert::Graphic::API::Vulkan
         m_ReflectionData                 = std::move( reflection );
         m_DescriptorSetLayouts.clear();
 
+        const Core::ScopedShaderPhase layoutTimer( Core::ShaderPhase::Reflect );
         return CreateDescriptorsLayout();
     }
 

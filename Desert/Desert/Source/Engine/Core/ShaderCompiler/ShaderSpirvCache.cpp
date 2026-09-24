@@ -20,6 +20,10 @@ namespace Desert::Core
         std::atomic<uint64_t> s_Hits{ 0 };
         std::atomic<uint64_t> s_Compiled{ 0 };
         std::atomic<uint64_t> s_StoreFailures{ 0 };
+
+        constexpr size_t                               kPhaseCount = static_cast<size_t>( ShaderPhase::Count );
+        std::array<std::atomic<uint64_t>, kPhaseCount> s_PhaseNanoseconds{};
+        std::array<std::atomic<uint64_t>, kPhaseCount> s_PhaseCalls{};
     } // namespace
 
     std::filesystem::path SpirvCachePathForKey( uint64_t key )
@@ -64,6 +68,36 @@ namespace Desert::Core
         s_Compiled.fetch_add( 1 );
         if ( !stored )
             s_StoreFailures.fetch_add( 1 );
+    }
+
+    ShaderPhaseTimes ReadShaderPhaseTimes()
+    {
+        ShaderPhaseTimes times;
+        for ( size_t i = 0; i < kPhaseCount; ++i )
+        {
+            times.Nanoseconds[i] = s_PhaseNanoseconds[i].load();
+            times.Calls[i]       = s_PhaseCalls[i].load();
+        }
+        return times;
+    }
+
+    void AddShaderPhaseTime( const ShaderPhase phase, const std::chrono::nanoseconds elapsed )
+    {
+        const auto index = static_cast<size_t>( phase );
+        s_PhaseNanoseconds[index].fetch_add( static_cast<uint64_t>( elapsed.count() ) );
+        s_PhaseCalls[index].fetch_add( 1 );
+    }
+
+    std::string FormatShaderPhaseTimes( const ShaderPhaseTimes& times )
+    {
+        static constexpr std::array<const char*, kPhaseCount> kNames = {
+             "preprocess",     "cache key",       "SPIR-V lookup", "compile",
+             "VkShaderModule", "reflect+layouts", "pipelines" };
+        std::string line;
+        for ( size_t i = 0; i < kPhaseCount; ++i )
+            line += std::format( "{}{} {:.1f} ms/{}", i == 0 ? "" : ", ", kNames[i],
+                                 times.Milliseconds( static_cast<ShaderPhase>( i ) ), times.Calls[i] );
+        return line;
     }
 
     std::filesystem::path ShaderCacheDir()
