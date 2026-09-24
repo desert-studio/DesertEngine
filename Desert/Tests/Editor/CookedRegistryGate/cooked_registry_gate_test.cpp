@@ -12,6 +12,7 @@
 //
 // plus the old census that every tracked content file reaches the engine, now against the gathered rows.
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
@@ -21,6 +22,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -261,6 +264,189 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
         EXPECT_FALSE( loaded.GetValue().OfKind( name ).empty() )
              << "the registry holds no '" << name << "' row while the repository tracks one";
     }
+}
+
+// ── THE REGISTRY IS KEYED BY GUID, END TO END (T6e) ──────────────────────────────────────────────────
+//
+// Built from the headers of the whole committed corpus, no editor and no load: (a) a row that states a GUID
+// is known by HandleForGuid( GUID ) and by nothing else; (b) every edge names a row BY GUID — a number that
+// folds from no row's GUID is either a path-derived handle or a reference to nothing, and both are refused.
+// The checks are functions so the mutation tests below can prove each one turns red.
+namespace
+{
+    std::vector<std::string> IdentityProblems( const Common::Utils::AssetRegistry& registry )
+    {
+        std::vector<std::string> problems;
+        for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+        {
+            if ( !row.Guid.has_value() )
+            {
+                if ( row.Identity != 0 )
+                    problems.push_back( row.Key + ": states no GUID and still declares an identity" );
+                continue;
+            }
+            const uint64_t fold = static_cast<uint64_t>( Common::Content::HandleForGuid( *row.Guid ) );
+            if ( row.Identity != fold )
+                problems.push_back( row.Key + ": identity " + std::to_string( row.Identity ) +
+                                    " is not its GUID's fold " + std::to_string( fold ) );
+            const Common::Utils::AssetRegistryEntry* found = registry.FindByHandle( fold );
+            if ( found == nullptr || found->Key != row.Key )
+                problems.push_back( row.Key + ": FindByHandle( its GUID's fold ) does not return it" );
+        }
+        return problems;
+    }
+
+    std::vector<std::string> DependencyProblems( const Common::Utils::AssetRegistry& registry )
+    {
+        std::map<uint64_t, std::string> byFold;
+        for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+            if ( row.Guid.has_value() )
+                byFold.emplace( static_cast<uint64_t>( Common::Content::HandleForGuid( *row.Guid ) ), row.Key );
+
+        std::vector<std::string> problems;
+        for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+        {
+            for ( const uint64_t edge : row.Dependencies )
+            {
+                if ( byFold.find( edge ) != byFold.end() )
+                    continue;
+                const Common::Utils::AssetRegistryEntry* byPath = registry.FindByHandle( edge );
+                problems.push_back( row.Key + ": edge " + std::to_string( edge ) +
+                                    ( byPath != nullptr ? " is the PATH-derived number of " + byPath->Key
+                                                        : std::string( " names no row (dangling)" ) ) );
+            }
+        }
+        return problems;
+    }
+
+    Common::Utils::AssetRegistry ScannedCorpus()
+    {
+        return Common::Content::GatherContentRegistry( {} ).Registry;
+    }
+} // namespace
+
+TEST( CookedRegistryGate, EveryRowWithAGuidIsKnownByItsGuidsFold )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    SandboxProject sandbox( root );
+    ASSERT_TRUE( sandbox.Opened() );
+
+    const Common::Utils::AssetRegistry registry = ScannedCorpus();
+    std::map<std::string, std::pair<int, int>> byKind; // kind -> rows, rows with a GUID
+    for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+    {
+        ++byKind[row.Kind].first;
+        byKind[row.Kind].second += row.Guid.has_value() ? 1 : 0;
+    }
+    for ( const auto& [kind, counts] : byKind )
+        std::printf( "  %-22s %4d row(s), %4d with a GUID\n", kind.c_str(), counts.first, counts.second );
+
+    for ( const std::string& problem : IdentityProblems( registry ) )
+        ADD_FAILURE() << problem;
+}
+
+TEST( CookedRegistryGate, EveryDependencyNamesARowByItsGuid )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    SandboxProject sandbox( root );
+    ASSERT_TRUE( sandbox.Opened() );
+
+    const Common::Utils::AssetRegistry registry = ScannedCorpus();
+    std::size_t                        edges    = 0;
+    for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+        edges += row.Dependencies.size();
+    // A gate over zero edges proves nothing: the committed materials state their textures and cloud assets.
+    EXPECT_GT( edges, 0u ) << "no row states a dependency; the header's edges are not reaching the registry";
+    std::printf( "  %zu dependency edge(s) checked\n", edges );
+
+    for ( const std::string& problem : DependencyProblems( registry ) )
+        ADD_FAILURE() << problem;
+}
+
+TEST( CookedRegistryGate, AnEdgeWithAChangedGuidIsCaught )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    SandboxProject sandbox( root );
+    ASSERT_TRUE( sandbox.Opened() );
+
+    Common::Utils::AssetRegistry registry = ScannedCorpus();
+    const auto withEdge = std::find_if( registry.Entries().begin(), registry.Entries().end(),
+                                        []( const Common::Utils::AssetRegistryEntry& row )
+                                        { return !row.Dependencies.empty(); } );
+    ASSERT_NE( withEdge, registry.Entries().end() );
+    const std::string key = withEdge->Key;
+
+    // The same target, one bit of its GUID different: a reference to an asset that does not exist.
+    const Common::Utils::AssetRegistryEntry* target = registry.FindByHandle( withEdge->Dependencies.front() );
+    ASSERT_NE( target, nullptr );
+    ASSERT_TRUE( target->Guid.has_value() );
+    Common::Content::AssetGuid other = *target->Guid;
+    other.Lo ^= 1u;
+    std::vector<uint64_t> edges = withEdge->Dependencies;
+    edges.front()               = static_cast<uint64_t>( Common::Content::HandleForGuid( other ) );
+    ASSERT_TRUE( registry.SetDependencies( key, edges ) );
+    EXPECT_FALSE( DependencyProblems( registry ).empty() );
+
+    // And the edge spelled as the target's PATH-derived number, the form the runtime writer used to leave.
+    edges.front() = target->PathHandle();
+    ASSERT_TRUE( registry.SetDependencies( key, edges ) );
+    EXPECT_FALSE( DependencyProblems( registry ).empty() );
+}
+
+TEST( CookedRegistryGate, ACorruptIdentityIsCaught )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    SandboxProject sandbox( root );
+    ASSERT_TRUE( sandbox.Opened() );
+
+    Common::Utils::AssetRegistry registry = ScannedCorpus();
+    const auto withGuid = std::find_if( registry.Entries().begin(), registry.Entries().end(),
+                                        []( const Common::Utils::AssetRegistryEntry& row )
+                                        { return row.Guid.has_value(); } );
+    ASSERT_NE( withGuid, registry.Entries().end() );
+    const std::string key      = withGuid->Key;
+    const uint64_t    identity = withGuid->Identity;
+    ASSERT_TRUE( registry.SetIdentity( key, identity + 1 ) );
+    EXPECT_FALSE( IdentityProblems( registry ).empty() );
+    ASSERT_TRUE( registry.SetIdentity( key, withGuid->PathHandle() ) );
+    EXPECT_FALSE( IdentityProblems( registry ).empty() );
+}
+
+// A cache written in another row form is refused by its version and the gather reads every header again —
+// nobody deletes Intermediate/AssetRegistry.cache by hand.
+TEST( CookedRegistryGate, ACacheOfAnotherRowFormIsRebuiltWithoutBeingDeleted )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    SandboxProject sandbox( root );
+    ASSERT_TRUE( sandbox.Opened() );
+
+    const Common::Utils::AssetRegistry registry = ScannedCorpus();
+    const std::string                  current  = Common::Content::SerializeRegistryCache( registry );
+    ASSERT_TRUE( Common::Content::ParseRegistryCache( current ) );
+
+    const std::string firstLine = current.substr( 0, current.find( '\n' ) );
+    const std::string body      = current.substr( current.find( '\n' ) );
+    // The previous form, whose rows carried runtime-learned identities and edges.
+    const std::string previous = "DesertAssetRegistryCache 2" + body;
+    EXPECT_FALSE( Common::Content::ParseRegistryCache( previous ) ) << "a version-2 cache was reused";
+    // A later form is not this one either; the magic is compared whole, not as a prefix.
+    EXPECT_FALSE( Common::Content::ParseRegistryCache( firstLine + "0" + body ) );
+    // An older registry form embedded in a current cache would hand back rows without their header columns.
+    std::string olderRegistry = current;
+    const auto  at            = olderRegistry.find( "\nDesertAssetRegistry 3" );
+    ASSERT_NE( at, std::string::npos );
+    olderRegistry.replace( at, std::string( "\nDesertAssetRegistry 3" ).size(), "\nDesertAssetRegistry 2" );
+    EXPECT_FALSE( Common::Content::ParseRegistryCache( olderRegistry ) );
+
+    // And what the editor does with a refused cache: an empty one, i.e. every header read afresh.
+    const Common::Content::GatheredRegistry rebuilt = Common::Content::GatherContentRegistry( {} );
+    EXPECT_EQ( rebuilt.FromCache, 0u );
+    EXPECT_EQ( rebuilt.Registry.Serialize(), registry.Serialize() );
 }
 
 int main( int argc, char** argv )
