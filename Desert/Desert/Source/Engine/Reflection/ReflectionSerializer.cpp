@@ -13,6 +13,13 @@ namespace Desert::Reflection
 {
     namespace
     {
+        // The asset types a reflected field stores as {"Guid", "Path"}: skyboxes since SCNE 29, textures
+        // (the UI sprites and the splash) since SCNE 30. Every other type still stores its key alone.
+        bool IsStoredByGuid( const std::string& assetType )
+        {
+            return assetType == "SkyboxAsset" || assetType == "TextureAsset";
+        }
+
         // Accepts a JSON number stored either as integer or floating point.
         //
         // FOR FLOATING-POINT FIELDS ONLY. It used to serve the integral cases as well, and a 64-bit
@@ -147,10 +154,9 @@ namespace Desert::Reflection
                     out[field.Name] = ReadIntBySize( p, field.Size );
                     break;
                 case FieldType::AssetHandle:
-                    if ( resolver && field.Meta.AssetType == "SkyboxAsset" )
+                    if ( resolver && IsStoredByGuid( field.Meta.AssetType ) )
                     {
-                        // SCNE 29: the GUID is the identity, the project key only locates it. ToPath
-                        // renders a skybox as a tagged key or not at all, so no absolute path reaches here.
+                        // SCNE 29 (skybox) / 30 (texture): the GUID is the identity, the key only locates it.
                         const uint64_t       handle = *static_cast<const uint64_t*>( p );
                         rfl::Generic::Object ref;
                         ref["Guid"]     = resolver->ToGuid( handle, field.Meta.AssetType );
@@ -272,7 +278,7 @@ namespace Desert::Reflection
                     break;
                 case FieldType::AssetHandle:
                 {
-                    if ( field.Meta.AssetType == "SkyboxAsset" )
+                    if ( IsStoredByGuid( field.Meta.AssetType ) )
                     {
                         const auto ref = g.to_object();
                         if ( ref.has_value() && resolver )
@@ -284,16 +290,16 @@ namespace Desert::Reflection
                                                      : std::string();
                             };
                             *static_cast<uint64_t*>( p ) =
-                                 ResolveGuidRef( *resolver, text( "Guid" ), text( "Path" ), "SkyboxAsset",
-                                                 "field '" + field.Name + "'" );
+                                 ResolveGuidRef( *resolver, text( "Guid" ), text( "Path" ),
+                                                 field.Meta.AssetType.c_str(), "field '" + field.Name + "'" );
                         }
                         else if ( ref.has_value() ||
                                   ( g.to_string().has_value() && !g.to_string().value().empty() ) )
                             LOG_ERROR(
-                                 "[Reflection] Field '{0}' is a skybox reference in a form this build does not "
-                                 "read (a {{Guid, Path}} object with no resolver, or a pre-SCNE-29 bare "
+                                 "[Reflection] Field '{0}' is a {1} reference in a form this build does not "
+                                 "read (a {{Guid, Path}} object with no resolver, or a pre-SCNE-30 bare "
                                  "string - run the SceneMigrator); the field keeps its default.",
-                                 field.Name );
+                                 field.Name, field.Meta.AssetType );
                         break;
                     }
                     if ( auto s = g.to_string(); s.has_value() )

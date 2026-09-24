@@ -14,7 +14,8 @@ re-spells Params through MaterialData's float storage; that is normalised away o
 one-to-one with a (GUID, locator) across the corpus and every locator names a tracked file whose text header, if
 it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v) swaps FormatVersion for the header alone.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
-each key pairs one-to-one with a GUID. Those are normalised away below - nothing else is.
+each key pairs one-to-one with a GUID. Scene v30 (T6f) does the same to the UI sprite and splash keys.
+Those are normalised away below - nothing else is.
 
 Run from anywhere inside the repository:
     python3 Desert/Tests/Common/CanonicalText/compare_corpus.py [base-ref]
@@ -179,25 +180,29 @@ def strip_scene_v28(old, new, ext):
 _SKY_PAIRS = {}  # old SkyboxHandle key -> {GUID text}, gathered over every SCNE 28 -> 29 file
 
 
-def swap_skybox_refs(old, new):
-    """Replaces every string SkyboxHandle in `old` by the {Guid, Path} object at the same place in `new`,
-    provided the object's Path is that string (an empty one pairs with an empty GUID). False when the two
-    documents do not line up."""
+def swap_guid_refs(old, new, keys, pairs):
+    """Replaces every string under a key in `keys` in `old` by the {Guid, Path} object at the same place in
+    `new`, provided the object's Path is that string (an empty one pairs with an empty GUID), and records the
+    pairing in `pairs`. False when the two documents do not line up."""
     if isinstance(old, dict) and isinstance(new, dict):
         for key, value in old.items():
-            if key == "SkyboxHandle" and isinstance(value, str):
+            if key in keys and isinstance(value, str):
                 ref = new.get(key)
                 if not isinstance(ref, dict) or set(ref) != {"Guid", "Path"} or ref["Path"] != value or \
                         (value == "") != (ref["Guid"] == ""):
                     return False
                 if value:
-                    _SKY_PAIRS.setdefault(value, set()).add(ref["Guid"])
+                    pairs.setdefault(value, set()).add(ref["Guid"])
                 old[key] = ref
-            elif key in new and not swap_skybox_refs(value, new[key]):
+            elif key in new and not swap_guid_refs(value, new[key], keys, pairs):
                 return False
     elif isinstance(old, list) and isinstance(new, list):
-        return all(swap_skybox_refs(a, b) for a, b in zip(old, new))
+        return all(swap_guid_refs(a, b, keys, pairs) for a, b in zip(old, new))
     return True
+
+
+def swap_skybox_refs(old, new):
+    return swap_guid_refs(old, new, {"SkyboxHandle"}, _SKY_PAIRS)
 
 
 def strip_scene_v29(old, new, ext):
@@ -215,6 +220,23 @@ def strip_scene_v29(old, new, ext):
 
 _REF_PAIRS = {}  # MATL 2 slot number -> {(GUID text, locator)}, gathered over every MATL 2 -> 3 file
 _MATL3_LISTS = ("Textures", "CloudAssets", "ShaderRefs")
+
+
+_SPRITE_PAIRS = {}  # old sprite / splash key -> {GUID text}, gathered over every SCNE 29 -> 30 file
+_SPRITE_KEYS = {"Sprite", "HoverSprite", "PressedSprite", "SplashSprite"}
+
+
+def strip_scene_v30(old, new, ext):
+    """SCNE 29 -> 30 (T6f): the version and the UI sprite / splash spelling (key string -> {Guid, Path}) are
+    the only change. The pairing is judged once the corpus is read."""
+    if ext not in (".desce", ".deprefab") or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_v = old.get("Header", {}).get("Versions", {})
+    new_v = new.get("Header", {}).get("Versions", {})
+    if old_v.get("SCNE") != 29 or new_v.get("SCNE") != 30:
+        return False
+    old_v["SCNE"] = 30
+    return swap_guid_refs(old, new, _SPRITE_KEYS, _SPRITE_PAIRS)
 
 
 def as_float32(value):
@@ -340,6 +362,7 @@ def main():
             strip_scene_v27(old, new, ext)
             strip_scene_v28(old, new, ext)
             strip_scene_v29(old, new, ext)
+            strip_scene_v30(old, new, ext)
             strip_material_v3(old, new, ext)
             if old != new:
                 differ.append(path)
@@ -372,16 +395,17 @@ def main():
         for guid in guids:
             mesh_by_guid.setdefault(guid, set()).add(handle)
     differ += [f"mesh GUID {g} came from {len(h)} handles" for g, h in mesh_by_guid.items() if len(h) != 1]
-    sky_by_guid = {}
-    for key, guids in _SKY_PAIRS.items():
-        if len(guids) != 1:
-            differ.append(f"skybox key {key} became {len(guids)} GUIDs: {sorted(guids)}")
-        for guid in guids:
-            sky_by_guid.setdefault(guid, set()).add(key)
-        file = locator_file(root, key)
-        if file is None or not os.path.isfile(file):
-            differ.append(f"skybox key {key}: names no file")
-    differ += [f"skybox GUID {g} came from {len(k)} keys" for g, k in sky_by_guid.items() if len(k) != 1]
+    for what, pairs in (("skybox", _SKY_PAIRS), ("sprite", _SPRITE_PAIRS)):
+        by_guid = {}
+        for key, guids in pairs.items():
+            if len(guids) != 1:
+                differ.append(f"{what} key {key} became {len(guids)} GUIDs: {sorted(guids)}")
+            for guid in guids:
+                by_guid.setdefault(guid, set()).add(key)
+            file = locator_file(root, key)
+            if file is None or not os.path.isfile(file):
+                differ.append(f"{what} key {key}: names no file")
+        differ += [f"{what} GUID {g} came from {len(k)} keys" for g, k in by_guid.items() if len(k) != 1]
     ref_by_guid, ref_by_locator = {}, {}
     for handle, refs in sorted(_REF_PAIRS.items()):
         if len(refs) != 1:
@@ -407,7 +431,7 @@ def main():
     print(f"compare_corpus: {compared} file(s) compared against {base}, {len(differ)} differ, "
           f"{fresh} new since it; {len(_SLOT_PAIRS)} slot handle(s) paired to a GUID, "
           f"{len(_MESH_PAIRS)} mesh handle(s) paired to a GUID, "
-          f"{len(_SKY_PAIRS)} skybox key(s) paired to a GUID, {len(_REF_PAIRS)} material slot number(s) "
+          f"{len(_SKY_PAIRS)} skybox key(s) and {len(_SPRITE_PAIRS)} sprite key(s) paired to a GUID, {len(_REF_PAIRS)} material slot number(s) "
           f"paired to a GUID and locator, {len(_CLOUD_TYPE_GUIDS)} cloud type header(s)")
     return 1 if differ else 0
 

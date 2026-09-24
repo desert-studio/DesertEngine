@@ -16,6 +16,9 @@
 // ResourceRegistry and through it the whole renderer, so no suite can build it; what a scene actually
 // needs from it is a string in and a handle out, and the two stubs here are exactly that contract.
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+
 #include <gtest/gtest.h>
 
 #include <Engine/ECS/Components.hpp>
@@ -84,6 +87,7 @@ namespace
     // type alike would let a sprite pass on a video's branch and a theme on a texture's. Two types, two
     // keys, and neither key is accepted on the other's branch.
     const std::string kThemeKey = "UI/Themes/Desert_Dark.detheme";
+    const char*       kResolvedGuidText = "00112233445566778899aabbccddeeff";
 
     AssetResolver KeyResolver()
     {
@@ -103,6 +107,18 @@ namespace
             if ( type == "UIThemeAsset" && key == kThemeKey )
                 return kResolvedHandle;
             return 0ull;
+        };
+        // SCNE 30: a texture slot is stored as {Guid, Path}. The GUID text is the handle's own hex, and
+        // FromGuid answers the handle ResolveGuidRef derives from it, so the GUID is the route back in.
+        r.ToGuid = []( uint64_t handle, const std::string& type ) -> std::string
+        { return type == "TextureAsset" && handle == kResolvedHandle ? kResolvedGuidText : std::string(); };
+        r.FromGuid = []( uint64_t guid, const std::string& type ) -> uint64_t
+        {
+            const auto parsed = Common::Content::AssetGuidFromText( kResolvedGuidText );
+            return type == "TextureAsset" &&
+                           guid == static_cast<uint64_t>( Common::Content::HandleForGuid( parsed.GetValue() ) )
+                        ? kResolvedHandle
+                        : 0ull;
         };
         return r;
     }
