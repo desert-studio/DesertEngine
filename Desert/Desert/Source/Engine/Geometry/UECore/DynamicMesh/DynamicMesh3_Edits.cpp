@@ -1,9 +1,8 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/DynamicMesh3_Edits.cpp:1-2311,
-// adapted: UE Core via UECore.hpp; check/checkSlow/checkfSlow/ensure are the shim's UE_CHECK* / UE_ENSURE; every
-// AttributeSet hook is removed and, in the edit operators (879-2311), marked "P4: attributes" where task P4
-// restores it.
+// adapted: UE Core via UECore.hpp; check/checkSlow/checkfSlow/ensure are the shim's UE_CHECK* / UE_ENSURE;
+// SetTriangle's attribute guard has the polarity UE intended (fails when attributes ARE present).
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
-
+#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 using namespace Desert::Geometry;
 
 int FDynamicMesh3::AppendVertex( const FVertexInfo& VtxInfo )
@@ -30,7 +29,10 @@ int FDynamicMesh3::AppendVertex( const FVertexInfo& VtxInfo )
     }
 
     AllocateEdgesList( vid );
-
+    if ( HasAttributes() )
+    {
+        Attributes()->OnNewVertex( vid, false );
+    }
     UpdateChangeStamps( true, true );
     return vid;
 }
@@ -80,7 +82,10 @@ int FDynamicMesh3::AppendVertex( const FDynamicMesh3& from, int fromVID )
     }
 
     AllocateEdgesList( vid );
-
+    if ( HasAttributes() )
+    {
+        Attributes()->OnNewVertex( vid, false );
+    }
     UpdateChangeStamps( true, true );
     return vid;
 }
@@ -119,7 +124,10 @@ EMeshResult FDynamicMesh3::InsertVertex( int vid, const FVertexInfo& info, bool 
     }
 
     AllocateEdgesList( vid );
-
+    if ( HasAttributes() )
+    {
+        Attributes()->OnNewVertex( vid, true );
+    }
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;
 }
@@ -182,7 +190,10 @@ int FDynamicMesh3::AppendTriangle( const FIndex3i& tv, int gid )
     AddTriangleEdge( tid, tv[0], tv[1], 0, e0 );
     AddTriangleEdge( tid, tv[1], tv[2], 1, e1 );
     AddTriangleEdge( tid, tv[2], tv[0], 2, e2 );
-
+    if ( HasAttributes() )
+    {
+        Attributes()->OnNewTriangle( tid, false );
+    }
     UpdateChangeStamps( true, true );
     return tid;
 }
@@ -239,7 +250,10 @@ EMeshResult FDynamicMesh3::InsertTriangle( int tid, const FIndex3i& tv, int gid,
     AddTriangleEdge( tid, tv[0], tv[1], 0, e0 );
     AddTriangleEdge( tid, tv[1], tv[2], 1, e1 );
     AddTriangleEdge( tid, tv[2], tv[0], 2, e2 );
-
+    if ( HasAttributes() )
+    {
+        Attributes()->OnNewTriangle( tid, true );
+    }
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;
 }
@@ -254,7 +268,10 @@ int32 FDynamicMesh3::RemoveUnusedVertices()
         {
             NumRemoved++;
             VertexRefCounts.Decrement( VID );
-
+            if ( HasAttributes() )
+            {
+                Attributes()->OnRemoveVertex( VID );
+            }
             UE_CHECK_SLOW( VertexRefCounts.IsValid( VID ) == false ); // vertex should now not be valid
             UE_CHECK_SLOW( VertexEdgeLists.GetCount( VID ) == 0 ); // vertex should not have had any edges attached
         }
@@ -284,7 +301,13 @@ bool FDynamicMesh3::HasUnusedVertices() const
 void FDynamicMesh3::CompactInPlace( FCompactMaps* CompactInfo )
 {
     // Initialize CompactInfo
-
+    // If we need a CompactInfo for compacting attributes but we don't have one, we'll make it refer to a local
+    // one.
+    FCompactMaps LocalCompactInfo;
+    if ( HasAttributes() && !CompactInfo )
+    {
+        CompactInfo = &LocalCompactInfo;
+    }
     if ( CompactInfo )
     {
         // starts as identity (except at gaps); sparsely remapped below
@@ -506,8 +529,13 @@ void FDynamicMesh3::CompactInPlace( FCompactMaps* CompactInfo )
     // trim edge data structures
     EdgeRefCounts.Trim( EdgeCount() );
     Edges.Resize( EdgeCount() );
-}
 
+    if ( HasAttributes() )
+    {
+        UE_CHECK_SLOW( CompactInfo ); // can this ever fail?
+        AttributeSet->CompactInPlace( *CompactInfo );
+    }
+}
 EMeshResult FDynamicMesh3::ReverseTriOrientation( int tID )
 {
     if ( !IsTriangle( tID ) )
@@ -525,8 +553,11 @@ void FDynamicMesh3::ReverseTriOrientationInternal( int tID )
     SetTriangleInternal( tID, t[1], t[0], t[2] );
     FIndex3i te = GetTriEdges( tID );
     SetTriangleEdgesInternal( tID, te[0], te[2], te[1] );
+    if ( HasAttributes() )
+    {
+        Attributes()->OnReverseTriOrientation( tID );
+    }
 }
-
 void FDynamicMesh3::ReverseOrientation( bool bFlipNormals )
 {
     for ( int tid : TriangleIndicesItr() )
@@ -592,7 +623,10 @@ EMeshResult FDynamicMesh3::RemoveVertex( int vID, bool bPreserveManifold )
     VertexRefCounts.Decrement( vID );
     UE_ENSURE( VertexRefCounts.IsValid( vID ) == false );
     VertexEdgeLists.Clear( vID );
-
+    if ( HasAttributes() )
+    {
+        Attributes()->OnRemoveVertex( vID );
+    }
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;
 }
@@ -661,17 +695,22 @@ EMeshResult FDynamicMesh3::RemoveTriangle( int tID, bool bRemoveIsolatedVertices
             VertexEdgeLists.Clear( vid );
         }
     }
-
+    if ( HasAttributes() )
+    {
+        Attributes()->OnRemoveTriangle( tID );
+    }
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;
 }
 
 EMeshResult FDynamicMesh3::SetTriangle( int tID, const FIndex3i& newv, bool bRemoveIsolatedVertices )
 {
-    // UE 5.8 opens with `if (ensure(HasAttributes()) == false) return Failed_Unsupported;`, which rejects
-    // exactly the meshes it can handle (no attributes). Without an AttributeSet that guard has nothing to
-    // test; task P4 restores it with the intended polarity (fail when attributes ARE present).
-
+    // UE 5.8 writes `if (ensure(HasAttributes()) == false)`, which rejects exactly the meshes it can handle:
+    // SetTriangle does not update overlays, so it is meshes WITH attributes that must be refused.
+    if ( UE_ENSURE( !HasAttributes() ) == false )
+    {
+        return EMeshResult::Failed_Unsupported;
+    }
     FIndex3i tv = GetTriangle( tID );
     FIndex3i te = GetTriEdges( tID );
     if ( tv[0] == newv[0] && tv[1] == newv[1] )
@@ -879,7 +918,10 @@ EMeshResult FDynamicMesh3::SplitEdge( int eab, FEdgeSplitInfo& SplitInfo, double
         SplitInfo.NewEdges      = FIndex3i( efb, efc, InvalidID );
         SplitInfo.NewTriangles  = FIndex2i( t2, InvalidID );
 
-        // P4: attributes
+        if ( HasAttributes() )
+        {
+            Attributes()->OnSplitEdge( SplitInfo );
+        }
 
         UpdateChangeStamps( true, true );
         return EMeshResult::Ok;
@@ -971,7 +1013,10 @@ EMeshResult FDynamicMesh3::SplitEdge( int eab, FEdgeSplitInfo& SplitInfo, double
         SplitInfo.NewEdges      = FIndex3i( efb, efc, edf );
         SplitInfo.NewTriangles  = FIndex2i( t2, t3 );
 
-        // P4: attributes
+        if ( HasAttributes() )
+        {
+            Attributes()->OnSplitEdge( SplitInfo );
+        }
 
         UpdateChangeStamps( true, true );
         return EMeshResult::Ok;
@@ -1082,7 +1127,10 @@ EMeshResult FDynamicMesh3::FlipEdge( int eab, FEdgeFlipInfo& FlipInfo )
     FlipInfo.OpposingVerts = FIndex2i( c, d );
     FlipInfo.Triangles     = FIndex2i( t0, t1 );
 
-    // P4: attributes
+    if ( HasAttributes() )
+    {
+        Attributes()->OnFlipEdge( FlipInfo );
+    }
 
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;
@@ -1156,7 +1204,10 @@ EMeshResult FDynamicMesh3::SplitVertex( int VertexID, const TArrayView<const int
         VertexRefCounts.Increment( SplitInfo.NewVertex );
     }
 
-    // P4: attributes
+    if ( HasAttributes() )
+    {
+        Attributes()->OnSplitVertex( SplitInfo, TrianglesToUpdate );
+    }
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;
 }
@@ -1661,7 +1712,10 @@ EMeshResult FDynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse
 
     CollapseInfo.KeptEdges = FIndex2i( ebc, ebd );
 
-    // P4: attributes
+    if ( HasAttributes() )
+    {
+        Attributes()->OnCollapseEdge( CollapseInfo );
+    }
 
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;
@@ -1990,7 +2044,10 @@ EMeshResult FDynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpola
         }
     }
 
-    // P4: attributes
+    if ( HasAttributes() )
+    {
+        Attributes()->OnMergeEdges( MergeInfo );
+    }
 
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;
@@ -2112,7 +2169,10 @@ EMeshResult FDynamicMesh3::MergeVertices( int KeepVid, int DiscardVid, double In
     VertexEdgeLists.Clear( DiscardVid );
     VertexRefCounts.Decrement( DiscardVid );
 
-    // P4: attributes
+    if ( HasAttributes() )
+    {
+        Attributes()->OnMergeVertices( MergeInfo );
+    }
 
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;
@@ -2177,7 +2237,10 @@ EMeshResult FDynamicMesh3::PokeTriangle( int TriangleID, const FVector3d& BaryCo
     PokeResult.NewEdges         = FIndex3i( eaC, ebC, ecC );
     PokeResult.BaryCoords       = BaryCoordinates;
 
-    // P4: attributes
+    if ( HasAttributes() )
+    {
+        Attributes()->OnPokeTriangle( PokeResult );
+    }
 
     UpdateChangeStamps( true, true );
     return EMeshResult::Ok;

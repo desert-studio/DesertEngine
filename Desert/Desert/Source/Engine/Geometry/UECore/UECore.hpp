@@ -21,6 +21,7 @@
 #include <optional>
 #include <type_traits>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -181,12 +182,18 @@ namespace Desert::Geometry
             return Data.data();
         }
 
-        T& operator[]( int32 Index )
+        void SetNumZeroed( int32 NewNum, EAllowShrinking = EAllowShrinking::Yes )
+        {
+            Data.assign( static_cast<size_t>( NewNum ), T{} );
+        }
+
+        // std::vector's reference type, so TArray<bool> (a bit-vector underneath) indexes too.
+        typename std::vector<T>::reference operator[]( int32 Index )
         {
             UE_CHECK_SLOW( IsValidIndex( Index ) );
             return Data[static_cast<size_t>( Index )];
         }
-        const T& operator[]( int32 Index ) const
+        typename std::vector<T>::const_reference operator[]( int32 Index ) const
         {
             UE_CHECK_SLOW( IsValidIndex( Index ) );
             return Data[static_cast<size_t>( Index )];
@@ -732,9 +739,46 @@ namespace Desert::Geometry
         return V * T( Scale );
     }
 
+    // UE::Math::TVector4 (Math/Vector4.h): the colour overlay's element type; only what the overlay reads.
+    template <typename T>
+    struct TVector4
+    {
+        T X{};
+        T Y{};
+        T Z{};
+        T W{};
+
+        constexpr TVector4() = default;
+        constexpr TVector4( T InX, T InY, T InZ, T InW ) : X( InX ), Y( InY ), Z( InZ ), W( InW )
+        {
+        }
+        T& operator[]( int Index )
+        {
+            UE_CHECK_SLOW( Index >= 0 && Index < 4 );
+            return Index == 0 ? X : Index == 1 ? Y : Index == 2 ? Z : W;
+        }
+        const T& operator[]( int Index ) const
+        {
+            UE_CHECK_SLOW( Index >= 0 && Index < 4 );
+            return Index == 0 ? X : Index == 1 ? Y : Index == 2 ? Z : W;
+        }
+        bool operator==( const TVector4& O ) const
+        {
+            return X == O.X && Y == O.Y && Z == O.Z && W == O.W;
+        }
+        bool operator!=( const TVector4& O ) const
+        {
+            return !( *this == O );
+        }
+    };
+
+    // UE's FName is an interned, case-insensitive name; attribute names here are plain strings.
+    using FName = std::string;
+
     using FVector2f = TVector2<float>;
     using FVector2d = TVector2<double>;
     using FVector3f = TVector<float>;
     using FVector3d = TVector<double>;
+    using FVector4f = TVector4<float>;
 
 } // namespace Desert::Geometry

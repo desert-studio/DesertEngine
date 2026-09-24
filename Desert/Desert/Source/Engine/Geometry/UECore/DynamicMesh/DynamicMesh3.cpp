@@ -1,8 +1,8 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/DynamicMesh3.cpp:1-1615, adapted: UE
-// Core via UECore.hpp; AttributeSet hooks removed (task P4 restores them), shape-generator Copy, IsSameAs,
+// Core via UECore.hpp; shape-generator Copy, IsSameAs,
 // MeshInfoString and the debug-mesh cvars/stash (1616-1699) not ported.
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
-
+#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 using namespace Desert::Geometry;
 
 // NB: These have to be here until C++17 allows inline variables
@@ -51,10 +51,14 @@ FDynamicMesh3::FDynamicMesh3( const FDynamicMesh3& Other )
 
        Edges{ Other.Edges }, EdgeRefCounts{ Other.EdgeRefCounts }
 {
+    if ( Other.HasAttributes() )
+    {
+        EnableAttributes();
+        AttributeSet->Copy( *Other.AttributeSet );
+    }
     ChangeStampShape.Set( Other.ChangeStampShape.GetValue() );
     ChangeStampTopology.Set( Other.ChangeStampTopology.GetValue() );
 }
-
 FDynamicMesh3::FDynamicMesh3( FDynamicMesh3&& Other )
      : Vertices{ MoveTemp( Other.Vertices ) }, VertexRefCounts{ MoveTemp( Other.VertexRefCounts ) },
        VertexNormals{ MoveTemp( Other.VertexNormals ) }, VertexColors{ MoveTemp( Other.VertexColors ) },
@@ -64,12 +68,16 @@ FDynamicMesh3::FDynamicMesh3( FDynamicMesh3&& Other )
        TriangleEdges{ MoveTemp( Other.TriangleEdges ) }, TriangleGroups{ MoveTemp( Other.TriangleGroups ) },
        GroupIDCounter{ MoveTemp( Other.GroupIDCounter ) },
 
-       Edges{ MoveTemp( Other.Edges ) }, EdgeRefCounts{ MoveTemp( Other.EdgeRefCounts ) }
+       Edges{ MoveTemp( Other.Edges ) }, EdgeRefCounts{ MoveTemp( Other.EdgeRefCounts ) },
+       AttributeSet{ MoveTemp( Other.AttributeSet ) }
 {
+    if ( AttributeSet )
+    {
+        AttributeSet->Reparent( this );
+    }
     ChangeStampShape.Set( Other.ChangeStampShape.GetValue() );
     ChangeStampTopology.Set( Other.ChangeStampTopology.GetValue() );
 }
-
 FDynamicMesh3::~FDynamicMesh3() = default;
 
 const FDynamicMesh3& FDynamicMesh3::operator=( const FDynamicMesh3& CopyMesh )
@@ -97,7 +105,11 @@ const FDynamicMesh3& FDynamicMesh3::operator=( FDynamicMesh3&& Other )
 
         Edges         = MoveTemp( Other.Edges );
         EdgeRefCounts = MoveTemp( Other.EdgeRefCounts );
-
+        AttributeSet  = MoveTemp( Other.AttributeSet );
+        if ( AttributeSet )
+        {
+            AttributeSet->Reparent( this );
+        }
         ChangeStampShape.Set( Other.ChangeStampShape.GetValue() );
         ChangeStampTopology.Set( Other.ChangeStampTopology.GetValue() );
     }
@@ -105,7 +117,7 @@ const FDynamicMesh3& FDynamicMesh3::operator=( FDynamicMesh3&& Other )
     return *this;
 }
 
-void FDynamicMesh3::Copy( const FDynamicMesh3& copy, bool bNormals, bool bColors, bool bUVs )
+void FDynamicMesh3::Copy( const FDynamicMesh3& copy, bool bNormals, bool bColors, bool bUVs, bool bAttributes )
 {
     if ( this != &copy )
     {
@@ -125,6 +137,17 @@ void FDynamicMesh3::Copy( const FDynamicMesh3& copy, bool bNormals, bool bColors
         Edges         = copy.Edges;
         EdgeRefCounts = copy.EdgeRefCounts;
 
+        // Note that we populate our existing AttributeSet when possible rather than building a new one, so a
+        // client may hold on to the AttributeSet pointer across a Copy.
+        if ( bAttributes && copy.HasAttributes() )
+        {
+            EnableAttributes(); // does nothing if already enabled
+            AttributeSet->Copy( *copy.AttributeSet );
+        }
+        else
+        {
+            DiscardAttributes();
+        }
         ChangeStampShape.Set( copy.ChangeStampShape.GetValue() );
         ChangeStampTopology.Set( copy.ChangeStampTopology.GetValue() );
     }
@@ -142,7 +165,15 @@ void FDynamicMesh3::AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInf
     UseAppendInfo->NumVertex      = ToAppend.MaxVertexID();
     UseAppendInfo->NumTriangle    = ToAppend.MaxTriangleID();
     UseAppendInfo->NumEdge        = ToAppend.MaxEdgeID();
-
+    if ( HasAttributes() )
+    {
+        for ( int32 NormalLayerIdx = 0, N = FMath::Min( 3, Attributes()->NumNormalLayers() ); NormalLayerIdx < N;
+              ++NormalLayerIdx )
+        {
+            UseAppendInfo->NormalOverlayOffsets[NormalLayerIdx] =
+                 Attributes()->GetNormalLayer( NormalLayerIdx )->MaxElementID();
+        }
+    }
     Vertices.Add( ToAppend.Vertices );
     auto MatchOptional = []<typename T>( TOptional<TDynamicVector<T>>&       Src,
                                          const TOptional<TDynamicVector<T>>& ToAppend, int32 NumDefault,
@@ -221,11 +252,22 @@ void FDynamicMesh3::AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInf
     }
     EdgeRefCounts.Append( ToAppend.EdgeRefCounts );
 
+    if ( HasAttributes() )
+    {
+        if ( ToAppend.HasAttributes() )
+        {
+            AttributeSet->Append( *ToAppend.AttributeSet, *UseAppendInfo );
+        }
+        else
+        {
+            AttributeSet->AppendDefaulted( *UseAppendInfo );
+        }
+    }
     UpdateChangeStamps( true, true );
 }
 
 void FDynamicMesh3::CompactCopy( const FDynamicMesh3& copy, bool bNormals, bool bColors, bool bUVs,
-                                 FCompactMaps* CompactInfo )
+                                 bool bAttributes, FCompactMaps* CompactInfo )
 {
 
     // currently cannot re-use existing attribute buffers
@@ -244,8 +286,8 @@ void FDynamicMesh3::CompactCopy( const FDynamicMesh3& copy, bool bNormals, bool 
     }
 
     // Use a triangle map if we have a CompactInfo.
-    const bool bUseTriangleMap = CompactInfo != nullptr;
-
+    // The triangle map is needed to copy attributes, and is always wanted when the caller asks for maps.
+    const bool bUseTriangleMap = CompactInfo != nullptr || ( bAttributes && copy.HasAttributes() );
     // If we don't have a CompactInfo, we'll make it refer to a local one.
     FCompactMaps LocalCompactInfo;
     if ( !CompactInfo )
@@ -290,6 +332,14 @@ void FDynamicMesh3::CompactCopy( const FDynamicMesh3& copy, bool bNormals, bool 
         }
     }
 
+    // copy attributes
+    if ( bAttributes && copy.HasAttributes() )
+    {
+        EnableAttributes();
+        AttributeSet->EnableMatchingAttributes( *copy.Attributes() );
+        AttributeSet->CompactCopy( *CompactInfo, *copy.Attributes() );
+    }
+
     ChangeStampShape.Set( copy.ChangeStampShape.GetValue() );
     ChangeStampTopology.Set( copy.ChangeStampTopology.GetValue() );
 }
@@ -311,7 +361,7 @@ void FDynamicMesh3::Clear()
 
     Edges.Clear();
     EdgeRefCounts.Clear();
-
+    AttributeSet.reset();
     ChangeStampShape.Set( 1 );
     ChangeStampTopology.Set( 1 );
 }
@@ -366,6 +416,36 @@ void FDynamicMesh3::EnableMatchingAttributes( const FDynamicMesh3& ToMatch, bool
     {
         EnableTriangleGroups();
     }
+
+    bool bWantAttributes = ( bClearExisting || bDiscardExtraAttributes )
+                                ? ToMatch.HasAttributes()
+                                : ( ToMatch.HasAttributes() || this->HasAttributes() );
+    if ( bClearExisting || bWantAttributes == false )
+    {
+        DiscardAttributes();
+    }
+    if ( bWantAttributes )
+    {
+        EnableAttributes();
+    }
+    if ( HasAttributes() && ToMatch.HasAttributes() )
+    {
+        Attributes()->EnableMatchingAttributes( *ToMatch.Attributes(), bClearExisting, bDiscardExtraAttributes );
+    }
+}
+void FDynamicMesh3::EnableAttributes()
+{
+    if ( HasAttributes() )
+    {
+        return;
+    }
+    AttributeSet = std::make_unique<FDynamicMeshAttributeSet>( this );
+    AttributeSet->Initialize( MaxVertexID(), MaxTriangleID() );
+}
+
+void FDynamicMesh3::DiscardAttributes()
+{
+    AttributeSet = nullptr;
 }
 
 int FDynamicMesh3::GetComponentsFlags() const
@@ -846,9 +926,13 @@ bool FDynamicMesh3::CheckValidity( FValidityOptions ValidityOptions, EValidityCh
         CheckOrFailF( vRemoveTris.Num() == 0 );
     }
 
+    if ( HasAttributes() )
+    {
+        CheckOrFailF( Attributes()->CheckValidity( true, FailMode ) );
+    }
+
     return is_ok;
 }
-
 int FDynamicMesh3::AddTriangleInternal( int a, int b, int c, int e0, int e1, int e2 )
 {
     int tid = TriangleRefCounts.Allocate();

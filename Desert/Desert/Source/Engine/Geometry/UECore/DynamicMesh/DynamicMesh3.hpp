@@ -1,6 +1,6 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/DynamicMesh3.h:1-1946, adapted: UE Core
 // via UECore.hpp, namespace Desert::Geometry, change-stamp mutex is std::mutex; NOT ported here: FArchive
-// serialization, FMeshShapeGenerator construction, the AttributeSet and every hook into it (task P4),
+// serialization, FMeshShapeGenerator construction,
 // IsSameAs/MeshInfoString (1603-1707),
 // vertex/triangle frames (FFrame3d), debug-mesh stash; GetBounds has no parallel path.
 
@@ -18,6 +18,8 @@
 #include "Engine/Geometry/UECore/IteratorUtil.hpp"
 #include "Engine/Geometry/UECore/MathUtil.hpp"
 #include "Engine/Geometry/UECore/RefCountVector.hpp"
+
+#include <memory>
 #include "Engine/Geometry/UECore/SmallListSet.hpp"
 #include "Engine/Geometry/UECore/UECore.hpp"
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
@@ -90,6 +92,8 @@ namespace Desert::Geometry
      * The function CheckValidity() does extensive sanity checking on the mesh data structure.
      * Use this to test your code, both for mesh construction and editing!!
      */
+    class FDynamicMeshAttributeSet;
+
     class FDynamicMesh3
     {
 
@@ -152,6 +156,9 @@ namespace Desert::Geometry
         /** Upper bound on the triangle group IDs used in the mesh (may be larger than the actual maximum if
          * triangles have been deleted) */
         int GroupIDCounter = 0;
+
+        /** Extended Attributes for the Mesh (UV layers, Hard Normals, additional Polygroup Layers, etc) */
+        std::unique_ptr<FDynamicMeshAttributeSet> AttributeSet{};
 
         /** List of edge elements. An edge is four elements [VertA, VertB, Tri0, Tri1], where VertA < VertB, and
          * Tri1 may be InvalidID (if the edge is a boundary edge) */
@@ -248,13 +255,17 @@ namespace Desert::Geometry
         explicit FDynamicMesh3( EMeshComponents flags );
 
         /** Set internal data structures to be a copy of input mesh using the specified attributes*/
-        void Copy( const FDynamicMesh3& CopyMesh, bool bNormals = true, bool bColors = true, bool bUVs = true );
+        void Copy( const FDynamicMesh3& CopyMesh, bool bNormals = true, bool bColors = true, bool bUVs = true,
+                   bool bAttributes = true );
 
         // Tracks how IDs are offset and number of elements appended by a mesh append operation
         struct FAppendInfo
         {
             // Offsets for base mesh element IDs
             int32 VertexOffset = 0, TriangleOffset = 0, EdgeOffset = 0, GroupOffset = 0;
+
+            // Offsets for the first 3 normal overlay layers (i.e., typically normal, tangent, bitangent)
+            int32 NormalOverlayOffsets[3]{ 0, 0, 0 };
 
             // The number appended of each element type -- including 'invalid' slots, i.e. the amount by which
             // MaxID increased
@@ -286,7 +297,7 @@ namespace Desert::Geometry
          * were changed during compaction
          */
         void CompactCopy( const FDynamicMesh3& CopyMesh, bool bNormals = true, bool bColors = true,
-                          bool bUVs = true, FCompactMaps* CompactInfo = nullptr );
+                          bool bUVs = true, bool bAttributes = true, FCompactMaps* CompactInfo = nullptr );
 
         /** Discard all data */
         void Clear();
@@ -360,6 +371,25 @@ namespace Desert::Geometry
         {
             return TriangleGroups.IsSet();
         }
+        /** @return true if this mesh has attribute layers */
+        bool HasAttributes() const
+        {
+            return AttributeSet != nullptr;
+        }
+        /** @return a pointer to the attribute set, if the mesh has one, else nullptr */
+        FDynamicMeshAttributeSet* Attributes()
+        {
+            return AttributeSet.get();
+        }
+        /** @return a pointer to the attribute set, if the mesh has one, else nullptr */
+        const FDynamicMeshAttributeSet* Attributes() const
+        {
+            return AttributeSet.get();
+        }
+        /** Enable the attribute set, with one UV and one normal layer, if it does not exist */
+        void EnableAttributes();
+        /** Discard the attribute set */
+        void DiscardAttributes();
 
         /** @return bitwise-or of EMeshComponents flags specifying which extra data this mesh has */
         int GetComponentsFlags() const;

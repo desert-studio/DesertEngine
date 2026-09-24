@@ -342,7 +342,7 @@ TEST( DynamicMesh3Core, CompactCopyEqualsSourceGeometry )
 
     FDynamicMesh3 Copy;
     FCompactMaps  Maps;
-    Copy.CompactCopy( Source, true, true, true, &Maps );
+    Copy.CompactCopy( Source, true, true, true, true, &Maps );
     EXPECT_TRUE( Copy.IsCompact() );
     EXPECT_TRUE( Valid( Copy ) );
     EXPECT_EQ( Copy.VertexCount(), Source.VertexCount() );
