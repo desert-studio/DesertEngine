@@ -11,6 +11,7 @@
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
+#include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
@@ -88,14 +89,17 @@ namespace Desert::Graphic
         // Init(), so a value arriving afterwards would be read by nothing and look like a knob. A viewport
         // of a level takes the default; an asset preview passes Graphic::kPreviewShadowQuality, which is
         // the difference between 335 MB of shadow attachments per open window and 21 MB.
-        explicit SceneRenderer( const ShadowQuality& shadowQuality = kSceneShadowQuality );
+        //
+        // @p profile widens that budget to the whole view (Graphic/ViewMemory.hpp): a preview also never
+        // builds the volumetric-cloud, SSR or RSM-GI targets, whatever its scene asks for.
+        explicit SceneRenderer( const ViewProfile& profile = kSceneViewProfile );
         // Returns the leased slot, so closing a view hands it back instead of using it up.
         ~SceneRenderer();
 
         // This renderer's shadow budget. Read by its own MeshRenderer in Initialize and fixed thereafter.
         [[nodiscard]] const ShadowQuality& GetShadowQuality() const
         {
-            return m_ShadowQuality;
+            return m_ViewProfile.Shadows;
         }
 
         // A SCENE HAS JUST BEEN (RE)INITIALISED ON THIS RENDERER. Called from Scene::Init(), which runs on
@@ -403,7 +407,7 @@ namespace Desert::Graphic
 
         // Constructor-set, const in everything but name: MeshRenderer copies it in Initialize and the
         // cascade framebuffers exist from that moment until this renderer dies.
-        ShadowQuality m_ShadowQuality;
+        ViewProfile m_ViewProfile;
 
         // Has EnsureRendererResources() run? Set once, never cleared — see its comment for why there is no
         // path that invalidates it.

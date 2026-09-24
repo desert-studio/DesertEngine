@@ -85,6 +85,13 @@ namespace Desert::Graphic
         // shipping build drops is the reporting — four multi-line strings built and formatted at every
         // scene load for a reader who is not there.
 #if DESERT_DEV_INSTRUMENTS
+        if ( built && m_TargetFramebuffer )
+        {
+            const uint32_t viewW = m_TargetFramebuffer->GetFramebufferWidth();
+            const uint32_t viewH = m_TargetFramebuffer->GetFramebufferHeight();
+            LOG_INFO( "[ViewMemory] slot {} {}", m_SlotLease.RecordingSlot(),
+                      FormatViewTargetCensus( ViewTargetCensus( m_ViewProfile, viewW, viewH ), viewW, viewH ) );
+        }
         LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
 
         // THE OTHER TWO NUMBERS, BESIDE IT, AT THE SAME MOMENT — because the line above was measured
@@ -438,8 +445,8 @@ namespace Desert::Graphic
         return SlotPool().InUseCount();
     }
 
-    SceneRenderer::SceneRenderer( const ShadowQuality& shadowQuality )
-         : m_SlotLease( SlotPool() ), m_ShadowQuality( shadowQuality )
+    SceneRenderer::SceneRenderer( const ViewProfile& profile )
+         : m_SlotLease( SlotPool() ), m_ViewProfile( profile )
     {
         if ( !m_SlotLease.IsValid() )
         {
@@ -1167,7 +1174,8 @@ namespace Desert::Graphic
     {
         if ( m_GIResourcesReady )
             return true;
-        if ( m_GIResourcesFailed )
+        // A preview profile never builds GI targets; the scene's GI mode stays on the screen-space path.
+        if ( m_GIResourcesFailed || !m_ViewProfile.GlobalIllumination )
             return false;
 
         // ASK before allocating. The GI resolve and its temporal history are RGBA32F targets that get
@@ -1225,7 +1233,7 @@ namespace Desert::Graphic
     {
         if ( m_SSRResourcesReady )
             return true;
-        if ( m_SSRResourcesFailed )
+        if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
             return false;
 
         // Same gate as GI: the trace target and its ping-pong history are sampled/blended RGBA32F.
@@ -1749,7 +1757,8 @@ namespace Desert::Graphic
                                              const std::vector<HeroCloudInstance>& heroClouds )
     {
         UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
-             ->SetCloudSettings( present, data, windOffset, m_CloudQuality, heroClouds );
+             ->SetCloudSettings( present && m_ViewProfile.VolumetricClouds, data, windOffset, m_CloudQuality,
+                                heroClouds ); // a preview profile draws no clouds, so it never allocates their targets
     }
 
     void SceneRenderer::ExecuteVolumetricClouds()
