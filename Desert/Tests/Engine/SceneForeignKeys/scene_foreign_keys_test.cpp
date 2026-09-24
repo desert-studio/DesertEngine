@@ -23,8 +23,11 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -206,6 +209,79 @@ TEST( ForeignKeys, ADocumentMergedWithItselfIsItself )
                                  R"("Settings":{"Exposure":1.0,"Unknown":7},"SceneVersion":14})" );
 
     EXPECT_EQ( Write( MergeSceneDocument( document, document, Owns( { "id", "Tag" } ) ) ), Write( document ) );
+}
+
+TEST( ForeignKeys, ARecordIsMatchedByIdWhereverItSitsAndTheFirstClaimantKeepsTheId )
+{
+    // The source is found by IDENTITY, not by position: the fresh array is in the opposite order, and
+    // each record still gets its own foreign key. Two source records claiming one id: the FIRST is the
+    // match - the rule the linear scan had with its `break`, kept when the scan became an index.
+    const auto source = Parse( R"({"Entities":[{"id":1,"Alien":"one"},{"id":2,"Alien":"two"},)"
+                               R"({"id":2,"Alien":"shadow"}]})" );
+    const auto fresh  = Parse( R"({"Entities":[{"id":2,"Tag":"B"},{"id":1,"Tag":"A"}]})" );
+
+    EXPECT_EQ( Write( MergeSceneDocument( fresh, source, Owns( { "id", "Tag" } ) ) ),
+               R"({"Entities":[{"id":2,"Alien":"two","Tag":"B"},{"id":1,"Alien":"one","Tag":"A"}]})" );
+}
+
+namespace
+{
+    // A document of `count` entity records shaped like a generated world's (a transform, a mesh block and
+    // one foreign key each), with the fresh side in REVERSED order so no record is found by luck of place.
+    std::pair<rfl::Generic::Object, rfl::Generic::Object> WorldOf( const int count )
+    {
+        std::string source = R"({"SceneName":"W","Entities":[)";
+        std::string fresh  = R"({"SceneName":"W","Entities":[)";
+        for ( int i = 0; i < count; ++i )
+        {
+            const int         reversed  = count - 1 - i;
+            const std::string separator = i == 0 ? "" : ",";
+            const std::string body      = R"(,"Translation":[1.0,2.0,3.0],"StaticMesh":{"Primitive":"Cube"})";
+            source += separator + R"({"id":)" + std::to_string( 1000 + i ) + R"(,"Tag":"C)" + std::to_string( i ) +
+                      "\"" + body + R"(,"Alien":)" + std::to_string( i ) + "}";
+            fresh += separator + R"({"id":)" + std::to_string( 1000 + reversed ) + R"(,"Tag":"C)" +
+                     std::to_string( reversed ) + "\"" + body + "}";
+        }
+        source += "]}";
+        fresh += "]}";
+        return { Parse( fresh ), Parse( source ) };
+    }
+
+    double BestMergeMs( const int count )
+    {
+        const auto [fresh, source] = WorldOf( count );
+        const KeyIsOurs ours       = Owns( { "id", "Tag", "Translation", "StaticMesh" } );
+        double          best       = 1e30;
+        for ( int run = 0; run < 3; ++run )
+        {
+            const auto started = std::chrono::steady_clock::now();
+            const auto merged  = MergeSceneDocument( fresh, source, ours );
+            best               = std::min(
+                 best,
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count() );
+            EXPECT_EQ( merged.get( "Entities" ).value().to_array().value().size(),
+                       static_cast<std::size_t>( count ) );
+        }
+        return best;
+    }
+} // namespace
+
+TEST( ForeignKeys, MergingFourTimesTheRecordsCostsAboutFourTimesNotSixteen )
+{
+    // THE RELATION, NOT A BUDGET. The entity merge used to scan the whole source array for every fresh
+    // record, copying each record it looked at: a 50 179-record world spent 419 s in the Play snapshot on
+    // it (Release, 2026-09-24). Milliseconds depend on the machine; the RATIO between N and 4N records
+    // does not - linear is 4, quadratic is 16. The bound sits between them with room for noise, and the
+    // best of three runs is taken so a descheduled run cannot fail it.
+    constexpr int kN   = 600;
+    const double  once = BestMergeMs( kN );
+    const double  four = BestMergeMs( 4 * kN );
+
+    const double ratio = four / std::max( once, 1e-3 );
+    std::cout << "[ MERGE    ] " << kN << " records " << once << " ms, " << 4 * kN << " records " << four
+              << " ms, ratio " << ratio << "\n";
+    EXPECT_LT( ratio, 8.0 ) << kN << " records merged in " << once << " ms, " << 4 * kN << " in " << four
+                            << " ms: the merge grows faster than the records do";
 }
 
 TEST( ForeignKeys, TheReportGroupsByNameAndCountsRatherThanRepeating )

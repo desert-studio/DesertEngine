@@ -16,6 +16,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Core/BootTimeline.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneLoadPhases.cpp",
     }
 
     includedirs {

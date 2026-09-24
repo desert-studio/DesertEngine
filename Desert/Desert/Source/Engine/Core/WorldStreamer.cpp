@@ -89,7 +89,7 @@ namespace Desert::Core
         unit.reserve( records.size() );
         for ( const std::size_t record : records )
             unit.push_back( m_Records.Entities.at( record ) );
-        auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( unit, m_Records.SceneName );
+        auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( unit, m_Records.SceneName, nullptr );
 
         const double ms =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count();

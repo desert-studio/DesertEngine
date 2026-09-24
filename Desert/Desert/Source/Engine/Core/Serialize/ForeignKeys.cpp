@@ -1,6 +1,9 @@
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 
+#include <string>
+#include <unordered_map>
 #include <utility>
+#include <variant>
 
 namespace Desert::Core::Serialize
 {
@@ -82,6 +85,22 @@ namespace Desert::Core::Serialize
             const auto sourceArray = sourceEntities.value().to_array();
             if ( freshArray.has_value() && sourceArray.has_value() )
             {
+                // THE SOURCE RECORDS ARE INDEXED ONCE, BY IDENTITY. This used to scan the whole source
+                // array for every fresh record, and `to_object()` returns the record BY VALUE, so every
+                // step of the scan copied a record: N x N/2 object copies. A 50 179-record world spent
+                // 419 s in the Play snapshot on it (Release, 2026-09-24), and Save Scene pays the same.
+                // The first record to claim an identity keeps it, as the scan's `break` did.
+                std::unordered_map<std::string, const rfl::Generic::Object*> sourceById;
+                sourceById.reserve( sourceArray.value().size() );
+                for ( const auto& sourceRecord : sourceArray.value() )
+                {
+                    const auto* sourceObject = std::get_if<rfl::Generic::Object>( &sourceRecord.variant() );
+                    if ( sourceObject == nullptr )
+                        continue;
+                    if ( std::string identity = RecordIdentity( *sourceObject ); !identity.empty() )
+                        sourceById.emplace( std::move( identity ), sourceObject );
+                }
+
                 rfl::Generic::Array merged;
                 merged.reserve( freshArray.value().size() );
 
@@ -100,18 +119,9 @@ namespace Desert::Core::Serialize
                     // the fresh array and looks the source up, and not the other way round.
                     const std::string           identity = RecordIdentity( freshObject.value() );
                     const rfl::Generic::Object* match    = nullptr;
-                    rfl::Generic::Object        matchStorage;
                     if ( !identity.empty() )
-                        for ( const auto& sourceRecord : sourceArray.value() )
-                        {
-                            const auto sourceObject = sourceRecord.to_object();
-                            if ( sourceObject.has_value() && RecordIdentity( sourceObject.value() ) == identity )
-                            {
-                                matchStorage = sourceObject.value();
-                                match        = &matchStorage;
-                                break;
-                            }
-                        }
+                        if ( const auto found = sourceById.find( identity ); found != sourceById.end() )
+                            match = found->second;
 
                     merged.push_back( match == nullptr ? freshRecord
                                                        : rfl::Generic( MergeObjects( freshObject.value(), *match,

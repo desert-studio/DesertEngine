@@ -4728,6 +4728,33 @@ namespace Desert::Editor
                                                         "why, and the unsaved-changes mark is still set." );
                               } } );
 
+        // PLAY AND STOP, the toolbar button's two halves. Without them a Stop restore could not be timed
+        // or exercised from the control channel at all - only a mouse could reach it - and the restore is
+        // the second of the two paths a 50 000-record world pays a full load on. Two entries rather than
+        // one toggle, so a script that asks for Stop is told when there was nothing playing instead of
+        // starting a session it did not want. Stop is deferred to OnUpdate exactly as the button defers it.
+        commands.push_back( { "Action", "Play", [this]
+                              {
+                                  using SceneState   = ::Desert::Core::Scene::SceneState;
+                                  const bool editing = m_MainScene->GetState() == SceneState::Edit;
+                                  if ( editing )
+                                      OnScenePlay();
+                                  return PaletteCommandOutcome( editing &&
+                                                                     m_MainScene->GetState() != SceneState::Edit,
+                                                                "the scene is not playing; either it was "
+                                                                "already playing or Play refused (the log "
+                                                                "says why)." );
+                              } } );
+        commands.push_back( { "Action", "Stop", [this]
+                              {
+                                  using SceneState   = ::Desert::Core::Scene::SceneState;
+                                  const bool playing = m_MainScene->GetState() != SceneState::Edit;
+                                  if ( playing )
+                                      m_PendingSceneStop = true;
+                                  return PaletteCommandOutcome( playing, "nothing is playing, so there is "
+                                                                         "nothing to stop." );
+                              } } );
+
         // UNDO AND REDO ALREADY ANSWERED "was there anything to undo" and the answer went nowhere.
         // Nothing to undo is not a failure of the editor, but it IS the difference between a script that
         // walked the history back one step and a script that believes it did.
@@ -7147,6 +7174,8 @@ namespace Desert::Editor
         // refuse - an old autosave, a scene saved by an older build - would then have cost the user the
         // scene they had and given them nothing. So an unloadable file leaves the editor exactly as it is
         // and says why, with the command that fixes the file.
+        Desert::Core::SceneLoadPhases phases( fmt::format( "Open '{}'", path.filename().string() ) );
+
         const auto contentRead = Common::Utils::FileSystem::ReadFileContent( path );
         if ( !contentRead )
         {
@@ -7156,6 +7185,7 @@ namespace Desert::Editor
             return;
         }
         const std::string& content = contentRead.GetValue();
+        phases.Lap( "read the file", content.size() );
         if ( const auto loadable = Desert::Core::ParseLoadableScene( path.string(), content ); !loadable )
         {
             LOG_ERROR( "{0}", loadable.GetError() );
@@ -7164,6 +7194,8 @@ namespace Desert::Editor
             return;
         }
 
+        phases.Lap( "version gate before tearing down the open scene", content.size() );
+
         // Wait for GPU to be idle before destroying resources mid-frame
         EngineContext::GetInstance().GetDevice()->WaitIdle();
 
@@ -7171,7 +7203,10 @@ namespace Desert::Editor
         CommandHistory::Get().Clear();
         s_SavedRevision = CommandHistory::Get().Revision(); // a freshly loaded scene is "clean"
 
+        phases.Lap( "wait for the GPU, drop the undo history", 0 );
+        const std::size_t outgoing = m_MainScene->GetAllEntities().size();
         m_MainScene->Clear();
+        phases.Lap( "clear the open scene", outgoing );
 
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
         // Cannot fire - the same text passed the same check above, before anything was torn down. It is
@@ -7183,6 +7218,8 @@ namespace Desert::Editor
             LOG_ERROR( "{0}", loaded.GetError() );
             Editor::ToastManager::Push( "Scene failed to load — see the log", Editor::ToastLevel::Error );
         }
+        const std::size_t incoming = m_MainScene->GetAllEntities().size();
+        phases.Lap( "deserialize (its own phases are logged above)", incoming );
 
         if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
         {
@@ -7190,11 +7227,14 @@ namespace Desert::Editor
             Editor::ToastManager::Push( "Scene could not be initialised — see the log",
                                         Editor::ToastLevel::Error );
         }
+        phases.Lap( "initialise the scene", incoming );
 
         // Destroy the old registry FIRST: its destructor unregisters the editor passes by name, and
         // assignment would run it after the new registry already re-registered them.
         m_RenderRegistry.reset();
         m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_MainScene );
+        phases.Lap( "rebuild the render registry", incoming );
+        phases.LogSummary();
 
         // THE OPEN SCENE IS NOW THIS FILE, and it is set HERE rather than at the top of the function on
         // purpose: every early return above leaves a scene that was NOT replaced, and adopting a path for
@@ -7564,12 +7604,18 @@ namespace Desert::Editor
         if ( m_MainScene->GetState() != SceneState::Edit )
             return;
         // Snapshot the authored scene so Stop can restore it exactly (play-time edits are discarded).
+        // Timed like a load, because it is the other half of the round trip Stop pays: the snapshot is a
+        // full write of the scene, and it was where a 50 000-record world spent seven minutes.
+        Desert::Core::SceneLoadPhases phases( "Play start" );
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
         m_PlaySnapshot = serializer.SerializeToJson();
+        phases.Lap( "write the Play snapshot", m_MainScene->GetAllEntities().size() );
         // AFTER the snapshot: streaming destroys every cell outside the camera's neighbourhood, and Stop
         // restores what the snapshot holds. A world that cannot stream does not play half-loaded - it does not
         // play, and says why.
         auto streamer = Desert::Core::WorldStreamer::Begin( *m_MainScene, *m_AssetManager, m_PlaySnapshot );
+        phases.Lap( "begin the world streamer", m_MainScene->GetAllEntities().size() );
+        phases.LogSummary();
         if ( !streamer )
         {
             LOG_ERROR( "[Scene] Play refused: {0}", streamer.GetError() );
@@ -7593,10 +7639,14 @@ namespace Desert::Editor
         if ( m_MainScene->GetState() == SceneState::Edit || m_PlaySnapshot.empty() )
             return;
 
+        Desert::Core::SceneLoadPhases phases( "Stop restore" );
         EngineContext::GetInstance().GetDevice()->WaitIdle();
         CommandHistory::Get().Clear(); // anything recorded during Play targets entities about to be rebuilt
         m_WorldStreamer.reset();       // before Clear: the snapshot below brings every cell back
+        phases.Lap( "wait for the GPU, drop the undo history and the streamer", 0 );
+        const std::size_t outgoing = m_MainScene->GetAllEntities().size();
         m_MainScene->Clear();
+        phases.Lap( "clear the played scene", outgoing );
 
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
         // NOT A FILE, and it cannot be at an old version: this text came out of SerializeToJson() a moment
@@ -7610,17 +7660,22 @@ namespace Desert::Editor
             Editor::ToastManager::Push( "Play snapshot could not be restored — see the log",
                                         Editor::ToastLevel::Error );
         }
+        const std::size_t incoming = m_MainScene->GetAllEntities().size();
+        phases.Lap( "deserialize the snapshot (its own phases are logged above)", incoming );
         if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
         {
             LOG_ERROR( "[EditorLayer] scene failed to initialise after Play: {}", inited.GetError() );
             Editor::ToastManager::Push( "Scene could not be initialised after Play — see the log",
                                         Editor::ToastLevel::Error );
         }
+        phases.Lap( "initialise the scene", incoming );
 
         // Destroy the old registry FIRST: its destructor unregisters the editor passes by name, and
         // assignment would run it after the new registry already re-registered them.
         m_RenderRegistry.reset();
         m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_MainScene );
+        phases.Lap( "rebuild the render registry", incoming );
+        phases.LogSummary();
 
         m_MainScene->SetState( SceneState::Edit );
     }

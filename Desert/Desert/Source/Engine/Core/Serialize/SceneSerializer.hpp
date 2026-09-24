@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/Serialize/SceneLoadPhases.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -56,8 +57,13 @@ namespace Desert::Core
         /// every record of the file; the world streamer calls it with the records of one cell, so a cell comes
         /// back exactly as a load would have made it. Parents are resolved among @p records only — a unit of
         /// the partition holds whole composites, so a parent is never in another call.
+        ///
+        /// @param phases where the passes are timed, or null. A whole-file load passes its timeline; the
+        ///        streamer passes null, because a cell is a few hundred records made every few frames and a
+        ///        line per pass per cell would bury the log it is meant to explain.
         [[nodiscard]] Common::BoolResultStr InstantiateRecords( std::span<const Assets::EntityData> records,
-                                                                std::string_view sceneName ) const;
+                                                                std::string_view                    sceneName,
+                                                                SceneLoadPhases*                    phases ) const;
 
     private:
         Scene*                m_Scene;

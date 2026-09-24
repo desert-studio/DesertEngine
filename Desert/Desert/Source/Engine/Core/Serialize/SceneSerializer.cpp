@@ -331,6 +331,8 @@ namespace Desert::Core
         // Callers ask ParseLoadableScene the same question BEFORE they clear the scene they are replacing;
         // this is the second, authoritative asking, so that a caller which forgets still cannot get an old
         // file past here.
+        SceneLoadPhases phases( fmt::format( "'{}'", source ) );
+
         auto loadable = ParseLoadableScene( source, json );
         if ( !loadable )
         {
@@ -339,6 +341,7 @@ namespace Desert::Core
         }
 
         const SceneSerialized scene = loadable.ExtractValue();
+        phases.Lap( "parse the file into typed records (version gate)", scene.Entities.size() );
 
         LOG_INFO( "Loading scene: {0}", scene.SceneName );
 
@@ -398,6 +401,7 @@ namespace Desert::Core
                           "carrying it.",
                           scene.SceneName, foreign.size(), named );
         }
+        phases.Lap( "parse the file again as a generic document, count undeclared keys", scene.Entities.size() );
 
         // Restore the scene name (was only logged before — so a renamed+saved scene reverted on load).
         if ( !scene.SceneName.empty() )
@@ -478,17 +482,22 @@ namespace Desert::Core
             }
         }
 
-        if ( auto made = InstantiateRecords( scene.Entities, scene.SceneName ); !made )
+        phases.Lap( "scene settings and world partition plan", scene.Entities.size() );
+
+        if ( auto made = InstantiateRecords( scene.Entities, scene.SceneName, &phases ); !made )
             return made;
 
         // After every pass: a tile is checked against its root, and a root may be in a prefab instance.
         CheckLandscapeTiles( *m_Scene, scene.SceneName );
+        phases.Lap( "check landscape tiles", scene.Entities.size() );
+        phases.LogSummary();
 
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr SceneSerializer::InstantiateRecords( std::span<const Assets::EntityData> records,
-                                                               std::string_view sceneName ) const
+                                                               std::string_view                    sceneName,
+                                                               SceneLoadPhases*                    phases ) const
     {
         // WHICH entity each record becomes, which one its payload lands on and what it hangs off is a pure
         // function of the parsed tree, and it lives in Rules::PlanSceneStitch so a test can call it: this
@@ -511,6 +520,9 @@ namespace Desert::Core
                       sceneName, plan.Shadowed, plan.UnresolvedParents, plan.Minted );
         }
 
+        if ( phases != nullptr )
+            phases->Lap( "stitch identities and parents", records.size() );
+
         std::unordered_map<Common::UUID, ECS::Entity> entityMap;
 
         // Pass 1 — create normal entities
@@ -524,6 +536,8 @@ namespace Desert::Core
             created.push_back( entity );
             entityMap.insert( { plannedEntity.Id, entity } );
         }
+        if ( phases != nullptr )
+            phases->Lap( "create entities", plan.Created.size() );
 
         // Pass 2 — deserialize normal entities and wire up hierarchy
         for ( const auto& load : plan.Loads )
@@ -534,6 +548,8 @@ namespace Desert::Core
             if ( load.Parent != Rules::kNoSlot )
                 m_Scene->Attach( created[load.Parent], entity );
         }
+        if ( phases != nullptr )
+            phases->Lap( "deserialize components and attach", plan.Loads.size() );
 
         // Pass 3 — instantiate prefab roots and apply their saved transforms
         for ( const auto& plannedPrefab : plan.PrefabRecords )
@@ -608,6 +624,8 @@ namespace Desert::Core
                     m_Scene->Attach( parentIt->second, prefabRoot );
             }
         }
+        if ( phases != nullptr )
+            phases->Lap( "instantiate prefabs", plan.PrefabRecords.size() );
 
         return BOOLSUCCESS;
     }
