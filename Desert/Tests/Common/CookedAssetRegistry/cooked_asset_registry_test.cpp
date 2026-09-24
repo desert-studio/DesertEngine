@@ -546,7 +546,7 @@ TEST( CookedAssetRegistry, TheHeaderColumnSurvivesARoundTripWithItsVersionsSorte
 {
     AssetRegistryEntry row = Row( "assets:Materials/M.demat", "Material", 229 );
     row.Guid               = GuidOf( 0xb7de7b6da944bdedull, 0x0382e39126712944ull );
-    row.Versions           = { { Common::Content::FourCC( "UNIT" ), 1 }, { Common::Content::FourCC( "MATL" ), 2 } };
+    row.Versions = { { Common::Content::FourCC( "UNIT" ), 1 }, { Common::Content::FourCC( "MATL" ), 2 } };
     AssetRegistry registry;
     ASSERT_TRUE( registry.Insert( row ) );
 
@@ -565,7 +565,8 @@ TEST( CookedAssetRegistry, TheHeaderColumnSurvivesARoundTripWithItsVersionsSorte
 
 TEST( CookedAssetRegistry, AVersionTwoFileIsReadAsRowsWithNoHeaderColumn )
 {
-    const auto parsed = AssetRegistry::Parse( "DesertAssetRegistry 2\n229 Material 0000000000000009 - - assets:M.demat\n" );
+    const auto parsed =
+         AssetRegistry::Parse( "DesertAssetRegistry 2\n229 Material 0000000000000009 - - assets:M.demat\n" );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     const AssetRegistryEntry* row = parsed.GetValue().FindByKey( "assets:M.demat" );
     ASSERT_NE( row, nullptr );
@@ -593,9 +594,9 @@ TEST( CookedAssetRegistry, ARowWhoseGuidIsNotTheFilesHeaderIsReported )
 
     auto onDisk = Disk( { { "assets:Materials/M.demat", { Common::Content::ContentKind::Material, 900 } } } );
     Common::Content::AssetHeader header;
-    header.Kind       = Common::Content::ContentKind::Material;
-    header.Guid       = GuidOf( 1, 2 );
-    header.Subsystems = { { Common::Content::FourCC( "MATL" ), 1 } };
+    header.Kind                   = Common::Content::ContentKind::Material;
+    header.Guid                   = GuidOf( 1, 2 );
+    header.Subsystems             = { { Common::Content::FourCC( "MATL" ), 1 } };
     onDisk.begin()->second.Header = header;
     EXPECT_TRUE( Common::Content::Compare( registry, onDisk, "on disk" ).empty() ) << "an agreeing header";
 
@@ -603,7 +604,7 @@ TEST( CookedAssetRegistry, ARowWhoseGuidIsNotTheFilesHeaderIsReported )
     EXPECT_TRUE( Reports( Common::Content::Compare( registry, onDisk, "on disk" ),
                           Common::Content::RegistryDisagreement::Kind::StaleHeader, "assets:Materials/M.demat" ) );
 
-    onDisk.begin()->second.Header->Guid = GuidOf( 1, 2 );
+    onDisk.begin()->second.Header->Guid                  = GuidOf( 1, 2 );
     onDisk.begin()->second.Header->Subsystems[0].Version = 2;
     EXPECT_TRUE( Reports( Common::Content::Compare( registry, onDisk, "on disk" ),
                           Common::Content::RegistryDisagreement::Kind::StaleHeader, "assets:Materials/M.demat" ) )

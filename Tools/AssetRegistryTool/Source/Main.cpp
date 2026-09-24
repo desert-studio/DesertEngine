@@ -217,8 +217,8 @@ namespace
                 entry.Guid     = file.Header->Guid;
                 entry.Versions = file.Header->Subsystems;
                 std::sort( entry.Versions.begin(), entry.Versions.end(),
-                           []( const Common::Content::SubsystemVersion& a, const Common::Content::SubsystemVersion& b )
-                           { return a.Tag < b.Tag; } );
+                           []( const Common::Content::SubsystemVersion& a,
+                               const Common::Content::SubsystemVersion& b ) { return a.Tag < b.Tag; } );
             }
             if ( const Common::Utils::AssetRegistryEntry* old = previous.FindByKey( key ) )
             {

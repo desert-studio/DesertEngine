@@ -341,7 +341,8 @@ namespace Common::Content
             else if ( file.Header && file.Header->Kind != file.Kind )
             {
                 problems.push_back( { RegistryDisagreement::Kind::BadHeader, key,
-                                      "'" + key + "' states kind '" + std::string( KindName( file.Header->Kind ) ) +
+                                      "'" + key + "' states kind '" +
+                                           std::string( KindName( file.Header->Kind ) ) +
                                            "' in its header and sits where a '" + kindName +
                                            "' belongs, so the header and the census name two classes." } );
             }

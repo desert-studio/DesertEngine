@@ -588,7 +588,8 @@ namespace Common::Content
                 continue;
             auto header = format->ReadHeader( in, context );
             if ( !header )
-                return MakeFormattedError<Out>( "{} ('{}', {})", header.GetError(), file.string(), format->Name() );
+                return MakeFormattedError<Out>( "{} ('{}', {})", header.GetError(), file.string(),
+                                                format->Name() );
             return MakeSuccess( Out( std::move( header.GetValue() ) ) );
         }
         return MakeSuccess( Out() );

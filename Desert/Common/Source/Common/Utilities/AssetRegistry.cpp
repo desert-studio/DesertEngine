@@ -165,7 +165,8 @@ namespace Common::Utils
                 for ( std::size_t i = 0; i < 4; ++i )
                     version.Tag |= static_cast<uint32_t>( static_cast<unsigned char>( one[i] ) ) << ( 8 * i );
                 const std::string_view number = one.substr( 5 );
-                const auto parsed = std::from_chars( number.data(), number.data() + number.size(), version.Version );
+                const auto             parsed =
+                     std::from_chars( number.data(), number.data() + number.size(), version.Version );
                 if ( parsed.ec != std::errc() || parsed.ptr != number.data() + number.size() )
                     return false;
                 entry.Versions.push_back( version );
@@ -496,8 +497,9 @@ namespace Common::Utils
             std::string_view depsText;
             std::string_view boundsText = kNone;
             if ( !NextColumn( rest, sizeText ) || !NextColumn( rest, kindText ) ||
-                 ( hasHeader && !NextColumn( rest, headerText ) ) || !NextColumn( rest, identityText ) || !NextColumn( rest, depsText ) ||
-                 ( hasBounds && !NextColumn( rest, boundsText ) ) || rest.empty() )
+                 ( hasHeader && !NextColumn( rest, headerText ) ) || !NextColumn( rest, identityText ) ||
+                 !NextColumn( rest, depsText ) || ( hasBounds && !NextColumn( rest, boundsText ) ) ||
+                 rest.empty() )
             {
                 return MakeFormattedError<AssetRegistry>(
                      "line {} is not a registry row — expected \"<size> <kind>{} <identity> <deps>{} <key>\"",
