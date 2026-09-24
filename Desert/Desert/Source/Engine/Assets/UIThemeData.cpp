@@ -191,8 +191,8 @@ namespace Desert::Assets
 
         UIThemeData data = parsed.value();
 
-        if ( auto header = CheckStatedHeader( data.Header, Common::Content::ContentKind::UITheme, kUIThemeSchemaTag, kUIThemeFormatVersion,
-                                              UIThemeTextSubsystems() );
+        if ( auto header = CheckStatedHeader( data.Header, Common::Content::ContentKind::UITheme,
+                                              kUIThemeSchemaTag, kUIThemeFormatVersion, UIThemeTextSubsystems() );
              !header )
             return Common::MakeFormattedError<UIThemeData>( "{}", header.GetError() );
 
@@ -205,7 +205,8 @@ namespace Desert::Assets
     std::string WriteUITheme( const UIThemeData& data )
     {
         UIThemeData out = data;
-        out.Header = StampTextHeader( data.Header, Common::Content::ContentKind::UITheme, UIThemeTextSubsystems() );
+        out.Header =
+             StampTextHeader( data.Header, Common::Content::ContentKind::UITheme, UIThemeTextSubsystems() );
         return rfl::json::write( out, YYJSON_WRITE_PRETTY );
     }
 

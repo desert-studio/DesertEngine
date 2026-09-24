@@ -254,8 +254,9 @@ namespace
 
     constexpr std::array kTextHeaderRaises{
          // .decloudtype 3 -> 4 (AF7v, T6b1).
-         TextHeaderRaise{ ".decloudtype", Common::Content::ContentKind::CloudType, Desert::Assets::kCloudTypeSchemaTag,
-                          3, Desert::Assets::kCloudTypeSchemaVersion, "FormatVersion", false },
+         TextHeaderRaise{ ".decloudtype", Common::Content::ContentKind::CloudType,
+                          Desert::Assets::kCloudTypeSchemaTag, 3, Desert::Assets::kCloudTypeSchemaVersion,
+                          "FormatVersion", false },
          // .destrings 1 -> 2 (T7b).
          TextHeaderRaise{ ".destrings", Common::Content::ContentKind::StringTable,
                           Desert::Assets::kStringTableSchemaTag, 1, Desert::Assets::kStringTableSchemaVersion,
@@ -299,8 +300,8 @@ namespace
                  " file is raised" );
         const std::array<Common::Content::SubsystemVersion, 1> versions = {
              Common::Content::SubsystemVersion{ row.Tag, row.ToVersion } };
-        const auto header =
-             rfl::json::read<rfl::Generic>( rfl::json::write( Common::Content::MakeTextHeader( row.Kind, guid, versions ) ) );
+        const auto header = rfl::json::read<rfl::Generic>(
+             rfl::json::write( Common::Content::MakeTextHeader( row.Kind, guid, versions ) ) );
         rfl::Generic::Object raised;
         raised[std::string( Common::Content::kTextHeaderMember )] = header.value();
         for ( const auto& [key, value] : fields )

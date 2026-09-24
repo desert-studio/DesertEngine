@@ -191,9 +191,9 @@ namespace Desert::Assets
 
         CloudTypeData data = parsed.value();
 
-        if ( auto header = CheckStatedHeader( data.Header, Common::Content::ContentKind::CloudType,
-                                              kCloudTypeSchemaTag, kCloudTypeFormatVersion,
-                                              CloudTypeTextSubsystems() );
+        if ( auto header =
+                  CheckStatedHeader( data.Header, Common::Content::ContentKind::CloudType, kCloudTypeSchemaTag,
+                                     kCloudTypeFormatVersion, CloudTypeTextSubsystems() );
              !header )
             return Common::MakeFormattedError<CloudTypeData>( "{}", header.GetError() );
 

@@ -1337,7 +1337,8 @@ namespace
         const std::filesystem::path moved = file.parent_path() / ( "Renamed" + file.extension().string() );
         std::filesystem::copy_file( file, moved, std::filesystem::copy_options::overwrite_existing );
         const AssetT renamed( Desert::Assets::AssetPriority{}, moved );
-        EXPECT_EQ( static_cast<uint64_t>( renamed.GetMetadata().Handle ), byGuid ) << "a rename changed the identity";
+        EXPECT_EQ( static_cast<uint64_t>( renamed.GetMetadata().Handle ), byGuid )
+             << "a rename changed the identity";
 
         Common::Content::ContentFile scanned;
         scanned.Kind   = kind;

@@ -173,8 +173,9 @@ namespace Desert::Localization
 
         StringTableData data = parsed.value();
 
-        if ( auto header = Assets::CheckStatedHeader( data.Header, Common::Content::ContentKind::StringTable, Assets::kStringTableSchemaTag, kStringTableFormatVersion,
-                                              StringTableTextSubsystems() );
+        if ( auto header = Assets::CheckStatedHeader( data.Header, Common::Content::ContentKind::StringTable,
+                                                      Assets::kStringTableSchemaTag, kStringTableFormatVersion,
+                                                      StringTableTextSubsystems() );
              !header )
             return Common::MakeFormattedError<StringTableData>( "{}", header.GetError() );
 

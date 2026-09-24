@@ -414,7 +414,8 @@ namespace
             const std::string raised = ReadRaw( file );
             raisedTexts.push_back( raised );
             EXPECT_EQ( raised.find( "FormatVersion" ), std::string::npos ) << raised;
-            EXPECT_NE( raised.find( file.stem().string() ), std::string::npos ) << "the payload was lost: " << raised;
+            EXPECT_NE( raised.find( file.stem().string() ), std::string::npos )
+                 << "the payload was lost: " << raised;
             const auto header = Common::Content::ReadAssetHeader( file, recordOnly );
             ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
             EXPECT_EQ( header.GetValue().Kind, kind );

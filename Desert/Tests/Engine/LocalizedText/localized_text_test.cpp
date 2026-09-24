@@ -21,13 +21,13 @@
 
 using namespace Desert::Localization;
 
-
 // Since STRT 2 (T7b) a table opens with the text asset header; a fixture states its payload and gets the header
 // this build writes, so the tests below keep testing what they name rather than the header.
 static std::string Headed( const std::string& json )
 {
-    const std::string header = rfl::json::write( Desert::Assets::StampTextHeader(
-         std::nullopt, Common::Content::ContentKind::StringTable, Desert::Localization::StringTableTextSubsystems() ) );
+    const std::string header = rfl::json::write(
+         Desert::Assets::StampTextHeader( std::nullopt, Common::Content::ContentKind::StringTable,
+                                          Desert::Localization::StringTableTextSubsystems() ) );
     const std::size_t brace = json.find( '{' );
     return json.substr( 0, brace + 1 ) + "\"Header\":" + header + "," + json.substr( brace + 1 );
 }
@@ -351,7 +351,7 @@ TEST( LocalizedText, EveryWayATableCanBeWrongIsRefusedByName )
 
     for ( const Case& c : cases )
     {
-        const std::string json   = std::string( c.json ).rfind( "{\"Entries\"", 0 ) == 0 ? Headed( c.json ) : c.json;
+        const std::string json = std::string( c.json ).rfind( "{\"Entries\"", 0 ) == 0 ? Headed( c.json ) : c.json;
         const auto        parsed = ParseStringTable( json );
         ASSERT_FALSE( parsed ) << "accepted: " << c.json;
         if ( *c.mustMention != '\0' )

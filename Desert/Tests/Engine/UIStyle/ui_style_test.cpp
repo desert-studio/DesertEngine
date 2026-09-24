@@ -196,7 +196,7 @@ TEST( UIThemeFormat, WriteThenReadIsTheSameTheme )
 TEST( UIThemeFormat, AnUnknownFormatVersionIsRefusedWithTheVersionInTheMessage )
 {
     // WriteUITheme stamps the current version, so the refusal is provoked through the text instead.
-    std::string       text = WriteUITheme( Minimal() );
+    std::string       text   = WriteUITheme( Minimal() );
     const std::string stated = "\"UITH\": " + std::to_string( Desert::Assets::kUIThemeFormatVersion );
     const auto        at     = text.find( stated );
     ASSERT_NE( at, std::string::npos ) << text;

@@ -39,9 +39,10 @@ namespace Desert::Assets
         if ( const auto stated = fields.value().get( "FormatVersion" ); stated.has_value() )
             if ( const auto number = stated.value().to_int(); number.has_value() )
                 version = std::to_string( number.value() );
-        return Common::MakeFormattedError<bool>( "format version {} states no header; this build reads version {} (a "
-                                                 "Header with a GUID): run Tools/SceneMigrator over it once",
-                                                 version, current );
+        return Common::MakeFormattedError<bool>(
+             "format version {} states no header; this build reads version {} (a "
+             "Header with a GUID): run Tools/SceneMigrator over it once",
+             version, current );
     }
 
     // After the typed parse: the header states THIS build's version under `tag`, is well formed for the
@@ -54,7 +55,8 @@ namespace Desert::Assets
         const int stated = StatedVersion( header, tag );
         if ( stated != current )
             return Common::MakeFormattedError<bool>(
-                 "format version {} was written by a different build; this one reads version {}", stated, current );
+                 "format version {} was written by a different build; this one reads version {}", stated,
+                 current );
         const Common::Content::AssetHeaderReadContext context{ subsystems };
         const auto read = Common::Content::TextHeaderToAssetHeader( *header, context );
         if ( !read )

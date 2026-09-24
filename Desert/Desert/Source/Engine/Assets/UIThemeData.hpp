@@ -76,7 +76,8 @@ namespace Desert::Assets
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> UIThemeTextSubsystems()
     {
         static const std::array<Common::Content::SubsystemVersion, 1> versions = {
-             Common::Content::SubsystemVersion{ kUIThemeSchemaTag, static_cast<uint32_t>( kUIThemeFormatVersion ) } };
+             Common::Content::SubsystemVersion{ kUIThemeSchemaTag,
+                                                static_cast<uint32_t>( kUIThemeFormatVersion ) } };
         return versions;
     }
 

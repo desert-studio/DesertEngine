@@ -23,8 +23,8 @@ namespace Desert::Assets
     [[nodiscard]] inline Common::Content::AssetGuid ReadTextHeaderGuid( const Common::Filepath& filepath )
     {
         std::string text;
-        if ( const auto packed = Common::Utils::VFS::Exists( filepath ) ? Common::Utils::VFS::ReadFile( filepath )
-                                                                         : std::nullopt;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( filepath ) ? Common::Utils::VFS::ReadFile( filepath ) : std::nullopt;
              packed.has_value() )
             text = packed.value();
         else if ( auto read = Common::Utils::FileSystem::ReadFileContentIfExists( filepath );
