@@ -876,7 +876,8 @@ namespace Desert::Migration
              meshes.empty() && layouts.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
-                << kPrefabExtension << ", " << kClipExtension << ", cooked mesh, cloud layout or other text asset files found\n";
+                << kPrefabExtension << ", " << kClipExtension
+                << ", cooked mesh, cloud layout or other text asset files found\n";
             return 2;
         }
 
@@ -992,11 +993,11 @@ namespace Desert::Migration
         for ( const auto& path : layouts )
         {
             namespace CC                        = Common::Content;
-            const CC::SubsystemVersion kKnown[] = { { Desert::Assets::kCloudLayoutSubsystemTag,
-                                                      Desert::Assets::kCloudLayoutContainerVersion } };
-            const std::string          bytes    = ReadAll( path );
-            const auto*                first    = reinterpret_cast<const std::byte*>( bytes.data() );
-            constexpr size_t           kV1Prefix = sizeof( Desert::Assets::kCloudLayoutVersion1Magic ) + 4u;
+            const CC::SubsystemVersion kKnown[] = {
+                 { Desert::Assets::kCloudLayoutSubsystemTag, Desert::Assets::kCloudLayoutContainerVersion } };
+            const std::string bytes     = ReadAll( path );
+            const auto*       first     = reinterpret_cast<const std::byte*>( bytes.data() );
+            constexpr size_t  kV1Prefix = sizeof( Desert::Assets::kCloudLayoutVersion1Magic ) + 4u;
             if ( bytes.size() >= kV1Prefix &&
                  std::memcmp( bytes.data(), Desert::Assets::kCloudLayoutVersion1Magic,
                               sizeof( Desert::Assets::kCloudLayoutVersion1Magic ) ) != 0 )
@@ -1006,8 +1007,8 @@ namespace Desert::Migration
                 if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudLayout )
                 {
                     err << "FAIL   " << path.string() << " — neither a version-1 'DCLY' layout nor a cloud layout "
-                        << "envelope: " << ( header ? "the envelope's kind is not CloudLayout" : header.GetError() )
-                        << "\n";
+                        << "envelope: "
+                        << ( header ? "the envelope's kind is not CloudLayout" : header.GetError() ) << "\n";
                     ++failed;
                     continue;
                 }
@@ -1038,8 +1039,9 @@ namespace Desert::Migration
             envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
                                            std::vector<std::byte>( first + kV1Prefix, first + bytes.size() ) } );
             const auto wrapped = CC::WriteAssetEnvelope( envelope );
-            const auto reread  = wrapped ? CC::ReadAssetEnvelope( wrapped.GetValue(), CC::AssetHeaderReadContext{ kKnown } )
-                                         : Common::MakeFormattedError<CC::AssetEnvelope>( "{}", wrapped.GetError() );
+            const auto reread =
+                 wrapped ? CC::ReadAssetEnvelope( wrapped.GetValue(), CC::AssetHeaderReadContext{ kKnown } )
+                         : Common::MakeFormattedError<CC::AssetEnvelope>( "{}", wrapped.GetError() );
             if ( !reread || !( reread.GetValue().Asset == envelope.Asset ) ||
                  reread.GetValue().Sections != envelope.Sections )
             {

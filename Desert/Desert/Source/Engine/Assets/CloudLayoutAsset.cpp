@@ -18,8 +18,8 @@ namespace Desert::Assets
         // header is read, through the VFS first like the load. A file with no readable header (absent: Save
         // is about to create it; or a bare version-1 file) keeps the path-derived handle - the load refuses
         // the latter by name, so no layout is ever READY under that handle.
-        namespace CC                        = Common::Content;
-        const CC::SubsystemVersion kKnown[] = { { kCloudLayoutSubsystemTag, kCloudLayoutContainerVersion } };
+        namespace CC                              = Common::Content;
+        const CC::SubsystemVersion       kKnown[] = { { kCloudLayoutSubsystemTag, kCloudLayoutContainerVersion } };
         const CC::AssetHeaderReadContext context{ kKnown };
 
         std::optional<Common::ResultStr<CC::EnvelopeHeader>> header;

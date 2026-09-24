@@ -91,7 +91,8 @@ namespace Desert::Assets
     Common::BoolResultStr                     WriteTextureSourceAssetFile( const std::filesystem::path& file,
                                                                            const TextureSourceAsset&    asset );
 
-    // True when the file starts with the envelope magic — a legacy `.detex` (JSON `{"Intent": ...}`) is not.
+    // True when the file is an envelope whose header states a texture (or skybox) kind — a legacy `.detex`
+    // (JSON `{"Intent": ...}`) is not, and neither is another binary asset such as a `.dclayout`.
     bool IsTextureSourceAssetFile( const std::filesystem::path& file );
 
     // ── THE DERIVED DATA KEY ─────────────────────────────────────────────────────────────────────────

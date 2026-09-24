@@ -252,7 +252,16 @@ namespace Desert::Assets
         char          magic[4] = {};
         if ( !in.read( magic, 4 ) )
             return false;
-        return magic[0] == 'D' && magic[1] == 'A' && magic[2] == 'S' && magic[3] == 'T';
+        if ( !( magic[0] == 'D' && magic[1] == 'A' && magic[2] == 'S' && magic[3] == 'T' ) )
+            return false;
+        // The magic is the ENVELOPE's, shared by every binary asset (a `.dclayout` since container 2), so
+        // the kind decides. Recorded, not judged: a texture whose TXAS version this build does not read is
+        // still a texture, and ReadTextureSourceAssetFile refuses it by name.
+        in.clear();
+        in.seekg( 0, std::ios::beg );
+        const auto header = CC::ReadEnvelopeHeader( in, CC::AssetHeaderReadContext{ {}, true } );
+        return header.IsSuccess() && ( header.GetValue().Asset.Kind == CC::ContentKind::Texture ||
+                                       header.GetValue().Asset.Kind == CC::ContentKind::Skybox );
     }
 
     std::vector<std::byte> SerializeTextureSettingsForKey( const TextureBuildSettings& settings )
